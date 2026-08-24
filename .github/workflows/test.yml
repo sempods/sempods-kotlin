@@ -29,7 +29,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-test-environment
 
       # `--max-workers=2`, against the four this runner would otherwise take. `gradle.properties`
@@ -63,7 +63,7 @@ jobs:
       - name: Publish JUnit Test Report
         if: always()
         continue-on-error: true
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: "**/build/test-results/test/TEST-*.xml"
           check_name: "JUnit Test Report"
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload Test Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gradle-test-reports
           path: |
