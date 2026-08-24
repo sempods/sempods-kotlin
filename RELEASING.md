@@ -67,11 +67,16 @@ Prerequisites, once:
 
 Then, per release:
 
-1. Drop `-SNAPSHOT` from `version` in `gradle.properties`, then read it back so the rest of the
-   steps carry the version being released rather than a version this file was written against:
+1. **Set the version and get it onto `main` first.** A tag names a commit, so the commit it names
+   has to be the one the artifacts were built from — otherwise checking out `v0.1.0` rebuilds
+   `0.1.0-SNAPSHOT` and the release cannot be reproduced from its own tag. `main` is protected and
+   the bypass list is empty, so this is a pull request like any other:
    ```bash
+   # on a branch: drop -SNAPSHOT from `version` in gradle.properties, commit, open the PR, merge
+   git switch main && git pull
    VERSION=$(sed -n 's/^version=//p' gradle.properties)
    ```
+   Everything below runs from that merged commit, and `$VERSION` now carries no `-SNAPSHOT`.
 2. Build and sign. The key is read from the environment, so nothing points at a secret on disk:
    ```bash
    export SIGNING_KEY="$(gpg --armor --export-secret-keys <key-id>)"
@@ -103,11 +108,12 @@ Then, per release:
    **waits for you to release it** from the Portal UI — which is the safer default: a release
    cannot be taken back, and this is the last point at which it can be dropped. Add
    `&publishingType=AUTOMATIC` once the process is boring.
-5. Tag it, then cut a GitHub Release from the tag:
+5. Tag the commit you built from, and cut a GitHub Release from the tag:
    ```bash
    git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
    ```
-6. Bump `version` to the next minor with `-SNAPSHOT` restored, and commit.
+   The ruleset guards branches, not tags, so this one push needs no pull request.
+6. Open a second pull request bumping `version` to the next minor with `-SNAPSHOT` restored.
 
 ## What Central requires, and what already satisfies it
 
