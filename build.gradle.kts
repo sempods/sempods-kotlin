@@ -221,7 +221,17 @@ subprojects {
     // but still carries a target, and a Kotlin target that disagrees with it fails the build.
     tasks.withType<JavaCompile>().configureEach { options.release = 21 }
     tasks.withType<KotlinCompile>().configureEach {
-      compilerOptions { jvmTarget = JvmTarget.JVM_21 }
+      compilerOptions {
+        jvmTarget = JvmTarget.JVM_21
+
+        // `jvmTarget` sets the class-file version and nothing else — it does not narrow which JDK
+        // classes the compiler can see. Compiling against the 25 toolchain, a call to a method
+        // added in 22 would compile, pass a suite running on 25, and be stamped major version 65:
+        // an artifact that claims Java 21 and dies with a `NoSuchMethodError` on one. `-Xjdk-release`
+        // is what `--release` is for `javac` — it restricts the API surface as well as the output,
+        // and turns that runtime failure into a compile error here.
+        freeCompilerArgs.add("-Xjdk-release=21")
+      }
     }
 
     // A sources jar is what a consumer's IDE reads to show the code behind a symbol, and Maven
