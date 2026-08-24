@@ -27,7 +27,7 @@ jobs:
 
       # The full range of the PR has to be present locally, so fetch-depth 0 rather than the
       # default shallow clone — a shallow checkout has no `base.sha` to walk back to.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
