@@ -1,5 +1,7 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
   id("org.jetbrains.kotlin.jvm") version "2.4.10"
@@ -10,6 +12,12 @@ plugins {
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
 subprojects {
+
+  // `sempods-bom` is a `java-platform`, and a platform is a POM and nothing else: it has no source
+  // set, no classpath and no tests. Everything below this line configures a JVM module — the Kotlin
+  // plugin, a toolchain, a test task — and `java-platform` refuses to coexist with the `java`
+  // plugin those rest on, so applying any of it fails the build rather than being merely useless.
+  if (name == "sempods-bom") return@subprojects
 
   // Only the Kotlin plugin: it applies `java` itself, which is what the `java-library` and
   // `java-test-fixtures` plugins in the module scripts build on. There are no Java sources —
@@ -185,6 +193,99 @@ subprojects {
         // `PodTokenRateLimiterTest`'s subject, where the budget is stated per case.
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_PER_MINUTE", 60)
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST", 60)
+      }
+    }
+  }
+
+  // Publishing, for the library modules and nothing else. `plugins.withId` rather than a list of
+  // names: what gets published is exactly what declares `java-library`, so a new module is
+  // published by virtue of being a library and an application is left out by virtue of being one.
+  // `deployments:sempods:image` is the only module that is neither, and it stays unpublished
+  // without anyone having to remember that it should.
+  plugins.withId("java-library") {
+
+    apply(plugin = "maven-publish")
+
+    // Java 21, while the build itself keeps running on the toolchain 25 configured above.
+    //
+    // A published library is only usable by a consumer whose runtime is at least its target, and
+    // 25 is far ahead of what most JVM deployments run — targeting it would rule out nearly every
+    // consumer this is meant to reach. Only the bytecode floor moves; compilation and the suites
+    // still happen on 25.
+    //
+    // Decided before the first version rather than after, because the two directions are not
+    // symmetric: lowering the floor later is invisible to everyone, while raising it breaks every
+    // consumer already standing on the old one.
+    //
+    // Both halves, because Gradle checks them against each other — `compileJava` is NO-SOURCE here
+    // but still carries a target, and a Kotlin target that disagrees with it fails the build.
+    tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+    tasks.withType<KotlinCompile>().configureEach {
+      compilerOptions { jvmTarget = JvmTarget.JVM_21 }
+    }
+
+    // A sources jar is what a consumer's IDE reads to show the code behind a symbol, and Maven
+    // Central requires both of these. Kotlin has no javadoc, so that jar is empty — what the
+    // requirement asks is that it exists.
+    extensions.configure<JavaPluginExtension> {
+      withSourcesJar()
+      withJavadocJar()
+    }
+
+    extensions.configure<PublishingExtension> {
+      publications {
+        // `components["java"]` also carries the test-fixtures variant wherever `java-test-fixtures`
+        // is applied — `commons`, `commons-okhttp` and `sempods-server` — so a consumer can ask for
+        // `testFixtures("org.sempods:sempods-server")`, which is exactly what eventer-backend does
+        // today through a project dependency. That variant travels in Gradle module metadata and
+        // not in the POM, so a plain Maven consumer sees the library and never the fixtures.
+        create<MavenPublication>("maven") {
+          from(components["java"])
+        }
+      }
+    }
+  }
+}
+
+// The POM metadata that is the same everywhere, written once for every publication in this build —
+// the fifteen library modules and the platform alike. Maven Central rejects a POM that is missing
+// any of it. What differs per module is the pair the module itself knows: its name, and a
+// description it sets in its own build file.
+//
+// `allprojects` and not `subprojects`, because `sempods-bom` returns early from the block above and
+// still needs this. Registered here, at root configuration time, so the callback exists before any
+// module applies `maven-publish` and asks for it.
+allprojects {
+  plugins.withId("maven-publish") {
+    extensions.configure<PublishingExtension> {
+      publications.withType<MavenPublication>().configureEach {
+        pom {
+          name.set(project.name)
+          // Lazily: a module sets `description` in its own build file, which is evaluated after
+          // this callback has run.
+          description.set(
+            provider { project.description ?: "The ${project.name} module of sempods." },
+          )
+          url.set("https://github.com/sempods/sempods-kotlin")
+          licenses {
+            license {
+              name.set("The Apache License, Version 2.0")
+              url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+          }
+          developers {
+            developer {
+              id.set("haed")
+              name.set("Danilo Stein")
+              url.set("https://github.com/haed")
+            }
+          }
+          scm {
+            url.set("https://github.com/sempods/sempods-kotlin")
+            connection.set("scm:git:https://github.com/sempods/sempods-kotlin.git")
+            developerConnection.set("scm:git:ssh://git@github.com/sempods/sempods-kotlin.git")
+          }
+        }
       }
     }
   }

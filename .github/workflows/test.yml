@@ -51,9 +51,15 @@ jobs:
       # Naming it beats running `check`, which pulls a couple of dozen extra tasks into the same
       # job and changes what runs concurrently with what. The guard is one classpath walk; it does
       # not need `check`'s scheduling.
+      #
+      # `checkBomIsComplete` is named for exactly the same reason, and guards the same kind of
+      # silence: `sempods-bom` lists the published modules by hand, because a platform is
+      # configured before the modules it constrains are evaluated. A library missing from that
+      # list is not a build failure — it is a consumer resolving whatever version of it they
+      # happen to have, which is the bug the BOM exists to prevent.
       - name: Run tests
         id: gradle_tests
-        run: ./gradlew test checkNoLoggingBinding --max-workers=2
+        run: ./gradlew test checkNoLoggingBinding :sempods-bom:checkBomIsComplete --max-workers=2
         continue-on-error: true
 
       # Reporting must never decide the outcome. A pull request from a fork gets a read-only
