@@ -67,7 +67,11 @@ Prerequisites, once:
 
 Then, per release:
 
-1. Drop `-SNAPSHOT` from `version` in `gradle.properties`.
+1. Drop `-SNAPSHOT` from `version` in `gradle.properties`, then read it back so the rest of the
+   steps carry the version being released rather than a version this file was written against:
+   ```bash
+   VERSION=$(sed -n 's/^version=//p' gradle.properties)
+   ```
 2. Build and sign. The key is read from the environment, so nothing points at a secret on disk:
    ```bash
    export SIGNING_KEY="$(gpg --armor --export-secret-keys <key-id>)"
@@ -93,13 +97,16 @@ Then, per release:
    curl --request POST \
      --header "Authorization: Bearer $TOKEN" \
      --form bundle=@build/central-bundle.zip \
-     'https://central.sonatype.com/api/v1/publisher/upload?name=sempods%200.1.0'
+     "https://central.sonatype.com/api/v1/publisher/upload?name=sempods-$VERSION"
    ```
    It returns a deployment id. Without `publishingType`, the deployment is validated and then
    **waits for you to release it** from the Portal UI — which is the safer default: a release
    cannot be taken back, and this is the last point at which it can be dropped. Add
    `&publishingType=AUTOMATIC` once the process is boring.
-5. Tag it: `git tag -s v0.1.0 && git push origin v0.1.0`, then cut a GitHub Release.
+5. Tag it, then cut a GitHub Release from the tag:
+   ```bash
+   git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
+   ```
 6. Bump `version` to the next minor with `-SNAPSHOT` restored, and commit.
 
 ## What Central requires, and what already satisfies it
