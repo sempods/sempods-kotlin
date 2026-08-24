@@ -49,7 +49,7 @@ angusMail = "org.eclipse.angus:jakarta.mail:2.0.5"
 angusActivation = "org.eclipse.angus:angus-activation:2.0.3"
 
 commonsText = "org.apache.commons:commons-text:1.15.0"
-commonsValidator = "commons-validator:commons-validator:1.10.1"
+commonsValidator = "commons-validator:commons-validator:1.11.0"
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.85"
 
 googleApiClient = "com.google.api-client:google-api-client:2.9.0"
