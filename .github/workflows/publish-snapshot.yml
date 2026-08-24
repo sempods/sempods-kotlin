@@ -1,0 +1,54 @@
+name: Publish snapshot
+
+# Every merge to `main` republishes `0.1.0-SNAPSHOT`. A downstream project follows snapshots to
+# find out early that something changed, and one that is refreshed by hand is refreshed until the
+# first time someone forgets — after which it reports on a version nobody is running.
+#
+# `push` to `main` only. Pull requests must not publish: a snapshot is a single mutable version, so
+# two branches publishing into it would overwrite each other and whoever consumed it last would
+# have code that is on no branch at all.
+on:
+  push:
+    branches: [ main ]
+
+# Least privilege. Publishing reads the tree and writes to Central, not to this repository.
+permissions:
+  contents: read
+
+# One publish at a time, and no cancelling: the later commit wins the version either way, and a
+# publish killed halfway leaves the repository holding some modules from one commit and some from
+# another.
+concurrency:
+  group: publish-snapshot
+  cancel-in-progress: false
+
+jobs:
+
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Not `./.github/actions/setup-test-environment`, which also starts MongoDB, Garage and the
+      # rest of the compose stack. Nothing here runs a test, and the artifacts do not need them.
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v5
+
+      # No test run, because `main` cannot hold an untested commit: the ruleset requires `build` and
+      # `check` to pass on the pull request, and its bypass list is empty. Re-running the suite here
+      # would cost seven minutes to re-establish what merging already proved.
+      #
+      # No signing either. Central validates nothing about a snapshot and requires no signature, so
+      # the key stays out of CI entirely — `SIGNING_KEY` is absent and the build skips signing.
+      #
+      # `ORG_GRADLE_PROJECT_x` is how Gradle reads a project property from the environment, which is
+      # what `credentials(PasswordCredentials::class)` on the `centralSnapshots` repository asks for.
+      # The token never reaches a file.
+      - name: Publish to the Central snapshot repository
+        env:
+          ORG_GRADLE_PROJECT_centralSnapshotsUsername: ${{ secrets.CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_centralSnapshotsPassword: ${{ secrets.CENTRAL_PASSWORD }}
+        run: ./gradlew publishAllPublicationsToCentralSnapshotsRepository --max-workers=2
