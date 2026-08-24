@@ -38,6 +38,65 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Automated commits are exempt, and Dependabot is the one that arrives on day one: it
+          # opened five pull requests within minutes of this repository existing, none of them
+          # signed, because it has no way to sign and nothing to certify. The DCO asserts the
+          # origin of a *contribution*; raising a version string is not authorship, and the
+          # maintainer who merges it is the one taking responsibility for the change.
+          #
+          # Without this the check is red on every dependency bump from the first day — which is
+          # the state in which a check stops being read at all, and then stops being believed on
+          # the one pull request where it matters.
+          #
+          # Matched on both halves of a GitHub bot identity, its `[bot]` name and its noreply
+          # address, rather than on the workflow's actor: a human may rebase a bot's branch, and
+          # the commit is still the bot's. This is a good-faith mechanism and not an access
+          # control — as is the whole DCO — so a person who sets both fields to impersonate a bot
+          # has defeated it, and has also signed nothing, which is what the record will show.
+          #
+          # A function rather than inline, because the alternative is trusting five manually typed
+          # examples in a commit message — which protects nothing the next time this line is
+          # touched. The self-test below runs this against the identities that actually occur.
+          is_bot_commit() {
+            local name="$1" email="$2"
+            case "$name" in
+              *"[bot]")
+                case "$email" in
+                  *"@users.noreply.github.com") return 0 ;;
+                esac
+                ;;
+            esac
+            return 1
+          }
+
+          # Proves the predicate before trusting it with a real pull request, the way `verify.sh`
+          # proves its own patterns against a canary before it gates anything. Five cases, and each
+          # one earns its place: the two bots this repository has actually seen; a human, who must
+          # not be caught by the `[bot]` suffix alone; the same human behind GitHub's noreply
+          # address, which is the case the fixed-string comparison further down exists for and
+          # which an over-eager version of this predicate could plausibly swallow; and a name ending
+          # `[bot]` at a non-GitHub address, which is what the AND of both conditions is for — an
+          # OR would exempt anyone who merely names themselves after a bot.
+          self_test_fail=""
+          assert_bot() {
+            local want="$1" name="$2" email="$3" got="skip"
+            is_bot_commit "$name" "$email" || got="check"
+            if [[ "$got" != "$want" ]]; then
+              echo "  is_bot_commit('$name', '$email') = $got, want $want" >&2
+              self_test_fail=1
+            fi
+          }
+          assert_bot skip  "dependabot[bot]"     "49699333+dependabot[bot]@users.noreply.github.com"
+          assert_bot skip  "github-actions[bot]" "41898282+github-actions[bot]@users.noreply.github.com"
+          assert_bot check "Ada Lovelace"        "ada@example.org"
+          assert_bot check "Ada Lovelace"        "1234+ada@users.noreply.github.com"
+          assert_bot check "notabot[bot]"        "someone@example.org"
+
+          if [[ -n "$self_test_fail" ]]; then
+            echo "error: the bot-commit self-test failed above — refusing to run." >&2
+            exit 3
+          fi
+
           # `--no-merges`: a merge commit created by GitHub's own UI carries no sign-off and cannot
           # be given one by the contributor. What DCO 1.1 is about is authorship of changes, and a
           # merge introduces none.
@@ -45,6 +104,9 @@ jobs:
           while IFS= read -r sha; do
             [[ -z "$sha" ]] && continue
             author_email="$(git show -s --format='%ae' "$sha")"
+            author_name="$(git show -s --format='%an' "$sha")"
+
+            is_bot_commit "$author_name" "$author_email" && continue
 
             # Pull the address out of each trailer and compare it as a FIXED string. Interpolating
             # an address into a regex is wrong in both directions here, and GitHub's own noreply

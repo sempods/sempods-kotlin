@@ -72,6 +72,12 @@ By making a contribution to this project, I certify that:
 If you contribute on behalf of an employer, make sure you are entitled to —
 that is what clause (a) is about.
 
+**Automated commits are the one exception, and the check knows it.** A dependency bump opened by
+Dependabot carries no sign-off, because a bot has no way to add one and nothing to certify with
+it — raising a version string is not authorship. The maintainer who merges the bump is the one
+taking responsibility for the change. `.github/workflows/dco.yml` skips commits whose author is a
+GitHub bot identity and checks every other commit in the pull request.
+
 ## What this project will not change
 
 Some properties are not trade-offs to be balanced; they are what the model is.
