@@ -1,0 +1,69 @@
+name: Bug report
+description: Something behaves against its documented contract.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is early and has one maintainer. A focused report with a
+        reproduction is the difference between a fixed bug and a closed one.
+        Security issues do **not** belong here — see SECURITY.md.
+  - type: checkboxes
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is a bug, not a question or an idea (those go to Discussions).
+          required: true
+        - label: This is not a security vulnerability (those go to SECURITY.md).
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release tag, or the commit SHA you are running.
+      placeholder: e.g. v0.3.1 or 8975ad2
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Pod server (CRUD, SPARQL, media, _system)
+        - Identity / auth / OAuth
+        - MCP (per-pod or hosted)
+        - Client SDK
+        - Model / vocabulary
+        - Build / CI
+        - Docs
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that shows the problem. An HTTP-level trace (request + response) is ideal.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Relevant logs, stack traces, or SPARQL/HTTP responses. Redact anything private.
+      render: text
+    validations:
+      required: false
