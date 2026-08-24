@@ -1,0 +1,52 @@
+name: Feature request or enhancement
+description: Propose a change to what the software does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The roadmap is early and deliberately open, which means a well-argued
+        request may still be declined or deferred — that is about scope and
+        timing, not about you. Please read CONTRIBUTING.md first: some properties
+        of the model are fixed, and a request that breaks one will be declined
+        regardless of how well it is implemented.
+  - type: checkboxes
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues and Discussions and this is not a duplicate.
+          required: true
+        - label: I read "What this project will not change" in CONTRIBUTING.md and this does not break one of those properties.
+          required: true
+        - label: I understand this may be declined or deferred, and that a large change should start as a Discussion first.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: The concrete use case or limitation you are hitting. Describe the problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: Optional. If you have one in mind — but the problem above matters more.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Protocol / specification
+        - Pod server
+        - Identity / auth
+        - MCP
+        - Client SDK
+        - Model / vocabulary
+        - Deployment seam (store, auth source, search, …)
+        - Docs
+        - Other
+    validations:
+      required: true

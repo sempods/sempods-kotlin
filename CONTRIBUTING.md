@@ -78,6 +78,36 @@ it — raising a version string is not authorship. The maintainer who merges the
 taking responsibility for the change. `.github/workflows/dco.yml` skips commits whose author is a
 GitHub bot identity and checks every other commit in the pull request.
 
+## AI-assisted contributions
+
+This project is built with AI assistance, and contributions that used it are
+welcome. The bar does not change; what matters is responsibility, not which tool
+typed the characters.
+
+**You are the author of what you submit.** The `Signed-off-by` line certifies you
+have the right to submit the change under the file's licence and that you stand
+behind it — a model cannot certify that, which is why the sign-off is yours and the
+commit is under your name. This is the mirror image of the bot exception above: a
+bot signs nothing because it authors nothing, while a person using a model authors
+the result and signs for it. If you could not defend the change in review, it is not
+ready, whatever drafted it.
+
+**Attribution is honest, not hidden.** When a model did substantial work on a
+commit, name it — a `Co-Authored-By:` trailer is the usual way. That adds to your
+sign-off; it never stands in for it.
+
+**Provenance is the one risk that review does not catch by reading.** A model can
+reproduce code it was trained on, and that code may carry an incompatible licence.
+Do not paste large verbatim blocks whose origin you cannot vouch for; keep
+contributions small enough to reason about. Your sign-off asserts you may submit the
+result under Apache 2.0 (code) or CC BY 4.0 (docs and vocabulary) — clause (a) of
+the DCO above is exactly this assertion.
+
+**Tested and understood, or not at all.** An unreviewed, untested, machine-generated
+pull request costs more to triage than to write, and it will be closed. Review is
+the scarce resource on a one-maintainer project; the useful contribution arrives
+already understood by the person sending it.
+
 ## What this project will not change
 
 Some properties are not trade-offs to be balanced; they are what the model is.

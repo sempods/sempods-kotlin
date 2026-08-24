@@ -1,0 +1,37 @@
+# CODEOWNERS — whom GitHub requests for review when a matching path changes.
+#
+# There is one maintainer today, so every line points to the same handle. The value
+# right now is the automatic review request and a written record of who answers for
+# what; as the project grows, the per-path lines are where a module's owner is named
+# without handing them the whole tree. Last matching pattern wins, so the specific
+# blocks below override the default.
+#
+# NOTE: this file only *assigns* reviewers — it does not *require* them. Requiring
+# code-owner approval is a separate ruleset switch, and turning it on while there is a
+# single owner would lock that owner out of merging their own PRs. Leave it off until a
+# second maintainer exists.
+
+# Default owner for everything not matched below.
+*                       @haed
+
+# Governance, licensing and the security policy answer for the project as a whole, not
+# for one module, and stay with the maintainer even once module owners exist. Listed
+# explicitly so a later, narrower rule never quietly takes them.
+/LICENSE                @haed
+/NOTICE                 @haed
+/SECURITY.md            @haed
+/CODE_OF_CONDUCT.md     @haed
+/CONTRIBUTING.md        @haed
+/TRADEMARKS.md          @haed
+/NAMESPACE.md           @haed
+
+# CI, release plumbing and this file itself — the keys to the kingdom. A change here can
+# weaken every other guard, so it stays with the maintainer regardless of who owns the
+# code being built.
+/.github/               @haed
+
+# Security-critical code. Auth is the last module to hand over — a wrong answer here is
+# someone reading data that was meant to stay private (see SECURITY.md). Kept explicit so
+# handing it over is a deliberate act, not a default.
+/sempods-auth/          @haed
+/sempods-auth-core/     @haed

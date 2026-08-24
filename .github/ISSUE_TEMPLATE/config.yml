@@ -1,0 +1,16 @@
+# Steer everything that is not a confirmed bug or a concrete feature request away from the
+# issue tracker. `blank_issues_enabled: false` removes the "open a blank issue" escape hatch,
+# so the two forms and the contact links below are the only front doors.
+blank_issues_enabled: false
+contact_links:
+  - name: Question, idea, or design discussion
+    url: https://github.com/sempods/sempods-kotlin/discussions
+    about: >-
+      Anything that is not a confirmed bug or a specific feature request — questions,
+      ideas, "should this…", roadmap. Open a Discussion. (Requires Discussions to be
+      enabled on the repository.)
+  - name: Security vulnerability — do not open an issue
+    url: https://github.com/sempods/sempods-kotlin/security/policy
+    about: >-
+      Never report a vulnerability in a public issue. Read SECURITY.md and report
+      privately.
