@@ -15,9 +15,10 @@ on:
 permissions:
   contents: read
 
-# One publish at a time, and no cancelling: the later commit wins the version either way, and a
-# publish killed halfway leaves the repository holding some modules from one commit and some from
-# another.
+# One publish at a time, and no cancelling: a publish killed halfway leaves the repository holding
+# some modules from one commit beside some from another. Serialising is not ordering — GitHub runs a
+# group in arbitrary order — so which commit ends up published is decided by the gate below, not
+# here.
 concurrency:
   group: publish-snapshot
   cancel-in-progress: false
@@ -47,7 +48,35 @@ jobs:
       # `ORG_GRADLE_PROJECT_x` is how Gradle reads a project property from the environment, which is
       # what `credentials(PasswordCredentials::class)` on the `centralSnapshots` repository asks for.
       # The token never reaches a file.
+      # Two things make an unconditional publish wrong.
+      #
+      # A release puts a version without `-SNAPSHOT` on `main` (RELEASING.md, step 1), and the
+      # snapshot repository takes only snapshots — every release would leave a red run behind.
+      #
+      # And a queued older run can reach this step after a newer one has already published, quietly
+      # replacing the newer artifacts with stale ones. Concurrency serialises the group but does not
+      # order it. Comparing against the current tip is what makes the newest commit the one that
+      # survives.
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version=//p' gradle.properties)
+          tip=$(git ls-remote origin refs/heads/main | cut -f1)
+
+          if [[ "$version" != *-SNAPSHOT ]]; then
+            echo "main holds $version, a release — the snapshot repository does not take it."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$tip" != "$GITHUB_SHA" ]]; then
+            echo "$GITHUB_SHA is no longer the tip of main ($tip); that commit's run publishes."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishing $version from $GITHUB_SHA"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to the Central snapshot repository
+        if: steps.gate.outputs.publish == 'true'
         env:
           ORG_GRADLE_PROJECT_centralSnapshotsUsername: ${{ secrets.CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_centralSnapshotsPassword: ${{ secrets.CENTRAL_PASSWORD }}
