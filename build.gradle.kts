@@ -11,6 +11,32 @@ plugins {
 // script's own scope, not on the `Project` receiver inside `subprojects { }`.
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
+// What gets published, and the only place that decides it. `sempods-bom` reads this list to build
+// its constraints, so the set that ships and the set the platform pins cannot drift apart.
+//
+// Named rather than derived from `java-library`, because the two ways of being wrong are not
+// equally bad: forgetting a module here leaves it unpublished, which someone notices. Deriving it
+// left a second, hand-written list in the platform that could silently miss a module that shipped
+// anyway — and a missing constraint is invisible until a consumer resolves a version nobody chose.
+val publishedModules = listOf(
+  "commons",
+  "commons-jaxrs",
+  "commons-json",
+  "commons-ktor",
+  "commons-mongo",
+  "commons-okhttp",
+  "sempods-auth",
+  "sempods-auth-core",
+  "sempods-client",
+  "sempods-control-plane-client",
+  "sempods-mcp",
+  "sempods-mcp-core",
+  "sempods-media-s3",
+  "sempods-model",
+  "sempods-server",
+)
+extra["publishedModules"] = publishedModules
+
 subprojects {
 
   // `sempods-bom` is a `java-platform`, and a platform is a POM and nothing else: it has no source
@@ -197,88 +223,61 @@ subprojects {
     }
   }
 
-  // Publishing, for the library modules and nothing else. `plugins.withId` rather than a list of
-  // names: what gets published is exactly what declares `java-library`, so a new module is
-  // published by virtue of being a library and an application is left out by virtue of being one.
-  // `deployments:sempods:image` is the only module that is neither, and it stays unpublished
-  // without anyone having to remember that it should.
-  plugins.withId("java-library") {
+  if (name !in publishedModules) return@subprojects
 
-    apply(plugin = "maven-publish")
+  apply(plugin = "maven-publish")
 
-    // Java 21, while the build itself keeps running on the toolchain 25 configured above.
-    //
-    // A published library is only usable by a consumer whose runtime is at least its target, and
-    // 25 is far ahead of what most JVM deployments run — targeting it would rule out nearly every
-    // consumer this is meant to reach. Only the bytecode floor moves; compilation and the suites
-    // still happen on 25.
-    //
-    // Decided before the first version rather than after, because the two directions are not
-    // symmetric: lowering the floor later is invisible to everyone, while raising it breaks every
-    // consumer already standing on the old one.
-    //
-    // Both halves, because Gradle checks them against each other — `compileJava` is NO-SOURCE here
-    // but still carries a target, and a Kotlin target that disagrees with it fails the build.
-    tasks.withType<JavaCompile>().configureEach { options.release = 21 }
-    tasks.withType<KotlinCompile>().configureEach {
-      compilerOptions {
-        jvmTarget = JvmTarget.JVM_21
+  // Java 21 for the artifacts, while the build keeps compiling and testing on the toolchain 25
+  // above: a library is only usable by a consumer whose runtime is at least its target. Settled
+  // before the first version because the directions are not symmetric — lowering the floor later
+  // is invisible, raising it breaks every consumer already on the old one. Both halves, because
+  // Gradle fails a Kotlin target that disagrees with `compileJava`'s.
+  tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+  tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+      jvmTarget = JvmTarget.JVM_21
 
-        // `jvmTarget` sets the class-file version and nothing else — it does not narrow which JDK
-        // classes the compiler can see. Compiling against the 25 toolchain, a call to a method
-        // added in 22 would compile, pass a suite running on 25, and be stamped major version 65:
-        // an artifact that claims Java 21 and dies with a `NoSuchMethodError` on one. `-Xjdk-release`
-        // is what `--release` is for `javac` — it restricts the API surface as well as the output,
-        // and turns that runtime failure into a compile error here.
-        freeCompilerArgs.add("-Xjdk-release=21")
-      }
+      // `jvmTarget` sets the class-file version but does not narrow which JDK classes are
+      // visible: against the 25 toolchain, a call to a method added in 22 compiles, passes a
+      // suite on 25, and ships stamped Java 21 to die with a `NoSuchMethodError`.
+      // `-Xjdk-release` is `--release` for kotlinc, and makes that a compile error here.
+      freeCompilerArgs.add("-Xjdk-release=21")
     }
+  }
 
-    // A sources jar is what a consumer's IDE reads to show the code behind a symbol, and Maven
-    // Central requires both of these. Kotlin has no javadoc, so that jar is empty — what the
-    // requirement asks is that it exists.
-    extensions.configure<JavaPluginExtension> {
-      withSourcesJar()
-      withJavadocJar()
-    }
+  // A sources jar is what a consumer's IDE reads to show the code behind a symbol, and Maven
+  // Central requires both of these. Kotlin has no javadoc, so that jar is empty — what the
+  // requirement asks is that it exists.
+  extensions.configure<JavaPluginExtension> {
+    withSourcesJar()
+    withJavadocJar()
+  }
 
-    extensions.configure<PublishingExtension> {
-      publications {
-        // `components["java"]` also carries the test-fixtures variant wherever `java-test-fixtures`
-        // is applied — `commons`, `commons-okhttp` and `sempods-server` — so a consumer can ask for
-        // `testFixtures("org.sempods:sempods-server")`, which is exactly what eventer-backend does
-        // today through a project dependency. That variant travels in Gradle module metadata and
-        // not in the POM, so a plain Maven consumer sees the library and never the fixtures.
-        create<MavenPublication>("maven") {
-          from(components["java"])
-        }
+  extensions.configure<PublishingExtension> {
+    publications {
+      // `components["java"]` also carries the test-fixtures variant wherever `java-test-fixtures`
+      // is applied — `commons`, `commons-okhttp` and `sempods-server` — so a consumer can ask for
+      // `testFixtures("org.sempods:sempods-server")`, which is exactly what eventer-backend does
+      // today through a project dependency. That variant travels in Gradle module metadata and
+      // not in the POM, so a plain Maven consumer sees the library and never the fixtures.
+      create<MavenPublication>("maven") {
+        from(components["java"])
       }
     }
   }
 }
 
-// The POM metadata that is the same everywhere, written once for every publication in this build —
-// the fifteen library modules and the platform alike. Maven Central rejects a POM that is missing
-// any of it. What differs per module is the pair the module itself knows: its name, and a
-// description it sets in its own build file.
-//
-// `allprojects` and not `subprojects`, because `sempods-bom` returns early from the block above and
-// still needs this. Registered here, at root configuration time, so the callback exists before any
-// module applies `maven-publish` and asks for it.
+// The POM metadata that is the same everywhere, once for every publication — Central rejects a POM
+// missing any of it. What differs per module is its name and its own `description`.
+// `allprojects`, because `sempods-bom` returns early above and still needs this.
 allprojects {
   plugins.withId("maven-publish") {
 
-    // Signing, and only when there is a key to sign with.
-    //
-    // Central requires a `.asc` beside every file of a *release*; snapshots are exempt, and are
-    // documented as receiving no validation at all. Making it unconditional would therefore break
-    // the two things that happen far more often than a release — a local `publishToMavenLocal` and
-    // a snapshot from CI — for a guarantee neither of them offers anyway.
-    //
-    // The key arrives in memory from the environment rather than from a keyring on disk, because
-    // the machine that will do the signing is a CI runner with no keyring, and because the
-    // alternative is a path in a build file pointing at a secret. Nothing here reads a file, and
-    // nothing here has a default.
+    // Signing, only when there is a key. Central requires a `.asc` beside every file of a
+    // *release* and validates nothing about a snapshot, so making it unconditional would break
+    // the two things that happen far more often — a local `publishToMavenLocal` and a snapshot
+    // from CI. The key comes from the environment: a CI runner has no keyring, and the
+    // alternative is a build file naming a path to a secret.
     val signingKey = providers.environmentVariable("SIGNING_KEY")
       .orElse(providers.gradleProperty("signingKey"))
     val signingPassword = providers.environmentVariable("SIGNING_PASSWORD")
@@ -287,10 +286,8 @@ allprojects {
     if (signingKey.isPresent) {
       apply(plugin = "signing")
       extensions.configure<SigningExtension> {
-        // The empty string rather than null for a key with no passphrase: Gradle takes the
-        // password as a `String`, and a null one leaves it with no signatory at all — which
-        // surfaces later as "No configured signatory" on the first sign task, naming the symptom
-        // and not the cause.
+        // Empty string, not null, for a key with no passphrase: a null password leaves Gradle
+        // with no signatory, surfacing later as "No configured signatory".
         useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(""))
         sign(extensions.getByType<PublishingExtension>().publications)
       }
@@ -298,15 +295,10 @@ allprojects {
 
     extensions.configure<PublishingExtension> {
 
-      // Where snapshots go. Releases do not go through here — the Central Portal takes a signed
-      // bundle through its own upload, which is a separate step and a separate decision (see
-      // `RELEASING.md`); this is the half that is a plain Maven repository and needs nothing but
-      // a token.
-      //
-      // `credentials(PasswordCredentials::class)` rather than reading properties here: Gradle
-      // derives `centralSnapshotsUsername`/`centralSnapshotsPassword` from the repository name and
-      // asks for them only when this repository is actually published to. So no credential is
-      // named in this file, and a build that never publishes never needs one to exist.
+      // Snapshots only; a release goes through the Portal's own upload (see `RELEASING.md`).
+      // `credentials(PasswordCredentials::class)` lets Gradle derive
+      // `centralSnapshotsUsername`/`centralSnapshotsPassword` from the repository name and ask
+      // for them only when publishing here — so no credential is named in this file.
       repositories {
         maven {
           name = "centralSnapshots"
@@ -341,10 +333,8 @@ allprojects {
               url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
           }
-          // Central asks for an organization and a way to reach a person, not just a name. The
-          // address is the project's published contact — the same one `SECURITY.md` gives — rather
-          // than a personal one: what a consumer of a released artifact needs is a channel that
-          // outlives whoever is maintaining it this year.
+          // Central asks for an organisation and a way to reach a person. The project's published
+          // contact rather than a personal one — it outlives whoever maintains this.
           developers {
             developer {
               id.set("haed")
@@ -366,41 +356,29 @@ allprojects {
   }
 }
 
-// ---------------------------------------------------------------------------------------------
-// The release bundle.
-//
-// Sonatype publishes no official Gradle plugin, and what the Central Portal accepts is a zip in
-// Maven repository layout — which `maven-publish` already produces, into the `centralBundle`
-// repository declared above. So the bundle is a `Zip` of that directory and the upload is one
-// `curl`, rather than a third-party plugin in the build whose behaviour could not be checked here
-// without a token. `RELEASING.md` carries the command.
-// ---------------------------------------------------------------------------------------------
+// The release bundle. Sonatype publishes no official Gradle plugin, and the Portal accepts a zip
+// in Maven repository layout — which `maven-publish` already writes into `centralBundle`. So this
+// is a `Zip` of that directory and one `curl` (in `RELEASING.md`), rather than a third-party
+// plugin whose behaviour could not be checked here without a token.
 
 val centralBundleDir = layout.buildDirectory.dir("central-bundle")
 
-// Stale artifacts are the failure this exists to prevent: the directory is not cleaned by anything
-// else, so a second release into it would ship the previous version's files alongside the new
-// ones — and Central would accept them, because a bundle may legitimately contain many components.
+// Nothing else cleans the directory, so a second release would ship the previous version's files
+// beside the new ones — and Central accepts that, a bundle being allowed many components.
 val clearCentralBundle = tasks.register<Delete>("clearCentralBundle") {
   delete(centralBundleDir)
 }
 
-// Every task that writes into the directory, and not just the aggregate.
-//
-// `publishAllPublicationsToCentralBundleRepository` is a lifecycle task that *depends on* the
-// per-publication `publishMavenPublicationToCentralBundleRepository`, so hanging the delete off
-// the aggregate orders it against a task that runs last. The writers themselves are free to start
-// whenever, and with `org.gradle.parallel` they do — one module was still writing while the delete
-// walked the tree, which fails the delete rather than corrupting the bundle. Matching on the
-// repository suffix catches both shapes.
+// Every task that writes here, not just the aggregate: `publishAllPublicationsTo…` *depends on*
+// the per-publication writers, so ordering the delete against it leaves them free to start
+// whenever — and with `org.gradle.parallel` they did, mid-delete.
 allprojects {
   tasks.matching { it.name.endsWith("ToCentralBundleRepository") }
     .configureEach { dependsOn(clearCentralBundle) }
 }
 
-// The guard. Central validates the bundle after the upload, which is a slow way to learn that a
-// signature is missing — and an unsigned or short bundle is rejected as a whole. This asks the
-// same questions locally, before anything leaves the machine.
+// Central validates after the upload, which is a slow way to learn that one sources jar went
+// unsigned — and it rejects the deployment whole. Same questions, asked locally first.
 val checkCentralBundle = tasks.register("checkCentralBundle") {
   group = "verification"
   description = "Fails if the staged release bundle is incomplete, unsigned, or carries a stale version."
@@ -414,9 +392,7 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
 
     val problems = mutableListOf<String>()
 
-    // A release is what someone else pins, so it is the one thing that must never be a snapshot:
-    // Central rejects the version outright, and a bundle assembled from a snapshot build is
-    // evidence that step one of the release was skipped.
+    // Central rejects the version outright, and a snapshot bundle means step one was skipped.
     if (version.toString().endsWith("-SNAPSHOT")) {
       problems += "the version is $version — a release bundle cannot be built from a snapshot"
     }
@@ -427,9 +403,7 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
 
     if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
 
-    // Every file Central receives needs a signature and both checksums beside it. Checked per
-    // file rather than per module, because the one that goes missing is a single classifier —
-    // a sources jar that was not signed — and a per-module count would not see it.
+    // Per file, not per module: the one that goes missing is a single classifier.
     artifacts.forEach { artifact ->
       listOf("asc", "md5", "sha1").forEach { suffix ->
         val companion = File(artifact.parentFile, "${artifact.name}.$suffix")
@@ -463,8 +437,7 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
   group = "publishing"
   description = "Stages every publication and zips it into the bundle the Central Portal accepts."
 
-  // A provider, because these tasks are created while the modules are evaluated — which is after
-  // this line runs. Resolving the list eagerly here would find none of them.
+  // A provider: these tasks are created while the modules are evaluated, after this line runs.
   dependsOn(provider {
     subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToCentralBundleRepository") }
   })
@@ -476,10 +449,8 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
   )
 
   from(centralBundleDir) {
-    // `maven-metadata.xml` is a repository's own index of which versions it holds, written here
-    // because this staging directory is a Maven repository like any other. Central maintains that
-    // index itself across every version ever released, so a copy from a directory that has seen
-    // exactly one is at best ignored and at worst contradicts it. The artifacts are the payload.
+    // A repository's index of the versions it holds, written because the staging directory is a
+    // Maven repository. Central maintains that index itself, across every release.
     exclude("**/maven-metadata.xml*")
   }
   archiveFileName = "central-bundle.zip"

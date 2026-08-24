@@ -7,11 +7,10 @@ plugins {
 dependencies {
 
   // dependent projects
-  // `api` for the two types a consumer embedding this service has to write down itself: the Guice
-  // `Module` it installs, and `BaseModule`, which is what this class extends. Everything else this
-  // module exposes — Ktor, Mongo, Jackson — is reached by Guice through reflection at wiring time,
-  // where the runtime classpath already carries it, so exporting it would commit this service's
-  // internals to a public API without anyone needing them. See the issue on its accidental surface.
+  // `api` for the two types an embedder writes down itself: the Guice `Module` it installs, and
+  // `BaseModule`, which this class extends. Everything else — Ktor, Mongo, Jackson — Guice reaches
+  // by reflection at wiring time, off the runtime classpath. Exporting it would make this
+  // service's internals a supported API (#15).
   api(project(":commons"))
   // The pod HTTP surface and its SSRF guard live here now, shared with every consumer rather
   // than re-spelled per service. RDF4J rides along on the runtime classpath unused — the price of

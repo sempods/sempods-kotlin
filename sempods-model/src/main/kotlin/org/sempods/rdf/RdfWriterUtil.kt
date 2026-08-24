@@ -275,12 +275,10 @@ object RdfWriterUtil {
     return flat
   }
 
-  // `internal`, both of them: they are how this object reads its own JSON-LD, not part of what
-  // `sempods-model` offers. Public, they put `JsonUtil` and a Jackson `TypeReference` in the
-  // module's signature while `:commons-json` is an `implementation` dependency — so a foreign
-  // build could see the properties and not the types they return. Nothing outside this file uses
-  // them but this module's own tests, which see `internal` because Kotlin associates a module's
-  // test compilation with its main one.
+  // `internal`: how this object reads its own JSON-LD, not part of what `sempods-model` offers.
+  // Public, they put `JsonUtil` and a Jackson `TypeReference` in the module's signature while
+  // `:commons-json` is `implementation` — visible properties, unreachable types. Only this
+  // module's tests use them, and Kotlin associates those with the main compilation.
   internal val typeRef_graph = object : TypeReference<List<Map<String, Any?>>>() {}
 
   internal val jsonUtil = JsonUtil(

@@ -9,20 +9,15 @@ dependencies {
   // public, so it carries no framework a third party would have to inherit; see
   // `docs/modularity.md` §"Open-source readiness". Everything below used to arrive
   // transitively through a framework's `api` declarations and is named here instead.
-  // The five below are `api` because their types appear in this module's own public signatures —
-  // counted from the compiled artifact, not guessed. A deployment implementing a seam has to name
-  // them, and could not while they were reached only transitively.
+  // `api` because their types appear in this module's public signatures — counted from the
+  // compiled artifact, not guessed. A deployment implementing a seam has to name them.
   api(project(":commons"))            // BaseModule, WebIdUriDeriver
   implementation(project(":commons-okhttp"))
   api(project(":commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
   implementation(project(":commons-json"))
-  // `api`, and the widest of these promises: `ObjectId` appears in this module's public
-  // signatures ~49 times, so a deployment implementing a seam has to name it. `:commons-mongo`
-  // declares `api(libs.mongodb)` and `api(project(":commons-json"))`, which is also where the
-  // `JsonNode` in those signatures comes from.
-  //
-  // Known debt, not a design position: `ObjectId` is MongoDB's, and `CONTRIBUTING.md` puts a
-  // different store behind a seam. Exporting it makes the coupling public — tracked separately.
+  // `api`, and the widest of these promises: `ObjectId` is in ~49 public signatures here, and
+  // `:commons-mongo` is where both it and the `JsonNode` come from. Known debt rather than a
+  // design position — it is MongoDB's type in seams meant to allow a different store (#12).
   api(project(":commons-mongo"))
   api(project(":sempods-model"))      // PodRef, SempodsUriBuilder
   api(project(":sempods-auth-core"))  // SigningKeyStore, RefreshTokenStore, AuthorizationCodeStore, …
@@ -49,9 +44,8 @@ dependencies {
   api(libs.guice)   // `SempodsModule` hands out an `Injector`.
   implementation(libs.bundles.logging)
 
-  // The seams speak RDF4J: `PodRepository` answers with `Model`, takes `IRI`, and `withConnection`
-  // hands out a `RepositoryConnection`. Those two artifacts are named; the rest of the bundle —
-  // the parsers, the memory sail — is how this module does its work and stays `implementation`.
+  // The seams speak RDF4J: `PodRepository` answers with `Model` and hands out a
+  // `RepositoryConnection`. The rest of the bundle — parsers, memory sail — stays `implementation`.
   api(libs.rdf4jModel)
   api(libs.rdf4jRepoSail)
   implementation(libs.bundles.rdf4j)
