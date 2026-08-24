@@ -7,7 +7,11 @@ plugins {
 dependencies {
 
   // dependent projects
-  implementation(project(":commons"))
+  // `api` because `BaseModule` is this class's supertype, so an embedder cannot name it without.
+  // Guice itself stays `implementation`, as it is in `:commons`: whoever installs a module calls
+  // `Guice.createInjector` and has declared it. The rest — Ktor, Mongo, Jackson — Guice reaches by
+  // reflection at wiring time (#15).
+  api(project(":commons"))
   implementation(project(":sempods-auth-core"))
 
   // The W3C trace binding for Ktor: the inbound interceptor and the outbound client plugin.

@@ -8,6 +8,7 @@ include(
   "deployments:sempods:image",
   "sempods-auth",
   "sempods-auth-core",
+  "sempods-bom",
   "sempods-client",
   "sempods-control-plane-client",
   "sempods-mcp",

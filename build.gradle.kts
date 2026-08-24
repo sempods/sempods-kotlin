@@ -1,5 +1,7 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
   id("org.jetbrains.kotlin.jvm") version "2.4.10"
@@ -9,7 +11,35 @@ plugins {
 // script's own scope, not on the `Project` receiver inside `subprojects { }`.
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
+// The modules published to Maven Central, and what `sempods-bom` builds its constraints from.
+// Listed rather than derived from `java-library`: a platform is configured before the modules it
+// would inspect, so deriving it silently yields a short list.
+val publishedModules = listOf(
+  "commons",
+  "commons-jaxrs",
+  "commons-json",
+  "commons-ktor",
+  "commons-mongo",
+  "commons-okhttp",
+  "sempods-auth",
+  "sempods-auth-core",
+  "sempods-client",
+  "sempods-control-plane-client",
+  "sempods-mcp",
+  "sempods-mcp-core",
+  "sempods-media-s3",
+  "sempods-model",
+  "sempods-server",
+)
+extra["publishedModules"] = publishedModules
+
 subprojects {
+
+  // `sempods-bom` is a `java-platform`, and a platform is a POM and nothing else: it has no source
+  // set, no classpath and no tests. Everything below this line configures a JVM module — the Kotlin
+  // plugin, a toolchain, a test task — and `java-platform` refuses to coexist with the `java`
+  // plugin those rest on, so applying any of it fails the build rather than being merely useless.
+  if (name == "sempods-bom") return@subprojects
 
   // Only the Kotlin plugin: it applies `java` itself, which is what the `java-library` and
   // `java-test-fixtures` plugins in the module scripts build on. There are no Java sources —
@@ -188,4 +218,224 @@ subprojects {
       }
     }
   }
+
+  if (name !in publishedModules) return@subprojects
+
+  apply(plugin = "maven-publish")
+
+  // Java 21 for the artifacts; the build still compiles and tests on the toolchain 25 above.
+  // Raising this floor later breaks every consumer already on it. Both halves, because Gradle
+  // fails a Kotlin target that disagrees with `compileJava`'s.
+  tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+  tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+      jvmTarget = JvmTarget.JVM_21
+
+      // `jvmTarget` sets the class-file version but not which JDK classes are visible: without
+      // this, a call to a Java 22 method compiles here and dies with `NoSuchMethodError` on 21.
+      freeCompilerArgs.add("-Xjdk-release=21")
+    }
+  }
+
+  // Central requires both. Kotlin has no javadoc, so that jar is empty; it must merely exist.
+  extensions.configure<JavaPluginExtension> {
+    withSourcesJar()
+    withJavadocJar()
+  }
+
+  extensions.configure<PublishingExtension> {
+    publications {
+      // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
+      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. It travels in Gradle
+      // module metadata, not the POM, so a plain Maven consumer never sees the fixtures.
+      create<MavenPublication>("maven") {
+        from(components["java"])
+      }
+    }
+  }
+}
+
+// Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early
+// above and still needs it.
+allprojects {
+  plugins.withId("maven-publish") {
+
+    // Only when there is a key: Central requires a `.asc` on a *release* and validates nothing
+    // about a snapshot, so requiring one would break `publishToMavenLocal` and CI snapshots.
+    // From the environment, because a CI runner has no keyring.
+    val signingKey = providers.environmentVariable("SIGNING_KEY")
+      .orElse(providers.gradleProperty("signingKey"))
+    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD")
+      .orElse(providers.gradleProperty("signingPassword"))
+
+    if (signingKey.isPresent) {
+      apply(plugin = "signing")
+      extensions.configure<SigningExtension> {
+        // Empty string, not null, for a key with no passphrase: a null password leaves Gradle
+        // with no signatory, surfacing later as "No configured signatory".
+        useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(""))
+        sign(extensions.getByType<PublishingExtension>().publications)
+      }
+    }
+
+    extensions.configure<PublishingExtension> {
+
+      // Snapshots only; a release goes through the Portal's own upload (see `RELEASING.md`).
+      // `credentials(PasswordCredentials::class)` lets Gradle derive
+      // `centralSnapshotsUsername`/`centralSnapshotsPassword` from the repository name and ask
+      // for them only when publishing here — so no credential is named in this file.
+      repositories {
+        maven {
+          name = "centralSnapshots"
+          url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+          credentials(PasswordCredentials::class)
+        }
+
+        // Where a *release* is staged. The Central Portal takes a release as a zip in Maven
+        // repository layout rather than over the wire, so a release is published into a directory
+        // first and uploaded as one file — see the `centralBundle` task below and `RELEASING.md`.
+        //
+        // A directory under the root build dir, shared by every module, because the layout Central
+        // wants is one repository containing all of them and not sixteen zips.
+        maven {
+          name = "centralBundle"
+          url = rootProject.layout.buildDirectory.dir("central-bundle").get().asFile.toURI()
+        }
+      }
+
+      publications.withType<MavenPublication>().configureEach {
+        pom {
+          name.set(project.name)
+          // Lazily: a module sets `description` in its own build file, which is evaluated after
+          // this callback has run.
+          description.set(
+            provider { project.description ?: "The ${project.name} module of sempods." },
+          )
+          url.set("https://github.com/sempods/sempods-kotlin")
+          licenses {
+            license {
+              name.set("The Apache License, Version 2.0")
+              url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+          }
+          // Central asks for an organisation and a contact. The project's, not a personal one.
+          developers {
+            developer {
+              id.set("haed")
+              name.set("Danilo Stein")
+              url.set("https://github.com/haed")
+              email.set("hello@sempods.org")
+              organization.set("sempods")
+              organizationUrl.set("https://sempods.org")
+            }
+          }
+          scm {
+            url.set("https://github.com/sempods/sempods-kotlin")
+            connection.set("scm:git:https://github.com/sempods/sempods-kotlin.git")
+            developerConnection.set("scm:git:ssh://git@github.com/sempods/sempods-kotlin.git")
+          }
+        }
+      }
+    }
+  }
+}
+
+// The release bundle. The Portal accepts a zip in Maven repository layout, which `maven-publish`
+// already writes into `centralBundle`, so this is that directory zipped plus one `curl` — see
+// `RELEASING.md`. Sonatype publishes no official Gradle plugin.
+
+val centralBundleDir = layout.buildDirectory.dir("central-bundle")
+
+// Nothing else cleans the directory, so a second release would ship the previous version's files
+// beside the new ones — and Central accepts that, a bundle being allowed many components.
+val clearCentralBundle = tasks.register<Delete>("clearCentralBundle") {
+  delete(centralBundleDir)
+}
+
+// Every task that writes here, not just the aggregate: `publishAllPublicationsTo…` *depends on*
+// the per-publication writers, so ordering the delete against it leaves them free to start
+// whenever — and with `org.gradle.parallel` they did, mid-delete.
+allprojects {
+  tasks.matching { it.name.endsWith("ToCentralBundleRepository") }
+    .configureEach { dependsOn(clearCentralBundle) }
+}
+
+// Central validates after the upload, which is a slow way to learn that one sources jar went
+// unsigned — and it rejects the deployment whole. Same questions, asked locally first.
+val checkCentralBundle = tasks.register("checkCentralBundle") {
+  group = "verification"
+  description = "Fails if the staged release bundle is incomplete, unsigned, or carries a stale version."
+  doLast {
+    val root = centralBundleDir.get().asFile
+    if (!root.isDirectory) {
+      throw GradleException(
+        "No staged bundle at $root — run `publishAllPublicationsToCentralBundleRepository` first.",
+      )
+    }
+
+    val problems = mutableListOf<String>()
+
+    // Central rejects the version outright, and a snapshot bundle means step one was skipped.
+    if (version.toString().endsWith("-SNAPSHOT")) {
+      problems += "the version is $version — a release bundle cannot be built from a snapshot"
+    }
+
+    val artifacts = root.walkTopDown()
+      .filter { it.isFile && (it.extension == "jar" || it.extension == "pom" || it.extension == "module") }
+      .toList()
+
+    if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
+
+    // Per file, not per module: the one that goes missing is a single classifier.
+    artifacts.forEach { artifact ->
+      listOf("asc", "md5", "sha1").forEach { suffix ->
+        val companion = File(artifact.parentFile, "${artifact.name}.$suffix")
+        if (!companion.isFile) {
+          problems += "${artifact.relativeTo(root)} has no .$suffix"
+        }
+      }
+    }
+
+    // A directory named for a version other than this one is last release's leftovers.
+    val versions = artifacts.map { it.parentFile.name }.toSortedSet()
+    (versions - version.toString()).forEach {
+      problems += "the bundle also carries version $it — stale output from an earlier release"
+    }
+
+    if (problems.isNotEmpty()) {
+      throw GradleException(
+        problems.joinToString(
+          prefix = "The staged release bundle is not fit to upload:\n  - ",
+          separator = "\n  - ",
+          postfix = "\n\nSee RELEASING.md. Signing needs SIGNING_KEY in the environment.",
+        ),
+      )
+    }
+
+    logger.lifecycle("Bundle is complete: ${artifacts.size} artifacts, each signed and checksummed.")
+  }
+}
+
+val centralBundle = tasks.register<Zip>("centralBundle") {
+  group = "publishing"
+  description = "Stages every publication and zips it into the bundle the Central Portal accepts."
+
+  // A provider: these tasks are created while the modules are evaluated, after this line runs.
+  dependsOn(provider {
+    subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToCentralBundleRepository") }
+  })
+  dependsOn(checkCentralBundle)
+  checkCentralBundle.get().mustRunAfter(
+    provider {
+      subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToCentralBundleRepository") }
+    },
+  )
+
+  from(centralBundleDir) {
+    // A repository's index of the versions it holds, written because the staging directory is a
+    // Maven repository. Central maintains that index itself, across every release.
+    exclude("**/maven-metadata.xml*")
+  }
+  archiveFileName = "central-bundle.zip"
+  destinationDirectory = layout.buildDirectory
 }

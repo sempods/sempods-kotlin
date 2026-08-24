@@ -20,6 +20,10 @@ dependencies {
   api(libs.rdf4jModel)
   implementation(libs.bundles.rdf4j)
 
+  // `api`, because `PodWireClient.listContexts`, `sparqlSelect` and `sparqlGraph` answer with a
+  // `JsonNode`, which a caller has to name.
+  api(libs.jackson)
+
   // `implementation`, never `api`: the engine stops at `SempodsHttpTransport`. Callers speak
   // `SempodsRequest`/`SempodsResponse` and a consumer of the published artifact never compiles
   // against an OkHttp type — see `SempodsBody` for why that boundary is drawn here.

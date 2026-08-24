@@ -59,7 +59,9 @@ The maintainer's internal roadmap holds the reasoning.
 part of the product, and the private application modules depend on it too. Whether an `artifactId`
 as generic
 as `commons` is publishable under `org.sempods` is a Maven Central question, open in the
-open-source roadmap under S5.
+open-source roadmap under S5. It has a deadline now: snapshots carry these names already, and the
+first release freezes them — a published coordinate cannot be renamed without stranding whoever
+depends on it.
 
 `SemPods…` was the older spelling. No code, build file, configuration or current documentation
 carries it any more, and it must not come back.

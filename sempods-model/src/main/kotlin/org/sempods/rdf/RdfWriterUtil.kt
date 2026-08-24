@@ -275,9 +275,11 @@ object RdfWriterUtil {
     return flat
   }
 
-  val typeRef_graph = object : TypeReference<List<Map<String, Any?>>>() {}
+  // `internal`: public, these put `JsonUtil` and a Jackson `TypeReference` in the module's
+  // signature while `:commons-json` is `implementation` — visible properties, unreachable types.
+  internal val typeRef_graph = object : TypeReference<List<Map<String, Any?>>>() {}
 
-  val jsonUtil = JsonUtil(
+  internal val jsonUtil = JsonUtil(
     ObjectMapper()
       .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
   )
