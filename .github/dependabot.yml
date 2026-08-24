@@ -1,11 +1,31 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-
 version: 2
+
 updates:
-  - package-ecosystem: "gradle" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  # Gradle: the application and library dependencies. Grouped so a week's worth of
+  # patch/minor bumps arrives as one reviewable PR rather than a fan of them — the
+  # day-one flood of separate PRs is the state in which these stop being read at all.
+  # Major bumps stay ungrouped: each deserves its own look.
+  - package-ecosystem: "gradle"
+    directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      gradle-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The workflow and composite-action `uses:` pins. A pinned action is a supply-chain
+  # dependency like any other and nothing else bumps it — checkout, setup-java, the
+  # Gradle action and the third-party JUnit reporter would otherwise drift and silently
+  # miss security fixes. Scans `.github/workflows/` and `.github/actions/**/action.yml`.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
