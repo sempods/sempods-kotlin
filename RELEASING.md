@@ -116,8 +116,11 @@ Then, per release:
 5. Tag the commit you built from, and cut a GitHub Release from the tag:
    ```bash
    git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
+   gh release create "v$VERSION" --generate-notes
    ```
-   The ruleset guards branches, not tags, so this one push needs no pull request.
+   The ruleset guards branches, not tags, so the tag push needs no pull request. The release is
+   what anyone watching the repository is notified by; Central carries the artifacts and announces
+   nothing.
 6. Open a second pull request bumping `version` to the next minor with `-SNAPSHOT` restored.
 
 ## What Central requires, and what already satisfies it
