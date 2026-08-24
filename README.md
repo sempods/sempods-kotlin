@@ -67,9 +67,9 @@ move, because the first deployment that is not mine freezes them whatever the ve
 - **Ontology IRIs.** Every term under `https://schema.sempods.org/` — see
   [`NAMESPACE.md`](NAMESPACE.md), which also states the deprecation period they carry.
 
-The one surface deliberately *not* on that list is the Maven coordinates, and only because nothing
-is published yet: they freeze at the first release rather than now, and the `commons*` artifact
-names are still open.
+The one surface deliberately *not* on that list is the Maven coordinates. Snapshots are published,
+but a snapshot is mutable and expires; the coordinates freeze at the first release, and the
+`commons*` artifact names have to be settled before it.
 
 **And one thing that is not stable, with no mechanism behind it.** There is no schema migration
 system. `SempodsUpdater` runs a hardcoded list on every boot; an update can declare itself

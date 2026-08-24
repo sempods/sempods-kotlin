@@ -96,6 +96,11 @@ Then, per release:
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
    ```bash
+   # The same Portal token as the snapshot credentials above; the upload is a plain HTTP request,
+   # so it reads the environment rather than `~/.gradle/gradle.properties`.
+   printf 'Token username: ' && read -r CENTRAL_USERNAME
+   printf 'Token password: ' && read -rs CENTRAL_PASSWORD && echo
+
    # `tr -d` because GNU base64 wraps at 76 characters, and a newline inside the header
    # value makes curl send only its first line — an upload rejected as unauthenticated.
    TOKEN=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 | tr -d '\n')

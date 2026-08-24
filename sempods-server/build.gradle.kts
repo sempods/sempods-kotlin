@@ -9,15 +9,14 @@ dependencies {
   // public, so it carries no framework a third party would have to inherit; see
   // `docs/modularity.md` §"Open-source readiness". Everything below used to arrive
   // transitively through a framework's `api` declarations and is named here instead.
-  // `api` because their types appear in this module's public signatures — counted from the
-  // compiled artifact, not guessed. A deployment implementing a seam has to name them.
+  // `api` because their types appear in this module's public signatures, so a deployment
+  // implementing a seam has to name them.
   api(project(":commons"))            // BaseModule, WebIdUriDeriver
   implementation(project(":commons-okhttp"))
   api(project(":commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
   implementation(project(":commons-json"))
-  // `api`, and the widest of these promises: `ObjectId` is in ~49 public signatures here, and
-  // `:commons-mongo` is where both it and the `JsonNode` come from. Known debt rather than a
-  // design position — it is MongoDB's type in seams meant to allow a different store (#12).
+  // `api`: `ObjectId` is in ~49 public signatures here, and `:commons-mongo` is where it and the
+  // `JsonNode` come from. Known debt — MongoDB's type in seams meant to allow a different store (#12).
   api(project(":commons-mongo"))
   api(project(":sempods-model"))      // PodRef, SempodsUriBuilder
   api(project(":sempods-auth-core"))  // SigningKeyStore, RefreshTokenStore, AuthorizationCodeStore, …
@@ -44,8 +43,8 @@ dependencies {
   api(libs.guice)   // `SempodsModule` hands out an `Injector`.
   implementation(libs.bundles.logging)
 
-  // The seams speak RDF4J: `PodRepository` answers with `Model` and hands out a
-  // `RepositoryConnection`. The rest of the bundle — parsers, memory sail — stays `implementation`.
+  // `PodRepository` answers with `Model` and hands out a `RepositoryConnection`. The rest of the
+  // bundle — parsers, memory sail — stays `implementation`.
   api(libs.rdf4jModel)
   api(libs.rdf4jRepoSail)
   implementation(libs.bundles.rdf4j)

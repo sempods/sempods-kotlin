@@ -7,10 +7,8 @@ plugins {
 dependencies {
 
   // dependent projects
-  // `api` for the two types an embedder writes down itself: the Guice `Module` it installs, and
-  // `BaseModule`, which this class extends. Everything else — Ktor, Mongo, Jackson — Guice reaches
-  // by reflection at wiring time, off the runtime classpath. Exporting it would make this
-  // service's internals a supported API (#15).
+  // `api` for the two types an embedder writes down: the Guice `Module` it installs and
+  // `BaseModule`, which this extends. The rest Guice reaches by reflection at wiring time (#15).
   api(project(":commons"))
   implementation(project(":sempods-auth-core"))
 

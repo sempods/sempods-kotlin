@@ -11,13 +11,9 @@ plugins {
 // script's own scope, not on the `Project` receiver inside `subprojects { }`.
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
-// What gets published, and the only place that decides it. `sempods-bom` reads this list to build
-// its constraints, so the set that ships and the set the platform pins cannot drift apart.
-//
-// Named rather than derived from `java-library`, because the two ways of being wrong are not
-// equally bad: forgetting a module here leaves it unpublished, which someone notices. Deriving it
-// left a second, hand-written list in the platform that could silently miss a module that shipped
-// anyway — and a missing constraint is invisible until a consumer resolves a version nobody chose.
+// The modules published to Maven Central, and what `sempods-bom` builds its constraints from.
+// Listed rather than derived from `java-library`: a platform is configured before the modules it
+// would inspect, so deriving it silently yields a short list.
 val publishedModules = listOf(
   "commons",
   "commons-jaxrs",
@@ -227,27 +223,21 @@ subprojects {
 
   apply(plugin = "maven-publish")
 
-  // Java 21 for the artifacts, while the build keeps compiling and testing on the toolchain 25
-  // above: a library is only usable by a consumer whose runtime is at least its target. Settled
-  // before the first version because the directions are not symmetric — lowering the floor later
-  // is invisible, raising it breaks every consumer already on the old one. Both halves, because
-  // Gradle fails a Kotlin target that disagrees with `compileJava`'s.
+  // Java 21 for the artifacts; the build still compiles and tests on the toolchain 25 above.
+  // Raising this floor later breaks every consumer already on it. Both halves, because Gradle
+  // fails a Kotlin target that disagrees with `compileJava`'s.
   tasks.withType<JavaCompile>().configureEach { options.release = 21 }
   tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
       jvmTarget = JvmTarget.JVM_21
 
-      // `jvmTarget` sets the class-file version but does not narrow which JDK classes are
-      // visible: against the 25 toolchain, a call to a method added in 22 compiles, passes a
-      // suite on 25, and ships stamped Java 21 to die with a `NoSuchMethodError`.
-      // `-Xjdk-release` is `--release` for kotlinc, and makes that a compile error here.
+      // `jvmTarget` sets the class-file version but not which JDK classes are visible: without
+      // this, a call to a Java 22 method compiles here and dies with `NoSuchMethodError` on 21.
       freeCompilerArgs.add("-Xjdk-release=21")
     }
   }
 
-  // A sources jar is what a consumer's IDE reads to show the code behind a symbol, and Maven
-  // Central requires both of these. Kotlin has no javadoc, so that jar is empty — what the
-  // requirement asks is that it exists.
+  // Central requires both. Kotlin has no javadoc, so that jar is empty; it must merely exist.
   extensions.configure<JavaPluginExtension> {
     withSourcesJar()
     withJavadocJar()
@@ -255,11 +245,9 @@ subprojects {
 
   extensions.configure<PublishingExtension> {
     publications {
-      // `components["java"]` also carries the test-fixtures variant wherever `java-test-fixtures`
-      // is applied — `commons`, `commons-okhttp` and `sempods-server` — so a consumer can ask for
-      // `testFixtures("org.sempods:sempods-server")`, which is exactly what eventer-backend does
-      // today through a project dependency. That variant travels in Gradle module metadata and
-      // not in the POM, so a plain Maven consumer sees the library and never the fixtures.
+      // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
+      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. It travels in Gradle
+      // module metadata, not the POM, so a plain Maven consumer never sees the fixtures.
       create<MavenPublication>("maven") {
         from(components["java"])
       }
@@ -267,17 +255,14 @@ subprojects {
   }
 }
 
-// The POM metadata that is the same everywhere, once for every publication — Central rejects a POM
-// missing any of it. What differs per module is its name and its own `description`.
-// `allprojects`, because `sempods-bom` returns early above and still needs this.
+// Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early
+// above and still needs it.
 allprojects {
   plugins.withId("maven-publish") {
 
-    // Signing, only when there is a key. Central requires a `.asc` beside every file of a
-    // *release* and validates nothing about a snapshot, so making it unconditional would break
-    // the two things that happen far more often — a local `publishToMavenLocal` and a snapshot
-    // from CI. The key comes from the environment: a CI runner has no keyring, and the
-    // alternative is a build file naming a path to a secret.
+    // Only when there is a key: Central requires a `.asc` on a *release* and validates nothing
+    // about a snapshot, so requiring one would break `publishToMavenLocal` and CI snapshots.
+    // From the environment, because a CI runner has no keyring.
     val signingKey = providers.environmentVariable("SIGNING_KEY")
       .orElse(providers.gradleProperty("signingKey"))
     val signingPassword = providers.environmentVariable("SIGNING_PASSWORD")
@@ -333,8 +318,7 @@ allprojects {
               url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
           }
-          // Central asks for an organisation and a way to reach a person. The project's published
-          // contact rather than a personal one — it outlives whoever maintains this.
+          // Central asks for an organisation and a contact. The project's, not a personal one.
           developers {
             developer {
               id.set("haed")
@@ -356,10 +340,9 @@ allprojects {
   }
 }
 
-// The release bundle. Sonatype publishes no official Gradle plugin, and the Portal accepts a zip
-// in Maven repository layout — which `maven-publish` already writes into `centralBundle`. So this
-// is a `Zip` of that directory and one `curl` (in `RELEASING.md`), rather than a third-party
-// plugin whose behaviour could not be checked here without a token.
+// The release bundle. The Portal accepts a zip in Maven repository layout, which `maven-publish`
+// already writes into `centralBundle`, so this is that directory zipped plus one `curl` — see
+// `RELEASING.md`. Sonatype publishes no official Gradle plugin.
 
 val centralBundleDir = layout.buildDirectory.dir("central-bundle")
 
