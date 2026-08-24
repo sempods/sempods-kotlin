@@ -9,9 +9,12 @@ dependencies {
   // public, so it carries no framework a third party would have to inherit; see
   // `docs/modularity.md` §"Open-source readiness". Everything below used to arrive
   // transitively through a framework's `api` declarations and is named here instead.
-  implementation(project(":commons"))
+  // The five below are `api` because their types appear in this module's own public signatures —
+  // counted from the compiled artifact, not guessed. A deployment implementing a seam has to name
+  // them, and could not while they were reached only transitively.
+  api(project(":commons"))            // BaseModule, WebIdUriDeriver
   implementation(project(":commons-okhttp"))
-  implementation(project(":commons-jaxrs"))
+  api(project(":commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
   implementation(project(":commons-json"))
   // `api`, and the widest of these promises: `ObjectId` appears in this module's public
   // signatures ~49 times, so a deployment implementing a seam has to name it. `:commons-mongo`
@@ -21,14 +24,14 @@ dependencies {
   // Known debt, not a design position: `ObjectId` is MongoDB's, and `CONTRIBUTING.md` puts a
   // different store behind a seam. Exporting it makes the coupling public — tracked separately.
   api(project(":commons-mongo"))
-  implementation(project(":sempods-model"))
-  implementation(project(":sempods-auth-core"))
+  api(project(":sempods-model"))      // PodRef, SempodsUriBuilder
+  api(project(":sempods-auth-core"))  // SigningKeyStore, RefreshTokenStore, AuthorizationCodeStore, …
 
   // The MCP tool catalog, JSON-RPC envelope and `PodToolExecutor`, shared with the hosted
   // `sempods-mcp` service. Framework-free like `:sempods-auth-core`, so the module that goes public
   // inherits no HTTP stack from it — the pod client it brings along carries its own engine behind
   // `SempodsHttpTransport` and exposes none.
-  implementation(project(":sempods-mcp-core"))
+  api(project(":sempods-mcp-core"))   // PodToolExecutor, JsonRpcRequest, ToolInputSchema, …
 
   // Reached in production since M4: `SempodsModule.podToolExecutor` builds a `PodWireClient` against
   // `config.apiBaseUrl`, so the MCP surface talks to this pod the way any other client does.
