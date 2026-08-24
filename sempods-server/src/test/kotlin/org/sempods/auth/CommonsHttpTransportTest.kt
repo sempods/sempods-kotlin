@@ -64,8 +64,8 @@ class CommonsHttpTransportTest {
   }
 
   /**
-   * Waiting less than the HTTP client allows frees the thread; it does not free the request — the
-   * hazard the predecessor's hand-written `awaitWithin` existed to work around. OkHttp's
+   * Waiting less than the HTTP client allows frees the thread; it does not free the request —
+   * which is the hazard this leg has to close rather than merely wait out. OkHttp's
    * `callTimeout` closes the socket and lets the blocking send fail with an
    * [InterruptedIOException], so an abandoned login stops costing the id-server a connection at the
    * moment the caller stops waiting rather than a minute later.

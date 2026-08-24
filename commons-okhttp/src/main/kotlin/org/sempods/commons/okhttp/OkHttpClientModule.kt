@@ -16,13 +16,12 @@ import java.time.Duration
  * wrong. A composition that needs different budgets derives them with `newBuilder()`, which keeps
  * this client's connection pool and dispatcher.
  *
- * **The timeouts are set here rather than inherited**, because OkHttp's defaults differ from what
- * this process ran under before: 10 s read where async-http-client allowed 60 s, and no whole-call
- * bound at all. The four values below reproduce the effective budget that client had, so swapping
- * the engine did not quietly change how long anything is allowed to take.
+ * **The timeouts are set here rather than inherited**, because OkHttp's defaults are not this
+ * project's budget: 10 s read, and no whole-call bound at all. The four values below state that
+ * budget in one place, so no call site has to decide it and none can drift from the others.
  *
  * There is no cookie jar to disable — OkHttp's default is already `CookieJar.NO_COOKIES`, which is
- * what `setCookieStore(null)` said on the previous engine.
+ * what a shared client wants: one caller's session must not travel on another caller's request.
  */
 object OkHttpClientModule : BaseModule() {
 

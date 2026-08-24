@@ -131,9 +131,9 @@ move happened; what follows is what still holds and what the change cost.
   once, and bridges in about forty lines (`PodIo`) — one virtual thread per in-flight request, no
   carrier thread held.
 
-That last point is also why async-http-client was not a candidate: it is Netty on platform
-threads. The pod server has since left it too, for `commons-okhttp` — so the question is no longer
-"which engine" but "why two clients of the same engine", answered below.
+The pod server dials on `commons-okhttp` rather than on this client, so a process running both
+holds two clients of one engine — which makes the open question not "which engine" but "why two of
+one", answered below.
 
 **The engine is OkHttp**, because SSRF **resolve-and-pin** turned out to be a requirement of the
 shared client and not of `sempods-mcp` alone. A consumer that dereferences URIs arriving in a
@@ -155,12 +155,11 @@ What the engine costs, stated rather than hidden:
 
 ### Two OkHttp clients in one process, on purpose
 
-Since the pod server moved to `commons-okhttp`, a JVM running both this client and that one holds
-two `OkHttpClient` instances. They are **not** merged, and the reason is the bullet above rather
-than tidiness: `implementation` is what makes the third-party dependency acceptable, and a
-constructor or factory taking an engine would put `okhttp3` on the compile classpath of every
-consumer of the published artifact and tie this library's ABI to an engine major version. Sharing a
-pool is not worth that.
+A JVM running both this client and `commons-okhttp`'s holds two `OkHttpClient` instances. They are
+**not** merged, and the reason is the bullet above rather than tidiness: `implementation` is what
+makes the third-party dependency acceptable, and a constructor or factory taking an engine would
+put `okhttp3` on the compile classpath of every consumer of the published artifact and tie this
+library's ABI to an engine major version. Sharing a pool is not worth that.
 
 Nor would it buy much. A second client costs **no threads** — `TaskRunner.INSTANCE` is a JVM-wide
 daemon singleton every `ConnectionPool` shares, and the dispatcher's executor has `corePoolSize = 0`

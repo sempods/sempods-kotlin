@@ -20,15 +20,15 @@ import java.nio.charset.StandardCharsets
  * So [TestHttpResponse] is **buffered**: the body is read once at [TestHttpRequest.execute] and the
  * connection is released there. Every later read is off the byte array.
  *
- * Redirects are **not** followed by default, which is what the async-http-client this replaced did
- * and what most of the suite asserts on — a login redirect and a `Location` header are the subject
- * of those tests, not something to be resolved away.
+ * Redirects are **not** followed by default, which is what most of the suite asserts on — a login
+ * redirect and a `Location` header are the subject of those tests, not something to be resolved
+ * away.
  */
 class TestHttpClient(private val base: OkHttpClient, followRedirects: Boolean = false) {
 
   /**
-   * The same client, but following redirects — which is what the previous engine's wrapper turned
-   * on for GET, POST and PUT, and therefore what the call sites that used it still expect.
+   * The same client, but following redirects — for the call sites that assert on where a redirect
+   * leads rather than on the redirect itself.
    */
   val followingRedirects: TestHttpClient by lazy { TestHttpClient(base, followRedirects = true) }
 

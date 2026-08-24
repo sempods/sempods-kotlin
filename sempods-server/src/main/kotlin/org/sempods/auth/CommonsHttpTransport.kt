@@ -21,9 +21,9 @@ import java.time.Duration
  *
  * [TIMEOUT] is that deadline, well inside the shared client's own budgets (5 s connect, 60 s
  * socket, 60 s call). It is expressed as OkHttp's `callTimeout`, which **cancels the call** when it
- * expires rather than merely abandoning the wait — the predecessor had to build that by hand,
- * because a timed `Future.get` leaves the request running and an id-server outage would then have
- * every abandoned login still holding a connection for the remainder of the client's budget.
+ * expires rather than merely abandoning the wait. That distinction is the point: abandoning the
+ * wait alone leaves the request running, and an id-server outage would then have every abandoned
+ * login still holding a connection for the remainder of the client's budget.
  * `docs/auth/oauth.md` quotes the figure; [CommonsHttpTransportTest] pins it and the
  * cancellation, because that paragraph has been wrong about this leg twice.
  */

@@ -115,8 +115,7 @@ class MediaSourceFetcher @Inject constructor(
    * connection that is merely worth trying again.
    */
   // TODO: the caller's `traceparent` still travels to a host the caller chose, because the shared
-  //  client's interceptor is inherited here. Unchanged from the previous engine, but this is now
-  //  the one place it could be dropped.
+  //  client's interceptor is inherited here. This is the one place it could be dropped.
   private fun clientFor(pinned: InetAddress): OkHttpClient =
     httpClient.newBuilder()
       .dns { listOf(pinned) }
