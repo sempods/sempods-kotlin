@@ -1,0 +1,59 @@
+<!--
+  The shared logging configuration: one console format, one JSON format, one set of levels for the
+  libraries everything here drags in.
+
+  Deliberately **not** named `logback.xml`. Logback auto-discovers that name anywhere on the
+  classpath, so a file with it inside a library silently becomes the root configuration of every
+  application that depends on the library, which is what a published `commons` would do to a
+  stranger's service. This file is inert until an application
+  asks for it:
+
+      <configuration>
+        <include resource="org/sempods/commons/logging/logback-base.xml"/>
+      </configuration>
+
+  Two knobs, both environment variables, both documented in `docs/logging.md`:
+
+    LOG_LEVEL   the root level                         (default INFO)
+    LOG_FORMAT  `console` (human) or `json` (machine)  (default console)
+
+  `LOG_FORMAT` selects an appender by name through variable substitution rather than through
+  `<if>`, which would need Janino on the classpath for a two-way choice.
+-->
+<included>
+
+  <property name="LOG_LEVEL" value="${LOG_LEVEL:-INFO}"/>
+  <property name="LOG_FORMAT" value="${LOG_FORMAT:-console}"/>
+
+  <!--
+    `[%X]` renders the MDC, which is where the W3C trace id lands — `TraceContextHolder` writes it
+    in the same call that binds the context, so a log line and the outgoing `traceparent` cannot
+    disagree. Dropping `%X` from a pattern makes the whole tracing chain invisible without breaking
+    anything loudly; see `docs/request-tracing.md`.
+  -->
+  <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{ISO8601} %-5level [%thread] [%X] %logger - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Logback's own encoder: one JSON object per event, MDC included, no extra dependency. -->
+  <appender name="json" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="ch.qos.logback.classic.encoder.JsonEncoder"/>
+  </appender>
+
+  <!--
+    Third-party noise, dampened once for every process instead of once per service. The Mongo
+    driver is the loud one: at DEBUG it narrates every cluster heartbeat, several per second.
+  -->
+  <logger name="org.mongodb.driver" level="WARN"/>
+  <logger name="org.eclipse.jetty" level="INFO"/>
+  <logger name="io.netty" level="INFO"/>
+  <logger name="org.glassfish.jersey.server.wadl" level="INFO"/>
+  <logger name="org.glassfish.jersey.internal.inject" level="INFO"/>
+
+  <root level="${LOG_LEVEL}">
+    <appender-ref ref="${LOG_FORMAT}"/>
+  </root>
+
+</included>

@@ -1,0 +1,15 @@
+**/.classpath
+**/.DS_Store
+**/.gradle/
+**/.idea/
+**/.project
+**/.settings/
+**/bin/
+**/build/
+**/docker-data/
+**/out/
+/.kotlin/
+
+# Local configuration, which `deployments/local/env/local.example.env` tells you to create here.
+# The template promises the copy is ignored; this is the rule that keeps the promise.
+deployments/local/env/local.env

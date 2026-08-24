@@ -1,0 +1,31 @@
+<!--
+  The logging configuration for every test JVM in the repository, wired in the root build script
+  via `-Dlogback.configurationFile`. One file rather than a `logback-test.xml` per module: sixteen
+  copies of the same four lines is not a convention anyone maintains, and the first one that drifts
+  makes a suite quietly noisy again.
+
+  Deliberately self-contained — it does not `<include>` the shared base in `:commons`, because not
+  every module has `:commons` on its test runtime classpath and a failed include leaves a
+  configuration with no appender at all.
+
+  INFO, not DEBUG. Without this the test JVMs fall back to Logback's default (root DEBUG), and with
+  `showStandardStreams = true` in the root build script that turns every run into a wall of RDF4J,
+  Jetty and Mongo internals. A test that needs more raises its own logger with `-DLOG_LEVEL=DEBUG`.
+-->
+<configuration>
+  <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] [%X] %logger - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="org.mongodb.driver" level="WARN"/>
+  <logger name="org.eclipse.jetty" level="INFO"/>
+  <logger name="io.netty" level="INFO"/>
+  <logger name="org.eclipse.rdf4j" level="INFO"/>
+  <logger name="org.glassfish.jersey" level="INFO"/>
+
+  <root level="${LOG_LEVEL:-INFO}">
+    <appender-ref ref="console"/>
+  </root>
+</configuration>

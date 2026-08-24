@@ -1,0 +1,17 @@
+<!--
+  The pod server's logging configuration. It lives here, in the artifact that owns `main`, because
+  this is the process that gets to decide — `:sempods-server` is a library and ships none.
+
+  Until this file existed, the image ran on Logback's built-in fallback: root at DEBUG, no MDC in
+  the pattern. Every RDF4J and Jetty internal was in the production log and the trace id was in
+  none of them.
+
+  Levels and format come from `LOG_LEVEL` / `LOG_FORMAT`; see `docs/logging.md`.
+-->
+<configuration>
+  <include resource="org/sempods/commons/logging/logback-base.xml"/>
+
+  <!-- The store narrates every transaction at DEBUG; the pod server's own DEBUG output is the
+       part worth reading when someone turns LOG_LEVEL down. -->
+  <logger name="org.eclipse.rdf4j" level="INFO"/>
+</configuration>

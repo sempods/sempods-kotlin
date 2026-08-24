@@ -1,0 +1,15 @@
+# What a clone gets, decided here instead of by whoever clones. `core.autocrlf` is a per-machine
+# setting: without a rule, the line endings in a working tree depend on who checked it out, and
+# the two launchers in this repository want different ones.
+#
+# Git stores text as LF either way — `eol` decides the *checkout*, which is the half that matters
+# and the half easy to test the wrong way round. `git ls-files --eol` shows both columns.
+* text=auto eol=lf
+
+# The one file that must arrive as CRLF. `gradlew` is a shell script and takes LF from the rule
+# above; its Windows sibling is a batch file, and `cmd.exe` is only accidentally tolerant of LF.
+*.bat text eol=crlf
+
+# The wrapper jar is the only binary in the published tree — established by asking git which
+# staged paths it could not diff, rather than by guessing at extensions.
+*.jar binary

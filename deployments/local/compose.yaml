@@ -1,0 +1,38 @@
+# The only infrastructure a pod server needs.
+#
+#   docker compose -f deployments/local/compose.yaml up -d
+#
+# The port is 27018 rather than 27017 on purpose: it is the address the server falls back to in
+# development, and it keeps a local pod server off a MongoDB you may already run for something
+# else.
+services:
+
+  mongo:
+    image: mongo:8.0.1
+    ports:
+      - "27018:27017"
+    volumes:
+      - sempods-mongo:/data/db
+
+  # Optional — only for the natural-language layer, which is what an unset `AI_PROVIDER` selects.
+  # Start it with:
+  #
+  #   docker compose -f deployments/local/compose.yaml --profile ai up -d
+  #
+  # Pull a model once the container is up:
+  #
+  #   docker compose -f deployments/local/compose.yaml exec ollama ollama pull qwen2.5:7b
+  #
+  # Nothing else needs it: the server, the test suite and every route except the AI endpoints run
+  # without a model. Those are mounted regardless and answer `500 ai_provider_error` without one.
+  ollama:
+    profiles: [ai]
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - sempods-ollama:/root/.ollama
+
+volumes:
+  sempods-mongo:
+  sempods-ollama:

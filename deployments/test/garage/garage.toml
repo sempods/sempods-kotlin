@@ -1,0 +1,37 @@
+# Garage for the test stack — the S3 half of the media seam's conformance suite runs against this.
+#
+# A test configuration and nothing else, and there is no production counterpart: no deployment runs
+# Garage. sempods.org keeps `SEMPODS_MEDIA_BACKEND=filesystem` (`docs/media.md` §"The
+# seam"), and this container exists so that `S3PodMediaStore` is asserted against a real
+# S3-compatible server rather than a mock: the failures that matter are the ones a real one produces
+# — path-style addressing, the region SigV4 signs with, the checksum defaults SDK 2.30 introduced.
+#
+# Garage (Deuxfleurs, Apache-2.0) is the one that fits in CI: a single binary with no runtime
+# dependencies, from 1 GB RAM, SigV4 and ListObjectsV2. **Not MinIO** for the same purpose — its
+# community edition lost the admin console in June 2025, went into maintenance mode that December
+# and was archived on 25 April 2026, so there is no binary distribution any more.
+#
+# One node, replication factor 1, everything under /var/lib inside the container with no volume, so
+# `docker compose down` is a clean slate.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+# One node, so nothing to replicate. `consistency_mode = "consistent"` is the default and the one a
+# test wants: a write is visible to the next read without a retry loop in the assertions.
+replication_factor = 1
+
+# IPv4 rather than `[::]`, which Garage's own examples use: a Docker bridge network commonly has
+# IPv6 disabled, and Garage exits on a bind failure rather than falling back.
+rpc_bind_addr = "0.0.0.0:3901"
+rpc_public_addr = "127.0.0.1:3901"
+# Fixed and public on purpose — this secret guards RPC between Garage nodes on a throwaway test
+# container that binds nothing outside the compose network but the S3 port.
+rpc_secret = "5f3d1a9b7c2e4086b51d9c3a7e0f28461bd3c95a7e21f8046c3b9d5a1e78f2c4"
+
+[s3_api]
+# SigV4 signs with the region, so this string has to match SEMPODS_MEDIA_S3_REGION byte for byte or
+# every request answers 403. `garage` is what Garage's own documentation uses.
+s3_region = "garage"
+api_bind_addr = "0.0.0.0:3900"
+root_domain = ".s3.garage.localhost"

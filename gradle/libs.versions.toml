@@ -1,0 +1,119 @@
+[versions]
+awsSdk = "2.52.0"
+jersey = "4.0.2"
+ktor = "3.5.2"
+okhttp = "5.4.0"
+morphia = "2.5.3"
+rdf4j = "5.3.2"
+slf4j = "2.0.18"
+
+[libraries]
+jerseyBom = { module = "org.glassfish.jersey:jersey-bom", version.ref = "jersey" }
+ktorBom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
+ktorServerCore = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktorServerNetty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
+ktorServerCallLogging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
+ktorServerTestHost = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
+ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktorClientCio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
+ktorClientOkhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+rdf4jBom = { module = "org.eclipse.rdf4j:rdf4j-bom", version.ref = "rdf4j" }
+slf4jBom = { module = "org.slf4j:slf4j-bom", version.ref = "slf4j" }
+
+# Used by the private application modules only. The sempods side left this engine, and what is left
+# of the wrapper lives with them. The maintainer's internal roadmap retires it.
+asyncHttpClient = "org.asynchttpclient:async-http-client:3.0.11"
+
+# The HTTP engine under `:sempods-client` — and therefore under everything that dials a pod — and,
+# since the pod server left async-http-client, under `:commons-okhttp` as well. The two hold separate
+# clients on purpose (`docs/pod-client.md` §"Two OkHttp clients in one process").
+# Declared explicitly rather than taken transitively through `ktor-client-okhttp`: `:sempods-client`
+# has no Ktor and must not have its engine version decided by the Ktor BOM of a different module.
+# OkHttp rather than the JDK client because its `Dns` hook is where SSRF resolve-and-pin can be
+# expressed at all — see `org.sempods.client.net.VettingDns` and `docs/pod-client.md`.
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+
+# S3, for `:sempods-media-s3`. The AWS SDK is the reference implementation of the *protocol* — Garage,
+# R2, SeaweedFS and AWS itself all speak it — so the vendor in the group id says nothing about which
+# store a deployment runs. `apacheClient` pins the sync HTTP layer explicitly, so the client this code
+# uses is the one named here rather than whichever the SDK discovers.
+# TODO: `netty-nio-client` still arrives transitively with `s3`, for an async client nothing here
+#  uses — it is now the *only* Netty in the pod-server image, so an `exclude` would remove that whole
+#  stack. Not done here because `S3PodMediaStoreTest` skips without a Garage layout, so a break would
+#  not be caught by a default `./gradlew test`.
+awsS3 = { module = "software.amazon.awssdk:s3", version.ref = "awsSdk" }
+awsApacheClient = { module = "software.amazon.awssdk:apache-client", version.ref = "awsSdk" }
+
+commonsEmailJakarta = "org.apache.commons:commons-email2-jakarta:2.0.0-M1"
+angusMail = "org.eclipse.angus:jakarta.mail:2.0.5"
+angusActivation = "org.eclipse.angus:angus-activation:2.0.3"
+
+commonsText = "org.apache.commons:commons-text:1.15.0"
+commonsValidator = "commons-validator:commons-validator:1.10.1"
+bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.85"
+
+googleApiClient = "com.google.api-client:google-api-client:2.9.0"
+owaspHtmlSanitizer = "com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20260313.1"
+
+guice = "com.google.inject:guice:7.0.0"
+jackson = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.1"
+jacksonKotlin = "com.fasterxml.jackson.module:jackson-module-kotlin:2.22.1"
+jakartaServletApi = "jakarta.servlet:jakarta.servlet-api:6.1.0"
+jerseyHk2 = { module = "org.glassfish.jersey.inject:jersey-hk2", version.ref = "jersey" }
+jerseyJettyHttp = { module = "org.glassfish.jersey.containers:jersey-container-jetty-http", version.ref = "jersey" }
+jerseyJsonJackson = { module = "org.glassfish.jersey.media:jersey-media-json-jackson", version.ref = "jersey" }
+jwt = "com.nimbusds:nimbus-jose-jwt:10.9.1"
+# The OAuth/OIDC message layer, from the same house as `jwt` above. Parsing and building
+# protocol messages only — storage, client policy and identity derivation stay ours.
+oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.29"
+# Logging. The facade is what every module compiles against; the binding is what exactly one
+# artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
+# publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
+kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
+logbackClassic = "ch.qos.logback:logback-classic:1.6.3"
+mongodb = "org.mongodb:mongodb-driver-sync:5.9.1"
+morphiaCore = { module = "dev.morphia.morphia:morphia-core", version.ref = "morphia" }
+morphiaKotlin = { module = "dev.morphia.morphia:morphia-kotlin", version.ref = "morphia" }
+thymeleaf = "org.thymeleaf:thymeleaf:3.1.5.RELEASE"
+webPush = "nl.martijndwars:web-push:5.1.2"
+slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4jJul = { module = "org.slf4j:jul-to-slf4j", version.ref = "slf4j" }
+
+# The artifact that carries `Model`, `IRI`, `Resource`, `Value` and friends — what the pod
+# contract names in its own public signatures, and therefore the only RDF4J piece the contract
+# modules export as `api`. The rest of the bundle below (Rio, Sail, SPARQL-results) is how they
+# are implemented, and stays `implementation`.
+rdf4jModel = { module = "org.eclipse.rdf4j:rdf4j-model", version.ref = "rdf4j" }
+rdf4jRioJsonld = { module = "org.eclipse.rdf4j:rdf4j-rio-jsonld", version.ref = "rdf4j" }
+rdf4jRioNquads = { module = "org.eclipse.rdf4j:rdf4j-rio-nquads", version.ref = "rdf4j" }
+rdf4jRepoSail = { module = "org.eclipse.rdf4j:rdf4j-repository-sail", version.ref = "rdf4j" }
+rdf4jSailMemory = { module = "org.eclipse.rdf4j:rdf4j-sail-memory", version.ref = "rdf4j" }
+rdf4jSparqlJson = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-sparqljson", version.ref = "rdf4j" }
+
+awaitility = "org.awaitility:awaitility:4.3.0"
+junit = "org.junit.jupiter:junit-jupiter:6.1.3"
+kotlinTestJunit5 = "org.jetbrains.kotlin:kotlin-test-junit5:2.4.10"
+mockk = "io.mockk:mockk:1.14.11"
+mockServer = "org.mock-server:mockserver-netty-no-dependencies:7.5.0"
+
+[bundles]
+awsS3 = ["awsS3", "awsApacheClient"]
+security = ["bouncycastle", "jwt"]
+jerseyServer = ["jakartaServletApi", "jerseyHk2", "jerseyJsonJackson"]
+# The facade — for every module, library and application alike.
+logging = ["slf4jApi", "kotlinLogging"]
+# The binding. `runtimeOnly`, and only in an artifact that owns a `main` — a library that declares
+# this decides for its consumers, which is not its call. The JUL bridge is deliberately *not* here:
+# it is not a binding, and it belongs to `:commons`, the module whose `LoggingInitializer` installs it.
+loggingBinding = ["logbackClassic"]
+email = ["commonsEmailJakarta", "angusMail", "angusActivation"]
+mongoMorphia = ["mongodb", "morphiaCore", "morphiaKotlin"]
+webPush = ["bouncycastle", "webPush"]
+rdf4j = [
+  "rdf4jRioJsonld",
+  "rdf4jRioNquads",
+  "rdf4jRepoSail",
+  "rdf4jSailMemory",
+  "rdf4jSparqlJson",
+]
+test = ["awaitility", "junit", "kotlinTestJunit5", "mockk", "mockServer"]

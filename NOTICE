@@ -1,0 +1,21 @@
+sempods
+Copyright 2025-2026 Danilo Stein
+
+This product includes software developed as part of the sempods project
+(https://sempods.org).
+
+Licensing summary:
+
+  * Source code is licensed under the Apache License, Version 2.0.
+    See the LICENSE file.
+
+  * Documentation, the specification document, and the RDF vocabulary
+    published under https://schema.sempods.org/ are licensed under the
+    Creative Commons Attribution 4.0 International License (CC BY 4.0).
+    See https://creativecommons.org/licenses/by/4.0/
+
+  * "sempods" is a trademark of Danilo Stein. The Apache License grants
+    no trademark rights (Apache-2.0 section 6). What you may call your
+    own work is set out in TRADEMARKS.md, which is deliberately
+    permissive: the name is regulated only where it would suggest origin
+    or endorsement.

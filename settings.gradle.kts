@@ -1,0 +1,18 @@
+include(
+  "commons",
+  "commons-jaxrs",
+  "commons-json",
+  "commons-ktor",
+  "commons-mongo",
+  "commons-okhttp",
+  "deployments:sempods:image",
+  "sempods-auth",
+  "sempods-auth-core",
+  "sempods-client",
+  "sempods-control-plane-client",
+  "sempods-mcp",
+  "sempods-mcp-core",
+  "sempods-media-s3",
+  "sempods-model",
+  "sempods-server",
+)

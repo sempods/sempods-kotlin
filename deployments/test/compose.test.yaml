@@ -1,0 +1,46 @@
+services:
+
+  # The S3 half of the media seam's conformance suite (`:sempods-media-s3`). Garage rather than a
+  # generic S3 mock, because the assertion is that the store works against the implementation
+  # sempods.org actually runs — a mock would only prove the SDK calls itself.
+  #
+  # A fresh node serves nothing until it has a layout, a bucket and a key, and the image has no
+  # shell to script that from: run `deployments/test/garage/init.sh` once after `up -d`. Without it
+  # the S3 tests skip with that command in the message rather than failing.
+  garage:
+    image: dxflrs/garage:v2.1.0
+    environment:
+      # The config file is mounted from the repository, so it is world-readable and Garage refuses
+      # to read secrets from it unless told this is deliberate. It is: the rpc_secret in there is a
+      # test constant.
+      GARAGE_ALLOW_WORLD_READABLE_SECRETS: "true"
+    volumes:
+      # `../test/…`, not `./garage/…`: Compose resolves relative paths against the *project*
+      # directory, which is the directory of the **first** `-f` file — `deployments/local`. A path
+      # relative to this file would silently resolve there and Docker would create the missing
+      # source as an empty directory rather than failing.
+      - ../test/garage/garage.toml:/etc/garage.toml:ro
+    # No volume: nothing here outlives `docker compose down`, which is what the rest of this file
+    # arranges for MongoDB too.
+    ports:
+      - "3900:3900"
+
+  mongo:
+    # A throwaway database: the data directory is a tmpfs, so a *restart* comes up empty, not only a
+    # `down`. It used to say /bitnami/mongodb — the Bitnami image's path — so the mount landed on a
+    # directory MongoDB never touches and every test run accumulated into the container's writable
+    # layer instead.
+    #
+    # Not /data/db, which the official image declares a `VOLUME`: Docker lets the tmpfs quietly win,
+    # Podman refuses with `/data/db: duplicate mount destination` and fails every container
+    # recreate. A dbpath the image knows nothing about avoids the clash on both engines. /data/db is
+    # left behind as an empty anonymous volume; `down -v` clears it.
+    #
+    # mode=1777 is load-bearing: the entrypoint chowns the hard-coded /data/db, never the configured
+    # --dbpath, so mongod (running as `mongodb`) can write here only because the tmpfs is
+    # world-writable. Podman mounts a bare tmpfs 1777 on first start but 1755 on restart — which is
+    # the very case this arrangement exists for.
+    command: ["--dbpath", "/data/testdb"]
+    tmpfs: /data/testdb:mode=1777
+    ports:
+      - "27018:27017"

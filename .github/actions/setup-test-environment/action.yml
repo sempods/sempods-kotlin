@@ -1,0 +1,30 @@
+name: 'Setup Test Environment'
+description: 'Sets up Java, Docker containers, and Gradle for testing'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        java-version: 25
+        distribution: 'temurin'
+
+    # Two overlays: the local stack, plus the test stack that adds the throwaway MongoDB on 27018
+    # and the Garage the media seam's S3 half asserts against.
+    - run: |
+        docker compose -f deployments/local/compose.yaml -f deployments/test/compose.test.yaml up -d
+        sleep 10
+      shell: bash
+
+    # Garage serves nothing until it has a layout, a bucket and a key, and its image is built
+    # `FROM scratch` so a compose sidecar cannot script that. Without this, `S3PodMediaStoreTest`
+    # takes its "not running" skip and **the media seam's S3 conformance suite never runs in CI** —
+    # which is the one claim M5 rests on ("the same assertions, two backends"). The skip exists so a
+    # developer without containers can still build; it must not be what CI silently does.
+    #
+    # Not `continue-on-error`: a Garage that will not come up has to fail here, where the reason is
+    # visible, rather than downstream as sixteen quietly skipped tests.
+    - run: deployments/test/garage/init.sh
+      shell: bash
+
+    - uses: gradle/actions/setup-gradle@v5

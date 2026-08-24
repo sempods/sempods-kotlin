@@ -1,0 +1,86 @@
+name: DCO
+
+# `CONTRIBUTING.md` requires a `Signed-off-by` line on every commit and, until this file existed,
+# nothing checked for one. That is the worst shape for a rule: a first contributor reads it, misses
+# it in good faith, and finds out after the fact — when the fix is a rebase over work that is
+# already reviewed. A check that fails on the first push costs one amended commit.
+#
+# A ten-line workflow rather than the GitHub DCO app, because the app is one more thing to install
+# on a repository transfer and one more account with write access. This runs from the tree it
+# guards.
+#
+# Sign-offs are what the project has instead of a CLA. `CONTRIBUTING.md` says why and says it is not
+# revisited: a CLA exists to keep relicensing possible, which is only useful for a commercial
+# parallel licence, and the hurdle costs first contributions.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+
+      # The full range of the PR has to be present locally, so fetch-depth 0 rather than the
+      # default shallow clone — a shallow checkout has no `base.sha` to walk back to.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Every commit carries a sign-off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # `--no-merges`: a merge commit created by GitHub's own UI carries no sign-off and cannot
+          # be given one by the contributor. What DCO 1.1 is about is authorship of changes, and a
+          # merge introduces none.
+          missing=""
+          while IFS= read -r sha; do
+            [[ -z "$sha" ]] && continue
+            author_email="$(git show -s --format='%ae' "$sha")"
+
+            # Pull the address out of each trailer and compare it as a FIXED string. Interpolating
+            # an address into a regex is wrong in both directions here, and GitHub's own noreply
+            # form is the case that proves it: in `123+user@users.noreply.github.com` the `+` is a
+            # quantifier and every `.` is a wildcard, so a correctly signed commit is rejected while
+            # `1233user@usersXnoreplyXgithubXcom` is accepted. Nearly every contributor arrives with
+            # that address.
+            #
+            # **The AUTHOR's sign-off, and only that.** Accepting the committer's instead lets a
+            # maintainer who cherry-picks an unsigned contribution certify it on the contributor's
+            # behalf, which is precisely what the certificate cannot be delegated for — and what
+            # `CONTRIBUTING.md` rules out when it says the line must match the author. Extra
+            # trailers are fine and normal (a maintainer adds their own beside the author's, as the
+            # kernel workflow does); they are additions, never substitutions.
+            #
+            # `-i` because the comparison is between mail addresses, where case is not identity.
+            if git show -s --format='%B' "$sha" |
+                 sed -n 's/^[Ss]igned-off-by:[[:space:]]*.*<\(.*\)>[[:space:]]*$/\1/p' |
+                 grep -qixF "$author_email"; then
+              continue
+            fi
+            missing+="  ${sha:0:12}  $(git show -s --format='%s' "$sha")"$'\n'
+            missing+="                author: ${author_email}"$'\n'
+          done < <(git rev-list --no-merges "$BASE".."$HEAD")
+
+          if [[ -n "$missing" ]]; then
+            echo "These commits carry no Signed-off-by line matching their author:"
+            echo
+            echo "$missing"
+            echo "Add one to each — CONTRIBUTING.md carries the certificate you are signing:"
+            echo
+            echo "    git rebase --signoff $BASE"
+            echo "    git push --force-with-lease"
+            echo
+            echo "New commits: git commit -s"
+            exit 1
+          fi
+
+          echo "All commits signed off."

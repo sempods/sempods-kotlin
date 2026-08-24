@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Authorize App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .consent-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.06);
+      max-width: 540px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .consent-header {
+      padding: 1.5rem 1.5rem 1rem;
+      border-bottom: 1px solid #e5e5e7;
+    }
+
+    .consent-header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .app-info {
+      margin-top: .5rem;
+      font-size: .875rem;
+      color: #6e6e73;
+      word-break: break-all;
+    }
+
+    .user-info {
+      margin-top: .25rem;
+      font-size: .875rem;
+      color: #6e6e73;
+      word-break: break-all;
+    }
+
+    .contexts-list {
+      padding: 1rem 1.5rem;
+    }
+
+    .contexts-list h2 {
+      font-size: .875rem;
+      font-weight: 600;
+      color: #6e6e73;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: .75rem;
+    }
+
+    .context-item {
+      border: 1px solid #e5e5e7;
+      border-radius: 8px;
+      padding: .75rem 1rem;
+      margin-bottom: .5rem;
+      transition: border-color .15s;
+    }
+
+    .context-item:hover {
+      border-color: #0071e3;
+    }
+
+    .context-name {
+      font-size: .9375rem;
+      font-weight: 500;
+      margin-bottom: .25rem;
+    }
+
+    .context-path {
+      font-size: .75rem;
+      color: #86868b;
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+      word-break: break-all;
+      margin-bottom: .5rem;
+    }
+
+    .permissions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .permissions label {
+      display: flex;
+      align-items: center;
+      gap: .375rem;
+      font-size: .8125rem;
+      color: #424245;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .permissions input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #0071e3;
+      cursor: pointer;
+    }
+
+    .new-context-section {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #e5e5e7;
+    }
+
+    .new-context-section h2 {
+      font-size: .875rem;
+      font-weight: 600;
+      color: #6e6e73;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: .75rem;
+    }
+
+    .new-context-row {
+      display: flex;
+      gap: .5rem;
+      margin-bottom: .5rem;
+    }
+
+    .new-context-input {
+      flex: 1;
+      padding: .5rem .75rem;
+      border: 1px solid #d2d2d7;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    .new-context-input:focus {
+      border-color: #0071e3;
+    }
+
+    .new-context-input::placeholder {
+      color: #a1a1a6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .new-context-input.invalid {
+      border-color: #ff3b30;
+    }
+
+    .new-context-error {
+      font-size: .8125rem;
+      color: #ff3b30;
+      margin-bottom: .5rem;
+    }
+
+    .btn-add {
+      padding: .5rem 1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #0071e3;
+      background: #fff;
+      color: #0071e3;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+
+    .btn-add:hover {
+      background: #f0f5ff;
+    }
+
+    .context-item.pending {
+      background: #f0f5ff;
+      border-color: #c2d9f7;
+    }
+
+    .context-item.pending .context-header {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .context-item.pending .remove-btn {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: #86868b;
+      cursor: pointer;
+      font-size: 1.125rem;
+      line-height: 1;
+      padding: 0 .25rem;
+    }
+
+    .context-item.pending .remove-btn:hover {
+      color: #ff3b30;
+    }
+
+    .pending-badge {
+      font-size: .6875rem;
+      font-weight: 500;
+      color: #0071e3;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: .125rem .375rem;
+      background: #fff;
+      border: 1px solid #c2d9f7;
+      border-radius: 4px;
+    }
+
+    .consent-footer {
+      padding: 1rem 1.5rem 1.5rem;
+      border-top: 1px solid #e5e5e7;
+      display: flex;
+      gap: .75rem;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      padding: .5rem 1.25rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background .15s, opacity .15s;
+    }
+
+    .btn-primary {
+      background: #0071e3;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #0077ed;
+    }
+
+    .btn-secondary {
+      background: #e5e5e7;
+      color: #1d1d1f;
+    }
+
+    .btn-secondary:hover {
+      background: #d2d2d7;
+    }
+
+    .empty-state {
+      padding: 2rem 1.5rem;
+      text-align: center;
+      color: #6e6e73;
+      font-size: .9375rem;
+    }
+
+    /* R7: Public-Read consent section */
+    .public-read-section {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #e5e5e7;
+      border-bottom: 1px solid #e5e5e7;
+      background: #fafafc;
+    }
+
+    .public-read-section h2 {
+      font-size: .875rem;
+      font-weight: 600;
+      color: #6e6e73;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: .75rem;
+    }
+
+    .public-read-toggle {
+      display: flex;
+      align-items: flex-start;
+      gap: .625rem;
+      padding: .75rem;
+      background: #fff;
+      border: 1px solid #e5e5e7;
+      border-radius: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .public-read-toggle input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #0071e3;
+      cursor: pointer;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .public-read-toggle .text {
+      font-size: .9375rem;
+      color: #1d1d1f;
+    }
+
+    .public-read-toggle .description {
+      display: block;
+      font-size: .8125rem;
+      color: #6e6e73;
+      margin-top: .125rem;
+    }
+
+    .public-context-list {
+      margin-top: .625rem;
+      padding-left: 1.75rem;
+      max-height: 8rem;
+      overflow-y: auto;
+    }
+
+    .public-context-list li {
+      list-style: disc;
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+      font-size: .75rem;
+      color: #86868b;
+      word-break: break-all;
+      margin-bottom: .125rem;
+    }
+
+  </style>
+</head>
+<body>
+<div class="consent-card">
+  <form id="consentForm" method="post" th:action="${consentAction}">
+    <input type="hidden" name="client_id" th:value="${clientId}"/>
+    <input type="hidden" name="redirect_uri" th:value="${redirectUri}"/>
+    <input type="hidden" name="state" th:value="${state}"/>
+    <input type="hidden" name="code_challenge" th:value="${codeChallenge}"/>
+    <input type="hidden" name="code_challenge_method" th:value="${codeChallengeMethod}"/>
+    <input type="hidden" name="csrf" th:value="${csrfToken}"/>
+
+    <div class="consent-header">
+      <h1><span th:text="${clientName}">Claude Code</span> wants access to your pod</h1>
+      <div class="app-info" th:if="${clientName != clientId}">
+        <span th:text="${clientId}">dyn:abc123</span>
+      </div>
+      <div class="user-info">
+        Signed in as <strong th:text="${webId}">https://id.sempods.org/e/abc</strong>
+      </div>
+    </div>
+
+    <!-- R7 (additive model, 2026-05-07): Public-Read is a normal additive
+         scope. Visible when the pod has at least one server-defined
+         public-read context. Default checked — most users want public-read
+         alongside any per-context grants. The user can uncheck it to keep
+         the grant strictly per-context. No mutual-exclusivity. -->
+    <div class="public-read-section" th:if="${publicReadAvailable}">
+      <h2>Public-read access</h2>
+      <label class="public-read-toggle">
+        <input type="checkbox"
+               id="publicReadToggle"
+               name="scope"
+               th:value="${publicReadScope}"
+               th:checked="${publicReadPreselected}"/>
+        <span class="text">
+          Include read-only access to this pod's public contexts.
+          <span class="description">
+            The app will be able to read all current and future
+            public-read contexts on this pod. This is in addition to any
+            per-context grants you select below. Untick it to keep the
+            grant strictly per-context.
+          </span>
+        </span>
+      </label>
+      <ul class="public-context-list" th:if="${!publicContexts.isEmpty()}">
+        <li th:each="ctx : ${publicContexts}" th:text="${ctx}">https://pod.example.com/public</li>
+      </ul>
+    </div>
+
+    <div class="contexts-list" th:if="${!contexts.isEmpty()}">
+      <h2>Contexts</h2>
+      <div class="context-item" th:each="ctx : ${contexts}">
+        <div class="context-name" th:text="${ctx.relativePath}">public/tasks</div>
+        <div class="context-path" th:text="${ctx.uri}">https://pod.example.com/public/tasks</div>
+        <div class="permissions">
+          <label>
+            <input type="checkbox"
+                   th:name="'scope'"
+                   th:value="${ctx.uri + '#read'}"
+                   th:checked="${ctx.readGranted}"/>
+            Read
+          </label>
+          <label>
+            <input type="checkbox"
+                   th:name="'scope'"
+                   th:value="${ctx.uri + '#write'}"
+                   th:checked="${ctx.writeGranted}"/>
+            Write
+          </label>
+          <label>
+            <input type="checkbox"
+                   th:name="'scope'"
+                   th:value="${ctx.uri + '#manage'}"
+                   th:checked="${ctx.manageGranted}"/>
+            Manage
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty-state" th:if="${contexts.isEmpty() && !isOwner}">
+      No contexts available on this pod.
+    </div>
+
+    <!-- New context creation (owner only) -->
+    <div class="new-context-section" th:if="${isOwner}">
+      <h2>Create Context</h2>
+      <div id="pendingContexts"></div>
+      <div class="new-context-row">
+        <!-- Both attributes are for *display and duplicate detection only*. The values this form
+             posts for a new context are relative paths; the server is the only place that turns
+             one into an IRI. A wrong prefix here shows the user the wrong preview — it cannot
+             produce a scope that silently fails to match. -->
+        <input type="text"
+               id="newContextInput"
+               class="new-context-input"
+               placeholder="e.g. public/tasks"
+               th:attr="data-pod-base-url=${podBaseUrl},data-context-prefix=${contextPathPrefix},
+                        data-reserved-segment=${reservedSegment},
+                        data-delegation-types=${delegationTypes},
+                        data-implemented-types=${implementedTypes}"/>
+        <button type="button" class="btn-add" onclick="addContext()">Add</button>
+      </div>
+      <div id="newContextError" class="new-context-error" role="alert" hidden></div>
+    </div>
+
+    <!-- Template for dynamically added contexts. Cloned by addContext(). -->
+    <template id="pendingContextTemplate">
+      <div class="context-item pending">
+        <input type="hidden" name="new_context" value=""/>
+        <div class="context-header">
+          <div class="context-name"></div>
+          <span class="pending-badge">New</span>
+          <button type="button" class="remove-btn" title="Remove">&times;</button>
+        </div>
+        <div class="context-path"></div>
+        <!-- `new_context_scope`, not `scope`: these name a context that does not exist yet, so
+             their value is `<relative-path>#<permission>` and the server resolves it against the
+             context it just created. Existing contexts below post their full IRI as `scope`. -->
+        <div class="permissions">
+          <label>
+            <input type="checkbox" name="new_context_scope" value="" data-perm="read" checked/>
+            Read
+          </label>
+          <label>
+            <input type="checkbox" name="new_context_scope" value="" data-perm="write" checked/>
+            Write
+          </label>
+          <label>
+            <input type="checkbox" name="new_context_scope" value="" data-perm="manage"/>
+            Manage
+          </label>
+        </div>
+      </div>
+    </template>
+
+    <div class="consent-footer">
+      <button type="button" class="btn btn-secondary" onclick="window.history.back()">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="authorizeBtn">Authorize</button>
+    </div>
+  </form>
+</div>
+
+<script th:if="${isOwner}">
+  (function() {
+    var input = document.getElementById('newContextInput');
+    var container = document.getElementById('pendingContexts');
+    var template = document.getElementById('pendingContextTemplate');
+    var podBaseUrl = input.getAttribute('data-pod-base-url');
+    var contextPrefix = input.getAttribute('data-context-prefix');
+    var errorBox = document.getElementById('newContextError');
+
+    function splitList(attr) {
+      var raw = input.getAttribute(attr) || '';
+      return raw ? raw.split(',') : [];
+    }
+    var reservedSegment = input.getAttribute('data-reserved-segment');
+    var delegationTypes = splitList('data-delegation-types');
+    var implementedTypes = splitList('data-implemented-types');
+
+    /**
+     * Mirrors `ContextPathRules` closely enough to tell the user *before* they submit. The server
+     * stays the authority — this exists because a name it rejects would otherwise just be missing
+     * from the grant list with nothing on screen to explain why.
+     *
+     * The reserved names come from the server as data, so a change to `ContextPathRules` reaches
+     * this form without anyone remembering to edit it. What is duplicated is the shape of the
+     * check, not the values it checks against.
+     */
+    // What `java.net.URI` refuses in a path on the server — a space, a quote, brackets, braces.
+    // Anything else makes its parse throw, and the context is then dropped without explanation.
+    //
+    // A *blacklist*, deliberately. A whitelist of RFC 3986's `pchar` would be stricter than the
+    // server: `java.net.URI` accepts non-ASCII in a path, so `größe` and `日記` are valid context
+    // names and a whitelist would refuse them here. Being stricter than the server is the same
+    // class of bug as being laxer, only quieter — it turns a legal name into an unexplained error.
+    var REJECTED_PATH_CHARS = /[ "<>\[\\\]^`{|}]/;
+
+    function rejectionReason(path) {
+      if (path.indexOf('%') >= 0) {
+        return 'Percent-encoded characters are not allowed — write the name literally.';
+      }
+      if (path.indexOf('#') >= 0 || path.indexOf('?') >= 0) {
+        return '“#” and “?” are not allowed in a context name.';
+      }
+      var badChar = path.match(REJECTED_PATH_CHARS);
+      if (badChar) {
+        var shown = badChar[0] === ' ' ? 'a space' : '“' + badChar[0] + '”';
+        return shown + ' cannot be part of a context name.';
+      }
+      var segments = path.split('/');
+      for (var s = 0; s < segments.length; s++) {
+        if (segments[s] === '') return 'A context name must not contain empty path segments.';
+        if (segments[s] === '.' || segments[s] === '..') return '“.” and “..” are not allowed.';
+        if (segments[s] === reservedSegment) {
+          return '“' + reservedSegment + '” is reserved and cannot be part of a context name.';
+        }
+      }
+      var first = segments[0];
+      if (delegationTypes.indexOf(first) >= 0) {
+        if (implementedTypes.indexOf(first) < 0) {
+          return '“' + first + '” is reserved for a future kind of context and cannot be used yet.';
+        }
+        if (segments.length < 3) {
+          return '“' + first + '/…” is handed out by the server. Add a name below it, ' +
+              'e.g. “' + path + '/notes”.';
+        }
+      }
+      return null;
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+      input.classList.add('invalid');
+      input.focus();
+    }
+
+    function clearError() {
+      errorBox.hidden = true;
+      input.classList.remove('invalid');
+    }
+
+    input.addEventListener('input', clearError);
+
+    window.addContext = function() {
+      var value = input.value.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!value) {
+        showError('Please enter a name for the context.');
+        return;
+      }
+
+      var rejection = rejectionReason(value);
+      if (rejection) {
+        showError(rejection);
+        return;
+      }
+      clearError();
+
+      // Prevent duplicates against pending + existing contexts.
+      var existingHidden = container.querySelectorAll('input[name="new_context"]');
+      for (var i = 0; i < existingHidden.length; i++) {
+        if (existingHidden[i].value === value) {
+          showError('“' + value + '” is already in this list.');
+          return;
+        }
+      }
+      // Preview only — see the note on the input's data attributes.
+      var previewUri = podBaseUrl + contextPrefix + value;
+      var existingScopes = document.querySelectorAll('.contexts-list input[name="scope"]');
+      for (var j = 0; j < existingScopes.length; j++) {
+        if (existingScopes[j].value.indexOf(previewUri + '#') === 0) {
+          showError('“' + value + '” already exists on this pod — grant it above instead.');
+          return;
+        }
+      }
+
+      var item = template.content.firstElementChild.cloneNode(true);
+      item.querySelector('input[name="new_context"]').value = value;
+      item.querySelector('.context-name').textContent = value;
+      item.querySelector('.context-path').textContent = previewUri;
+      item.querySelectorAll('input[name="new_context_scope"]').forEach(function(cb) {
+        cb.value = value + '#' + cb.getAttribute('data-perm');
+      });
+      item.querySelector('.remove-btn').onclick = function() { item.remove(); };
+      container.appendChild(item);
+
+      input.value = '';
+      input.focus();
+    };
+
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); window.addContext(); }
+    });
+  })();
+</script>
+</body>
+</html>

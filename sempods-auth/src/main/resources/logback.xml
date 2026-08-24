@@ -1,0 +1,4 @@
+<!-- See `docs/logging.md`; levels and format come from `LOG_LEVEL` / `LOG_FORMAT`. -->
+<configuration>
+  <include resource="org/sempods/commons/logging/logback-base.xml"/>
+</configuration>

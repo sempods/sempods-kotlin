@@ -1,0 +1,421 @@
+[ {
+  "name" : "authorize",
+  "description" : "Return the active sempods MCP session, or force a fresh OAuth flow. Called without arguments it returns the active session info with no side effects. Pass `reauthorize: true` to re-run the OAuth flow — e.g. to re-open the consent screen and connect additional pods. (An unauthenticated caller never sees this tool: the server answers every request with HTTP 401 + WWW-Authenticate, which the client follows to begin OAuth.)",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "reauthorize" : {
+        "type" : "boolean",
+        "description" : "If true, force the OAuth flow to start again even if already authorized. Default: false."
+      }
+    },
+    "required" : [ ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "list_pods",
+  "description" : "List the pods you have connected to this service (for the active profile), with each pod's OAuth issuer and the access token's feature `scopes` (e.g. `public-read`). NOTE: `scopes` is NOT the per-context access — a pod grants read/write on specific contexts as grants that do not appear here; call `list_contexts` for the authoritative read/write view. Each entry also carries `pod_subject` (the WebID the pod authorized you as) and `foreign_identity`: when true, you act on that pod as `pod_subject`, NOT your sempods identity — attribute reads/writes there accordingly, and `similar_to` names your sempods WebID that `pod_subject` likely denotes the same person as (a weak correlation hint, not an asserted identity). Use the returned pod base URLs as `targets` for the other tools. Makes no call to the pods themselves. Takes no arguments.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : { },
+    "required" : [ ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "list_contexts",
+  "description" : "Return the contexts (named graphs) you can see, with the permission level on each. Call this FIRST before write tools — a `context_iri` returned here is the only valid value for ANY write tool: `create_resource` / `update_resource` / `delete_resource` AND the property-value tools `add_property_value` / `set_property_values` / `remove_property_value` / `clear_property_values`. Results are grouped per pod. Optionally restrict the fan-out to a subset of pods with `targets`.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "sparql_select",
+  "description" : "Execute a read-only SPARQL SELECT or ASK query against each of your connected pods. Returns SPARQL-Results-JSON per pod (rows with named bindings, see https://www.w3.org/TR/sparql11-results-json/). Best for discovery: list distinct types, list predicates used by a resource, count things. Every call is sandboxed to the contexts you may read; by default the query runs over all of them, and `context_iri` restricts it to specific named graphs (or use GRAPH/FROM inside the query). Provenance is per pod, not per context. NOTE: the query runs independently on each pod, so ORDER BY and LIMIT apply PER POD, not globally — for a global top-N or ranking across pods, fetch and re-rank the per-pod results yourself.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "query" : {
+        "type" : "string",
+        "description" : "The SPARQL SELECT or ASK query. Write operations and SERVICE are rejected."
+      },
+      "context_iri" : {
+        "type" : "array",
+        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of each of your connected pods. Unknown or unreadable contexts are dropped; if none remain readable, the query returns no results — it does not fall back to the whole pod.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ "query" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "sparql_graph",
+  "description" : "Execute a read-only SPARQL CONSTRUCT or DESCRIBE query against each of your connected pods. Returns JSON-LD per pod. Best for fetching all properties of a known resource without guessing predicate names. Every call is sandboxed to the contexts you may read; by default the query runs over all of them, and `context_iri` restricts it to specific named graphs (or use GRAPH/FROM inside the query). NOTE: the query runs independently on each pod, so any LIMIT applies PER POD, not globally.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "query" : {
+        "type" : "string",
+        "description" : "The SPARQL CONSTRUCT or DESCRIBE query. Write operations and SERVICE are rejected."
+      },
+      "context_iri" : {
+        "type" : "array",
+        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of each of your connected pods. Unknown or unreadable contexts are dropped; if none remain readable, the result graph is empty — it does not fall back to the whole pod.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ "query" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "find",
+  "description" : "Search each of your connected pods for resources by text — the semantic entry to graph retrieval. Returns a context-sandboxed RDF subgraph (matching resources plus a type/label/name expansion) as JSON-LD per pod; feed the IRIs into `get_resource` / `sparql_graph` to go deeper. Prefer this over hand-written SPARQL when you don't know the exact predicates.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "text" : {
+        "type" : "string",
+        "description" : "Required search text. Whitespace-split, case-insensitive; a resource matches when one of its literals contains all tokens. Whitespace-only is rejected."
+      },
+      "type" : {
+        "type" : "array",
+        "description" : "Optional array of rdf:type IRIs (OR-combined): only resources of one of these types are returned. Omit for an unconstrained text search.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "context_iri" : {
+        "type" : "array",
+        "description" : "Optional array of context IRIs to restrict the search to (a downscope within the contexts you may read; use values from `list_contexts`). Omit to search across every readable context of each of your connected pods. Unknown or unreadable contexts are silently ignored.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "include_contexts" : {
+        "type" : "boolean",
+        "description" : "Optional: when true, return the named-graph form (matching and expansion statements grouped by the context they came from) instead of the merged flat graph. Use it to see which context each hit lives in — e.g. to tell a public result apart from a private one."
+      },
+      "limit" : {
+        "type" : "integer",
+        "description" : "Optional max number of matching resources per pod. Clamped to 1..100, default 10."
+      },
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ "text" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "get_resource",
+  "description" : "Fetch the whole-resource view of a KNOWN resource_iri as canonical JSON-LD from each of your connected pods, together with its `etag`. Use this before `update_resource` / `delete_resource` to read the current state AND obtain the `etag` to pass back as `if_match` for a safe read-modify-write (lost-update protection). `resource_iri` may be local or external (`did:`, `urn:`, foreign `https://…`).\n\nReturns `{ \"resource_iri\": \"…\", \"etag\": \"…\", \"jsonld\": <canonical JSON-LD> }` per pod. Pass the `etag` verbatim to `update_resource.if_match`. Prefer this over hand-written SPARQL when you already know the resource IRI. Where the resource has no visible statements, the answer is a not-visible error rather than an empty document.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "resource_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the resource to read (local or external)."
+      },
+      "context_iri" : {
+        "type" : "array",
+        "description" : "Optional array of context IRIs to downscope the read to. Omit to union across every readable context of each of your connected pods. Unknown or unreadable contexts are silently ignored; if none remain, the answer is a not-visible error.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "include_contexts" : {
+        "type" : "boolean",
+        "description" : "Optional: when true, return the named-graph form (statements grouped by context) instead of the merged canonical document. The returned `etag` is the same write-precondition tag either way — it does not describe the named-graph representation — so it stays usable for `if_match`."
+      },
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ "resource_iri" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "get_property_values",
+  "description" : "Read all values of one slot `(subject_iri, predicate_iri)` as a JSON-LD value array from each of your connected pods. With a single readable context, also returns a slot `etag` to pass as `if_match` to `set_property_values` / `clear_property_values` for a safe read-modify-write. `subject_iri` may be local or external. Returns `{ \"subject_iri\", \"predicate_iri\", \"values\": [...], \"etag\"? }` per pod.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "subject_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the subject (local or external)."
+      },
+      "predicate_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the predicate (e.g. https://schema.org/children)."
+      },
+      "context_iri" : {
+        "type" : "array",
+        "description" : "Optional array of context IRIs to downscope the slot read to. A slot `etag` is returned only when exactly one readable context remains and values are visible.",
+        "items" : {
+          "type" : "string"
+        }
+      },
+      "targets" : {
+        "type" : "array",
+        "description" : "Optional array of connected pod base URLs to restrict this call to (a subset of your connected pods; from list_pods). Omit to query all your connected pods.",
+        "items" : {
+          "type" : "string"
+        }
+      }
+    },
+    "required" : [ "subject_iri", "predicate_iri" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "create_resource",
+  "description" : "Create or replace a whole resource inside ONE context of ONE connected pod (never fans out). Requires the `<context_iri>#write` (or `#manage`) scope on the target context.\n\nSTRICT CONTRACT: exactly the declared top-level arguments. Any other field (observed hallucinations: `statements`, `triples`, `quads`) is rejected by the schema.\n\nThe `jsonld` object is RDF-serialised via JSON-LD 1.1 expansion. That means:\n  - Every predicate MUST resolve to an absolute IRI. Bare keys like \"sender\" or \"content\" expand to NOTHING and you get HTTP 400 \"parsed to 0 RDF statements\".\n  - `@type` likewise MUST be an absolute IRI (\"Message\" expands to nothing; \"https://schema.org/Message\" works).\n  - Either write every predicate as an absolute IRI, or declare shorthand in \"@context\".\n\nWORKING EXAMPLE (copy this shape, swap IRIs/values):\n\n  {\n    \"target\": \"https://sempods.org/alice\",\n    \"context_iri\": \"https://sempods.org/alice/ai-playground\",\n    \"resource_iri\": \"https://sempods.org/alice/ai-playground/message/chatgpt-1\",\n    \"jsonld\": {\n      \"@context\": {\n        \"schema\": \"https://schema.org/\",\n        \"sender\": \"schema:sender\",\n        \"text\":   \"schema:text\",\n        \"intent\": \"https://sempods.org/vocab/intent\"\n      },\n      \"@id\":    \"https://sempods.org/alice/ai-playground/message/chatgpt-1\",\n      \"@type\":  \"schema:Message\",\n      \"sender\": \"ChatGPT\",\n      \"intent\": \"agent_collaboration\",\n      \"text\":   \"Hallo Opus, …\"\n    }\n  }\n\nConfirm the target context_iri with the user unless they named it explicitly. The `resource_iri` must equal `jsonld[\"@id\"]`. It may be ANY absolute IRI — a resource in the pod or an external URI (`did:`, `urn:`, foreign `https://…`) — so you can enrich an external identity (say a `foaf:`/`schema:Person`) with pod-local statements. Where a statement is stored is decided by `context_iri`, not by what it is about. Pass `if_none_match: \"*\"` for create-or-fail; omit it for upsert.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the writable context (graph) the resource belongs to. Use one of the writable_contexts from `list_contexts`."
+      },
+      "resource_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the resource — local or external (did:, urn:, foreign https://…). Must equal `jsonld[\"@id\"]`."
+      },
+      "jsonld" : {
+        "type" : "object",
+        "description" : "A single JSON-LD object. Predicates (including @type) must be absolute IRIs or mapped via @context; bare keys expand to nothing (HTTP 400). See the tool description for a working example."
+      },
+      "if_none_match" : {
+        "type" : "string",
+        "description" : "Optional. Pass \"*\" for create-or-fail: the call fails with a precondition error if the resource already exists. Omit for upsert (the default — replaces an existing resource in the context)."
+      }
+    },
+    "required" : [ "target", "context_iri", "resource_iri", "jsonld" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "update_resource",
+  "description" : "Apply a strict RFC 7396 JSON merge-patch to an existing resource's CANONICAL JSON-LD shape inside ONE context of ONE connected pod (never fans out). STRICT CONTRACT: exactly the declared top-level arguments — any other field is rejected.\n\nCANONICAL FORM ONLY — `jsonld_patch` must follow these rules:\n  - predicate keys MUST be absolute IRIs (e.g. \"https://schema.org/text\"). Compact terms like \"schema:text\" are REJECTED with HTTP 400.\n  - \"@context\" at the top level is REJECTED. Resolve all prefixes client-side.\n  - The only allowed JSON-LD keywords are \"@id\" (optional; if present it must equal the request's resource_iri) and \"@type\" (string, array of strings, or null to remove every rdf:type triple).\n  - Property values follow JSON-LD value-object form: literals as {\"@value\": \"…\", \"@language\": \"…\"|\"@type\": \"<datatype-iri>\"} or bare strings; IRI values as {\"@id\": \"…\"}.\n\nRFC 7396 array-replace applies: setting a multivalued property in the patch replaces every existing value. For additive multivalued operations (e.g. add ONE more schema:children without losing the others), use the property-value tools (`add_property_value` / `remove_property_value`).\n\nWORKING EXAMPLE:\n\n  {\n    \"target\": \"https://sempods.org/alice\",\n    \"context_iri\": \"https://sempods.org/alice/contacts\",\n    \"resource_iri\": \"https://sempods.org/alice/contacts/bob\",\n    \"jsonld_patch\": {\n      \"https://schema.org/text\": [{\"@value\": \"updated\"}],\n      \"https://schema.org/oldField\": null\n    }\n  }\n\nRequires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the context (graph) the resource lives in."
+      },
+      "resource_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the resource to patch — local or external (did:, urn:, foreign https://…)."
+      },
+      "jsonld_patch" : {
+        "type" : "object",
+        "description" : "Strict canonical JSON-LD merge-patch body. Absolute-IRI predicate keys only. No \"@context\". Only \"@id\" (optional, must match resource_iri) and \"@type\" keywords allowed; a null value removes that property. Example: {\"https://schema.org/text\":[{\"@value\":\"updated\"}]}."
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional ETag for lost-update protection: pass the `etag` returned by `get_resource` (or by a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional patch."
+      }
+    },
+    "required" : [ "target", "context_iri", "resource_iri", "jsonld_patch" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "delete_resource",
+  "description" : "Delete a resource from ONE context of ONE connected pod (never fans out). ALWAYS confirm the target resource_iri and context_iri with the user before calling. Optional `if_match` makes the delete conditional (no-op-safe lost-update protection). Requires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the context (graph) the resource lives in."
+      },
+      "resource_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the resource to delete — local or external (did:, urn:, foreign https://…)."
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional ETag for lost-update protection: pass the `etag` from `get_resource` (or a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional delete."
+      }
+    },
+    "required" : [ "target", "context_iri", "resource_iri" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "add_property_value",
+  "description" : "Add ONE value to the slot (subject_iri, predicate_iri) inside ONE context of ONE connected pod (never fans out), without disturbing existing values. The canonical way to extend a multivalued property (e.g. add one more `schema:children` to a person) — `update_resource` cannot do this because RFC 7396 replaces arrays wholesale.\n\nRDF set semantics: adding a triple that already exists is a no-op. Calling this tool twice with the same value is safe — the first call returns `outcome=created`, the second returns `outcome=already_present`. Both are success outcomes; no `isError`.\n\n`subject_iri` may be ANY absolute IRI — a local pod resource or an external one (`did:web:…`, `urn:…`). This is the granular (per-value) path for writing triples about external URIs; `create_resource` / `update_resource` are the whole-resource counterparts.\n\n`value` is a JSON-LD value object: `{\"@id\": \"<iri>\"}` for an IRI value, or `{\"@value\": \"…\", \"@language\": \"…\"}` / `{\"@value\": \"…\", \"@type\": \"…\"}` for a literal.\n\nRequires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the writable context. Use one of the writable_contexts from `list_contexts`."
+      },
+      "subject_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the subject. May be a local pod resource or an external URI (did:, urn:, …)."
+      },
+      "predicate_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the predicate (e.g. https://schema.org/children)."
+      },
+      "value" : {
+        "type" : "object",
+        "description" : "JSON-LD value object: {\"@id\":\"<iri>\"} for an IRI value, or {\"@value\":\"…\",\"@language\":\"…\"|\"@type\":\"<iri>\"} for a literal."
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or from a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional add (the default; safe under RDF set semantics)."
+      }
+    },
+    "required" : [ "target", "context_iri", "subject_iri", "predicate_iri", "value" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "set_property_values",
+  "description" : "Replace ALL values of the slot (subject_iri, predicate_iri) inside ONE context of ONE connected pod (never fans out) with the provided array. The right tool for: editing a single literal (read, then call this with the new value), shrinking a multivalued slot, or wholesale replacing the values of one property without touching other properties of the same resource.\n\n`values` is a JSON array of JSON-LD value objects; an empty array clears the slot.\n\nRequires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the writable context."
+      },
+      "subject_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the subject (local or external)."
+      },
+      "predicate_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the predicate."
+      },
+      "values" : {
+        "type" : "array",
+        "description" : "Array of JSON-LD value objects. Empty array clears the slot.",
+        "items" : {
+          "type" : "object"
+        }
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional replace."
+      }
+    },
+    "required" : [ "target", "context_iri", "subject_iri", "predicate_iri", "values" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "remove_property_value",
+  "description" : "Remove exactly ONE IRI-valued edge `(subject_iri, predicate_iri, target_iri)` from the slot inside ONE context of ONE connected pod (never fans out). Other values of the same slot are untouched.\n\nIdempotent: removing an edge that is already absent succeeds with `outcome=already_absent` instead of failing. Use this for \"ensure this triple does not exist\" patterns without a prior read.\n\nLiteral values cannot be removed with this tool — use `set_property_values` after reading the slot client-side.\n\nRequires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the writable context."
+      },
+      "subject_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the subject."
+      },
+      "predicate_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the predicate."
+      },
+      "target_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the value to remove (IRI targets only)."
+      }
+    },
+    "required" : [ "target", "context_iri", "subject_iri", "predicate_iri", "target_iri" ],
+    "additionalProperties" : false
+  }
+}, {
+  "name" : "clear_property_values",
+  "description" : "Empty the slot — remove every value of `predicate_iri` on `subject_iri` inside ONE context of ONE connected pod (never fans out). Other predicates of the same subject, and other contexts, remain intact.\n\nIdempotent: an already-empty slot succeeds with `outcome=already_empty` instead of failing.\n\nRequires the `<context_iri>#write` (or `#manage`) scope.",
+  "inputSchema" : {
+    "type" : "object",
+    "properties" : {
+      "target" : {
+        "type" : "string",
+        "description" : "Required. The single connected pod base URL to write to (from list_pods). Writes never fan out: exactly one pod, one context."
+      },
+      "context_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the writable context."
+      },
+      "subject_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the subject."
+      },
+      "predicate_iri" : {
+        "type" : "string",
+        "description" : "Absolute IRI of the predicate."
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional clear."
+      }
+    },
+    "required" : [ "target", "context_iri", "subject_iri", "predicate_iri" ],
+    "additionalProperties" : false
+  }
+} ]

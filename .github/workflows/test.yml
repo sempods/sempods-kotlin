@@ -1,0 +1,87 @@
+name: Testing
+
+# `pull_request` rather than `push` alone, for three reasons: a push from a fork triggers nothing
+# in this repository, so a contribution would arrive untested; a PR opened on an
+# already-pushed branch gets no fresh run; and `pull_request` tests the **merge result** against
+# the base, whereas a push only tests the branch — a PR can be green and still break `main`.
+#
+# `push` stays for `main` so the merged state is verified. Feature branches are covered by their
+# PR; open a draft PR to get CI on work in progress.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+# A newer commit makes the previous run's answer irrelevant. Without this, a series of quick
+# pushes leaves obsolete runs occupying the queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Least privilege, and explicit because the default is repository-wide. `checks: write` is what
+# the JUnit reporter needs to publish its check run.
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-test-environment
+
+      # `--max-workers=2`, against the four this runner would otherwise take. `gradle.properties`
+      # pins four because that suits a developer machine; here it means four test JVMs, each with a
+      # 2 GB heap booting Jetty, RDF4J and a Mongo pool, sharing four cores. Three of them were live
+      # when an integration test timed out waiting on roughly a third of a core to run on — and a
+      # starved suite fails by timing out, which reads like a bug in the test rather than a
+      # shortage of CPU.
+      #
+      # This costs nothing measurable. Runs of this workflow vary by more than a minute on identical
+      # code (main: 7m12s, 6m5s, 7m28s), which is wider than any difference two workers make, so
+      # single-run comparisons here mean nothing and are not worth drawing conclusions from.
+      # `checkNoLoggingBinding` is named explicitly, because `test` schedules the suites and
+      # nothing else: the guard is wired into `check`, so it would never run here, and a guard
+      # that only fires on a developer's machine is one a pull request walks straight past. It
+      # keeps a library from carrying the logback binding into a consumer's runtime — the one
+      # dependency mistake a library is not forgiven, and invisible without a check.
+      #
+      # Naming it beats running `check`, which pulls a couple of dozen extra tasks into the same
+      # job and changes what runs concurrently with what. The guard is one classpath walk; it does
+      # not need `check`'s scheduling.
+      - name: Run tests
+        id: gradle_tests
+        run: ./gradlew test checkNoLoggingBinding --max-workers=2
+        continue-on-error: true
+
+      # Reporting must never decide the outcome. A pull request from a fork gets a read-only
+      # token, so publishing the check run fails there — and without this the job would go red
+      # while the tests themselves were green, which is exactly backwards for a contribution.
+      # The verdict is the final step; the uploaded artifact carries the detail either way.
+      - name: Publish JUnit Test Report
+        if: always()
+        continue-on-error: true
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: "**/build/test-results/test/TEST-*.xml"
+          check_name: "JUnit Test Report"
+          detailed_summary: true
+          include_passed: false
+          fail_on_failure: false
+
+      - name: Upload Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-test-reports
+          path: |
+            **/build/test-results/test/TEST-*.xml
+            **/build/reports/tests/test/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail if tests failed
+        if: steps.gradle_tests.outcome == 'failure'
+        run: exit 1
