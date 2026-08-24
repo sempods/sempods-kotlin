@@ -40,39 +40,39 @@ class ApiExceptionMapper @Inject constructor(
 
   override fun toResponse(throwable: Throwable): Response {
 
-    val unwrappedEx = unwrapException(throwable)
+    val failure = unwrapExecutionException(throwable)
     val request = requestDescription()
 
     // The project's own API exceptions
-    if (unwrappedEx is ApiException) {
-      val logMsg = "${unwrappedEx.errors}$request"
-      if (unwrappedEx.logAsError) {
-        logger.error(unwrappedEx.cause) { logMsg }
+    if (failure is ApiException) {
+      val logMsg = "${failure.errors}$request"
+      if (failure.logAsError) {
+        logger.error(failure.cause) { logMsg }
       } else {
-        logger.warn(unwrappedEx.cause) { logMsg }
+        logger.warn(failure.cause) { logMsg }
       }
       try {
-        return unwrappedEx.buildResponse()
+        return failure.buildResponse()
       } catch (e: Exception) {
         throw RuntimeException("error on creating error response", e)
       }
     }
 
     // jax-rs exceptions
-    if (unwrappedEx is WebApplicationException) {
-      if (unwrappedEx.response?.status == 404) {
-        logger.info { "Got 404 (not found): ${unwrappedEx.message}$request" }
-      } else if (unwrappedEx.response?.status == 405) {
-        logger.info { "Got 405 (method not allowed): ${unwrappedEx.message}$request" }
+    if (failure is WebApplicationException) {
+      if (failure.response?.status == 404) {
+        logger.info { "Got 404 (not found): ${failure.message}$request" }
+      } else if (failure.response?.status == 405) {
+        logger.info { "Got 405 (method not allowed): ${failure.message}$request" }
       } else {
-        logger.error(unwrappedEx) { "${unwrappedEx.message}$request" }
+        logger.error(failure) { "${failure.message}$request" }
       }
-      return unwrappedEx.response
+      return failure.response
     }
 
     // unknown exception, log as fatal
-    logger.error(unwrappedEx) { "${unwrappedEx.message}$request" }
-    return Response.status(500).entity(unwrappedEx.message).type("text/plain").build()
+    logger.error(failure) { "${failure.message}$request" }
+    return Response.status(500).entity(failure.message).type("text/plain").build()
   }
 
   /**
@@ -88,19 +88,13 @@ class ApiExceptionMapper @Inject constructor(
 
     private val logger = KotlinLogging.logger {}
 
-    fun unwrapException(t: Throwable): Throwable {
-
-      // see: https://github.com/sonatype/async-http-client/issues/141
-
-      // HOTFIX: a runtime exception will be wrapped by an execution exception
-      val unwrapped = (t as? ExecutionException)
-        ?.cause
-        ?: t
-
-      // HOTFIX: NettyResponseFuture transforms exceptions to a runtime exception
-      return (unwrapped as? RuntimeException)
-        ?.cause
-        ?: unwrapped
-    }
+    /**
+     * The cause of an [ExecutionException] — what a caller joining a task with `Future.get()`
+     * throws in place of the failure the task raised. This type only, one layer: [ApiException]
+     * and [WebApplicationException] are `RuntimeException`s themselves, so a wider rule would
+     * strip the response off an exception that carries one.
+     */
+    private fun unwrapExecutionException(t: Throwable): Throwable =
+      if (t is ExecutionException) t.cause ?: t else t
   }
 }

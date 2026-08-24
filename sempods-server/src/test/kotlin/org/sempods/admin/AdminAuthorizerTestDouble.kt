@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  * on the shared base class makes that a broad target, not a narrow one.
  *
  * [withAuthorizer] binds a trace, which is what puts a `traceparent` on the requests inside the
- * block (`AhcTraceparentFilter` writes one only for a thread that carries a trace) and what lets
+ * block (`TraceparentInterceptor` writes one only for a thread that carries a trace) and what lets
  * `TraceContextFilter` hand the same id back on the server side. A request from anywhere else
  * carries a different trace and gets the default authorizer.
  */

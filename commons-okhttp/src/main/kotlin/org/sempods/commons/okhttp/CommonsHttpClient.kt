@@ -11,18 +11,11 @@ import java.nio.charset.StandardCharsets
 /**
  * The project's wrapper around OkHttp: send a JSON document, get a body back or an exception.
  *
- * Named for the module rather than the framework, the way its async-http-client predecessor was —
- * nothing in it is server-specific. It is deliberately **small**: it carries the two decisions its
- * callers would otherwise each make (how a payload becomes a request, and which status codes are
- * an error) and nothing they do not ask for. A method here that no call site uses would be a
- * guess about the next caller, and the next caller is better served by adding it then.
+ * Deliberately **small**: it carries the two decisions its callers would otherwise each make (how
+ * a payload becomes a request, and which status codes are an error) and nothing else.
  *
  * **Blocking**, because on Java 25 a blocking send on a virtual thread is what an async client used
- * to buy — the same reasoning `docs/pod-client.md` records for `:sempods-client`. The
- * `CompletableFuture` the predecessor returned was unwrapped with `.get()` at every call site
- * anyway, and it is what forced those call sites to dig a cause out of a `CompletionException`.
- *
- * The default mapper is [JsonMappers.default]. Callers needing another one pass it explicitly.
+ * to buy — the reasoning `docs/pod-client.md` records for `:sempods-client`.
  */
 class CommonsHttpClient(
   private val client: OkHttpClient,

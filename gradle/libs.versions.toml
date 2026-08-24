@@ -16,17 +16,12 @@ ktorServerCallLogging = { module = "io.ktor:ktor-server-call-logging", version.r
 ktorServerTestHost = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
 ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktorClientCio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
-ktorClientOkhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 rdf4jBom = { module = "org.eclipse.rdf4j:rdf4j-bom", version.ref = "rdf4j" }
 slf4jBom = { module = "org.slf4j:slf4j-bom", version.ref = "slf4j" }
 
-# Used by the private application modules only. The sempods side left this engine, and what is left
-# of the wrapper lives with them. The maintainer's internal roadmap retires it.
-asyncHttpClient = "org.asynchttpclient:async-http-client:3.0.13"
-
-# The HTTP engine under `:sempods-client` — and therefore under everything that dials a pod — and,
-# since the pod server left async-http-client, under `:commons-okhttp` as well. The two hold separate
-# clients on purpose (`docs/pod-client.md` §"Two OkHttp clients in one process").
+# The HTTP engine under `:sempods-client` — and therefore under everything that dials a pod — and
+# under `:commons-okhttp` as well. The two hold separate clients on purpose
+# (`docs/pod-client.md` §"Two OkHttp clients in one process").
 # Declared explicitly rather than taken transitively through `ktor-client-okhttp`: `:sempods-client`
 # has no Ktor and must not have its engine version decided by the Ktor BOM of a different module.
 # OkHttp rather than the JDK client because its `Dns` hook is where SSRF resolve-and-pin can be

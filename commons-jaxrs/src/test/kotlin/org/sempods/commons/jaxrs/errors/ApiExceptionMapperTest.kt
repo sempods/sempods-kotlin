@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.sempods.commons.jaxrs.ContainerRequestHolder
 import org.sempods.commons.jaxrs.SecretPathSegment
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ExecutionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -148,6 +149,37 @@ class ApiExceptionMapperTest {
     val line = loggedLine("rooms/44")
     assertFalse('\n' in line, "was: $line")
     assertTrue(line.endsWith(" [GET v1/rooms/44\\u000aERROR forged]"), "was: $line")
+  }
+
+  @Test
+  fun `an ApiException a task wrapped still answers its own status`() {
+    // A caller joining a task with `Future.get()` hands on whatever it threw wrapped in an
+    // `ExecutionException`. The status the failure declared has to survive that.
+    bindRequest("GET", "v1/pods/alice/events/42")
+
+    val response = mapper.toResponse(
+      ExecutionException(ApiException(errorId = "not_found", statusCode = 404)),
+    )
+
+    assertEquals(404, response.status)
+  }
+
+  @Test
+  fun `an ApiException carrying a cause keeps its own status`() {
+    // The other side of that unwrapping, pinned so it cannot be widened back: `ApiException` is
+    // itself a `RuntimeException`, so a rule phrased on that type would strip the response off the
+    // exception that carries one.
+    bindRequest("DELETE", "v1/pods/alice")
+
+    val response = mapper.toResponse(
+      ApiException(
+        statusCode = 409,
+        errors = listOf(ApiErrorDto(code = "conflict")),
+        cause = IllegalStateException("the underlying failure"),
+      ),
+    )
+
+    assertEquals(409, response.status)
   }
 
   @Test
