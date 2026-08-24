@@ -3,6 +3,7 @@ package org.sempods.commons.jaxrs.errors
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
+import java.util.concurrent.ExecutionException
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.inject.Inject
 import org.sempods.commons.jaxrs.ContainerRequestHolder
@@ -39,38 +40,39 @@ class ApiExceptionMapper @Inject constructor(
 
   override fun toResponse(throwable: Throwable): Response {
 
+    val failure = unwrapExecutionException(throwable)
     val request = requestDescription()
 
     // The project's own API exceptions
-    if (throwable is ApiException) {
-      val logMsg = "${throwable.errors}$request"
-      if (throwable.logAsError) {
-        logger.error(throwable.cause) { logMsg }
+    if (failure is ApiException) {
+      val logMsg = "${failure.errors}$request"
+      if (failure.logAsError) {
+        logger.error(failure.cause) { logMsg }
       } else {
-        logger.warn(throwable.cause) { logMsg }
+        logger.warn(failure.cause) { logMsg }
       }
       try {
-        return throwable.buildResponse()
+        return failure.buildResponse()
       } catch (e: Exception) {
         throw RuntimeException("error on creating error response", e)
       }
     }
 
     // jax-rs exceptions
-    if (throwable is WebApplicationException) {
-      if (throwable.response?.status == 404) {
-        logger.info { "Got 404 (not found): ${throwable.message}$request" }
-      } else if (throwable.response?.status == 405) {
-        logger.info { "Got 405 (method not allowed): ${throwable.message}$request" }
+    if (failure is WebApplicationException) {
+      if (failure.response?.status == 404) {
+        logger.info { "Got 404 (not found): ${failure.message}$request" }
+      } else if (failure.response?.status == 405) {
+        logger.info { "Got 405 (method not allowed): ${failure.message}$request" }
       } else {
-        logger.error(throwable) { "${throwable.message}$request" }
+        logger.error(failure) { "${failure.message}$request" }
       }
-      return throwable.response
+      return failure.response
     }
 
     // unknown exception, log as fatal
-    logger.error(throwable) { "${throwable.message}$request" }
-    return Response.status(500).entity(throwable.message).type("text/plain").build()
+    logger.error(failure) { "${failure.message}$request" }
+    return Response.status(500).entity(failure.message).type("text/plain").build()
   }
 
   /**
@@ -85,5 +87,21 @@ class ApiExceptionMapper @Inject constructor(
   companion object {
 
     private val logger = KotlinLogging.logger {}
+
+    /**
+     * The cause of an [ExecutionException] — what `Future.get()` throws instead of the failure the
+     * task actually raised.
+     *
+     * `FindService` fans its adapters out over a virtual-thread executor and joins them with
+     * `future.get()`, so an [ApiException] raised inside an adapter — the `404` for a pod deleted
+     * mid-query, say — arrives here wrapped. Without this it matches neither branch above and
+     * answers a generic `500`, discarding the status the failure declared.
+     *
+     * **One type, one layer**, and that narrowness is the point: `get()` wraps exactly once, while
+     * [ApiException] and [WebApplicationException] are themselves `RuntimeException`s — a rule
+     * phrased on that type would strip the response off the exception that carries one.
+     */
+    private fun unwrapExecutionException(t: Throwable): Throwable =
+      if (t is ExecutionException) t.cause ?: t else t
   }
 }
