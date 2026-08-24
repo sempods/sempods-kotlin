@@ -56,7 +56,7 @@ googleApiClient = "com.google.api-client:google-api-client:2.9.0"
 owaspHtmlSanitizer = "com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20260313.1"
 
 guice = "com.google.inject:guice:7.0.0"
-jackson = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.1"
+jackson = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.2"
 jacksonKotlin = "com.fasterxml.jackson.module:jackson-module-kotlin:2.22.1"
 jakartaServletApi = "jakarta.servlet:jakarta.servlet-api:6.1.0"
 jerseyHk2 = { module = "org.glassfish.jersey.inject:jersey-hk2", version.ref = "jersey" }
