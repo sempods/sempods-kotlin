@@ -257,7 +257,54 @@ subprojects {
 // module applies `maven-publish` and asks for it.
 allprojects {
   plugins.withId("maven-publish") {
+
+    // Signing, and only when there is a key to sign with.
+    //
+    // Central requires a `.asc` beside every file of a *release*; snapshots are exempt, and are
+    // documented as receiving no validation at all. Making it unconditional would therefore break
+    // the two things that happen far more often than a release — a local `publishToMavenLocal` and
+    // a snapshot from CI — for a guarantee neither of them offers anyway.
+    //
+    // The key arrives in memory from the environment rather than from a keyring on disk, because
+    // the machine that will do the signing is a CI runner with no keyring, and because the
+    // alternative is a path in a build file pointing at a secret. Nothing here reads a file, and
+    // nothing here has a default.
+    val signingKey = providers.environmentVariable("SIGNING_KEY")
+      .orElse(providers.gradleProperty("signingKey"))
+    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD")
+      .orElse(providers.gradleProperty("signingPassword"))
+
+    if (signingKey.isPresent) {
+      apply(plugin = "signing")
+      extensions.configure<SigningExtension> {
+        // The empty string rather than null for a key with no passphrase: Gradle takes the
+        // password as a `String`, and a null one leaves it with no signatory at all — which
+        // surfaces later as "No configured signatory" on the first sign task, naming the symptom
+        // and not the cause.
+        useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(""))
+        sign(extensions.getByType<PublishingExtension>().publications)
+      }
+    }
+
     extensions.configure<PublishingExtension> {
+
+      // Where snapshots go. Releases do not go through here — the Central Portal takes a signed
+      // bundle through its own upload, which is a separate step and a separate decision (see
+      // `RELEASING.md`); this is the half that is a plain Maven repository and needs nothing but
+      // a token.
+      //
+      // `credentials(PasswordCredentials::class)` rather than reading properties here: Gradle
+      // derives `centralSnapshotsUsername`/`centralSnapshotsPassword` from the repository name and
+      // asks for them only when this repository is actually published to. So no credential is
+      // named in this file, and a build that never publishes never needs one to exist.
+      repositories {
+        maven {
+          name = "centralSnapshots"
+          url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+          credentials(PasswordCredentials::class)
+        }
+      }
+
       publications.withType<MavenPublication>().configureEach {
         pom {
           name.set(project.name)
@@ -273,11 +320,18 @@ allprojects {
               url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
           }
+          // Central asks for an organization and a way to reach a person, not just a name. The
+          // address is the project's published contact — the same one `SECURITY.md` gives — rather
+          // than a personal one: what a consumer of a released artifact needs is a channel that
+          // outlives whoever is maintaining it this year.
           developers {
             developer {
               id.set("haed")
               name.set("Danilo Stein")
               url.set("https://github.com/haed")
+              email.set("hello@sempods.org")
+              organization.set("sempods")
+              organizationUrl.set("https://sempods.org")
             }
           }
           scm {
