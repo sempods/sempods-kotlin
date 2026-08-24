@@ -436,22 +436,25 @@ class PodOAuthClient(
     // Non-numeric is treated as absent, which is what the hand-written parse did.
     val declaredLifetime = (json["expires_in"] as? Number)?.toLong()
     // nimbus refuses a token response whose `token_type` is missing **or** names something it does
-    // not know, and refuses one whose `expires_in` is present but not a number — three rejections,
-    // where the previous code had none. Every one of them was a pod that connected before, so the
-    // parse gets a normalised copy: it decides what the tokens are, not whether the pod is allowed
-    // to be sloppy about the fields read above.
+    // not know, and it also sits in judgement over `expires_in` — refusing one that is present but
+    // not a number, and, since 11.38, one that is negative. Every such response was a pod that
+    // connected before, so nimbus gets a normalised copy: it decides what the tokens are, not
+    // whether the pod is allowed to be sloppy about the fields read above.
     //
-    // The comparison is against the **raw** member, because that is what nimbus reads: a padded
-    // `" Bearer "` satisfies the trimmed check above and is still refused. When the pod's word is
-    // one nimbus knows, the copy gets it trimmed; otherwise the copy gets `Bearer` and
+    // The lifetime was already read from the raw member above and is never taken from nimbus, so
+    // nimbus has no need to see `expires_in` at all: the copy always drops it. That way no present
+    // or future tightening of how nimbus validates that member can refuse a token the pod returned.
+    //
+    // The token_type comparison is against the **raw** member, because that is what nimbus reads: a
+    // padded `" Bearer "` satisfies the trimmed check above and is still refused. When the pod's
+    // word is one nimbus knows, the copy gets it trimmed; otherwise the copy gets `Bearer` and
     // [PodTokenResponse] keeps the pod's own word regardless.
     val nimbusTokenType = podTokenType?.takeIf { it in NIMBUS_KNOWN_TOKEN_TYPES }
       ?: AccessTokenType.BEARER.value
-    val needsNormalising = rawTokenType != nimbusTokenType ||
-      (json.containsKey("expires_in") && declaredLifetime == null)
+    val needsNormalising = rawTokenType != nimbusTokenType || json.containsKey("expires_in")
     val normalised = if (!needsNormalising) json else JSONObject(json).apply {
       this["token_type"] = nimbusTokenType
-      if (declaredLifetime == null) remove("expires_in")
+      remove("expires_in")
     }
     val tokens = runCatching { AccessTokenResponse.parse(normalised).tokens }.getOrElse {
       throw PodOAuthException("pod token response has no access_token")
