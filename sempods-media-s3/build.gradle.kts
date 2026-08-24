@@ -11,7 +11,9 @@ dependencies {
   // `docs/media.md` §"The seam".
   // **No application framework here, ever** — this module was born in the target shape `:sempods-server` has
   // since reached; see `docs/modularity.md` §"Open-source readiness".
-  implementation(project(":sempods-server"))
+  // `api`: `S3PodMediaStore` is public and implements `PodMediaStore`, which lives there. A
+  // consumer that never names the supertype does not need this, but one that does could not.
+  api(project(":sempods-server"))
 
   // implementation libs
   // `org.bson.types.ObjectId` is `PodMediaRef`'s own vocabulary and reaches this module through the

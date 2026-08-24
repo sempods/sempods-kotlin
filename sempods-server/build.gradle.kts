@@ -13,7 +13,14 @@ dependencies {
   implementation(project(":commons-okhttp"))
   implementation(project(":commons-jaxrs"))
   implementation(project(":commons-json"))
-  implementation(project(":commons-mongo"))
+  // `api`, and the widest of these promises: `ObjectId` appears in this module's public
+  // signatures ~49 times, so a deployment implementing a seam has to name it. `:commons-mongo`
+  // declares `api(libs.mongodb)` and `api(project(":commons-json"))`, which is also where the
+  // `JsonNode` in those signatures comes from.
+  //
+  // Known debt, not a design position: `ObjectId` is MongoDB's, and `CONTRIBUTING.md` puts a
+  // different store behind a seam. Exporting it makes the coupling public — tracked separately.
+  api(project(":commons-mongo"))
   implementation(project(":sempods-model"))
   implementation(project(":sempods-auth-core"))
 
@@ -36,9 +43,14 @@ dependencies {
   // Guice and the logging facade. Neither reaches a consumer as an obligation: Guice is
   // `compileOnly` in the commons siblings, and `libs.bundles.logging` is the facade alone — the
   // logback binding is declared by whoever owns a `main`, not here. See `docs/logging.md`.
-  implementation(libs.guice)
+  api(libs.guice)   // `SempodsModule` hands out an `Injector`.
   implementation(libs.bundles.logging)
 
+  // The seams speak RDF4J: `PodRepository` answers with `Model`, takes `IRI`, and `withConnection`
+  // hands out a `RepositoryConnection`. Those two artifacts are named; the rest of the bundle —
+  // the parsers, the memory sail — is how this module does its work and stays `implementation`.
+  api(libs.rdf4jModel)
+  api(libs.rdf4jRepoSail)
   implementation(libs.bundles.rdf4j)
   implementation(libs.jwt)
   implementation(libs.thymeleaf)
