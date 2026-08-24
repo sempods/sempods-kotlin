@@ -5,10 +5,15 @@ a contributor needs none of this.
 
 ## What is published
 
-Every module that declares `java-library` — fifteen of them — plus `sempods-bom`, a platform
-that carries their versions. `deployments:sempods:image` is an application and is not published.
-Nothing enumerates that set by name: publishing is attached to the `java-library` plugin, so a
-new library is published by virtue of being one.
+The fifteen modules named in `publishedModules` in the root `build.gradle.kts`, plus
+`sempods-bom`, a platform that carries their versions. `deployments:sempods:image` is an
+application and is not among them.
+
+**A new module is published only once it is added to that list.** Nothing derives the set, and
+that is deliberate: the list is also what `sempods-bom` builds its constraints from, so one name
+decides both what ships and what the platform pins. Forgetting to add a module leaves it
+unpublished, which someone notices — the alternative left it publishable but unconstrained, which
+nobody sees until a consumer resolves a version it never chose.
 
 Consumers pin the platform and name no versions:
 
@@ -82,7 +87,9 @@ Then, per release:
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
    ```bash
-   TOKEN=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64)
+   # `tr -d` because GNU base64 wraps at 76 characters, and a newline inside the header
+   # value makes curl send only its first line — an upload rejected as unauthenticated.
+   TOKEN=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 | tr -d '\n')
    curl --request POST \
      --header "Authorization: Bearer $TOKEN" \
      --form bundle=@build/central-bundle.zip \
