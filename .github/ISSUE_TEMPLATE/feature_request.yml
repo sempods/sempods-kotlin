@@ -11,6 +11,7 @@ body:
         of the model are fixed, and a request that breaks one will be declined
         regardless of how well it is implemented.
   - type: checkboxes
+    id: before-filing
     attributes:
       label: Before filing
       options:

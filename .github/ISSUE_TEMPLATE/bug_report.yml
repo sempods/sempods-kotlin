@@ -9,6 +9,7 @@ body:
         reproduction is the difference between a fixed bug and a closed one.
         Security issues do **not** belong here — see SECURITY.md.
   - type: checkboxes
+    id: before-filing
     attributes:
       label: Before filing
       options:
