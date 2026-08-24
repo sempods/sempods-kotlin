@@ -71,7 +71,7 @@ oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.29"
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.3"
-mongodb = "org.mongodb:mongodb-driver-sync:5.9.1"
+mongodb = "org.mongodb:mongodb-driver-sync:5.10.0"
 morphiaCore = { module = "dev.morphia.morphia:morphia-core", version.ref = "morphia" }
 morphiaKotlin = { module = "dev.morphia.morphia:morphia-kotlin", version.ref = "morphia" }
 thymeleaf = "org.thymeleaf:thymeleaf:3.1.5.RELEASE"
