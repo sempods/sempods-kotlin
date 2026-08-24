@@ -153,10 +153,9 @@ class ApiExceptionMapperTest {
 
   @Test
   fun `an ApiException a task wrapped still answers its own status`() {
-    // `FindService` joins its adapters with `future.get()`, which hands on whatever the task threw
-    // wrapped in an `ExecutionException`. The status the failure declared has to survive that —
-    // otherwise a pod deleted mid-query answers 500 where the adapter said 404.
-    bindRequest("GET", "v1/pods/alice/_system/find")
+    // A caller joining a task with `Future.get()` hands on whatever it threw wrapped in an
+    // `ExecutionException`. The status the failure declared has to survive that.
+    bindRequest("GET", "v1/pods/alice/events/42")
 
     val response = mapper.toResponse(
       ExecutionException(ApiException(errorId = "not_found", statusCode = 404)),

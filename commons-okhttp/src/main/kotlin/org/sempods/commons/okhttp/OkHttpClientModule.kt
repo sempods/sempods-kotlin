@@ -17,11 +17,7 @@ import java.time.Duration
  * this client's connection pool and dispatcher.
  *
  * **The timeouts are set here rather than inherited**, because OkHttp's defaults are not this
- * project's budget: 10 s read, and no whole-call bound at all. The four values below state that
- * budget in one place, so no call site has to decide it and none can drift from the others.
- *
- * There is no cookie jar to disable — OkHttp's default is already `CookieJar.NO_COOKIES`, which is
- * what a shared client wants: one caller's session must not travel on another caller's request.
+ * project's budget: 10 s read, and no whole-call bound at all.
  */
 object OkHttpClientModule : BaseModule() {
 

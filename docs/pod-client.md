@@ -131,10 +131,6 @@ move happened; what follows is what still holds and what the change cost.
   once, and bridges in about forty lines (`PodIo`) — one virtual thread per in-flight request, no
   carrier thread held.
 
-The pod server dials on `commons-okhttp` rather than on this client, so a process running both
-holds two clients of one engine — which makes the open question not "which engine" but "why two of
-one", answered below.
-
 **The engine is OkHttp**, because SSRF **resolve-and-pin** turned out to be a requirement of the
 shared client and not of `sempods-mcp` alone. A consumer that dereferences URIs arriving in a
 request vetted the host *above* the client, which is TOCTOU-weaker because the client then resolves

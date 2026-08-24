@@ -89,17 +89,10 @@ class ApiExceptionMapper @Inject constructor(
     private val logger = KotlinLogging.logger {}
 
     /**
-     * The cause of an [ExecutionException] — what `Future.get()` throws instead of the failure the
-     * task actually raised.
-     *
-     * `FindService` fans its adapters out over a virtual-thread executor and joins them with
-     * `future.get()`, so an [ApiException] raised inside an adapter — the `404` for a pod deleted
-     * mid-query, say — arrives here wrapped. Without this it matches neither branch above and
-     * answers a generic `500`, discarding the status the failure declared.
-     *
-     * **One type, one layer**, and that narrowness is the point: `get()` wraps exactly once, while
-     * [ApiException] and [WebApplicationException] are themselves `RuntimeException`s — a rule
-     * phrased on that type would strip the response off the exception that carries one.
+     * The cause of an [ExecutionException] — what a caller joining a task with `Future.get()`
+     * throws in place of the failure the task raised. This type only, one layer: [ApiException]
+     * and [WebApplicationException] are `RuntimeException`s themselves, so a wider rule would
+     * strip the response off an exception that carries one.
      */
     private fun unwrapExecutionException(t: Throwable): Throwable =
       if (t is ExecutionException) t.cause ?: t else t
