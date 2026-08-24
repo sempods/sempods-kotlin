@@ -7,7 +7,12 @@ plugins {
 dependencies {
 
   // dependent projects
-  implementation(project(":commons"))
+  // `api` for the two types a consumer embedding this service has to write down itself: the Guice
+  // `Module` it installs, and `BaseModule`, which is what this class extends. Everything else this
+  // module exposes — Ktor, Mongo, Jackson — is reached by Guice through reflection at wiring time,
+  // where the runtime classpath already carries it, so exporting it would commit this service's
+  // internals to a public API without anyone needing them. See the issue on its accidental surface.
+  api(project(":commons"))
   implementation(project(":sempods-auth-core"))
 
   // The W3C trace binding for Ktor: the inbound interceptor and the outbound client plugin.
@@ -31,7 +36,7 @@ dependencies {
   runtimeOnly(libs.bundles.loggingBinding)
 
   // DI
-  implementation(libs.guice)
+  api(libs.guice)
 
   // JWT / JWKS
   implementation(libs.jwt)
