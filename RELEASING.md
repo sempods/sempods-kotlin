@@ -53,9 +53,9 @@ centralSnapshotsPassword=<portal token password>
 Prerequisites, once:
 
 1. An account on [central.sonatype.com](https://central.sonatype.com).
-2. The `org.sempods` namespace verified, by publishing the DNS TXT record the Portal gives you on
-   `sempods.org`. This is the same domain proof the GitHub organisation wants for its verified
-   badge — do both from one record.
+2. The `org.sempods` namespace verified against `sempods.org` — **done**. It was verified with a
+   DNS TXT record, which is the same domain proof the GitHub organisation wants for its verified
+   badge.
 3. A GPG key whose **public** half is on a keyserver (`keys.openpgp.org`), because Central checks
    signatures against it. The private half never leaves your machine and never enters this
    repository.
@@ -71,11 +71,29 @@ Then, per release:
    ```
    Signing is skipped entirely when `SIGNING_KEY` is absent, which is why a normal build and a
    snapshot do not need a key.
-3. Upload the bundle to the Portal. Sonatype publishes no official Gradle plugin; the Portal takes
-   a zip of the artifacts, or a community plugin can push it. Pick one when the namespace is
-   verified — the shape of what gets uploaded is already correct either way.
-4. Tag it: `git tag -s v0.1.0 && git push origin v0.1.0`, then cut a GitHub Release.
-5. Bump `version` to the next minor with `-SNAPSHOT` restored, and commit.
+3. Build the bundle. The task stages every publication into a directory in Maven repository
+   layout, checks it, and zips it:
+   ```bash
+   ./gradlew centralBundle
+   ```
+   `checkCentralBundle` runs as part of it and refuses a bundle that is unsigned, incomplete, built
+   from a snapshot, or carrying leftovers from an earlier release — all of which Central would
+   otherwise reject after the upload, which is a slow way to find out.
+4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
+   so this is one request rather than a plugin in the build:
+   ```bash
+   TOKEN=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64)
+   curl --request POST \
+     --header "Authorization: Bearer $TOKEN" \
+     --form bundle=@build/central-bundle.zip \
+     'https://central.sonatype.com/api/v1/publisher/upload?name=sempods%200.1.0'
+   ```
+   It returns a deployment id. Without `publishingType`, the deployment is validated and then
+   **waits for you to release it** from the Portal UI — which is the safer default: a release
+   cannot be taken back, and this is the last point at which it can be dropped. Add
+   `&publishingType=AUTOMATIC` once the process is boring.
+5. Tag it: `git tag -s v0.1.0 && git push origin v0.1.0`, then cut a GitHub Release.
+6. Bump `version` to the next minor with `-SNAPSHOT` restored, and commit.
 
 ## What Central requires, and what already satisfies it
 

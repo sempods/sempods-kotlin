@@ -303,6 +303,17 @@ allprojects {
           url = uri("https://central.sonatype.com/repository/maven-snapshots/")
           credentials(PasswordCredentials::class)
         }
+
+        // Where a *release* is staged. The Central Portal takes a release as a zip in Maven
+        // repository layout rather than over the wire, so a release is published into a directory
+        // first and uploaded as one file — see the `centralBundle` task below and `RELEASING.md`.
+        //
+        // A directory under the root build dir, shared by every module, because the layout Central
+        // wants is one repository containing all of them and not sixteen zips.
+        maven {
+          name = "centralBundle"
+          url = rootProject.layout.buildDirectory.dir("central-bundle").get().asFile.toURI()
+        }
       }
 
       publications.withType<MavenPublication>().configureEach {
@@ -343,4 +354,124 @@ allprojects {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The release bundle.
+//
+// Sonatype publishes no official Gradle plugin, and what the Central Portal accepts is a zip in
+// Maven repository layout — which `maven-publish` already produces, into the `centralBundle`
+// repository declared above. So the bundle is a `Zip` of that directory and the upload is one
+// `curl`, rather than a third-party plugin in the build whose behaviour could not be checked here
+// without a token. `RELEASING.md` carries the command.
+// ---------------------------------------------------------------------------------------------
+
+val centralBundleDir = layout.buildDirectory.dir("central-bundle")
+
+// Stale artifacts are the failure this exists to prevent: the directory is not cleaned by anything
+// else, so a second release into it would ship the previous version's files alongside the new
+// ones — and Central would accept them, because a bundle may legitimately contain many components.
+val clearCentralBundle = tasks.register<Delete>("clearCentralBundle") {
+  delete(centralBundleDir)
+}
+
+// Every task that writes into the directory, and not just the aggregate.
+//
+// `publishAllPublicationsToCentralBundleRepository` is a lifecycle task that *depends on* the
+// per-publication `publishMavenPublicationToCentralBundleRepository`, so hanging the delete off
+// the aggregate orders it against a task that runs last. The writers themselves are free to start
+// whenever, and with `org.gradle.parallel` they do — one module was still writing while the delete
+// walked the tree, which fails the delete rather than corrupting the bundle. Matching on the
+// repository suffix catches both shapes.
+allprojects {
+  tasks.matching { it.name.endsWith("ToCentralBundleRepository") }
+    .configureEach { dependsOn(clearCentralBundle) }
+}
+
+// The guard. Central validates the bundle after the upload, which is a slow way to learn that a
+// signature is missing — and an unsigned or short bundle is rejected as a whole. This asks the
+// same questions locally, before anything leaves the machine.
+val checkCentralBundle = tasks.register("checkCentralBundle") {
+  group = "verification"
+  description = "Fails if the staged release bundle is incomplete, unsigned, or carries a stale version."
+  doLast {
+    val root = centralBundleDir.get().asFile
+    if (!root.isDirectory) {
+      throw GradleException(
+        "No staged bundle at $root — run `publishAllPublicationsToCentralBundleRepository` first.",
+      )
+    }
+
+    val problems = mutableListOf<String>()
+
+    // A release is what someone else pins, so it is the one thing that must never be a snapshot:
+    // Central rejects the version outright, and a bundle assembled from a snapshot build is
+    // evidence that step one of the release was skipped.
+    if (version.toString().endsWith("-SNAPSHOT")) {
+      problems += "the version is $version — a release bundle cannot be built from a snapshot"
+    }
+
+    val artifacts = root.walkTopDown()
+      .filter { it.isFile && (it.extension == "jar" || it.extension == "pom" || it.extension == "module") }
+      .toList()
+
+    if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
+
+    // Every file Central receives needs a signature and both checksums beside it. Checked per
+    // file rather than per module, because the one that goes missing is a single classifier —
+    // a sources jar that was not signed — and a per-module count would not see it.
+    artifacts.forEach { artifact ->
+      listOf("asc", "md5", "sha1").forEach { suffix ->
+        val companion = File(artifact.parentFile, "${artifact.name}.$suffix")
+        if (!companion.isFile) {
+          problems += "${artifact.relativeTo(root)} has no .$suffix"
+        }
+      }
+    }
+
+    // A directory named for a version other than this one is last release's leftovers.
+    val versions = artifacts.map { it.parentFile.name }.toSortedSet()
+    (versions - version.toString()).forEach {
+      problems += "the bundle also carries version $it — stale output from an earlier release"
+    }
+
+    if (problems.isNotEmpty()) {
+      throw GradleException(
+        problems.joinToString(
+          prefix = "The staged release bundle is not fit to upload:\n  - ",
+          separator = "\n  - ",
+          postfix = "\n\nSee RELEASING.md. Signing needs SIGNING_KEY in the environment.",
+        ),
+      )
+    }
+
+    logger.lifecycle("Bundle is complete: ${artifacts.size} artifacts, each signed and checksummed.")
+  }
+}
+
+val centralBundle = tasks.register<Zip>("centralBundle") {
+  group = "publishing"
+  description = "Stages every publication and zips it into the bundle the Central Portal accepts."
+
+  // A provider, because these tasks are created while the modules are evaluated — which is after
+  // this line runs. Resolving the list eagerly here would find none of them.
+  dependsOn(provider {
+    subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToCentralBundleRepository") }
+  })
+  dependsOn(checkCentralBundle)
+  checkCentralBundle.get().mustRunAfter(
+    provider {
+      subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToCentralBundleRepository") }
+    },
+  )
+
+  from(centralBundleDir) {
+    // `maven-metadata.xml` is a repository's own index of which versions it holds, written here
+    // because this staging directory is a Maven repository like any other. Central maintains that
+    // index itself across every version ever released, so a copy from a directory that has seen
+    // exactly one is at best ignored and at worst contradicts it. The artifacts are the payload.
+    exclude("**/maven-metadata.xml*")
+  }
+  archiveFileName = "central-bundle.zip"
+  destinationDirectory = layout.buildDirectory
 }
