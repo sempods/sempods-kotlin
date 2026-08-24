@@ -7,8 +7,10 @@ plugins {
 dependencies {
 
   // dependent projects
-  // `api` for the two types an embedder writes down: the Guice `Module` it installs and
-  // `BaseModule`, which this extends. The rest Guice reaches by reflection at wiring time (#15).
+  // `api` because `BaseModule` is this class's supertype, so an embedder cannot name it without.
+  // Guice itself stays `implementation`, as it is in `:commons`: whoever installs a module calls
+  // `Guice.createInjector` and has declared it. The rest — Ktor, Mongo, Jackson — Guice reaches by
+  // reflection at wiring time (#15).
   api(project(":commons"))
   // The pod HTTP surface and its SSRF guard live here now, shared with every consumer rather
   // than re-spelled per service. RDF4J rides along on the runtime classpath unused — the price of
@@ -45,7 +47,7 @@ dependencies {
   runtimeOnly(libs.bundles.loggingBinding)
 
   // DI
-  api(libs.guice)
+  implementation(libs.guice)
 
   // JWT — service-as-resource-server bearer handling + OIDC relying-party WebID-JWT verification
   implementation(libs.jwt)
