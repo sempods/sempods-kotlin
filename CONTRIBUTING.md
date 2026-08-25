@@ -140,6 +140,26 @@ issue rather than a pull request.
 * **Implementation changes** need tests, preferably at the HTTP level, since
   that is where the contract lives.
 
+## Building and checking
+
+```bash
+./gradlew test          # the suite; needs the compose stack in deployments/local + deployments/test
+./gradlew buildHealth   # the dependency declarations of every module
+```
+
+`buildHealth` is the one that surprises people. Most modules here are published,
+and a published module's `api` set *is* its compile contract: a type in a public
+signature whose artifact is declared `implementation` compiles fine inside this
+repository and cannot be compiled against from outside it. The check reads
+bytecode rather than build files and fails on that. Its report, including advice
+it only warns about, is in
+`build/reports/dependency-analysis/build-health-report.txt`.
+
+The rule, short: **an artifact whose types appear in a module's public signatures
+is declared by that module, on `api`** — not inherited from a sibling that
+happens to bring it. `docs/modularity.md` §"Open-source readiness" says what this
+guards and what it cannot.
+
 ## Practical expectations
 
 * Open an issue before a large change. A rejected pull request after two weeks

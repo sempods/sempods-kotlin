@@ -11,8 +11,10 @@ dependencies {
   //
   // `api` because Jackson is in this module's surface, not behind it: `ToolCatalog.validate` takes
   // a `JsonNode`, and a consumer serializing these types needs the annotations to mean something.
-  // The same reasoning `commons-mongo` gives for re-exporting the driver.
-  api(libs.jackson)
+  // The same reasoning `commons-mongo` gives for re-exporting the driver. The `java.time` codecs
+  // stay for the mapper that reads these envelopes; nothing names them.
+  api(libs.jacksonDatabind)
+  runtimeOnly(libs.jackson)
 
   // `PodToolExecutor` runs the thirteen tools against one pod over `PodWireClient`, which is
   // this module's surface — it is a constructor parameter — so `api` rather than `implementation`.
@@ -29,10 +31,16 @@ dependencies {
   // `MongoDatabase` is a constructor parameter and therefore this module's surface. It is the
   // driver, not a framework: it constrains neither surface's HTTP stack, which is the whole reason
   // both can depend on this module. `sempods-auth-core` makes the same declaration for the same
-  // reason. `:commons` comes with it for `BaseModule`, which `SempodsMcpCoreModule` extends —
-  // `implementation`, because nothing in this module's surface speaks it.
-  api(project(":commons-mongo"))
-  implementation(project(":commons"))
+  // reason. `bson` stays behind the wall, though: the constructor parameter is a `MongoDatabase`,
+  // and the `Document` the store reads is its own business — `:sempods-auth-core` exports it
+  // because its stores hand one back.
+  api(libs.mongodb)
+  implementation(libs.bson)
+  implementation(project(":commons-mongo"))
+
+  // `:commons` for `BaseModule`, which `SempodsMcpCoreModule` extends — `api`, because a supertype
+  // is part of a class's surface.
+  api(project(":commons"))
 
   // Only `SempodsMcpCoreModule` needs Guice, and a consumer wiring the store by hand must not
   // inherit a container to get a tool catalog. Same trade `commons` and `sempods-auth-core` make.
@@ -42,7 +50,6 @@ dependencies {
   // tool call means is theirs to decide. A dependency this module cannot justify in a comment is a
   // dependency it does not have.
 
-  testImplementation(libs.guice)
   testImplementation(libs.jacksonKotlin)
   testImplementation(libs.bundles.test)
 }

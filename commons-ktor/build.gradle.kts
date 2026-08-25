@@ -13,12 +13,15 @@ dependencies {
   api(libs.ktorServerCore)
   api(libs.ktorClientCore)
 
-  implementation(libs.bundles.logging)
+  // `AttributeKey` and `ThreadContextElement` are in the trace binding's own signatures, so a
+  // consumer installing `installTraceContext()` compiles against them too.
+  api(libs.ktorUtils)
+  api(libs.kotlinxCoroutines)
 
-  // kotlinx-coroutines (for `ThreadContextElement`) arrives with Ktor, which pins it; declaring a
-  // second version here is how the two drift apart.
+  // No logging: nothing in this module logs.
 
   testImplementation(libs.ktorServerTestHost)
   testImplementation(libs.ktorClientCio)
+  testImplementation(libs.kotlinxCoroutinesTest)
   testImplementation(libs.bundles.test)
 }

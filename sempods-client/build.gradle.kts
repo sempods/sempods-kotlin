@@ -17,18 +17,30 @@ dependencies {
   // and take `Value` (`putSlot`), so a foreign build compiling against them needs RDF4J on its
   // compile classpath without being told to add it. Before this, in-repo consumers compensated by
   // redeclaring RDF4J themselves — a stranger consuming the published artifact could not.
-  api(libs.rdf4jModel)
-  implementation(libs.bundles.rdf4j)
+  // `rdf4j-model` beside it carries the `SimpleValueFactory` and `Values` this module uses and a
+  // consumer does not; the parsers are found by `ServiceLoader` when a body is read or written.
+  api(libs.rdf4jModelApi)
+  implementation(libs.rdf4jModel)
+  implementation(libs.rdf4jRioApi)
+  runtimeOnly(libs.bundles.rdf4j)
 
   // `api`, because `PodWireClient.listContexts`, `sparqlSelect` and `sparqlGraph` answer with a
-  // `JsonNode`, which a caller has to name.
-  api(libs.jackson)
+  // `JsonNode`, which a caller has to name. The `java.time` codecs are a registration on the
+  // mapper and nothing names them.
+  api(libs.jacksonDatabind)
+  runtimeOnly(libs.jackson)
 
   // `implementation`, never `api`: the engine stops at `SempodsHttpTransport`. Callers speak
   // `SempodsRequest`/`SempodsResponse` and a consumer of the published artifact never compiles
   // against an OkHttp type — see `SempodsBody` for why that boundary is drawn here.
   implementation(libs.okhttp)
-  implementation(libs.bundles.logging)
 
+  // No logging: nothing in this module logs. A failed request is handed back rather than written
+  // down — see `SempodsClientException`.
+
+  testImplementation(libs.slf4jApi)
+  // The mock HTTP server five of this module's suites drive — one of the three that do, which is
+  // why this is not in `libs.bundles.test`.
+  testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 }

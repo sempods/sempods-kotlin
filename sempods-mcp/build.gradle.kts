@@ -29,15 +29,22 @@ dependencies {
 
   // HTTP server — the single MCP surface (JSON-RPC over POST), standalone (no framework)
   implementation(libs.ktorServerCore)
+  // `AttributeKey` and the URL builders, the coroutine context the handlers suspend in, and the
+  // buffers a streamed response body is read from.
+  implementation(libs.ktorUtils)
+  implementation(libs.kotlinxCoroutines)
+  implementation(libs.kotlinxIoCore)
   implementation(libs.ktorServerNetty)
   implementation(libs.ktorServerCallLogging)
 
   // No HTTP *client* here any more: the pod System layer and the pod OAuth surface both go through
   // `:sempods-client`'s transport, which carries the SSRF resolve-and-pin this service used to own.
 
-  // JSON — JSON-RPC envelopes + JSON-LD payloads
-  implementation(libs.jackson)
+  // JSON — JSON-RPC envelopes + JSON-LD payloads. The `java.time` codecs are a registration on the
+  // mapper; nothing names them.
+  implementation(libs.jacksonDatabind)
   implementation(libs.jacksonKotlin)
+  runtimeOnly(libs.jackson)
 
   // Logging
   implementation(libs.bundles.logging)
@@ -62,13 +69,20 @@ dependencies {
 
   // MongoDB (raw sync driver — no Morphia; standalone like sempods-auth)
   // Connection registry + token vault + OAuth server stores, keyed (user, profile, pod).
+  // Plus the `bson` that carries the `Document` and `ObjectId` the stores name.
   implementation(libs.mongodb)
+  implementation(libs.bson)
 
   // Tests (CIO only for test clients outside the hardened pod-fetch path)
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
   testImplementation(testFixtures(project(":commons")))
   testImplementation(libs.ktorServerTestHost)
+  testImplementation(libs.ktorClientCore)
   testImplementation(libs.ktorClientCio)
+  testImplementation(libs.kotlinxCoroutinesTest)
+  // `PodTokenProviderTest` waits for the refresh scheduler and drives a mock HTTP server.
+  testImplementation(libs.awaitility)
+  testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 
   // TODO: Add rdf4j (libs.bundles.rdf4j) for M7 AST SPARQL subset rewriting; whole-pod queries only until then.

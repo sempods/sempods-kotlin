@@ -4,7 +4,16 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-  id("org.jetbrains.kotlin.jvm") version "2.4.10"
+  // Version in `settings.gradle.kts`, which is where the dependency-analysis plugin needs to see
+  // it. See the comment there.
+  id("org.jetbrains.kotlin.jvm")
+}
+
+// The root project builds nothing, but `com.autonomousapps.dependency-analysis` resolves
+// `kotlin-metadata-jvm` against it, and the repositories below are declared inside
+// `subprojects { }` only.
+repositories {
+  mavenCentral()
 }
 
 // The version catalog, resolved once here: the generated `libs` accessor exists only in a build
@@ -80,6 +89,9 @@ subprojects {
     description = "Fails if a library module carries the logback binding on its runtime classpath."
     doLast {
       if (plugins.hasPlugin("application")) return@doLast
+      // Nor a module nobody consumes: the `:consumer-probe` modules inherit a service's binding,
+      // and a module that is never published has no consumer to impose one on.
+      if (name !in publishedModules) return@doLast
       val runtimeClasspath = configurations.findByName("runtimeClasspath") ?: return@doLast
       val offenders = runtimeClasspath.incoming.artifacts.artifacts
         .map { it.id.componentIdentifier.displayName }

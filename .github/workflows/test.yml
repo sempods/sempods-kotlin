@@ -85,3 +85,42 @@ jobs:
       - name: Fail if tests failed
         if: steps.gradle_tests.outcome == 'failure'
         run: exit 1
+
+  # The api/implementation boundary, on every pull request.
+  #
+  # A separate job rather than another task on `build` above, for two reasons. That job runs its
+  # Gradle invocation under `continue-on-error` so the JUnit reporter always gets to publish, and
+  # a boundary violation folded into it would arrive as "the test step failed" — the one reading
+  # that is looking for a broken test. And nothing here needs the compose stack: `buildHealth`
+  # reads bytecode and Kotlin metadata, not a database.
+  #
+  # What it catches is the mistake #11 found six times: a type in a published module's public
+  # signature that a consumer cannot reach, because the artifact carrying it is declared
+  # `implementation`. Invisible from inside this repository, where every module has its own
+  # dependencies on its own compile classpath, and fatal for the first stranger with the jar.
+  #
+  # It does not cover `sempods-auth` and `sempods-mcp` — the plugin treats a project carrying
+  # `application` or Jib as an application and computes no ABI for one. Those two are covered by
+  # `:consumer-probe:auth` and `:consumer-probe:mcp`, which compile against them the way a foreign
+  # build would and therefore run as part of `test` above.
+  build-health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Check dependency declarations
+        run: ./gradlew buildHealth --max-workers=2
+
+      - name: Upload dependency-analysis report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-analysis-report
+          path: build/reports/dependency-analysis/build-health-report.txt
+          if-no-files-found: warn
+          retention-days: 14

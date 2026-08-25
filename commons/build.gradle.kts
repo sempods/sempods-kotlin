@@ -6,6 +6,10 @@ plugins {
 dependencies {
   implementation(libs.bundles.logging)
 
+  // slf4j-api on top of the facade bundle: `LoggingInitializer` names `LoggerFactory` and
+  // `ILoggerFactory` directly, which no other module here does.
+  implementation(libs.slf4jApi)
+
   // The `java.util.logging` bridge, declared here rather than left to each application: it is
   // `LoggingInitializer`'s own dependency — that class references `SLF4JBridgeHandler` directly —
   // and it is not a binding, so carrying it costs a consumer 5 KB and decides nothing for them.
@@ -22,9 +26,12 @@ dependencies {
   testFixturesImplementation(libs.bundles.logging)
   testFixturesImplementation(libs.bundles.test)
 
+  // `TestUtil` polls for a condition — one of the two source sets here that await anything, which
+  // is why this is not in `libs.bundles.test`.
+  testFixturesImplementation(libs.awaitility)
+
   // `LogbackBaseConfigTest` configures a throwaway LoggerContext from the shared base, so it
   // names logback types directly. The binding itself comes from the root build script.
   testImplementation(libs.logbackClassic)
-  testImplementation(libs.guice)
   testImplementation(libs.bundles.test)
 }
