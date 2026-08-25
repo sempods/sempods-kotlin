@@ -49,12 +49,11 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
   }
 
   @Test
-  fun `a key that is not a well-formed ref is ignored rather than reported as media`() {
-    // The counterpart of the filesystem store skipping a directory whose name is not a pod id. Note
-    // what this does *not* cover: a shared bucket's other prefixes are well-formed pod ids as far
-    // as this store can tell, and dropping those is `PodMediaFacade.reconcile`'s job, because only
-    // the side that mints ids knows their shape.
-    val stray = "not.a.pod.id/whatever-${podA.value}"
+  fun `a key outside this store's layout is ignored rather than reported as media`() {
+    // Its own layout is all it may judge: a nested path is not something it wrote. Which *prefixes*
+    // are pods it cannot say — a `PodId` promises nothing about its form — so a shared bucket's
+    // other prefixes come back as tenants and `PodMediaFacade.reconcile` drops them.
+    val stray = "nested/deeper/whatever-${podA.value}"
     put(stray, "not ours")
     try {
       assertTrue(store.iterate { entries -> entries.none { it.ref.mediaId.startsWith("whatever-") } })

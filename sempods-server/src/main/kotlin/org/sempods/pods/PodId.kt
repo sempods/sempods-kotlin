@@ -1,49 +1,33 @@
 package org.sempods.pods
 
 /**
- * A pod's identity within one deployment — the token everything keyed per pod is keyed by.
+ * Which pod something belongs to — the tenant key the per-pod seams partition by.
  *
- * **Opaque.** A non-empty token of at most 64 characters from `A-Z a-z 0-9 - _`, which is a safe
- * filesystem path segment and a safe object-store key segment. A deployment mints them; nothing
- * above a store reads meaning into one, and no store may assume more than that shape.
+ * **A partition key, not a name and not a location.** Nothing above a store resolves it,
+ * dereferences it or shows it to anyone; it separates one pod's data from another's and that is
+ * its whole job. The addressable identity of a pod is [org.sempods.spec.PodRef], which carries the
+ * URI, the owner and the label — a different question with a different type.
  *
- * Distinct from [org.sempods.spec.PodRef], which carries a pod's public identity — its URI, owner
- * and label. A pod id outlives the pod: [org.sempods.pods.media.PodMediaStore.iterate] reaches pods
- * that no longer exist, and those have no URI and no owner left to name them by.
+ * **The value promises nothing about its own form.** It is not a path segment, not an object key,
+ * not a column; an implementation that needs a physical location derives one and owns that mapping,
+ * exactly as [org.sempods.pods.media.PodMediaStore] says it owns its layout. Reading the value as
+ * though it were already a location is the coupling this type exists to remove — a key whose form
+ * is part of the contract has picked one storage shape for every implementation. The two shipped
+ * media stores use the token verbatim as a directory name and a key prefix, and each says so in its
+ * own KDoc; that is their statement, not this type's.
  *
- * A value class because a [org.sempods.pods.media.PodMediaRef] is two identifying strings side by
- * side, and untyped they would swap without a compiler complaint.
+ * A deployment mints these and is the only side that can recognise its own.
+ * `PodMediaFacade.reconcile` is where that recognition happens.
  */
 @JvmInline
-value class PodId(val value: String) : Comparable<PodId> {
+value class PodId(val value: String) {
 
   init {
-    require(isValid(value)) { "not a pod id: '$value'" }
+    // Identity, not form: an empty token names nothing. Everything else a backend might object to
+    // is the backend's own business, and its mapping is where that belongs.
+    require(value.isNotEmpty()) { "a pod id cannot be empty" }
   }
-
-  override fun compareTo(other: PodId): Int = value.compareTo(other.value)
 
   /** The token itself, so a log line reads as the id rather than as a wrapper. */
   override fun toString(): String = value
-
-  companion object {
-
-    /**
-     * [raw] as a [PodId], or `null` when it is not one.
-     *
-     * For reading an id back out of somewhere that holds foreign strings too — a directory under a
-     * media root, a key prefix in a bucket. Answers rather than throws, so a store can skip what is
-     * not its own.
-     */
-    fun parseOrNull(raw: String): PodId? = if (isValid(raw)) PodId(raw) else null
-
-    /** Long enough for any minting scheme, short enough never to be why a path or key hits a limit. */
-    private const val MAX_LENGTH = 64
-
-    private fun isValid(raw: String): Boolean =
-      raw.isNotEmpty() && raw.length <= MAX_LENGTH && raw.all { it.isSafeInAPathOrKey() }
-
-    private fun Char.isSafeInAPathOrKey(): Boolean =
-      this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9' || this == '-' || this == '_'
-  }
 }

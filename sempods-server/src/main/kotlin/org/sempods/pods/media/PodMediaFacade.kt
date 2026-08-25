@@ -441,7 +441,7 @@ class PodMediaFacade @Inject constructor(
 
   companion object {
 
-    private val REF_ORDER = compareBy<PodMediaRef>({ it.podId }, { it.mediaId })
+    private val REF_ORDER = compareBy<PodMediaRef>({ it.podId.value }, { it.mediaId })
 
     private val logger = KotlinLogging.logger {}
 

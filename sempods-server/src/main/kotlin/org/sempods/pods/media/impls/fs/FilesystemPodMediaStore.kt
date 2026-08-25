@@ -100,13 +100,11 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
 
     val entries = sequence {
       for (podDirectory in podDirectories) {
-        val owner = PodId.parseOrNull(podDirectory.name)
-        if (owner == null) {
-          // Not a pod id, so not something this store wrote. A well-formed one it cannot judge
-          // at all — `PodId` is opaque here; `PodMediaFacade.reconcile` does that.
-          logger.warn { "Ignoring directory ${podDirectory.name} — not a pod id" }
-          continue
-        }
+        // Every directory under the root is a tenant of this store's layout, and this is as far as
+        // the judgement goes: a `PodId` says nothing about its own form, so nothing here can tell a
+        // pod of this deployment from a directory somebody else made. `PodMediaFacade.reconcile`
+        // decides that, being the side that mints them.
+        val owner = PodId(podDirectory.name)
         // Cheap skip: a whole pod that sorts before the resume point cannot contain it.
         if (after != null && podDirectory.name < after.substringBefore('/')) continue
 
@@ -132,11 +130,12 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
   }
 
   /**
-   * The one place a ref becomes a path.
+   * The one place a ref becomes a path, and this store's own mapping: it uses both halves of the ref
+   * verbatim. A [org.sempods.pods.PodId] promises nothing about its form, so that is a choice made
+   * here — an implementation whose backend cannot take a token as-is encodes or hashes it instead.
    *
-   * [PodMediaRef.mediaId] is minted as base64url, which cannot contain `/` or `.` runs, so it can
-   * never escape the directory — but this is the only code that turns an outside-supplied string
-   * into a path, and a check that costs one comparison is cheaper than trusting that forever.
+   * [PodMediaRef.mediaId] is minted as base64url, which cannot contain `/` or `.` runs, and a pod id
+   * is whatever a deployment mints. Both reach a path only through here, so both are checked here.
    */
   private fun resolve(ref: PodMediaRef): Path {
     val resolved = root.resolve(ref.podId.value).resolve(ref.mediaId).normalize()

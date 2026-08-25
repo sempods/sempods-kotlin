@@ -9,37 +9,22 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-/** What a pod id is allowed to be, and what this implementation's key becomes. */
+/** A pod id is a tenant key: an identity, and no promise about its form. */
 class PodIdTest {
 
   @Test
-  fun `a token of letters, digits, hyphen and underscore is a pod id`() {
-    for (raw in listOf("a", ObjectId().toHexString(), "pod-1", "pod_1", "A-Z_0-9", "x".repeat(64))) {
+  fun `any non-empty token is a pod id`() {
+    // Deliberately including values no path or object key would take unescaped. A store that cannot
+    // use a token as-is derives something it can; that is its mapping to own, not this type's rule
+    // to impose — see `FilesystemPodMediaStore.resolve`.
+    for (raw in listOf("a", ObjectId().toHexString(), "pod-1", "a/b", "a b", "ü", "x".repeat(4096))) {
       assertEquals(raw, PodId(raw).value, "should be a pod id: '$raw'")
     }
   }
 
   @Test
-  fun `anything a path or a key would have to escape is not`() {
-    // A store puts the value straight into a path segment or an object key.
-    for (raw in listOf("", " ", "a b", "a/b", "a.b", "..", "lost+found", "pod:1", "ü", "x".repeat(65))) {
-      assertFailsWith<IllegalArgumentException>("should not be a pod id: '$raw'") { PodId(raw) }
-      assertNull(PodId.parseOrNull(raw), "should not parse: '$raw'")
-    }
-  }
-
-  @Test
-  fun `parseOrNull answers rather than throws, because a store reads foreign names too`() {
-    assertEquals(PodId("pod-1"), PodId.parseOrNull("pod-1"))
-    assertNull(PodId.parseOrNull("not a pod id"))
-  }
-
-  @Test
-  fun `ids order by their token, so a report of refs is stable between runs`() {
-    assertEquals(
-      listOf(PodId("a"), PodId("b"), PodId("c")),
-      listOf(PodId("c"), PodId("a"), PodId("b")).sorted(),
-    )
+  fun `an empty token names nothing and is refused`() {
+    assertFailsWith<IllegalArgumentException> { PodId("") }
   }
 
   @Test
@@ -59,10 +44,10 @@ class PodIdTest {
   }
 
   @Test
-  fun `a well-formed pod id that is not shaped like ours converts back to nothing`() {
-    // What lets `PodMediaFacade.reconcile` keep a foreign prefix out of its report. Shape only —
-    // an id another deployment minted the same way converts back fine.
-    assertNotNull(PodId.parseOrNull("not-a-pod-of-ours"))
+  fun `a token this deployment did not mint converts back to nothing`() {
+    // What lets `PodMediaFacade.reconcile` keep a foreign tenant out of its report — no store can,
+    // since the form of a pod id is not part of the contract. Shape only: a token another
+    // deployment minted the same way converts back fine.
     assertNull(PodId("not-a-pod-of-ours").toObjectIdOrNull())
     assertNotNull(PodId(ObjectId().toHexString()).toObjectIdOrNull())
   }

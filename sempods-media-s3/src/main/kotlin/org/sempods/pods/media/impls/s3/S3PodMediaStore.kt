@@ -98,10 +98,10 @@ class S3PodMediaStore internal constructor(
    * on the first request only; once a continuation token is in play S3 ignores it, which is exactly
    * right since the token already carries the position.
    *
-   * Keys that do not parse as `{podId}/{mediaId}` are skipped rather than reported, the same way the
-   * filesystem store skips a directory whose name is not a pod id. A well-formed prefix this cannot
-   * judge — a [PodId] is opaque here — so a shared bucket's other prefixes come back looking like
-   * pods and `PodMediaFacade.reconcile` sorts them out. A stray key *inside* a pod's prefix is a
+   * Keys that do not fit this store's `{prefix}/{name}` layout are skipped — a nested path is not
+   * something it wrote. Which *prefixes* are pods of this deployment it cannot say, since a [PodId]
+   * promises nothing about its form; a shared bucket's other prefixes therefore come back as
+   * tenants and `PodMediaFacade.reconcile` sorts them out. A stray key *inside* a pod's prefix is a
    * different matter and **is** reported — that is the reconcile working.
    */
   override fun <T> iterate(
@@ -169,9 +169,8 @@ class S3PodMediaStore internal constructor(
     if (separator < 0) return null
     val owner = key.substring(0, separator)
     val name = key.substring(separator + 1)
-    if (name.isEmpty() || name.contains('/')) return null
-    val podId = PodId.parseOrNull(owner) ?: return null
-    return PodMediaRef(podId, name)
+    if (owner.isEmpty() || name.isEmpty() || name.contains('/')) return null
+    return PodMediaRef(PodId(owner), name)
   }
 
   companion object {

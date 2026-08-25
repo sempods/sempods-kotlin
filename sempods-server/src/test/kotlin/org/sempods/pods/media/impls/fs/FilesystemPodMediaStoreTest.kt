@@ -66,11 +66,17 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
   }
 
   @Test
-  fun `a directory that is not a pod id is ignored rather than reported as media`() {
+  fun `every directory is a tenant, because whose it is not this store's judgement`() {
+    // A `PodId` promises nothing about its form, so a directory name cannot be read as evidence of
+    // anything. The store hands back what it holds and `PodMediaFacade.reconcile` decides ownership
+    // — being the side that mints ids. A store filtering here would be guessing.
     store.put(ref(podA, "one"), "text/plain", source("a1"))
     root.resolve("lost+found").createDirectories().resolve("junk").writeText("not ours")
 
-    assertEquals(listOf(ref(podA, "one")), listAll())
+    assertEquals(
+      setOf(ref(podA, "one"), PodMediaRef(PodId("lost+found"), "junk")),
+      listAll().toSet(),
+    )
   }
 
   @Test

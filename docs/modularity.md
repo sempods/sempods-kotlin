@@ -49,17 +49,20 @@ was applied: `PodDbo` was reaching four layers past the store, and in every case
 wanted was the id.
 
 **And no persistence key type either.** A seam that names one database's identifier has picked that
-database for everyone, so a pod is named by [`PodId`](../sempods-server/src/main/kotlin/org/sempods/pods/PodId.kt)
-— an opaque token (`A-Z a-z 0-9 - _`, at most 64 characters, safe in a path segment and in an object
-key) that a deployment mints and nothing reads meaning into. It is thinner than `PodRef` on purpose:
+database for everyone, so the per-pod seams partition by
+[`PodId`](../sempods-server/src/main/kotlin/org/sempods/pods/PodId.kt): a **tenant key**, which is a
+narrower thing than either a name or a location. It is thinner than `PodRef` on purpose —
 `PodMediaStore.iterate` reaches pods that no longer exist, and those have no URI and no owner left
 to name them by. `:sempods-media-s3` implements the media seam with no MongoDB artifact declared,
 and `./gradlew buildHealth` holds that.
 
-The opacity puts one decision above the seam. A store skips what is not a well-formed
-`{podId}/{mediaId}` and can judge no more than that, so `PodMediaFacade.reconcile` drops the ids
-that are not shaped like the ones this deployment mints — a shape check, whose limit
-[`media.md`](media.md) §"The seam" states.
+**A tenant key promises nothing about its own form**, and that is the half a key type is most
+likely to get wrong. `ObjectId` carried a hex encoding, a validity test and an ordering, so every
+implementation could treat it as a location and both shipped stores did — which is a storage shape
+written into the contract by accident. An implementation derives what its backend needs and owns
+that mapping, exactly as it owns its layout. The consequence runs upward: a store cannot say which
+tenants are this deployment's, so it does not try, and `PodMediaFacade.reconcile` — the minting
+side — decides. [`media.md`](media.md) §"The seam" states the limit of that check.
 
 The same reading applies in reverse to what a seam *returns*. `SempodsCredentials` is
 `PodAuthorizer`'s result, so the entity had to leave that too — which is what moved it out of
