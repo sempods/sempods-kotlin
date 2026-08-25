@@ -281,11 +281,16 @@ other implementation ([`media.md`](media.md) §"The seam"). A POM has one flat d
 no notion of a variant, so `from(components["java"])` folds the test-fixtures variants into it,
 and a `testFixturesImplementation` reads as a `runtime` dependency of the module itself: for a
 while `org.sempods:sempods-server` and `org.sempods:commons` handed every plain Maven consumer
-JUnit, kotlin-test and MockK. The fixtures declare their test libraries `testFixturesCompileOnly`
-instead — they are compiled against the types and then executed by a consumer's test JVM, which
-brings its own — and `checkNoTestLibrariesInPom` (root build, wired into `check`) fails the build
-if one comes back. The fixtures themselves stay published: they travel in Gradle module metadata,
-which is where a `testFixtures("org.sempods:sempods-server")` finds them.
+JUnit, kotlin-test and MockK.
+
+The two representations part ways here, and deliberately. Gradle module metadata keeps the
+test-fixtures variants whole, because that is what a consumer resolving
+`testFixtures("org.sempods:sempods-server")` reads and the conformance suite calls `kotlin.test`
+assertions from its own bytecode in that consumer's test JVM. The POM, which cannot express a
+variant and which no fixtures consumer reads, loses them: a `pom.withXml` block in the root build
+strips every coordinate in `libs.bundles.test`, and `checkNoTestLibrariesInPom` (root build, wired
+into `check` and named explicitly in `test.yml`) reads the generated file afterwards and fails if
+one survived.
 
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,

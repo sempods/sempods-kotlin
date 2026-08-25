@@ -1,6 +1,7 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.w3c.dom.Element
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -244,33 +245,60 @@ subprojects {
     withJavadocJar()
   }
 
+  // `libs.bundles.test` is the definition of "a test library" — the same list every module
+  // declares — so a library added there is covered below without a second edit.
+  val testLibraries = catalog.findBundle("test").get().get()
+    .map { "${it.module.group}:${it.module.name}" }
+    .toSet()
+
   extensions.configure<PublishingExtension> {
     publications {
       // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
       // consumer can ask for `testFixtures("org.sempods:sempods-server")`. The fixtures *jar*
       // travels in Gradle module metadata, and a plain Maven consumer never resolves it.
       //
-      // Its *dependencies* are a different matter, and the trap this repository already fell into:
-      // a POM has one flat dependency list and no notion of a variant, so `maven-publish` folds
-      // every variant of the component into it and a `testFixturesImplementation` reads as a
-      // `runtime` dependency of the module itself. That is why the three modules with fixtures
-      // declare their test libraries `testFixturesCompileOnly`, and why
-      // `checkNoTestLibrariesInPom` below asks the question on every `check`.
+      // Its *dependencies* are a different matter, and the trap this repository fell into: a POM
+      // has one flat dependency list and no notion of a variant, so `maven-publish` folds every
+      // variant of the component into it and a `testFixturesImplementation` reads as a `runtime`
+      // dependency of the module itself. `org.sempods:sempods-server` handed every plain Maven
+      // consumer JUnit, kotlin-test and MockK that way, and `org.sempods:commons` did the same.
       create<MavenPublication>("maven") {
         from(components["java"])
+
+        // So they come back out here, at the one place that is only the POM.
+        //
+        // The alternative — declaring them `testFixturesCompileOnly` in the three module files —
+        // is the wrong half of the problem: it also takes them out of `testFixturesRuntimeElements`,
+        // and the fixtures genuinely need them there. `PodMediaStoreConformanceTest` calls
+        // `kotlin.test` assertions from its own bytecode in the test JVM of whoever extends it, so
+        // an implementer of the media seam resolving `testFixtures("org.sempods:sempods-server")`
+        // would get a `NoClassDefFoundError` the first time the suite ran. Gradle module metadata
+        // is where that consumer resolves from, and it stays complete; only the POM, which cannot
+        // express a variant at all and which no fixtures consumer reads, loses them.
+        //
+        // `asElement()` rather than `asNode()`: the DOM is the same tree either way, and `Node`'s
+        // name is a `QName` here, which reads worse than it works.
+        pom.withXml {
+          val dependencies = asElement().getElementsByTagName("dependency")
+          (0 until dependencies.length)
+            .map { dependencies.item(it) as Element }
+            .filter { dependency ->
+              fun tag(name: String) =
+                dependency.getElementsByTagName(name).item(0)?.textContent
+              "${tag("groupId")}:${tag("artifactId")}" in testLibraries
+            }
+            // After the walk, not during it: `getElementsByTagName` hands back a live `NodeList`.
+            .forEach { it.parentNode.removeChild(it) }
+        }
       }
     }
   }
 
   // The published POM is the one artifact nothing in this build reads, so a mistake in it survives
-  // a green run and surfaces at a consumer. This asks the only question that has actually gone
-  // wrong here: does a module hand a test library to whoever depends on it?
-  //
-  // `libs.bundles.test` is the definition of "a test library" — the same list every module
-  // declares — so adding one there covers it here without a second edit.
-  val testLibraries = catalog.findBundle("test").get().get()
-    .map { "${it.module.group}:${it.module.name}" }
-    .toSet()
+  // a green run and surfaces at a consumer. This reads the file the block above wrote and asks the
+  // question that has actually gone wrong here: does a module hand a test library to whoever
+  // depends on it? Independent of the removal rather than a restatement of it — drop the
+  // `pom.withXml` and this goes red.
 
   val generatePom = tasks.named<GenerateMavenPom>("generatePomFileForMavenPublication")
 
@@ -301,9 +329,9 @@ subprojects {
         throw GradleException(
           "$modulePath publishes a POM that puts test libraries on a consumer's classpath: " +
             offenders.joinToString() + ". They reach it through the test-fixtures variant, which " +
-            "`from(components[\"java\"])` folds into the POM's single dependency list — declare " +
-            "them `testFixturesCompileOnly` instead of `testFixturesImplementation`. " +
-            "See `commons/build.gradle.kts`.",
+            "`from(components[\"java\"])` folds into the POM's single dependency list. The " +
+            "`pom.withXml` block in the root build file is what takes them back out — check that " +
+            "it is still there and that `libs.bundles.test` still names this library.",
         )
       }
     }
