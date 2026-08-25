@@ -8,13 +8,13 @@ dependencies {
   // library's. `CommonsHttpClient` takes `Request.Builder`, hands
   // out a `JsonUtil`, and `OkHttpClientModule` provides an `OkHttpClient` a consumer varies with
   // `newBuilder()` — all three are types a consumer necessarily compiles against.
-  api(project(":commons"))
-  api(project(":commons-json"))
+  api(project(":sempods-commons"))
+  api(project(":sempods-commons-json"))
   api(libs.okhttp)
   // `JsonUtil` hands back Jackson's own types.
   api(libs.jacksonDatabind)
 
-  // Same reasoning as `commons` and `commons-mongo`: `OkHttpClientModule` is the only class here
+  // Same reasoning as `sempods-commons` and `sempods-commons-mongo`: `OkHttpClientModule` is the only class here
   // that needs Guice, and a consumer building an `OkHttpClient` by hand must not inherit a DI
   // container to get the wrapper.
   compileOnly(libs.guice)

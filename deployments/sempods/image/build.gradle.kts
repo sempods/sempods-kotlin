@@ -9,7 +9,7 @@ dependencies {
   // deliberately absent: they ship as their own artifacts and reach this server over HTTP.
   // No application framework either, and that is the whole decoupling: this image ships the pod server
   // without an application framework behind it.
-  implementation(project(":commons"))
+  implementation(project(":sempods-commons"))
   implementation(project(":sempods-server"))
   implementation(libs.guice)
   implementation(libs.bundles.logging)
@@ -25,13 +25,13 @@ dependencies {
 
   // implementation libs
   // `SempodsServerStarter` builds and starts the Jetty `Server` itself; Jersey rides on that
-  // connector without this composition naming a Jersey type. `:commons-jaxrs` is absent because
+  // connector without this composition naming a Jersey type. `:sempods-commons-jaxrs` is absent because
   // `:sempods-server` exports it.
   implementation(libs.jettyServer)
   runtimeOnly(libs.jerseyJettyHttp)
 
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
-  testImplementation(testFixtures(project(":commons")))
+  testImplementation(testFixtures(project(":sempods-commons")))
 
   // The media store is selected here and nowhere else — `:sempods-server` cannot name a store
   // that ships as its own sibling module — so this is the only place a test can see that
