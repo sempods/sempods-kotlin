@@ -80,7 +80,7 @@ class PodDao(
    * Sets the human-readable display name advertised in the pod's RFC 9728
    * protected-resource metadata. Pass a blank string to clear it.
    */
-  fun setDisplayName(podId: ObjectId, displayName: String) {
+  internal fun setDisplayName(podId: ObjectId, displayName: String) {
     pods.updateOne(
       Filters.eq(PodDboFields.id, podId),
       Updates.set(PodDboFields.displayName, displayName),

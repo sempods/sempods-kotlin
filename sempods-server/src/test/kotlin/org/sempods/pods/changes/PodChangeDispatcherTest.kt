@@ -1,5 +1,6 @@
 package org.sempods.pods.changes
 
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.junit.jupiter.api.Test
@@ -26,7 +27,7 @@ class PodChangeDispatcherTest {
   }
 
   private fun changeSet() = PodChangeSet(
-    podId = ObjectId(),
+    podId = ObjectId().toPodId(),
     podName = "test-pod",
     resources = listOf(
       ResourceChange(URI("https://example.org/e1"), ChangeOperation.UPDATED, emptySet(), LinkedHashModel(), LinkedHashModel(), LinkedHashModel()),
@@ -72,7 +73,7 @@ class PodChangeDispatcherTest {
   @Test
   fun `an empty change set dispatches to nobody`() {
     val listener = TestListener(Durability.BEST_EFFORT)
-    PodChangeDispatcher(setOf(listener)).dispatch(PodChangeSet(ObjectId(), "test-pod", emptyList()))
+    PodChangeDispatcher(setOf(listener)).dispatch(PodChangeSet(ObjectId().toPodId(), "test-pod", emptyList()))
     assertFalse(listener.ran)
   }
 }

@@ -1,10 +1,11 @@
 package org.sempods.pods.media
 
-import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.sempods.pods.PodId
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import kotlin.io.path.writeText
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -49,21 +50,28 @@ abstract class PodMediaStoreConformanceTest {
    * They are not real content hashes — the store does not hash anything, it is told the id — but
    * they keep to the shape a real one has: base64url, and never containing `/` or `.`.
    */
-  private val salt = ObjectId().toHexString()
+  private val salt = randomToken()
 
-  protected val podA: ObjectId = ObjectId()
-  protected val podB: ObjectId = ObjectId()
+  protected val podA: PodId = mintPodId()
+  protected val podB: PodId = mintPodId()
 
   private val ourPods = setOf(podA, podB)
 
-  private fun ref(podId: ObjectId, name: String) = PodMediaRef(podId, "$name-$salt")
+  /**
+   * A pod id no other run holds, and deliberately not in any deployment's minting shape: a store is
+   * told what a pod id is and never reads meaning out of one, so a suite that used a real shape
+   * would let an implementation depend on it without failing here.
+   */
+  protected fun mintPodId(): PodId = PodId(randomToken())
+
+  private fun ref(podId: PodId, name: String) = PodMediaRef(podId, "$name-$salt")
 
   protected fun source(content: String): Path =
     Files.createTempFile(sources, "src-", ".bin").apply { writeText(content) }
 
   private fun read(ref: PodMediaRef): ByteArray = store.open(ref).use { it.readBytes() }
 
-  private fun listScoped(podId: ObjectId): List<MediaEntry> = store.iterate(podId) { it.toList() }
+  private fun listScoped(podId: PodId): List<MediaEntry> = store.iterate(podId) { it.toList() }
 
   /** Every entry of the pods this instance created, however many other pods the store holds. */
   private fun listOurs(): List<MediaEntry> =
@@ -170,6 +178,12 @@ abstract class PodMediaStoreConformanceTest {
 
   @Test
   fun `a pod with nothing in it lists nothing rather than failing`() {
-    assertEquals(emptyList(), listScoped(ObjectId()))
+    assertEquals(emptyList(), listScoped(mintPodId()))
+  }
+
+  private companion object {
+
+    /** 32 hex characters — inside every [PodId] rule, and collision-free enough for a test run. */
+    private fun randomToken(): String = UUID.randomUUID().toString().replace("-", "")
   }
 }

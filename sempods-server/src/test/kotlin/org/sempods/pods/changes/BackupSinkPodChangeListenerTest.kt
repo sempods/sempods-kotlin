@@ -3,6 +3,7 @@ package org.sempods.pods.changes
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
 import org.sempods.rdf.RdfWriterUtil
+import org.sempods.pods.mongo.persist.toPodId
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -47,7 +48,7 @@ class BackupSinkPodChangeListenerTest {
     }
 
     BackupSinkPodChangeListener(dao, mockk(relaxed = true)).onChange(
-      PodChangeSet(podId, "pod", listOf(ResourceChange(uri, ChangeOperation.UPDATED, setOf(ctx), after, after, LinkedHashModel()))),
+      PodChangeSet(podId.toPodId(), "pod", listOf(ResourceChange(uri, ChangeOperation.UPDATED, setOf(ctx), after, after, LinkedHashModel()))),
     )
 
     val nquads = slot<String>()
@@ -65,7 +66,7 @@ class BackupSinkPodChangeListenerTest {
     val removed = LinkedHashModel().apply { add(iri, RDF.TYPE, event, ctx) }
 
     BackupSinkPodChangeListener(dao, mockk(relaxed = true)).onChange(
-      PodChangeSet(podId, "pod", listOf(ResourceChange(uri, ChangeOperation.DELETED, setOf(ctx), LinkedHashModel(), LinkedHashModel(), removed))),
+      PodChangeSet(podId.toPodId(), "pod", listOf(ResourceChange(uri, ChangeOperation.DELETED, setOf(ctx), LinkedHashModel(), LinkedHashModel(), removed))),
     )
 
     verify { dao.delete(podId, uri, ctxUri) }
@@ -291,7 +292,7 @@ class BackupSinkPodChangeListenerTest {
   }
 
   private fun changeSet(vararg resources: ResourceChange) =
-    PodChangeSet(podId, "pod", resources.toList())
+    PodChangeSet(podId.toPodId(), "pod", resources.toList())
 
   private fun URI.toIri() = Values.iri(this.toString())
 }

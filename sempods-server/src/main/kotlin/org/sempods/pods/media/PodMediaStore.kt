@@ -1,6 +1,6 @@
 package org.sempods.pods.media
 
-import org.bson.types.ObjectId
+import org.sempods.pods.PodId
 import java.io.InputStream
 import java.nio.file.Path
 
@@ -26,6 +26,14 @@ import java.nio.file.Path
  * **Addressed by [PodMediaRef], never by a storage key.** An implementation owns how a ref becomes
  * a physical location; see that class for why. `podId` is the ownership boundary — no operation
  * crosses it, and [iterate] is scoped to one pod or explicitly to all.
+ *
+ * **A layout may reject a ref, and must reject rather than half-accept it.** A
+ * [org.sempods.pods.PodId] promises nothing about its form, so a token a deployment mints may be
+ * one this implementation's layout cannot express — and the only wrong answer is to store an
+ * object [iterate] then cannot hand back, which loses bytes silently. Refuse it from [put], with a
+ * message naming the constraint. Encoding the token into something the backend does take is the
+ * other legitimate answer; both are the implementation's to choose, and whichever it picks belongs
+ * in its KDoc.
  *
  * **Objects are immutable.** [PodMediaRef.mediaId] is the base64url SHA-256 of the content, so
  * [put] for an existing ref writes identical bytes. That is what means no implementation needs a
@@ -99,7 +107,7 @@ interface PodMediaStore {
    * means something; it does not have to be lexicographic, and no caller may assume an order.
    */
   fun <T> iterate(
-    podId: ObjectId? = null,
+    podId: PodId? = null,
     after: String? = null,
     consume: (Sequence<MediaEntry>) -> T,
   ): T
@@ -115,8 +123,7 @@ data class MediaEntry(
    *
    * A plain `String` rather than a wrapper type, for the same reason `SparqlResult.cursor` is one:
    * a cursor's whole job is to be handed back and, for a walk that must survive a restart, written
-   * down. A value class would be the only one in this codebase and would buy type safety over a
-   * value that has no other use.
+   * down. It has no identity and no second use to confuse it with, so a type would buy nothing.
    */
   val cursor: String,
 )

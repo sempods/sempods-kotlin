@@ -48,6 +48,22 @@ classes that only held it for that. The rule found real work when it
 was applied: `PodDbo` was reaching four layers past the store, and in every case the only field
 wanted was the id.
 
+**And no persistence key type either.** A seam that names one database's identifier has picked that
+database for everyone, so the per-pod seams partition by
+[`PodId`](../sempods-server/src/main/kotlin/org/sempods/pods/PodId.kt): a **tenant key**, which is a
+narrower thing than either a name or a location. It is thinner than `PodRef` on purpose —
+`PodMediaStore.iterate` reaches pods that no longer exist, and those have no URI and no owner left
+to name them by. `:sempods-media-s3` implements the media seam with no MongoDB artifact declared,
+and `./gradlew buildHealth` holds that.
+
+**A tenant key promises nothing about its own form**, and that is the half a key type is most
+likely to get wrong. `ObjectId` carried a hex encoding, a validity test and an ordering, so every
+implementation could treat it as a location and both shipped stores did — which is a storage shape
+written into the contract by accident. An implementation derives what its backend needs and owns
+that mapping, exactly as it owns its layout. The consequence runs upward: a store cannot say which
+tenants are this deployment's, so it does not try, and `PodMediaFacade.reconcile` — the minting
+side — decides. [`media.md`](media.md) §"The seam" states the limit of that check.
+
 The same reading applies in reverse to what a seam *returns*. `SempodsCredentials` is
 `PodAuthorizer`'s result, so the entity had to leave that too — which is what moved it out of
 `org.sempods.api` and into `org.sempods.pods.grants`, next to the seam that produces it. See also
@@ -58,11 +74,11 @@ The same reading applies in reverse to what a seam *returns*. `SempodsCredential
 | Seam | Contract | Implementations today |
 |---|---|---|
 | RDF store per pod | `pods/PodRepository` | `InMemoryPodRepository` (MemoryStore, write-through to MongoDB sinks); lifecycle owned by `PodRepositoryCache` |
-| Write-path sinks | `pods/changes/PodChangeListener` (Multibinder) | `BackupSinkPodChangeListener` (critical — the pod's durable persistence). The best-effort `MediaCleanupPodChangeListener` went with media roadmap M9; the Multibinder is what made removing it a deletion rather than an edit to the write path |
+| Write-path sinks | `pods/changes/PodChangeListener` (Multibinder) — a `PodChangeSet` names its pod by `PodId` and by name, so a sink a deployment supplies inherits no key type | `BackupSinkPodChangeListener` (critical — the pod's durable persistence). The best-effort `MediaCleanupPodChangeListener` went with media roadmap M9; the Multibinder is what made removing it a deletion rather than an edit to the write path |
 | `find` engine | `retrieval/FindAdapter` (Multibinder) | `SparqlTextFindAdapter`; the interface KDoc states the intent — "find is a specification, not an algorithm" |
 | Resource expansion | `retrieval/ResourceExpander` | `SparqlResourceExpander` |
 | AI provider | `ai/AiService`, selected by `AI_PROVIDER` | `OllamaAiService`, `OpenAiService` |
-| Pod binaries | `pods/media/PodMediaStore`, selected by `SEMPODS_MEDIA_BACKEND` — and unset is a first-class state: no store, no routes | `impls/fs/FilesystemPodMediaStore` (`:sempods-server`), `impls/s3/S3PodMediaStore` (`:sempods-media-s3`) |
+| Pod binaries | `pods/media/PodMediaStore`, selected by `SEMPODS_MEDIA_BACKEND` — and unset is a first-class state: no store, no routes. Addressed by `PodMediaRef(PodId, mediaId)`: an opaque pod token and a content hash, neither of them a storage key — see §"The pattern" | `impls/fs/FilesystemPodMediaStore` (`:sempods-server`), `impls/s3/S3PodMediaStore` (`:sempods-media-s3`) |
 | Admin authority | `admin/AdminAuthorizer` | `StaticCredentialAdminAuthorizer` (per-client secret from `SEMPODS_ADMIN_CLIENTS`, constant-time compare, **fail closed** → 503 when unconfigured) — bound unconditionally, no authority switch |
 | Authorization | `pods/grants/PodAuthorizer` — which contexts a caller may reach, resolved into the `SempodsCredentials` every pod endpoint carries. Distinct from *whether* the bearer is good, which is `pods/oauth/PodTokenAuthenticator` and concrete: every deployment of this server verifies the same self-issued JWT against the same keys, so there is nothing there to select. The parameter is a `PodRef` and not the stored row — see §"The pattern" | `GrantStorePodAuthorizer` — durable per-context grants read per request from `PodGrantsDao` / `PodServiceClientDao` through `PodContextPermissionResolver`, the slash-delimited `<root>#manage` cascade, and `public-read` as an additive feature scope over `PodFacade.getPublicContexts`. Bound unconditionally, no authorization switch. What the interface forbids is in §"What is not selectable": an implementation decides **which** contexts, never **whether** the sandbox applies |
 | Pod access from outside | The pod's own HTTP surface (`{pod}/…`, `{pod}/_system/…`) — a wire contract, not a Kotlin interface | `SempodsClient` / `SempodsPodClient` (`sempods-client`, two tiers of one client: a base URL and token per call, or bound to one pod and one `SempodsAuth` — both addressed by the pod's base URL, since that is what a pod's identity *is*; a consumer serving many pods resolves its own names); a consumer-side lookup that only dereferences. A consumer inside the server takes `PodFacade` / `SempodsFacade` instead; there is no in-process client, because a second path into a pod is one no client could take — including the pod server's own MCP endpoint, which since the MCP consolidation dials this same wire contract over the reverse proxy rather than calling the services beside it. The client's own shape — tiers, what may be added where, the transport choice — is [`pod-client.md`](pod-client.md) |
