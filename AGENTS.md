@@ -110,6 +110,11 @@ Key design choices:
 - Any behavior change must come with tests (prefer HTTP-level conformance tests).
 - Keep docs/spec aligned with implementation.
 - Be conservative with backward-incompatible changes.
+- Most modules here are published. An artifact whose types appear in a module's public signatures
+  is declared by that module, on `api` — not inherited from a sibling that brings it, and not the
+  artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
+  the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the two
+  services the plugin structurally cannot. See `docs/modularity.md` §"Open-source readiness".
 
 ## Naming conventions
 

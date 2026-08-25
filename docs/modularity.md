@@ -274,6 +274,26 @@ carries is one of the modules in this repository, and the list is short enough t
 `sempods-client`, `sempods-auth-core`, `sempods-mcp-core` — and nothing else with a `project :`
 prefix. Everything beyond them is a third-party library.
 
+**And the boundary between what a module exports and what it merely uses is
+checked, not asserted.** A published module's `api` set is its compile contract, and the mistake it
+invites is invisible from here: inside a monorepo every module has its own dependencies on its own
+compile classpath, so a type in a public signature whose artifact is declared `implementation`
+compiles perfectly — and cannot be compiled against by anyone holding only the published jar.
+`./gradlew buildHealth` ([`com.autonomousapps.dependency-analysis`](https://github.com/autonomousapps/dependency-analysis-gradle-plugin))
+reads the bytecode and the Kotlin metadata and fails the build on it. Configuration and the
+reasoning behind each exception live in `settings.gradle.kts`.
+
+It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
+an *application* from its plugins — `application`, Jib and a few others — and an application has no
+consumers, so it computes no ABI for one at all. `sempods-auth` and `sempods-mcp` are both things at
+once: services with a `main`, and libraries an embedder installs a Guice module from. For those two
+the check is a compiler instead. `:consumer-probe:auth` and `:consumer-probe:mcp` declare
+`implementation(project(":sempods-auth"))` and its sibling and name exactly what an embedder names —
+the config, the module, `Guice.createInjector`. Gradle propagates only `api` across a project
+boundary, so each probe's compile classpath is a consumer's compile classpath, and a missing export
+is a compile error here rather than in someone else's build. They are two modules and not one file
+because a probe holding both services hid a missing export in each behind the other's declaration.
+
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,
 and each says it as a property now, because a name that a reader cannot resolve is a dangling

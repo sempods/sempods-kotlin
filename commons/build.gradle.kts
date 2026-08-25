@@ -6,6 +6,11 @@ plugins {
 dependencies {
   implementation(libs.bundles.logging)
 
+  // slf4j-api itself, on top of the facade bundle: `LoggingInitializer` names `LoggerFactory` and
+  // `ILoggerFactory` directly, which no other module here does. kotlin-logging carries slf4j-api
+  // along either way — this line is the difference between depending on that and saying so.
+  implementation(libs.slf4jApi)
+
   // The `java.util.logging` bridge, declared here rather than left to each application: it is
   // `LoggingInitializer`'s own dependency — that class references `SLF4JBridgeHandler` directly —
   // and it is not a binding, so carrying it costs a consumer 5 KB and decides nothing for them.
@@ -22,9 +27,13 @@ dependencies {
   testFixturesImplementation(libs.bundles.logging)
   testFixturesImplementation(libs.bundles.test)
 
+  // `TestUtil` polls for a condition. Declared here rather than carried by `libs.bundles.test`,
+  // which every module takes: two source sets in this repository await anything, and the other
+  // fourteen were paying for it because it shared a line with JUnit.
+  testFixturesImplementation(libs.awaitility)
+
   // `LogbackBaseConfigTest` configures a throwaway LoggerContext from the shared base, so it
   // names logback types directly. The binding itself comes from the root build script.
   testImplementation(libs.logbackClassic)
-  testImplementation(libs.guice)
   testImplementation(libs.bundles.test)
 }

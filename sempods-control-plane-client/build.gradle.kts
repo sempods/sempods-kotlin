@@ -9,12 +9,15 @@ dependencies {
   // and a consumer of the pod specification adds no dependency on this module at all.
   api(project(":sempods-client"))
 
-  // Declared rather than inherited. The admin surface is plain JSON, and Jackson reaches
-  // `:sempods-client` only as a transitive of `rdf4j-rio-jsonld` — an undeclared compile
-  // dependency that should not spread by imitation.
-  implementation(libs.jackson)
+  // Declared rather than inherited. The admin surface is plain JSON, and the types it names —
+  // `JsonNode` and the mapper — are `jackson-databind`'s. The `java.time` codecs are a
+  // registration, needed when a mapper is built and not when this module is compiled.
+  implementation(libs.jacksonDatabind)
+  runtimeOnly(libs.jackson)
 
-  implementation(libs.bundles.logging)
+  // No logging: nothing in this module logs, for the reason `:sempods-client` gives.
 
+  testImplementation(libs.slf4jApi)
+  testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 }

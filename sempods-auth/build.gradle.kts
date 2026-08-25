@@ -20,6 +20,8 @@ dependencies {
 
   // HTTP server — standalone, no application framework
   implementation(libs.ktorServerCore)
+  // `AttributeKey` and the URL builders, named directly by the routing and the client plugin.
+  implementation(libs.ktorUtils)
   implementation(libs.ktorServerNetty)
   implementation(libs.ktorServerCallLogging)
 
@@ -45,13 +47,16 @@ dependencies {
   // protocol library it did not ask for. This service uses its types directly, so it says so.
   implementation(libs.oidcSdk)
 
-  // MongoDB (raw driver — no Morphia)
+  // MongoDB (raw driver — no Morphia). `bson` alongside it: `Document` and `ObjectId` are what the
+  // DAOs here actually name, and they live there rather than in the sync driver.
   implementation(libs.mongodb)
+  implementation(libs.bson)
 
   // Tests
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
   testImplementation(testFixtures(project(":commons")))
   testImplementation(libs.ktorServerTestHost)
+  testImplementation(libs.kotlinxCoroutinesTest)
   testImplementation(libs.bundles.test)
 }
 

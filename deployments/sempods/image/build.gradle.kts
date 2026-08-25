@@ -10,7 +10,6 @@ dependencies {
   // No application framework either, and that is the whole decoupling: this image ships the pod server
   // without an application framework behind it.
   implementation(project(":commons"))
-  implementation(project(":commons-jaxrs"))
   implementation(project(":sempods-server"))
   implementation(libs.guice)
   implementation(libs.bundles.logging)
@@ -25,7 +24,12 @@ dependencies {
   implementation(project(":sempods-media-s3"))
 
   // implementation libs
-  implementation(libs.jerseyJettyHttp)
+  // `SempodsServerStarter` builds and starts the Jetty `Server` itself; Jersey rides on that
+  // connector without this composition naming a Jersey type, so its container is `runtimeOnly`.
+  // `:commons-jaxrs` is deliberately absent: `JaxRsServerModule` is reached through
+  // `:sempods-server`, which exports it, and a line here would only say it twice.
+  implementation(libs.jettyServer)
+  runtimeOnly(libs.jerseyJettyHttp)
 
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
   testImplementation(testFixtures(project(":commons")))
