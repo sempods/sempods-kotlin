@@ -26,7 +26,9 @@ fun interface ClientRedirectPolicy {
  *
  * @param allowLoopback development only. A loopback address in production would mean an
  *   authorization code can be intercepted by anything running on the user's machine, so this is
- *   wired from the environment and never defaulted on.
+ *   wired from the environment and never defaulted on. It governs *every* loopback address,
+ *   including one an identifier names as its own origin — see the note in [permits] for the door
+ *   that used to be open.
  */
 class DidWebRedirectPolicy(private val allowLoopback: Boolean = false) : ClientRedirectPolicy {
 
@@ -34,6 +36,15 @@ class DidWebRedirectPolicy(private val allowLoopback: Boolean = false) : ClientR
     if (!RedirectUri.isValid(redirectUri)) return false
     val target = DidWeb.targetOf(clientId) ?: return false
     val uri = runCatching { URI(redirectUri) }.getOrNull() ?: return false
+
+    // Every loopback address goes through [allowLoopback], including the one an identifier names
+    // as its own home. `did:web:localhost%3A5173` was answered at `http://localhost:5173/cb` in
+    // production: the `covers` match below is the first branch, so the gate underneath was never
+    // reached, and the rule this parameter exists to enforce had a door it did not cover. Nobody
+    // registers a `did:web:` — the identifier is asserted, not issued — so in production that let
+    // anyone route a code to whatever listens on that port on the user's own machine, which is
+    // the interception [allowLoopback] is named after.
+    if (!allowLoopback && RedirectUri.isLoopback(target.host)) return false
 
     // A did:web with path segments narrows the client to that subtree, so the address has to be
     // inside it — otherwise two services sharing a host could answer for each other.

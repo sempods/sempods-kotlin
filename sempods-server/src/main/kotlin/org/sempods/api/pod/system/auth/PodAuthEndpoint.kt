@@ -1752,6 +1752,18 @@ class PodAuthEndpoint @Inject constructor(
 
     val didTarget = DidWeb.targetOf(appId) ?: return false
 
+    // The development gate below governs *every* loopback address, including the one an identifier
+    // names as its own home. It used to sit only under `covers`, which answers first — so
+    // `did:web:localhost%3A5173` was served at `http://localhost:5173/cb` in production and the
+    // gate was never consulted. Nobody registers a `did:web:`; the identifier is asserted, not
+    // issued. In production that let anyone route a code to whatever listens on that port on the
+    // user's own machine, which is the interception the gate is there to prevent.
+    //
+    // `DidWebRedirectPolicy` carries the same refusal for the identity service, and its policy
+    // test is where the production side is asserted — `Env.isDevelopment` is a process-wide lazy
+    // value, so this suite can only run as development and cannot exercise the `false` branch.
+    if (!Env.isDevelopment && RedirectUri.isLoopback(didTarget.host)) return false
+
     // `covers` matches on path segments, not on a string prefix. This endpoint used to compare
     // host and port only, so `did:web:example.org:mcp` would have been answered at
     // `https://example.org/other/cb` — a client scoped to one subtree receiving a code meant for
