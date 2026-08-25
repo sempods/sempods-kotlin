@@ -82,8 +82,9 @@ object RedirectUri {
    * A host as the sets above write it: lowercase, and an IPv6 literal without its brackets —
    * `URI.getHost` returns those, and they are URL syntax (RFC 3986 §3.2.2), not the address.
    *
-   * The compact form only: `[0:0:0:0:0:0:0:1]` does not match, and a redirect check is the wrong
-   * place to grow an address normalizer.
+   * Exact spellings, not an address classifier: `[0:0:0:0:0:0:0:1]` does not match. Classifying
+   * would mean resolving, and a public name may resolve to loopback — `http://` on any host whose
+   * DNS points there is the address this whole check exists to refuse.
    */
   private fun normalizeHost(host: String?): String? =
     host?.trim()?.lowercase()?.removeSurrounding("[", "]")
