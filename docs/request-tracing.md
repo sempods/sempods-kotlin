@@ -25,11 +25,11 @@ here samples, so claiming otherwise would tell a future collector to discard the
 
 ## Where the binding lives
 
-`commons/src/main/kotlin/org/sempods/commons/trace/` — [`TraceContext`](../commons/src/main/kotlin/org/sempods/commons/trace/TraceContext.kt)
-(parse, format, `newChild`) and [`TraceContextHolder`](../commons/src/main/kotlin/org/sempods/commons/trace/TraceContextHolder.kt)
+`sempods-commons/src/main/kotlin/org/sempods/commons/trace/` — [`TraceContext`](../sempods-commons/src/main/kotlin/org/sempods/commons/trace/TraceContext.kt)
+(parse, format, `newChild`) and [`TraceContextHolder`](../sempods-commons/src/main/kotlin/org/sempods/commons/trace/TraceContextHolder.kt)
 (the per-thread binding).
 
-It sits in `commons` rather than in any one service because `sempods-client` must read it and
+It sits in `sempods-commons` rather than in any one service because `sempods-client` must read it and
 depends on neither a framework nor Guice. Every module binds and reads the trace through
 `TraceContextHolder` directly; a facade in front of the holder would say nothing the holder does
 not.
@@ -40,7 +40,7 @@ label and the outgoing headers cannot disagree. The shared `logback-base.xml` re
 
 Storage is a `ThreadLocal`, deliberately — see the note in `TraceContextHolder`'s KDoc. The Ktor
 services keep that same holder rather than a second, coroutine-shaped binding: `TraceContextElement`
-in `commons-ktor` is a `ThreadContextElement` that re-binds the holder on whichever thread a
+in `sempods-commons-ktor` is a `ThreadContextElement` that re-binds the holder on whichever thread a
 coroutine resumes on, so `TraceContextHolder.get()` and the MDC are both correct after a suspension
 point. One mechanism, two frameworks.
 
@@ -48,7 +48,7 @@ point. One mechanism, two frameworks.
 
 Two entry points, one behaviour.
 
-**Ktor** — `installTraceContext()` (`commons-ktor`) intercepts `ApplicationCallPipeline.Setup` in
+**Ktor** — `installTraceContext()` (`sempods-commons-ktor`) intercepts `ApplicationCallPipeline.Setup` in
 `sempods-auth` and `sempods-mcp`, before `CallLogging`, so its request line already carries the
 trace id. It parses or starts the trace exactly as the filter below does, parks it in the call's
 attributes, echoes it on the response, and wraps the rest of the pipeline in a `TraceContextElement`.
@@ -78,11 +78,11 @@ for the preflight, `exposedHeaders` so the echo is readable.
 
 Three paths, because three HTTP clients are in use:
 
-- **OkHttp** — `TraceparentInterceptor` (`commons-okhttp`), installed once in `OkHttpClientModule`,
+- **OkHttp** — `TraceparentInterceptor` (`sempods-commons-okhttp`), installed once in `OkHttpClientModule`,
   covers every call on the shared client `sempods-server` composes. An *application* interceptor,
   not a network one: the trace lives in a `ThreadLocal`, and only the application layer is
   guaranteed to run on the thread that called `execute()`.
-- **Ktor client** — `TraceparentClientPlugin` (`commons-ktor`), installed on `sempods-auth`'s OIDC
+- **Ktor client** — `TraceparentClientPlugin` (`sempods-commons-ktor`), installed on `sempods-auth`'s OIDC
   client, which is its only production installation. It reads the ambient trace from the holder,
   correct inside a call because the server-side interceptor bound a `TraceContextElement` for its
   coroutine; outside a call there is no ambient trace and no header goes out.
@@ -97,7 +97,7 @@ Three paths, because three HTTP clients are in use:
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
 - **`SempodsHttpTransport`** (`sempods-client`) — OkHttp, but its own client rather than
-  `commons-okhttp`'s, so the interceptor above does not reach it; it sets the header in
+  `sempods-commons-okhttp`'s, so the interceptor above does not reach it; it sets the header in
   `newRequest` instead. Its `newRequest(uri)` is the single door for both clients built on it — `SempodsClient`
   and `SempodsControlPlaneClient` — and a request built any other way silently ends the trace.
 

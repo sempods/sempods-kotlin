@@ -84,14 +84,14 @@ Service Impl ──┘
 
 ## Module Boundaries
 
-- The `commons` family is the foundation: `commons` plus the siblings that add one dependency
-  each — `commons-json`, `commons-mongo`, `commons-jaxrs`, `commons-ktor`, `commons-okhttp`. A consumer
+- The `sempods-commons` family is the foundation: `sempods-commons` plus the siblings that add one dependency
+  each — `sempods-commons-json`, `sempods-commons-mongo`, `sempods-commons-jaxrs`, `sempods-commons-ktor`, `sempods-commons-okhttp`. A consumer
   takes what it needs and inherits nothing else
-- **An application framework is a consumer of `commons`, never its base.** A framework that
+- **An application framework is a consumer of `sempods-commons`, never its base.** A framework that
   bundles sessions, users, mails and tasks may sit on top of the family and take what it needs;
-  nothing in `commons` may depend back on it. `sempods-server`, `sempods-auth`, `sempods-mcp`,
+  nothing in `sempods-commons` may depend back on it. `sempods-server`, `sempods-auth`, `sempods-mcp`,
   `sempods-model`, `sempods-client`, `sempods-control-plane-client` and the pod server's deployment
-  image take `commons` and no framework at all. See
+  image take `sempods-commons` and no framework at all. See
   [`../modularity.md`](../modularity.md) §"Open-source readiness"
 - **A Facade is a legitimate reuse surface.** sempods is a *reference implementation* built from
   selectable seams, and a toolkit whose parts cannot be called from outside is not a toolkit. A

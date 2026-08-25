@@ -25,15 +25,15 @@ dependencies {
   implementation(libs.bundles.logging)
 
   // The media data types carry serialization annotations and name `JsonNode`; the mapper that
-  // reads them comes from `:commons-json`.
+  // reads them comes from `:sempods-commons-json`.
   implementation(libs.jacksonDatabind)
 
   // No application framework. This module is the pod contract, and `sempods-client` plus every
   // consumer above it depends on it — an edge to a framework here would put Jersey, an object
   // mapper and a user model behind all of them. The last symbol was `SempodsUriBuilder`'s injected
   // application-config constructor.
-  implementation(project(":commons"))
-  implementation(project(":commons-json"))
+  implementation(project(":sempods-commons"))
+  implementation(project(":sempods-commons-json"))
 
   // No test fixtures, and no DI container anywhere: this module ships ontologies, view definitions,
   // a URI builder that takes its base URL as a plain argument, and the media data types. No pod
