@@ -151,7 +151,11 @@ dependencies {
 
 The modules are built, tested and released in lockstep, and a consumer holding `sempods-client`
 0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
-for, and why hand-versioning them is the one thing to avoid.
+for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary
+constraints, so a *different* dependency asking for a newer sempods module can still pull that one
+ahead of the rest; if you would rather such a build fail than resolve, ask for
+`enforcedPlatform(...)` instead of `platform(...)` and the constraints become strict on your side.
+That choice is left to you on purpose — made here, it would propagate to everyone.
 
 Published bytecode targets **Java 21**. Building this repository needs 25; depending on it does
 not.
@@ -163,11 +167,13 @@ POM so that an ordinary consumer does not inherit them. The jar itself is publis
 `test-fixtures` classifier, so a Maven build can reach it — by naming that classifier and
 supplying those dependencies itself.
 
-Between releases `main` carries a `-SNAPSHOT` version, and every merge republishes it to
-`https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
-The workflow skips a version without `-SNAPSHOT`, so a `main` that is mid-release publishes
-nothing. A snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release
-instead unless you specifically want to find out early that something changed.
+Between releases `main` carries a `-SNAPSHOT` version, and merging to it republishes that version
+to `https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
+Two things skip the publish: a version without `-SNAPSHOT`, so a `main` that is mid-release
+publishes nothing, and a commit that is no longer the tip once its run reaches the gate, so a burst
+of merges leaves only the newest — the snapshot follows `main`, not each commit on the way. A
+snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release instead unless
+you specifically want to find out early that something changed.
 
 ## The three services
 
