@@ -510,11 +510,13 @@ Content-Type: application/merge-patch+json
   separate layer; until it lands, the System layer accepts any
   structurally valid write.
 - **JSON Patch / N3 Patch / SPARQL Update bodies** — not exposed on
-  this layer. Slot CRUD is the additive/granular alternative; SPARQL
-  Update is the federated escape hatch.
+  this layer, and not exposed anywhere else either: the SPARQL
+  surface is read-only. Slot CRUD is the additive/granular
+  alternative.
 - **Bulk slot updates across multiple subjects in one call** — use
-  the LOD layer's `PUT`/`PATCH` for whole-resource swaps, or SPARQL
-  Update for multi-resource transactions.
+  the LOD layer's `PUT`/`PATCH` for whole-resource swaps. Atomic
+  multi-resource writes have no route at all; see the LOD layer's
+  §"Known limitations" for what a caller does instead.
 - **Predicate-IRI canonicalisation** (`http://schema.org/` vs.
   `https://schema.org/`) — server does not normalise. Pods document
   their canonical form; clients normalise before write. Otherwise

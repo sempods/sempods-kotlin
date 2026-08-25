@@ -138,11 +138,13 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   only. **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
   minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
   — the AS endpoints are derived from the issuer (`…/authorize`, `…/token`), the service presents a
-  **static `did:web:<mcp-host>` client** (resolved by the pod against the service's
-  `/.well-known/did.json`) instead of registering, and no JWKS means the pod token's subject is
-  trusted via the direct TLS token (`subject_verified: false`). The convention is taken **only on a
-  genuine 404** for the AS metadata — a transient failure propagates rather than silently
-  downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system
+  **static `did:web:<mcp-host>` client** instead of registering. What the pod makes of that
+  identifier is the pod's own business, and this fallback is for pods we did not write: a sempods
+  pod matches the origin and fetches nothing, while a third party following the did:web method may
+  resolve `/.well-known/did.json` — which is why the service serves one. No JWKS means the pod
+  token's subject is trusted via the direct TLS token (`subject_verified: false`). The convention is
+  taken **only on a genuine 404** for the AS metadata — a transient failure propagates rather than
+  silently downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system
   namespace.
 - **M3 (read tools)** — done (build green). The MCP front door now serves the read surface across
   connected pods: `list_pods`, `list_contexts`, `get_resource`, `sparql_select`, `sparql_graph`,
