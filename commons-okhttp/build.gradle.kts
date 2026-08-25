@@ -11,9 +11,7 @@ dependencies {
   api(project(":commons"))
   api(project(":commons-json"))
   api(libs.okhttp)
-  // `JsonUtil` hands back Jackson's own types, which live in `jackson-databind`. Declared rather
-  // than inherited through `:commons-json` for the same reason that module names it: the signature
-  // is this module's, so the artifact behind it is this module's to declare.
+  // `JsonUtil` hands back Jackson's own types.
   api(libs.jacksonDatabind)
 
   // Same reasoning as `commons` and `commons-mongo`: `OkHttpClientModule` is the only class here

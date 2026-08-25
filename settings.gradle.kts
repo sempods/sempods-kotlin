@@ -1,48 +1,40 @@
-// Both plugins in one block, and the Kotlin one without applying itself, because
-// `com.autonomousapps.build-health` reads Kotlin metadata: it needs KGP in the *same* classloader,
-// which a settings script and a build script do not share. The root build script therefore names
-// `org.jetbrains.kotlin.jvm` without a version — this is where the version lives now.
+// Both plugins in one block: `com.autonomousapps.build-health` reads Kotlin metadata and needs KGP
+// in the same classloader, which a settings script and a build script do not share. The Kotlin
+// version therefore lives here rather than in the root build script.
 //
-// 3.18.0 rather than the 2.19.0 the plugin's own README quotes: that release's ASM cannot read
-// Java 25 bytecode and dies with `Unsupported class file major version 69`. ASM 9.9 arrived in
-// 3.1.0. 3.18.0 wants Gradle 8.11 or newer; the wrapper here is 9.7.1.
+// Not 2.19.0, the version the plugin's README quotes: its ASM cannot read Java 25 bytecode and dies
+// with `Unsupported class file major version 69`. Needs Gradle 8.11 or newer.
 plugins {
   id("com.autonomousapps.build-health") version "3.18.0"
   id("org.jetbrains.kotlin.jvm") version "2.4.10" apply false
 }
 
 // The api/implementation boundary, checked. `./gradlew buildHealth` writes its report to
-// `build/reports/dependency-analysis/`; see `docs/modularity.md` §"Open-source readiness" for what
-// this guards and what it cannot.
-//
-// Configured here rather than in the root build script for one reason and against one cost: the
-// settings script is where the plugin already lives, and the root build script is long enough. The
-// cost is that version-catalog accessors do not exist in a settings script, so coordinates below
-// are strings.
+// `build/reports/dependency-analysis/`; `docs/modularity.md` §"Open-source readiness" says what it
+// guards and what it cannot. Coordinates are strings because a settings script has no
+// version-catalog accessors.
 dependencyAnalysis {
 
   structure {
 
-    // A `bundle` tells the plugin that several artifacts are one library, so declaring the one a
-    // reader would name covers a type that technically lives in a sibling of it. The rule for what
-    // belongs here: an artifact split that a *consumer* cannot see. Where the split is visible —
-    // where the artifact carrying the type is one a consumer would have to declare for themselves
-    // — there is no bundle, and the build file names the real coordinate instead.
+    // A `bundle` declares that several artifacts are one library, so using a type from any of them
+    // justifies declaring the one a reader would name. It belongs here when the split is one a
+    // *consumer* cannot see; where the artifact carrying the type is one a consumer would have to
+    // declare themselves, the build file names it instead.
     //
-    // Which is why there is deliberately no bundle over `org.eclipse.rdf4j`, and none pairing
-    // `rdf4j-model` with `rdf4j-model-api` or `jackson-datatype-jsr310` with `jackson-databind`.
-    // Those three are exactly the declarations this plugin was adopted to correct.
+    // Hence no bundle over `org.eclipse.rdf4j`, and none pairing `rdf4j-model` with
+    // `rdf4j-model-api` or `jackson-datatype-jsr310` with `jackson-databind`: those three splits
+    // are visible, and correcting them is why this plugin is here.
 
-    // Jackson's own three-way split. `jackson-databind` is the one a build file names; `core` and
-    // `annotations` are how it is packaged.
+    // `core` and `annotations` are how `jackson-databind` is packaged.
     bundle("jackson") {
       primary("com.fasterxml.jackson.core:jackson-databind")
       includeDependency("com.fasterxml.jackson.core:jackson-core")
       includeDependency("com.fasterxml.jackson.core:jackson-annotations")
     }
 
-    // The sync driver and the core it is built on. `bson` is *not* here: `ObjectId` and `Document`
-    // are in public signatures across this repository, so that artifact is one a consumer declares.
+    // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in public
+    // signatures here, so that artifact is one a consumer declares.
     bundle("mongodb-driver") {
       primary("org.mongodb:mongodb-driver-sync")
       includeDependency("org.mongodb:mongodb-driver-core")
@@ -64,9 +56,9 @@ dependencyAnalysis {
       includeDependency("com.squareup.okio:okio")
     }
 
-    // The AWS SDK ships one artifact per concern, and `s3` is the only one a build file names.
-    // Listed one by one rather than by group: `apache-client` is declared here on purpose
-    // (`libs.awsApacheClient` pins the sync HTTP layer) and must stay visible to the analysis.
+    // The AWS SDK ships one artifact per concern; `s3` is the only one a build file names. Listed
+    // one by one rather than by group, so that `apache-client` — pinned on purpose — stays visible
+    // to the analysis.
     bundle("aws-sdk") {
       primary("software.amazon.awssdk:s3")
       includeDependency("software.amazon.awssdk:auth")
@@ -75,14 +67,13 @@ dependencyAnalysis {
       includeDependency("software.amazon.awssdk:sdk-core")
     }
 
-    // Nimbus' JSON reader, an implementation detail of both Nimbus artifacts.
+    // Nimbus' JSON reader.
     bundle("nimbus") {
       primary("com.nimbusds:oauth2-oidc-sdk")
       includeDependency("net.minidev:json-smart")
     }
 
-    // Ktor's plumbing. `ktor-utils` is *not* here — `commons-ktor` puts its types in a public
-    // signature, so it is declared.
+    // Ktor's plumbing. Not `ktor-utils`: `commons-ktor` puts `AttributeKey` in a public signature.
     bundle("ktor-internals") {
       primary("io.ktor:ktor-server-core")
       includeDependency("io.ktor:ktor-http")
@@ -97,33 +88,30 @@ dependencyAnalysis {
       }
 
       onUnusedDependencies {
-        // `org.junit.jupiter:junit-jupiter` is an aggregator, and the only part of it this
-        // repository compiles against — `junit-jupiter-api` — the plugin already credits to
-        // `kotlin-test-junit5` through its own built-in bundle. What the aggregator additionally
-        // brings is the *engine*, which nothing names and `useJUnitPlatform()` cannot run without.
-        // Taking this advice would leave every module compiling and no test executing.
+        // `junit-jupiter` is an aggregator. The part this repository compiles against,
+        // `junit-jupiter-api`, the plugin credits to `kotlin-test-junit5` through a built-in bundle;
+        // what is left is the engine, which nothing names and `useJUnitPlatform()` cannot run
+        // without. Taking this advice leaves every module compiling and no test executing.
         exclude("org.junit.jupiter:junit-jupiter")
       }
 
       onDuplicateClassWarnings {
         // `mockserver-netty-no-dependencies` shades slf4j, which is the point of that artifact and
         // the whole of this warning. Test-only, and not fixable without changing mock servers.
+        // Left visible rather than silenced: it is true, it is just not actionable here.
         severity("warn")
       }
     }
 
     // The two published services, and the one thing the plugin gets wrong about them.
     //
-    // It decides a project is an application from its plugins — `application`, Jib and a few
-    // others — and an application has no consumers, so it computes no ABI for one and offers no
-    // `api` advice. These two are both: an application *and* a published library an embedder
-    // installs a Guice module from. With no ABI to compare against, every `api` declaration looks
-    // unnecessary to it, and it advises demoting the one that #11 established is required.
+    // It reads `application` or Jib as "this is an application", and an application has no
+    // consumers, so it computes no ABI and every `api` declaration looks unnecessary to it. These
+    // two are both: an application, and a library an embedder installs a Guice module from.
     //
-    // The exclusion is narrow on purpose: `:commons` carries `BaseModule`, the supertype of
+    // The exclusion is narrow: `:commons` carries `BaseModule`, the supertype of
     // `SempodsAuthModule` and `SempodsMcpModule`, so an embedder cannot name either class without
-    // it. That is not an opinion — `:consumer-probe:auth` and `:consumer-probe:mcp` fail to
-    // compile if the declaration goes.
+    // it. `:consumer-probe:auth` and `:consumer-probe:mcp` fail to compile if it goes.
     listOf(":sempods-auth", ":sempods-mcp").forEach { service ->
       project(service) {
         onIncorrectConfiguration {

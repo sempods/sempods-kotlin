@@ -17,25 +17,21 @@ dependencies {
   implementation(project(":commons-okhttp"))
   implementation(project(":commons-mongo"))
 
-  // The artifacts behind those signatures, named rather than re-exported through the `commons`
-  // sibling that happens to bring them. `ObjectId` is in some fifty public signatures here and
-  // lives in `bson`; the `JsonNode` and `ObjectMapper` beside it live in `jackson-databind`;
-  // `jakarta.ws.rs-api` is what `BaseEndpoint`'s subclasses hand back a `Response` from. Each
-  // arrives transitively either way — declaring it is the difference between a consumer being able
-  // to compile against this module and depending on `:commons-mongo` never changing its mind.
+  // The artifacts behind those signatures. `ObjectId` is in some fifty public signatures here,
+  // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
+  // subclasses hand back a `Response` from.
   //
-  // `ObjectId` in a seam meant to allow a different store is known debt (#12); this line makes the
-  // coupling say its own name instead of hiding one project deep.
+  // `ObjectId` in a seam meant to allow a different store is known debt (#12); naming `bson` here
+  // is what makes that coupling visible in this file rather than one project deep.
   api(libs.mongodb)
   api(libs.bson)
   api(libs.jacksonDatabind)
   api(libs.jakartaWsRsApi)
 
-  // OkHttp, and not by choice. `CommonsHttpTransport`, `MediaSourceFetcher` and the two AI
-  // services take an `OkHttpClient` in a public `@Inject` constructor, so it *is* in this module's
-  // ABI and a declaration that said otherwise would be untrue. It is also surface nobody designed
-  // — these are classes Guice builds, which an embedder never names — and shrinking it belongs to
-  // #15. Until then the honest declaration is this one.
+  // OkHttp, and not by choice: `CommonsHttpTransport`, `MediaSourceFetcher` and the two AI
+  // services take an `OkHttpClient` in a public `@Inject` constructor, so it is in this module's
+  // ABI. Surface nobody designed — Guice builds these classes and an embedder never names them —
+  // and narrowing it is #15.
   api(libs.okhttp)
   api(project(":sempods-model"))      // PodRef, SempodsUriBuilder
   api(project(":sempods-auth-core"))  // SigningKeyStore, RefreshTokenStore, AuthorizationCodeStore, …
@@ -62,12 +58,11 @@ dependencies {
   api(libs.guice)   // `SempodsModule` hands out an `Injector`.
   implementation(libs.bundles.logging)
 
-  // RDF4J, split along what a consumer can see. `PodRepository` answers with `Model`, hands out a
-  // `RepositoryConnection`, takes a parsed query and a `Dataset` — those five artifacts carry the
-  // interfaces in its signatures. Everything below them is how a pod is built rather than how it
-  // is called: the implementations of those interfaces, the algebra the SPARQL context rewriter
-  // walks, the sail the store runs on. The parsers and result writers are found by `ServiceLoader`
-  // and named by nothing, so they are needed only when a pod runs.
+  // RDF4J, split along what a consumer can see. `PodRepository` answers with a `Model`, hands out a
+  // `RepositoryConnection`, and takes a parsed query and a `Dataset`; those five artifacts carry
+  // the interfaces in its signatures. Below them is how a pod is built rather than how it is
+  // called — the implementations, the algebra the SPARQL context rewriter walks, the sail the store
+  // runs on — and the parsers and result writers, which `ServiceLoader` finds at runtime.
   api(libs.rdf4jModelApi)
   api(libs.rdf4jQuery)
   api(libs.rdf4jQueryparserApi)
@@ -108,8 +103,7 @@ dependencies {
   testImplementation(testFixtures(project(":commons-okhttp")))
 
   // test libs
-  // The suite drives a real connector, so it builds a Jetty `Server`; the Jersey container on it
-  // is discovered rather than named.
+  // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.
   testImplementation(libs.jettyServer)
   testRuntimeOnly(libs.jerseyJettyHttp)
 

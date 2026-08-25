@@ -9,26 +9,23 @@ dependencies {
   // what a pod holds, so those types are part of the contract this module *is* rather than a
   // detail of how it is written — a consumer that cannot name them cannot call anything here.
   //
-  // Two artifacts, because the contract is in both. The interfaces those signatures name live in
-  // `rdf4j-model-api`; the concrete `LinkedHashModel`, `SimpleNamespace`, `ModelBuilder` and
-  // `Values` that `Rdf4JUtil` and the `Ontologies` builders hand back live in `rdf4j-model`. The
-  // single `api(libs.rdf4jModel)` this replaces was right about the boundary and one artifact
-  // short of where it runs.
+  // Two artifacts, because the contract is in both: the interfaces in `rdf4j-model-api`, and the
+  // concrete `LinkedHashModel`, `SimpleNamespace`, `ModelBuilder` and `Values` that `Rdf4JUtil` and
+  // the `Ontologies` builders hand back in `rdf4j-model`.
   api(libs.rdf4jModelApi)
   api(libs.rdf4jModel)
   implementation(libs.rdf4jModelVocabulary)
 
   // `Rio` and `RDFFormat`, for reading and writing. The parsers behind them are found by
-  // `ServiceLoader`, so they are needed when a pod runs and never when one is compiled against.
+  // `ServiceLoader` and needed only at runtime.
   implementation(libs.rdf4jRioApi)
   runtimeOnly(libs.bundles.rdf4j)
 
-  // Declared rather than inherited: `SempodsUriBuilder` logs, and the facade reached the compile
-  // classpath only as a transitive of rdf4j.
+  // `SempodsUriBuilder` logs.
   implementation(libs.bundles.logging)
 
-  // The media data types serialize; the mapper that does it comes from `:commons-json`, but the
-  // annotations and `JsonNode` are `jackson-databind`'s and are named here.
+  // The media data types carry serialization annotations and name `JsonNode`; the mapper that
+  // reads them comes from `:commons-json`.
   implementation(libs.jacksonDatabind)
 
   // No application framework. This module is the pod contract, and `sempods-client` plus every

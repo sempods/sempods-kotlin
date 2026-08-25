@@ -147,20 +147,18 @@ issue rather than a pull request.
 ./gradlew buildHealth   # the dependency declarations of every module
 ```
 
-`buildHealth` is the one that is easy to be surprised by. Most modules here are
-published to Maven Central, and a published module's `api` set *is* its compile
-contract: a type in a public signature whose artifact is declared
-`implementation` compiles fine inside this repository and cannot be compiled
-against from outside it. The check reads bytecode rather than build files and
-fails the build on that mistake. Its report — including advice it only warns
-about — lands in `build/reports/dependency-analysis/build-health-report.txt`.
+`buildHealth` is the one that surprises people. Most modules here are published,
+and a published module's `api` set *is* its compile contract: a type in a public
+signature whose artifact is declared `implementation` compiles fine inside this
+repository and cannot be compiled against from outside it. The check reads
+bytecode rather than build files and fails on that. Its report, including advice
+it only warns about, is in
+`build/reports/dependency-analysis/build-health-report.txt`.
 
-The short version of the rule it enforces: **an artifact whose types appear in a
-module's public signatures is declared by that module, on `api`.** Not inherited
-from a sibling that happens to bring it, and not the artifact one level up from
-the one the type is actually in. Where the split between artifacts is one no
-consumer can see — Jackson's `core`/`databind`/`annotations`, the AWS SDK — the
-grouping is recorded once in `settings.gradle.kts` instead.
+The rule, short: **an artifact whose types appear in a module's public signatures
+is declared by that module, on `api`** — not inherited from a sibling that
+happens to bring it. `docs/modularity.md` §"Open-source readiness" says what this
+guards and what it cannot.
 
 ## Practical expectations
 

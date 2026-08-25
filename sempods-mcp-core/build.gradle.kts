@@ -11,9 +11,8 @@ dependencies {
   //
   // `api` because Jackson is in this module's surface, not behind it: `ToolCatalog.validate` takes
   // a `JsonNode`, and a consumer serializing these types needs the annotations to mean something.
-  // The same reasoning `commons-mongo` gives for re-exporting the driver — with the artifact those
-  // types are in, `jackson-databind`, rather than the `java.time` codecs that merely depend on it.
-  // Those stay for the mapper that reads these envelopes, and nothing names them: `runtimeOnly`.
+  // The same reasoning `commons-mongo` gives for re-exporting the driver. The `java.time` codecs
+  // stay for the mapper that reads these envelopes; nothing names them.
   api(libs.jacksonDatabind)
   runtimeOnly(libs.jackson)
 
@@ -32,18 +31,15 @@ dependencies {
   // `MongoDatabase` is a constructor parameter and therefore this module's surface. It is the
   // driver, not a framework: it constrains neither surface's HTTP stack, which is the whole reason
   // both can depend on this module. `sempods-auth-core` makes the same declaration for the same
-  // reason — naming the driver itself rather than re-exporting `:commons-mongo`, which is used
-  // here for its document helpers and is an implementation detail.
-  //
-  // `bson` stays behind the wall: the constructor parameter is a `MongoDatabase`, and the
-  // `Document` the store reads is its own business. `:sempods-auth-core` exports it because its
-  // stores hand one back.
+  // reason. `bson` stays behind the wall, though: the constructor parameter is a `MongoDatabase`,
+  // and the `Document` the store reads is its own business — `:sempods-auth-core` exports it
+  // because its stores hand one back.
   api(libs.mongodb)
   implementation(libs.bson)
   implementation(project(":commons-mongo"))
 
-  // `:commons` for `BaseModule`, which `SempodsMcpCoreModule` extends — and therefore `api`: a
-  // supertype is part of a class's surface whether or not anything else here speaks it.
+  // `:commons` for `BaseModule`, which `SempodsMcpCoreModule` extends — `api`, because a supertype
+  // is part of a class's surface.
   api(project(":commons"))
 
   // Only `SempodsMcpCoreModule` needs Guice, and a consumer wiring the store by hand must not

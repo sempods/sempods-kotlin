@@ -29,8 +29,8 @@ dependencies {
 
   // HTTP server — the single MCP surface (JSON-RPC over POST), standalone (no framework)
   implementation(libs.ktorServerCore)
-  // Ktor's own vocabulary, named directly: `AttributeKey` and the URL builders, the coroutine
-  // context the handlers suspend in, and the buffers a streamed response body is read from.
+  // `AttributeKey` and the URL builders, the coroutine context the handlers suspend in, and the
+  // buffers a streamed response body is read from.
   implementation(libs.ktorUtils)
   implementation(libs.kotlinxCoroutines)
   implementation(libs.kotlinxIoCore)
@@ -40,8 +40,8 @@ dependencies {
   // No HTTP *client* here any more: the pod System layer and the pod OAuth surface both go through
   // `:sempods-client`'s transport, which carries the SSRF resolve-and-pin this service used to own.
 
-  // JSON — JSON-RPC envelopes + JSON-LD payloads. `jackson-databind` is where `JsonNode` and the
-  // mapper are; the `java.time` codecs are a registration on that mapper and nothing names them.
+  // JSON — JSON-RPC envelopes + JSON-LD payloads. The `java.time` codecs are a registration on the
+  // mapper; nothing names them.
   implementation(libs.jacksonDatabind)
   implementation(libs.jacksonKotlin)
   runtimeOnly(libs.jackson)
@@ -69,7 +69,7 @@ dependencies {
 
   // MongoDB (raw sync driver — no Morphia; standalone like sempods-auth)
   // Connection registry + token vault + OAuth server stores, keyed (user, profile, pod).
-  // `bson` alongside it, for the `Document` and `ObjectId` the stores name.
+  // Plus the `bson` that carries the `Document` and `ObjectId` the stores name.
   implementation(libs.mongodb)
   implementation(libs.bson)
 
@@ -80,8 +80,7 @@ dependencies {
   testImplementation(libs.ktorClientCore)
   testImplementation(libs.ktorClientCio)
   testImplementation(libs.kotlinxCoroutinesTest)
-  // `PodTokenProviderTest` waits for the refresh scheduler, and drives a mock HTTP server — the
-  // two libraries `libs.bundles.test` no longer carries for every module.
+  // `PodTokenProviderTest` waits for the refresh scheduler and drives a mock HTTP server.
   testImplementation(libs.awaitility)
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)

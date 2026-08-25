@@ -25,9 +25,8 @@ dependencies {
 
   // implementation libs
   // `SempodsServerStarter` builds and starts the Jetty `Server` itself; Jersey rides on that
-  // connector without this composition naming a Jersey type, so its container is `runtimeOnly`.
-  // `:commons-jaxrs` is deliberately absent: `JaxRsServerModule` is reached through
-  // `:sempods-server`, which exports it, and a line here would only say it twice.
+  // connector without this composition naming a Jersey type. `:commons-jaxrs` is absent because
+  // `:sempods-server` exports it.
   implementation(libs.jettyServer)
   runtimeOnly(libs.jerseyJettyHttp)
 

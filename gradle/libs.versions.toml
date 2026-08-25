@@ -19,7 +19,7 @@ ktorServerCallLogging = { module = "io.ktor:ktor-server-call-logging", version.r
 ktorServerTestHost = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
 ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktorClientCio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
-# `AttributeKey`, which `commons-ktor` names in the signature of its trace binding.
+# `AttributeKey`, in the signature of `commons-ktor`'s trace binding.
 ktorUtils = { module = "io.ktor:ktor-utils", version.ref = "ktor" }
 rdf4jBom = { module = "org.eclipse.rdf4j:rdf4j-bom", version.ref = "rdf4j" }
 slf4jBom = { module = "org.slf4j:slf4j-bom", version.ref = "slf4j" }
@@ -48,17 +48,15 @@ commonsEmailJakarta = "org.apache.commons:commons-email2-jakarta:2.0.0-M1"
 angusMail = "org.eclipse.angus:jakarta.mail:2.0.5"
 angusActivation = "org.eclipse.angus:angus-activation:2.0.3"
 
-# Coroutines. `commons-ktor` puts `ThreadContextElement` in a public signature, so it is `api`
-# there; elsewhere it is an implementation detail. Ktor pins the same version — this catalog entry
-# exists to name the artifact, not to decide the version, and the two must not drift.
+# `ThreadContextElement`, in the signature of `commons-ktor`'s trace binding. The version matches
+# what Ktor pins, and the two must not drift.
 kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinxCoroutinesTest = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
-# Ktor's buffers, reached directly where a response body is streamed rather than read whole.
+# Ktor's buffers, named where a response body is streamed rather than read whole.
 kotlinxIoCore = "org.jetbrains.kotlinx:kotlinx-io-core:0.9.1"
 
-# The Jetty container `JaxRsServerModule` builds by hand — `Server`, `ServerConnector`,
-# `GzipHandler`, `VirtualThreadPool`. It arrives with `jerseyJettyHttp`, and is named because that
-# module's code names it.
+# The Jetty container `JaxRsServerModule` builds by hand: `Server`, `ServerConnector`,
+# `GzipHandler`, `VirtualThreadPool`.
 jettyServer = "org.eclipse.jetty:jetty-server:12.0.27"
 jettyUtil = "org.eclipse.jetty:jetty-util:12.0.27"
 
@@ -70,18 +68,14 @@ googleApiClient = "com.google.api-client:google-api-client:2.9.0"
 owaspHtmlSanitizer = "com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20260313.1"
 
 guice = "com.google.inject:guice:7.0.0"
-# The type that shows up in this repository's public signatures is `JsonNode`, and it lives here.
-# Named on its own rather than reached through `jackson` or `jacksonKotlin` below, both of which
-# merely depend on it: a module whose API speaks `JsonNode` has to say so, or a consumer compiling
-# against the published jar depends on those two keeping a dependency they never promised.
+# `ObjectMapper` and `JsonNode` — the Jackson types this repository puts in public signatures.
+# `jackson` and `jacksonKotlin` below only depend on it.
 jacksonDatabind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
-# The `java.time` codecs, and the Kotlin module. Both are registrations on an `ObjectMapper`, not
-# types anything names — so both are usually `runtimeOnly`.
+# Registrations on an `ObjectMapper`: the `java.time` codecs, and the Kotlin module.
 jackson = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 jacksonKotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
-# The JAX-RS and injection annotations `commons-jaxrs` puts in its own signatures. They arrive with
-# Jersey either way; declared because `BaseEndpoint` and `ApiException` name them, and a consumer
-# compiling against `commons-jaxrs` needs them without being told to add Jersey.
+# `Response`, the JAX-RS annotations, and the `@Inject` a `BaseEndpoint` subclass carries — what
+# `commons-jaxrs` puts in its own signatures. They arrive with Jersey.
 jakartaWsRsApi = "jakarta.ws.rs:jakarta.ws.rs-api:4.0.0"
 jakartaInjectApi = "jakarta.inject:jakarta.inject-api:2.0.1"
 jerseyHk2 = { module = "org.glassfish.jersey.inject:jersey-hk2", version.ref = "jersey" }
@@ -98,9 +92,9 @@ oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.3"
 mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
-# `ObjectId` and `Document`. Separate from the driver above because they are in public signatures
-# here — `PodMediaRef` speaks `ObjectId`, and `:sempods-server` names it in some fifty of them (#12)
-# — so the modules that expose them export this artifact rather than the whole driver.
+# `ObjectId` and `Document`, which sit in public signatures across the repository: `PodMediaRef`
+# speaks `ObjectId`, and `:sempods-server` names it in some fifty of them (#12). Separate from the
+# driver above so a module can export the types without exporting the driver.
 bson = { module = "org.mongodb:bson", version.ref = "mongodb" }
 morphiaCore = { module = "dev.morphia.morphia:morphia-core", version.ref = "morphia" }
 morphiaKotlin = { module = "dev.morphia.morphia:morphia-kotlin", version.ref = "morphia" }
@@ -110,9 +104,8 @@ slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jJul = { module = "org.slf4j:jul-to-slf4j", version.ref = "slf4j" }
 
 # `Model`, `IRI`, `Resource`, `Value` — the interfaces the pod contract names in its own public
-# signatures, and the artifact they are actually in. `rdf4j-model` beside it carries their
-# implementations (`LinkedHashModel`, `SimpleValueFactory`, `Values`); the two were one declaration
-# until the analysis pointed out that the exported type does not live in the exported artifact.
+# signatures. `rdf4j-model` beside it carries their implementations: `LinkedHashModel`,
+# `SimpleValueFactory`, `Values`, `ModelBuilder`.
 rdf4jModelApi = { module = "org.eclipse.rdf4j:rdf4j-model-api", version.ref = "rdf4j" }
 rdf4jModel = { module = "org.eclipse.rdf4j:rdf4j-model", version.ref = "rdf4j" }
 rdf4jModelVocabulary = { module = "org.eclipse.rdf4j:rdf4j-model-vocabulary", version.ref = "rdf4j" }
@@ -141,9 +134,8 @@ mockServer = "org.mock-server:mockserver-netty-no-dependencies:7.6.0"
 [bundles]
 security = ["bouncycastle", "jwt"]
 # The facade — for every module, library and application alike. One artifact: kotlin-logging is
-# what this repository's code names, and slf4j-api is a `compile`-scope dependency of it, so it
-# arrives with it and needs no second line. The exception is `:commons`, whose `LoggingInitializer`
-# names `org.slf4j` types itself and therefore declares `slf4jApi` on its own.
+# what this repository's code names, and slf4j-api arrives with it. `:commons` declares slf4j-api
+# as well, because `LoggingInitializer` names `org.slf4j` types itself.
 logging = ["kotlinLogging"]
 # The binding. `runtimeOnly`, and only in an artifact that owns a `main` — a library that declares
 # this decides for its consumers, which is not its call. The JUL bridge is deliberately *not* here:
@@ -152,11 +144,9 @@ loggingBinding = ["logbackClassic"]
 email = ["commonsEmailJakarta", "angusMail", "angusActivation"]
 mongoMorphia = ["mongodb", "morphiaCore", "morphiaKotlin"]
 webPush = ["bouncycastle", "webPush"]
-# What RDF4J needs on a *runtime* classpath and on nobody's compile classpath: the parsers and
-# writers `Rio` finds by `ServiceLoader`, and the store behind a repository. Nothing names a type
-# from any of them, which is why this is one `runtimeOnly` line in the modules that take it whole —
-# `:sempods-server` needs a compile-time say in which sail it opens and so declares its pieces
-# itself.
+# RDF4J's runtime half: the parsers and writers `Rio` finds by `ServiceLoader`, and the store
+# behind a repository. Nothing names a type from them, so this is one `runtimeOnly` line.
+# `:sempods-server` chooses its sail in code and declares these pieces itself.
 rdf4j = [
   "rdf4jRioJsonld",
   "rdf4jRioNquads",
@@ -165,7 +155,6 @@ rdf4j = [
   "rdf4jSparqlJson",
 ]
 # The test stack every module has: the JUnit platform, the Kotlin assertions on top of it, and
-# MockK. `awaitility` and `mockServer` are deliberately *not* here — two modules poll for a
-# condition and three drive a mock HTTP server, and the other eleven were carrying both because
-# they came in the same line.
+# MockK. Not `awaitility` or `mockServer` — two source sets await a condition and three drive a
+# mock HTTP server, and each declares what it uses.
 test = ["junit", "kotlinTestJunit5", "mockk"]

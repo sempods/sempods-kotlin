@@ -4,14 +4,14 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-  // The version is declared in `settings.gradle.kts`, where the dependency-analysis plugin can
-  // see it in the same classloader. See the comment there.
+  // Version in `settings.gradle.kts`, which is where the dependency-analysis plugin needs to see
+  // it. See the comment there.
   id("org.jetbrains.kotlin.jvm")
 }
 
-// The root project builds nothing, but `com.autonomousapps.dependency-analysis` resolves the
-// Kotlin metadata reader it needs against *this* project, and the repositories below are otherwise
-// declared inside `subprojects { }` only.
+// The root project builds nothing, but `com.autonomousapps.dependency-analysis` resolves
+// `kotlin-metadata-jvm` against it, and the repositories below are declared inside
+// `subprojects { }` only.
 repositories {
   mavenCentral()
 }
@@ -89,10 +89,8 @@ subprojects {
     description = "Fails if a library module carries the logback binding on its runtime classpath."
     doLast {
       if (plugins.hasPlugin("application")) return@doLast
-      // Nor a module nobody consumes. The `:consumer-probe` modules depend on a published service
-      // in order to compile against it, and a service brings its own binding along — which is its
-      // right, and says nothing about what a consumer inherits. The rule is about a *library's*
-      // runtime classpath, and a module that is never published has no consumer to impose one on.
+      // Nor a module nobody consumes: the `:consumer-probe` modules inherit a service's binding,
+      // and a module that is never published has no consumer to impose one on.
       if (name !in publishedModules) return@doLast
       val runtimeClasspath = configurations.findByName("runtimeClasspath") ?: return@doLast
       val offenders = runtimeClasspath.incoming.artifacts.artifacts

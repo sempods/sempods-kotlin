@@ -6,9 +6,9 @@ import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.SempodsMcpModule
 
 /**
- * The embedding contract of `:sempods-mcp`, compiled the way a stranger would compile it. See
- * `org.sempods.probe.auth.embedSempodsAuth` for why this check exists and what it catches that
- * `buildHealth` cannot.
+ * The embedding contract of `:sempods-mcp`, compiled the way a stranger would compile it.
+ * `org.sempods.probe.auth.embedSempodsAuth` says why this check exists, what it catches that
+ * `buildHealth` cannot, and where its limit is.
  */
 @Suppress("unused")
 internal fun embedSempodsMcp(config: SempodsMcpConfig): Injector =

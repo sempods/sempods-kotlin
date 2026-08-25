@@ -1,4 +1,4 @@
-// The `:sempods-mcp` half of the embedding probe; see `:consumer-probe:auth` for why the two are
+// The `:sempods-mcp` half of the embedding probe; `:consumer-probe:auth` says why the two are
 // separate modules.
 
 dependencies {

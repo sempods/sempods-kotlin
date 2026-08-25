@@ -16,14 +16,12 @@ dependencies {
 
   // implementation libs
   // `org.bson.types.ObjectId` is `PodMediaRef`'s own vocabulary and reaches this module through the
-  // seam's signatures — so `api`, and `bson` rather than the sync driver, which is where the type
-  // is and which is all this module needs. Declared rather than inherited: `:sempods-server`
-  // exports it too, and an artifact this module's own surface names is this module's to say.
+  // seam's signatures — so `api`, and `bson` rather than the whole driver, which this module does
+  // not otherwise touch.
   api(libs.bson)
   implementation(libs.bundles.logging)
-  // The SDK, and the sync HTTP layer under it. `apache-client` is discovered by the SDK rather
-  // than named by anything here — pinned so the client this code uses is the one written down, and
-  // `runtimeOnly` because that is when it is needed.
+  // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
+  // uses is the one written down, and discovered by the SDK rather than named.
   implementation(libs.awsS3)
   runtimeOnly(libs.awsApacheClient)
 
