@@ -1,6 +1,7 @@
 package org.sempods.pods.media.persist
 
 import org.sempods.pods.media.PodMediaRef
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import java.net.URI
 import java.time.Instant
@@ -42,8 +43,11 @@ data class PodMedia(
    * `{podId}/{mediaId}` and therefore said nothing the two fields did not — while quietly pinning
    * one physical layout for every implementation. A store owns its own layout now; see
    * [PodMediaRef].
+   *
+   * This is also where the row's key becomes the seam's [org.sempods.pods.PodId] — one conversion,
+   * at the edge, in the direction `docs/modularity.md` §"The pattern" describes.
    */
-  val ref: PodMediaRef get() = PodMediaRef(podId, mediaId)
+  val ref: PodMediaRef get() = PodMediaRef(podId.toPodId(), mediaId)
 
   /** The context URIs this media is assigned to. */
   val contexts: Set<String> get() = assignments.mapTo(HashSet(), MediaAssignment::context)

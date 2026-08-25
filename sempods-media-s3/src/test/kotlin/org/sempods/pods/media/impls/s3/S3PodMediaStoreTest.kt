@@ -45,15 +45,16 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
     val ref = PodMediaRef(podA, "layout-probe")
     store.put(ref, "text/plain", source("bytes"))
 
-    assertEquals(listOf("${podA.toHexString()}/layout-probe"), rawKeys("${podA.toHexString()}/"))
+    assertEquals(listOf("${podA.value}/layout-probe"), rawKeys("${podA.value}/"))
   }
 
   @Test
-  fun `a key outside any pod prefix is ignored rather than reported as media`() {
-    // The counterpart of the filesystem store ignoring a directory that is not a pod id: a bucket
-    // may legitimately hold other things, and calling one of them an orphaned media would send an
-    // operator after bytes that are not theirs to delete.
-    val stray = "not-a-pod-id/whatever-${podA.toHexString()}"
+  fun `a key that is not a well-formed ref is ignored rather than reported as media`() {
+    // The counterpart of the filesystem store skipping a directory whose name is not a pod id. Note
+    // what this does *not* cover: a shared bucket's other prefixes are well-formed pod ids as far
+    // as this store can tell, and dropping those is `PodMediaFacade.reconcile`'s job, because only
+    // the side that mints ids knows their shape.
+    val stray = "not.a.pod.id/whatever-${podA.value}"
     put(stray, "not ours")
     try {
       assertTrue(store.iterate { entries -> entries.none { it.ref.mediaId.startsWith("whatever-") } })
@@ -65,7 +66,7 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
   @Test
   fun `a stray key inside a pod prefix is reported, because that is the reconcile working`() {
     store.put(PodMediaRef(podA, "real"), "text/plain", source("a1"))
-    put("${podA.toHexString()}/planted", "not in the registry")
+    put("${podA.value}/planted", "not in the registry")
 
     assertEquals(
       setOf(PodMediaRef(podA, "real"), PodMediaRef(podA, "planted")),

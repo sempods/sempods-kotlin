@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.bson.types.ObjectId
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import org.sempods.rdf.RdfWriterUtil
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
@@ -106,7 +107,7 @@ class BackupSinkPodChangeListener @Inject constructor(
       var attempt = 1
       while (true) {
         try {
-          writeRows(changeSet.podId, plan, onInsert = { inserted++ }, onDelete = { deleted++ })
+          writeRows(changeSet.podObjectId(), plan, onInsert = { inserted++ }, onDelete = { deleted++ })
           return
         } catch (e: Exception) {
           if (attempt >= MAX_ATTEMPTS) {
@@ -167,7 +168,7 @@ class BackupSinkPodChangeListener @Inject constructor(
     var attempt = 1
     while (true) {
       try {
-        podDao.bumpResourceRowCount(changeSet.podId, delta)
+        podDao.bumpResourceRowCount(changeSet.podObjectId(), delta)
         return
       } catch (e: Exception) {
         if (attempt >= allowed) {
@@ -232,6 +233,19 @@ class BackupSinkPodChangeListener @Inject constructor(
         onDelete()
       }
     }
+  }
+
+  /**
+   * The change set's pod as this sink's own storage key.
+   *
+   * [PodChangeSet] speaks [org.sempods.pods.PodId] because [PodChangeListener] is a seam and a
+   * deployment may bring its own sink; this one is the reference implementation's and writes
+   * MongoDB rows, so it converts back — the same edge `PodDbo.toRef` marks in the other direction.
+   * A change set produced by this server always carries an id this server minted, so a token that
+   * is not one is a bug and not an input to handle.
+   */
+  private fun PodChangeSet.podObjectId(): ObjectId = checkNotNull(podId.toObjectIdOrNull()) {
+    "change set for pod $podName carries a pod id this deployment did not mint: $podId"
   }
 
   /** One `(resource, context)` row of a change set; [nquads] is `null` where the row is to go. */

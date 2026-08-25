@@ -21,8 +21,12 @@ dependencies {
   // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
   // subclasses hand back a `Response` from.
   //
-  // `ObjectId` in a seam meant to allow a different store is known debt (#12); naming `bson` here
-  // is what makes that coupling visible in this file rather than one project deep.
+  // `bson` no longer reaches a **seam**: `PodMediaStore` and `PodChangeListener` speak `PodId`, and
+  // `:sempods-media-s3` implements the media seam without the driver on its classpath at all (#12).
+  // What keeps the declaration here is the layer below — the DAOs, the `…Dbo` rows and the stores
+  // over them, which are public Kotlin and therefore ABI although
+  // `docs/architecture/module-layering.md` describes them as module-internal. Taking *those* out of
+  // the ABI is `internal`, not another type, and is the rest of #12.
   api(libs.mongodb)
   api(libs.bson)
   api(libs.jacksonDatabind)
@@ -87,9 +91,10 @@ dependencies {
   implementation(libs.bouncycastle)
 
   // test fixtures — the media seam's conformance suite, so `:sempods-media-s3` runs the same
-  // assertions against the other implementation instead of a copy that drifts. `api` for the driver
-  // because `PodMediaRef` speaks `ObjectId`, which is therefore part of the suite's surface.
-  testFixturesApi(libs.bson)
+  // assertions against the other implementation instead of a copy that drifts. No `bson`: the
+  // suite's surface used to hand subclasses two `ObjectId`s, so a downstream store had to compile
+  // against MongoDB's driver to subclass it; it mints `PodId`s now.
+  //
   // `implementation` and not `compileOnly`, unlike Guice below: the conformance suite runs in the
   // test JVM of whoever extends it and calls `kotlin.test` assertions from its own bytecode, so an
   // implementer of the seam resolving `testFixtures("org.sempods:sempods-server")` has to receive

@@ -1,6 +1,6 @@
 package org.sempods.pods.media
 
-import org.bson.types.ObjectId
+import org.sempods.pods.PodId
 import java.io.InputStream
 import java.nio.file.Path
 
@@ -99,7 +99,7 @@ interface PodMediaStore {
    * means something; it does not have to be lexicographic, and no caller may assume an order.
    */
   fun <T> iterate(
-    podId: ObjectId? = null,
+    podId: PodId? = null,
     after: String? = null,
     consume: (Sequence<MediaEntry>) -> T,
   ): T
@@ -115,8 +115,8 @@ data class MediaEntry(
    *
    * A plain `String` rather than a wrapper type, for the same reason `SparqlResult.cursor` is one:
    * a cursor's whole job is to be handed back and, for a walk that must survive a restart, written
-   * down. A value class would be the only one in this codebase and would buy type safety over a
-   * value that has no other use.
+   * down. [PodId] is a value class because a pod id is an identity two call sites could confuse;
+   * a cursor has no identity and no second use to confuse it with.
    */
   val cursor: String,
 )

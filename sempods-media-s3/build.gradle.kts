@@ -15,10 +15,10 @@ dependencies {
   api(project(":sempods-server"))
 
   // implementation libs
-  // `org.bson.types.ObjectId` is `PodMediaRef`'s own vocabulary and reaches this module through the
-  // seam's signatures — so `api`, and `bson` rather than the whole driver, which this module does
-  // not otherwise touch.
-  api(libs.bson)
+  // No `bson` here any more, and its absence is the point: `PodMediaRef` used to speak
+  // `org.bson.types.ObjectId`, so this module compiled against MongoDB's driver to implement a seam
+  // that has nothing to do with MongoDB. It speaks `PodId` now (#12), and `buildHealth` is what
+  // holds the line — the declaration would fail as unused the moment it came back.
   implementation(libs.bundles.logging)
   // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
   // uses is the one written down, and discovered by the SDK rather than named.

@@ -5,6 +5,7 @@ import org.sempods.SempodsFacade
 import org.sempods.pods.changes.PodChangeDispatcher
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.rdf.RdfWriterUtil
 import org.bson.types.ObjectId
 import org.eclipse.rdf4j.repository.RepositoryConnection
@@ -71,7 +72,7 @@ class PodRepositoryCache @Inject constructor(
     }
 
     logger.debug { "Initialized repository for pod: $pod" }
-    return InMemoryPodRepository(podId, pod, repo, podChangeDispatcher)
+    return InMemoryPodRepository(podId.toPodId(), pod, repo, podChangeDispatcher)
   }
 
   /**

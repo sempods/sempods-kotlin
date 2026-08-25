@@ -6,7 +6,6 @@ import org.sempods.pods.changes.PodChangeSet
 import org.sempods.pods.changes.ResourceChange
 import org.sempods.pods.changes.SailChangeCapture
 import org.sempods.rdf.toIri
-import org.bson.types.ObjectId
 import org.eclipse.rdf4j.common.transaction.IsolationLevels
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
@@ -41,7 +40,7 @@ import kotlin.concurrent.withLock
  * a write holds the lock (SNAPSHOT isolation), and a read sees a consistent snapshot.
  */
 internal class InMemoryPodRepository(
-  private val podId: ObjectId,
+  private val podId: PodId,
   private val podName: String,
   private val rdfRepository: Repository,
   private val podChangeDispatcher: PodChangeDispatcher,

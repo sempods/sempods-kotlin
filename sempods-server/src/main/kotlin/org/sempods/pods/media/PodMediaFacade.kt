@@ -5,6 +5,8 @@ import org.sempods.pods.media.persist.MediaAssignment
 import org.sempods.pods.media.persist.PodMedia
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
@@ -75,7 +77,7 @@ class PodMediaFacade @Inject constructor(
     // every later *read*, which is the kind of distance that makes a bug expensive.
     require(isServableMediaType(contentType)) { "not a servable media type: '$contentType'" }
 
-    val ref = PodMediaRef(podId, digest(source))
+    val ref = PodMediaRef(podId.toPodId(), digest(source))
     val contextUri = context.toString()
 
     // Bytes before the row: a row whose object is missing is a broken media (a `404` waiting to
@@ -383,6 +385,13 @@ class PodMediaFacade @Inject constructor(
    * hits and collects its misses, and whatever stays in the set is the other direction. A `find` per
    * object plus an `exists` per row would be the same answer for twice the round trips.
    *
+   * **Objects under a pod id this deployment never minted are skipped, not reported.** A store may
+   * sit on space it shares — an S3 bucket with other prefixes in it, a directory somebody else also
+   * writes to — and it cannot tell one of those from a pod of ours: a `PodId` is opaque to a store
+   * by design, and every well-formed token looks alike to it. Only the side that mints ids knows
+   * their shape, which is this class, so the filter is here. Naming a stranger's bytes an orphan
+   * would send an operator after data that is not theirs to delete.
+   *
    * // TODO: the key set is O(rows) in memory. Fine for a registry of this size, and the way out
    * //   when it is not is a per-pod run in a loop (the `podId` parameter is already here) rather
    * //   than a cleverer whole-store pass.
@@ -393,14 +402,25 @@ class PodMediaFacade @Inject constructor(
     val checkedRows = rows.size
 
     var checkedObjects = 0
+    var foreignObjects = 0
     val objectsWithoutRow = ArrayList<PodMediaRef>()
-    mediaStore.iterate(podId) { entries ->
+    mediaStore.iterate(podId?.toPodId()) { entries ->
       entries.forEach { entry ->
+        if (entry.ref.podId.toObjectIdOrNull() == null) {
+          foreignObjects++
+          return@forEach
+        }
         checkedObjects++
         // `remove` answers "was it known" and takes it out of the leftovers in one step — what stays
         // behind at the end is precisely the set of rows nothing on disk answers for.
         if (!rows.remove(entry.ref)) objectsWithoutRow.add(entry.ref)
       }
+    }
+
+    // One line per walk rather than one per object: a store sharing its space would otherwise fill
+    // the log with a line per stranger, and the count is the whole diagnosis.
+    if (foreignObjects > 0) {
+      logger.debug { "[media/audit] skipped $foreignObjects object(s) under a pod id this deployment did not mint" }
     }
 
     val report = MediaReconcileReport(

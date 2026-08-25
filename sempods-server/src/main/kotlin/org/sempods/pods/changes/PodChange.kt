@@ -1,8 +1,8 @@
 package org.sempods.pods.changes
 
-import org.bson.types.ObjectId
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
+import org.sempods.pods.PodId
 import java.net.URI
 
 /**
@@ -93,11 +93,15 @@ data class ResourceChange(
  *   `removeContext`, and widen the listener SPI (e.g. a sealed change hierarchy) to carry both. Do
  *   not build the events before that consumer exists.
  *
+ * @property podId the pod this set belongs to, as a [PodId] and not as the reference
+ *   implementation's row key: [PodChangeListener] is a seam, so a sink a deployment supplies must
+ *   not have to speak MongoDB's identifier type to receive one. `BackupSinkPodChangeListener`,
+ *   which does write MongoDB rows, converts back for itself.
  * @property resources one [ResourceChange] per affected resource (a single transaction —
  *   e.g. a context removal — may touch many).
  */
 data class PodChangeSet(
-  val podId: ObjectId,
+  val podId: PodId,
   val podName: String,
   val resources: List<ResourceChange>,
   // TODO: carry the actor (WebID / OAuth-client id) for audit + ChangeStreams (vision V4.1).

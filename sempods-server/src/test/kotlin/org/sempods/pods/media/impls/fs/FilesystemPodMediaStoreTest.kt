@@ -1,9 +1,9 @@
 package org.sempods.pods.media.impls.fs
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStoreConformanceTest
-import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -29,16 +29,16 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
 
   override val store: FilesystemPodMediaStore by lazy { FilesystemPodMediaStore(root) }
 
-  private fun ref(podId: ObjectId, mediaId: String) = PodMediaRef(podId, mediaId)
+  private fun ref(podId: PodId, mediaId: String) = PodMediaRef(podId, mediaId)
 
-  private fun listAll(podId: ObjectId? = null): List<PodMediaRef> =
+  private fun listAll(podId: PodId? = null): List<PodMediaRef> =
     store.iterate(podId) { entries -> entries.map(MediaEntry::ref).toList() }
 
   @Test
   fun `put leaves no staging file behind`() {
     store.put(ref(podA, "one"), "text/plain", source("hello"))
 
-    val strays = root.resolve(podA.toHexString()).listDirectoryEntries()
+    val strays = root.resolve(podA.value).listDirectoryEntries()
       .filter { it.fileName.toString().startsWith(".staging-") }
     assertTrue(strays.isEmpty(), "a completed put must clean up its staging file, found: $strays")
   }
@@ -49,7 +49,7 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     store.put(ref(podB, "one"), "text/plain", source("b1"))
     // A crash inside `put` can strand one of these. The reconcile reads `iterate` as the set of
     // objects, so a staging file appearing there would be reported as an orphan.
-    root.resolve(podA.toHexString()).resolve(".staging-crashed.tmp").writeText("half a file")
+    root.resolve(podA.value).resolve(".staging-crashed.tmp").writeText("half a file")
 
     assertEquals(setOf(ref(podA, "one"), ref(podB, "one")), listAll().toSet())
   }
@@ -60,7 +60,7 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     // half-written file this store made is not an object, while a file somebody else put where the
     // objects live is exactly the leaked byte the reconcile exists to name.
     store.put(ref(podA, "one"), "text/plain", source("a1"))
-    root.resolve(podA.toHexString()).resolve("planted").writeText("not in the registry")
+    root.resolve(podA.value).resolve("planted").writeText("not in the registry")
 
     assertEquals(setOf(ref(podA, "one"), ref(podA, "planted")), listAll(podA).toSet())
   }
@@ -81,7 +81,7 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     // the class KDoc.
     store.put(ref(podA, "layout-probe"), "text/plain", source("bytes"))
 
-    assertTrue(root.resolve(podA.toHexString()).resolve("layout-probe").toFile().isFile)
+    assertTrue(root.resolve(podA.value).resolve("layout-probe").toFile().isFile)
   }
 
   @Test

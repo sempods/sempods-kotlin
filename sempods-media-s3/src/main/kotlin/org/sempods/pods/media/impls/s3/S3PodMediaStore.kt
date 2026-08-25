@@ -1,9 +1,9 @@
 package org.sempods.pods.media.impls.s3
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStore
-import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
@@ -98,18 +98,19 @@ class S3PodMediaStore internal constructor(
    * on the first request only; once a continuation token is in play S3 ignores it, which is exactly
    * right since the token already carries the position.
    *
-   * Keys that do not parse as `{podId}/{mediaId}` are skipped rather than reported. That mirrors the
-   * filesystem store ignoring a directory that is not a pod id: a bucket may legitimately hold other
-   * things, and calling one of them an orphaned media would send an operator after bytes that are
-   * not theirs to delete. A stray key *inside* a pod's prefix is a different matter and **is**
-   * reported — that is the reconcile working.
+   * Keys that do not parse as `{podId}/{mediaId}` are skipped rather than reported, the same way the
+   * filesystem store skips a directory whose name is not a pod id. What this cannot decide is
+   * whether a *well-formed* prefix belongs to this deployment — a [PodId] is opaque here, so a
+   * shared bucket's other prefixes come back looking like pods, and `PodMediaFacade.reconcile`
+   * drops them against the ids it mints. A stray key *inside* a pod's prefix is a different matter
+   * and **is** reported — that is the reconcile working.
    */
   override fun <T> iterate(
-    podId: ObjectId?,
+    podId: PodId?,
     after: String?,
     consume: (Sequence<MediaEntry>) -> T,
   ): T {
-    val prefix = podId?.let { "${it.toHexString()}/" }
+    val prefix = podId?.let { "${it.value}/" }
     var skipped = 0
 
     val entries = sequence {
@@ -158,7 +159,7 @@ class S3PodMediaStore internal constructor(
     if (e.statusCode() == 404) null else throw e
   }
 
-  private fun key(ref: PodMediaRef) = "${ref.podId.toHexString()}/${ref.mediaId}"
+  private fun key(ref: PodMediaRef) = "${ref.podId.value}/${ref.mediaId}"
 
   /**
    * The one place a key becomes a ref — `null` for anything that is not one of this store's media
@@ -170,8 +171,8 @@ class S3PodMediaStore internal constructor(
     val owner = key.substring(0, separator)
     val name = key.substring(separator + 1)
     if (name.isEmpty() || name.contains('/')) return null
-    if (!ObjectId.isValid(owner)) return null
-    return PodMediaRef(ObjectId(owner), name)
+    val podId = PodId.parseOrNull(owner) ?: return null
+    return PodMediaRef(podId, name)
   }
 
   companion object {

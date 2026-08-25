@@ -1,9 +1,9 @@
 package org.sempods.pods.media.impls.fs
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStore
-import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
 import java.nio.file.Files
@@ -87,7 +87,7 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * for backends where laziness *does* hold a resource.
    */
   override fun <T> iterate(
-    podId: ObjectId?,
+    podId: PodId?,
     after: String?,
     consume: (Sequence<MediaEntry>) -> T,
   ): T {
@@ -95,15 +95,17 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
 
     val podDirectories = when (podId) {
       null -> root.listDirectoryEntries().filter { it.isDirectory() }.sortedBy { it.name }
-      else -> listOf(root.resolve(podId.toHexString())).filter { it.isDirectory() }
+      else -> listOf(root.resolve(podId.value)).filter { it.isDirectory() }
     }
 
     val entries = sequence {
       for (podDirectory in podDirectories) {
-        val owner = podDirectory.name.toObjectIdOrNull()
+        val owner = PodId.parseOrNull(podDirectory.name)
         if (owner == null) {
-          // Not ours. Refusing to guess beats reporting a directory somebody else put here as an
-          // orphaned media object, which is what the reconcile would otherwise do with it.
+          // Not a pod id at all, so not something this store wrote. What this cannot tell is
+          // whether a *well-formed* id belongs to this deployment — `PodId` is opaque here on
+          // purpose, and the pod registry is the only thing that knows. That question is settled
+          // above, by whoever compares the walk against the registry.
           logger.warn { "Ignoring directory ${podDirectory.name} — not a pod id" }
           continue
         }
@@ -139,14 +141,11 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * into a path, and a check that costs one comparison is cheaper than trusting that forever.
    */
   private fun resolve(ref: PodMediaRef): Path {
-    val resolved = root.resolve(ref.podId.toHexString()).resolve(ref.mediaId).normalize()
+    val resolved = root.resolve(ref.podId.value).resolve(ref.mediaId).normalize()
     require(resolved.startsWith(root.normalize())) { "media ref escapes the store root: $ref" }
     require(resolved.parent?.parent == root.normalize()) { "media ref must name one object: $ref" }
     return resolved
   }
-
-  private fun String.toObjectIdOrNull(): ObjectId? =
-    if (ObjectId.isValid(this)) ObjectId(this) else null
 
   companion object {
     private val logger = KotlinLogging.logger {}
