@@ -32,7 +32,7 @@ authority if the two ever disagree.
 1) Every edge/statement always has exactly one Context (named graph).
 2) Read sandbox: a request can only read contexts it has read rights for.
 3) Write sandbox: a request can only write into contexts it has write rights for.
-4) A write names its target context explicitly — there is no implicit fallback context.
+4) A CRUD write names its target context explicitly — there is no implicit fallback context.
 5) Pods are isolated by default. Do not introduce cross-pod access without explicit,
    spec-defined sync mechanisms.
 6) Prefer explicit specs + conformance tests over clever query rewriting.
