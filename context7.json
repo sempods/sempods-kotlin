@@ -10,8 +10,7 @@
     "gradle",
     "**/build",
     "**/src/test",
-    "**/src/testFixtures",
-    "sempods-server/src"
+    "**/src/testFixtures"
   ],
   "excludeFiles": [
     "AGENTS.md",
