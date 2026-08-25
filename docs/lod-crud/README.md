@@ -128,9 +128,11 @@ Standards are *named*, not re-explained.
   separate layer, not yet specified. Until SHACL is in place, both
   CRUD layers accept any write that is structurally valid.
 - **SPARQL Query** — `_system/sparql/query`. Stays the power-user
-  route for federated or multi-resource *reads* that do not fit the
-  slot model. It is read-only; the server exposes no SPARQL Update
-  route, so it is not an escape hatch for writes.
+  route for cross-resource and cross-context *reads* within one pod
+  that do not fit the slot model. It federates nothing — `SERVICE` is
+  rejected anywhere in the query, for the same SSRF reason `did:web`
+  dereferences nothing — and it is read-only, so it is no escape
+  hatch for writes either.
 - **Binaries** — [`../media.md`](../media.md). `_system/media/...`
   holds bytes, not RDF, and is deliberately not part of this model:
   the two share the base64url id convention and the context permission
@@ -163,4 +165,5 @@ Standards are *named*, not re-explained.
 | Remove a single edge by `(subject, predicate, target)` | System DELETE |
 | Replace just the values of one property             | System PUT  |
 | Read/write triples about an external URI            | System layer (only option) |
-| Federated query, multi-resource update              | SPARQL      |
+| Read across resources or contexts in one pod        | SPARQL query |
+| Update several resources at once                    | One CRUD write each — no atomic form exists |

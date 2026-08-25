@@ -263,8 +263,10 @@ Conditional writes (`If-Match`) MUST be honored as for `PUT`.
 - Conditional `If-Match` MUST be honored.
 
 A `DELETE` without `?context=` is rejected with `400 Bad Request`.
-A cross-context delete is not exposed at this layer; use SPARQL
-Update or System-layer per-context deletes.
+A cross-context delete is not exposed at this layer, and there is no
+route that does it in one step: delete per context, either here or
+through the System layer. See §"Known limitations" for why the atomic
+form is unavailable and what that costs the caller.
 
 ## Conformance requirements
 
