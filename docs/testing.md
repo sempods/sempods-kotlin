@@ -196,7 +196,7 @@ process-wide clock — and is tracked in the maintainer's internal roadmap.
 ## Waiting, and the ten-second rule
 
 Some assertions have to wait: indexing, task execution and pod writes are not synchronous. Those
-waits go through Awaitility, and [`TestUtil.initializeAwaitilityDefaults`](../commons/src/testFixtures/kotlin/org/sempods/commons/tests/TestUtil.kt)
+waits go through Awaitility, and [`TestUtil.initializeAwaitilityDefaults`](../sempods-commons/src/testFixtures/kotlin/org/sempods/commons/tests/TestUtil.kt)
 gives every one of them the same **10 s** ceiling.
 
 **That ceiling does not get raised.** No integration test in this repository has a legitimate

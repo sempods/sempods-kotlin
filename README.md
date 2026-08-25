@@ -151,7 +151,8 @@ or all three.
 ## Repository layout
 
 ```
-commons/ commons-json/ commons-mongo/ commons-okhttp/ commons-jaxrs/ commons-ktor/
+sempods-commons/ sempods-commons-json/ sempods-commons-mongo/
+sempods-commons-okhttp/ sempods-commons-jaxrs/ sempods-commons-ktor/
                     framework-free shared base; take only what you need
 sempods-model/      the contract as code — service interfaces, URI builder, ontologies
 sempods-server/     the pod server: RDF4J store, contexts, OAuth, SPARQL, AI layer, MCP

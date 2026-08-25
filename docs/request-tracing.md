@@ -25,8 +25,8 @@ here samples, so claiming otherwise would tell a future collector to discard the
 
 ## Where the binding lives
 
-`sempods-commons/src/main/kotlin/org/sempods/commons/trace/` — [`TraceContext`](../commons/src/main/kotlin/org/sempods/commons/trace/TraceContext.kt)
-(parse, format, `newChild`) and [`TraceContextHolder`](../commons/src/main/kotlin/org/sempods/commons/trace/TraceContextHolder.kt)
+`sempods-commons/src/main/kotlin/org/sempods/commons/trace/` — [`TraceContext`](../sempods-commons/src/main/kotlin/org/sempods/commons/trace/TraceContext.kt)
+(parse, format, `newChild`) and [`TraceContextHolder`](../sempods-commons/src/main/kotlin/org/sempods/commons/trace/TraceContextHolder.kt)
 (the per-thread binding).
 
 It sits in `sempods-commons` rather than in any one service because `sempods-client` must read it and
