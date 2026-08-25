@@ -96,7 +96,7 @@ known until runtime. A short list in production code, all of that shape: `JaxRsS
 these lookups too, so what they resolve is still declared somewhere.
 
 **Every module extends `org.sempods.commons.guice.BaseModule`** — `bind<T>()` and `asSingleton()`,
-and one shape for a module to have. Guice is `compileOnly` in `commons` so that a consumer without
+and one shape for a module to have. Guice is `compileOnly` in `sempods-commons` so that a consumer without
 a container does not inherit one.
 
 ## Tests

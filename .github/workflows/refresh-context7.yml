@@ -1,0 +1,42 @@
+name: Refresh Context7
+
+# Context7 indexes this repository's documentation so that coding agents answer questions about
+# sempods from the docs rather than from a guess. Left alone it re-crawls "based on popularity",
+# which for a project this size means rarely — and a rarely-refreshed index of a `0.x` contract is
+# worse than none: it states last quarter's API with this quarter's confidence.
+#
+# So the same argument as `publish-snapshot.yml`, one layer up: refresh on every merge rather than
+# by hand, because by hand means until the first time someone forgets.
+#
+# No `paths` filter. The index covers the main sources as well as `docs/`, so there is no change to
+# `main` that reliably cannot affect it, and a filter that is wrong in the rare case buys nothing
+# in the common one — the call is a single POST.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      # The secret comes from the Context7 dashboard. It is absent in forks and was absent here
+      # until the library was claimed, and neither is a broken build — so skip rather than fail.
+      # A key that is present but rejected *is* a failure, hence `--fail-with-body`: an expired key
+      # must not pass as a silent 401 and leave the index quietly frozen.
+      - name: Trigger the re-crawl
+        env:
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        run: |
+          if [ -z "$CONTEXT7_API_KEY" ]; then
+            echo "CONTEXT7_API_KEY is not set — skipping the refresh."
+            exit 0
+          fi
+
+          curl --fail-with-body -sS -X POST https://context7.com/api/v1/refresh \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $CONTEXT7_API_KEY" \
+            -d '{"libraryName": "/${{ github.repository }}"}'

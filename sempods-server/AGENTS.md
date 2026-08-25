@@ -7,7 +7,7 @@ Scope: applies to `sempods-server/**`.
 `sempods-server` is the pod server — the **reference implementation** of the sempods standard,
 not one particular hosting: RDF4J store, contexts, grants, OAuth, the SPARQL sandbox, media, the
 AI layer and the per-pod MCP surface. It composes from `org.sempods.commons.guice.BaseModule`
-over the `commons` family and takes **no application-framework** dependency; its configuration is
+over the `sempods-commons` family and takes **no application-framework** dependency; its configuration is
 `SempodsConfig` and its collections are on the raw MongoDB driver.
 
 What a deployment may replace is expressed as a **seam** — an interface with a

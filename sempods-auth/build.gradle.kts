@@ -8,15 +8,15 @@ dependencies {
 
   // dependent projects
   // `api` because `BaseModule` is this class's supertype, so an embedder cannot name it without.
-  // Guice itself stays `implementation`, as it is in `:commons`: whoever installs a module calls
+  // Guice itself stays `implementation`, as it is in `:sempods-commons`: whoever installs a module calls
   // `Guice.createInjector` and has declared it. The rest — Ktor, Mongo, Jackson — Guice reaches by
   // reflection at wiring time (#15).
-  api(project(":commons"))
+  api(project(":sempods-commons"))
   implementation(project(":sempods-auth-core"))
 
   // The W3C trace binding for Ktor: the inbound interceptor and the outbound client plugin.
-  implementation(project(":commons-ktor"))
-  implementation(project(":commons-mongo"))
+  implementation(project(":sempods-commons-ktor"))
+  implementation(project(":sempods-commons-mongo"))
 
   // HTTP server — standalone, no application framework
   implementation(libs.ktorServerCore)
@@ -54,7 +54,7 @@ dependencies {
 
   // Tests
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
-  testImplementation(testFixtures(project(":commons")))
+  testImplementation(testFixtures(project(":sempods-commons")))
   testImplementation(libs.ktorServerTestHost)
   testImplementation(libs.kotlinxCoroutinesTest)
   testImplementation(libs.bundles.test)

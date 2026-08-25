@@ -54,14 +54,16 @@ derives the Maven `artifactId` from the project name, so the prefix is what make
 project paths on both sides of the split also make the composite build cheap.
 The maintainer's internal roadmap holds the reasoning.
 
-**One named exception:** the `commons` family (`commons`, `commons-jaxrs`,
-`commons-json`, `commons-mongo`, `commons-okhttp`) carries no prefix. It is shared infrastructure rather than a
-part of the product, and the private application modules depend on it too. Whether an `artifactId`
-as generic
-as `commons` is publishable under `org.sempods` is a Maven Central question, open in the
-open-source roadmap under S5. It has a deadline now: snapshots carry these names already, and the
-first release freezes them — a published coordinate cannot be renamed without stranding whoever
-depends on it.
+**No exceptions, including the `sempods-commons` family.** Those six carried no prefix until the
+coordinates were about to freeze: shared infrastructure rather than part of the product, and the
+private application modules depend on them too. But the rule above is what settles it — the prefix
+is what makes the `artifactId` fall out of the project name, and a bare `commons` would have needed
+the override this file warns about. It is also what comparable projects do: RDF4J publishes
+`rdf4j-common`, Netty `netty-common`, Jetty `jetty-util`, Spring `spring-core`.
+
+The Kotlin packages are unaffected. `sempods-commons` holds `org.sempods.commons`, the same shape
+as RDF4J's `rdf4j-common` holding `org.eclipse.rdf4j.common`: the group namespaces the package, the
+project name namespaces the artifact.
 
 `SemPods…` was the older spelling. No code, build file, configuration or current documentation
 carries it any more, and it must not come back.
@@ -166,8 +168,8 @@ through in a module that goes public.
 
 ## 4. Package namespace
 
-**`org.sempods.*`, for every module in the set**: `commons`, `commons-jaxrs`, `commons-json`,
-`commons-ktor`, `commons-mongo`, `commons-okhttp`, `sempods-server`, `sempods-model`,
+**`org.sempods.*`, for every module in the set**: `sempods-commons`, `sempods-commons-jaxrs`, `sempods-commons-json`,
+`sempods-commons-ktor`, `sempods-commons-mongo`, `sempods-commons-okhttp`, `sempods-server`, `sempods-model`,
 `sempods-auth`, `sempods-auth-core`, `sempods-mcp`, `sempods-mcp-core`, `sempods-client`,
 `sempods-control-plane-client`, `sempods-media-s3` and `deployments/sempods/image`. Maven Central
 verifies a namespace against a domain it can resolve, and `org.sempods` is provable via
@@ -176,7 +178,7 @@ verifies a namespace against a domain it can resolve, and `org.sempods` is prova
 An application built on these modules keeps its own namespace and is not expected to adopt this
 one; only a module that ships under these coordinates has to.
 
-Under `org.sempods`, `commons` keeps its own segment (`org.sempods.commons.*`); the pod server and
+Under `org.sempods`, `sempods-commons` keeps its own segment (`org.sempods.commons.*`); the pod server and
 its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempods.auth`,
 `org.sempods.mcp`, `org.sempods.client`, `org.sempods.controlplane`).
 
