@@ -1,5 +1,5 @@
 [versions]
-awsSdk = "2.54.1"
+awsSdk = "2.54.2"
 jersey = "4.0.2"
 ktor = "3.5.2"
 okhttp = "5.5.0"

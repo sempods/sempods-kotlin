@@ -39,7 +39,12 @@ combination nothing ever ran.
 
 ## Publishing a snapshot
 
-Needs a Central Portal token and nothing else — no signing, because snapshots are not validated.
+**Every merge to `main` does this automatically** — `.github/workflows/publish-snapshot.yml`, using
+the `CENTRAL_USERNAME` and `CENTRAL_PASSWORD` repository secrets. Nothing below is needed to keep
+the snapshot current.
+
+The manual route is for publishing from a branch, before it merges. It needs a Central Portal token
+and nothing else — no signing, because snapshots are not validated.
 
 Put the token in `~/.gradle/gradle.properties`, never in the repository (push protection is on and
 will stop you, which is the intended outcome):
