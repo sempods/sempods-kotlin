@@ -5,28 +5,45 @@ name: Refresh Context7
 # which for a project this size means rarely — and a rarely-refreshed index of a `0.x` contract is
 # worse than none: it states last quarter's API with this quarter's confidence.
 #
-# So the same argument as `publish-snapshot.yml`, one layer up: refresh on every merge rather than
-# by hand, because by hand means until the first time someone forgets.
+# So: ask for a re-crawl rather than wait to be crawled. What this workflow cannot do is ask on
+# every merge, which is what it was written to do and what the API refuses:
 #
-# No `paths` filter. The index covers the main sources as well as `docs/`, so there is no change to
-# `main` that reliably cannot affect it, and a filter that is wrong in the rare case buys nothing
-# in the common one — the call is a single POST.
+#   {"error":"too-early","message":"Too early to refresh the project.
+#    Last update was 0 days ago. Minimum 10 days required between updates."}
+#
+# Ten days is a floor the endpoint enforces and its documentation does not mention. That makes
+# "refresh on every merge" a request that is rejected far more often than it is accepted — so the
+# rejection is a normal outcome here, not a failure, and the step below has to tell the two apart.
+#
+# `schedule` beside `push` because of what the floor does to a burst: merges two days apart are all
+# refused except the first, and if the repository then goes quiet, everything after that first
+# merge stays unindexed until someone touches `main` again. The weekly run closes that window
+# without needing to know when the floor last reset.
 on:
   push:
     branches: [ main ]
+  schedule:
+    - cron: '0 5 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# One at a time. Two runs racing produces one refresh and one `too-early` that means nothing.
+concurrency:
+  group: refresh-context7
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      # The secret comes from the Context7 dashboard. It is absent in forks and was absent here
-      # until the library was claimed, and neither is a broken build — so skip rather than fail.
-      # A key that is present but rejected *is* a failure, hence `--fail-with-body`: an expired key
-      # must not pass as a silent 401 and leave the index quietly frozen.
+      # The secret comes from the Context7 dashboard. It is absent in forks, and that is not a
+      # broken build — skip rather than fail.
+      #
+      # No `--fail-with-body`: the status has to be read rather than acted on, because `400
+      # too-early` and `400 malformed request` are the same status and opposite outcomes. A
+      # transport failure still fails the step, since `set -e` covers the assignment.
       - name: Trigger the re-crawl
         env:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
@@ -36,7 +53,40 @@ jobs:
             exit 0
           fi
 
-          curl --fail-with-body -sS -X POST https://context7.com/api/v1/refresh \
+          response=$(curl -sS -w '\n%{http_code}' -X POST https://context7.com/api/v1/refresh \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $CONTEXT7_API_KEY" \
-            -d '{"libraryName": "/${{ github.repository }}"}'
+            -d '{"libraryName": "/${{ github.repository }}"}')
+
+          status=$(printf '%s' "$response" | tail -n1)
+          body=$(printf '%s' "$response" | sed '$d')
+          echo "HTTP $status — $body"
+
+          case "$status" in
+            2??)
+              echo "::notice::Context7 re-crawl started."
+              ;;
+            429)
+              echo "::notice::Rate limited by Context7; the next scheduled run will ask again."
+              ;;
+            400)
+              # Only `too-early` is benign. Anything else with this status is a request this
+              # workflow got wrong, and it must not pass as one that was merely too soon.
+              case "$body" in
+                *'"too-early"'*)
+                  echo "::notice::Inside Context7's ten-day floor; the next scheduled run will ask again."
+                  ;;
+                *)
+                  echo "::error::Context7 rejected the request."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              # 401 an expired or revoked key, 404 a library name that no longer resolves, 5xx
+              # theirs. All three leave the index quietly frozen, which is the thing this workflow
+              # exists to prevent, so all three are loud.
+              echo "::error::Context7 refresh failed."
+              exit 1
+              ;;
+          esac
