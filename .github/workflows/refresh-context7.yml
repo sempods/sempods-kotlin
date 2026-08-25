@@ -12,8 +12,9 @@ name: Refresh Context7
 #    Last update was 0 days ago. Minimum 10 days required between updates."}
 #
 # Ten days is a floor the endpoint enforces and its documentation does not mention. That makes
-# "refresh on every merge" a request that is rejected far more often than it is accepted — so the
-# rejection is a normal outcome here, not a failure, and the step below has to tell the two apart.
+# "refresh on every merge" a request rejected far more often than accepted — so the rejection is a
+# normal outcome, not a failure. Which answer means what lives in
+# `.github/scripts/context7-refresh.sh`, with its cases pinned by the test beside it.
 #
 # `schedule` beside `push` because of what the floor does to a burst: merges two days apart are all
 # refused except the first, and if the repository then goes quiet, everything after that first
@@ -29,7 +30,7 @@ on:
 permissions:
   contents: read
 
-# One at a time. Two runs racing produces one refresh and one `too-early` that means nothing.
+# One at a time. Two runs racing produce one refresh and one `too-early` that means nothing.
 concurrency:
   group: refresh-context7
   cancel-in-progress: false
@@ -38,55 +39,11 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
       # The secret comes from the Context7 dashboard. It is absent in forks, and that is not a
-      # broken build — skip rather than fail.
-      #
-      # No `--fail-with-body`: the status has to be read rather than acted on, because `400
-      # too-early` and `400 malformed request` are the same status and opposite outcomes. A
-      # transport failure still fails the step, since `set -e` covers the assignment.
+      # broken build — the script skips rather than fails.
       - name: Trigger the re-crawl
         env:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
-        run: |
-          if [ -z "$CONTEXT7_API_KEY" ]; then
-            echo "CONTEXT7_API_KEY is not set — skipping the refresh."
-            exit 0
-          fi
-
-          response=$(curl -sS -w '\n%{http_code}' -X POST https://context7.com/api/v1/refresh \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $CONTEXT7_API_KEY" \
-            -d '{"libraryName": "/${{ github.repository }}"}')
-
-          status=$(printf '%s' "$response" | tail -n1)
-          body=$(printf '%s' "$response" | sed '$d')
-          echo "HTTP $status — $body"
-
-          case "$status" in
-            2??)
-              echo "::notice::Context7 re-crawl started."
-              ;;
-            429)
-              echo "::notice::Rate limited by Context7; the next scheduled run will ask again."
-              ;;
-            400)
-              # Only `too-early` is benign. Anything else with this status is a request this
-              # workflow got wrong, and it must not pass as one that was merely too soon.
-              case "$body" in
-                *'"too-early"'*)
-                  echo "::notice::Inside Context7's ten-day floor; the next scheduled run will ask again."
-                  ;;
-                *)
-                  echo "::error::Context7 rejected the request."
-                  exit 1
-                  ;;
-              esac
-              ;;
-            *)
-              # 401 an expired or revoked key, 404 a library name that no longer resolves, 5xx
-              # theirs. All three leave the index quietly frozen, which is the thing this workflow
-              # exists to prevent, so all three are loud.
-              echo "::error::Context7 refresh failed."
-              exit 1
-              ;;
-          esac
+        run: .github/scripts/context7-refresh.sh '${{ github.repository }}'

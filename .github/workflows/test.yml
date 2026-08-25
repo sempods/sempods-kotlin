@@ -127,3 +127,16 @@ jobs:
           path: build/reports/dependency-analysis/build-health-report.txt
           if-no-files-found: warn
           retention-days: 14
+
+  # The refresh workflow's response handling, which nothing else exercises: it runs only on `main`
+  # and only against the live endpoint, so a wrong branch there is invisible until it either turns
+  # every merge red or reports a frozen index as healthy. Its own job rather than a step in
+  # `build`, because it needs no Java, no Mongo and no compose stack — `AGENTS.md` §"Working rules"
+  # asks for a test with the behavior, not for it to be expensive.
+  workflow-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the Context7 response handling
+        run: ./.github/scripts/context7-refresh-test.sh
