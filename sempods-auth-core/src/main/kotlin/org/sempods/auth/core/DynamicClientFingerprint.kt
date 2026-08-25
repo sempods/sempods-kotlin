@@ -38,6 +38,20 @@ object DynamicClientFingerprint {
    * every deployment is still a proof of concept, and the alternative was to carry the
    * inconsistency into the public repository forever.
    *
+   * **The second change to affect stored digests, and the same trade for a far narrower group.**
+   * [RedirectUri.canonicalize] stopped decoding the address it rewrites, and learned that the
+   * brackets around an IPv6 literal are not part of the host. Measured against a corpus of real
+   * callbacks, twelve of fifteen come out byte-identical either way — every ordinary `localhost`
+   * and `127.0.0.1` address included, `%20` in a path and `+` in a query included. Two groups
+   * move: a callback on `[::1]`, and one that percent-escapes a reserved delimiter
+   * (`/cb%2Fadmin`, `?a=1%26b=2`).
+   *
+   * No legacy-digest lookup for either, and for the first the change *ends* the orphaning rather
+   * than causing it: the old form left the port in place for `[::1]`, so a client binding an
+   * ephemeral port minted a fresh `client_id` on every reconnect — exactly what this digest
+   * exists to prevent. One more re-registration, then stable. The second group was being answered
+   * at an address it had never registered, so its old digest was anchoring the wrong thing.
+   *
    * Only the hosted service fills the realm today. The pod passes `null`: it has one MCP surface,
    * so there is nothing to fork registrations by.
    */
