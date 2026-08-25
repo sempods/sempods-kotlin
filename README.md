@@ -56,8 +56,7 @@ documentation rather than against this code. That is the first evidence that the
 implementable somewhere else, which is the claim this project actually needs to support.
 
 **What does not exist yet:** a standalone specification document (the contract lives in
-[`docs/`](docs/) for now), a conformance suite, published Maven artifacts, and a one-command
-distribution.
+[`docs/`](docs/) for now), a conformance suite, and a one-command distribution.
 
 **Stable despite `0.x`.** A leading zero is a licence to move the API, not the data. These do not
 move, because the first deployment that is not mine freezes them whatever the version number says
@@ -162,9 +161,10 @@ ones — are consumable from Gradle only. They are carried by a Gradle capabilit
 representation in a Maven POM, so a Maven build can depend on the libraries but not on the
 fixtures.
 
-Snapshots are published from `main` on every merge, to
-`https://central.sonatype.com/repository/maven-snapshots/`, for following development between
-releases. A snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release
+Between releases `main` carries a `-SNAPSHOT` version, and every merge republishes it to
+`https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
+The workflow skips a version without `-SNAPSHOT`, so a `main` that is mid-release publishes
+nothing. A snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release
 instead unless you specifically want to find out early that something changed.
 
 ## The three services
