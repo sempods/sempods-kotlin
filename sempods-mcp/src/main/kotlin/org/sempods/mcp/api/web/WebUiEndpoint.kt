@@ -307,7 +307,8 @@ fun Application.webUiEndpoint(
 
       val redirect = runCatching {
         // First connect: no pinned client_id yet — DCR when the pod offers it (full sempods pod),
-        // otherwise our static did:web client_id (did:web:<mcp-host>), resolved via /.well-known/did.json.
+        // otherwise our static did:web client_id (did:web:<mcp-host>), which the pod accepts on the
+        // origin match alone — it does not fetch the did.json we serve.
         buildPodAuthorizeRedirect(session.user, profile, podBaseUrl, returnTo, existing = null)
       }.getOrElse { e ->
         logger.warn(e) { "pod connect failed for '$podBaseUrl'" }

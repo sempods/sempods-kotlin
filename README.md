@@ -26,8 +26,9 @@ implementation**.
    the whole access-control model.
 
 3. **Permissions are grants on contexts**: `<context-iri>#read`, `#write`, `#manage`. Apps and
-   agents obtain them through OAuth 2.1 with PKCE; app identity is a `did:web` document the
-   server resolves. A grant is durable server-side policy — it never travels inside a token.
+   agents obtain them through OAuth 2.1 with PKCE; an app's identity is its origin, named
+   `did:web:<host>` — nothing is fetched, and a token reaches no address off that origin. A
+   grant is durable server-side policy — it never travels inside a token.
 
 4. **SPARQL, with the sandbox enforced by the server.** A query sees exactly the contexts the
    caller may read, and writes reach exactly the contexts the caller may write. Client-supplied

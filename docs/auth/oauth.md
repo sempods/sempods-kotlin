@@ -30,9 +30,13 @@ step see `identity.md`.
 
 Two `client_id` shapes, with different rules:
 
-### `did:web:*` — pre-resolvable apps (e.g., Focus, AppShell-based SPAs)
+### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
-- The DID resolves to a host the pod can verify.
+- The identifier *names* a host; nothing is dereferenced to check it.
+  The host-and-port match is the whole check — see
+  `sempods-auth-core/src/main/kotlin/org/sempods/auth/core/DidWeb.kt`,
+  which states what it deliberately does not do and why (no SSRF
+  surface, no cache, no third-party availability in the login path).
 - `redirect_uri` must match the DID host (or loopback for local
   development).
 - No DCR; the app is its own identity.

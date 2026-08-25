@@ -127,9 +127,10 @@ Standards are *named*, not re-explained.
 - **SHACL enforcement** of cardinality, datatype, and value range — a
   separate layer, not yet specified. Until SHACL is in place, both
   CRUD layers accept any write that is structurally valid.
-- **SPARQL Query / Update** — `_system/sparql/...`. Stays the
-  power-user escape hatch for federated, multi-resource, or
-  conditional operations that do not fit the slot model.
+- **SPARQL Query** — `_system/sparql/query`. Stays the power-user
+  route for federated or multi-resource *reads* that do not fit the
+  slot model. It is read-only; the server exposes no SPARQL Update
+  route, so it is not an escape hatch for writes.
 - **Binaries** — [`../media.md`](../media.md). `_system/media/...`
   holds bytes, not RDF, and is deliberately not part of this model:
   the two share the base64url id convention and the context permission

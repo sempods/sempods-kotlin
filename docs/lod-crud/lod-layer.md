@@ -397,9 +397,13 @@ surprises.
   the other form should normalise on the way in.
 - **No atomic cross-context writes.** Every `PUT` / `PATCH` /
   `DELETE` targets exactly one context. Compound writes that must
-  land in multiple contexts atomically are not part of this layer —
-  use SPARQL Update (`POST /_system/sparql/update`) as the escape
-  hatch when transactional multi-context semantics matter.
+  land in multiple contexts atomically are not part of this layer,
+  and there is no escape hatch elsewhere: the SPARQL surface is
+  read-only (see §"Read-only SPARQL endpoint (related)"), and
+  `SparqlQueryService.validateReadOnly()` rejects every Update form.
+  A caller that needs the guarantee issues one write per context and
+  handles partial failure itself. Transactional multi-context writes
+  are tracked in the maintainer's internal roadmap.
 - **TOCTOU between precondition check and write.** Conditional
   writes (`If-Match`, `If-None-Match: *`) are evaluated outside the
   storage transaction. A concurrent write between the precondition
