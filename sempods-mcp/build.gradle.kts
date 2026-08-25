@@ -8,10 +8,10 @@ dependencies {
 
   // dependent projects
   // `api` because `BaseModule` is this class's supertype, so an embedder cannot name it without.
-  // Guice itself stays `implementation`, as it is in `:commons`: whoever installs a module calls
+  // Guice itself stays `implementation`, as it is in `:sempods-commons`: whoever installs a module calls
   // `Guice.createInjector` and has declared it. The rest — Ktor, Mongo, Jackson — Guice reaches by
   // reflection at wiring time (#15).
-  api(project(":commons"))
+  api(project(":sempods-commons"))
   // The pod HTTP surface and its SSRF guard live here now, shared with every consumer rather
   // than re-spelled per service. RDF4J rides along on the runtime classpath unused — the price of
   // one client instead of two, and cheaper than the drift two guards produced.
@@ -24,8 +24,8 @@ dependencies {
   implementation(project(":sempods-mcp-core"))
 
   // The W3C trace binding for Ktor: the inbound interceptor and the outbound client plugin.
-  implementation(project(":commons-ktor"))
-  implementation(project(":commons-mongo"))
+  implementation(project(":sempods-commons-ktor"))
+  implementation(project(":sempods-commons-mongo"))
 
   // HTTP server — the single MCP surface (JSON-RPC over POST), standalone (no framework)
   implementation(libs.ktorServerCore)
@@ -75,7 +75,7 @@ dependencies {
 
   // Tests (CIO only for test clients outside the hardened pod-fetch path)
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
-  testImplementation(testFixtures(project(":commons")))
+  testImplementation(testFixtures(project(":sempods-commons")))
   testImplementation(libs.ktorServerTestHost)
   testImplementation(libs.ktorClientCore)
   testImplementation(libs.ktorClientCio)

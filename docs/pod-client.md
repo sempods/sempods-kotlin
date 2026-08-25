@@ -151,7 +151,7 @@ What the engine costs, stated rather than hidden:
 
 ### Two OkHttp clients in one process, on purpose
 
-A JVM running both this client and `commons-okhttp`'s holds two `OkHttpClient` instances. They are
+A JVM running both this client and `sempods-commons-okhttp`'s holds two `OkHttpClient` instances. They are
 **not** merged, and the reason is the bullet above rather than tidiness: `implementation` is what
 makes the third-party dependency acceptable, and a constructor or factory taking an engine would
 put `okhttp3` on the compile classpath of every consumer of the published artifact and tie this
@@ -202,7 +202,7 @@ won: the NAT64 prefixes are refused outright rather than by payload.
   took the facade too, so what is left there is `PodIo` — the bridge, and nothing else. The thirteen
   calls it used to wrap now live in `:sempods-mcp-core`, where both MCP surfaces read them.
 
-  Route knowledge stays shared through `org.sempods.commons.net.SempodsPodRoutes` in `commons`,
+  Route knowledge stays shared through `org.sempods.commons.net.SempodsPodRoutes` in `sempods-commons`,
   which is now one of several things both layers read rather than the only thing they could.
 
 - **The stateless `dereference` does not become pod-bound.** It takes an arbitrary foreign URI with no

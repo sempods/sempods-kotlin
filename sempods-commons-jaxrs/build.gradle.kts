@@ -5,21 +5,21 @@ plugins {
 dependencies {
   // `api` for the protocol types: an endpoint extending `BaseEndpoint` handles `jakarta.ws.rs`
   // types directly, `ApiException` builds a `Response`, and an endpoint carries an `@Inject`.
-  // That surface is this module's reason to exist — which is why it is a sibling of `commons` and
+  // That surface is this module's reason to exist — which is why it is a sibling of `sempods-commons` and
   // not part of it. Jersey itself serves that surface and stays behind the wall, below.
-  api(project(":commons"))
+  api(project(":sempods-commons"))
   api(libs.jakartaWsRsApi)
   api(libs.jakartaInjectApi)
-  // `ObjectMapperResolver` hands back an `ObjectMapper`. `:commons-json` supplies the *configured*
+  // `ObjectMapperResolver` hands back an `ObjectMapper`. `:sempods-commons-json` supplies the *configured*
   // mapper and stays behind the wall: a consumer names the type, not the factory.
   api(libs.jacksonDatabind)
 
-  // Same reasoning as `commons` and `commons-mongo`: only `JaxRsServerModule` /
+  // Same reasoning as `sempods-commons` and `sempods-commons-mongo`: only `JaxRsServerModule` /
   // `JaxRsApplicationModule` need Guice, and a consumer wiring Jersey by hand must not inherit a
   // DI container to get a filter or an exception mapper.
   compileOnly(libs.guice)
 
-  implementation(project(":commons-json"))
+  implementation(project(":sempods-commons-json"))
 
   // The Jetty container `JaxRsServerModule` builds by hand — `Server`, `ServerConnector`,
   // `GzipHandler`, `VirtualThreadPool` — and the Jersey bridge onto it, which nothing names.

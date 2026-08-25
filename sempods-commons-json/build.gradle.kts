@@ -12,7 +12,7 @@ dependencies {
   implementation(libs.jackson)
   implementation(libs.jacksonKotlin)
 
-  // No `:commons` and no logging: neither is reached from here. This module is `JsonMappers` and
+  // No `:sempods-commons` and no logging: neither is reached from here. This module is `JsonMappers` and
   // its codecs — the same line `:sempods-mcp-core` draws.
 
   testImplementation(libs.bundles.test)

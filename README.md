@@ -68,8 +68,7 @@ move, because the first deployment that is not mine freezes them whatever the ve
   [`NAMESPACE.md`](NAMESPACE.md), which also states the deprecation period they carry.
 
 The one surface deliberately *not* on that list is the Maven coordinates. Snapshots are published,
-but a snapshot is mutable and expires; the coordinates freeze at the first release, and the
-`commons*` artifact names have to be settled before it.
+but a snapshot is mutable and expires; the coordinates freeze at the first release.
 
 **And one thing that is not stable, with no mechanism behind it.** There is no schema migration
 system. `SempodsUpdater` runs a hardcoded list on every boot; an update can declare itself
@@ -152,7 +151,8 @@ or all three.
 ## Repository layout
 
 ```
-commons/ commons-json/ commons-mongo/ commons-okhttp/ commons-jaxrs/ commons-ktor/
+sempods-commons/ sempods-commons-json/ sempods-commons-mongo/
+sempods-commons-okhttp/ sempods-commons-jaxrs/ sempods-commons-ktor/
                     framework-free shared base; take only what you need
 sempods-model/      the contract as code — service interfaces, URI builder, ontologies
 sempods-server/     the pod server: RDF4J store, contexts, OAuth, SPARQL, AI layer, MCP

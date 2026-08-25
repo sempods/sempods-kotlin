@@ -26,12 +26,12 @@ val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 // Listed rather than derived from `java-library`: a platform is configured before the modules it
 // would inspect, so deriving it silently yields a short list.
 val publishedModules = listOf(
-  "commons",
-  "commons-jaxrs",
-  "commons-json",
-  "commons-ktor",
-  "commons-mongo",
-  "commons-okhttp",
+  "sempods-commons",
+  "sempods-commons-jaxrs",
+  "sempods-commons-json",
+  "sempods-commons-ktor",
+  "sempods-commons-mongo",
+  "sempods-commons-okhttp",
   "sempods-auth",
   "sempods-auth-core",
   "sempods-client",
@@ -312,7 +312,7 @@ subprojects {
         //
         // What goes is what the fixtures bring and the module itself does not — a rule about where
         // a dependency comes from rather than a list of libraries, so a library moving in or out
-        // of `libs.bundles.test` cannot quietly widen the hole again. `commons` is why that
+        // of `libs.bundles.test` cannot quietly widen the hole again. `sempods-commons` is why that
         // matters: its `TestUtil` takes Awaitility, which is no longer in the bundle.
         //
         // The alternative — declaring the test libraries `testFixturesCompileOnly` in the module
