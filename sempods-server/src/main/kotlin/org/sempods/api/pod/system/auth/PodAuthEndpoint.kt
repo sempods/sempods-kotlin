@@ -121,15 +121,19 @@ class PodAuthEndpoint @Inject constructor(
         .build()
     }
 
+    // The same rule `/authorize` applies, through the same method. This check compared the scheme
+    // itself and so accepted `http://` on a public host — a value that is stored, handed back as a
+    // registered address, and then refused by `isAllowedRedirectUri` at every login attempt.
+    // `sempods-mcp`'s registration endpoint already asks `RedirectUri`; refusing here says which
+    // address is wrong while the client is still the one asking.
     redirectUris.forEach { uri ->
-      val parsed = runCatching { URI(uri) }.getOrNull()
-      val scheme = parsed?.scheme?.lowercase()
-      if (scheme != "http" && scheme != "https") {
+      if (!RedirectUri.isValid(uri)) {
         return Response.status(400)
           .entity(
             mapOf(
               "error" to "invalid_redirect_uri",
-              "error_description" to "redirect_uri must use http or https: $uri",
+              "error_description" to
+                  "redirect_uri must be https, or http on a loopback host, with no fragment: $uri",
             )
           )
           .type(MediaType.APPLICATION_JSON)
@@ -1722,8 +1726,16 @@ class PodAuthEndpoint @Inject constructor(
   }
 
   private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUri: URI): Boolean {
-    val scheme = redirectUri.scheme?.lowercase() ?: return false
-    if (scheme != "http" && scheme != "https") return false
+    // What an address may look like at all — absolute, no fragment, `https` anywhere, `http` only
+    // for loopback — is `RedirectUri`'s question, and both other services ask it through this same
+    // method (`DidWebRedirectPolicy`, `OpenIdProviderEndpoint`). This line used to be a local
+    // `scheme == "http" || scheme == "https"` comparison, which accepted plain `http` for *any*
+    // host: `DidWeb.Target.covers` below matches host, port and path and says nothing about the
+    // scheme, so `did:web:example.org%3A8443` was answered at `http://example.org:8443/cb` and the
+    // authorization code left in a cleartext `Location` header. Nothing behind it, either — a
+    // `did:web:` client is not required to send a `code_challenge`, so an intercepted code has no
+    // PKCE verifier protecting the exchange.
+    if (!RedirectUri.isValid(redirectUri.toString())) return false
 
     // Dynamic clients (RFC 7591): redirect_uri must match one of the values submitted at
     // registration time. Lookup is pod-scoped — a clientId from a different pod is rejected.

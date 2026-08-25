@@ -30,6 +30,14 @@ step see `identity.md`.
 
 Two `client_id` shapes, with different rules:
 
+Both shapes answer the same question about the *shape* of a
+`redirect_uri` first, through `RedirectUri.isValid`: absolute, no
+fragment, `https` on any host, `http` only on loopback. A plain-text
+address cannot be a real redirect target, so an authorization code never
+travels in a cleartext `Location` header. `/register` refuses such a
+value at registration; `/authorize` refuses it again before any
+client-specific rule is consulted.
+
 ### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
 - The identifier *names* an address; nothing is dereferenced to check
@@ -39,7 +47,9 @@ Two `client_id` shapes, with different rules:
   surface, no cache, no third-party availability in the login path).
 - `redirect_uri` must match the DID host **and port** (or loopback for
   local development, which is wired from the environment and never
-  defaulted on).
+  defaulted on). `DidWeb.Target.covers()` says nothing about the scheme
+  — the `https`-or-loopback rule above is what keeps `http://` off the
+  DID's own origin.
 - A path-scoped identifier narrows it further: `did:web:example.org:mcp`
   is answerable only at or below `/mcp`, matched **per path segment**,
   so `/mcp` and `/mcp/cb` are covered and `/mcp-other/cb` is not.

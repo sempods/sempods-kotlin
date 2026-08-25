@@ -3216,6 +3216,106 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a did-web client is not answered over cleartext http on its own origin`() {
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+
+    // `DidWeb.Target.covers` compares host, normalized port and path prefix — it says nothing
+    // about the scheme, and this endpoint's own shape check accepted plain `http` for any host.
+    // The two together answered `did:web:example.org%3A8443` at `http://example.org:8443/cb`:
+    // same host, same port, same path, and an authorization code in a cleartext `Location`
+    // header. A `did:web:` client sends no `code_challenge`, so nothing else stood behind it.
+    //
+    // The port-less identifier is the quieter half of the same hole: `http://example.org:443/cb`
+    // normalizes to port 443 and `covers` it, even though 443 is where TLS listens.
+    for ((clientId, cleartext) in listOf(
+      "did:web:example.org%3A8443" to "http://example.org:8443/cb",
+      "did:web:example.org" to "http://example.org:443/cb",
+      "did:web:apps.example.org:mcp" to "http://apps.example.org/mcp/cb",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", clientId)
+        .addQueryParam("redirect_uri", cleartext)
+        .addQueryParam("state", "s")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been refused: $clientId -> $cleartext")
+      assertTrue(response.getHeader("Location").isNullOrBlank(), cleartext)
+    }
+  }
+
+  @Test
+  fun `https on the origin a did-web client names is still answered`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // The other side of the rule above: refusing cleartext must not have narrowed what a
+    // `did:web:` client is actually for — a non-default port and a path prefix included.
+    for ((clientId, allowed) in listOf(
+      "did:web:example.org%3A8443" to "https://example.org:8443/cb",
+      "did:web:example.org" to "https://example.org/cb",
+      "did:web:apps.example.org:mcp" to "https://apps.example.org/mcp/cb",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", clientId)
+        .addQueryParam("redirect_uri", allowed)
+        .addQueryParam("state", "s")
+        .executeSignedInAs(ownerWebId)
+
+      assertEquals(200, response.statusCode, "should have been served: $clientId -> $allowed")
+      assertTrue(response.responseBody.contains("consent"), allowed)
+    }
+  }
+
+  @Test
+  fun `a did-web client may still be answered over http on loopback in development`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // RFC 8252 §7.3, and the reason `RedirectUri` carves loopback out of the `https`-only rule at
+    // all: a native client binds an ephemeral port on the user's own machine. `example.org` does
+    // not cover `localhost`, so this reaches the development-only loopback branch and nothing
+    // else — the suite runs outside a deployment, which is what makes `Env.isDevelopment` true.
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", "did:web:example.org")
+      .addQueryParam("redirect_uri", "http://127.0.0.1:51000/cb")
+      .addQueryParam("state", "s")
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertTrue(response.responseBody.contains("consent"))
+  }
+
+  @Test
+  fun `register refuses a cleartext redirect_uri on a public host`() {
+    val pod = sempodsTestFactory.newPod()
+
+    // The registration endpoint compared the scheme itself and accepted `http://` anywhere, so a
+    // client could register an address `/authorize` will refuse at every login — a 201 that
+    // promises something the login path never honours. Said here, while the client is asking.
+    for (rejected in listOf(
+      "http://apps.example.org/cb",
+      "http://apps.example.org:8443/cb",
+      "https://apps.example.org/cb#frag",
+    )) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody("""{"redirect_uris":["$rejected"]}""")
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been refused: $rejected")
+      assertTrue("invalid_redirect_uri" in response.responseBody, response.responseBody)
+    }
+  }
+
+  @Test
   fun `a path-scoped did-web client cannot be answered on a sibling path`() {
     val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
 
