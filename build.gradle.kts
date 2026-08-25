@@ -403,8 +403,17 @@ allprojects {
     // Only when there is a key: Central requires a `.asc` on a *release* and validates nothing
     // about a snapshot, so requiring one would break `publishToMavenLocal` and CI snapshots.
     // From the environment, because a CI runner has no keyring.
+    // Blank is absent. `isPresent` is true for a set-but-empty variable, and an empty string is
+    // not a key. The way it goes wrong is quiet: `gpg --armor --export-secret-keys <selector>`
+    // warns "nothing exported" and exits 0 when it matches nothing — a fingerprint's leading
+    // characters do not select a key, only its trailing ones do — so `export SIGNING_KEY="$(…)"`
+    // succeeds carrying nothing, and every `sign…Publication` task then fails inside
+    // `useInMemoryPgpKeys("")` naming neither the variable nor the reason. Filtered, an empty
+    // export behaves like an unset one: signing is skipped, and `checkCentralBundle` stays the
+    // thing that refuses to ship an unsigned release.
     val signingKey = providers.environmentVariable("SIGNING_KEY")
-      .orElse(providers.gradleProperty("signingKey"))
+      .map { it.trim() }.filter { it.isNotEmpty() }
+      .orElse(providers.gradleProperty("signingKey").map { it.trim() }.filter { it.isNotEmpty() })
     val signingPassword = providers.environmentVariable("SIGNING_PASSWORD")
       .orElse(providers.gradleProperty("signingPassword"))
 
