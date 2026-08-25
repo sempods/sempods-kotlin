@@ -1,0 +1,46 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "url": "https://context7.com/sempods/sempods-kotlin",
+  "public_key": "pk_BPSZyUILQ07A40VBK0VsR",
+  "projectTitle": "sempods",
+  "description": "sempods is an open standard and its Kotlin/JVM reference implementation for self-hosted semantic pods: RDF resources addressed as HTTP URIs, every statement in exactly one context (named graph) that is also the permission boundary, URI-based grants (#read/#write/#manage) obtained through OAuth 2.1 + PKCE with did:web app identity, a server-enforced SPARQL sandbox, and a /_system/* control plane. Ships the pod server, the identity service, a per-pod MCP endpoint plus a hosted multi-pod MCP service, and JVM client libraries.",
+  "branch": "main",
+  "excludeFolders": [
+    ".github",
+    "gradle",
+    "**/build",
+    "**/src/test",
+    "**/src/testFixtures",
+    "sempods-server/src"
+  ],
+  "excludeFiles": [
+    "AGENTS.md",
+    "**/AGENTS.md",
+    "RELEASING.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "TRADEMARKS.md",
+    "NOTICE",
+    "LICENSE",
+    "docs/chat-app-brainstorm.md",
+    "docs/mcp/vision.md",
+    "sempods-mcp/docs/multi-tenancy-review.md"
+  ],
+  "rules": [
+    "sempods is 0.x and the API surface moves. What does NOT move, whatever the version says: the package names under `org.sempods.*`, the stored formats (Mongo database and collection names, the refresh-token row shape, the claim names in issued tokens), and every ontology IRI under `https://schema.sempods.org/`. Treat no other surface as frozen.",
+    "Maven artifacts are NOT published yet — only mutable, expiring snapshots. Never emit `org.sempods:*` coordinates as if they resolved from Maven Central, and do not present the BOM as consumable. Build from source with `./gradlew`, or point at the snapshot repository. The coordinates freeze at the first release.",
+    "Every statement lives in exactly one context, a named graph identified by its full canonical IRI, and the context is the permission boundary — not the resource, not the property, not a role. There are no project-, app- or role-level abstractions. One resource URI can therefore carry public and private properties at the same time, and a reader sees exactly the depth their grants allow.",
+    "Context IRIs live under `/{pod}/_system/contexts/…`. A delegated context carries a type segment (`apps/<id>/…`; `users/…` is reserved for guests); a context the owner keeps carries no type and is named freely. Owner identity never appears in a path — pod ownership is transferable — with guest paths `users/<webid>/…` the deliberate exception.",
+    "Grant strings are `<context-iri>#read`, `<context-iri>#write`, `<context-iri>#manage`; `public-read` is a singleton pseudo-scope, not a grant. `#manage` authorizes the context root and its slash-delimited descendants only. Never implement it as a string-prefix check — a sibling context sharing a string prefix must not be authorized.",
+    "A grant is durable server-side policy and never travels inside a token; scopes are the coarse OAuth capabilities that do. Do not design flows that carry permission topology in a token, and do not treat a token's contents as the authorization decision.",
+    "`?context=` is required on every write (PUT/PATCH/DELETE), accepts exactly one value, and a repeated or missing parameter is 400. On reads it is an optional downscope filter: no value means the union of all readable contexts, repetition is allowed, requested contexts the caller cannot read are silently excluded, and an empty resulting set answers 404 — not 403.",
+    "The SPARQL sandbox is server-enforced and cannot be shaped around by the client. Queries see only the caller's readable contexts and updates reach only writable ones; client-supplied dataset clauses are not trusted. Read validation parses the RDF4J grammar, rejects Update forms and forbids `SERVICE` anywhere including subqueries; `LOAD`, `CLEAR ALL` and `DROP ALL` are forbidden. REST `_system/sparql/query` and the MCP `sparql_select` / `sparql_graph` tools dispatch through one service — never add a second path that could drift.",
+    "`/_system/*` is the control plane — contexts, grants, media, retrieval and the OAuth surface. It is not reachable through ordinary RDF writes, and external writes to it are forbidden.",
+    "Auth error semantics: a missing or bad bearer is `401 invalid_token`; a valid bearer whose scope is not enough is `403 insufficient_scope`. A write model parsed from a request must contain statements for the target resource only — smuggled out-of-context triples are rejected.",
+    "Apps authenticate with OAuth 2.1 + PKCE and identify themselves through a `did:web` document the server resolves; the pod identifies itself as `did:web:<its host>`. Persons are known only as WebID URIs — an email given at pod creation is stored as the WebID derived from it.",
+    "There is no schema-migration system. `SempodsUpdater` runs a hardcoded list on every boot with no history and no already-applied check, and a failure is logged while boot continues. Before any upgrade: take a backup and read the startup log. Never assume a migration is idempotent or replayable.",
+    "Running it needs Java 25 and Docker with the Compose v2 plugin (`docker compose`, not the standalone `docker-compose`). Local infrastructure comes up from `deployments/local/compose.yaml`; the server runs via `./gradlew :deployments:sempods:image:run`.",
+    "Apache-2.0 grants no trademark rights in the name. Accurate descriptive use needs no permission — \"compatible with sempods\", \"implements the sempods specification\", \"built on sempods\" — and relationship names like `acme-pod-client` or `sempods-exporter-for-postgres` are fine. Do not word anything so it implies the project produced or endorsed a third-party build."
+  ]
+}
