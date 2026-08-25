@@ -3320,6 +3320,35 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a redirect_uri that is not a URI at all is a client error, not a server error`() {
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+
+    // The callers used to build `URI(redirectUri)` themselves, one line above the check that
+    // would have refused it — so a value that does not parse threw `URISyntaxException` and
+    // `ApiExceptionMapper` answered 500. `AGENTS.md` asks for deterministic errors; a malformed
+    // request parameter is a 400. Nothing ever travelled — there is no Location on any of these —
+    // so this is about saying the right thing, not about what was said to whom.
+    for (malformed in listOf(
+      "https://example.org/%zz",
+      "https://example.org/a b",
+      "https://exa mple.org/cb",
+      "http://[::1/cb",
+      "::::",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", malformed)
+        .addQueryParam("state", "s")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been a client error: $malformed")
+      assertTrue(response.getHeader("Location").isNullOrBlank(), malformed)
+    }
+  }
+
+  @Test
   fun `an escaped path segment is not the same address as the two segments it spells`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)

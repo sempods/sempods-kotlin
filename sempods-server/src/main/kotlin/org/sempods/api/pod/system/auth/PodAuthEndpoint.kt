@@ -306,7 +306,7 @@ class PodAuthEndpoint @Inject constructor(
         .entity("client_id must be a did:web or dyn: identity").type("text/plain").build()
     }
 
-    if (!isAllowedRedirectUri(podDbo, normalizedClientId, URI(normalizedRedirectUri))) {
+    if (!isAllowedRedirectUri(podDbo, normalizedClientId, normalizedRedirectUri)) {
       return Response.status(400).entity("redirect_uri not allowed for this client_id").type("text/plain").build()
     }
 
@@ -760,7 +760,7 @@ class PodAuthEndpoint @Inject constructor(
     val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
       ?: return Response.status(400).entity("missing redirect_uri").type("text/plain").build()
 
-    if (!isAllowedRedirectUri(podDbo, normalizedClientId, URI(normalizedRedirectUri))) {
+    if (!isAllowedRedirectUri(podDbo, normalizedClientId, normalizedRedirectUri)) {
       return Response.status(400).entity("redirect_uri not allowed for this client_id").type("text/plain").build()
     }
 
@@ -1725,17 +1725,29 @@ class PodAuthEndpoint @Inject constructor(
     return Response.temporaryRedirect(uri).build()
   }
 
-  private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUri: URI): Boolean {
-    // What an address may look like at all — absolute, no fragment, `https` anywhere, `http` only
-    // for loopback — is `RedirectUri`'s question, and both other services ask it through this same
-    // method (`DidWebRedirectPolicy`, `OpenIdProviderEndpoint`). This line used to be a local
-    // `scheme == "http" || scheme == "https"` comparison, which accepted plain `http` for *any*
-    // host: `DidWeb.Target.covers` below matches host, port and path and says nothing about the
-    // scheme, so `did:web:example.org%3A8443` was answered at `http://example.org:8443/cb` and the
-    // authorization code left in a cleartext `Location` header. Nothing behind it, either — a
-    // `did:web:` client is not required to send a `code_challenge`, so an intercepted code has no
-    // PKCE verifier protecting the exchange.
-    if (!RedirectUri.isValid(redirectUri.toString())) return false
+  /**
+   * Takes the **string**, and parses it here.
+   *
+   * The callers used to hand over a `URI(redirectUri)` they built themselves, one line above the
+   * check — so a value that is not a URI at all (`https://example.org/%zz`, a space in the host)
+   * threw `URISyntaxException` before any validation ran, and `ApiExceptionMapper` turned a
+   * malformed request parameter into a 500. `AGENTS.md` asks for deterministic errors, and a
+   * client error is a 400. Parsing is part of deciding whether an address is usable, so it belongs
+   * with the rest of that decision rather than at each call site — which is also the shape
+   * `DidWebRedirectPolicy.permits` already has.
+   */
+  private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUriString: String): Boolean {
+    // What an address may look like at all — a URI to begin with, absolute, no fragment, `https`
+    // anywhere, `http` only for loopback — is `RedirectUri`'s question, and both other services
+    // ask it through this same method (`DidWebRedirectPolicy`, `OpenIdProviderEndpoint`). This
+    // used to be a local `scheme == "http" || scheme == "https"` comparison, which accepted plain
+    // `http` for *any* host: `DidWeb.Target.covers` below matches host, port and path and says
+    // nothing about the scheme, so `did:web:example.org%3A8443` was answered at
+    // `http://example.org:8443/cb` and the authorization code left in a cleartext `Location`
+    // header. Nothing behind it, either — a `did:web:` client is not required to send a
+    // `code_challenge`, so an intercepted code has no PKCE verifier protecting the exchange.
+    if (!RedirectUri.isValid(redirectUriString)) return false
+    val redirectUri = runCatching { URI(redirectUriString) }.getOrNull() ?: return false
 
     // Dynamic clients (RFC 7591): redirect_uri must match one of the values submitted at
     // registration time. Lookup is pod-scoped — a clientId from a different pod is rejected.
@@ -1744,7 +1756,7 @@ class PodAuthEndpoint @Inject constructor(
     // and the same rule already governs the `/register` fingerprint dedup.
     if (appId.startsWith("dyn:")) {
       val registration = dynamicClientStore.lookup(checkNotNull(podDbo.id), appId) ?: return false
-      val requestedCanonical = RedirectUri.canonicalize(redirectUri.toString())
+      val requestedCanonical = RedirectUri.canonicalize(redirectUriString)
       return registration.redirectUris.any { registered ->
         RedirectUri.canonicalize(registered) == requestedCanonical
       }
