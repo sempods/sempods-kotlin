@@ -17,9 +17,9 @@ the ones that deliberately do not yet, and the invariants that are not selectabl
 
 ## The project-level authority is not this file
 
-[`../AGENTS.md`](../AGENTS.md) holds the mission, the terminology (pod, context,
-grant, scope, `default_write_context`), the documentation rules and the AI documentation map for
-the whole of sempods. **Read it before changing behaviour here** — this file does not repeat it.
+[`../AGENTS.md`](../AGENTS.md) holds the mission, the terminology (pod, context, grant,
+scope), the documentation rules and the AI documentation map for the whole of sempods.
+**Read it before changing behaviour here** — this file does not repeat it.
 
 This directory holds the server's code and nothing else: `src/` and `build.gradle.kts`. Where the
 project-level material sits beside it is that file's subject, not this one's.
@@ -32,8 +32,7 @@ authority if the two ever disagree.
 1) Every edge/statement always has exactly one Context (named graph).
 2) Read sandbox: a request can only read contexts it has read rights for.
 3) Write sandbox: a request can only write into contexts it has write rights for.
-4) If a write does not specify a context, the token's `default_write_context` is used (and must
-   be writeable).
+4) A write names its target context explicitly — there is no implicit fallback context.
 5) Pods are isolated by default. Do not introduce cross-pod access without explicit,
    spec-defined sync mechanisms.
 6) Prefer explicit specs + conformance tests over clever query rewriting.
