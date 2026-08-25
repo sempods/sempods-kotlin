@@ -5,45 +5,53 @@ name: Refresh Context7
 # which for a project this size means rarely — and a rarely-refreshed index of a `0.x` contract is
 # worse than none: it states last quarter's API with this quarter's confidence.
 #
-# So: ask for a re-crawl rather than wait to be crawled. What this workflow cannot do is ask on
-# every merge, which is what it was written to do and what the API refuses:
+# So ask, on a schedule, and let any answer that is not success fail the run.
 #
-#   {"error":"too-early","message":"Too early to refresh the project.
-#    Last update was 0 days ago. Minimum 10 days required between updates."}
+# **The schedule is the whole design.** The endpoint enforces a floor its documentation does not
+# mention — `{"error":"too-early", ... "Minimum 10 days required between updates."}` — so a
+# workflow that asks more often than that fails as a matter of course, and a run that is normally
+# red tells you nothing on the day it is red for a real reason. Staying above the floor is what
+# lets `--fail-with-body` mean something.
 #
-# Ten days is a floor the endpoint enforces and its documentation does not mention. That makes
-# "refresh on every merge" a request rejected far more often than accepted — so the rejection is a
-# normal outcome, not a failure. Which answer means what lives in
-# `.github/scripts/context7-refresh.sh`, with its cases pinned by the test beside it.
+# `1,15` rather than an interval, because cron intervals do not survive month boundaries: `*/20`
+# fires on the 1st and 21st, and 21 February to 1 March is eight days — inside the floor. Two fixed
+# days of the month are never closer than fourteen (15 February to 1 March, the shortest pair).
 #
-# `schedule` beside `push` because of what the floor does to a burst: merges two days apart are all
-# refused except the first, and if the repository then goes quiet, everything after that first
-# merge stays unindexed until someone touches `main` again. The weekly run closes that window
-# without needing to know when the floor last reset.
+# `37` past the hour: GitHub's own guidance is that scheduled runs on the hour are the ones delayed
+# or dropped under load.
+#
+# No `push` trigger. It would refresh a few days sooner after a merge and spend most runs being
+# refused for it, which is the trade that made an earlier version of this file fail on every merge.
+#
+# Failure reaches a person by e-mail — GitHub notifies on a failed scheduled run — which is the
+# only notification this needs. A stalled index is not urgent; it just must not be silent.
 on:
-  push:
-    branches: [ main ]
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '37 5 1,15 * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One at a time. Two runs racing produce one refresh and one `too-early` that means nothing.
-concurrency:
-  group: refresh-context7
-  cancel-in-progress: false
-
 jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
-      # The secret comes from the Context7 dashboard. It is absent in forks, and that is not a
-      # broken build — the script skips rather than fails.
+      # The secret comes from the Context7 dashboard, and is absent in forks — not a broken build.
+      #
+      # Everything else is: an expired key, a library name that stopped resolving, their outage,
+      # and a manual run asking inside the floor all leave the index frozen or unrefreshed, and
+      # this workflow exists so that does not happen quietly.
       - name: Trigger the re-crawl
         env:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
-        run: .github/scripts/context7-refresh.sh '${{ github.repository }}'
+        run: |
+          if [ -z "$CONTEXT7_API_KEY" ]; then
+            echo "CONTEXT7_API_KEY is not set — skipping the refresh."
+            exit 0
+          fi
+
+          curl --fail-with-body -sS -X POST https://context7.com/api/v1/refresh \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $CONTEXT7_API_KEY" \
+            -d '{"libraryName": "/${{ github.repository }}"}'
