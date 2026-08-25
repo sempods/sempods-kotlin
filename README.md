@@ -136,6 +136,37 @@ are minted from it), and `MONGODB_URL`. The natural-language layer has **no off 
 token they answer `401`, never `404` — which is how you can tell they are there — and with one they
 answer `500 ai_provider_error` until a provider is reachable. Everything else runs without one.
 
+## Using it as a library
+
+The libraries are on Maven Central as of `0.1.0`. One version covers the whole repository, so pin
+the platform and let the modules carry no version of their own:
+
+```kotlin
+dependencies {
+  implementation(platform("org.sempods:sempods-bom:0.1.0"))
+
+  implementation("org.sempods:sempods-client")
+  implementation("org.sempods:sempods-model")
+}
+```
+
+The modules are built, tested and released in lockstep, and a consumer holding `sempods-client`
+0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
+for, and why hand-versioning them is the one thing to avoid.
+
+Published bytecode targets **Java 21**. Building this repository needs 25; depending on it does
+not.
+
+The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
+ones — are consumable from Gradle only. They are carried by a Gradle capability that has no
+representation in a Maven POM, so a Maven build can depend on the libraries but not on the
+fixtures.
+
+Snapshots are published from `main` on every merge, to
+`https://central.sonatype.com/repository/maven-snapshots/`, for following development between
+releases. A snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release
+instead unless you specifically want to find out early that something changed.
+
 ## The three services
 
 No service calls another in-process: they meet over HTTP and environment variables, and each
