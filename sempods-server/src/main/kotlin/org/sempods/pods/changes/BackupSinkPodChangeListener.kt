@@ -236,13 +236,8 @@ class BackupSinkPodChangeListener @Inject constructor(
   }
 
   /**
-   * The change set's pod as this sink's own storage key.
-   *
-   * [PodChangeSet] speaks [org.sempods.pods.PodId] because [PodChangeListener] is a seam and a
-   * deployment may bring its own sink; this one is the reference implementation's and writes
-   * MongoDB rows, so it converts back — the same edge `PodDbo.toRef` marks in the other direction.
-   * A change set produced by this server always carries an id this server minted, so a token that
-   * is not one is a bug and not an input to handle.
+   * The change set's pod as this sink's own storage key. A set this server produced carries an id
+   * this server minted, so a token that is not one is a bug rather than an input to handle.
    */
   private fun PodChangeSet.podObjectId(): ObjectId = checkNotNull(podId.toObjectIdOrNull()) {
     "change set for pod $podName carries a pod id this deployment did not mint: $podId"

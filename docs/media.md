@@ -100,23 +100,14 @@ storage key: an implementation owns how a ref becomes a physical location. Both 
 inside sempods that layout is what an external backup and a backend swap operate on — but nothing in
 the server computes a location.
 
-**Neither half of that ref is MongoDB's.** `mediaId` is the content hash, and `podId` is a
-`PodId` — an opaque token a deployment mints, safe in a path segment and in an object key, and
-carrying no meaning a store may read. It used to be an `org.bson.types.ObjectId`, which made the
-sentence above only half true, because a store could not implement the seam without naming the
-driver's type. `:sempods-media-s3` now names no `org.bson` type anywhere and declares no MongoDB
-artifact — it still *inherits* one from `:sempods-server`, which exports the driver for its own DAO
-layer, and `modularity.md` §"The pattern" says what would be needed to end that.
-That the reference implementation mints the hex of its own `ObjectId` is *its*
-statement, made in `pods/mongo/persist/PodIds.kt` — which is also why the change moved no bytes:
-the token on disk and in the bucket is character-for-character the one that was there before. See
-`modularity.md` §"The pattern".
+`podId` is a **`PodId`** — an opaque token the deployment mints, at most 64 characters from
+`A-Z a-z 0-9 - _`, safe in a path segment and in an object key. Nothing above a store reads meaning
+into one, and no store may assume more than that shape.
 
-One consequence for the reconcile. A store skips what is not a well-formed `{podId}/{mediaId}`,
-and it can do no more than that: every well-formed token looks alike to it, so a bucket shared with
-something else hands back prefixes that are not pods of ours. Dropping those is
-`PodMediaFacade.reconcile`'s job, because only the side that mints ids knows their shape — the
-report never names a stranger's bytes as an orphan.
+The reconcile skips objects whose pod id is not shaped like one this deployment mints, which keeps a
+`backups/` prefix out of an operator's report. It is a shape check: a second sempods deployment
+sharing the backend mints the same shape and its objects have no row here, so they are reported as
+leaks. **Two deployments must not share one media backend unpartitioned.**
 
 **Selection lives in the deployment, and that is forced rather than stylistic.** `:sempods-media-s3`
 depends on `:sempods-server`, so `:sempods-server` cannot import `S3PodMediaStore` to choose it. `:sempods-server` owns

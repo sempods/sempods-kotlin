@@ -21,13 +21,10 @@ dependencies {
   // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
   // subclasses hand back a `Response` from.
   //
-  // `bson` no longer reaches a **seam**: `PodMediaStore` and `PodChangeListener` speak `PodId`, so
-  // `:sempods-media-s3` implements the media seam without naming an `org.bson` type (#12). It still
-  // *inherits* both artifacts from here, and these two lines are why — what keeps them is the layer
-  // below, the DAOs, the `…Dbo` rows and the stores over them, which are public Kotlin and
-  // therefore ABI although `docs/architecture/module-layering.md` describes them as
-  // module-internal. Taking *those* out of the ABI is `internal`, not another type, and is what
-  // would make a seam implementation driver-free. The rest of #12.
+  // `bson` is here for the DAO layer, not for a seam — the `…Dbo` rows and the stores over them are
+  // public Kotlin and therefore ABI, although `docs/architecture/module-layering.md` describes them
+  // as module-internal. Making them `internal` is what would drop these two lines, and with them
+  // the driver every module downstream of this one inherits; #12.
   api(libs.mongodb)
   api(libs.bson)
   api(libs.jacksonDatabind)
@@ -92,9 +89,8 @@ dependencies {
   implementation(libs.bouncycastle)
 
   // test fixtures — the media seam's conformance suite, so `:sempods-media-s3` runs the same
-  // assertions against the other implementation instead of a copy that drifts. No `bson`: the
-  // suite's surface used to hand subclasses two `ObjectId`s, so a downstream store had to compile
-  // against MongoDB's driver to subclass it; it mints `PodId`s now.
+  // assertions against the other implementation instead of a copy that drifts. No MongoDB artifact:
+  // the suite mints `PodId`s, so subclassing it needs no driver.
   //
   // `implementation` and not `compileOnly`, unlike Guice below: the conformance suite runs in the
   // test JVM of whoever extends it and calls `kotlin.test` assertions from its own bytecode, so an

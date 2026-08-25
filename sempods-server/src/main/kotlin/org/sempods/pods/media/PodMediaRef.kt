@@ -19,11 +19,6 @@ import org.sempods.pods.PodId
  *   so in its own KDoc — is what makes such a move an `rclone sync`; it is their statement, not a
  *   property of this type.
  *
- * [podId] is a [PodId] and not this deployment's row key: the sentence above was only half true
- * while it was a MongoDB `ObjectId`, since a store implementing this seam then had to speak one.
- * The translation lives in `pods/mongo/persist/PodIds.kt` and the token is unchanged, so nothing on
- * disk moved when it was made true.
- *
  * [podId] first because it is the ownership boundary: no operation crosses it, and every listing is
  * either scoped to one pod or explicitly to all of them.
  */

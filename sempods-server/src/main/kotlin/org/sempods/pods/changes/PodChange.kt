@@ -93,10 +93,7 @@ data class ResourceChange(
  *   `removeContext`, and widen the listener SPI (e.g. a sealed change hierarchy) to carry both. Do
  *   not build the events before that consumer exists.
  *
- * @property podId the pod this set belongs to, as a [PodId] and not as the reference
- *   implementation's row key: [PodChangeListener] is a seam, so a sink a deployment supplies must
- *   not have to speak MongoDB's identifier type to receive one. `BackupSinkPodChangeListener`,
- *   which does write MongoDB rows, converts back for itself.
+ * @property podId the pod this set belongs to, as the opaque [PodId] every seam names a pod by.
  * @property resources one [ResourceChange] per affected resource (a single transaction —
  *   e.g. a context removal — may touch many).
  */

@@ -9,12 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-/**
- * What a pod id is allowed to be, and what the reference implementation's key becomes.
- *
- * The round trip in the last test is the one that matters operationally: it is the reason the media
- * stores' on-disk and in-bucket layouts did not move when the seams stopped speaking `ObjectId`.
- */
+/** What a pod id is allowed to be, and what this implementation's key becomes. */
 class PodIdTest {
 
   @Test
@@ -26,8 +21,7 @@ class PodIdTest {
 
   @Test
   fun `anything a path or a key would have to escape is not`() {
-    // The rule exists so that a store may put the value straight into a path segment or an object
-    // key. Everything here would either escape one or need quoting in it.
+    // A store puts the value straight into a path segment or an object key.
     for (raw in listOf("", " ", "a b", "a/b", "a.b", "..", "lost+found", "pod:1", "ü", "x".repeat(65))) {
       assertFailsWith<IllegalArgumentException>("should not be a pod id: '$raw'") { PodId(raw) }
       assertNull(PodId.parseOrNull(raw), "should not parse: '$raw'")
@@ -55,8 +49,7 @@ class PodIdTest {
 
   @Test
   fun `an ObjectId round trips through PodId unchanged`() {
-    // Character for character: this is why introducing the type moved no bytes on disk and no keys
-    // in a bucket, both of which were already written from `toHexString`.
+    // Character for character, because the token a store writes into a path or a key is this hex.
     val objectId = ObjectId()
 
     val podId = objectId.toPodId()
@@ -66,10 +59,11 @@ class PodIdTest {
   }
 
   @Test
-  fun `a well-formed pod id this deployment did not mint converts back to nothing`() {
-    // What lets `PodMediaFacade.reconcile` tell a pod of ours from a stranger's prefix in shared
-    // storage — a store cannot, since a pod id is opaque to it.
+  fun `a well-formed pod id that is not shaped like ours converts back to nothing`() {
+    // What lets `PodMediaFacade.reconcile` keep a foreign prefix out of its report. Shape only —
+    // an id another deployment minted the same way converts back fine.
     assertNotNull(PodId.parseOrNull("not-a-pod-of-ours"))
     assertNull(PodId("not-a-pod-of-ours").toObjectIdOrNull())
+    assertNotNull(PodId(ObjectId().toHexString()).toObjectIdOrNull())
   }
 }

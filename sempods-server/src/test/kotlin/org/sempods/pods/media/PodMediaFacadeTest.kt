@@ -419,17 +419,16 @@ class PodMediaFacadeTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `reconcile skips an object under a pod id this deployment never minted`() {
-    // A store may sit on space it shares — a bucket with other prefixes, a directory somebody else
-    // writes to as well. It cannot tell one of those from a pod of ours, because a `PodId` is opaque
-    // to it; only the side that mints ids knows their shape, so the filter is here. Naming a
-    // stranger's bytes an orphan would send an operator after data that is not theirs to delete.
-    val stranger = PodMediaRef(PodId("not-a-pod-of-ours"), "object-${randomId()}")
-    mediaStore.put(stranger, "image/jpeg", source("stray-${randomId()}"))
+  fun `reconcile skips an object whose pod id is not shaped like one of ours`() {
+    // A backend may hold other data — a bucket with other prefixes, a directory somebody else writes
+    // to. A store cannot tell one of those from a pod, so the filter is here. Shape only; the KDoc
+    // on `reconcile` names the case it cannot cover.
+    val foreign = PodMediaRef(PodId("not-a-pod-of-ours"), "object-${randomId()}")
+    mediaStore.put(foreign, "image/jpeg", source("stray-${randomId()}"))
 
     val report = facade.reconcile()
 
-    assertFalse(stranger in report.objectsWithoutRow)
+    assertFalse(foreign in report.objectsWithoutRow)
   }
 
   @Test

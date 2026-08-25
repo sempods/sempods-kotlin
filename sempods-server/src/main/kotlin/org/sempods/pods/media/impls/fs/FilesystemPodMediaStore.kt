@@ -102,10 +102,8 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
       for (podDirectory in podDirectories) {
         val owner = PodId.parseOrNull(podDirectory.name)
         if (owner == null) {
-          // Not a pod id at all, so not something this store wrote. What this cannot tell is
-          // whether a *well-formed* id belongs to this deployment — `PodId` is opaque here on
-          // purpose, and the pod registry is the only thing that knows. That question is settled
-          // above, by whoever compares the walk against the registry.
+          // Not a pod id, so not something this store wrote. A well-formed one it cannot judge
+          // at all — `PodId` is opaque here; `PodMediaFacade.reconcile` does that.
           logger.warn { "Ignoring directory ${podDirectory.name} — not a pod id" }
           continue
         }

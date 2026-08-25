@@ -99,11 +99,10 @@ class S3PodMediaStore internal constructor(
    * right since the token already carries the position.
    *
    * Keys that do not parse as `{podId}/{mediaId}` are skipped rather than reported, the same way the
-   * filesystem store skips a directory whose name is not a pod id. What this cannot decide is
-   * whether a *well-formed* prefix belongs to this deployment — a [PodId] is opaque here, so a
-   * shared bucket's other prefixes come back looking like pods, and `PodMediaFacade.reconcile`
-   * drops them against the ids it mints. A stray key *inside* a pod's prefix is a different matter
-   * and **is** reported — that is the reconcile working.
+   * filesystem store skips a directory whose name is not a pod id. A well-formed prefix this cannot
+   * judge — a [PodId] is opaque here — so a shared bucket's other prefixes come back looking like
+   * pods and `PodMediaFacade.reconcile` sorts them out. A stray key *inside* a pod's prefix is a
+   * different matter and **is** reported — that is the reconcile working.
    */
   override fun <T> iterate(
     podId: PodId?,

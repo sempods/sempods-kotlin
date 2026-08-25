@@ -43,9 +43,6 @@ data class PodMedia(
    * `{podId}/{mediaId}` and therefore said nothing the two fields did not — while quietly pinning
    * one physical layout for every implementation. A store owns its own layout now; see
    * [PodMediaRef].
-   *
-   * This is also where the row's key becomes the seam's [org.sempods.pods.PodId] — one conversion,
-   * at the edge, in the direction `docs/modularity.md` §"The pattern" describes.
    */
   val ref: PodMediaRef get() = PodMediaRef(podId.toPodId(), mediaId)
 

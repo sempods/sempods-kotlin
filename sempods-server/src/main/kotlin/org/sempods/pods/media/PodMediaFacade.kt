@@ -385,12 +385,14 @@ class PodMediaFacade @Inject constructor(
    * hits and collects its misses, and whatever stays in the set is the other direction. A `find` per
    * object plus an `exists` per row would be the same answer for twice the round trips.
    *
-   * **Objects under a pod id this deployment never minted are skipped, not reported.** A store may
-   * sit on space it shares — an S3 bucket with other prefixes in it, a directory somebody else also
-   * writes to — and it cannot tell one of those from a pod of ours: a `PodId` is opaque to a store
-   * by design, and every well-formed token looks alike to it. Only the side that mints ids knows
-   * their shape, which is this class, so the filter is here. Naming a stranger's bytes an orphan
-   * would send an operator after data that is not theirs to delete.
+   * **Objects whose pod id is not shaped like one this deployment mints are skipped.** A store
+   * cannot judge that — a [org.sempods.pods.PodId] is opaque to it — so a backend holding other
+   * data hands its prefixes back as pods, and they would otherwise be reported as leaks.
+   *
+   * A shape check, not an ownership one: a second sempods deployment sharing the backend mints the
+   * same shape and its objects have no row here, so they *are* reported. Nothing can tell them
+   * apart, since an orphan is by definition an object no row claims. **Two deployments must not
+   * share one media backend unpartitioned.**
    *
    * // TODO: the key set is O(rows) in memory. Fine for a registry of this size, and the way out
    * //   when it is not is a per-pod run in a loop (the `podId` parameter is already here) rather
@@ -402,12 +404,12 @@ class PodMediaFacade @Inject constructor(
     val checkedRows = rows.size
 
     var checkedObjects = 0
-    var foreignObjects = 0
+    var skippedObjects = 0
     val objectsWithoutRow = ArrayList<PodMediaRef>()
     mediaStore.iterate(podId?.toPodId()) { entries ->
       entries.forEach { entry ->
         if (entry.ref.podId.toObjectIdOrNull() == null) {
-          foreignObjects++
+          skippedObjects++
           return@forEach
         }
         checkedObjects++
@@ -418,9 +420,9 @@ class PodMediaFacade @Inject constructor(
     }
 
     // One line per walk rather than one per object: a store sharing its space would otherwise fill
-    // the log with a line per stranger, and the count is the whole diagnosis.
-    if (foreignObjects > 0) {
-      logger.debug { "[media/audit] skipped $foreignObjects object(s) under a pod id this deployment did not mint" }
+    // the log with a line per skipped object, and the count is the whole diagnosis.
+    if (skippedObjects > 0) {
+      logger.debug { "[media/audit] skipped $skippedObjects object(s) whose pod id is not shaped like one of ours" }
     }
 
     val report = MediaReconcileReport(

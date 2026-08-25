@@ -58,9 +58,9 @@ abstract class PodMediaStoreConformanceTest {
   private val ourPods = setOf(podA, podB)
 
   /**
-   * A pod id no other run holds. Deliberately not a MongoDB `ObjectId` hex: a store is told what a
-   * pod id is and never parses meaning out of it, so a suite that minted the reference
-   * implementation's shape would let an implementation depend on that shape without failing here.
+   * A pod id no other run holds, and deliberately not in any deployment's minting shape: a store is
+   * told what a pod id is and never reads meaning out of one, so a suite that used a real shape
+   * would let an implementation depend on it without failing here.
    */
   protected fun mintPodId(): PodId = PodId(randomToken())
 

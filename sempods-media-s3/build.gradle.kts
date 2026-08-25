@@ -15,14 +15,9 @@ dependencies {
   api(project(":sempods-server"))
 
   // implementation libs
-  // No `bson` here any more: `PodMediaRef` used to speak `org.bson.types.ObjectId`, so implementing
-  // a seam that has nothing to do with MongoDB meant naming the driver's type. It speaks `PodId`
-  // now (#12), and `buildHealth` holds the line — the declaration fails as unused the moment it
-  // comes back.
-  //
-  // What this does *not* mean is a driver-free classpath. `api(project(":sempods-server"))` above
-  // still brings `mongodb` and `bson` along, because the server exports them for its own DAO layer.
-  // Ending that is the rest of #12, not this line.
+  // No MongoDB artifact: nothing here names an `org.bson` type, and `buildHealth` fails such a
+  // declaration as unused. The driver is still *inherited* through `:sempods-server`, which exports
+  // it for its DAO layer — see the comment on `api(libs.bson)` there.
   implementation(libs.bundles.logging)
   // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
   // uses is the one written down, and discovered by the SDK rather than named.

@@ -115,8 +115,7 @@ data class MediaEntry(
    *
    * A plain `String` rather than a wrapper type, for the same reason `SparqlResult.cursor` is one:
    * a cursor's whole job is to be handed back and, for a walk that must survive a restart, written
-   * down. [PodId] is a value class because a pod id is an identity two call sites could confuse;
-   * a cursor has no identity and no second use to confuse it with.
+   * down. It has no identity and no second use to confuse it with, so a type would buy nothing.
    */
   val cursor: String,
 )
