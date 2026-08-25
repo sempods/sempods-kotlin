@@ -48,6 +48,54 @@ class McpRedirectUriTest {
     )
   }
 
+  @Test fun `canonicalize drops the port and nothing else`() {
+    // It used to run the address through the multi-argument `URI` constructor, which takes decoded
+    // parts — so `/cb%2Fadmin` came back as `/cb/admin`. One path segment literally named
+    // `cb/admin` and two segments `cb` then `admin` became the same string, and the `dyn:` match
+    // compares exactly these strings: an address that was never registered compared equal to one
+    // that was. An encoded `&` in a query collapsed the same way.
+    assertNotEquals(
+      RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"),
+      RedirectUri.canonicalize("http://localhost:65373/cb/admin"),
+    )
+    assertNotEquals(
+      RedirectUri.canonicalize("http://[::1]:51000/cb%2Fadmin"),
+      RedirectUri.canonicalize("http://[::1]:65373/cb/admin"),
+    )
+    assertNotEquals(
+      RedirectUri.canonicalize("http://127.0.0.1:51000/cb?a=1%26b=2"),
+      RedirectUri.canonicalize("http://127.0.0.1:65373/cb?a=1&b=2"),
+    )
+
+    // The escape survives verbatim, and the port — the one thing that is meant to go — still goes.
+    assertEquals("http://localhost/cb%2Fadmin", RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"))
+    assertEquals(
+      RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"),
+      RedirectUri.canonicalize("http://localhost:65373/cb%2Fadmin"),
+    )
+  }
+
+  @Test fun `canonicalize leaves everything that is not a port-insensitive host alone`() {
+    for (untouched in listOf(
+      "https://app.example.com:8443/cb%2Fadmin",
+      "https://app.example.com/cb?a=1%26b=2",
+      "https://[2001:db8::1]:8443/cb",
+    )) {
+      assertEquals(untouched, RedirectUri.canonicalize(untouched))
+    }
+  }
+
+  @Test fun `canonicalize keeps the parts of an address that are not the port`() {
+    // A registered `redirect_uri` may carry a query of its own, and `0.0.0.0` is port-insensitive
+    // for matching even though it may not be redirected to.
+    assertEquals("http://localhost/cb?next=%2Fhome", RedirectUri.canonicalize("http://localhost:51000/cb?next=%2Fhome"))
+    assertEquals("http://0.0.0.0/cb", RedirectUri.canonicalize("http://0.0.0.0:8080/cb"))
+    assertEquals("http://localhost/", RedirectUri.canonicalize("http://localhost:51000/"))
+    assertEquals("http://localhost", RedirectUri.canonicalize("http://localhost:51000"))
+    // Not a URI at all: handed back untouched rather than mangled.
+    assertEquals("not a uri", RedirectUri.canonicalize("not a uri"))
+  }
+
   @Test fun `fragments are rejected`() {
     assertFalse(RedirectUri.isValid("https://app.example.com/cb#frag"))
     assertFalse(RedirectUri.isValid("http://127.0.0.1/cb#x"))

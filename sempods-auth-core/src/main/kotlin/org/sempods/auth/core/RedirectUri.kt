@@ -62,11 +62,23 @@ object RedirectUri {
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return uri
     val host = hostOf(parsed) ?: return uri
     if (host !in portInsensitiveHosts) return uri
-    return runCatching {
-      // The multi-argument constructor puts the brackets back around an IPv6 literal, so handing
-      // it the unbracketed form is not a way to lose them.
-      URI(parsed.scheme, parsed.userInfo, host, -1, parsed.path, parsed.query, parsed.fragment).toString()
-    }.getOrDefault(uri)
+
+    // Assembled from the **raw** components instead of handed to the multi-argument `URI`
+    // constructor. That constructor takes *decoded* parts and re-encodes them, and the round trip
+    // does not come back: `URI.getPath` reads `/cb%2Fadmin` as `/cb/admin`, so one path segment
+    // named `cb/admin` and two segments `cb` then `admin` canonicalized to the same string and
+    // compared equal. `getQuery` did the same to an encoded `&`. Only the port is meant to fall
+    // away here; everything else has to survive byte for byte, because the `dyn:` match and the
+    // registration fingerprint both compare these strings.
+    //
+    // The brackets around an IPv6 literal are put back by hand for the same reason — the
+    // constructor that used to add them is the one being avoided.
+    val scheme = parsed.scheme?.let { "$it://" } ?: "//"
+    val authority = if (':' in host) "[$host]" else host
+    val userInfo = parsed.rawUserInfo?.let { "$it@" }.orEmpty()
+    val query = parsed.rawQuery?.let { "?$it" }.orEmpty()
+    val fragment = parsed.rawFragment?.let { "#$it" }.orEmpty()
+    return scheme + userInfo + authority + parsed.rawPath.orEmpty() + query + fragment
   }
 
   /** [uri]'s host, spelled the way the sets above spell one. */

@@ -3320,6 +3320,31 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `an escaped path segment is not the same address as the two segments it spells`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    // The `dyn:` match compares canonical forms, and canonicalization used to decode the address
+    // on the way: `/cb%2Fadmin` came back `/cb/admin`. One path segment literally named
+    // `cb/admin` and two segments `cb` then `admin` compared equal, so a client could be answered
+    // at an address it never registered. Loopback ports are interchangeable here (RFC 8252 §7.3)
+    // — the path is what has to disagree.
+    val dynClientId = registerDynamicClient(pod.name, "http://localhost:51000/cb%2Fadmin")
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", dynClientId)
+      .addQueryParam("redirect_uri", "http://localhost:65373/cb/admin")
+      .addQueryParam("state", "escaped-segment-state")
+      .addQueryParam("code_challenge", testCodeChallenge)
+      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(400, response.statusCode, "an unregistered path must not be reachable through %2F")
+  }
+
+  @Test
   fun `register refuses a cleartext redirect_uri on a public host`() {
     val pod = sempodsTestFactory.newPod()
 
