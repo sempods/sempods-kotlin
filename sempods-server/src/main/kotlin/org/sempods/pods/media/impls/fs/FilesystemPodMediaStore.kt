@@ -134,15 +134,24 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * verbatim. A [org.sempods.pods.PodId] promises nothing about its form, so that is a choice made
    * here — an implementation whose backend cannot take a token as-is encodes or hashes it instead.
    *
-   * [PodMediaRef.mediaId] is minted as base64url, which cannot contain `/` or `.` runs, and a pod id
-   * is whatever a deployment mints. Both reach a path only through here, so both are checked here.
+   * **The layout therefore holds a pod id that is one path segment, and refuses anything else.** A
+   * deployment minting tokens with a `/` in them wants a store that encodes; this one says so here
+   * instead of writing an object [iterate] could not hand back. [PodMediaRef.mediaId] is minted as
+   * base64url and cannot contain `/` or `.` runs, but it reaches a path through here too, so both
+   * halves are checked in one place.
    */
   private fun resolve(ref: PodMediaRef): Path {
+    require(ref.podId.value.isOnePathSegment()) {
+      "this store lays out one directory per pod, so a pod id must be a single path segment: $ref"
+    }
     val resolved = root.resolve(ref.podId.value).resolve(ref.mediaId).normalize()
     require(resolved.startsWith(root.normalize())) { "media ref escapes the store root: $ref" }
     require(resolved.parent?.parent == root.normalize()) { "media ref must name one object: $ref" }
     return resolved
   }
+
+  private fun String.isOnePathSegment(): Boolean =
+    isNotEmpty() && !contains('/') && this != "." && this != ".."
 
   companion object {
     private val logger = KotlinLogging.logger {}

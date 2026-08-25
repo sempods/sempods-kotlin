@@ -1,5 +1,6 @@
 package org.sempods.pods.media.impls.s3
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStoreConformanceTest
@@ -13,6 +14,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import java.net.URI
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -46,6 +48,17 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
     store.put(ref, "text/plain", source("bytes"))
 
     assertEquals(listOf("${podA.value}/layout-probe"), rawKeys("${podA.value}/"))
+  }
+
+  @Test
+  fun `a pod id this layout cannot hold is refused, not half-stored`() {
+    // The asymmetry this guards: `key` would happily write `a/b/<mediaId>`, and `parseKey` rejects
+    // that key as nested — so the object would exist and no walk could ever find it. `PodMediaStore`
+    // rules that outcome out; a deployment minting such tokens wants a store that encodes them.
+    val unstorable = PodMediaRef(PodId("a/b"), "one-${podA.value}")
+
+    assertFailsWith<IllegalArgumentException> { store.put(unstorable, "text/plain", source("x")) }
+    assertTrue(store.iterate { entries -> entries.none { it.ref.mediaId == unstorable.mediaId } })
   }
 
   @Test

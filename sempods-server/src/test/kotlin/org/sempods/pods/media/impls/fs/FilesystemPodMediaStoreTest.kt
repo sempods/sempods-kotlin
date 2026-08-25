@@ -11,6 +11,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -113,6 +114,17 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     val all = store.iterate { it.toList() }
 
     assertEquals(emptyList(), store.iterate(after = all.last().cursor) { it.toList() })
+  }
+
+  @Test
+  fun `a pod id this layout cannot hold is refused, not half-stored`() {
+    // A `PodId` promises nothing about its form, so a deployment may mint one this store's layout
+    // cannot express. Refusing is the contract: writing it would put an object under `a/b/` that
+    // `iterate` — which reads one directory level — could never hand back.
+    val unstorable = PodMediaRef(PodId("a/b"), "one")
+
+    assertFailsWith<IllegalArgumentException> { store.put(unstorable, "text/plain", source("x")) }
+    assertEquals(emptyList(), listAll())
   }
 
   @Test

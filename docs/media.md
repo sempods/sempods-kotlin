@@ -103,7 +103,9 @@ the server computes a location.
 `podId` is a **`PodId`**: the tenant key the store partitions by, and **not** a location. It
 promises nothing about its own form — a store that needs a path or an object key derives one and
 owns that mapping, the same way it owns its layout. Both shipped stores happen to use the token
-verbatim, and each says so in its own KDoc.
+verbatim as one path segment or one key prefix, and each says so in its own KDoc — which is also why
+each refuses a token containing `/` from `put` rather than storing an object its own walk could
+never hand back. A deployment minting tokens like that wants a store that encodes them.
 
 Which tenants are this deployment's is therefore nothing a store can answer, and `iterate` does not
 try: it hands back everything its layout can read, and `PodMediaFacade.reconcile` drops the ids this

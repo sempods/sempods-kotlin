@@ -158,7 +158,19 @@ class S3PodMediaStore internal constructor(
     if (e.statusCode() == 404) null else throw e
   }
 
-  private fun key(ref: PodMediaRef) = "${ref.podId.value}/${ref.mediaId}"
+  /**
+   * The one place a ref becomes a key, and the constraint that goes with this store's layout: a pod
+   * id becomes one key segment, so a token with a `/` in it is refused rather than written.
+   * [parseKey] could not read such a key back, and an object `iterate` cannot hand back is a byte
+   * lost without a sound — the one outcome `PodMediaStore` rules out. A deployment minting tokens
+   * like that wants a store that encodes them.
+   */
+  private fun key(ref: PodMediaRef): String {
+    require(!ref.podId.value.contains('/')) {
+      "this store lays out one key prefix per pod, so a pod id must be a single segment: $ref"
+    }
+    return "${ref.podId.value}/${ref.mediaId}"
+  }
 
   /**
    * The one place a key becomes a ref — `null` for anything that is not one of this store's media

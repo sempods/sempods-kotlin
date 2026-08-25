@@ -14,9 +14,10 @@ class PodIdTest {
 
   @Test
   fun `any non-empty token is a pod id`() {
-    // Deliberately including values no path or object key would take unescaped. A store that cannot
-    // use a token as-is derives something it can; that is its mapping to own, not this type's rule
-    // to impose — see `FilesystemPodMediaStore.resolve`.
+    // Deliberately including values no path or object key would take unescaped. Whether a backend
+    // can hold such a token is that backend's answer to give: both shipped media stores refuse a
+    // `/` from `put` and say so, which is the contract `PodMediaStore` sets — refuse, never store
+    // what the walk cannot hand back. A store that would rather encode may.
     for (raw in listOf("a", ObjectId().toHexString(), "pod-1", "a/b", "a b", "ü", "x".repeat(4096))) {
       assertEquals(raw, PodId(raw).value, "should be a pod id: '$raw'")
     }

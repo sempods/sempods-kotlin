@@ -27,6 +27,14 @@ import java.nio.file.Path
  * a physical location; see that class for why. `podId` is the ownership boundary — no operation
  * crosses it, and [iterate] is scoped to one pod or explicitly to all.
  *
+ * **A layout may reject a ref, and must reject rather than half-accept it.** A
+ * [org.sempods.pods.PodId] promises nothing about its form, so a token a deployment mints may be
+ * one this implementation's layout cannot express — and the only wrong answer is to store an
+ * object [iterate] then cannot hand back, which loses bytes silently. Refuse it from [put], with a
+ * message naming the constraint. Encoding the token into something the backend does take is the
+ * other legitimate answer; both are the implementation's to choose, and whichever it picks belongs
+ * in its KDoc.
+ *
  * **Objects are immutable.** [PodMediaRef.mediaId] is the base64url SHA-256 of the content, so
  * [put] for an existing ref writes identical bytes. That is what means no implementation needs a
  * compare-and-swap, and what lets an external tool copy a whole backend with a plain sync.
