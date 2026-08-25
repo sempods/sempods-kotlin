@@ -3219,14 +3219,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `a did-web client is not answered over cleartext http on its own origin`() {
     val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
 
-    // `DidWeb.Target.covers` compares host, normalized port and path prefix — it says nothing
-    // about the scheme, and this endpoint's own shape check accepted plain `http` for any host.
-    // The two together answered `did:web:example.org%3A8443` at `http://example.org:8443/cb`:
-    // same host, same port, same path, and an authorization code in a cleartext `Location`
-    // header. A `did:web:` client sends no `code_challenge`, so nothing else stood behind it.
-    //
-    // The port-less identifier is the quieter half of the same hole: `http://example.org:443/cb`
-    // normalizes to port 443 and `covers` it, even though 443 is where TLS listens.
+    // `covers` matches host, port and path and says nothing about the scheme, so each of these
+    // is the identifier's own origin over cleartext. The second is the quiet one: `:443`
+    // normalizes to the port `covers` expects, and 443 is where TLS listens.
     for ((clientId, cleartext) in listOf(
       "did:web:example.org%3A8443" to "http://example.org:8443/cb",
       "did:web:example.org" to "http://example.org:443/cb",
@@ -3252,8 +3247,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
-    // The other side of the rule above: refusing cleartext must not have narrowed what a
-    // `did:web:` client is actually for — a non-default port and a path prefix included.
+    // The other side of the rule above — a non-default port and a path prefix included.
     for ((clientId, allowed) in listOf(
       "did:web:example.org%3A8443" to "https://example.org:8443/cb",
       "did:web:example.org" to "https://example.org/cb",
@@ -3278,10 +3272,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
-    // RFC 8252 §7.3, and the reason `RedirectUri` carves loopback out of the `https`-only rule at
-    // all: a native client binds an ephemeral port on the user's own machine. `example.org` does
-    // not cover `localhost`, so this reaches the development-only loopback branch and nothing
-    // else — the suite runs outside a deployment, which is what makes `Env.isDevelopment` true.
+    // `example.org` does not cover `127.0.0.1`, so this reaches the development-only loopback
+    // branch and nothing else. The suite runs outside a deployment, hence `Env.isDevelopment`.
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
       .addQueryParam("client_id", "did:web:example.org")
@@ -3300,10 +3292,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
-    // RFC 8252 §7.3 names `[::1]` alongside `127.0.0.1`. `URI.getHost` returns it bracketed, so
-    // routing the shape check through `RedirectUri` would have refused it — the address the
-    // loopback carve-out exists for — until `RedirectUri` learned that the brackets are URL
-    // syntax and not part of the address. Registration and the ephemeral-port re-match, both.
+    // RFC 8252 §7.3 names `[::1]` alongside `127.0.0.1`, and `URI.getHost` returns it bracketed.
+    // Registration and the ephemeral-port re-match both have to see through that.
     val dynClientId = registerDynamicClient(pod.name, "http://[::1]:51000/cb")
 
     val response = http.prepareGet(authorizeUrl(pod.name))
@@ -3323,11 +3313,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `a redirect_uri that is not a URI at all is a client error, not a server error`() {
     val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
 
-    // The callers used to build `URI(redirectUri)` themselves, one line above the check that
-    // would have refused it — so a value that does not parse threw `URISyntaxException` and
-    // `ApiExceptionMapper` answered 500. `AGENTS.md` asks for deterministic errors; a malformed
-    // request parameter is a 400. Nothing ever travelled — there is no Location on any of these —
-    // so this is about saying the right thing, not about what was said to whom.
+    // A malformed parameter is a client error, not a `URISyntaxException` reaching
+    // `ApiExceptionMapper` as a 500. No `Location` on any of them either way.
     for (malformed in listOf(
       "https://example.org/%zz",
       "https://example.org/a b",
@@ -3354,11 +3341,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
-    // The `dyn:` match compares canonical forms, and canonicalization used to decode the address
-    // on the way: `/cb%2Fadmin` came back `/cb/admin`. One path segment literally named
-    // `cb/admin` and two segments `cb` then `admin` compared equal, so a client could be answered
-    // at an address it never registered. Loopback ports are interchangeable here (RFC 8252 §7.3)
-    // — the path is what has to disagree.
+    // One path segment named `cb/admin` against two segments `cb` then `admin`. The `dyn:` match
+    // compares canonical forms, and loopback ports are interchangeable (RFC 8252 §7.3), so the
+    // path is the only thing left to disagree.
     val dynClientId = registerDynamicClient(pod.name, "http://localhost:51000/cb%2Fadmin")
 
     val response = http.prepareGet(authorizeUrl(pod.name))
@@ -3377,15 +3362,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `register refuses a cleartext redirect_uri on a public host`() {
     val pod = sempodsTestFactory.newPod()
 
-    // The registration endpoint compared the scheme itself and accepted `http://` anywhere, so a
-    // client could register an address `/authorize` will refuse at every login — a 201 that
-    // promises something the login path never honours. Said here, while the client is asking.
+    // Refused while the client is asking, rather than at every login attempt afterwards.
     for (rejected in listOf(
       "http://apps.example.org/cb",
       "http://apps.example.org:8443/cb",
       "https://apps.example.org/cb#frag",
-      // Bracketed, but not the loopback address: the brackets are stripped to compare, not to
-      // excuse. `https://[2001:db8::1]/cb` would be fine — this is the `http` one.
+      // Bracketed, but not loopback: the brackets are stripped to compare, not to excuse.
       "http://[2001:db8::1]/cb",
     )) {
       val response = http.preparePost(registerUrl(pod.name))

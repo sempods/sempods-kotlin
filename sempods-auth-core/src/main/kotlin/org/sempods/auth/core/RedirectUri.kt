@@ -63,16 +63,10 @@ object RedirectUri {
     val host = hostOf(parsed) ?: return uri
     if (host !in portInsensitiveHosts) return uri
 
-    // Assembled from the **raw** components instead of handed to the multi-argument `URI`
-    // constructor. That constructor takes *decoded* parts and re-encodes them, and the round trip
-    // does not come back: `URI.getPath` reads `/cb%2Fadmin` as `/cb/admin`, so one path segment
-    // named `cb/admin` and two segments `cb` then `admin` canonicalized to the same string and
-    // compared equal. `getQuery` did the same to an encoded `&`. Only the port is meant to fall
-    // away here; everything else has to survive byte for byte, because the `dyn:` match and the
-    // registration fingerprint both compare these strings.
-    //
-    // The brackets around an IPv6 literal are put back by hand for the same reason — the
-    // constructor that used to add them is the one being avoided.
+    // Raw components, so nothing but the port moves: the `dyn:` match and the registration
+    // fingerprint compare these strings, and `URI.getPath` would read `/cb%2Fadmin` as
+    // `/cb/admin` — one path segment named `cb/admin`, spelled as two. Hence also the brackets
+    // by hand: the multi-argument constructor that would add them is the one being avoided.
     val scheme = parsed.scheme?.let { "$it://" } ?: "//"
     val authority = if (':' in host) "[$host]" else host
     val userInfo = parsed.rawUserInfo?.let { "$it@" }.orEmpty()
@@ -85,17 +79,11 @@ object RedirectUri {
   private fun hostOf(uri: URI): String? = normalizeHost(uri.host)?.takeIf { it.isNotBlank() }
 
   /**
-   * A host as the sets above write it: lowercase, and an IPv6 literal without its brackets.
+   * A host as the sets above write it: lowercase, and an IPv6 literal without its brackets —
+   * `URI.getHost` returns those, and they are URL syntax (RFC 3986 §3.2.2), not the address.
    *
-   * `URI.getHost` hands an IPv6 literal back **bracketed** — `http://[::1]:51000/cb` yields
-   * `[::1]`, which is equal to no entry in a set that spells the address `::1`. The brackets are
-   * URL syntax (RFC 3986 §3.2.2), not part of the address, and RFC 8252 §7.3 names `[::1]`
-   * alongside `127.0.0.1` as what a native client binds — so a comparison that kept them refused
-   * exactly the callback the loopback carve-out exists for.
-   *
-   * Only the compact form. `[0:0:0:0:0:0:0:1]` is the same address written out and is not
-   * recognised, here or anywhere else in this file; nothing emits it, and inventing an address
-   * normalizer for a redirect check would be a larger claim than the sets make.
+   * The compact form only: `[0:0:0:0:0:0:0:1]` does not match, and a redirect check is the wrong
+   * place to grow an address normalizer.
    */
   private fun normalizeHost(host: String?): String? =
     host?.trim()?.lowercase()?.removeSurrounding("[", "]")

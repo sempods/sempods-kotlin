@@ -89,11 +89,8 @@ class ClientRedirectPolicyTest {
 
   @Test
   fun `an identifier whose own origin is loopback is gated like any other loopback address`() {
-    // The door the gate did not cover. `covers` is the first branch, and for
-    // `did:web:localhost%3A5173` the loopback address *is* the identifier's own origin — so the
-    // match answered `true` and `allowLoopback` was never reached. A `did:web:` is asserted, not
-    // issued: in production this let anyone route a code to whatever listens on that port on the
-    // user's own machine.
+    // `covers` would answer for these on their own origin without ever reaching `allowLoopback`.
+    // A `did:web:` is asserted, not issued, so in production anyone could name one.
     for (loopbackClient in listOf(
       "did:web:localhost%3A5173",
       "did:web:127.0.0.1%3A5173",
@@ -106,8 +103,7 @@ class ClientRedirectPolicyTest {
       )
     }
 
-    // https on a loopback host is the same address and the same interception — the gate is about
-    // where the code lands, not about how it travels there.
+    // The gate is about where the code lands, not how it travels there.
     assertFalse(policy.permits("did:web:localhost%3A5173", "https://localhost:5173/cb"))
   }
 
@@ -116,15 +112,14 @@ class ClientRedirectPolicyTest {
     assertTrue(devPolicy.permits("did:web:localhost%3A5173", "http://localhost:5173/cb"))
     assertTrue(devPolicy.permits("did:web:localhost%3A5173", "https://localhost:5173/cb"))
     assertTrue(devPolicy.permits("did:web:localhost%3A5173:mcp", "http://localhost:5173/mcp/cb"))
-    // Development relaxes loopback, and only loopback: a public address is still confined to the
-    // origin the identifier names. (Within loopback it relaxes the path too — the fallback exists
-    // for a native client on an ephemeral port that has nothing to do with the DID's own origin.)
+    // Only loopback is relaxed — a public address stays confined to the named origin. Within
+    // loopback the path is relaxed too: the fallback serves native clients on ephemeral ports.
     assertFalse(devPolicy.permits("did:web:localhost%3A5173", "https://evil.example/cb"))
   }
 
   @Test
   fun `gating loopback identifiers leaves public origins untouched`() {
-    // The refusal keys on the *identifier's* host, so nothing about a real origin changes.
+    // The refusal keys on the identifier's host, so a real origin is unaffected.
     assertTrue(policy.permits("did:web:pod.example.org", "https://pod.example.org/cb"))
     assertTrue(policy.permits("did:web:pod.example.org%3A8443", "https://pod.example.org:8443/cb"))
     assertFalse(policy.permits("did:web:pod.example.org", "https://localhost.example.org/cb"))

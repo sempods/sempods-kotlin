@@ -18,10 +18,8 @@ class McpRedirectUriTest {
   }
 
   @Test fun `the IPv6 loopback literal is loopback, brackets and all`() {
-    // `URI.getHost` returns `[::1]` — with the brackets — so a comparison against a set that
-    // spells the address `::1` used to miss. RFC 8252 §7.3 names this address alongside
-    // `127.0.0.1` as what a native client binds, so missing it refused the exact callback the
-    // loopback carve-out exists for.
+    // RFC 8252 §7.3 names this alongside `127.0.0.1` as what a native client binds, and
+    // `URI.getHost` returns it bracketed.
     assertTrue(RedirectUri.isValid("http://[::1]:51000/cb"))
     assertTrue(RedirectUri.isLoopback(URI("http://[::1]:51000/cb").host))
     assertTrue(RedirectUri.isLoopback("[::1]"))
@@ -35,8 +33,7 @@ class McpRedirectUriTest {
   }
 
   @Test fun `canonicalize drops the port for the IPv6 loopback literal too`() {
-    // The `dyn:` match compares canonical forms, so an ephemeral port has to fall away here for
-    // the same reason it does for `127.0.0.1` — and the brackets have to survive the round trip.
+    // An ephemeral port falls away as it does for `127.0.0.1`; the brackets survive the trip.
     assertEquals(
       RedirectUri.canonicalize("http://[::1]:51000/cb"),
       RedirectUri.canonicalize("http://[::1]:65373/cb"),
@@ -49,11 +46,8 @@ class McpRedirectUriTest {
   }
 
   @Test fun `canonicalize drops the port and nothing else`() {
-    // It used to run the address through the multi-argument `URI` constructor, which takes decoded
-    // parts — so `/cb%2Fadmin` came back as `/cb/admin`. One path segment literally named
-    // `cb/admin` and two segments `cb` then `admin` became the same string, and the `dyn:` match
-    // compares exactly these strings: an address that was never registered compared equal to one
-    // that was. An encoded `&` in a query collapsed the same way.
+    // The `dyn:` match and the registration fingerprint compare these strings verbatim, so an
+    // escaped delimiter must not decode: one segment named `cb/admin` is not two segments.
     assertNotEquals(
       RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"),
       RedirectUri.canonicalize("http://localhost:65373/cb/admin"),
@@ -67,7 +61,7 @@ class McpRedirectUriTest {
       RedirectUri.canonicalize("http://127.0.0.1:65373/cb?a=1&b=2"),
     )
 
-    // The escape survives verbatim, and the port — the one thing that is meant to go — still goes.
+    // The escape survives; the port — the one thing meant to go — still goes.
     assertEquals("http://localhost/cb%2Fadmin", RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"))
     assertEquals(
       RedirectUri.canonicalize("http://localhost:51000/cb%2Fadmin"),
@@ -86,8 +80,8 @@ class McpRedirectUriTest {
   }
 
   @Test fun `canonicalize keeps the parts of an address that are not the port`() {
-    // A registered `redirect_uri` may carry a query of its own, and `0.0.0.0` is port-insensitive
-    // for matching even though it may not be redirected to.
+    // A registered `redirect_uri` may carry a query, and `0.0.0.0` is port-insensitive for
+    // matching even though it may not be redirected to.
     assertEquals("http://localhost/cb?next=%2Fhome", RedirectUri.canonicalize("http://localhost:51000/cb?next=%2Fhome"))
     assertEquals("http://0.0.0.0/cb", RedirectUri.canonicalize("http://0.0.0.0:8080/cb"))
     assertEquals("http://localhost/", RedirectUri.canonicalize("http://localhost:51000/"))

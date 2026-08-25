@@ -121,11 +121,8 @@ class PodAuthEndpoint @Inject constructor(
         .build()
     }
 
-    // The same rule `/authorize` applies, through the same method. This check compared the scheme
-    // itself and so accepted `http://` on a public host — a value that is stored, handed back as a
-    // registered address, and then refused by `isAllowedRedirectUri` at every login attempt.
-    // `sempods-mcp`'s registration endpoint already asks `RedirectUri`; refusing here says which
-    // address is wrong while the client is still the one asking.
+    // The rule `/authorize` applies, through the same method: an address stored here that
+    // `isAllowedRedirectUri` would refuse is a registration no login can honour.
     redirectUris.forEach { uri ->
       if (!RedirectUri.isValid(uri)) {
         return Response.status(400)
@@ -1726,26 +1723,15 @@ class PodAuthEndpoint @Inject constructor(
   }
 
   /**
-   * Takes the **string**, and parses it here.
-   *
-   * The callers used to hand over a `URI(redirectUri)` they built themselves, one line above the
-   * check — so a value that is not a URI at all (`https://example.org/%zz`, a space in the host)
-   * threw `URISyntaxException` before any validation ran, and `ApiExceptionMapper` turned a
-   * malformed request parameter into a 500. `AGENTS.md` asks for deterministic errors, and a
-   * client error is a 400. Parsing is part of deciding whether an address is usable, so it belongs
-   * with the rest of that decision rather than at each call site — which is also the shape
-   * `DidWebRedirectPolicy.permits` already has.
+   * Takes the string and parses it here — a value that is no URI at all is then a 400 like any
+   * other bad parameter, rather than a `URISyntaxException` raised at the call site.
    */
   private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUriString: String): Boolean {
-    // What an address may look like at all — a URI to begin with, absolute, no fragment, `https`
-    // anywhere, `http` only for loopback — is `RedirectUri`'s question, and both other services
-    // ask it through this same method (`DidWebRedirectPolicy`, `OpenIdProviderEndpoint`). This
-    // used to be a local `scheme == "http" || scheme == "https"` comparison, which accepted plain
-    // `http` for *any* host: `DidWeb.Target.covers` below matches host, port and path and says
-    // nothing about the scheme, so `did:web:example.org%3A8443` was answered at
-    // `http://example.org:8443/cb` and the authorization code left in a cleartext `Location`
-    // header. Nothing behind it, either — a `did:web:` client is not required to send a
-    // `code_challenge`, so an intercepted code has no PKCE verifier protecting the exchange.
+    // What an address may look like at all is `RedirectUri`'s question, asked through the same
+    // method by `DidWebRedirectPolicy` and `OpenIdProviderEndpoint`. Load-bearing here because
+    // `DidWeb.Target.covers` below matches host, port and path and says nothing about the scheme:
+    // it alone would answer `did:web:example.org%3A8443` at `http://example.org:8443/cb`, and a
+    // `did:web:` client sends no `code_challenge` to protect a code that travels there.
     if (!RedirectUri.isValid(redirectUriString)) return false
     val redirectUri = runCatching { URI(redirectUriString) }.getOrNull() ?: return false
 
@@ -1764,16 +1750,10 @@ class PodAuthEndpoint @Inject constructor(
 
     val didTarget = DidWeb.targetOf(appId) ?: return false
 
-    // The development gate below governs *every* loopback address, including the one an identifier
-    // names as its own home. It used to sit only under `covers`, which answers first — so
-    // `did:web:localhost%3A5173` was served at `http://localhost:5173/cb` in production and the
-    // gate was never consulted. Nobody registers a `did:web:`; the identifier is asserted, not
-    // issued. In production that let anyone route a code to whatever listens on that port on the
-    // user's own machine, which is the interception the gate is there to prevent.
-    //
-    // `DidWebRedirectPolicy` carries the same refusal for the identity service, and its policy
-    // test is where the production side is asserted — `Env.isDevelopment` is a process-wide lazy
-    // value, so this suite can only run as development and cannot exercise the `false` branch.
+    // Ahead of `covers`, which would otherwise answer for `did:web:localhost%3A5173` on its own
+    // origin and never reach the development gate. `DidWebRedirectPolicy` carries the same
+    // refusal, and its test asserts the production side: `Env.isDevelopment` is process-wide, so
+    // this module's suite only ever runs as development.
     if (!Env.isDevelopment && RedirectUri.isLoopback(didTarget.host)) return false
 
     // `covers` matches on path segments, not on a string prefix. This endpoint used to compare

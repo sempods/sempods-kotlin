@@ -30,13 +30,12 @@ step see `identity.md`.
 
 Two `client_id` shapes, with different rules:
 
-Both shapes answer the same question about the *shape* of a
-`redirect_uri` first, through `RedirectUri.isValid`: absolute, no
-fragment, `https` on any host, `http` only on loopback. `/register`
-refuses anything else at registration; `/authorize` refuses it again
-before any client-specific rule is consulted. So a code can reach a
-cleartext address only on the user's own machine — never across a
-network — and the loopback case is gated on top of that (below).
+Both shapes ask `RedirectUri.isValid` first, before any
+client-specific rule: absolute, no fragment, `https` on any host,
+`http` only on loopback. `/register` applies it too, so an address a
+login could never honour is refused at registration. A code therefore
+reaches a cleartext address only on the user's own machine, and that
+case is gated again below.
 
 ### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
@@ -47,18 +46,14 @@ network — and the loopback case is gated on top of that (below).
   surface, no cache, no third-party availability in the login path).
 - `redirect_uri` must match the DID host **and port** (or loopback for
   local development, which is wired from the environment and never
-  defaulted on). `DidWeb.Target.covers()` says nothing about the scheme
-  — the `https`-or-loopback rule above is what keeps `http://` off the
-  DID's own origin.
-- **Loopback is development-only whichever way it is reached**, the
-  identifier's own origin included. `did:web:localhost%3A5173` names a
-  loopback address as its home, so the host-and-port match answers for
-  it before the development gate is consulted — the gate now refuses a
-  loopback-hosted identifier outright, ahead of that match. Nobody
-  registers a `did:web:`; the identifier is asserted, not issued, so in
-  production the alternative is that anyone may route a code to whatever
-  listens on that port on the user's machine. `DidWebRedirectPolicy`
-  carries the same refusal for the id-server.
+  defaulted on). `DidWeb.Target.covers()` says nothing about the scheme;
+  the rule above is what keeps `http://` off the DID's own origin.
+- **Loopback is development-only whichever way it is reached.** An
+  identifier that names a loopback origin — `did:web:localhost%3A5173`
+  — is refused outright in production, ahead of the host-and-port match
+  that would otherwise answer for it. A `did:web:` is asserted, not
+  issued, so anyone could otherwise route a code to whatever listens on
+  that port on the user's machine.
 - A path-scoped identifier narrows it further: `did:web:example.org:mcp`
   is answerable only at or below `/mcp`, matched **per path segment**,
   so `/mcp` and `/mcp/cb` are covered and `/mcp-other/cb` is not.
