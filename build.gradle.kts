@@ -93,7 +93,7 @@ subprojects {
       if (plugins.hasPlugin("application")) return@doLast
       // Nor a module nobody consumes: the `:consumer-probe` modules inherit a service's binding,
       // and a module that is never published has no consumer to impose one on.
-      if (name !in publishedModules) return@doLast
+      if (project.name !in publishedModules) return@doLast
       val runtimeClasspath = configurations.findByName("runtimeClasspath") ?: return@doLast
       val offenders = runtimeClasspath.incoming.artifacts.artifacts
         .map { it.id.componentIdentifier.displayName }
@@ -101,8 +101,8 @@ subprojects {
         .distinct()
       if (offenders.isNotEmpty()) {
         throw GradleException(
-          "$path is a library and must declare `libs.bundles.logging` (the facade) only, but its " +
-            "runtime classpath carries the binding: ${offenders.joinToString()}. " +
+          "${project.path} is a library and must declare `libs.bundles.logging` (the facade) " +
+            "only, but its runtime classpath carries the binding: ${offenders.joinToString()}. " +
             "The binding belongs to `runtimeOnly(libs.bundles.loggingBinding)` in an artifact that " +
             "owns a `main`. See `docs/logging.md`.",
         )

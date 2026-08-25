@@ -20,7 +20,9 @@ line automatically and is not repeated here.
 so a bundle containing logback in `:sempods-client` puts logback in the runtime of everyone who
 depends on it — and the modules here are being published to Maven Central, where that is somebody
 else's problem to unpick. `checkNoLoggingBinding` (root `build.gradle.kts`, wired into `check`)
-fails the build if a non-application module carries it.
+fails the build if a published module carries it. A module nobody publishes — `:consumer-probe:*`,
+`:deployments:*` — is exempt: it has no consumer to impose a binding on, and the probes inherit
+the service's.
 
 ## Entry points
 
@@ -112,7 +114,7 @@ Three checks, because every finding this replaced was silent rather than wrong:
 - `LoggingAssertions.assertAppLoggingConfigured()`, run by one test in each of the four artifacts
   with a `main`, fails if that artifact ships no `logback.xml` or ships one that does not include
   the shared base.
-- `checkNoLoggingBinding` (root build, wired into `check`) fails if a library module carries
+- `checkNoLoggingBinding` (root build, wired into `check`) fails if a published library carries
   logback on its runtime classpath.
 
 ## Odds and ends
