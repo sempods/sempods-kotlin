@@ -157,9 +157,11 @@ Published bytecode targets **Java 21**. Building this repository needs 25; depen
 not.
 
 The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
-ones — are consumable from Gradle only. They are carried by a Gradle capability that has no
-representation in a Maven POM, so a Maven build can depend on the libraries but not on the
-fixtures.
+ones — resolve from Gradle, which reads the capability that carries them. Maven has no notion of
+that capability, and the fixtures' own test libraries are deliberately kept out of the published
+POM so that an ordinary consumer does not inherit them. The jar itself is published under the
+`test-fixtures` classifier, so a Maven build can reach it — by naming that classifier and
+supplying those dependencies itself.
 
 Between releases `main` carries a `-SNAPSHOT` version, and every merge republishes it to
 `https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
