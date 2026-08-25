@@ -12,12 +12,27 @@ dependencies {
   // `api` because their types appear in this module's public signatures, so a deployment
   // implementing a seam has to name them.
   api(project(":commons"))            // BaseModule, WebIdUriDeriver
-  implementation(project(":commons-okhttp"))
   api(project(":commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
   implementation(project(":commons-json"))
-  // `api`: `ObjectId` is in ~49 public signatures here, and `:commons-mongo` is where it and the
-  // `JsonNode` come from. Known debt — MongoDB's type in seams meant to allow a different store (#12).
-  api(project(":commons-mongo"))
+  implementation(project(":commons-okhttp"))
+  implementation(project(":commons-mongo"))
+
+  // The artifacts behind those signatures. `ObjectId` is in some fifty public signatures here,
+  // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
+  // subclasses hand back a `Response` from.
+  //
+  // `ObjectId` in a seam meant to allow a different store is known debt (#12); naming `bson` here
+  // is what makes that coupling visible in this file rather than one project deep.
+  api(libs.mongodb)
+  api(libs.bson)
+  api(libs.jacksonDatabind)
+  api(libs.jakartaWsRsApi)
+
+  // OkHttp, and not by choice: `CommonsHttpTransport`, `MediaSourceFetcher` and the two AI
+  // services take an `OkHttpClient` in a public `@Inject` constructor, so it is in this module's
+  // ABI. Surface nobody designed — Guice builds these classes and an embedder never names them —
+  // and narrowing it is #15.
+  api(libs.okhttp)
   api(project(":sempods-model"))      // PodRef, SempodsUriBuilder
   api(project(":sempods-auth-core"))  // SigningKeyStore, RefreshTokenStore, AuthorizationCodeStore, …
 
@@ -43,11 +58,29 @@ dependencies {
   api(libs.guice)   // `SempodsModule` hands out an `Injector`.
   implementation(libs.bundles.logging)
 
-  // `PodRepository` answers with `Model` and hands out a `RepositoryConnection`. The rest of the
-  // bundle — parsers, memory sail — stays `implementation`.
-  api(libs.rdf4jModel)
-  api(libs.rdf4jRepoSail)
-  implementation(libs.bundles.rdf4j)
+  // RDF4J, split along what a consumer can see. `PodRepository` answers with a `Model`, hands out a
+  // `RepositoryConnection`, and takes a parsed query and a `Dataset`; those five artifacts carry
+  // the interfaces in its signatures. Below them is how a pod is built rather than how it is
+  // called — the implementations, the algebra the SPARQL context rewriter walks, the sail the store
+  // runs on — and the parsers and result writers, which `ServiceLoader` finds at runtime.
+  api(libs.rdf4jModelApi)
+  api(libs.rdf4jQuery)
+  api(libs.rdf4jQueryparserApi)
+  api(libs.rdf4jRepositoryApi)
+  api(libs.rdf4jRioApi)
+  implementation(libs.rdf4jModel)
+  implementation(libs.rdf4jModelVocabulary)
+  implementation(libs.rdf4jQueryalgebraModel)
+  implementation(libs.rdf4jQueryresultioApi)
+  implementation(libs.rdf4jRepoSail)
+  implementation(libs.rdf4jSailApi)
+  implementation(libs.rdf4jSailMemory)
+  implementation(libs.rdf4jCommonTransaction)
+  runtimeOnly(libs.rdf4jRioJsonld)
+  runtimeOnly(libs.rdf4jRioNquads)
+  runtimeOnly(libs.rdf4jSparqlJson)
+
+  implementation(libs.jacksonKotlin)
   implementation(libs.jwt)
   implementation(libs.thymeleaf)
   // bcrypt for service-client secret hashing (see PodServiceClientStore)
@@ -56,12 +89,12 @@ dependencies {
   // test fixtures — the media seam's conformance suite, so `:sempods-media-s3` runs the same
   // assertions against the other implementation instead of a copy that drifts. `api` for the driver
   // because `PodMediaRef` speaks `ObjectId`, which is therefore part of the suite's surface.
-  testFixturesApi(libs.mongodb)
+  testFixturesApi(libs.bson)
   // `implementation` and not `compileOnly`, unlike Guice below: the conformance suite runs in the
   // test JVM of whoever extends it and calls `kotlin.test` assertions from its own bytecode, so an
   // implementer of the seam resolving `testFixtures("org.sempods:sempods-server")` has to receive
   // them. Keeping them out of the *published POM*, where they would land on a plain Maven
-  // consumer's runtime classpath, is handled in the root build file — see `pom.withXml` there.
+  // consumer's runtime classpath, is the root build file's job — see `pom.withXml` there.
   testFixturesImplementation(libs.bundles.test)
   // `PodMediaTestAccess` is constructed by the consumer's injector, so it carries an @Inject
   // constructor. compileOnly like `commons` does it: the annotation is all that is needed here, and
@@ -75,7 +108,11 @@ dependencies {
   testImplementation(testFixtures(project(":commons-okhttp")))
 
   // test libs
-  testImplementation(libs.jerseyJettyHttp)
+  // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.
+  testImplementation(libs.jettyServer)
+  testRuntimeOnly(libs.jerseyJettyHttp)
+
+  testImplementation(libs.slf4jApi)
 
   // test implementation bundles
   testImplementation(libs.bundles.test)

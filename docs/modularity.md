@@ -274,6 +274,33 @@ carries is one of the modules in this repository, and the list is short enough t
 `sempods-client`, `sempods-auth-core`, `sempods-mcp-core` — and nothing else with a `project :`
 prefix. Everything beyond them is a third-party library.
 
+**And the boundary between what a module exports and what it merely uses is
+checked, not asserted.** A published module's `api` set is its compile contract, and the mistake it
+invites is invisible from here: inside a monorepo every module has its own dependencies on its own
+compile classpath, so a type in a public signature whose artifact is declared `implementation`
+compiles perfectly — and cannot be compiled against by anyone holding only the published jar.
+`./gradlew buildHealth` ([`com.autonomousapps.dependency-analysis`](https://github.com/autonomousapps/dependency-analysis-gradle-plugin))
+reads the bytecode and the Kotlin metadata and fails the build on it. Configuration and the
+reasoning behind each exception live in `settings.gradle.kts`.
+
+It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
+an *application* from its plugins — `application`, Jib and a few others — and an application has no
+consumers, so it computes no ABI for one at all. `sempods-auth` and `sempods-mcp` are both things at
+once: services with a `main`, and libraries an embedder installs a Guice module from. For those two
+the check is a compiler instead. `:consumer-probe:auth` and `:consumer-probe:mcp` declare
+`implementation(project(":sempods-auth"))` and its sibling and name exactly what an embedder names —
+the config, the module, `Guice.createInjector`. Gradle propagates only `api` across a project
+boundary, so each probe's compile classpath is a consumer's compile classpath, and a missing export
+is a compile error here rather than in someone else's build. They are two modules and not one file
+because a probe holding both services hid a missing export in each behind the other's declaration.
+
+What the probes cover is that **embedding contract**, not the whole public surface of either
+service. Both surfaces are far wider — `OidcTokenExchange` takes a Ktor `HttpClient`, the route
+extensions take an `Application` — and none of that is compilable from outside, because none of it
+was designed as API. Exporting it to make a probe pass would turn an accident into a promise. The
+open question is narrowing it instead; whatever survives that as public is what the two probe files
+should then name.
+
 **And a consumer's classpath carries nothing that only the tests need.** Three modules apply
 `java-test-fixtures` — `commons`, `commons-okhttp` and `sempods-server`, the last publishing the
 media seam's conformance suite so that `sempods-media-s3` runs the same assertions against the
@@ -283,14 +310,16 @@ and a `testFixturesImplementation` reads as a `runtime` dependency of the module
 while `org.sempods:sempods-server` and `org.sempods:commons` handed every plain Maven consumer
 JUnit, kotlin-test and MockK.
 
-The two representations part ways here, and deliberately. Gradle module metadata keeps the
+The two representations part ways here, deliberately. Gradle module metadata keeps the
 test-fixtures variants whole, because that is what a consumer resolving
-`testFixtures("org.sempods:sempods-server")` reads and the conformance suite calls `kotlin.test`
-assertions from its own bytecode in that consumer's test JVM. The POM, which cannot express a
-variant and which no fixtures consumer reads, loses them: a `pom.withXml` block in the root build
-strips every coordinate in `libs.bundles.test`, and `checkNoTestLibrariesInPom` (root build, wired
-into `check` and named explicitly in `test.yml`) reads the generated file afterwards and fails if
-one survived.
+`testFixtures("org.sempods:sempods-server")` reads, and the conformance suite calls `kotlin.test`
+assertions from its own bytecode in that consumer's test JVM. The POM — which cannot express a
+variant, and which no fixtures consumer reads — loses them: a `pom.withXml` block in the root build
+removes every dependency the fixtures declare and the module itself does not. That is a rule about
+where a dependency comes from rather than a list of libraries, so a library moving in or out of
+`libs.bundles.test` cannot quietly widen the hole. `checkNoTestLibrariesInPom` (root build, wired
+into `check` and named explicitly in `test.yml`) reads the generated file afterwards and fails if a
+test library survived.
 
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,

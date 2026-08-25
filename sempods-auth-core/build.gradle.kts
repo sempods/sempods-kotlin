@@ -7,12 +7,16 @@ dependencies {
   // `commons` for the hashing helpers and `BaseModule`; nothing else. No `commons-jaxrs`, no
   // Ktor, no application framework — the point of this module is that three services with three
   // different HTTP stacks can all depend on it without inheriting each other's.
-  implementation(project(":commons"))
+  // `api`, because `BaseModule` is `SempodsAuthCoreModule`'s supertype.
+  api(project(":commons"))
 
   // `api`: the driver's own types are part of this module's surface — `AuthorizationCodeStore`
-  // takes a `MongoDatabase`. Same reasoning `commons-mongo` gives for re-exporting the driver.
+  // takes a `MongoDatabase` and hands back a `Document`. `:commons-mongo` supplies the document
+  // helpers and stays behind the wall.
   // Note this is the driver, not a framework: it constrains nobody's HTTP stack.
-  api(project(":commons-mongo"))
+  implementation(project(":commons-mongo"))
+  api(libs.mongodb)
+  api(libs.bson)
 
   // `api` because the OAuth/OIDC surface speaks Nimbus types: a consumer verifying an id_token
   // handles `JWTClaimsSet` itself, so hiding the library would only force it to re-declare it.

@@ -6,7 +6,16 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-  id("org.jetbrains.kotlin.jvm") version "2.4.10"
+  // Version in `settings.gradle.kts`, which is where the dependency-analysis plugin needs to see
+  // it. See the comment there.
+  id("org.jetbrains.kotlin.jvm")
+}
+
+// The root project builds nothing, but `com.autonomousapps.dependency-analysis` resolves
+// `kotlin-metadata-jvm` against it, and the repositories below are declared inside
+// `subprojects { }` only.
+repositories {
+  mavenCentral()
 }
 
 // The version catalog, resolved once here: the generated `libs` accessor exists only in a build
@@ -82,6 +91,9 @@ subprojects {
     description = "Fails if a library module carries the logback binding on its runtime classpath."
     doLast {
       if (plugins.hasPlugin("application")) return@doLast
+      // Nor a module nobody consumes: the `:consumer-probe` modules inherit a service's binding,
+      // and a module that is never published has no consumer to impose one on.
+      if (name !in publishedModules) return@doLast
       val runtimeClasspath = configurations.findByName("runtimeClasspath") ?: return@doLast
       val offenders = runtimeClasspath.incoming.artifacts.artifacts
         .map { it.id.componentIdentifier.displayName }
@@ -245,10 +257,30 @@ subprojects {
     withJavadocJar()
   }
 
-  // `libs.bundles.test` is the definition of "a test library" — the same list every module
-  // declares — so a library added there is covered below without a second edit.
-  val testLibraries = catalog.findBundle("test").get().get()
+  // What this repository calls a test library, for the check further down. `libs.bundles.test` is
+  // the stack every module takes; `awaitility` and `mockServer` sit beside it because only some
+  // source sets use them, so naming the bundle alone would leave two of the five unwatched.
+  //
+  // The logback binding is deliberately not here. It is the one thing on this list a *published*
+  // module may legitimately declare — `sempods-auth` and `sempods-mcp` own a `main` and choose
+  // one — and `checkNoLoggingBinding` above already asks that question with the exemption that
+  // makes it answerable. A binding arriving through the fixtures instead is removed by the
+  // `pom.withXml` block below like anything else the fixtures bring alone.
+  val testLibraries = (
+    catalog.findBundle("test").get().get() +
+      listOf("awaitility", "mockServer").map { catalog.findLibrary(it).get().get() }
+    )
     .map { "${it.module.group}:${it.module.name}" }
+    .toSet()
+
+  // What a configuration *declares*, transitively through the ones it extends, by coordinates.
+  // `apiElements` and `runtimeElements` are the two Gradle maps onto a POM scope, so asking them
+  // is asking the same question `maven-publish` asks — including whatever the Kotlin plugin adds
+  // on its own, which naming `api` and `implementation` by hand would miss.
+  fun declaredIn(vararg configurationNames: String) = configurationNames
+    .mapNotNull { configurations.findByName(it) }
+    .flatMap { it.allDependencies }
+    .map { "${it.group}:${it.name}" }
     .toSet()
 
   extensions.configure<PublishingExtension> {
@@ -267,25 +299,37 @@ subprojects {
 
         // So they come back out here, at the one place that is only the POM.
         //
-        // The alternative — declaring them `testFixturesCompileOnly` in the three module files —
-        // is the wrong half of the problem: it also takes them out of `testFixturesRuntimeElements`,
-        // and the fixtures genuinely need them there. `PodMediaStoreConformanceTest` calls
-        // `kotlin.test` assertions from its own bytecode in the test JVM of whoever extends it, so
-        // an implementer of the media seam resolving `testFixtures("org.sempods:sempods-server")`
-        // would get a `NoClassDefFoundError` the first time the suite ran. Gradle module metadata
-        // is where that consumer resolves from, and it stays complete; only the POM, which cannot
-        // express a variant at all and which no fixtures consumer reads, loses them.
+        // What goes is what the fixtures bring and the module itself does not — a rule about where
+        // a dependency comes from rather than a list of libraries, so a library moving in or out
+        // of `libs.bundles.test` cannot quietly widen the hole again. `commons` is why that
+        // matters: its `TestUtil` takes Awaitility, which is no longer in the bundle.
+        //
+        // The alternative — declaring the test libraries `testFixturesCompileOnly` in the module
+        // files — is the wrong half of the problem: it also takes them out of
+        // `testFixturesRuntimeElements`, and the fixtures genuinely need them there.
+        // `PodMediaStoreConformanceTest` calls `kotlin.test` assertions from its own bytecode in
+        // the test JVM of whoever extends it, so an implementer of the media seam resolving
+        // `testFixtures("org.sempods:sempods-server")` would get a `NoClassDefFoundError` the
+        // first time the suite ran. Gradle module metadata is where that consumer resolves from,
+        // and it stays whole; only the POM loses them.
+        //
+        // Computed inside `withXml` rather than captured above: this block is configured while the
+        // root project is evaluated, which is before the module's own build file has declared
+        // anything at all.
         //
         // `asElement()` rather than `asNode()`: the DOM is the same tree either way, and `Node`'s
         // name is a `QName` here, which reads worse than it works.
         pom.withXml {
+          val fixtureOnly =
+            declaredIn("testFixturesApiElements", "testFixturesRuntimeElements") -
+              declaredIn("apiElements", "runtimeElements")
           val dependencies = asElement().getElementsByTagName("dependency")
           (0 until dependencies.length)
             .map { dependencies.item(it) as Element }
             .filter { dependency ->
               fun tag(name: String) =
                 dependency.getElementsByTagName(name).item(0)?.textContent
-              "${tag("groupId")}:${tag("artifactId")}" in testLibraries
+              "${tag("groupId")}:${tag("artifactId")}" in fixtureOnly
             }
             // After the walk, not during it: `getElementsByTagName` hands back a live `NodeList`.
             .forEach { it.parentNode.removeChild(it) }
@@ -330,8 +374,9 @@ subprojects {
           "$modulePath publishes a POM that puts test libraries on a consumer's classpath: " +
             offenders.joinToString() + ". They reach it through the test-fixtures variant, which " +
             "`from(components[\"java\"])` folds into the POM's single dependency list. The " +
-            "`pom.withXml` block in the root build file is what takes them back out — check that " +
-            "it is still there and that `libs.bundles.test` still names this library.",
+            "`pom.withXml` block in the root build file is what takes back out whatever the " +
+            "fixtures bring and the module itself does not — check that it is still there, and " +
+            "that this library really is one the module does not declare on its own.",
         )
       }
     }

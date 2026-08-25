@@ -16,11 +16,14 @@ dependencies {
 
   // implementation libs
   // `org.bson.types.ObjectId` is `PodMediaRef`'s own vocabulary and reaches this module through the
-  // seam's signatures. `:sempods-server` holds the driver as `implementation`, so it is not
-  // inherited.
-  implementation(libs.mongodb)
+  // seam's signatures — so `api`, and `bson` rather than the whole driver, which this module does
+  // not otherwise touch.
+  api(libs.bson)
   implementation(libs.bundles.logging)
-  implementation(libs.bundles.awsS3)
+  // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
+  // uses is the one written down, and discovered by the SDK rather than named.
+  implementation(libs.awsS3)
+  runtimeOnly(libs.awsApacheClient)
 
   // The conformance suite is a test fixture of `:sempods-server`: the same assertions, run here
   // against the other implementation. That "same assertions, two backends" is the whole point of
