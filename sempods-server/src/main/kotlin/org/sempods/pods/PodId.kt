@@ -18,9 +18,13 @@ package org.sempods.pods
  *
  * A deployment mints these and is the only side that can recognise its own.
  * `PodMediaFacade.reconcile` is where that recognition happens.
+ *
+ * A plain class and not a `value class`: these seams are published for a deployment to implement,
+ * and Kotlin mangles the JVM name of every member that mentions an inline class — `iterate`,
+ * [PodMediaRef]'s constructor and its getter all become unreachable from Java. An allocation per
+ * pod, on paths that are per-pod rather than per-statement, is the cheaper side of that trade.
  */
-@JvmInline
-value class PodId(val value: String) {
+data class PodId(val value: String) {
 
   init {
     // Identity, not form: an empty token names nothing. Everything else a backend might object to
