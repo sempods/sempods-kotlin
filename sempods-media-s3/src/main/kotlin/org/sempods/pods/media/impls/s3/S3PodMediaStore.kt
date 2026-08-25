@@ -109,7 +109,9 @@ class S3PodMediaStore internal constructor(
     after: String?,
     consume: (Sequence<MediaEntry>) -> T,
   ): T {
-    val prefix = podId?.let { "${it.value}/" }
+    // Checked like a `put` is, so a scope this layout cannot express fails loudly instead of
+    // listing a prefix `parseKey` would then drop — which reads as "this pod holds nothing".
+    val prefix = podId?.let { "${it.requireOneKeySegment()}/" }
     var skipped = 0
 
     val entries = sequence {
@@ -165,11 +167,14 @@ class S3PodMediaStore internal constructor(
    * lost without a sound — the one outcome `PodMediaStore` rules out. A deployment minting tokens
    * like that wants a store that encodes them.
    */
-  private fun key(ref: PodMediaRef): String {
-    require(!ref.podId.value.contains('/')) {
-      "this store lays out one key prefix per pod, so a pod id must be a single segment: $ref"
+  private fun key(ref: PodMediaRef): String = "${ref.podId.requireOneKeySegment()}/${ref.mediaId}"
+
+  /** [PodId.value], checked against what this layout can hold — one key segment. */
+  private fun PodId.requireOneKeySegment(): String {
+    require(value.isNotEmpty() && !value.contains('/')) {
+      "this store lays out one key prefix per pod, so a pod id must be a single segment: $value"
     }
-    return "${ref.podId.value}/${ref.mediaId}"
+    return value
   }
 
   /**

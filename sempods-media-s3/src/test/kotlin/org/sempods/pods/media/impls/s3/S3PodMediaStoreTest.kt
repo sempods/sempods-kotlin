@@ -62,6 +62,14 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
   }
 
   @Test
+  fun `a scope this layout cannot express is refused rather than answered empty`() {
+    // Without the check the prefix `a/b/` lists keys that `parseKey` then drops, so the walk comes
+    // back empty and reads as "this pod holds nothing" — a wrong answer where the filesystem store
+    // would have walked outside its root. Both refuse instead.
+    assertFailsWith<IllegalArgumentException> { store.iterate(PodId("a/b")) { it.toList() } }
+  }
+
+  @Test
   fun `a key outside this store's layout is ignored rather than reported as media`() {
     // Its own layout is all it may judge: a nested path is not something it wrote. Which *prefixes*
     // are pods it cannot say — a `PodId` promises nothing about its form — so a shared bucket's

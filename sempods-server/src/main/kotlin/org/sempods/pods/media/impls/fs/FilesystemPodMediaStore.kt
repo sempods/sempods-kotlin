@@ -95,7 +95,10 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
 
     val podDirectories = when (podId) {
       null -> root.listDirectoryEntries().filter { it.isDirectory() }.sortedBy { it.name }
-      else -> listOf(root.resolve(podId.value)).filter { it.isDirectory() }
+      // The same rule `resolve` applies, and for the same reason: a scope is a token turned into a
+      // path too, so `..` or an absolute path would walk outside the root and report filenames that
+      // are not this store's under a tenant that does not exist.
+      else -> listOf(root.resolve(podId.requireOnePathSegment())).filter { it.isDirectory() }
     }
 
     val entries = sequence {
@@ -141,17 +144,25 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * halves are checked in one place.
    */
   private fun resolve(ref: PodMediaRef): Path {
-    require(ref.podId.value.isOnePathSegment()) {
-      "this store lays out one directory per pod, so a pod id must be a single path segment: $ref"
-    }
-    val resolved = root.resolve(ref.podId.value).resolve(ref.mediaId).normalize()
+    val resolved = root.resolve(ref.podId.requireOnePathSegment()).resolve(ref.mediaId).normalize()
     require(resolved.startsWith(root.normalize())) { "media ref escapes the store root: $ref" }
     require(resolved.parent?.parent == root.normalize()) { "media ref must name one object: $ref" }
     return resolved
   }
 
-  private fun String.isOnePathSegment(): Boolean =
-    isNotEmpty() && !contains('/') && this != "." && this != ".."
+  /**
+   * [PodId.value], checked against what this layout can hold — one directory name.
+   *
+   * Every path this store builds runs through here, both the object paths and the scope of a walk.
+   * A `PodId` promises nothing about its form, so a token naming a parent or an absolute path is a
+   * token this store has to refuse rather than follow.
+   */
+  private fun PodId.requireOnePathSegment(): String {
+    require(value.isNotEmpty() && !value.contains('/') && value != "." && value != "..") {
+      "this store lays out one directory per pod, so a pod id must be a single path segment: $value"
+    }
+    return value
+  }
 
   companion object {
     private val logger = KotlinLogging.logger {}

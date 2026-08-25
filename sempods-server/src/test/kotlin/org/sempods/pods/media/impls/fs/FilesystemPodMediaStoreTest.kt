@@ -1,5 +1,6 @@
 package org.sempods.pods.media.impls.fs
 
+import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteExisting
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -125,6 +127,23 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
 
     assertFailsWith<IllegalArgumentException> { store.put(unstorable, "text/plain", source("x")) }
     assertEquals(emptyList(), listAll())
+  }
+
+  @Test
+  fun `a scope that would walk outside the root is refused`() {
+    // A scope is a token turned into a path as much as an object location is. Without the check,
+    // `root.resolve("..")` lists the parent and reports its filenames as media of a pod that does
+    // not exist — and the reconcile hands that to an operator over the admin surface.
+    val outside = root.resolve("..").resolve("neighbour-${randomId()}")
+    outside.createDirectories().resolve("secret.txt").writeText("not this store's")
+
+    try {
+      assertFailsWith<IllegalArgumentException> { store.iterate(PodId("..")) { it.toList() } }
+      assertFailsWith<IllegalArgumentException> { store.iterate(PodId("/etc")) { it.toList() } }
+    } finally {
+      outside.resolve("secret.txt").deleteExisting()
+      outside.deleteExisting()
+    }
   }
 
   @Test
