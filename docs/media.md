@@ -103,9 +103,11 @@ the server computes a location.
 **Neither half of that ref is MongoDB's.** `mediaId` is the content hash, and `podId` is a
 `PodId` — an opaque token a deployment mints, safe in a path segment and in an object key, and
 carrying no meaning a store may read. It used to be an `org.bson.types.ObjectId`, which made the
-sentence above only half true: a store implementing this seam had to compile against MongoDB's
-driver to name the type. `:sempods-media-s3` now implements it with no MongoDB artifact on its
-classpath at all. That the reference implementation mints the hex of its own `ObjectId` is *its*
+sentence above only half true, because a store could not implement the seam without naming the
+driver's type. `:sempods-media-s3` now names no `org.bson` type anywhere and declares no MongoDB
+artifact — it still *inherits* one from `:sempods-server`, which exports the driver for its own DAO
+layer, and `modularity.md` §"The pattern" says what would be needed to end that.
+That the reference implementation mints the hex of its own `ObjectId` is *its*
 statement, made in `pods/mongo/persist/PodIds.kt` — which is also why the change moved no bytes:
 the token on disk and in the bucket is character-for-character the one that was there before. See
 `modularity.md` §"The pattern".

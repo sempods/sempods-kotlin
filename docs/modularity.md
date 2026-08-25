@@ -70,9 +70,15 @@ The opacity cuts both ways, and the cut is where the responsibility sits. A stor
 of ours from a stranger's prefix in shared storage, because every well-formed token looks alike to
 it; it skips what is not a well-formed `{podId}/{mediaId}` and no more. Deciding which *well-formed*
 ids this deployment minted belongs to the side that mints them, so `PodMediaFacade.reconcile` drops
-the rest before the report. That the media stores dropped `bson` entirely as a result is checked
-rather than asserted: `:sempods-media-s3` implements the seam with no MongoDB artifact on its
-classpath, and `./gradlew buildHealth` fails the moment one comes back.
+the rest before the report.
+
+What that bought is worth stating precisely, because the obvious overstatement is wrong.
+`:sempods-media-s3` names no `org.bson` type any more and declares no MongoDB artifact, which
+`./gradlew buildHealth` holds to — the declaration fails as unused the moment it comes back. The
+artifact is nonetheless still *on* that module's classpath, inherited through
+`api(project(":sempods-server"))`, because the server still exports the driver for its own DAO
+layer. Naming the type is the part a seam governs and is fixed; a seam implementation that need not
+resolve MongoDB at all is what taking that layer out of the ABI would buy, and is the rest of #12.
 
 The same reading applies in reverse to what a seam *returns*. `SempodsCredentials` is
 `PodAuthorizer`'s result, so the entity had to leave that too — which is what moved it out of

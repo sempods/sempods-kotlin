@@ -21,12 +21,13 @@ dependencies {
   // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
   // subclasses hand back a `Response` from.
   //
-  // `bson` no longer reaches a **seam**: `PodMediaStore` and `PodChangeListener` speak `PodId`, and
-  // `:sempods-media-s3` implements the media seam without the driver on its classpath at all (#12).
-  // What keeps the declaration here is the layer below — the DAOs, the `…Dbo` rows and the stores
-  // over them, which are public Kotlin and therefore ABI although
-  // `docs/architecture/module-layering.md` describes them as module-internal. Taking *those* out of
-  // the ABI is `internal`, not another type, and is the rest of #12.
+  // `bson` no longer reaches a **seam**: `PodMediaStore` and `PodChangeListener` speak `PodId`, so
+  // `:sempods-media-s3` implements the media seam without naming an `org.bson` type (#12). It still
+  // *inherits* both artifacts from here, and these two lines are why — what keeps them is the layer
+  // below, the DAOs, the `…Dbo` rows and the stores over them, which are public Kotlin and
+  // therefore ABI although `docs/architecture/module-layering.md` describes them as
+  // module-internal. Taking *those* out of the ABI is `internal`, not another type, and is what
+  // would make a seam implementation driver-free. The rest of #12.
   api(libs.mongodb)
   api(libs.bson)
   api(libs.jacksonDatabind)
