@@ -16,7 +16,7 @@ was visible nowhere.
 ## Hand-written DAOs on the MongoDB driver
 
 There is no ODM. Each collection has a DAO that maps `Document` ↔ DBO by hand, using the helpers in
-`commons-mongo`, and issues `com.mongodb.client.model.*` filters and updates directly.
+`sempods-commons-mongo`, and issues `com.mongodb.client.model.*` filters and updates directly.
 
 That is a deliberate cost. It buys the property this module is published for: `:sempods-server` carries no
 persistence framework a third party would have to inherit, and the feature surface it actually needs
@@ -29,7 +29,7 @@ them owns a DAO for: the stores belong to `sempods-auth-core` and `sempods-mcp-c
 the hosted MCP service. The first two are named in the shared module itself and the default is
 what every service gets; the third is supplied by the wrapper, because the two services store
 different fields in it. The contract below still applies to all three — they are written through
-the same `commons-mongo` helpers.
+the same `sempods-commons-mongo` helpers.
 
 The refresh tokens are the one of the three where the two services store **different fields**, and
 they are shared anyway. `RefreshTokenStore` takes the owner as a type parameter and a pair of codec
@@ -61,7 +61,7 @@ indistinguishable from one written then.
 
 ## The document contract
 
-The `commons-mongo` helpers (`putInstant` / `getInstant`, `putStrings` / `getStringSet`,
+The `sempods-commons-mongo` helpers (`putInstant` / `getInstant`, `putStrings` / `getStringSet`,
 `putNotNull`) implement it, and a wire-format test on the mapping side — where Morphia is — pins it
 without needing a database:
 
@@ -175,4 +175,4 @@ with run history is designed and not built.
 - [`../sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`](../sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md) —
   the RDF side: `PodRepository`, the MemoryStore, the write-through path
 - [`architecture/module-layering.md`](architecture/module-layering.md) — where
-  `commons-mongo` sits
+  `sempods-commons-mongo` sits

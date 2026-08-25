@@ -33,7 +33,7 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   `:sempods-client`**: the pod System layer and the pod OAuth surface both go through
   `SempodsHttpTransport`, which carries the SSRF hardening this service used to own. That is a
   deliberate widening of the dependency rule below: the module used to depend on nothing but
-  `:commons` and `:commons-mongo`, and it now takes `:sempods-client` too (RDF4J rides along on the
+  `:sempods-commons` and `:sempods-commons-mongo`, and it now takes `:sempods-client` too (RDF4J rides along on the
   runtime classpath unused). The price of one pod client instead of two, and cheaper than the drift
   two of them produced — see `docs/pod-client.md` §"What the client is not".
 - **Blocking client, `suspend` service.** `pods/PodIo` is the bridge: a virtual-thread executor, a
@@ -210,7 +210,7 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   closing DNS rebinding/TOCTOU; a mixed public/private resolution rejects the **whole** lookup, and
   the client pins `Proxy.NO_PROXY` (a JVM-property proxy would bypass the DNS hook). **Redirects
   are not followed at all** (both OkHttp switches; a 3xx surfaces as the per-pod fetch error).
-  **Per-pod rate limit** (`commons`' `ratelimit/TokenBucketRateLimiter` behind the client's
+  **Per-pod rate limit** (`sempods-commons`' `ratelimit/TokenBucketRateLimiter` behind the client's
   `OutboundRateLimiter` seam — the budget stays here because this service also keys one per user;
   token bucket keyed host + first path segment —
   pods are path-scoped on shared domains, so a bare-host key would pool tenants;
@@ -283,7 +283,7 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   per-pod error `kind`). Rows carry **no token material, no arguments, no SPARQL, no messages** —
   `detail` is always a fixed label. **Per-user quota:** `api/mcp/UserRateLimiter` (a thin
   `(user, profile)` wrapper over the generalized `ratelimit/TokenBucketRateLimiter`, which lives in
-  `commons` since the pod server's token endpoint took a budget of its own; renamed from
+  `sempods-commons` since the pod server's token endpoint took a budget of its own; renamed from
   `PodRateLimiter`) throttles **only `tools/call`**, enforced in `McpEndpoint` *after* the bearer +
   M5 profile-isolation gates — over-quota is a protocol-level JSON-RPC `-32000` on HTTP 200
   (handshake methods stay free, an unauthenticated spray cannot drain a budget), audited with

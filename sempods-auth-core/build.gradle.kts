@@ -4,17 +4,17 @@ plugins {
 
 dependencies {
 
-  // `commons` for the hashing helpers and `BaseModule`; nothing else. No `commons-jaxrs`, no
+  // `sempods-commons` for the hashing helpers and `BaseModule`; nothing else. No `sempods-commons-jaxrs`, no
   // Ktor, no application framework — the point of this module is that three services with three
   // different HTTP stacks can all depend on it without inheriting each other's.
   // `api`, because `BaseModule` is `SempodsAuthCoreModule`'s supertype.
-  api(project(":commons"))
+  api(project(":sempods-commons"))
 
   // `api`: the driver's own types are part of this module's surface — `AuthorizationCodeStore`
-  // takes a `MongoDatabase` and hands back a `Document`. `:commons-mongo` supplies the document
+  // takes a `MongoDatabase` and hands back a `Document`. `:sempods-commons-mongo` supplies the document
   // helpers and stays behind the wall.
   // Note this is the driver, not a framework: it constrains nobody's HTTP stack.
-  implementation(project(":commons-mongo"))
+  implementation(project(":sempods-commons-mongo"))
   api(libs.mongodb)
   api(libs.bson)
 
@@ -30,7 +30,7 @@ dependencies {
   // without its `response_type` being checked.
   implementation(libs.oidcSdk)
 
-  // Same reasoning as `commons` and `commons-mongo`: `SempodsAuthCoreModule` is the only class
+  // Same reasoning as `sempods-commons` and `sempods-commons-mongo`: `SempodsAuthCoreModule` is the only class
   // here that needs Guice, and a consumer wiring these stores by hand must not inherit a DI
   // container to get a PKCE verifier.
   compileOnly(libs.guice)

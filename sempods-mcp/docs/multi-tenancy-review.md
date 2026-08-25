@@ -31,7 +31,7 @@ tenant key, and if not, is the exception deliberate and caller-unreachable?*
 
 | State | Keying | Review result |
 |---|---|---|
-| `TokenBucketRateLimiter` buckets (pod limiter + user quota + audit sampler; the class itself is `commons`' since the pod server took a budget too) | pod base / `"$profile\|$user"` | ✓ bounded: idle-evict sweep past 4096 keys, CAS-gated. The `"$profile\|$user"` key is unambiguous — `ProfilePath` restricts profile names to `[a-z0-9-]`, so the `\|` separator cannot be forged by a crafted WebID. |
+| `TokenBucketRateLimiter` buckets (pod limiter + user quota + audit sampler; the class itself is `sempods-commons`' since the pod server took a budget too) | pod base / `"$profile\|$user"` | ✓ bounded: idle-evict sweep past 4096 keys, CAS-gated. The `"$profile\|$user"` key is unambiguous — `ProfilePath` restricts profile names to `[a-z0-9-]`, so the `\|` separator cannot be forged by a crafted WebID. |
 | `PodTokenProvider.locks` (per-key refresh mutex) | `PodKey` | **Finding, fixed in M6.4** — see below. |
 | `WebSession` cookie | service-signed JWT (`typ`-separated from MCP bearers) | ✓ binds only the verified `user`; profile is a per-request selection, gated by `ownedProfile()` for mutations. |
 

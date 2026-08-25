@@ -10,7 +10,7 @@ dependencies {
   // For the W3C trace binding only. Deliberately framework-free and Guice-free: this is a library
   // a consumer binds itself, and the module it is published as must not hand a stranger an
   // application framework along with an HTTP client.
-  implementation(project(":commons"))
+  implementation(project(":sempods-commons"))
 
   // `api` for the same reason `:sempods-model` declares it so, and declared here rather than
   // inherited: this module's own methods return `Model` (`dereference`, `sparqlConstruct`, `load`)
