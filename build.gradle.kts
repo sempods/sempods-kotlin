@@ -1,5 +1,7 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.w3c.dom.Element
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -255,16 +257,131 @@ subprojects {
     withJavadocJar()
   }
 
+  // What this repository calls a test library, for the check further down. `libs.bundles.test` is
+  // the stack every module takes; `awaitility` and `mockServer` sit beside it because only some
+  // source sets use them, so naming the bundle alone would leave two of the five unwatched.
+  //
+  // The logback binding is deliberately not here. It is the one thing on this list a *published*
+  // module may legitimately declare — `sempods-auth` and `sempods-mcp` own a `main` and choose
+  // one — and `checkNoLoggingBinding` above already asks that question with the exemption that
+  // makes it answerable. A binding arriving through the fixtures instead is removed by the
+  // `pom.withXml` block below like anything else the fixtures bring alone.
+  val testLibraries = (
+    catalog.findBundle("test").get().get() +
+      listOf("awaitility", "mockServer").map { catalog.findLibrary(it).get().get() }
+    )
+    .map { "${it.module.group}:${it.module.name}" }
+    .toSet()
+
+  // What a configuration *declares*, transitively through the ones it extends, by coordinates.
+  // `apiElements` and `runtimeElements` are the two Gradle maps onto a POM scope, so asking them
+  // is asking the same question `maven-publish` asks — including whatever the Kotlin plugin adds
+  // on its own, which naming `api` and `implementation` by hand would miss.
+  fun declaredIn(vararg configurationNames: String) = configurationNames
+    .mapNotNull { configurations.findByName(it) }
+    .flatMap { it.allDependencies }
+    .map { "${it.group}:${it.name}" }
+    .toSet()
+
   extensions.configure<PublishingExtension> {
     publications {
       // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
-      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. It travels in Gradle
-      // module metadata, not the POM, so a plain Maven consumer never sees the fixtures.
+      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. The fixtures *jar*
+      // travels in Gradle module metadata, and a plain Maven consumer never resolves it.
+      //
+      // Its *dependencies* are a different matter, and the trap this repository fell into: a POM
+      // has one flat dependency list and no notion of a variant, so `maven-publish` folds every
+      // variant of the component into it and a `testFixturesImplementation` reads as a `runtime`
+      // dependency of the module itself. `org.sempods:sempods-server` handed every plain Maven
+      // consumer JUnit, kotlin-test and MockK that way, and `org.sempods:commons` did the same.
       create<MavenPublication>("maven") {
         from(components["java"])
+
+        // So they come back out here, at the one place that is only the POM.
+        //
+        // What goes is what the fixtures bring and the module itself does not — a rule about where
+        // a dependency comes from rather than a list of libraries, so a library moving in or out
+        // of `libs.bundles.test` cannot quietly widen the hole again. `commons` is why that
+        // matters: its `TestUtil` takes Awaitility, which is no longer in the bundle.
+        //
+        // The alternative — declaring the test libraries `testFixturesCompileOnly` in the module
+        // files — is the wrong half of the problem: it also takes them out of
+        // `testFixturesRuntimeElements`, and the fixtures genuinely need them there.
+        // `PodMediaStoreConformanceTest` calls `kotlin.test` assertions from its own bytecode in
+        // the test JVM of whoever extends it, so an implementer of the media seam resolving
+        // `testFixtures("org.sempods:sempods-server")` would get a `NoClassDefFoundError` the
+        // first time the suite ran. Gradle module metadata is where that consumer resolves from,
+        // and it stays whole; only the POM loses them.
+        //
+        // Computed inside `withXml` rather than captured above: this block is configured while the
+        // root project is evaluated, which is before the module's own build file has declared
+        // anything at all.
+        //
+        // `asElement()` rather than `asNode()`: the DOM is the same tree either way, and `Node`'s
+        // name is a `QName` here, which reads worse than it works.
+        pom.withXml {
+          val fixtureOnly =
+            declaredIn("testFixturesApiElements", "testFixturesRuntimeElements") -
+              declaredIn("apiElements", "runtimeElements")
+          val dependencies = asElement().getElementsByTagName("dependency")
+          (0 until dependencies.length)
+            .map { dependencies.item(it) as Element }
+            .filter { dependency ->
+              fun tag(name: String) =
+                dependency.getElementsByTagName(name).item(0)?.textContent
+              "${tag("groupId")}:${tag("artifactId")}" in fixtureOnly
+            }
+            // After the walk, not during it: `getElementsByTagName` hands back a live `NodeList`.
+            .forEach { it.parentNode.removeChild(it) }
+        }
       }
     }
   }
+
+  // The published POM is the one artifact nothing in this build reads, so a mistake in it survives
+  // a green run and surfaces at a consumer. This reads the file the block above wrote and asks the
+  // question that has actually gone wrong here: does a module hand a test library to whoever
+  // depends on it? Independent of the removal rather than a restatement of it — drop the
+  // `pom.withXml` and this goes red.
+
+  val generatePom = tasks.named<GenerateMavenPom>("generatePomFileForMavenPublication")
+
+  val checkNoTestLibrariesInPom = tasks.register("checkNoTestLibrariesInPom") {
+    group = "verification"
+    description = "Fails if the published POM puts a test library on a consumer's classpath."
+    // Explicitly: the provider below is read in `doLast` rather than declared as a task input, so
+    // it carries no dependency of its own and the file would simply not be there.
+    dependsOn(generatePom)
+    val pomFile = generatePom.map { it.destination }
+    // `project.path`, not `path`: the receiver in here is the task, whose path would name this
+    // check rather than the module whose POM is wrong.
+    val modulePath = project.path
+    doLast {
+      // The POM is generated, so its shape is fixed and a reader beats a parser here.
+      val offenders = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
+        .findAll(pomFile.get().readText())
+        .mapNotNull { dependency ->
+          val block = dependency.groupValues[1]
+          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
+          val coordinates = "${tag("groupId")}:${tag("artifactId")}"
+          // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
+          if (coordinates in testLibraries) "$coordinates (${tag("scope") ?: "compile"})" else null
+        }
+        .toList()
+
+      if (offenders.isNotEmpty()) {
+        throw GradleException(
+          "$modulePath publishes a POM that puts test libraries on a consumer's classpath: " +
+            offenders.joinToString() + ". They reach it through the test-fixtures variant, which " +
+            "`from(components[\"java\"])` folds into the POM's single dependency list. The " +
+            "`pom.withXml` block in the root build file is what takes back out whatever the " +
+            "fixtures bring and the module itself does not — check that it is still there, and " +
+            "that this library really is one the module does not declare on its own.",
+        )
+      }
+    }
+  }
+  tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoTestLibrariesInPom) }
 }
 
 // Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early

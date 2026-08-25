@@ -90,6 +90,11 @@ dependencies {
   // assertions against the other implementation instead of a copy that drifts. `api` for the driver
   // because `PodMediaRef` speaks `ObjectId`, which is therefore part of the suite's surface.
   testFixturesApi(libs.bson)
+  // `implementation` and not `compileOnly`, unlike Guice below: the conformance suite runs in the
+  // test JVM of whoever extends it and calls `kotlin.test` assertions from its own bytecode, so an
+  // implementer of the seam resolving `testFixtures("org.sempods:sempods-server")` has to receive
+  // them. Keeping them out of the *published POM*, where they would land on a plain Maven
+  // consumer's runtime classpath, is the root build file's job — see `pom.withXml` there.
   testFixturesImplementation(libs.bundles.test)
   // `PodMediaTestAccess` is constructed by the consumer's injector, so it carries an @Inject
   // constructor. compileOnly like `commons` does it: the annotation is all that is needed here, and

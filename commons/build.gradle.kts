@@ -24,6 +24,12 @@ dependencies {
   // consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
   testFixturesImplementation(libs.bundles.logging)
+
+  // `implementation` and not `compileOnly`, unlike Guice above: these fixtures *run* in a
+  // consumer's test JVM, calling `assertTrue` and `verify` from their own bytecode, so a consumer
+  // that resolves `testFixtures("org.sempods:commons")` has to receive them. That they must not
+  // also reach a plain Maven consumer of `org.sempods:commons` is a fact about the POM, and it is
+  // handled where the POM is written — see `pom.withXml` in the root build file.
   testFixturesImplementation(libs.bundles.test)
 
   // `TestUtil` polls for a condition — one of the two source sets here that await anything, which

@@ -301,6 +301,26 @@ was designed as API. Exporting it to make a probe pass would turn an accident in
 open question is narrowing it instead; whatever survives that as public is what the two probe files
 should then name.
 
+**And a consumer's classpath carries nothing that only the tests need.** Three modules apply
+`java-test-fixtures` — `commons`, `commons-okhttp` and `sempods-server`, the last publishing the
+media seam's conformance suite so that `sempods-media-s3` runs the same assertions against the
+other implementation ([`media.md`](media.md) §"The seam"). A POM has one flat dependency list and
+no notion of a variant, so `from(components["java"])` folds the test-fixtures variants into it,
+and a `testFixturesImplementation` reads as a `runtime` dependency of the module itself: for a
+while `org.sempods:sempods-server` and `org.sempods:commons` handed every plain Maven consumer
+JUnit, kotlin-test and MockK.
+
+The two representations part ways here, deliberately. Gradle module metadata keeps the
+test-fixtures variants whole, because that is what a consumer resolving
+`testFixtures("org.sempods:sempods-server")` reads, and the conformance suite calls `kotlin.test`
+assertions from its own bytecode in that consumer's test JVM. The POM — which cannot express a
+variant, and which no fixtures consumer reads — loses them: a `pom.withXml` block in the root build
+removes every dependency the fixtures declare and the module itself does not. That is a rule about
+where a dependency comes from rather than a list of libraries, so a library moving in or out of
+`libs.bundles.test` cannot quietly widen the hole. `checkNoTestLibrariesInPom` (root build, wired
+into `check` and named explicitly in `test.yml`) reads the generated file afterwards and fails if a
+test library survived.
+
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,
 and each says it as a property now, because a name that a reader cannot resolve is a dangling
