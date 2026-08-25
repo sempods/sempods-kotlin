@@ -1,6 +1,7 @@
 name: Publish snapshot
 
-# Every merge to `main` republishes `0.1.0-SNAPSHOT`. A downstream project follows snapshots to
+# Every merge to `main` republishes the version `gradle.properties` currently names, as long as it
+# is a `-SNAPSHOT`. A downstream project follows snapshots to
 # find out early that something changed, and one that is refreshed by hand is refreshed until the
 # first time someone forgets — after which it reports on a version nobody is running.
 #
