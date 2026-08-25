@@ -15,10 +15,9 @@ dependencies {
   api(project(":sempods-server"))
 
   // implementation libs
-  // `org.bson.types.ObjectId` is `PodMediaRef`'s own vocabulary and reaches this module through the
-  // seam's signatures — so `api`, and `bson` rather than the whole driver, which this module does
-  // not otherwise touch.
-  api(libs.bson)
+  // No MongoDB artifact: nothing here names an `org.bson` type, and `buildHealth` fails such a
+  // declaration as unused. The driver is still *inherited* through `:sempods-server`, which exports
+  // it for its DAO layer — see the comment on `api(libs.bson)` there.
   implementation(libs.bundles.logging)
   // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
   // uses is the one written down, and discovered by the SDK rather than named.

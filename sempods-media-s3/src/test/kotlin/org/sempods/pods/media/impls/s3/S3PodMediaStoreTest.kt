@@ -1,5 +1,6 @@
 package org.sempods.pods.media.impls.s3
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStoreConformanceTest
@@ -13,6 +14,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import java.net.URI
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -45,15 +47,34 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
     val ref = PodMediaRef(podA, "layout-probe")
     store.put(ref, "text/plain", source("bytes"))
 
-    assertEquals(listOf("${podA.toHexString()}/layout-probe"), rawKeys("${podA.toHexString()}/"))
+    assertEquals(listOf("${podA.value}/layout-probe"), rawKeys("${podA.value}/"))
   }
 
   @Test
-  fun `a key outside any pod prefix is ignored rather than reported as media`() {
-    // The counterpart of the filesystem store ignoring a directory that is not a pod id: a bucket
-    // may legitimately hold other things, and calling one of them an orphaned media would send an
-    // operator after bytes that are not theirs to delete.
-    val stray = "not-a-pod-id/whatever-${podA.toHexString()}"
+  fun `a pod id this layout cannot hold is refused, not half-stored`() {
+    // The asymmetry this guards: `key` would happily write `a/b/<mediaId>`, and `parseKey` rejects
+    // that key as nested — so the object would exist and no walk could ever find it. `PodMediaStore`
+    // rules that outcome out; a deployment minting such tokens wants a store that encodes them.
+    val unstorable = PodMediaRef(PodId("a/b"), "one-${podA.value}")
+
+    assertFailsWith<IllegalArgumentException> { store.put(unstorable, "text/plain", source("x")) }
+    assertTrue(store.iterate { entries -> entries.none { it.ref.mediaId == unstorable.mediaId } })
+  }
+
+  @Test
+  fun `a scope this layout cannot express is refused rather than answered empty`() {
+    // Without the check the prefix `a/b/` lists keys that `parseKey` then drops, so the walk comes
+    // back empty and reads as "this pod holds nothing" — a wrong answer where the filesystem store
+    // would have walked outside its root. Both refuse instead.
+    assertFailsWith<IllegalArgumentException> { store.iterate(PodId("a/b")) { it.toList() } }
+  }
+
+  @Test
+  fun `a key outside this store's layout is ignored rather than reported as media`() {
+    // Its own layout is all it may judge: a nested path is not something it wrote. Which *prefixes*
+    // are pods it cannot say — a `PodId` promises nothing about its form — so a shared bucket's
+    // other prefixes come back as tenants and `PodMediaFacade.reconcile` drops them.
+    val stray = "nested/deeper/whatever-${podA.value}"
     put(stray, "not ours")
     try {
       assertTrue(store.iterate { entries -> entries.none { it.ref.mediaId.startsWith("whatever-") } })
@@ -65,7 +86,7 @@ class S3PodMediaStoreTest : PodMediaStoreConformanceTest() {
   @Test
   fun `a stray key inside a pod prefix is reported, because that is the reconcile working`() {
     store.put(PodMediaRef(podA, "real"), "text/plain", source("a1"))
-    put("${podA.toHexString()}/planted", "not in the registry")
+    put("${podA.value}/planted", "not in the registry")
 
     assertEquals(
       setOf(PodMediaRef(podA, "real"), PodMediaRef(podA, "planted")),

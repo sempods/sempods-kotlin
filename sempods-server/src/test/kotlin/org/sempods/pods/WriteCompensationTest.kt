@@ -6,6 +6,7 @@ import org.sempods.pods.changes.PodChangeDispatcher
 import org.sempods.pods.changes.PodChangeListener
 import org.sempods.pods.changes.PodChangeSet
 import org.sempods.rdf.toIri
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Values
@@ -38,7 +39,7 @@ class WriteCompensationTest {
   private fun repositoryWith(listener: PodChangeListener): PodRepository {
     val rdfRepository = SailRepository(MemoryStore())
     rdfRepository.init()
-    return InMemoryPodRepository(ObjectId(), "test-pod", rdfRepository, PodChangeDispatcher(setOf(listener)))
+    return InMemoryPodRepository(ObjectId().toPodId(), "test-pod", rdfRepository, PodChangeDispatcher(setOf(listener)))
   }
 
   private fun eventModel(resourceUri: URI) = LinkedHashModel().apply {
@@ -74,7 +75,7 @@ class WriteCompensationTest {
         if (failing) throw RuntimeException("sink is down")
       }
     }
-    val repo = InMemoryPodRepository(ObjectId(), "test-pod", rdfRepository, PodChangeDispatcher(setOf(listener)))
+    val repo = InMemoryPodRepository(ObjectId().toPodId(), "test-pod", rdfRepository, PodChangeDispatcher(setOf(listener)))
     assertTrue(repo.putResource(resourceUri, eventModel(resourceUri)))
 
     failing = true

@@ -11,9 +11,8 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
-import java.net.URI
-import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
+import java.net.URI
 
 /**
  * Single entry point for reading and mutating grants on a pod.

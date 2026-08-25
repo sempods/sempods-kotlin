@@ -6,6 +6,7 @@ import org.sempods.pods.changes.PodChangeDispatcher
 import org.sempods.pods.changes.PodChangeListener
 import org.sempods.pods.changes.PodChangeSet
 import org.sempods.rdf.toIri
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Values
@@ -55,7 +56,7 @@ class PodChangeCaptureTest {
     rdfRepository.init()
     recorder = RecordingListener()
     repo = InMemoryPodRepository(
-      podId = ObjectId(),
+      podId = ObjectId().toPodId(),
       podName = "test-pod",
       rdfRepository = rdfRepository,
       podChangeDispatcher = PodChangeDispatcher(setOf(recorder)),
@@ -166,7 +167,7 @@ class PodChangeCaptureTest {
       override fun onChange(changeSet: PodChangeSet) = throw RuntimeException("boom")
     }
     val failingRepo = InMemoryPodRepository(
-      podId = ObjectId(),
+      podId = ObjectId().toPodId(),
       podName = "test-pod",
       rdfRepository = rdfRepository,
       podChangeDispatcher = PodChangeDispatcher(setOf(failing)),

@@ -21,8 +21,10 @@ dependencies {
   // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
   // subclasses hand back a `Response` from.
   //
-  // `ObjectId` in a seam meant to allow a different store is known debt (#12); naming `bson` here
-  // is what makes that coupling visible in this file rather than one project deep.
+  // `bson` is here for the DAO layer, not for a seam — the `…Dbo` rows and the stores over them are
+  // public Kotlin and therefore ABI, although `docs/architecture/module-layering.md` describes them
+  // as module-internal. Making them `internal` is what would drop these two lines, and with them
+  // the driver every module downstream of this one inherits; #12.
   api(libs.mongodb)
   api(libs.bson)
   api(libs.jacksonDatabind)
@@ -87,9 +89,9 @@ dependencies {
   implementation(libs.bouncycastle)
 
   // test fixtures — the media seam's conformance suite, so `:sempods-media-s3` runs the same
-  // assertions against the other implementation instead of a copy that drifts. `api` for the driver
-  // because `PodMediaRef` speaks `ObjectId`, which is therefore part of the suite's surface.
-  testFixturesApi(libs.bson)
+  // assertions against the other implementation instead of a copy that drifts. No MongoDB artifact:
+  // the suite mints `PodId`s, so subclassing it needs no driver.
+  //
   // `implementation` and not `compileOnly`, unlike Guice below: the conformance suite runs in the
   // test JVM of whoever extends it and calls `kotlin.test` assertions from its own bytecode, so an
   // implementer of the seam resolving `testFixtures("org.sempods:sempods-server")` has to receive

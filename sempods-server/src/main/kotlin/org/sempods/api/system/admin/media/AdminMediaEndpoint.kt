@@ -149,7 +149,7 @@ class AdminMediaEndpoint @Inject constructor(
     truncated = objectsWithoutRow.size > MAX_REPORTED_REFS || rowsWithoutObject.size > MAX_REPORTED_REFS,
   )
 
-  private fun PodMediaRef.toResponse() = MediaRefResponse(podId = podId.toHexString(), mediaId = mediaId)
+  private fun PodMediaRef.toResponse() = MediaRefResponse(podId = podId.value, mediaId = mediaId)
 
   /** Parses an optional JSON body, rejecting unknown fields — see [sweep] for why strictly. */
   private fun <T> parseBody(body: String?, type: Class<T>): T? {
