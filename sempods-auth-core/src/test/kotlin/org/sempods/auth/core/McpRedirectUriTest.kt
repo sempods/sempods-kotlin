@@ -1,7 +1,10 @@
 package org.sempods.auth.core
 
+import java.net.URI
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class McpRedirectUriTest {
@@ -12,6 +15,37 @@ class McpRedirectUriTest {
     assertTrue(RedirectUri.isValid("http://127.0.0.1:51000/cb"))
     assertTrue(RedirectUri.isValid("http://localhost:8080/cb"))
     assertFalse(RedirectUri.isValid("http://evil.example.com/cb"))
+  }
+
+  @Test fun `the IPv6 loopback literal is loopback, brackets and all`() {
+    // `URI.getHost` returns `[::1]` — with the brackets — so a comparison against a set that
+    // spells the address `::1` used to miss. RFC 8252 §7.3 names this address alongside
+    // `127.0.0.1` as what a native client binds, so missing it refused the exact callback the
+    // loopback carve-out exists for.
+    assertTrue(RedirectUri.isValid("http://[::1]:51000/cb"))
+    assertTrue(RedirectUri.isLoopback(URI("http://[::1]:51000/cb").host))
+    assertTrue(RedirectUri.isLoopback("[::1]"))
+    assertTrue(RedirectUri.isLoopback("::1"))
+  }
+
+  @Test fun `bracketing does not turn a public IPv6 address into loopback`() {
+    assertFalse(RedirectUri.isValid("http://[2001:db8::1]/cb"))
+    assertFalse(RedirectUri.isLoopback("[2001:db8::1]"))
+    assertTrue(RedirectUri.isValid("https://[2001:db8::1]/cb"))
+  }
+
+  @Test fun `canonicalize drops the port for the IPv6 loopback literal too`() {
+    // The `dyn:` match compares canonical forms, so an ephemeral port has to fall away here for
+    // the same reason it does for `127.0.0.1` — and the brackets have to survive the round trip.
+    assertEquals(
+      RedirectUri.canonicalize("http://[::1]:51000/cb"),
+      RedirectUri.canonicalize("http://[::1]:65373/cb"),
+    )
+    assertEquals("http://[::1]/cb", RedirectUri.canonicalize("http://[::1]:51000/cb"))
+    assertNotEquals(
+      RedirectUri.canonicalize("https://[2001:db8::1]:8443/cb"),
+      RedirectUri.canonicalize("https://[2001:db8::1]:9443/cb"),
+    )
   }
 
   @Test fun `fragments are rejected`() {

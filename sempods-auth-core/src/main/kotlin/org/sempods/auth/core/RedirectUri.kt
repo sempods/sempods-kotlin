@@ -46,7 +46,7 @@ object RedirectUri {
     if (!parsed.isAbsolute) return false
     if (parsed.fragment != null) return false
     val scheme = parsed.scheme?.lowercase() ?: return false
-    val host = parsed.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+    val host = hostOf(parsed) ?: return false
     return when (scheme) {
       "https" -> true
       "http" -> host in loopbackHosts
@@ -55,15 +55,36 @@ object RedirectUri {
   }
 
   /** Whether [host] reaches only the user's own machine — the question `isValid` asks of `http`. */
-  fun isLoopback(host: String?): Boolean = host?.trim()?.lowercase() in loopbackHosts
+  fun isLoopback(host: String?): Boolean = normalizeHost(host) in loopbackHosts
 
   /** Loopback-aware canonical form: the port is dropped for [portInsensitiveHosts], nothing else. */
   fun canonicalize(uri: String): String {
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return uri
-    val host = parsed.host?.lowercase() ?: return uri
+    val host = hostOf(parsed) ?: return uri
     if (host !in portInsensitiveHosts) return uri
     return runCatching {
+      // The multi-argument constructor puts the brackets back around an IPv6 literal, so handing
+      // it the unbracketed form is not a way to lose them.
       URI(parsed.scheme, parsed.userInfo, host, -1, parsed.path, parsed.query, parsed.fragment).toString()
     }.getOrDefault(uri)
   }
+
+  /** [uri]'s host, spelled the way the sets above spell one. */
+  private fun hostOf(uri: URI): String? = normalizeHost(uri.host)?.takeIf { it.isNotBlank() }
+
+  /**
+   * A host as the sets above write it: lowercase, and an IPv6 literal without its brackets.
+   *
+   * `URI.getHost` hands an IPv6 literal back **bracketed** — `http://[::1]:51000/cb` yields
+   * `[::1]`, which is equal to no entry in a set that spells the address `::1`. The brackets are
+   * URL syntax (RFC 3986 §3.2.2), not part of the address, and RFC 8252 §7.3 names `[::1]`
+   * alongside `127.0.0.1` as what a native client binds — so a comparison that kept them refused
+   * exactly the callback the loopback carve-out exists for.
+   *
+   * Only the compact form. `[0:0:0:0:0:0:0:1]` is the same address written out and is not
+   * recognised, here or anywhere else in this file; nothing emits it, and inventing an address
+   * normalizer for a redirect check would be a larger claim than the sets make.
+   */
+  private fun normalizeHost(host: String?): String? =
+    host?.trim()?.lowercase()?.removeSurrounding("[", "]")
 }

@@ -3294,6 +3294,32 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a native client on the IPv6 loopback address keeps its callback`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // RFC 8252 §7.3 names `[::1]` alongside `127.0.0.1`. `URI.getHost` returns it bracketed, so
+    // routing the shape check through `RedirectUri` would have refused it — the address the
+    // loopback carve-out exists for — until `RedirectUri` learned that the brackets are URL
+    // syntax and not part of the address. Registration and the ephemeral-port re-match, both.
+    val dynClientId = registerDynamicClient(pod.name, "http://[::1]:51000/cb")
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", dynClientId)
+      .addQueryParam("redirect_uri", "http://[::1]:65373/cb")
+      .addQueryParam("state", "ipv6-loopback-state")
+      .addQueryParam("code_challenge", testCodeChallenge)
+      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertTrue(response.responseBody.contains("consent"))
+  }
+
+  @Test
   fun `register refuses a cleartext redirect_uri on a public host`() {
     val pod = sempodsTestFactory.newPod()
 
@@ -3304,6 +3330,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "http://apps.example.org/cb",
       "http://apps.example.org:8443/cb",
       "https://apps.example.org/cb#frag",
+      // Bracketed, but not the loopback address: the brackets are stripped to compare, not to
+      // excuse. `https://[2001:db8::1]/cb` would be fine — this is the `http` one.
+      "http://[2001:db8::1]/cb",
     )) {
       val response = http.preparePost(registerUrl(pod.name))
         .addHeader("Content-Type", "application/json")
