@@ -86,23 +86,34 @@ subprojects {
   // consumer's runtime. `implementation` is transitive at runtime, so this is easy to reintroduce by
   // adding one bundle to one build file, and impossible to notice — the consumer just silently gets
   // logback. Applications are exempt: choosing a binding is exactly their job. See `docs/logging.md`.
+  //
+  // Out here on the `Project` receiver, not inside `doLast`: the receiver in there is the task,
+  // whose `name` is in no module list, so the guard would skip every module and still report green.
+  val mustCheckLoggingBinding = name in publishedModules
+
   val checkNoLoggingBinding = tasks.register("checkNoLoggingBinding") {
     group = "verification"
     description = "Fails if a library module carries the logback binding on its runtime classpath."
+    // A module nobody publishes has no consumer to impose a binding on, and the `:consumer-probe`
+    // modules inherit a service's anyway. `onlyIf` rather than a `return@doLast`, so an exempt
+    // module reports `SKIPPED` instead of looking like one that ran and found nothing.
+    onlyIf { mustCheckLoggingBinding && !it.project.plugins.hasPlugin("application") }
     doLast {
-      if (plugins.hasPlugin("application")) return@doLast
-      // Nor a module nobody consumes: the `:consumer-probe` modules inherit a service's binding,
-      // and a module that is never published has no consumer to impose one on.
-      if (name !in publishedModules) return@doLast
-      val runtimeClasspath = configurations.findByName("runtimeClasspath") ?: return@doLast
+      // Not `?: return@doLast`: every published module applies the Kotlin plugin and so has this
+      // configuration. Its absence is a build that changed shape, not a module to wave through.
+      val runtimeClasspath = configurations.findByName("runtimeClasspath")
+        ?: throw GradleException(
+          "${project.path} is published but has no `runtimeClasspath` configuration, so " +
+            "`checkNoLoggingBinding` cannot inspect it. See `docs/logging.md`.",
+        )
       val offenders = runtimeClasspath.incoming.artifacts.artifacts
         .map { it.id.componentIdentifier.displayName }
         .filter { it.startsWith("ch.qos.logback:") }
         .distinct()
       if (offenders.isNotEmpty()) {
         throw GradleException(
-          "$path is a library and must declare `libs.bundles.logging` (the facade) only, but its " +
-            "runtime classpath carries the binding: ${offenders.joinToString()}. " +
+          "${project.path} is a library and must declare `libs.bundles.logging` (the facade) " +
+            "only, but its runtime classpath carries the binding: ${offenders.joinToString()}. " +
             "The binding belongs to `runtimeOnly(libs.bundles.loggingBinding)` in an artifact that " +
             "owns a `main`. See `docs/logging.md`.",
         )
