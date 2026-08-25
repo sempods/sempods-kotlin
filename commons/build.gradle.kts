@@ -20,7 +20,16 @@ dependencies {
   // consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
   testFixturesImplementation(libs.bundles.logging)
-  testFixturesImplementation(libs.bundles.test)
+
+  // The same reasoning again, with a second reason that is not about taste. A POM has one
+  // dependency list and no variants, and `from(components["java"])` in the root build feeds the
+  // test-fixtures variants into it too, so an `implementation` here is a `runtime` dependency of
+  // `org.sempods:commons` in the published POM — a plain Maven consumer would inherit JUnit,
+  // kotlin-test, MockK and a mock HTTP server. Nothing needs them at runtime *here*: these
+  // fixtures are compiled against the types and then executed by a consumer's test JVM, which
+  // brings its own `libs.bundles.test`. `checkNoTestLibrariesInPom` in the root build is what
+  // notices if this goes back.
+  testFixturesCompileOnly(libs.bundles.test)
 
   // `LogbackBaseConfigTest` configures a throwaway LoggerContext from the shared base, so it
   // names logback types directly. The binding itself comes from the root build script.

@@ -274,6 +274,19 @@ carries is one of the modules in this repository, and the list is short enough t
 `sempods-client`, `sempods-auth-core`, `sempods-mcp-core` — and nothing else with a `project :`
 prefix. Everything beyond them is a third-party library.
 
+**And a consumer's classpath carries nothing that only the tests need.** Three modules apply
+`java-test-fixtures` — `commons`, `commons-okhttp` and `sempods-server`, the last publishing the
+media seam's conformance suite so that `sempods-media-s3` runs the same assertions against the
+other implementation ([`media.md`](media.md) §"The seam"). A POM has one flat dependency list and
+no notion of a variant, so `from(components["java"])` folds the test-fixtures variants into it,
+and a `testFixturesImplementation` reads as a `runtime` dependency of the module itself: for a
+while `org.sempods:sempods-server` and `org.sempods:commons` handed every plain Maven consumer
+JUnit, kotlin-test and MockK. The fixtures declare their test libraries `testFixturesCompileOnly`
+instead — they are compiled against the types and then executed by a consumer's test JVM, which
+brings its own — and `checkNoTestLibrariesInPom` (root build, wired into `check`) fails the build
+if one comes back. The fixtures themselves stay published: they travel in Gradle module metadata,
+which is where a `testFixtures("org.sempods:sempods-server")` finds them.
+
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,
 and each says it as a property now, because a name that a reader cannot resolve is a dangling

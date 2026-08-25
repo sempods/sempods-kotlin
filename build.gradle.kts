@@ -1,4 +1,5 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -246,13 +247,68 @@ subprojects {
   extensions.configure<PublishingExtension> {
     publications {
       // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
-      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. It travels in Gradle
-      // module metadata, not the POM, so a plain Maven consumer never sees the fixtures.
+      // consumer can ask for `testFixtures("org.sempods:sempods-server")`. The fixtures *jar*
+      // travels in Gradle module metadata, and a plain Maven consumer never resolves it.
+      //
+      // Its *dependencies* are a different matter, and the trap this repository already fell into:
+      // a POM has one flat dependency list and no notion of a variant, so `maven-publish` folds
+      // every variant of the component into it and a `testFixturesImplementation` reads as a
+      // `runtime` dependency of the module itself. That is why the three modules with fixtures
+      // declare their test libraries `testFixturesCompileOnly`, and why
+      // `checkNoTestLibrariesInPom` below asks the question on every `check`.
       create<MavenPublication>("maven") {
         from(components["java"])
       }
     }
   }
+
+  // The published POM is the one artifact nothing in this build reads, so a mistake in it survives
+  // a green run and surfaces at a consumer. This asks the only question that has actually gone
+  // wrong here: does a module hand a test library to whoever depends on it?
+  //
+  // `libs.bundles.test` is the definition of "a test library" — the same list every module
+  // declares — so adding one there covers it here without a second edit.
+  val testLibraries = catalog.findBundle("test").get().get()
+    .map { "${it.module.group}:${it.module.name}" }
+    .toSet()
+
+  val generatePom = tasks.named<GenerateMavenPom>("generatePomFileForMavenPublication")
+
+  val checkNoTestLibrariesInPom = tasks.register("checkNoTestLibrariesInPom") {
+    group = "verification"
+    description = "Fails if the published POM puts a test library on a consumer's classpath."
+    // Explicitly: the provider below is read in `doLast` rather than declared as a task input, so
+    // it carries no dependency of its own and the file would simply not be there.
+    dependsOn(generatePom)
+    val pomFile = generatePom.map { it.destination }
+    // `project.path`, not `path`: the receiver in here is the task, whose path would name this
+    // check rather than the module whose POM is wrong.
+    val modulePath = project.path
+    doLast {
+      // The POM is generated, so its shape is fixed and a reader beats a parser here.
+      val offenders = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
+        .findAll(pomFile.get().readText())
+        .mapNotNull { dependency ->
+          val block = dependency.groupValues[1]
+          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
+          val coordinates = "${tag("groupId")}:${tag("artifactId")}"
+          // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
+          if (coordinates in testLibraries) "$coordinates (${tag("scope") ?: "compile"})" else null
+        }
+        .toList()
+
+      if (offenders.isNotEmpty()) {
+        throw GradleException(
+          "$modulePath publishes a POM that puts test libraries on a consumer's classpath: " +
+            offenders.joinToString() + ". They reach it through the test-fixtures variant, which " +
+            "`from(components[\"java\"])` folds into the POM's single dependency list — declare " +
+            "them `testFixturesCompileOnly` instead of `testFixturesImplementation`. " +
+            "See `commons/build.gradle.kts`.",
+        )
+      }
+    }
+  }
+  tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoTestLibrariesInPom) }
 }
 
 // Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early

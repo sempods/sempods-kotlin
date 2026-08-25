@@ -57,7 +57,12 @@ dependencies {
   // assertions against the other implementation instead of a copy that drifts. `api` for the driver
   // because `PodMediaRef` speaks `ObjectId`, which is therefore part of the suite's surface.
   testFixturesApi(libs.mongodb)
-  testFixturesImplementation(libs.bundles.test)
+  // `compileOnly`, for the reason spelled out in `commons/build.gradle.kts`: the published POM has
+  // one dependency list for every variant of the component, so an `implementation` here hands
+  // JUnit, kotlin-test and MockK to a plain Maven consumer of `org.sempods:sempods-server` at
+  // runtime. The conformance suite only compiles against them — it runs in the test JVM of
+  // whoever extends it, and that JVM has `libs.bundles.test` of its own.
+  testFixturesCompileOnly(libs.bundles.test)
   // `PodMediaTestAccess` is constructed by the consumer's injector, so it carries an @Inject
   // constructor. compileOnly like `commons` does it: the annotation is all that is needed here, and
   // a consumer without a container must not inherit one.
