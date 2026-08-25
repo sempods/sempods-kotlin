@@ -7,6 +7,7 @@ import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStoreConformanceTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteExisting
@@ -140,6 +141,12 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     try {
       assertFailsWith<IllegalArgumentException> { store.iterate(PodId("..")) { it.toList() } }
       assertFailsWith<IllegalArgumentException> { store.iterate(PodId("/etc")) { it.toList() } }
+      // Written with the platform's own separator rather than `/`, because which character divides
+      // a path is the platform's answer: `\` nests on Windows and is a plain filename on Linux.
+      // The rule is "one directory under the root", and that reads the same on both.
+      assertFailsWith<IllegalArgumentException> {
+        store.iterate(PodId("a${File.separator}b")) { it.toList() }
+      }
     } finally {
       outside.resolve("secret.txt").deleteExisting()
       outside.deleteExisting()

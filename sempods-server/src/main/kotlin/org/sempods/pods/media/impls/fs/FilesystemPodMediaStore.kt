@@ -40,6 +40,9 @@ import kotlin.io.path.name
  */
 class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
 
+  /** Normalised once, because every containment check compares against it. */
+  private val rootDirectory: Path = root.normalize()
+
   init {
     Files.createDirectories(root)
     logger.info { "Pod media: filesystem store at ${root.toAbsolutePath()}" }
@@ -98,7 +101,7 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
       // The same rule `resolve` applies, and for the same reason: a scope is a token turned into a
       // path too, so `..` or an absolute path would walk outside the root and report filenames that
       // are not this store's under a tenant that does not exist.
-      else -> listOf(root.resolve(podId.requireOnePathSegment())).filter { it.isDirectory() }
+      else -> listOf(podDirectory(podId)).filter { it.isDirectory() }
     }
 
     val entries = sequence {
@@ -144,24 +147,32 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * halves are checked in one place.
    */
   private fun resolve(ref: PodMediaRef): Path {
-    val resolved = root.resolve(ref.podId.requireOnePathSegment()).resolve(ref.mediaId).normalize()
-    require(resolved.startsWith(root.normalize())) { "media ref escapes the store root: $ref" }
-    require(resolved.parent?.parent == root.normalize()) { "media ref must name one object: $ref" }
+    val directory = podDirectory(ref.podId)
+    val resolved = directory.resolve(ref.mediaId).normalize()
+    require(resolved.parent == directory) { "media ref must name one object: $ref" }
     return resolved
   }
 
   /**
-   * [PodId.value], checked against what this layout can hold — one directory name.
+   * [root]/[PodId], checked to be a directory directly under the root.
    *
-   * Every path this store builds runs through here, both the object paths and the scope of a walk.
-   * A `PodId` promises nothing about its form, so a token naming a parent or an absolute path is a
-   * token this store has to refuse rather than follow.
+   * Every path this store builds runs through here — the object locations and the scope of a walk
+   * alike — because a `PodId` promises nothing about its form and a token naming a parent or an
+   * absolute path is one this layout has to refuse rather than follow.
+   *
+   * **The check is structural rather than a list of characters to forbid.** Which characters
+   * separate path elements is the platform's answer, not this file's: `\` divides on Windows and
+   * does not on Linux, and a drive letter makes a token absolute on one and a plain name on the
+   * other. Asking `Path` whether the result came out directly under the root is the same question
+   * on every platform, and needs no list to be kept complete.
    */
-  private fun PodId.requireOnePathSegment(): String {
-    require(value.isNotEmpty() && !value.contains('/') && value != "." && value != "..") {
-      "this store lays out one directory per pod, so a pod id must be a single path segment: $value"
+  private fun podDirectory(podId: PodId): Path {
+    val resolved = root.resolve(podId.value).normalize()
+    require(resolved.parent == rootDirectory) {
+      "this store lays out one directory per pod, so a pod id must name one directly under its " +
+          "root: '${podId.value}'"
     }
-    return value
+    return resolved
   }
 
   companion object {

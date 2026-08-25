@@ -169,7 +169,14 @@ class S3PodMediaStore internal constructor(
    */
   private fun key(ref: PodMediaRef): String = "${ref.podId.requireOneKeySegment()}/${ref.mediaId}"
 
-  /** [PodId.value], checked against what this layout can hold — one key segment. */
+  /**
+   * [PodId.value], checked against what this layout can hold — one key segment.
+   *
+   * A character check, and correctly so, unlike the filesystem store's structural one: an object
+   * key is an opaque string in which `/` is a delimiter by this store's convention and nothing else
+   * is special. `\` is an ordinary character here and round-trips through [parseKey] untouched, so
+   * there is no platform to ask.
+   */
   private fun PodId.requireOneKeySegment(): String {
     require(value.isNotEmpty() && !value.contains('/')) {
       "this store lays out one key prefix per pod, so a pod id must be a single segment: $value"
