@@ -401,9 +401,14 @@ surprises.
   and there is no escape hatch elsewhere: the SPARQL surface is
   read-only (see §"Read-only SPARQL endpoint (related)"), and
   `SparqlQueryService.validateReadOnly()` rejects every Update form.
-  A caller that needs the guarantee issues one write per context and
-  handles partial failure itself. Transactional multi-context writes
-  are tracked in the maintainer's internal roadmap.
+  All-or-nothing semantics across contexts are therefore unavailable
+  at any layer, and splitting the write per context does not
+  reconstruct them — the intermediate state is externally visible,
+  and a compensating write can fail in turn. That leaves best-effort
+  recovery, not a guarantee, and a caller that cannot tolerate the
+  gap should not spread the data across contexts in the first place.
+  Transactional multi-context writes are tracked in the maintainer's
+  internal roadmap.
 - **TOCTOU between precondition check and write.** Conditional
   writes (`If-Match`, `If-None-Match: *`) are evaluated outside the
   storage transaction. A concurrent write between the precondition
