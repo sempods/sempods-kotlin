@@ -16,10 +16,20 @@ import org.sempods.auth.SempodsAuthModule
  * through an `implementation` dependency — is invisible from inside the repository, because every
  * module has its own dependencies on its own compile classpath.
  *
- * This file closes that hole with the compiler instead. It depends on the service the way a foreign
- * build does and names exactly what an embedder names: the config, the module, and
- * `Guice.createInjector`. Drop something out of `:sempods-auth`'s `api` that this needs and
+ * This file covers the *embedding contract* with the compiler instead. It depends on the service
+ * the way a foreign build does and names exactly what an embedder names: the config, the module,
+ * and `Guice.createInjector`. Drop something out of `:sempods-auth`'s `api` that this needs and
  * `:consumer-probe:auth:compileKotlin` fails here, rather than in someone else's build.
+ *
+ * **What it does not cover, and why it does not.** The rest of this module's public surface is
+ * wider than that contract and is not compilable from outside — `OidcTokenExchange` takes a Ktor
+ * `HttpClient`, the route extensions take an `Application`, and `ktorClientCore` is
+ * `implementation`. That is not an oversight in this file: #11 exported exactly `:commons` and
+ * Guice because everything else is reached by Guice through reflection at wiring time, and #15
+ * holds that the answer is to make that surface `internal` rather than to export it. Naming those
+ * signatures here would commit them to a supported API, which is the decision this probe is
+ * deliberately not making. When #15 settles what embedding is meant to support, whatever it keeps
+ * public belongs in this file.
  *
  * Only the two services with a `main` have a probe. Every other published module is covered by
  * `buildHealth`, and a probe for them would be a second, weaker copy of a check that already

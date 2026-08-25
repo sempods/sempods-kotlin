@@ -294,6 +294,14 @@ boundary, so each probe's compile classpath is a consumer's compile classpath, a
 is a compile error here rather than in someone else's build. They are two modules and not one file
 because a probe holding both services hid a missing export in each behind the other's declaration.
 
+What the probes cover is that **embedding contract**, not the whole public surface of either
+service, and the difference is deliberate. Both are far wider than the contract — `OidcTokenExchange`
+takes a Ktor `HttpClient`, the route extensions take an `Application` — and none of that is
+compilable from outside, because none of it was designed as API. Exporting it to make a probe pass
+would turn an accident into a promise. Narrowing it instead is the open question, recorded as a
+known gap here and tracked as its own decision; whatever survives that decision as public is what
+these two files should then name.
+
 **And no published module names a module that is not published.** Provenance notes, evidence
 pointers at test classes, context paths in fixtures — each said something true about a *property*,
 and each says it as a property now, because a name that a reader cannot resolve is a dangling
