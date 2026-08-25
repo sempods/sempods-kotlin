@@ -153,9 +153,9 @@ The modules are built, tested and released in lockstep, and a consumer holding `
 0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
 for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary
 constraints, so a *different* dependency asking for a newer sempods module can still pull that one
-ahead of the rest; if you would rather such a build fail than resolve, ask for
-`enforcedPlatform(...)` instead of `platform(...)` and the constraints become strict on your side.
-That choice is left to you on purpose — made here, it would propagate to everyone.
+ahead of the rest. `enforcedPlatform(...)` in place of `platform(...)` makes them strict and forces
+the platform's versions on the whole graph instead. That choice is left to you on purpose — made
+here, it would propagate to everyone.
 
 Published bytecode targets **Java 21**. Building this repository needs 25; depending on it does
 not.
