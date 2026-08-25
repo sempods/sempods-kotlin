@@ -20,6 +20,12 @@ name: Refresh Context7
 # `37` past the hour: GitHub's own guidance is that scheduled runs on the hour are the ones delayed
 # or dropped under load.
 #
+# The schedule spaces this workflow's own requests and nothing else, though — the floor counts from
+# the last *update*. A manual dispatch that succeeds, or a popularity-driven re-crawl Context7 does
+# on its own, resets it under a cron that cannot see either. So `too-early` stays possible, and it
+# is the one answer that means the index is fresher than this run would have made it. Reporting
+# that as a failure is a false alarm, and false alarms are how real ones stop being read.
+#
 # No `push` trigger. It would refresh a few days sooner after a merge and spend most runs being
 # refused for it, which is the trade that made an earlier version of this file fail on every merge.
 #
@@ -39,9 +45,10 @@ jobs:
     steps:
       # The secret comes from the Context7 dashboard, and is absent in forks — not a broken build.
       #
-      # Everything else is: an expired key, a library name that stopped resolving, their outage,
-      # and a manual run asking inside the floor all leave the index frozen or unrefreshed, and
-      # this workflow exists so that does not happen quietly.
+      # An expired key, a library name that stopped resolving and their outage all leave the index
+      # frozen, and this workflow exists so that does not happen quietly. `too-early` is the
+      # exception and the only one: it says the index is already fresher than this run would have
+      # made it.
       - name: Trigger the re-crawl
         env:
           CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
@@ -51,7 +58,21 @@ jobs:
             exit 0
           fi
 
-          curl --fail-with-body -sS -X POST https://context7.com/api/v1/refresh \
+          # No `--fail`: the body decides, and it can only do that if curl hands it over. A
+          # transport failure still fails the step — `set -e` covers the assignment.
+          body=$(curl -sS -X POST https://context7.com/api/v1/refresh \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $CONTEXT7_API_KEY" \
-            -d '{"libraryName": "/${{ github.repository }}"}'
+            -d '{"libraryName": "/${{ github.repository }}"}' \
+            -w '\n%{http_code}')
+          echo "$body"
+
+          # Status and body, both: matched with its quotes so the word in another field's prose
+          # cannot silence a real rejection, and pinned to the 400 it arrives with so it cannot
+          # excuse a 401 either. Every other non-2xx — a 400 this workflow built wrong included —
+          # falls through to the failure.
+          case "$body" in
+            *$'\n'2??) echo "::notice::Context7 re-crawl started." ;;
+            *'"too-early"'*$'\n'400) echo "::notice::Already refreshed inside Context7's ten-day floor." ;;
+            *) echo "::error::Context7 refresh failed."; exit 1 ;;
+          esac
