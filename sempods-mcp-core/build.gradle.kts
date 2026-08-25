@@ -11,7 +11,7 @@ dependencies {
   //
   // `api` because Jackson is in this module's surface, not behind it: `ToolCatalog.validate` takes
   // a `JsonNode`, and a consumer serializing these types needs the annotations to mean something.
-  // The same reasoning `commons-mongo` gives for re-exporting the driver. The `java.time` codecs
+  // The same reasoning `sempods-commons-mongo` gives for re-exporting the driver. The `java.time` codecs
   // stay for the mapper that reads these envelopes; nothing names them.
   api(libs.jacksonDatabind)
   runtimeOnly(libs.jackson)
@@ -36,14 +36,14 @@ dependencies {
   // because its stores hand one back.
   api(libs.mongodb)
   implementation(libs.bson)
-  implementation(project(":commons-mongo"))
+  implementation(project(":sempods-commons-mongo"))
 
-  // `:commons` for `BaseModule`, which `SempodsMcpCoreModule` extends — `api`, because a supertype
+  // `:sempods-commons` for `BaseModule`, which `SempodsMcpCoreModule` extends — `api`, because a supertype
   // is part of a class's surface.
-  api(project(":commons"))
+  api(project(":sempods-commons"))
 
   // Only `SempodsMcpCoreModule` needs Guice, and a consumer wiring the store by hand must not
-  // inherit a container to get a tool catalog. Same trade `commons` and `sempods-auth-core` make.
+  // inherit a container to get a tool catalog. Same trade `sempods-commons` and `sempods-auth-core` make.
   compileOnly(libs.guice)
 
   // No `libs.bundles.logging`: no class in here logs — the two surfaces log, because what a failed

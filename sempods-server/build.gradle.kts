@@ -11,11 +11,11 @@ dependencies {
   // transitively through a framework's `api` declarations and is named here instead.
   // `api` because their types appear in this module's public signatures, so a deployment
   // implementing a seam has to name them.
-  api(project(":commons"))            // BaseModule, WebIdUriDeriver
-  api(project(":commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
-  implementation(project(":commons-json"))
-  implementation(project(":commons-okhttp"))
-  implementation(project(":commons-mongo"))
+  api(project(":sempods-commons"))            // BaseModule, WebIdUriDeriver
+  api(project(":sempods-commons-jaxrs"))      // BaseEndpoint, ApiException, CorsFilter, ObjectMapperResolver
+  implementation(project(":sempods-commons-json"))
+  implementation(project(":sempods-commons-okhttp"))
+  implementation(project(":sempods-commons-mongo"))
 
   // The artifacts behind those signatures. `ObjectId` is in some fifty public signatures here,
   // `JsonNode` and `ObjectMapper` in many more, and `jakarta.ws.rs-api` is what `BaseEndpoint`'s
@@ -97,15 +97,15 @@ dependencies {
   // consumer's runtime classpath, is the root build file's job — see `pom.withXml` there.
   testFixturesImplementation(libs.bundles.test)
   // `PodMediaTestAccess` is constructed by the consumer's injector, so it carries an @Inject
-  // constructor. compileOnly like `commons` does it: the annotation is all that is needed here, and
+  // constructor. compileOnly like `sempods-commons` does it: the annotation is all that is needed here, and
   // a consumer without a container must not inherit one.
   testFixturesCompileOnly(libs.guice)
 
   // dependent test projects
-  testImplementation(testFixtures(project(":commons")))
+  testImplementation(testFixtures(project(":sempods-commons")))
   // The HTTP client the suite drives a running server with — see `TestHttpClient`. A fixture of
   // the module that owns the engine, so the two cannot end up on different OkHttp versions.
-  testImplementation(testFixtures(project(":commons-okhttp")))
+  testImplementation(testFixtures(project(":sempods-commons-okhttp")))
 
   // test libs
   // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.
@@ -122,6 +122,6 @@ dependencies {
   // to stay out of a production log — and `PodTokenRateLimiterTest` asserts the *volume*, since
   // one line per refusal would rebuild what the sampler it pins exists to remove.
   // Test-only: `checkNoLoggingBinding` guards the *runtime* classpath, which this does not touch,
-  // and the binding itself comes from the root build script. Same reasoning as `:commons-jaxrs`.
+  // and the binding itself comes from the root build script. Same reasoning as `:sempods-commons-jaxrs`.
   testImplementation(libs.logbackClassic)
 }

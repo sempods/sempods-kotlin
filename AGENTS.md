@@ -72,10 +72,10 @@ The `sempods-auth` module is a **standalone Ktor service** (port 8091) implement
 registry and the OIDC bridge that turns a provider login into a sempods JWT — see `sempods-auth/AGENTS.md`.
 
 Key design choices:
-- No application-framework dependency. It builds on the `commons` family directly: `commons`
+- No application-framework dependency. It builds on the `sempods-commons` family directly: `sempods-commons`
   for configuration (`Env`), logging, `BaseModule`, WebID derivation (`WebIdUriDeriver`), URL
-  handling (`UrlUtil`) and HTML escaping; `commons-ktor` for the trace binding;
-  `commons-mongo` for the document helpers — plus `sempods-auth-core` for the OAuth
+  handling (`UrlUtil`) and HTML escaping; `sempods-commons-ktor` for the trace binding;
+  `sempods-commons-mongo` for the document helpers — plus `sempods-auth-core` for the OAuth
   machinery all three services share
 - Separate MongoDB database (`sempods-auth`), raw driver (no Morphia)
 - Ktor routing: extension functions in `api/` packages

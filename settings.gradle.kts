@@ -73,7 +73,7 @@ dependencyAnalysis {
       includeDependency("net.minidev:json-smart")
     }
 
-    // Ktor's plumbing. Not `ktor-utils`: `commons-ktor` puts `AttributeKey` in a public signature.
+    // Ktor's plumbing. Not `ktor-utils`: `sempods-commons-ktor` puts `AttributeKey` in a public signature.
     bundle("ktor-internals") {
       primary("io.ktor:ktor-server-core")
       includeDependency("io.ktor:ktor-http")
@@ -109,13 +109,13 @@ dependencyAnalysis {
     // consumers, so it computes no ABI and every `api` declaration looks unnecessary to it. These
     // two are both: an application, and a library an embedder installs a Guice module from.
     //
-    // The exclusion is narrow: `:commons` carries `BaseModule`, the supertype of
+    // The exclusion is narrow: `:sempods-commons` carries `BaseModule`, the supertype of
     // `SempodsAuthModule` and `SempodsMcpModule`, so an embedder cannot name either class without
     // it. `:consumer-probe:auth` and `:consumer-probe:mcp` fail to compile if it goes.
     listOf(":sempods-auth", ":sempods-mcp").forEach { service ->
       project(service) {
         onIncorrectConfiguration {
-          exclude(":commons")
+          exclude(":sempods-commons")
         }
       }
     }
@@ -123,12 +123,12 @@ dependencyAnalysis {
 }
 
 include(
-  "commons",
-  "commons-jaxrs",
-  "commons-json",
-  "commons-ktor",
-  "commons-mongo",
-  "commons-okhttp",
+  "sempods-commons",
+  "sempods-commons-jaxrs",
+  "sempods-commons-json",
+  "sempods-commons-ktor",
+  "sempods-commons-mongo",
+  "sempods-commons-okhttp",
   "consumer-probe:auth",
   "consumer-probe:mcp",
   "deployments:sempods:image",

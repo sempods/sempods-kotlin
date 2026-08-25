@@ -14,7 +14,7 @@ line automatically and is not repeated here.
 |---|---|---|
 | Facade | `org.slf4j:slf4j-api` + `io.github.oshai:kotlin-logging-jvm` | **every** module, as `libs.bundles.logging` |
 | Binding | `ch.qos.logback:logback-classic` | **only** an artifact that owns a `main`, as `runtimeOnly(libs.bundles.loggingBinding)` |
-| JUL bridge | `org.slf4j:jul-to-slf4j` | `:commons`, whose `LoggingInitializer` installs it |
+| JUL bridge | `org.slf4j:jul-to-slf4j` | `:sempods-commons`, whose `LoggingInitializer` installs it |
 
 **A library declares the facade and never the binding.** `implementation` is transitive at runtime,
 so a bundle containing logback in `:sempods-client` puts logback in the runtime of everyone who
@@ -37,7 +37,7 @@ without it their records bypass Logback entirely.
 </configuration>
 ```
 
-The base lives in `commons/src/main/resources/org/sempods/commons/logging/logback-base.xml` and
+The base lives in `sempods-commons/src/main/resources/org/sempods/commons/logging/logback-base.xml` and
 holds the two encoders, the third-party levels and the root logger. It is deliberately **not**
 called `logback.xml`: Logback auto-discovers that name anywhere on the classpath, so a library
 carrying one silently becomes the root configuration of every application above it.
@@ -86,7 +86,7 @@ mixing the two is how this tree ended up with four idioms at once.
    durable fix is to move it out of the path.
 
    The other half of the same rule: **what a caller wrote is not a log line.** Such a value is put
-   through `LogSafeText` (`:commons`), which escapes every control character before it is
+   through `LogSafeText` (`:sempods-commons`), which escapes every control character before it is
    interpolated — otherwise a request can end the line early and write the next one itself. Jetty
    answers 400 to an ASCII control character in a URI and so covers most of a *path* today, but
    `%E2%80%A8` gets through, these are libraries that will not always run behind Jetty, and a form
@@ -107,7 +107,7 @@ mixing the two is how this tree ended up with four idioms at once.
 
 Three checks, because every finding this replaced was silent rather than wrong:
 
-- `LogbackBaseConfigTest` (`:commons`) configures a throwaway `LoggerContext` through the same
+- `LogbackBaseConfigTest` (`:sempods-commons`) configures a throwaway `LoggerContext` through the same
   `<include>` an application uses, and asserts what `LOG_LEVEL` and `LOG_FORMAT` actually select.
 - `LoggingAssertions.assertAppLoggingConfigured()`, run by one test in each of the four artifacts
   with a `main`, fails if that artifact ships no `logback.xml` or ships one that does not include

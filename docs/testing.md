@@ -87,7 +87,7 @@ through the admin route rather than calling the facade.
 
 ## The test observer
 
-`GuiceAppTestProxy` (`commons` test fixtures) binds a JDK interface proxy in place of a real
+`GuiceAppTestProxy` (`sempods-commons` test fixtures) binds a JDK interface proxy in place of a real
 collaborator. Every call goes to the default implementation *and* to any delegate registered for
 the current trace:
 
