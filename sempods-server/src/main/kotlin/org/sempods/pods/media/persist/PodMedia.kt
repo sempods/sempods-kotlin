@@ -1,6 +1,7 @@
 package org.sempods.pods.media.persist
 
 import org.sempods.pods.media.PodMediaRef
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import java.net.URI
 import java.time.Instant
@@ -43,7 +44,7 @@ data class PodMedia(
    * one physical layout for every implementation. A store owns its own layout now; see
    * [PodMediaRef].
    */
-  val ref: PodMediaRef get() = PodMediaRef(podId, mediaId)
+  val ref: PodMediaRef get() = PodMediaRef(podId.toPodId(), mediaId)
 
   /** The context URIs this media is assigned to. */
   val contexts: Set<String> get() = assignments.mapTo(HashSet(), MediaAssignment::context)

@@ -5,6 +5,8 @@ import org.sempods.pods.media.persist.MediaAssignment
 import org.sempods.pods.media.persist.PodMedia
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
@@ -75,7 +77,7 @@ class PodMediaFacade @Inject constructor(
     // every later *read*, which is the kind of distance that makes a bug expensive.
     require(isServableMediaType(contentType)) { "not a servable media type: '$contentType'" }
 
-    val ref = PodMediaRef(podId, digest(source))
+    val ref = PodMediaRef(podId.toPodId(), digest(source))
     val contextUri = context.toString()
 
     // Bytes before the row: a row whose object is missing is a broken media (a `404` waiting to
@@ -383,6 +385,15 @@ class PodMediaFacade @Inject constructor(
    * hits and collects its misses, and whatever stays in the set is the other direction. A `find` per
    * object plus an `exists` per row would be the same answer for twice the round trips.
    *
+   * **Objects whose pod id is not shaped like one this deployment mints are skipped.** A store
+   * cannot judge that — a [org.sempods.pods.PodId] is opaque to it — so a backend holding other
+   * data hands its prefixes back as pods, and they would otherwise be reported as leaks.
+   *
+   * A shape check, not an ownership one: a second sempods deployment sharing the backend mints the
+   * same shape and its objects have no row here, so they *are* reported. Nothing can tell them
+   * apart, since an orphan is by definition an object no row claims. **Two deployments must not
+   * share one media backend unpartitioned.**
+   *
    * // TODO: the key set is O(rows) in memory. Fine for a registry of this size, and the way out
    * //   when it is not is a per-pod run in a loop (the `podId` parameter is already here) rather
    * //   than a cleverer whole-store pass.
@@ -393,14 +404,25 @@ class PodMediaFacade @Inject constructor(
     val checkedRows = rows.size
 
     var checkedObjects = 0
+    var skippedObjects = 0
     val objectsWithoutRow = ArrayList<PodMediaRef>()
-    mediaStore.iterate(podId) { entries ->
+    mediaStore.iterate(podId?.toPodId()) { entries ->
       entries.forEach { entry ->
+        if (entry.ref.podId.toObjectIdOrNull() == null) {
+          skippedObjects++
+          return@forEach
+        }
         checkedObjects++
         // `remove` answers "was it known" and takes it out of the leftovers in one step — what stays
         // behind at the end is precisely the set of rows nothing on disk answers for.
         if (!rows.remove(entry.ref)) objectsWithoutRow.add(entry.ref)
       }
+    }
+
+    // One line per walk rather than one per object: a store sharing its space would otherwise fill
+    // the log with a line per skipped object, and the count is the whole diagnosis.
+    if (skippedObjects > 0) {
+      logger.debug { "[media/audit] skipped $skippedObjects object(s) whose pod id is not shaped like one of ours" }
     }
 
     val report = MediaReconcileReport(
@@ -419,7 +441,7 @@ class PodMediaFacade @Inject constructor(
 
   companion object {
 
-    private val REF_ORDER = compareBy<PodMediaRef>({ it.podId }, { it.mediaId })
+    private val REF_ORDER = compareBy<PodMediaRef>({ it.podId.value }, { it.mediaId })
 
     private val logger = KotlinLogging.logger {}
 

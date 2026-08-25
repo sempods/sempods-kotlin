@@ -3,10 +3,12 @@ package org.sempods.pods.media
 import com.google.inject.Inject
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
+import org.sempods.pods.PodId
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.pods.media.persist.PodMedia
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -66,7 +68,7 @@ class PodMediaFacadeTest : SempodsIntegrationTest() {
     assertEquals("image/jpeg", stored.assignments.single().contentType)
     assertEquals("photo.jpg", stored.assignments.single().filename)
     assertEquals(content.length.toLong(), stored.size)
-    assertEquals(PodMediaRef(podId, stored.mediaId), stored.ref)
+    assertEquals(PodMediaRef(podId.toPodId(), stored.mediaId), stored.ref)
     assertTrue(mediaStore.exists(stored.ref))
     assertContentEquals(content.toByteArray(), facade.open(stored).use { it.readBytes() })
     assertEquals(stored, dao.find(podId, stored.mediaId))
@@ -407,13 +409,26 @@ class PodMediaFacadeTest : SempodsIntegrationTest() {
     // A leaked byte: a crash between the store write and the DAO insert, or between the two halves
     // of a sweep. Inert, and paid for until somebody knows about it.
     val podId = ObjectId()
-    val orphan = PodMediaRef(podId, "orphan-${randomId()}")
+    val orphan = PodMediaRef(podId.toPodId(), "orphan-${randomId()}")
     mediaStore.put(orphan, "image/jpeg", source("stray-${randomId()}"))
 
     val report = facade.reconcile(podId)
 
     assertEquals(listOf(orphan), report.objectsWithoutRow)
     assertEquals(emptyList(), report.rowsWithoutObject)
+  }
+
+  @Test
+  fun `reconcile skips an object whose pod id is not shaped like one of ours`() {
+    // A backend may hold other data — a bucket with other prefixes, a directory somebody else writes
+    // to. A store cannot tell one of those from a pod, so the filter is here. Shape only; the KDoc
+    // on `reconcile` names the case it cannot cover.
+    val foreign = PodMediaRef(PodId("not-a-pod-of-ours"), "object-${randomId()}")
+    mediaStore.put(foreign, "image/jpeg", source("stray-${randomId()}"))
+
+    val report = facade.reconcile()
+
+    assertFalse(foreign in report.objectsWithoutRow)
   }
 
   @Test

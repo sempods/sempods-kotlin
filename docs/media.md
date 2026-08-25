@@ -100,6 +100,19 @@ storage key: an implementation owns how a ref becomes a physical location. Both 
 inside sempods that layout is what an external backup and a backend swap operate on — but nothing in
 the server computes a location.
 
+`podId` is a **`PodId`**: the tenant key the store partitions by, and **not** a location. It
+promises nothing about its own form — a store that needs a path or an object key derives one and
+owns that mapping, the same way it owns its layout. Both shipped stores happen to use the token
+verbatim as one path segment or one key prefix, and each says so in its own KDoc — which is also why
+each refuses a token containing `/` from `put` rather than storing an object its own walk could
+never hand back. A deployment minting tokens like that wants a store that encodes them.
+
+Which tenants are this deployment's is therefore nothing a store can answer, and `iterate` does not
+try: it hands back everything its layout can read, and `PodMediaFacade.reconcile` drops the ids this
+deployment did not mint before the report. That last check is by shape, so one case survives it — a
+second sempods deployment sharing the backend mints the same shape, its objects have no row here,
+and they are reported as leaks. **Two deployments must not share one media backend unpartitioned.**
+
 **Selection lives in the deployment, and that is forced rather than stylistic.** `:sempods-media-s3`
 depends on `:sempods-server`, so `:sempods-server` cannot import `S3PodMediaStore` to choose it. `:sempods-server` owns
 `PodMediaStore`, `FilesystemPodMediaStore` and `PodMediaEndpoint` and binds none of them;

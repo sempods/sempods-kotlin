@@ -77,10 +77,11 @@ moving the namespace needed no client change.
 
 ### `_system` is protected, not undescribable
 
-`/_system/*` is reserved for control-plane state, and RDF CRUD or SPARQL
-Update cannot change it: the context registry, grants and registrations
-live in MongoDB, so a write against a control-plane IRI produces triples,
-never a permission change.
+`/_system/*` is reserved for control-plane state, and no RDF write can
+change it — SPARQL Update is not offered at all, and RDF CRUD does not
+reach it: the context registry, grants and registrations live in MongoDB,
+so a write against a control-plane IRI produces triples, never a
+permission change.
 
 Statements *about* a `_system` IRI are therefore ordinary data. A pod may
 hold `<{pod}/_system/contexts/contacts> rdfs:label "Privat"` the same way it
@@ -338,9 +339,11 @@ them by clever request shaping.
 
 ### Write sandbox
 
-- SPARQL Update may only affect contexts in `write_contexts`.
-- `LOAD`, `CLEAR ALL`, `DROP ALL` are forbidden.
-- CRUD writes must specify the target context explicitly.
+- Writes never arrive over SPARQL: `validateReadOnly()` rejects the
+  whole Update grammar (`INSERT`, `DELETE`, `LOAD`, `CLEAR`, `CREATE`,
+  `DROP`, `COPY`, `MOVE`, `ADD`), so every write below is a CRUD write.
+- CRUD writes must specify the target context explicitly, and it must
+  be in `write_contexts`.
 - Per-context scope is checked at write time; for `manage`, the
   slash-delimited rule above is enforced.
 - Writes to `/_system/*` via external endpoints are forbidden.

@@ -1,9 +1,9 @@
 package org.sempods.pods.media.impls.fs
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStore
-import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
 import java.nio.file.Files
@@ -39,6 +39,9 @@ import kotlin.io.path.name
  * backup — the directory this points at is the only copy of every byte in it.
  */
 class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
+
+  /** Normalised once, because every containment check compares against it. */
+  private val rootDirectory: Path = root.normalize()
 
   init {
     Files.createDirectories(root)
@@ -87,7 +90,7 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
    * for backends where laziness *does* hold a resource.
    */
   override fun <T> iterate(
-    podId: ObjectId?,
+    podId: PodId?,
     after: String?,
     consume: (Sequence<MediaEntry>) -> T,
   ): T {
@@ -95,18 +98,19 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
 
     val podDirectories = when (podId) {
       null -> root.listDirectoryEntries().filter { it.isDirectory() }.sortedBy { it.name }
-      else -> listOf(root.resolve(podId.toHexString())).filter { it.isDirectory() }
+      // The same rule `resolve` applies, and for the same reason: a scope is a token turned into a
+      // path too, so `..` or an absolute path would walk outside the root and report filenames that
+      // are not this store's under a tenant that does not exist.
+      else -> listOf(podDirectory(podId)).filter { it.isDirectory() }
     }
 
     val entries = sequence {
       for (podDirectory in podDirectories) {
-        val owner = podDirectory.name.toObjectIdOrNull()
-        if (owner == null) {
-          // Not ours. Refusing to guess beats reporting a directory somebody else put here as an
-          // orphaned media object, which is what the reconcile would otherwise do with it.
-          logger.warn { "Ignoring directory ${podDirectory.name} — not a pod id" }
-          continue
-        }
+        // Every directory under the root is a tenant of this store's layout, and this is as far as
+        // the judgement goes: a `PodId` says nothing about its own form, so nothing here can tell a
+        // pod of this deployment from a directory somebody else made. `PodMediaFacade.reconcile`
+        // decides that, being the side that mints them.
+        val owner = PodId(podDirectory.name)
         // Cheap skip: a whole pod that sorts before the resume point cannot contain it.
         if (after != null && podDirectory.name < after.substringBefore('/')) continue
 
@@ -132,21 +136,44 @@ class FilesystemPodMediaStore(private val root: Path) : PodMediaStore {
   }
 
   /**
-   * The one place a ref becomes a path.
+   * The one place a ref becomes a path, and this store's own mapping: it uses both halves of the ref
+   * verbatim. A [org.sempods.pods.PodId] promises nothing about its form, so that is a choice made
+   * here — an implementation whose backend cannot take a token as-is encodes or hashes it instead.
    *
-   * [PodMediaRef.mediaId] is minted as base64url, which cannot contain `/` or `.` runs, so it can
-   * never escape the directory — but this is the only code that turns an outside-supplied string
-   * into a path, and a check that costs one comparison is cheaper than trusting that forever.
+   * **The layout therefore holds a pod id that is one path segment, and refuses anything else.** A
+   * deployment minting tokens with a `/` in them wants a store that encodes; this one says so here
+   * instead of writing an object [iterate] could not hand back. [PodMediaRef.mediaId] is minted as
+   * base64url and cannot contain `/` or `.` runs, but it reaches a path through here too, so both
+   * halves are checked in one place.
    */
   private fun resolve(ref: PodMediaRef): Path {
-    val resolved = root.resolve(ref.podId.toHexString()).resolve(ref.mediaId).normalize()
-    require(resolved.startsWith(root.normalize())) { "media ref escapes the store root: $ref" }
-    require(resolved.parent?.parent == root.normalize()) { "media ref must name one object: $ref" }
+    val directory = podDirectory(ref.podId)
+    val resolved = directory.resolve(ref.mediaId).normalize()
+    require(resolved.parent == directory) { "media ref must name one object: $ref" }
     return resolved
   }
 
-  private fun String.toObjectIdOrNull(): ObjectId? =
-    if (ObjectId.isValid(this)) ObjectId(this) else null
+  /**
+   * [root]/[PodId], checked to be a directory directly under the root.
+   *
+   * Every path this store builds runs through here — the object locations and the scope of a walk
+   * alike — because a `PodId` promises nothing about its form and a token naming a parent or an
+   * absolute path is one this layout has to refuse rather than follow.
+   *
+   * **The check is structural rather than a list of characters to forbid.** Which characters
+   * separate path elements is the platform's answer, not this file's: `\` divides on Windows and
+   * does not on Linux, and a drive letter makes a token absolute on one and a plain name on the
+   * other. Asking `Path` whether the result came out directly under the root is the same question
+   * on every platform, and needs no list to be kept complete.
+   */
+  private fun podDirectory(podId: PodId): Path {
+    val resolved = root.resolve(podId.value).normalize()
+    require(resolved.parent == rootDirectory) {
+      "this store lays out one directory per pod, so a pod id must name one directly under its " +
+          "root: '${podId.value}'"
+    }
+    return resolved
+  }
 
   companion object {
     private val logger = KotlinLogging.logger {}

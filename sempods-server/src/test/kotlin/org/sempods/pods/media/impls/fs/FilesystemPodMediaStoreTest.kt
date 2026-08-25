@@ -1,16 +1,20 @@
 package org.sempods.pods.media.impls.fs
 
+import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStoreConformanceTest
-import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteExisting
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -29,16 +33,16 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
 
   override val store: FilesystemPodMediaStore by lazy { FilesystemPodMediaStore(root) }
 
-  private fun ref(podId: ObjectId, mediaId: String) = PodMediaRef(podId, mediaId)
+  private fun ref(podId: PodId, mediaId: String) = PodMediaRef(podId, mediaId)
 
-  private fun listAll(podId: ObjectId? = null): List<PodMediaRef> =
+  private fun listAll(podId: PodId? = null): List<PodMediaRef> =
     store.iterate(podId) { entries -> entries.map(MediaEntry::ref).toList() }
 
   @Test
   fun `put leaves no staging file behind`() {
     store.put(ref(podA, "one"), "text/plain", source("hello"))
 
-    val strays = root.resolve(podA.toHexString()).listDirectoryEntries()
+    val strays = root.resolve(podA.value).listDirectoryEntries()
       .filter { it.fileName.toString().startsWith(".staging-") }
     assertTrue(strays.isEmpty(), "a completed put must clean up its staging file, found: $strays")
   }
@@ -49,7 +53,7 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     store.put(ref(podB, "one"), "text/plain", source("b1"))
     // A crash inside `put` can strand one of these. The reconcile reads `iterate` as the set of
     // objects, so a staging file appearing there would be reported as an orphan.
-    root.resolve(podA.toHexString()).resolve(".staging-crashed.tmp").writeText("half a file")
+    root.resolve(podA.value).resolve(".staging-crashed.tmp").writeText("half a file")
 
     assertEquals(setOf(ref(podA, "one"), ref(podB, "one")), listAll().toSet())
   }
@@ -60,17 +64,23 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     // half-written file this store made is not an object, while a file somebody else put where the
     // objects live is exactly the leaked byte the reconcile exists to name.
     store.put(ref(podA, "one"), "text/plain", source("a1"))
-    root.resolve(podA.toHexString()).resolve("planted").writeText("not in the registry")
+    root.resolve(podA.value).resolve("planted").writeText("not in the registry")
 
     assertEquals(setOf(ref(podA, "one"), ref(podA, "planted")), listAll(podA).toSet())
   }
 
   @Test
-  fun `a directory that is not a pod id is ignored rather than reported as media`() {
+  fun `every directory is a tenant, because whose it is not this store's judgement`() {
+    // A `PodId` promises nothing about its form, so a directory name cannot be read as evidence of
+    // anything. The store hands back what it holds and `PodMediaFacade.reconcile` decides ownership
+    // — being the side that mints ids. A store filtering here would be guessing.
     store.put(ref(podA, "one"), "text/plain", source("a1"))
     root.resolve("lost+found").createDirectories().resolve("junk").writeText("not ours")
 
-    assertEquals(listOf(ref(podA, "one")), listAll())
+    assertEquals(
+      setOf(ref(podA, "one"), PodMediaRef(PodId("lost+found"), "junk")),
+      listAll().toSet(),
+    )
   }
 
   @Test
@@ -81,7 +91,7 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     // the class KDoc.
     store.put(ref(podA, "layout-probe"), "text/plain", source("bytes"))
 
-    assertTrue(root.resolve(podA.toHexString()).resolve("layout-probe").toFile().isFile)
+    assertTrue(root.resolve(podA.value).resolve("layout-probe").toFile().isFile)
   }
 
   @Test
@@ -107,6 +117,40 @@ class FilesystemPodMediaStoreTest : PodMediaStoreConformanceTest() {
     val all = store.iterate { it.toList() }
 
     assertEquals(emptyList(), store.iterate(after = all.last().cursor) { it.toList() })
+  }
+
+  @Test
+  fun `a pod id this layout cannot hold is refused, not half-stored`() {
+    // A `PodId` promises nothing about its form, so a deployment may mint one this store's layout
+    // cannot express. Refusing is the contract: writing it would put an object under `a/b/` that
+    // `iterate` — which reads one directory level — could never hand back.
+    val unstorable = PodMediaRef(PodId("a/b"), "one")
+
+    assertFailsWith<IllegalArgumentException> { store.put(unstorable, "text/plain", source("x")) }
+    assertEquals(emptyList(), listAll())
+  }
+
+  @Test
+  fun `a scope that would walk outside the root is refused`() {
+    // A scope is a token turned into a path as much as an object location is. Without the check,
+    // `root.resolve("..")` lists the parent and reports its filenames as media of a pod that does
+    // not exist — and the reconcile hands that to an operator over the admin surface.
+    val outside = root.resolve("..").resolve("neighbour-${randomId()}")
+    outside.createDirectories().resolve("secret.txt").writeText("not this store's")
+
+    try {
+      assertFailsWith<IllegalArgumentException> { store.iterate(PodId("..")) { it.toList() } }
+      assertFailsWith<IllegalArgumentException> { store.iterate(PodId("/etc")) { it.toList() } }
+      // Written with the platform's own separator rather than `/`, because which character divides
+      // a path is the platform's answer: `\` nests on Windows and is a plain filename on Linux.
+      // The rule is "one directory under the root", and that reads the same on both.
+      assertFailsWith<IllegalArgumentException> {
+        store.iterate(PodId("a${File.separator}b")) { it.toList() }
+      }
+    } finally {
+      outside.resolve("secret.txt").deleteExisting()
+      outside.deleteExisting()
+    }
   }
 
   @Test

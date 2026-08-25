@@ -263,8 +263,10 @@ Conditional writes (`If-Match`) MUST be honored as for `PUT`.
 - Conditional `If-Match` MUST be honored.
 
 A `DELETE` without `?context=` is rejected with `400 Bad Request`.
-A cross-context delete is not exposed at this layer; use SPARQL
-Update or System-layer per-context deletes.
+A cross-context delete is not exposed at this layer, and there is no
+route that does it in one step: delete per context, either here or
+through the System layer. See §"Known limitations" for why the atomic
+form is unavailable and what that costs the caller.
 
 ## Conformance requirements
 
@@ -397,9 +399,18 @@ surprises.
   the other form should normalise on the way in.
 - **No atomic cross-context writes.** Every `PUT` / `PATCH` /
   `DELETE` targets exactly one context. Compound writes that must
-  land in multiple contexts atomically are not part of this layer —
-  use SPARQL Update (`POST /_system/sparql/update`) as the escape
-  hatch when transactional multi-context semantics matter.
+  land in multiple contexts atomically are not part of this layer,
+  and there is no escape hatch elsewhere: the SPARQL surface is
+  read-only (see §"Read-only SPARQL endpoint (related)"), and
+  `SparqlQueryService.validateReadOnly()` rejects every Update form.
+  All-or-nothing semantics across contexts are therefore unavailable
+  at any layer, and splitting the write per context does not
+  reconstruct them — the intermediate state is externally visible,
+  and a compensating write can fail in turn. That leaves best-effort
+  recovery, not a guarantee, and a caller that cannot tolerate the
+  gap should not spread the data across contexts in the first place.
+  Transactional multi-context writes are tracked in the maintainer's
+  internal roadmap.
 - **TOCTOU between precondition check and write.** Conditional
   writes (`If-Match`, `If-None-Match: *`) are evaluated outside the
   storage transaction. A concurrent write between the precondition

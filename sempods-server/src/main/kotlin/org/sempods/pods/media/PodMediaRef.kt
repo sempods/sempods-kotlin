@@ -1,6 +1,6 @@
 package org.sempods.pods.media
 
-import org.bson.types.ObjectId
+import org.sempods.pods.PodId
 
 /**
  * What identifies one media object: the pod that owns it, and the content hash that names it.
@@ -23,6 +23,6 @@ import org.bson.types.ObjectId
  * either scoped to one pod or explicitly to all of them.
  */
 data class PodMediaRef(
-  val podId: ObjectId,
+  val podId: PodId,
   val mediaId: String,
 )

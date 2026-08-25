@@ -1,9 +1,9 @@
 package org.sempods.pods.media.impls.s3
 
+import org.sempods.pods.PodId
 import org.sempods.pods.media.MediaEntry
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStore
-import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
@@ -98,18 +98,20 @@ class S3PodMediaStore internal constructor(
    * on the first request only; once a continuation token is in play S3 ignores it, which is exactly
    * right since the token already carries the position.
    *
-   * Keys that do not parse as `{podId}/{mediaId}` are skipped rather than reported. That mirrors the
-   * filesystem store ignoring a directory that is not a pod id: a bucket may legitimately hold other
-   * things, and calling one of them an orphaned media would send an operator after bytes that are
-   * not theirs to delete. A stray key *inside* a pod's prefix is a different matter and **is**
-   * reported — that is the reconcile working.
+   * Keys that do not fit this store's `{prefix}/{name}` layout are skipped — a nested path is not
+   * something it wrote. Which *prefixes* are pods of this deployment it cannot say, since a [PodId]
+   * promises nothing about its form; a shared bucket's other prefixes therefore come back as
+   * tenants and `PodMediaFacade.reconcile` sorts them out. A stray key *inside* a pod's prefix is a
+   * different matter and **is** reported — that is the reconcile working.
    */
   override fun <T> iterate(
-    podId: ObjectId?,
+    podId: PodId?,
     after: String?,
     consume: (Sequence<MediaEntry>) -> T,
   ): T {
-    val prefix = podId?.let { "${it.toHexString()}/" }
+    // Checked like a `put` is, so a scope this layout cannot express fails loudly instead of
+    // listing a prefix `parseKey` would then drop — which reads as "this pod holds nothing".
+    val prefix = podId?.let { "${it.requireOneKeySegment()}/" }
     var skipped = 0
 
     val entries = sequence {
@@ -158,7 +160,29 @@ class S3PodMediaStore internal constructor(
     if (e.statusCode() == 404) null else throw e
   }
 
-  private fun key(ref: PodMediaRef) = "${ref.podId.toHexString()}/${ref.mediaId}"
+  /**
+   * The one place a ref becomes a key, and the constraint that goes with this store's layout: a pod
+   * id becomes one key segment, so a token with a `/` in it is refused rather than written.
+   * [parseKey] could not read such a key back, and an object `iterate` cannot hand back is a byte
+   * lost without a sound — the one outcome `PodMediaStore` rules out. A deployment minting tokens
+   * like that wants a store that encodes them.
+   */
+  private fun key(ref: PodMediaRef): String = "${ref.podId.requireOneKeySegment()}/${ref.mediaId}"
+
+  /**
+   * [PodId.value], checked against what this layout can hold — one key segment.
+   *
+   * A character check, and correctly so, unlike the filesystem store's structural one: an object
+   * key is an opaque string in which `/` is a delimiter by this store's convention and nothing else
+   * is special. `\` is an ordinary character here and round-trips through [parseKey] untouched, so
+   * there is no platform to ask.
+   */
+  private fun PodId.requireOneKeySegment(): String {
+    require(value.isNotEmpty() && !value.contains('/')) {
+      "this store lays out one key prefix per pod, so a pod id must be a single segment: $value"
+    }
+    return value
+  }
 
   /**
    * The one place a key becomes a ref — `null` for anything that is not one of this store's media
@@ -169,9 +193,8 @@ class S3PodMediaStore internal constructor(
     if (separator < 0) return null
     val owner = key.substring(0, separator)
     val name = key.substring(separator + 1)
-    if (name.isEmpty() || name.contains('/')) return null
-    if (!ObjectId.isValid(owner)) return null
-    return PodMediaRef(ObjectId(owner), name)
+    if (owner.isEmpty() || name.isEmpty() || name.contains('/')) return null
+    return PodMediaRef(PodId(owner), name)
   }
 
   companion object {

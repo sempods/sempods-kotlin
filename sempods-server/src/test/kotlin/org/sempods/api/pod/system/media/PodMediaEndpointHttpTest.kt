@@ -17,6 +17,7 @@ import org.sempods.media.PodMediaSource
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
+import org.sempods.pods.mongo.persist.toPodId
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -923,7 +924,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/broken-${randomId()}")
     val mediaId = mediaIdOf(upload(pod, context, token))
-    mediaStore.delete(PodMediaRef(checkNotNull(pod.id), mediaId))
+    mediaStore.delete(PodMediaRef(checkNotNull(pod.id).toPodId(), mediaId))
 
     val response = httpClient.prepareGet(contentUrl(pod.name, mediaId))
       .addHeader("Authorization", "Bearer $token").execute()

@@ -40,14 +40,13 @@ This is not a business idea. Optimize for openness, clarity, and interoperabilit
 - Scope: an OAuth scope in the RFC 6749 sense — a coarse feature capability such as `public-read`.
   These *do* travel in the token. See `docs/auth/authorization.md` §"Terminology: scope vs. grant";
   parts of the code still say "scope" where "grant" is meant.
-- default_write_context: context used when a write does not specify an explicit target context.
 
 ## Non-negotiable invariants
 
 1) Every edge/statement always has exactly one Context (named graph).
 2) Read sandbox: a request can only read contexts it has read rights for.
 3) Write sandbox: a request can only write into contexts it has write rights for.
-4) If a write does not specify a context, the token's default_write_context is used (and must be writeable).
+4) A CRUD write names its target context explicitly — there is no implicit fallback context.
 5) Pods are isolated by default. Do not introduce cross-pod access without explicit, spec-defined sync mechanisms.
 6) Prefer explicit specs + conformance tests over clever query rewriting.
 

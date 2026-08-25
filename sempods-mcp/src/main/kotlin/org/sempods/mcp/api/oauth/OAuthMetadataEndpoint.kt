@@ -67,9 +67,11 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
     respondText(body(profile), ContentType.Application.Json)
   }
 
-  // The service's own did:web document — a pod using the did:web static-client model resolves the
-  // service's `client_id` (did:web:<host>) to this and checks `id` matches before accepting the
-  // connect. Service-wide (host identity), not per-profile.
+  // The service's own did:web document — a pod using the did:web static-client model may resolve
+  // the service's `client_id` (did:web:<host>) to this and check `id` matches before accepting the
+  // connect. Offered because the method permits it, not because sempods needs it: a sempods pod
+  // accepts the identifier on the origin match alone (`DidWeb`) and fetches nothing, which is
+  // where its lack of an SSRF surface comes from. Service-wide (host identity), not per-profile.
   val didDocument = objectMapper.writeValueAsString(DidWeb.document(DidWeb.clientId(base)))
 
   routing {

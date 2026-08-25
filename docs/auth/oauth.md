@@ -30,11 +30,22 @@ step see `identity.md`.
 
 Two `client_id` shapes, with different rules:
 
-### `did:web:*` — pre-resolvable apps (e.g., Focus, AppShell-based SPAs)
+### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
-- The DID resolves to a host the pod can verify.
-- `redirect_uri` must match the DID host (or loopback for local
-  development).
+- The identifier *names* an address; nothing is dereferenced to check
+  it. The check is local and structural — see
+  `sempods-auth-core/src/main/kotlin/org/sempods/auth/core/DidWeb.kt`,
+  which states what it deliberately does not do and why (no SSRF
+  surface, no cache, no third-party availability in the login path).
+- `redirect_uri` must match the DID host **and port** (or loopback for
+  local development, which is wired from the environment and never
+  defaulted on).
+- A path-scoped identifier narrows it further: `did:web:example.org:mcp`
+  is answerable only at or below `/mcp`, matched **per path segment**,
+  so `/mcp` and `/mcp/cb` are covered and `/mcp-other/cb` is not.
+  Comparing host and port alone would let two services sharing a host
+  receive each other's codes. `DidWeb.Target.covers()` is the one place
+  that answers this, for both the pod and the id-server.
 - No DCR; the app is its own identity.
 - Consent behaves per the `prompt` parameter (auto-grant when grants
   exist and `prompt` isn't `consent`).
