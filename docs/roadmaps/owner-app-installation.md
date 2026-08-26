@@ -76,8 +76,17 @@ the owner granted it.
   what `public-read` does not do. Settled by item 1 and hard to change afterwards: a scope name
   reaches consent dialogs and stored grants.
 - Whether a caller-supplied `contextRoot` that is public should be demoted the way the admin route
-  demotes a derived one. Demoting is safer for descendants; not demoting respects that the owner
-  published that context on purpose. Item 4 has to answer it either way.
+  demotes a derived one. Not a question about descendants, whatever the admin route's wording
+  suggests: `isPublic` is a flag on one context row and `getPublicContexts` matches it exactly, so
+  nothing is inherited down the slash. What demotion changes is anonymous read of that root's own
+  contents — and the owner published it on purpose. Item 4 has to answer it either way.
+- What a provisioning that failed halfway leaves behind. The root is created before the
+  registration is written, so a failure in between leaves `apps/{clientId}` standing with nothing in
+  it, and item 4's rule then reads it as a replacement — the caller cannot finish what it started.
+  The likely answer is an exception for a root that is *empty*: no registration, no statements, no
+  sub-contexts. It has to be exactly that narrow, because a root whose registration was deleted
+  while its data survived is a different thing and must stay protected. Item 4 cannot ship without
+  deciding this.
 - Whether `resolvePodOwnerPrincipal` should read the `alsoKnownAs` aliases. Item 2 decides it; until
   then it is open whether the two checks disagreeing is a defect or a boundary.
 - Whether `:sempods-client` and `:sempods-control-plane-client` should share one result type for a
