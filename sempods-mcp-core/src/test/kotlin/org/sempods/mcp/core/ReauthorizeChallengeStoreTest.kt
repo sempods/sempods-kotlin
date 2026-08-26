@@ -188,7 +188,7 @@ class ReauthorizeChallengeStoreTest {
 
   @Test
   fun `an anonymous challenge stores no jti field rather than a BSON null`() {
-    // `docs/persistence.md`: a field that carries no information is not written. A missing
+    // `sempods-commons-mongo/docs/document-contract.md`: a field that carries no information is not written. A missing
     // field satisfies the `$ne` on the jti, which is what makes the anonymous case work at all.
     store.record(realm, clientId = null, sub = null, jti = null)
     val doc = assertNotNull(stored(realm, null, null))

@@ -62,7 +62,7 @@ data class PreserveDue(val rows: List<PodTokens>, val unreadable: List<PodKey>)
 
 /**
  * @param collectionName the production name is the default; a test points an instance at a
- *   collection of its own, for the reason `docs/persistence.md` §"Conventions" states.
+ *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
  */
 class TokenVaultDao(
   db: MongoDatabase,
@@ -324,7 +324,7 @@ class TokenVaultDao(
     put("refreshToken", cipher.encryptMaybe(refreshToken))
     put("accessTokenExpiresAt", accessTokenExpiresAt)
     put("updatedAt", updatedAt)
-    // `putNotNull`: an absent field is the contract `docs/persistence.md` states, and a
+    // `putNotNull`: an absent field is the contract `sempods-commons-mongo/docs/document-contract.md` states, and a
     // never-used connection is the common case for a row this path writes.
     putNotNull("lastUsedAt", lastUsedAt)
   }

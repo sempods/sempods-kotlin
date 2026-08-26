@@ -31,7 +31,7 @@ import java.time.Instant
  * `findByClientId()` serves the hot-path `/authorize` lookup. Richer analysis
  * queries belong to Stage 2 and are not added pre-emptively.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. The widest row
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The widest row
  * in the schema, and the only one carrying a nested body: [DynamicClientRegistrationDbo.rawRequest]
  * is stored verbatim, and omitted entirely when empty.
  */

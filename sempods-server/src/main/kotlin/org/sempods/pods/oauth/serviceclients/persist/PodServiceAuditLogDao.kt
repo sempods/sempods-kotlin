@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Persistence for [PodServiceAuditLogDbo].
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. Every field
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. Every field
  * Morphia's `PojoCodec` wrote for this entity is written exactly as it wrote it — field order
  * included — which is pinned without a database by a wire-format test on the mapping side. No
  * stored row was rewritten, and a process on either side of the change reads what the other wrote.

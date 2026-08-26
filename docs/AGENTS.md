@@ -33,8 +33,10 @@ anything here. What it means for this folder:
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
 - `docs/vision.md` — core standard
-- `docs/persistence.md` — the collection layer: hand-written driver DAOs, the document
-  contract every one of them writes to, and the two query asymmetries that follow from it
+- `sempods-commons-mongo/docs/document-contract.md` — the document contract every DAO in this
+  repository writes to, and the two query asymmetries that follow from it
+- `sempods-server/docs/collections.md` — the pod server's collection layer: hand-written driver
+  DAOs, which database, and the boot-time updater
 - `docs/ai-layer.md` — AI provider abstraction
 - `docs/media.md` — pod-owned binaries: routes, authorization, the store seam and its
   three configuration states, the reference-counting lifecycle, and what is deliberately outside

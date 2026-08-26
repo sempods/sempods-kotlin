@@ -251,7 +251,7 @@ class RefreshTokenStore<OWNER>(
 
   /**
    * The row, in the order it is written — and the `_id` is minted here rather than left to the
-   * driver on purpose. Field order is the encoder's (`docs/persistence.md` §"Field order"), and
+   * driver on purpose. Field order is the encoder's (`sempods-commons-mongo/docs/document-contract.md` §"Field order"), and
    * both live collections carry `_id` first; a driver-generated key would hand that placement to a
    * code path this file does not control. Called once, at insert.
    */
