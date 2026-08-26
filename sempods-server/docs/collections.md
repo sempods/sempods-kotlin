@@ -12,7 +12,7 @@ second one is the one that goes stale.
 **How a document is written is not this document's subject.** The wire contract, the query
 consequences that follow from it and the conventions for writing a DAO are
 [`../../sempods-commons-mongo/docs/document-contract.md`](../../sempods-commons-mongo/docs/document-contract.md),
-and they hold for all three services rather than for this one.
+and they are shared with the other two services rather than particular to this one.
 
 ## Hand-written DAOs on the MongoDB driver
 

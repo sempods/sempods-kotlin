@@ -1,13 +1,23 @@
 # The document contract (IST)
 
-What a document written through `sempods-commons-mongo` looks like on the wire, and the conventions
-for writing a DAO on top of it. It holds for every collection in this repository — the pod server's,
-the identity service's, the hosted MCP service's — because all of them go through the same helpers,
-and a DAO that diverges produces rows indistinguishable from correct ones until a filter misses
-them.
+What a document written through the `sempods-commons-mongo` helpers looks like on the wire, and the
+conventions for writing a DAO on top of it. A DAO that diverges produces rows indistinguishable from
+correct ones until a filter misses them.
+
+**The contract is the helpers', and it binds only the DAOs that use them.** `putNotNull`,
+`putInstant` and `putStrings` implement the omission rules; a DAO that reaches past them to
+`Document.put` stores whatever it is handed, BSON `null` included. Several here do —
+`MongoSigningKeyStore.createInitial` writes `retiredAt` as an explicit null, and most of the hosted
+MCP service's DAOs (`AuditLogDao`, `DcrClientDao`, `SigningKeyDao`, `ConnectionRegistryDao`,
+`TokenVaultDao`, `PodConnectStateStore`) write their nullable fields directly.
+
+**So check which kind of DAO wrote a collection before filtering on it.** On those rows an unset
+field is present and null rather than absent, so `exists(false)` does not find it — while
+`{field: null}` matches either way, which is how the mismatch stays invisible until a query needs
+the distinction.
 
 `Documents.kt` carries the field-level reasoning and says why these rules and not others.
-`DocumentsTest` pins the whole contract without needing a database.
+`DocumentsTest` pins the contract without needing a database.
 
 ## The contract
 
