@@ -14,8 +14,10 @@ are **consumer-agnostic**: the same `find` + structural traversal serves a
 React event list and a GPT-class agent. The only AI-specific addition is the
 final answer step (`model2text`).
 
-Sections below describe the shipped behaviour (IST) unless they say otherwise;
-§"Status & where the work lives" is where the two are separated.
+Sections below describe the shipped behaviour (IST). Two things here are not
+built yet and say so where they appear: the `later:` line in the `find` response
+shape, and §"Possible later extension — general structured filters".
+§"Status & where the work lives" is the summary of both.
 
 ## The retrieval unit: resources, not chunks
 
@@ -136,14 +138,20 @@ list:
 
 ```
 POST /{pod}/_system/find
-{ "text": "…", "type": [<iri>…]?, "contexts": [<iri>…]?, "include_contexts": false?, "limit": 10?, "filter": {…}? }
+{ "text": "…", "type": [<iri>…]?, "contexts": [<iri>…]?, "include_contexts": false?, "limit": 10? }
 ```
 
 `contexts` carries the same read-downscope semantics as the GET `context=`
 parameter (`{requested} ∩ readable`, silent exclusion); `include_contexts` is the
 same provenance switch as the GET parameter. Content negotiation (JSON-LD vs.
-N-Quads) is still driven by the `Accept` header. `filter` is the deferred general
-predicate filter above and remains the only POST-body field not yet implemented.
+N-Quads) is still driven by the `Accept` header.
+
+The body is parsed with a **strict** mapper
+([`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt)
+enables `FAIL_ON_UNKNOWN_PROPERTIES`), so an unknown field is a 400 rather than a
+silently broadened result — `filter` included, since the general predicate filter
+above is not a field yet. That is what makes the envelope above copyable as it
+stands.
 
 ## Structural traversal — `find` is only the entry
 
