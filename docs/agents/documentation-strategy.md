@@ -32,10 +32,12 @@ a larger package. That includes `vision.md` — a module with its own audience m
 docs/vision.md                                   repository-wide
 docs/concepts/modularity.md
 docs/roadmaps/<milestone>.md
-docs/persistence.md                              IST
+docs/naming.md                                   IST, repository-wide because every module
+                                                 spells the name
 
 sempods-auth/docs/vision.md                      sub-vision: sempods-auth as a standalone IdP
 sempods-auth/docs/identity-service.md            IST
+sempods-commons-mongo/docs/document-contract.md  IST, at the module whose helpers implement it
 
 sempods-mcp/docs/roadmaps/<milestone>.md         a milestone touching one module only
 ```
@@ -44,6 +46,16 @@ Rules for choosing the level:
 
 - A document is written at the **narrowest** level where it holds. A milestone touching one module
   gets its roadmap at that module; one touching several goes to the root.
+- **For an IST document, "where it holds" is a question about the code**: which module would have to
+  change for this document to become wrong? That is where it belongs. A helper's contract lives with
+  the helper even though every service depends on it, and what one service stores lives with that
+  service even though the shape came from the helper. Where the honest answer is "more than one",
+  the document is more than one document — and splitting it is the cheaper half of the work, because
+  each half then has a reader who can tell whether it is still true.
+- **A misplaced document moves when the thing it describes is next worked on**, not in a sweep of
+  its own. Several here are older than this rule. The expensive part of a move is not the file, it
+  is the references: most of them are prose inside KDoc, `checkDocLinks` cannot see them, and a
+  batch of moves is a batch of chances to leave one pointing at nothing.
 - A module earns a sub-vision when it is independently deployable or usable and has an audience of
   its own — not because it is large.
 - A sub-vision **refines** the repository vision. It never contradicts it; a contradiction is a bug

@@ -10,7 +10,7 @@ import org.sempods.mcp.core.SempodsMcpCoreModule
  * one shape the other two services had already left behind: it gave a test no way to point an
  * instance at a collection of its own, so the suites worked around it with a throwaway database
  * per class. The DAOs take the name as a parameter now, the way
- * `docs/persistence.md` §"Conventions" describes.
+ * `sempods-commons-mongo/docs/document-contract.md` §"Conventions" describes.
  *
  * **No service prefix.** The database is `sempods-mcp`, so an `mcp.` in front of every name said
  * what the database already said. The `oauth.` names are deliberately the same strings the pod

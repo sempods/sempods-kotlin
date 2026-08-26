@@ -30,7 +30,7 @@ import java.time.Instant
  * of one — which is why the collection dropped both. Renaming the class is a separate edit and a
  * larger one; the maintainer's internal roadmap is where the shape of this row changes anyway.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. The document this writes is identical
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The document this writes is identical
  * to what Morphia's `PojoCodec` wrote for the same entity — field order included — which is pinned
  * without a database by a wire-format test on the mapping side. No stored row was rewritten, and a
  * process on either side of the change reads what the other wrote.

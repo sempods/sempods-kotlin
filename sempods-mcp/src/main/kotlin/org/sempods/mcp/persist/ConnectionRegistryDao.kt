@@ -78,7 +78,7 @@ data class PodConnection(
 
 /**
  * @param collectionName the production name is the default; a test points an instance at a
- *   collection of its own, for the reason `docs/persistence.md` §"Conventions" states.
+ *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
  */
 class ConnectionRegistryDao(
   db: MongoDatabase,
@@ -150,7 +150,7 @@ class ConnectionRegistryDao(
     put("podSubject", podSubject)
     put("subjectVerified", subjectVerified)
     // `putNotNull`, unlike the `podSubject` line above: an absent field is the contract
-    // `docs/persistence.md` states, and it is the common case here.
+    // `sempods-commons-mongo/docs/document-contract.md` states, and it is the common case here.
     putNotNull("deadGrantSince", deadGrantSince)
     put("createdAt", createdAt)
     put("updatedAt", updatedAt)

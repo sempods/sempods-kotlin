@@ -34,7 +34,7 @@ import java.time.Instant
  * The cascade deletes below mirror [PodGrantsDao] so a context/pod removal cannot leave dangling
  * user-level grants.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. Like
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. Like
  * [PodGrantsDao] and unlike every other collection here, its rows are written by an upsert rather
  * than by a document mapper, so the server picks their field order — see [addGrants].
  *

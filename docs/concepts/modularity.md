@@ -276,7 +276,7 @@ share is the `sempods-commons` family (`sempods-commons`, `sempods-commons-jaxrs
 The dependency direction runs one way, from every module into that family and never back out of
 it. `SempodsModule` composes from `org.sempods.commons.guice.BaseModule` and installs what it
 uses, `SempodsConfig` is the pod server's own configuration, and the fifteen collections sit on
-the MongoDB driver ([`../persistence.md`](../persistence.md)).
+the MongoDB driver ([`../../sempods-server/docs/collections.md`](../../sempods-server/docs/collections.md)).
 
 That matters for a reader who is meant to copy this. Frameworks are unavoidable and not the point;
 an *in-house* layer over them is, because it is the one thing a reader cannot look up. A reference

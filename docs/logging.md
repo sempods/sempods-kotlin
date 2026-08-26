@@ -33,7 +33,7 @@ fails the build if a published library carries it. Two exemptions, both narrow:
 
 **Boot.** `LoggingInitializer.initialize()` is the first statement in every `main`
 (`SempodsServerStarter`, `BackendStarter`, `SempodsAuthMain`, `SempodsMcpMain`). It installs the
-`java.util.logging` bridge — Jersey, Jetty, Morphia and the Google API client log through JUL, and
+`java.util.logging` bridge — Jersey, Jetty and the Google API client log through JUL, and
 without it their records bypass Logback entirely.
 
 **Configuration.** Each application ships its own `logback.xml`, which includes the shared base:

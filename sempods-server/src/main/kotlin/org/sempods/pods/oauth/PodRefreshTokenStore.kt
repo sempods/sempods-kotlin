@@ -20,7 +20,7 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  * concern. `PodGrantsFacade` reaches it from the same layer now instead of upward out of it.
  *
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
- *   instance at a collection of its own, for the reason `docs/persistence.md` §"Conventions"
+ *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions"
  *   states.
  */
 class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {

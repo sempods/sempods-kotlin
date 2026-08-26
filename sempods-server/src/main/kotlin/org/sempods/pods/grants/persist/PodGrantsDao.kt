@@ -32,7 +32,7 @@ import java.time.Instant
  * Writes funnel through [org.sempods.pods.grants.PodGrantsFacade] so the owner-level layer
  * ([PodWebIdGrantsDao]) and this one cannot drift apart.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. No document
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. No document
  * mapper writes here: every row is created by the upsert in [addGrants], and the inserted document
  * is composed by Mongo out of the filter's equality fields plus `$setOnInsert`, in an order it
  * picks. The field *set* is what holds, and `PodGrantsDaoTest` asserts it.

@@ -39,7 +39,7 @@ data class SigningKey(
 
 /**
  * @param collectionName the production name is the default; a test points an instance at a
- *   collection of its own, for the reason `docs/persistence.md` §"Conventions" states.
+ *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
  */
 class SigningKeyDao(
   db: MongoDatabase,

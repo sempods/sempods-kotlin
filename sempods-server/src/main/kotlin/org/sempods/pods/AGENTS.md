@@ -50,13 +50,15 @@ PodFacade  (business logic: resources, slots, context lifecycle)
 The `…Dbo` rows under `*/persist/` and the DAO functions over them are `internal`; the DAO classes
 and their constructors are not, because Guice builds them. A facade or endpoint member that takes or
 returns a row is `internal` too — giving one a public answer means giving it a row-free type. See
-`docs/persistence.md` §"Conventions".
+[`collections.md`](../../../../../../docs/collections.md) §"Conventions".
 
 ## Related docs
 
 - Authorization model, grant vs. scope, revocation (IST): `docs/auth/authorization.md`
 - Write-through store, change dispatch, recovery (IST): `write-through.md`
-- The MongoDB side — driver DAOs, the document contract, index and test conventions (IST):
-  `docs/persistence.md`
+- This module's collections — driver DAOs, which database, the updater (IST):
+  [`collections.md`](../../../../../../docs/collections.md)
+- The document contract the `commons-mongo` helpers implement, and the conventions over it (IST):
+  [`document-contract.md`](../../../../../../../sempods-commons-mongo/docs/document-contract.md)
 - Architecture: `docs/architecture/module-layering.md`
 - Pod store & journal roadmap (SOLL): the maintainer's internal roadmap

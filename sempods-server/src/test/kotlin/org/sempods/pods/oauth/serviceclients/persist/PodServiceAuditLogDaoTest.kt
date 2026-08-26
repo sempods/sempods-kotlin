@@ -43,7 +43,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
    * deadline at all and is therefore invisible to the reaper whatever its date.
    *
    * Truncated to milliseconds so the round trip is the identity function — see
-   * `docs/persistence.md`, and `putInstant`, which truncates on the way in.
+   * `sempods-commons-mongo/docs/document-contract.md`, and `putInstant`, which truncates on the way in.
    */
   private val now: Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 
