@@ -36,13 +36,16 @@ the owner granted it.
   `PodContextsEndpoint.authorizeContextManageOrThrow`; the bootstrap case (owner, fresh pod, no
   grants) keeps working. Depends on 1, 2.
 - [ ] 4 — `POST {pod}/_system/auth/service-clients/{clientId}` registers a service client for the
-  owner, with the `expectedRegistrationId` contract and the 409 the admin route already defines. An
-  omitted `contextRoot` derives and privatizes `apps/{clientId}`. A supplied one must already be a
-  registered context, keeps its visibility, **and has to be covered by authority the caller already
-  holds** — a `#manage` grant over it, or the `contexts` capability. Without that rule
-  `service-clients` alone would mint `X#manage` for any context of the pod and hand back a
-  credential that reads, writes and deletes it: the registration route would become the way around
-  both the context capability and the grants the owner picked at consent. New
+  owner, with the `expectedRegistrationId` contract and the 409 the admin route already defines.
+  **The rule that decides every case: the route may confer authority only over ground it created
+  in that same call.** A `clientId` carrying no registration, whose `apps/{clientId}` does not
+  exist, is that case — derived, privatized, scoped, on `service-clients` alone. Everything already
+  standing is a replacement and needs authority the caller already holds over that root, a covering
+  `#manage` grant or the `contexts` capability: a supplied `contextRoot`, a registration under this
+  `clientId`, an `apps/{clientId}` that is already there. State it as the rule rather than as three
+  checks, because each of the three is the same escalation — `service-clients` alone minting
+  `X#manage` over a context the owner never delegated, by naming it outright or by re-registering
+  another app's `clientId`, which an omitted `expectedRegistrationId` re-mints by contract. New
   `PodServiceClientsEndpoint`; the request and response types move out of `AdminPodsEndpoint` so
   both routes answer one shape. Depends on 1, 2.
 - [ ] 5 — The same route lists registrations and deletes one, so revoking an app does not mean
@@ -54,11 +57,18 @@ the owner granted it.
 - [ ] 8 — `ServiceClientAuth` — the caching `SempodsAuth` over `client_credentials` that every
   2-leg consumer writes by hand today. `SempodsAuth`'s own KDoc says this module supplies no
   such adapter; that sentence is about a multi-pod registry and has to say so afterwards.
-- [ ] 9 — A loopback login in the client (RFC 8252): the two protocol calls on `SempodsClient`, and
-  a small orchestrator that binds an ephemeral port, carries the PKCE verifier and hands back a
-  `SempodsAuth`. It surrenders the authorize URL rather than opening a browser. Depends on 1, 2.
-- [ ] 10 — One test walks the whole path: owner token, register, mint, write inside the sandbox,
-  refused outside it, unregister, mint refused.
+- [ ] 9 — A loopback login in the client (RFC 8252). Two calls on `SempodsClient`, and they are
+  DCR at `_system/auth/register` and the `authorization_code` exchange at `_system/auth/token` —
+  not authorize and token. A local tool has no stable origin, so it cannot assert a `did:web`
+  identity and has to hold a `dyn:` client id of its own before `/authorize` will look at its
+  loopback redirect; a client API that left that step out would send its caller to raw HTTP for the
+  first move. Over the two, an orchestrator that binds an ephemeral port, carries the `client_id`
+  into the authorize URL, keeps the PKCE verifier and hands back a `SempodsAuth`. It surrenders the
+  authorize URL rather than opening a browser. Depends on 1, 2.
+- [ ] 10 — One test walks the whole path, starting where a real tool starts — no client id in hand:
+  DCR, consent, owner token, register, mint, write inside the sandbox, refused outside it,
+  unregister, mint refused. Plus the two refusals that are the point of item 4: `service-clients`
+  alone may not name an existing context, and may not re-register another app's `clientId`.
 
 ## Open decisions
 

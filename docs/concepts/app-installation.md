@@ -77,11 +77,17 @@ owner-installed service client is worth having at all:
 ## Self-service by the owner (SOLL)
 
 An owner-authenticated request may register a service client on their own pod, over the pod surface
-rather than the admin surface. The scope it registers is `<root>#manage`, for a root the *caller*
-holds authority over — which is not the same as one the owner holds authority over, because the
-caller is an app carrying an owner's token. A root the route derives and creates itself
-(`apps/<clientId>`) needs nothing further; naming an existing context needs the authority to manage
-that context, or the registration becomes a way to mint access the owner never delegated.
+rather than the admin surface. The scope it registers is `<root>#manage`, and which roots are
+reachable follows one rule: **a registration confers authority only over ground the same call
+created.** A fresh `apps/<clientId>` qualifies. A context that already exists does not, whether the
+caller names it outright or reaches it by re-registering the `clientId` another app already holds —
+those are one escalation with two doors, and both hand out `#manage` over data the owner never
+delegated to this caller.
+
+The distinction that makes the rule necessary is that the caller is not the owner. It is an app
+carrying an owner's token, and what the owner may do is not what they gave this app leave to do.
+Reaching anything already standing therefore takes authority the caller holds in its own right — a
+covering `#manage` grant, or the capability that stands for owner authority over contexts.
 
 This introduces no new scope type and no parallel policy language. `PodScopeValidator` already
 refuses a `manage` root at or above `<pod>/_system/contexts`, on registration and again when
