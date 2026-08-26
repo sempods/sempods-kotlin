@@ -20,18 +20,9 @@ dependencies {
   // The artifacts behind those signatures. `JsonNode` and `ObjectMapper` are in many of them, and
   // `jakarta.ws.rs-api` is what `BaseEndpoint`'s subclasses hand back a `Response` from.
   //
-  // `bson` is `implementation` and no longer `api`: since #29 the `…Dbo` rows are `internal` and so
-  // is every DAO function over them, so `ObjectId` appears in none of this module's public
-  // signatures — `buildHealth` reads the Kotlin metadata and fails this line the moment it goes
-  // back to `api`. The type is still named all over the DAO bodies, which is what a DAO is for, and
-  // that is exactly what `implementation` says.
-  //
-  // `mongodb` stays `api`, and what holds it there is now a different list: `MongoDatabase` sits in
-  // the constructor of every DAO and store. Those constructors are public because Guice builds
-  // them, so closing them means handing Guice `internal` `@Inject` constructors — a risk this
-  // change does not carry and worth its own one; #41. And it would buy less than it looks: a
-  // consumer inherits both artifacts through `:sempods-auth-core` either way, since
-  // `RefreshTokenStore.Token.id` is an `ObjectId` there; #40.
+  // `mongodb` is `api` for the `MongoDatabase` in the DAO and store constructors; `bson` is
+  // `implementation` because `ObjectId` is named only in their bodies. #41 would close the
+  // constructors; #40 is why a consumer resolves both artifacts either way.
   api(libs.mongodb)
   implementation(libs.bson)
   api(libs.jacksonDatabind)

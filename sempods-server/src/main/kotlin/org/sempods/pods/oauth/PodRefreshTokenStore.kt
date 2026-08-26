@@ -22,12 +22,6 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `docs/persistence.md` §"Conventions"
  *   states.
- *
- * Every method here is `internal`, [markRotated] and [revokeFamily] included even though their
- * signatures name nothing this deployment owns. What is closed is the store, not a list of types:
- * a class answering seven questions module-internally and two to anyone states no boundary at all,
- * and the two exceptions would be read as an invitation. The class and its constructors stay
- * public because Guice builds them.
  */
 class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
 

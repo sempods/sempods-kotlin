@@ -35,8 +35,8 @@ dependencyAnalysis {
 
     // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in the
     // public signatures of `:sempods-commons-mongo` and `:sempods-auth-core`, so that artifact is
-    // one a consumer declares. Bundling it would also hide the distinction #29 rests on — a module
-    // may need the driver without exporting its types, which is what `:sempods-server` does now.
+    // one a consumer declares — and bundling it would hide the modules that need the driver
+    // without exporting its types.
     bundle("mongodb-driver") {
       primary("org.mongodb:mongodb-driver-sync")
       includeDependency("org.mongodb:mongodb-driver-core")

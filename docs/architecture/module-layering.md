@@ -101,10 +101,7 @@ Service Impl ──┘
 - **Repositories and DAOs stay module-internal.** Data access is where the document format lives,
   and that is precisely what must not become a shared surface: a second module reading the same
   collection turns a storage detail into a contract nobody declared. Reach the data through the
-  owning module's facade.
-  In `:sempods-server` this is enforced rather than intended: the `…Dbo` rows and the `*DboFields`
-  objects naming their stored fields are `internal` classes, every DAO function over them is
-  `internal`, and the DAO classes and their constructors stay public only because Guice builds them. `buildHealth` reads the Kotlin metadata, so a row that drifts
-  back into a public signature fails the build — see `../persistence.md` §"Conventions"
+  owning module's facade. In `:sempods-server` this is `internal` and checked by `buildHealth` —
+  see `../persistence.md` §"Conventions"
 - Which modules may depend on which is the harder boundary, and it is not a matter of visibility
   modifiers — see the layering rules above and the module list in the root `AGENTS.md`

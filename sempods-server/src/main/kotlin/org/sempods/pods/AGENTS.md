@@ -47,13 +47,10 @@ PodFacade  (business logic: resources, slots, context lifecycle)
 
 ## The persistence layer is module-internal
 
-The `…Dbo` rows under `*/persist/` are `internal` classes and every DAO function over them is
-`internal`; the classes and their constructors stay public because Guice builds them. That is what
-keeps `ObjectId` out of what `:sempods-server` publishes, and `buildHealth` fails the build if a row
-drifts back into a public signature. Consequence for a change here: a facade or endpoint method that
-takes or returns a row is `internal` too — the compiler says so — and giving one a public answer
-means giving it a row-free type, not a wider modifier. See `docs/persistence.md` §"Conventions" and
-`docs/architecture/module-layering.md` §"Module Boundaries".
+The `…Dbo` rows under `*/persist/` and the DAO functions over them are `internal`; the DAO classes
+and their constructors are not, because Guice builds them. A facade or endpoint member that takes or
+returns a row is `internal` too — giving one a public answer means giving it a row-free type. See
+`docs/persistence.md` §"Conventions".
 
 ## Related docs
 

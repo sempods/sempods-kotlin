@@ -16,12 +16,8 @@ dependencies {
 
   // implementation libs
   // No MongoDB artifact: nothing here names an `org.bson` type, and `buildHealth` fails such a
-  // declaration as unused. The driver is still *inherited*, and since #29 no longer from
-  // `:sempods-server` on its own account — it exports the driver (`api(libs.mongodb)`, for the
-  // `MongoDatabase` in its DAO constructors) but not `bson`, which it declares on `implementation`
-  // now. `bson` arrives through `:sempods-auth-core`, whose `RefreshTokenStore.Token.id` is an
-  // `ObjectId`. Inheriting an artifact and naming its types are different things; only the second
-  // is a coupling this module could have.
+  // declaration as unused. Both artifacts are still *inherited* — `mongodb` through
+  // `:sempods-server`, `bson` through `:sempods-auth-core`.
   implementation(libs.bundles.logging)
   // The SDK, and the sync HTTP layer under it. `apache-client` is pinned so the client this code
   // uses is the one written down, and discovered by the SDK rather than named.

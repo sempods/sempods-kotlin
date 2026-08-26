@@ -35,13 +35,8 @@ import java.util.Base64
  * than deciding for itself. The two batch operations have no context notion at all; they are reached
  * through host-level admin authority instead.
  *
- * **Every method here is `internal`; the class is not, and the asymmetry is deliberate.** The
- * methods speak `ObjectId` — this deployment's storage key — so none of them is callable from
- * outside anyway, and #29 took them out of the published ABI along with the rest of the persistence
- * layer. The *name* is a different matter: a composition selects the media backend, and
- * `SempodsMediaModule` in `:deployments:sempods:image` asserts on the binding for this key
- * (`Key.get(PodMediaFacade::class.java)`) to check that a deployment with no store binds no facade.
- * A composition outside this module has to be able to name what it binds.
+ * The class is public although no member is: `SempodsMediaModule` in `:deployments:sempods:image`
+ * binds it and asserts on `Key.get(PodMediaFacade::class.java)`.
  */
 class PodMediaFacade @Inject constructor(
   private val mediaStore: PodMediaStore,

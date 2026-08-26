@@ -34,12 +34,6 @@ import java.net.URI
  *   `rawContextScopes` hold *grant strings* (`<context>#read|write|manage`), which are server-side
  *   policy and never travel in a token, unlike the OAuth feature scopes they sit next to. Rename
  *   when touching this class; `docs/auth/authorization.md` §"Terminology" has the split.
- *
- * **The three grant-reading methods are `internal`, the two scope-reading ones are not**, and the
- * line between them is what each needs to answer. [resolveFromGrants], [resolveFromServiceClient]
- * and [expandManageCascade] take a `podId` — this deployment's storage key — and go to the grant
- * store; [isCoveredByManageScope] and [describeEffectivePermissions] are pure functions over scope
- * strings and URIs and touch no row. Only the first group is persistence, and only it is closed.
  */
 class PodContextPermissionResolver @Inject constructor(
   private val podContextsDao: PodContextsDao,

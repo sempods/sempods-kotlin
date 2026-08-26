@@ -299,20 +299,16 @@ compiles perfectly — and cannot be compiled against by anyone holding only the
 reads the bytecode and the Kotlin metadata and fails the build on it. Configuration and the
 reasoning behind each exception live in `settings.gradle.kts`.
 
-**That it reads the Kotlin metadata is what makes `internal` a build-checked boundary and not a
-comment.** `:sempods-server` used to name `ObjectId` in 126 lines of its ABI dump, all of them its
-own persistence layer — the `…Dbo` rows, their DAOs and the stores over them, public only because
-Kotlin's default is public. They are `internal` now, the count is zero, and the module declares
-`bson` on `implementation`: it needs the driver, it does not export it.
+**`internal` is part of that boundary**, because the plugin reads the Kotlin metadata: the
+persistence layer of `:sempods-server` — the `…Dbo` rows, their DAOs and the stores over them — is
+`internal`, so the module names no `org.bson` type in its ABI and declares `bson` on
+`implementation`.
 
-The honest limit is worth stating in the same breath, because the tempting version of that sentence
-is false. **A consumer of `:sempods-server` still resolves the driver.** `MongoDatabase` sits in
-every DAO constructor, which stays public so Guice can build it, so `mongodb` is still `api` here;
-and `bson` arrives anyway through `api(project(":sempods-auth-core"))`, whose
-`RefreshTokenStore.Token.id` is an `ObjectId` — a return type of a real seam, where `internal` is
-not the lever. What changed is narrower and checkable: this module no longer *names* a driver type
-in anything it publishes. The two remaining halves are #41 (the constructors) and #40 (auth-core),
-and only both together give a seam implementation a driver-free classpath.
+**A consumer still resolves the driver**, and the two reasons are separate from that: `MongoDatabase`
+is in every DAO constructor, which stays public for Guice, so `mongodb` is `api` here (#41); and
+`bson` arrives through `api(project(":sempods-auth-core"))`, whose `RefreshTokenStore.Token.id` is
+an `ObjectId` (#40). What is checked is narrower: this module does not *name* a driver type in
+anything it publishes.
 
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no
