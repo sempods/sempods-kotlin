@@ -113,7 +113,7 @@ class PodServiceAuditLogDao(
    * write a row that outlives every other one. The id keeps the opposite rule — an id the caller
    * chose is theirs — because a chosen id says something a generated one cannot.
    */
-  fun record(dbo: PodServiceAuditLogDbo): PodServiceAuditLogDbo {
+  internal fun record(dbo: PodServiceAuditLogDbo): PodServiceAuditLogDbo {
     val stored = dbo.copy(
       id = dbo.id ?: ObjectId(),
       expiresAt = dbo.ts.plus(retentionDays, ChronoUnit.DAYS),
@@ -123,7 +123,7 @@ class PodServiceAuditLogDao(
   }
 
   /** Test/operator helper: fetches the most recent [limit] entries for [podId]. */
-  fun findRecent(podId: ObjectId, limit: Int = 50): List<PodServiceAuditLogDbo> =
+  internal fun findRecent(podId: ObjectId, limit: Int = 50): List<PodServiceAuditLogDbo> =
     auditLog.find(Filters.eq(PodServiceAuditLogDboFields.podId, podId))
       // Descending over an ascending index — the server walks it backwards, so the `(podId, ts)`
       // index serves this without a second one, as it did under Morphia.
@@ -139,7 +139,7 @@ class PodServiceAuditLogDao(
    * carried over here would silently leave a pod's history behind on the one path that exists to
    * remove it.
    */
-  fun deleteByPod(podId: ObjectId): Long =
+  internal fun deleteByPod(podId: ObjectId): Long =
     auditLog.deleteMany(Filters.eq(PodServiceAuditLogDboFields.podId, podId)).deletedCount
 
   private companion object {

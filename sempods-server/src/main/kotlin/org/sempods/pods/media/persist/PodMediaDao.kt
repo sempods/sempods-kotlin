@@ -57,7 +57,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
     media.createIndex(Indexes.ascending(UNREFERENCED_SINCE), IndexOptions().sparse(true))
   }
 
-  fun find(podId: ObjectId, mediaId: String): PodMedia? =
+  internal fun find(podId: ObjectId, mediaId: String): PodMedia? =
     media.find(keyFilter(podId, mediaId)).firstOrNull()?.toPodMedia()
 
   /**
@@ -75,7 +75,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * [assignment], which is what keeps a second store of the same bytes from reading back the first
    * uploader's description; see [MediaAssignment].
    */
-  fun upsertAndAssign(podMedia: PodMedia, assignment: MediaAssignment): PodMedia {
+  internal fun upsertAndAssign(podMedia: PodMedia, assignment: MediaAssignment): PodMedia {
     // Replacing rather than `$addToSet`: an assignment is identified by its context, so re-storing
     // into a context you already hold must update your description, not leave two entries that
     // differ only in `createdAt`. Two statements in a pipeline so both see one document state.
@@ -105,7 +105,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    *
    * Returns `false` when no such row exists.
    */
-  fun addAssignment(podId: ObjectId, mediaId: String, assignment: MediaAssignment): Boolean =
+  internal fun addAssignment(podId: ObjectId, mediaId: String, assignment: MediaAssignment): Boolean =
     media.updateOne(
       keyFilter(podId, mediaId),
       listOf(
@@ -128,7 +128,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    *
    * Returns `false` when no such row exists.
    */
-  fun removeContext(podId: ObjectId, mediaId: String, context: String, now: Instant): Boolean =
+  internal fun removeContext(podId: ObjectId, mediaId: String, context: String, now: Instant): Boolean =
     media.updateOne(keyFilter(podId, mediaId), unassignPipeline(context, now)).matchedCount > 0
 
   /**
@@ -143,7 +143,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * rewritten; without it every media of the pod would take a write for nothing, and an
    * already-unreferenced row would be re-evaluated on every unrelated context deletion.
    */
-  fun removeContextFromAll(podId: ObjectId, context: String, now: Instant): Long =
+  internal fun removeContextFromAll(podId: ObjectId, context: String, now: Instant): Long =
     media.updateMany(
       Filters.and(Filters.eq(POD_ID, podId), Filters.eq("$ASSIGNMENTS.$CONTEXT", context)),
       unassignPipeline(context, now),
@@ -169,7 +169,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    *
    * Returns how many rows were marked.
    */
-  fun markPodUnreferenced(podId: ObjectId, now: Instant): Long =
+  internal fun markPodUnreferenced(podId: ObjectId, now: Instant): Long =
     media.updateMany(
       Filters.eq(POD_ID, podId),
       listOf(
@@ -187,7 +187,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * `unreferencedSince`, the filter stops matching, and the bytes are not touched. A plain delete by
    * key would race exactly that window and take away an object somebody had just re-assigned.
    */
-  fun deleteIfUnreferencedBefore(podId: ObjectId, mediaId: String, cutoff: Instant): Boolean =
+  internal fun deleteIfUnreferencedBefore(podId: ObjectId, mediaId: String, cutoff: Instant): Boolean =
     media.deleteOne(
       Filters.and(keyFilter(podId, mediaId), Filters.lt(UNREFERENCED_SINCE, Date.from(cutoff))),
     ).deletedCount > 0
@@ -201,7 +201,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * Strictly before, so a caller passing `now` does not pick up a row that was unreferenced in the
    * same millisecond it is asking about.
    */
-  fun findUnreferencedBefore(cutoff: Instant, podId: ObjectId? = null): List<PodMedia> =
+  internal fun findUnreferencedBefore(cutoff: Instant, podId: ObjectId? = null): List<PodMedia> =
     media.find(scoped(Filters.lt(UNREFERENCED_SINCE, Date.from(cutoff)), podId))
       .map { it.toPodMedia() }
       .toList()
@@ -217,7 +217,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * notice, and it is cheap: `podId` is the prefix of the unique index, and the answer is bounded by
    * the number of pods rather than by the number of media.
    */
-  fun findPodIdsWithAssignments(): Set<ObjectId> =
+  internal fun findPodIdsWithAssignments(): Set<ObjectId> =
     media.distinct(POD_ID, Filters.exists(ASSIGNMENTS), ObjectId::class.java).toSet()
 
   /**
@@ -229,7 +229,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * resource has to be closed, and here the resource is a database cursor. The sequence is valid
    * only inside [consume].
    */
-  fun <T> iterate(podId: ObjectId? = null, consume: (Sequence<PodMedia>) -> T): T =
+  internal fun <T> iterate(podId: ObjectId? = null, consume: (Sequence<PodMedia>) -> T): T =
     media.find(scoped(Filters.empty(), podId)).iterator().use { cursor ->
       consume(cursor.asSequence().map { it.toPodMedia() })
     }

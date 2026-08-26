@@ -100,6 +100,17 @@ there is no layout for a new row to match. What holds for them is the field *set
 
 ## Conventions
 
+- **The rows and the DAO functions over them are `internal`; the classes and their constructors
+  are not.** That split is load-bearing in both directions. `internal` is what keeps `ObjectId` out
+  of `:sempods-server`'s published ABI — the dependency-analysis plugin reads Kotlin metadata, so an
+  `internal` declaration is not API, which is why the module declares `bson` on `implementation`
+  and a drift back to public fails `buildHealth`. Public constructors are what keep Guice working:
+  it builds every DAO, and a `@Provides` method that hands one out is a public signature naming the
+  DAO's type. So do not tidy the constructors into `internal` for consistency — the rows are the
+  document format, and they are what must not travel; how the object is built is not. The
+  `*DboFields` objects are `internal` for the same reason as the rows rather than by analogy: a
+  field name *is* the stored format, and a reader outside that came to depend on one would be
+  depending on the collection.
 - **Indexes are created by the DAO constructor**, imperatively, with the options spelled out —
   `unique`, `partialFilterExpression`, `expireAfterSeconds`. Neither the driver nor Mongo names an
   index here; the server does, as `a_1_b_1`.

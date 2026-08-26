@@ -47,7 +47,7 @@ class DynamicClientStore @Inject constructor(
 
   private val random = SecureRandom()
 
-  fun register(
+  internal fun register(
     registeredForPodId: ObjectId,
     registeredForPodName: String,
     redirectUris: Set<String>,
@@ -95,14 +95,14 @@ class DynamicClientStore @Inject constructor(
     return dbo.toRegistration()
   }
 
-  fun lookup(podId: ObjectId, clientId: String): Registration? =
+  internal fun lookup(podId: ObjectId, clientId: String): Registration? =
     dao.findByClientId(podId, clientId)?.toRegistration()
 
   /**
    * Best-effort liveness bump. Returns `true` if the DCR row was updated (dyn:-clients),
    * `false` for did:web-clients that have no DCR row.
    */
-  fun touchLastAuthorized(podId: ObjectId, clientId: String): Boolean =
+  internal fun touchLastAuthorized(podId: ObjectId, clientId: String): Boolean =
     dao.touchLastAuthorized(podId, clientId)
 
   private fun DynamicClientRegistrationDbo.toRegistration(

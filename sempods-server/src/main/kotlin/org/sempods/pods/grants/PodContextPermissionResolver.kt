@@ -34,6 +34,12 @@ import java.net.URI
  *   `rawContextScopes` hold *grant strings* (`<context>#read|write|manage`), which are server-side
  *   policy and never travel in a token, unlike the OAuth feature scopes they sit next to. Rename
  *   when touching this class; `docs/auth/authorization.md` §"Terminology" has the split.
+ *
+ * **The three grant-reading methods are `internal`, the two scope-reading ones are not**, and the
+ * line between them is what each needs to answer. [resolveFromGrants], [resolveFromServiceClient]
+ * and [expandManageCascade] take a `podId` — this deployment's storage key — and go to the grant
+ * store; [isCoveredByManageScope] and [describeEffectivePermissions] are pure functions over scope
+ * strings and URIs and touch no row. Only the first group is persistence, and only it is closed.
  */
 class PodContextPermissionResolver @Inject constructor(
   private val podContextsDao: PodContextsDao,
@@ -55,7 +61,7 @@ class PodContextPermissionResolver @Inject constructor(
    * grant-store round-trip to every authenticated request. Owner-level revocation cascades into
    * this store instead; see [PodGrantsFacade].
    */
-  fun resolveFromGrants(
+  internal fun resolveFromGrants(
     podId: ObjectId,
     clientId: String,
     webId: String,
@@ -71,7 +77,7 @@ class PodContextPermissionResolver @Inject constructor(
    * registered scopes are the request-time source, so a registration edited/cascaded away
    * (e.g. context deletion) takes effect on the next request.
    */
-  fun resolveFromServiceClient(
+  internal fun resolveFromServiceClient(
     podId: ObjectId,
     clientId: String,
     podBaseUrl: String,
@@ -115,7 +121,7 @@ class PodContextPermissionResolver @Inject constructor(
    * Returns [scopes] unchanged when no `#manage` scopes are present, so plain user tokens and
    * public-read sessions skip the DAO round-trip entirely.
    */
-  fun expandManageCascade(scopes: Set<String>, podId: ObjectId, podBaseUrl: String): Set<String> {
+  internal fun expandManageCascade(scopes: Set<String>, podId: ObjectId, podBaseUrl: String): Set<String> {
     val roots = manageRoots(scopes, podBaseUrl)
     if (roots.isEmpty()) return scopes
 

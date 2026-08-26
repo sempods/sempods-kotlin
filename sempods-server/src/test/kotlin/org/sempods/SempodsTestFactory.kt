@@ -42,7 +42,7 @@ class SempodsTestFactory {
 
   fun newOwner(): TestOwner = TestOwner(email = "test-${randomId()}@test.com")
 
-  fun newPod(
+  internal fun newPod(
     name: String = "test-${randomId()}",
     ownerUser: TestOwner = newOwner(),
     createPublicContext: Boolean = true,

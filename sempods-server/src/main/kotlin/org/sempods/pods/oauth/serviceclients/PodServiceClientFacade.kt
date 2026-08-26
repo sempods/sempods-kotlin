@@ -8,14 +8,22 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bson.types.ObjectId
 
 /**
- * Name-keyed public surface over the pod service-client registry
+ * Name-keyed surface over the pod service-client registry
  * ([PodServiceClientStore] / [PodServiceClientDao]).
  *
- * Pod rows are keyed by `podId` internally, but `podId` and the pod base URL are
- * sempods-internal concepts ([PodDao] is module-internal). Consumers in other modules — an
- * application's account bootstrap — know pods by name only, so
- * this facade resolves the pod and delegates. Scope strings are passed through verbatim
- * and validated by [PodServiceClientStore.register] against the pod base.
+ * Pod rows are keyed by `podId` internally, and `podId` and the pod base URL are sempods-internal
+ * concepts, so a caller that knows a pod by name only reaches the registry through here: this
+ * facade resolves the pod and delegates. Scope strings are passed through verbatim and validated by
+ * [PodServiceClientStore.register] against the pod base.
+ *
+ * **Module-internal, and its parameters are not the reason.** This used to say "public surface" for
+ * "consumers in other modules", and the half of that which was true is the *name* keying — it is
+ * genuinely the translation a caller outside cannot do. What made the claim untrue was the other
+ * end: every method here answers with [PodServiceClientDbo], the stored row, which nothing outside
+ * this module may read (`docs/architecture/module-layering.md` §"Module Boundaries"). A facade
+ * earns a caller by taking values that caller can obtain *and* answering in values it may hold;
+ * this one has always only done the first. Giving it a row-free answer is what would open it again,
+ * and that is a design question rather than a modifier.
  */
 class PodServiceClientFacade @Inject constructor(
   private val podDao: PodDao,
@@ -30,7 +38,7 @@ class PodServiceClientFacade @Inject constructor(
    * persist it (encrypted) on its side. Throws [IllegalArgumentException] for an unknown
    * pod, an invalid scope, or an already-registered `(pod, clientId)` pair (unique index).
    */
-  fun register(
+  internal fun register(
     podName: String,
     clientId: String,
     scopes: Set<String>,
@@ -47,7 +55,7 @@ class PodServiceClientFacade @Inject constructor(
   }
 
   /** The registration row for `(podName, clientId)`, or `null` (unknown pod included). */
-  fun find(podName: String, clientId: String): PodServiceClientDbo? {
+  internal fun find(podName: String, clientId: String): PodServiceClientDbo? {
     val podId = podDao.fetchByName(podName)?.id ?: return null
     return podServiceClientDao.findByClientId(podId, clientId)
   }
@@ -67,7 +75,7 @@ class PodServiceClientFacade @Inject constructor(
    *  the data is the owner's, and the contexts are now addressable through the management route,
    *  so they can be inspected and removed deliberately rather than by side effect.
    */
-  fun unregister(podName: String, clientId: String, expectedId: ObjectId? = null): Boolean {
+  internal fun unregister(podName: String, clientId: String, expectedId: ObjectId? = null): Boolean {
     val podId = podDao.fetchByName(podName)?.id ?: return false
     return podServiceClientDao.delete(podId, clientId, expectedId)
   }
@@ -76,7 +84,7 @@ class PodServiceClientFacade @Inject constructor(
    * Validates `(clientId, secret)` against the persisted hash — same semantics as
    * [PodServiceClientStore.authenticate], keyed by pod name.
    */
-  fun authenticate(podName: String, clientId: String, secret: String): PodServiceClientDbo? {
+  internal fun authenticate(podName: String, clientId: String, secret: String): PodServiceClientDbo? {
     val podId = podDao.fetchByName(podName)?.id ?: return null
     return podServiceClientStore.authenticate(podId, clientId, secret)
   }

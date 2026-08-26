@@ -208,7 +208,7 @@ class RdfResourceBackupDao(db: MongoDatabase, collectionName: String) {
  * plain union restores the model — whether [rows] is a whole pod ([RdfResourceBackupDao.fetchAllByPod])
  * or a single resource ([RdfResourceBackupDao.fetchByPodAndResource]).
  */
-fun reconstructModel(rows: List<RdfResourceBackupDbo>): Model {
+internal fun reconstructModel(rows: List<RdfResourceBackupDbo>): Model {
   val model = LinkedHashModel()
   rows.forEach { model.addAll(RdfWriterUtil.readNQuads(it.nquads.byteInputStream())) }
   return model

@@ -45,6 +45,16 @@ PodFacade  (business logic: resources, slots, context lifecycle)
 > nothing narrower. Domain listings are the same story: they are SPARQL-native queries in the
 > consuming application, and sempods exposes only generic SPARQL.
 
+## The persistence layer is module-internal
+
+The `…Dbo` rows under `*/persist/` are `internal` classes and every DAO function over them is
+`internal`; the classes and their constructors stay public because Guice builds them. That is what
+keeps `ObjectId` out of what `:sempods-server` publishes, and `buildHealth` fails the build if a row
+drifts back into a public signature. Consequence for a change here: a facade or endpoint method that
+takes or returns a row is `internal` too — the compiler says so — and giving one a public answer
+means giving it a row-free type, not a wider modifier. See `docs/persistence.md` §"Conventions" and
+`docs/architecture/module-layering.md` §"Module Boundaries".
+
 ## Related docs
 
 - Authorization model, grant vs. scope, revocation (IST): `docs/auth/authorization.md`

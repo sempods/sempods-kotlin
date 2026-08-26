@@ -17,7 +17,7 @@ import java.time.temporal.ChronoUnit
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `PodDao.toDocument` writes the fields in exactly this sequence.
  */
-data class PodDbo(
+internal data class PodDbo(
 
   val id: ObjectId? = null,
 
@@ -64,8 +64,12 @@ data class PodDbo(
  * §"The pattern". Code that needs the key back resolves it from [PodDbo.name] through
  * `PodFacade.getPodId`, which is cached. The edge runs this way only: `sempods-model` knows nothing
  * about this class.
+ *
+ * Since #29 that is a checked property rather than a stated intention: [PodDbo] is `internal`, so
+ * the key cannot reach a signature outside this module even by accident, and `buildHealth` fails
+ * the build if it does.
  */
-fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
+internal fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
   uri = uriBuilder.buildPodUri(name),
   name = name,
   owner = owner,

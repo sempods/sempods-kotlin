@@ -9,7 +9,7 @@ import org.sempods.SempodsCollections
 import org.sempods.auth.core.RefreshTokenStore
 
 /** A refresh token of this pod server, with the owner already resolved. */
-typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
+internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
 
 /**
  * The pod server's refresh tokens: [RefreshTokenStore] with a pod-shaped owner, plus the three
@@ -22,6 +22,12 @@ typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `docs/persistence.md` §"Conventions"
  *   states.
+ *
+ * Every method here is `internal`, [markRotated] and [revokeFamily] included even though their
+ * signatures name nothing this deployment owns. What is closed is the store, not a list of types:
+ * a class answering seven questions module-internally and two to anyone states no boundary at all,
+ * and the two exceptions would be read as an invitation. The class and its constructors stay
+ * public because Guice builds them.
  */
 class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
 
@@ -34,7 +40,7 @@ class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
    *   the compound index.
    * @param webId the person, as their WebID — the token's subject.
    */
-  data class Owner(
+  internal data class Owner(
     val podId: ObjectId,
     val podName: String,
     val clientId: String,
@@ -61,7 +67,7 @@ class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
     },
   )
 
-  fun issueNewFamily(
+  internal fun issueNewFamily(
     podId: ObjectId,
     podName: String,
     clientId: String,
@@ -74,23 +80,23 @@ class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
     ttlSeconds = ttlSeconds,
   )
 
-  fun issueInFamily(
+  internal fun issueInFamily(
     previous: PodRefreshToken,
     scopes: Set<String>,
     ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
   ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(previous, scopes, ttlSeconds)
 
-  fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
+  internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
-  fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
+  internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
 
-  fun revokeFamily(familyId: String): Long = store.revokeFamily(familyId)
+  internal fun revokeFamily(familyId: String): Long = store.revokeFamily(familyId)
 
   /**
    * Revokes what one app holds for one person on one pod. The consent-withdrawal path, and the
    * MCP surface's explicit re-authorization.
    */
-  fun revokeForUser(podId: ObjectId, clientId: String, webId: String): Long =
+  internal fun revokeForUser(podId: ObjectId, clientId: String, webId: String): Long =
     store.revokeWhere(
       Filters.and(
         Filters.eq(FIELD_POD_ID, podId),
@@ -111,7 +117,7 @@ class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
    * `Filters.in` against an array field matches when **any** element is in the supplied list, which
    * is exactly the semantics wanted here.
    */
-  fun revokeByContextScope(podId: ObjectId, contextUri: String): Long =
+  internal fun revokeByContextScope(podId: ObjectId, contextUri: String): Long =
     store.revokeWhere(
       Filters.and(
         Filters.eq(FIELD_POD_ID, podId),
@@ -126,10 +132,10 @@ class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
    * Hard-deletes every refresh token of the pod — the pod-cascade delete path, where family
    * revocation is moot because the pod itself is gone.
    */
-  fun deleteByPod(podId: ObjectId): Long = store.deleteWhere(podFilter(podId))
+  internal fun deleteByPod(podId: ObjectId): Long = store.deleteWhere(podFilter(podId))
 
   /** Diagnostics and tests: used to assert that family-wide revocation happened. */
-  fun findByFamily(familyId: String): List<PodRefreshToken> = store.findByFamily(familyId)
+  internal fun findByFamily(familyId: String): List<PodRefreshToken> = store.findByFamily(familyId)
 
   private fun podFilter(podId: ObjectId): Bson = Filters.eq(FIELD_POD_ID, podId)
 

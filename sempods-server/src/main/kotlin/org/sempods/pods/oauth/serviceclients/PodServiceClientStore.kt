@@ -24,7 +24,7 @@ class PodServiceClientStore @Inject constructor(
   private val podScopeValidator: PodScopeValidator,
 ) {
 
-  data class Registered(
+  internal data class Registered(
     val dbo: PodServiceClientDbo,
     val plaintextSecret: String,
   )
@@ -46,7 +46,7 @@ class PodServiceClientStore @Inject constructor(
    * pod-wide wildcard — throws [IllegalArgumentException] before the row is
    * persisted, so the bad scope never reaches a JWT or the resource layer.
    */
-  fun register(
+  internal fun register(
     podId: ObjectId,
     podBaseUrl: String,
     clientId: String,
@@ -109,14 +109,14 @@ class PodServiceClientStore @Inject constructor(
   //   Touch points: [mintSecret], [hashSecret],
   //   [verifySecret], plus a new pod-scoped verifier key alongside the RSA
   //   signing key.
-  fun authenticate(podId: ObjectId, clientId: String, secret: String): PodServiceClientDbo? {
+  internal fun authenticate(podId: ObjectId, clientId: String, secret: String): PodServiceClientDbo? {
     val dbo = dao.findByClientId(podId, clientId)
     val hash = dbo?.secretHash ?: dummyHash
     val matches = verifySecret(secret, hash)
     return if (dbo != null && matches) dbo else null
   }
 
-  fun touchLastUsed(podId: ObjectId, clientId: String): Boolean = dao.touchLastUsed(podId, clientId)
+  internal fun touchLastUsed(podId: ObjectId, clientId: String): Boolean = dao.touchLastUsed(podId, clientId)
 
   private fun mintSecret(): String {
     val bytes = ByteArray(32)

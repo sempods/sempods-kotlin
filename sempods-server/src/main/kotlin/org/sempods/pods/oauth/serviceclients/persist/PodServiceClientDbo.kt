@@ -29,7 +29,7 @@ import java.time.Instant
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `PodServiceClientDao.toDocument` writes the fields in exactly this sequence.
  */
-data class PodServiceClientDbo(
+internal data class PodServiceClientDbo(
   val id: ObjectId? = null,
 
   val podId: ObjectId,

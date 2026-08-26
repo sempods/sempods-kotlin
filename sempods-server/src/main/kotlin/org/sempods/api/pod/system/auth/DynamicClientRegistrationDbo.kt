@@ -24,7 +24,7 @@ import java.time.Instant
  * carries, and `DynamicClientRegistrationDao.toDocument` writes the fields in exactly this
  * sequence.
  */
-data class DynamicClientRegistrationDbo(
+internal data class DynamicClientRegistrationDbo(
   val id: ObjectId? = null,
 
   val clientId: String,

@@ -21,7 +21,7 @@ import java.time.Instant
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `RdfResourceBackupDao.toDocument` writes the fields in exactly this sequence.
  */
-data class RdfResourceBackupDbo(
+internal data class RdfResourceBackupDbo(
 
   val id: ObjectId? = null,
 

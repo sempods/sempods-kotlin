@@ -34,6 +34,14 @@ import java.util.Base64
  * read, and [findReadable] is the one concession — it takes the caller's readable contexts rather
  * than deciding for itself. The two batch operations have no context notion at all; they are reached
  * through host-level admin authority instead.
+ *
+ * **Every method here is `internal`; the class is not, and the asymmetry is deliberate.** The
+ * methods speak `ObjectId` — this deployment's storage key — so none of them is callable from
+ * outside anyway, and #29 took them out of the published ABI along with the rest of the persistence
+ * layer. The *name* is a different matter: a composition selects the media backend, and
+ * `SempodsMediaModule` in `:deployments:sempods:image` asserts on the binding for this key
+ * (`Key.get(PodMediaFacade::class.java)`) to check that a deployment with no store binds no facade.
+ * A composition outside this module has to be able to name what it binds.
  */
 class PodMediaFacade @Inject constructor(
   private val mediaStore: PodMediaStore,
@@ -57,7 +65,7 @@ class PodMediaFacade @Inject constructor(
    *
    * @param source a readable file the caller owns; this method neither moves nor deletes it.
    */
-  fun store(
+  internal fun store(
     podId: ObjectId,
     context: URI,
     source: Path,
@@ -126,7 +134,7 @@ class PodMediaFacade @Inject constructor(
    * get a [PodMedia] is [findReadable] or [store], and neither hands one out to a caller who may not
    * see it.
    */
-  fun open(podMedia: PodMedia): InputStream = mediaStore.open(podMedia.ref)
+  internal fun open(podMedia: PodMedia): InputStream = mediaStore.open(podMedia.ref)
 
   /**
    * Assign an existing media to another context — the "context-copy" that makes one upload visible
@@ -141,7 +149,7 @@ class PodMediaFacade @Inject constructor(
    * copied from what they can see rather than from whatever the first uploader wrote. `createdAt`
    * and `createdBy` are the copy's own, because this assignment is theirs.
    */
-  fun assign(
+  internal fun assign(
     podId: ObjectId,
     mediaId: String,
     context: URI,
@@ -166,7 +174,7 @@ class PodMediaFacade @Inject constructor(
    *
    * Returns `false` when the pod holds no such media.
    */
-  fun unassign(podId: ObjectId, mediaId: String, context: URI): Boolean =
+  internal fun unassign(podId: ObjectId, mediaId: String, context: URI): Boolean =
     dao.removeContext(podId, mediaId, context.toString(), Instant.now())
 
   /**
@@ -182,7 +190,7 @@ class PodMediaFacade @Inject constructor(
    * unrestricted**, an empty set means nothing is readable. Getting that backwards would deny the
    * one caller who may see everything, so the two are kept apart here rather than normalised away.
    */
-  fun findReadable(podId: ObjectId, mediaId: String, readableContexts: Set<URI>?): PodMedia? {
+  internal fun findReadable(podId: ObjectId, mediaId: String, readableContexts: Set<URI>?): PodMedia? {
     if (readableContexts != null && readableContexts.isEmpty()) return null
     val podMedia = dao.find(podId, mediaId) ?: return null
     if (readableContexts == null) return podMedia
@@ -239,7 +247,7 @@ class PodMediaFacade @Inject constructor(
    * @param dryRun count and log what would go, delete nothing.
    * @param podId one pod, or every pod when `null` — including the ones that no longer exist.
    */
-  fun sweepUnreferenced(
+  internal fun sweepUnreferenced(
     gracePeriod: Duration = config.sweepGracePeriod,
     dryRun: Boolean = false,
     podId: ObjectId? = null,
@@ -398,7 +406,7 @@ class PodMediaFacade @Inject constructor(
    * //   when it is not is a per-pod run in a loop (the `podId` parameter is already here) rather
    * //   than a cleverer whole-store pass.
    */
-  fun reconcile(podId: ObjectId? = null): MediaReconcileReport {
+  internal fun reconcile(podId: ObjectId? = null): MediaReconcileReport {
     val rows = HashSet<PodMediaRef>()
     dao.iterate(podId) { podMedia -> podMedia.forEach { rows.add(it.ref) } }
     val checkedRows = rows.size

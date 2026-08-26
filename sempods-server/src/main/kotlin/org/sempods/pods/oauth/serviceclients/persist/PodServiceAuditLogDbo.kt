@@ -22,7 +22,7 @@ import java.time.Instant
  * this sequence. [expiresAt] is appended after it for that reason — a field placed anywhere else
  * would reorder every row written from here on against every row already stored.
  */
-data class PodServiceAuditLogDbo(
+internal data class PodServiceAuditLogDbo(
   val id: ObjectId? = null,
 
   val ts: Instant = Instant.now(),

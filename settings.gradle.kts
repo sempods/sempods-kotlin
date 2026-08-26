@@ -33,8 +33,10 @@ dependencyAnalysis {
       includeDependency("com.fasterxml.jackson.core:jackson-annotations")
     }
 
-    // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in public
-    // signatures here, so that artifact is one a consumer declares.
+    // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in the
+    // public signatures of `:sempods-commons-mongo` and `:sempods-auth-core`, so that artifact is
+    // one a consumer declares. Bundling it would also hide the distinction #29 rests on — a module
+    // may need the driver without exporting its types, which is what `:sempods-server` does now.
     bundle("mongodb-driver") {
       primary("org.mongodb:mongodb-driver-sync")
       includeDependency("org.mongodb:mongodb-driver-core")

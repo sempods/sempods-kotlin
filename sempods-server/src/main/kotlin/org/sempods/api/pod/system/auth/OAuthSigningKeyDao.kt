@@ -63,7 +63,7 @@ class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
    * the `null` it passed in. No caller does today — but that is a property of the callers, not of
    * this method.
    */
-  fun create(dbo: OAuthSigningKeyDbo): OAuthSigningKeyDbo {
+  internal fun create(dbo: OAuthSigningKeyDbo): OAuthSigningKeyDbo {
     val stored = dbo.copy(id = dbo.id ?: ObjectId())
     keys.insertOne(stored.toDocument())
     return stored
@@ -82,7 +82,7 @@ class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
    * Only the bootstrap uses the fixed id. A later rotation appends through [create] as usual,
    * which is what keeps the slot a *first*-key slot rather than a lock on the collection.
    */
-  fun createInitial(dbo: OAuthSigningKeyDbo): Boolean = try {
+  internal fun createInitial(dbo: OAuthSigningKeyDbo): Boolean = try {
     keys.insertOne(dbo.copy(id = BOOTSTRAP_ID).toDocument())
     true
   } catch (e: MongoWriteException) {
@@ -93,7 +93,7 @@ class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
   }
 
   /** Returns all keys, newest first. */
-  fun findAll(): List<OAuthSigningKeyDbo> = find(Filters.empty())
+  internal fun findAll(): List<OAuthSigningKeyDbo> = find(Filters.empty())
 
   /**
    * Returns all keys that are still usable for verification (i.e. not retired).
@@ -104,7 +104,7 @@ class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
    * writes `null`, so the two agree on today's data — but they would diverge on a row touched by
    * hand or by a migration, and this is the filter that decides whether a key still signs.
    */
-  fun findActive(): List<OAuthSigningKeyDbo> =
+  internal fun findActive(): List<OAuthSigningKeyDbo> =
     find(Filters.eq(OAuthSigningKeyDboFields.retiredAt, null))
 
   private fun find(filter: Bson): List<OAuthSigningKeyDbo> =
