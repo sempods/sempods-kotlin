@@ -6,7 +6,6 @@ jersey = "4.0.2"
 ktor = "3.5.2"
 mongodb = "5.10.0"
 okhttp = "5.5.0"
-morphia = "2.5.3"
 rdf4j = "6.0.1"
 slf4j = "2.0.18"
 
@@ -96,8 +95,6 @@ mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" 
 # without exporting the driver: `:sempods-commons-mongo` and `:sempods-auth-core` carry them in
 # public signatures, `:sempods-server` only in DAO bodies.
 bson = { module = "org.mongodb:bson", version.ref = "mongodb" }
-morphiaCore = { module = "dev.morphia.morphia:morphia-core", version.ref = "morphia" }
-morphiaKotlin = { module = "dev.morphia.morphia:morphia-kotlin", version.ref = "morphia" }
 thymeleaf = "org.thymeleaf:thymeleaf:3.1.5.RELEASE"
 webPush = "nl.martijndwars:web-push:5.1.2"
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
@@ -142,7 +139,6 @@ logging = ["kotlinLogging"]
 # it is not a binding, and it belongs to `:commons`, the module whose `LoggingInitializer` installs it.
 loggingBinding = ["logbackClassic"]
 email = ["commonsEmailJakarta", "angusMail", "angusActivation"]
-mongoMorphia = ["mongodb", "morphiaCore", "morphiaKotlin"]
 webPush = ["bouncycastle", "webPush"]
 # RDF4J's runtime half: the parsers and writers `Rio` finds by `ServiceLoader`, and the store
 # behind a repository. Nothing names a type from them, so this is one `runtimeOnly` line.
