@@ -55,7 +55,11 @@ object FindQueryBuilder {
 
     val containsConjunction = request.tokens.mapIndexed { i, token ->
       val varName = "tok$i"
-      bindings[varName] = vf.createLiteral(token)
+      // Fold *both* sides here: the LCASE below covers the literal, this covers the token. The
+      // pairing is what makes the match case-insensitive, so it belongs in one place — relying on
+      // the token having been folded upstream would silently return nothing for a [FindRequest]
+      // that was built by hand rather than by `FindRequestParser`.
+      bindings[varName] = vf.createLiteral(token.lowercase())
       "CONTAINS(LCASE(STR(?o)), ?$varName)"
     }.joinToString(" && ")
 
