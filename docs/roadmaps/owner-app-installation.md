@@ -15,23 +15,36 @@ the owner granted it.
 ## Work
 
 - [ ] 1 — Feature scopes become a set instead of one boolean, and `contexts` and `service-clients`
-  join `public-read`. `PodScopeValidator.featureScopes`, the consent render and submit paths in
-  `PodAuthEndpoint`, and one checkbox per available scope in `templates/consent.html`, preselected
-  for the owner. The "needs at least one public context" rule stays specific to `public-read`.
+  join `public-read` in `PodScopeValidator.featureScopes`. **The requested set has to reach the
+  decision**, which today it does not: `runAuthorize` hands `renderConsentUi` no requested scopes at
+  all, and the auto-grant branch re-issues a stored feature grant off `existingGrants` without
+  intersecting the request. So a privileged scope is offered only when the client asked for it,
+  never preselected, and granted as `requested ∩ granted` on both paths — otherwise extending the
+  set alone would put `service-clients` in front of an owner authorizing an app that never wanted
+  it. `public-read` keeps its preselect and its "needs at least one public context" rule; neither
+  generalizes.
 - [ ] 2 — Owner recognition answers the same question everywhere. `PodGrantsFacade.isPodOwner` reads
   `identity.allUris`, `SempodsBaseEndpoint.resolvePodOwnerPrincipal` reads
-  `WebIdUriDeriver.derivableAliases(sub)`; either the endpoint path learns the `alsoKnownAs` aliases
-  or the narrower check is recorded as deliberate. Covered by an HTTP test that walks the real
-  browser path — DCR, `/authorize`, the OIDC callback, consent, `/token` — instead of minting an
-  owner token directly.
+  `WebIdUriDeriver.derivableAliases(sub)`, and the second does not bridge `e/` to `oidc/`. Decide it
+  with evidence rather than by preference: an identity whose stored owner URI appears only in
+  `alsoKnownAs` is recognized at consent and refused at the endpoint, so if that identity can be
+  produced the endpoint path learns the aliases. Recording the narrower check as deliberate is
+  allowed only on a demonstration that it cannot. Covered either way by an HTTP test that walks the
+  real browser path — DCR, `/authorize`, the OIDC callback, consent, `/token` — with a linked-alias
+  identity, instead of minting an owner token directly.
 - [ ] 3 — Context management asks for the `contexts` scope beside the owner principal.
   `PodContextsEndpoint.authorizeContextManageOrThrow`; the bootstrap case (owner, fresh pod, no
   grants) keeps working. Depends on 1, 2.
 - [ ] 4 — `POST {pod}/_system/auth/service-clients/{clientId}` registers a service client for the
   owner, with the `expectedRegistrationId` contract and the 409 the admin route already defines. An
-  omitted `contextRoot` derives and privatizes `apps/{clientId}`; a supplied one must already be a
-  registered context and keeps its visibility. New `PodServiceClientsEndpoint`; the request and
-  response types move out of `AdminPodsEndpoint` so both routes answer one shape. Depends on 1, 2.
+  omitted `contextRoot` derives and privatizes `apps/{clientId}`. A supplied one must already be a
+  registered context, keeps its visibility, **and has to be covered by authority the caller already
+  holds** — a `#manage` grant over it, or the `contexts` capability. Without that rule
+  `service-clients` alone would mint `X#manage` for any context of the pod and hand back a
+  credential that reads, writes and deletes it: the registration route would become the way around
+  both the context capability and the grants the owner picked at consent. New
+  `PodServiceClientsEndpoint`; the request and response types move out of `AdminPodsEndpoint` so
+  both routes answer one shape. Depends on 1, 2.
 - [ ] 5 — The same route lists registrations and deletes one, so revoking an app does not mean
   deleting the context its data lives in. Depends on 4.
 - [ ] 6 — A budget on the new route, from `TokenBucketRateLimiter`, keyed the two tiers
