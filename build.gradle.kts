@@ -618,8 +618,13 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val worktrees = File(repositoryRoot, ".claude/worktrees")
 
     // `[text](target)`, with an optional `"title"` after the target that markdown allows and this
-    // does not care about.
-    val link = Regex("""\[[^\]]*]\(\s*([^)\s]+)[^)]*\)""")
+    // does not care about, and an optional `<>` around it that it has to strip.
+    val link = Regex("""\[[^\]]*]\(\s*<?([^)\s<>]+)>?[^)]*\)""")
+    // The reference form — `[label]: target "title"` on its own line, used from `[text][label]`.
+    // Nothing here writes links that way today, but it is ordinary markdown and the pattern above
+    // is blind to it: the definition is the only place the path appears, and the use site never
+    // names one. A stale target in that form would render as a dead link and pass this check.
+    val definition = Regex("""^ {0,3}\[[^\]]+]:\s*<?([^\s<>]+)>?(\s.*)?$""")
     val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
     // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
     val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
@@ -652,13 +657,12 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             return@forEachIndexed
           }
 
-          link.findAll(line).forEach { match ->
-            val target = match.groupValues[1]
-            if (target.startsWith("#") || elsewhere.containsMatchIn(target)) return@forEach
+          fun check(target: String) {
+            if (target.startsWith("#") || elsewhere.containsMatchIn(target)) return
 
             // Anchors and queries are addressing inside the target, not part of the path.
             val path = target.substringBefore('#').substringBefore('?')
-            if (path.isEmpty()) return@forEach
+            if (path.isEmpty()) return
 
             val resolved =
               if (path.startsWith("/")) File(repositoryRoot, path.removePrefix("/"))
@@ -670,6 +674,10 @@ val checkDocLinks = tasks.register("checkDocLinks") {
               broken += "${file.relativeTo(repositoryRoot)}:${index + 1} -> $target"
             }
           }
+
+          link.findAll(line).forEach { check(it.groupValues[1]) }
+          // At most one per line: a definition owns its line.
+          definition.find(line)?.let { check(it.groupValues[1]) }
         }
       }
 
