@@ -26,7 +26,7 @@ import java.time.Instant
  * it existed only so Morphia's `PojoCodec` had an entry point, and its `MorphiaUtil` sentinels were
  * values no reader ever saw.
  */
-data class OAuthSigningKeyDbo(
+internal data class OAuthSigningKeyDbo(
   val id: ObjectId? = null,
 
   val kid: String,

@@ -100,6 +100,10 @@ there is no layout for a new row to match. What holds for them is the field *set
 
 ## Conventions
 
+- **The rows, the `*DboFields` objects and the DAO functions over them are `internal`** — the
+  document format is not a published surface, and `buildHealth` fails the build if one reaches a
+  public signature. **The DAO classes and their constructors are not**: Guice builds them, and
+  `SempodsModule`'s `@Provides` methods name their types.
 - **Indexes are created by the DAO constructor**, imperatively, with the options spelled out —
   `unique`, `partialFilterExpression`, `expireAfterSeconds`. Neither the driver nor Mongo names an
   index here; the server does, as `a_1_b_1`.

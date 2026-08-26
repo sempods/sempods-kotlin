@@ -17,7 +17,7 @@ import java.time.temporal.ChronoUnit
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `PodDao.toDocument` writes the fields in exactly this sequence.
  */
-data class PodDbo(
+internal data class PodDbo(
 
   val id: ObjectId? = null,
 
@@ -65,7 +65,7 @@ data class PodDbo(
  * `PodFacade.getPodId`, which is cached. The edge runs this way only: `sempods-model` knows nothing
  * about this class.
  */
-fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
+internal fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
   uri = uriBuilder.buildPodUri(name),
   name = name,
   owner = owner,

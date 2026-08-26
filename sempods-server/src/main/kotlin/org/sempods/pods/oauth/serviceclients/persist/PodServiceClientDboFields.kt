@@ -1,6 +1,6 @@
 package org.sempods.pods.oauth.serviceclients.persist
 
-object PodServiceClientDboFields {
+internal object PodServiceClientDboFields {
   // Mongo's own key, like PodDboFields.id / UserDbo's — Morphia maps @Id onto `_id`.
   const val id = "_id"
   const val podId = "podId"

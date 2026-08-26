@@ -55,7 +55,7 @@ class PodContextPermissionResolver @Inject constructor(
    * grant-store round-trip to every authenticated request. Owner-level revocation cascades into
    * this store instead; see [PodGrantsFacade].
    */
-  fun resolveFromGrants(
+  internal fun resolveFromGrants(
     podId: ObjectId,
     clientId: String,
     webId: String,
@@ -71,7 +71,7 @@ class PodContextPermissionResolver @Inject constructor(
    * registered scopes are the request-time source, so a registration edited/cascaded away
    * (e.g. context deletion) takes effect on the next request.
    */
-  fun resolveFromServiceClient(
+  internal fun resolveFromServiceClient(
     podId: ObjectId,
     clientId: String,
     podBaseUrl: String,
@@ -115,7 +115,7 @@ class PodContextPermissionResolver @Inject constructor(
    * Returns [scopes] unchanged when no `#manage` scopes are present, so plain user tokens and
    * public-read sessions skip the DAO round-trip entirely.
    */
-  fun expandManageCascade(scopes: Set<String>, podId: ObjectId, podBaseUrl: String): Set<String> {
+  internal fun expandManageCascade(scopes: Set<String>, podId: ObjectId, podBaseUrl: String): Set<String> {
     val roots = manageRoots(scopes, podBaseUrl)
     if (roots.isEmpty()) return scopes
 
