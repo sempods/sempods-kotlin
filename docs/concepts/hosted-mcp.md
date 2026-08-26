@@ -1,4 +1,4 @@
-# Hosted MCP — a standalone MCP service for pods (vision)
+# Hosted MCP — a standalone MCP service for pods (Concept)
 
 **hosted-mcp** is an **additional, standalone service** (e.g. `mcp.sempods.org`) that
 provides the **MCP / LLM-tooling layer** over sempods pods. One service fronts **many
@@ -160,7 +160,7 @@ flow.
 The service runs a plain **"connect pod" web flow** — standard server-side OAuth, not the
 per-pod MCP's interactive `authorize` tool (which is built for an AI client driving OAuth
 from inside its own JSON-RPC stream; see
-[`authentication.md`](authentication.md#the-authorize-tool)):
+[`authentication.md`](../mcp/authentication.md#the-authorize-tool)):
 
 1. User enters a pod base URL in the service UI; the service resolves the
    pod's OAuth metadata and **registers via DCR** at that pod.
@@ -250,7 +250,7 @@ The driving fact: MCP OAuth keys auth on the **resource URL**, so two
 independent identities / token sets require two URLs. The per-pod MCP had
 a variable path segment for the same reason and gave it up — one surface
 per pod, one consent per client (see
-[`endpoint.md`](endpoint.md#url)). Here the URL carries a profile, which
+[`endpoint.md`](../mcp/endpoint.md#url)). Here the URL carries a profile, which
 is a thing a user creates and names, not a free segment.
 
 ### Two OAuth layers — do not conflate them
@@ -260,7 +260,7 @@ The profile path lives on the service's URL, so it directly separates
 
 1. **AI client → service.** Different profile paths are different MCP
    resource URLs, so they flow into the DCR fingerprint as its realm (see
-   [`authentication.md#dcr-fingerprint`](authentication.md#dcr-fingerprint)
+   [`authentication.md#dcr-fingerprint`](../mcp/authentication.md#dcr-fingerprint)
    for the shared digest), forcing distinct OAuth clients on the connector
    side.
 2. **Service → pod.** This separation is **not** automatic from the
@@ -426,12 +426,12 @@ gets better.
 - [`../../sempods-mcp`](../../sempods-mcp) — the module that
   implements this concept; the as-built phase status is in its
   [`AGENTS.md`](../../sempods-mcp/AGENTS.md).
-- [`vision.md`](vision.md#cross-pod-orchestration-client-side) — the
+- [`mcp-agent-interface.md`](mcp-agent-interface.md#cross-pod-orchestration-client-side) — the
   client-side cross-pod pattern this service hosts.
-- [`README.md`](README.md#design-principles) — the per-pod MCP's design
+- [`README.md`](../mcp/README.md#design-principles) — the per-pod MCP's design
   principles; the service stays a client and adds no server-side cross-pod
   primitive, but see [Relationship to the per-pod MCP](#relationship-to-the-per-pod-mcp).
-- [`authentication.md`](authentication.md#dcr-fingerprint) — the DCR
+- [`authentication.md`](../mcp/authentication.md#dcr-fingerprint) — the DCR
   fingerprint both surfaces share; profile paths fill its realm slot.
 - `sempods-apps/apps/chat` — the client-side reference implementation of
   the multi-pod tool layer.

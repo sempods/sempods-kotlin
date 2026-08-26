@@ -1,4 +1,4 @@
-# Graph Retrieval — Resource Navigation for Any Consumer (IST + vision)
+# Graph retrieval — resource navigation for any consumer (Concept)
 
 ## Purpose
 
@@ -13,6 +13,9 @@ build on it, not reinvent retrieval per application. The retrieval primitives
 are **consumer-agnostic**: the same `find` + structural traversal serves a
 React event list and a GPT-class agent. The only AI-specific addition is the
 final answer step (`model2text`).
+
+Sections below describe the shipped behaviour (IST) unless they say otherwise;
+§"Status & where the work lives" is where the two are separated.
 
 ## The retrieval unit: resources, not chunks
 
@@ -298,9 +301,9 @@ any AI.
   swappable adapter SPI, the optional OR-combined `type` facet, the optional
   `context` read-downscope, the optional `include_contexts` provenance form, and
   the fixed `type` / `label` / `name` expansion. MCP reference:
-  [`mcp/tools.md`](mcp/tools.md#find-read).
+  [`mcp/tools.md`](../mcp/tools.md#find-read).
 - **Open** — a vector / hybrid `find` engine (same contract), the per-type
   expansion registry, the general predicate filter, and SHACL-gated app
-  surfaces. The vector engine and remaining MCP retrieval work are tracked in
-  the MCP roadmap (currently internal); the broader concepts live in
-  [`mcp/vision.md`](mcp/vision.md).
+  surfaces. The concept for all of it is
+  [`mcp-agent-interface.md`](mcp-agent-interface.md); whichever piece is being
+  implemented has its breakdown in [`../roadmaps/`](../roadmaps/).

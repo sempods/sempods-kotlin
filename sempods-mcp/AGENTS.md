@@ -60,7 +60,7 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
 - `docs/README.md` — module overview + entry points.
 - Concept / rationale, and the forward-looking direction (one semantics across three tool
   surfaces, conformance profile, versioned tool-contract, anti-drift):
-  `docs/mcp/hosted-mcp.md`.
+  `docs/concepts/hosted-mcp.md`.
 - As-built phase status: the **Phase status** section below (the single source of truth).
 
 ## Phase status
@@ -303,7 +303,7 @@ what is genuinely many-pod: `targets` / `target`, the fan-out, the per-pod envel
 and audit. `pods/PodIo` is the `suspend`↔blocking bridge, applied around the executor call. The one
 piece of shared *state* is `ReauthorizeChallengeStore`, which takes its collection name per surface
 and its tenant as a `realm` — the path profile here, a pod name on the pod server. The OAuth half
-went the same way, into `:sempods-auth-core`; `docs/modularity.md` holds the cut and the
+went the same way, into `:sempods-auth-core`; `docs/concepts/modularity.md` holds the cut and the
 reasons, `docs/tool-contract.md` the semantics.
 
 **Milestone `mcp.sempods.org` closed (M1–M6 done).** The service is live and hardened for a
@@ -316,5 +316,5 @@ coherent — is **concept, not schedule**: it is gated on third-party conformant
 server-side surfaces drift is no longer possible — they run one implementation — so what the
 check is actually for is the chat app's TS layer and any third-party pod. All three surfaces
 stay; none collapses onto another. It lives in the concept doc, not a roadmap:
-[`docs/mcp/hosted-mcp.md`](../docs/mcp/hosted-mcp.md) (direction, conformance
+[`../docs/concepts/hosted-mcp.md`](../docs/concepts/hosted-mcp.md) (direction, conformance
 profile, toolset divergence).

@@ -154,7 +154,7 @@ is also `sempods` — while its Gradle module and its database are `sempods-serv
 This is not settled here because it cannot be yet. What the service *is* depends on a seam that
 does not exist: with pod resolution by path segment it hosts pods and `sempods-server` describes
 it; as a single-pod deployment it *is* a pod, and a different name would read better. Both are the
-same code. See [`modularity.md`](modularity.md) §"Seams that do not exist yet", row "Pod
+same code. See [`concepts/modularity.md`](concepts/modularity.md) §"Seams that do not exist yet", row "Pod
 resolution" — the naming falls with it, and renaming a docker service is cheap next to what that
 seam costs anyway. Until then: the service is `sempods`, its database `sempods-server`. Renaming
 the service is not forbidden the way the frozen names above are — it is pending, and belongs with

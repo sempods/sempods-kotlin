@@ -4,7 +4,7 @@ import org.sempods.pods.oauth.PodAccessToken
 import org.sempods.spec.PodRef
 
 /**
- * The **authorization seam** (`docs/modularity.md`): decides which contexts a caller may
+ * The **authorization seam** (`docs/concepts/modularity.md`): decides which contexts a caller may
  * reach on a pod, and returns that as the [SempodsCredentials] every endpoint below `{pod}/…`
  * carries.
  *
@@ -24,7 +24,7 @@ import org.sempods.spec.PodRef
  * **What an implementation may decide, and what it may not.** It decides **which** contexts a
  * caller sees — it never decides **whether** the sandbox applies. An implementation that returned
  * "all contexts, unfiltered" for an untrusted caller would not be a configuration choice but a
- * conformance break (`docs/modularity.md` §"What is not selectable"). The invariants in
+ * conformance break (`docs/concepts/modularity.md` §"What is not selectable"). The invariants in
  * `sempods/AGENTS.md` hold for every binding of this interface, which is what keeps a conformance
  * suite meaningful: it runs against the invariants, not against a particular set of bindings.
  *

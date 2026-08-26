@@ -27,9 +27,10 @@ sealed interface AdminAuthorization {
 }
 
 /**
- * The **admin authority seam** (`docs/modularity.md`): decides whether a caller may perform
- * host-level operations — pod lifecycle and app provisioning — which cannot be expressed as pod
- * scopes (at `createPod` the pod does not exist yet, so no `<context>#permission` can grant it).
+ * The **admin authority seam** (`docs/concepts/modularity.md`): decides whether a caller may
+ * perform host-level operations — pod lifecycle and app provisioning — which cannot be expressed as
+ * pod scopes (at `createPod` the pod does not exist yet, so no `<context>#permission` can grant
+ * it).
  *
  * One implementation exists:
  *

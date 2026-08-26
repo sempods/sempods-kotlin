@@ -649,7 +649,7 @@ class SempodsClient(
    * guards, the public events listing — and putting a host admin secret in its way would hand
    * pod-scoped code a host-level authority for a cheap read. The control-plane client answers the
    * same question over the admin route, with that authority; two answers to one question is the
-   * boundary holding, not duplication to clean up (`docs/modularity.md`).
+   * boundary holding, not duplication to clean up (`docs/concepts/modularity.md`).
    */
   fun podExists(podBaseUrl: URI): Boolean {
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.META_DATE_MODIFIED)

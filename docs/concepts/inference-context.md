@@ -1,4 +1,4 @@
-# Virtual Inference Context — a TBox layer for type/predicate coverage (concept)
+# Virtual inference context — a TBox layer for type/predicate coverage (Concept)
 
 > **Status: concept / proposal — not implemented.** This document sketches a
 > future capability and its contract. It is intentionally kept out of the IST

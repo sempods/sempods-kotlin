@@ -12,7 +12,7 @@ over the `sempods-commons` family and takes **no application-framework** depende
 
 What a deployment may replace is expressed as a **seam** — an interface with a
 deployment-selected binding. Before adding an abstraction, read
-[`../docs/modularity.md`](../docs/modularity.md): it lists the seams that exist,
+[`../docs/concepts/modularity.md`](../docs/concepts/modularity.md): it lists the seams that exist,
 the ones that deliberately do not yet, and the invariants that are not selectable at all.
 
 ## The project-level authority is not this file

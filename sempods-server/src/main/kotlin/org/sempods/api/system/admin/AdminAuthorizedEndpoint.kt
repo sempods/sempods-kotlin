@@ -12,7 +12,7 @@ import jakarta.ws.rs.core.Response
  *
  * Deliberately **not** a [org.sempods.api.SempodsBaseEndpoint]: that base authenticates
  * *pod-scoped* callers (pod-issued token, per-context grants). Host-level authority is a different
- * authorization input and grants no pod scopes — see `docs/modularity.md` and the
+ * authorization input and grants no pod scopes — see `docs/concepts/modularity.md` and the
  * control-plane admin roadmap.
  */
 open class AdminAuthorizedEndpoint(

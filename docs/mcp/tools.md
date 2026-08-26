@@ -129,7 +129,7 @@ Arguments:
 
 ### `find` (read)
 
-The semantic entry to the [graph retrieval pattern](../ai-retrieval.md):
+The semantic entry to the [graph retrieval pattern](../concepts/graph-retrieval.md):
 search by text instead of composing SPARQL by hand. Returns a
 context-sandboxed **flat RDF subgraph** (the matching resources plus a
 fixed `rdf:type` / `rdfs:label` / `schema:name` expansion) as JSON-LD —
@@ -162,7 +162,7 @@ Arguments:
 - `limit: integer` (optional) — clamped to `1..100`, default `10`.
 
 The full request/response contract lives in
-[`../ai-retrieval.md`](../ai-retrieval.md#find--text--expanded-subgraph).
+[`../concepts/graph-retrieval.md`](../concepts/graph-retrieval.md#find--text--expanded-subgraph).
 
 ### `get_resource` (read)
 

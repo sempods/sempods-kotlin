@@ -1,24 +1,24 @@
-# MCP — Vision
+# MCP agent interface (Concept)
 
-Concepts that go beyond today's per-pod MCP. These are intentionally
-**not yet implemented**; this file captures the intent so we don't lose
-the design when shipping the base. Concrete near-term work belongs in
-the MCP roadmap (currently internal), and the broader product vision
-lives in the vision roadmap (currently internal).
+Where the per-pod MCP surface is going, beyond what it does today. Everything
+here is **SOLL — not implemented**; the file exists so the design is not lost
+while the base ships. The breakdown of whatever is currently being built lives
+in [`../roadmaps/`](../roadmaps/); the overarching direction is
+[`../vision.md`](../vision.md).
 
 ## Retrieval primitives — what remains
 
 The `find` entry primitive shipped — as `GET /{pod}/_system/find` and an
-MCP `find` tool over one `FindService` (see [`tools.md`](tools.md#find-read)
-and the contract in [`../ai-retrieval.md`](../ai-retrieval.md)). Structural
+MCP `find` tool over one `FindService` (see [`tools.md`](../mcp/tools.md#find-read)
+and the contract in [`graph-retrieval.md`](graph-retrieval.md)). Structural
 traversal uses the shipped `get_resource` / `sparql_*`; there is no separate
 `retrieve` / `expand` primitive. What is still vision, all **behind the same
 contract** (no consumer change):
 
 - **Vector / hybrid `find`** — a vector engine (or OpenSearch hybrid) behind
   the same swappable adapter SPI, so fuzzy questions land the right resources
-  without exact label matches. Follows the pod-level vector index (V5 in the
-  AI/SemWeb roadmap, currently internal), and brings cross-adapter rank fusion
+  without exact label matches. Follows the pod-level vector index (see
+  [`../vision.md`](../vision.md)), and brings cross-adapter rank fusion
   that replaces the PoC's deterministic IRI-order cap once several engines
   merge.
 - **Per-type expansion registry** — replace the fixed `type`/`label`/`name`
@@ -26,7 +26,7 @@ contract** (no consumer change):
   infos"), conditionally recursive (e.g. `Event → location → {name, address}`).
 - **General predicate filter** — a caller filter on arbitrary predicates
   beyond the shipped `type` facet, plus a `POST` form to carry it; the
-  difficulties are spelled out in [`../ai-retrieval.md`](../ai-retrieval.md).
+  difficulties are spelled out in [`graph-retrieval.md`](graph-retrieval.md).
 
 ## Cross-pod orchestration (client-side)
 
@@ -75,7 +75,7 @@ The pod now has one MCP surface, so that carrier is gone — and with it one
 property nothing else replaces: a per-app URL forced distinct DCR clients
 on cloud connectors that collapse several UI entries onto one OAuth
 client. That was given up knowingly; see
-[`endpoint.md`](endpoint.md#url).
+[`endpoint.md`](../mcp/endpoint.md#url).
 
 What survives the move is what mattered: the contract is discoverable
 without out-of-band configuration (the grant is what `initialize` and
@@ -179,10 +179,11 @@ deliberately.
 
 ## Related
 
-- [`../ai-retrieval.md`](../ai-retrieval.md) — the graph retrieval
+- [`graph-retrieval.md`](graph-retrieval.md) — the graph retrieval
   pattern the primitives operationalize.
-- MCP roadmap (currently internal) — concrete open milestones
-  (M3 vector-assisted `find`, M4 cross-pod-orchestration documentation;
-  `find` itself shipped, see [`tools.md`](tools.md#find-read)).
-- Vision roadmap (currently internal) — V1 (SHACL), V4 (ChangeStreams),
-  V5 (vector index), V6 (Enhanced MCP).
+- [`../roadmaps/`](../roadmaps/) — the breakdown of whichever of these is
+  currently being implemented, if any is. `find` itself shipped, see
+  [`tools.md`](../mcp/tools.md#find-read).
+- [`../vision.md`](../vision.md) §"What comes later" — where SHACL,
+  reactivity, the vector index and the enhanced MCP interface sit in the
+  overall direction.

@@ -588,3 +588,95 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
   archiveFileName = "central-bundle.zip"
   destinationDirectory = layout.buildDirectory
 }
+
+// A documentation set is a graph, and the one property of it that can be checked mechanically is
+// whether its edges still point at something. Nothing else here reads the markdown, so a link that
+// rots survives every green run and is found by a reader — usually an agent, which then follows
+// it to nothing and invents the rest. The failure this exists for is retiring a roadmap: the file goes
+// away and the pointers to it do not. See `docs/agents/documentation-strategy.md`.
+//
+// Only relative links: an external URL is somebody else's uptime, and checking it would make the
+// build depend on the network. Anchors are not resolved either — heading text drifts for reasons
+// that are not mistakes, and a check that fires on a rename teaches people to disable it.
+val checkDocLinks = tasks.register("checkDocLinks") {
+  group = "verification"
+  description = "Fails if a relative link in a markdown file points at a path that does not exist."
+
+  // Read out here rather than in `doLast`: `rootDir` on the task receiver would be the project's,
+  // which is the same directory today and would quietly stop being it if this ever moved.
+  val repositoryRoot = rootDir
+
+  doLast {
+    // Build output holds generated copies of documents that are checked at their source, and
+    // `.git` holds every version of every document that was ever wrong.
+    val skipped = setOf("build", ".git", ".gradle", ".idea", "node_modules")
+
+    // `[text](target)`, with an optional `"title"` after the target that markdown allows and this
+    // does not care about.
+    val link = Regex("""\[[^\]]*]\(\s*([^)\s]+)[^)]*\)""")
+    val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
+    // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
+    val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
+
+    val broken = mutableListOf<String>()
+
+    repositoryRoot.walkTopDown()
+      .onEnter { it.name !in skipped }
+      .filter { it.isFile && it.extension == "md" }
+      .sortedBy { it.path }
+      .forEach { file ->
+        // Code fences are skipped, because the templates in `docs/roadmaps/README.md` and
+        // `docs/concepts/README.md` show links with placeholder targets — the fence is what marks
+        // them as an example rather than a claim. A fence opened with four backticks is closed only
+        // by four, which is how a template containing a fenced block stays one block.
+        var open: String? = null
+
+        file.readLines().forEachIndexed { index, line ->
+          val marker = fence.find(line)?.groupValues?.get(1)
+          val current = open
+
+          if (current != null) {
+            if (marker != null && marker[0] == current[0] && marker.length >= current.length) {
+              open = null
+            }
+            return@forEachIndexed
+          }
+          if (marker != null) {
+            open = marker
+            return@forEachIndexed
+          }
+
+          link.findAll(line).forEach { match ->
+            val target = match.groupValues[1]
+            if (target.startsWith("#") || elsewhere.containsMatchIn(target)) return@forEach
+
+            // Anchors and queries are addressing inside the target, not part of the path.
+            val path = target.substringBefore('#').substringBefore('?')
+            if (path.isEmpty()) return@forEach
+
+            val resolved =
+              if (path.startsWith("/")) File(repositoryRoot, path.removePrefix("/"))
+              else File(file.parentFile, path)
+
+            // A directory is a legitimate target — `docs/auth/` and `.claude/skills/` are both
+            // linked as places rather than documents.
+            if (!resolved.exists()) {
+              broken += "${file.relativeTo(repositoryRoot)}:${index + 1} -> $target"
+            }
+          }
+        }
+      }
+
+    if (broken.isNotEmpty()) {
+      throw GradleException(
+        broken.joinToString(
+          prefix = "Markdown links that point at nothing:\n  - ",
+          separator = "\n  - ",
+          postfix = "\n\nFix the link, or the document it should point at now. " +
+            "See `docs/agents/documentation-strategy.md`.",
+        ),
+      )
+    }
+  }
+}
+tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }

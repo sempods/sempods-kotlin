@@ -25,7 +25,7 @@ enum class ToolVariant {
  * `tools/list` builds from here and `tools/call` dispatches the names defined here; the
  * human-readable contract lives in `sempods-mcp/docs/tool-contract.md`. Before this module the same
  * fourteen tools were declared twice with the same names, the same argument shapes and separately
- * worded descriptions — the divergence risk `docs/mcp/hosted-mcp.md` names under "Toolset
+ * worded descriptions — the divergence risk `docs/concepts/hosted-mcp.md` names under "Toolset
  * divergence". What differs between the surfaces is now a [ToolVariant] rather than a second file.
  *
  * Instances are memoized per variant: [McpEndpoint-style] endpoints are constructed per request on

@@ -3,7 +3,7 @@
 Google Guice, one container per process. This file is the authority on how modules are written and
 composed; what the layers *are* is [`module-layering.md`](module-layering.md), and when a seam is
 worth introducing at all is
-[`../modularity.md`](../modularity.md) §"The pattern".
+[`../concepts/modularity.md`](../concepts/modularity.md) §"The pattern".
 
 ## Composition roots
 

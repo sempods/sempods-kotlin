@@ -7,7 +7,7 @@ structurally a client to pods.
 ## Start here
 
 - **Why / trade-offs / design** — the concept doc lives with the MCP surface docs:
-  [`../../docs/mcp/hosted-mcp.md`](../../docs/mcp/hosted-mcp.md).
+  [`../../docs/concepts/hosted-mcp.md`](../../docs/concepts/hosted-mcp.md).
   It covers what it buys (one connection, server-side token refresh), what it costs
   (token custody), the two OAuth layers, profile paths, the conformance profile, SSRF
   policy, and cross-pod read/write rules.
@@ -102,6 +102,6 @@ The chat app (`sempods-apps/apps/chat`) already implements the full multi-pod to
 client-side (toolset, `targets` selection, AST SPARQL rewriting, per-`(pod, context)`
 envelopes). This module lifts that layer server-side. The semantics — not the TS code —
 are the reference; see the concept doc's
-[`toolset divergence`](../../docs/mcp/hosted-mcp.md#toolset-divergence) on keeping the
+[`toolset divergence`](../../docs/concepts/hosted-mcp.md#toolset-divergence) on keeping the
 implementations (per-pod MCP, chat app, hosted-mcp) from drifting — or collapsing them by
 retiring the per-pod MCP.
