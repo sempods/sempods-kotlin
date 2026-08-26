@@ -308,9 +308,16 @@ persistence layer of `:sempods-server` — the `…Dbo` rows, their DAOs and the
 
 **A consumer still resolves the driver**, and the two reasons are separate from that: `MongoDatabase`
 is in every DAO constructor, which stays public for Guice, so `mongodb` is `api` here (#41); and
-`bson` arrives through `api(project(":sempods-auth-core"))`, whose `RefreshTokenStore.Token.id` is
-an `ObjectId` (#40). What is checked is narrower: this module does not *name* a driver type in
-anything it publishes.
+`bson` arrives through `api(project(":sempods-auth-core"))`, because `OneTimeStore` and
+`RefreshTokenStore` take their payload codecs as `Document`-receiver lambdas and the latter takes
+`Bson` filters besides. Whoever wires one of those stores writes those types themselves, so the
+artifact is theirs to declare — and both are deliberate: `OneTimeStore`'s KDoc argues for a
+`Document` over a map, because a codec that loses the `commons-mongo` helpers loses the wire
+contract with them, and a filter is how a service expresses a revocation the mechanism cannot.
+`RefreshTokenStore.Token` used to carry the row's `_id` as an `ObjectId` on top of that and no
+longer does (#40), which changed what a consumer *names* and nothing about what it resolves — worth
+knowing before reaching for the same lever twice. What is checked is narrower: this module does not
+*name* a driver type in anything it publishes.
 
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no

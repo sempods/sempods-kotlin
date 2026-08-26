@@ -10,9 +10,14 @@ dependencies {
   // `api`, because `BaseModule` is `SempodsAuthCoreModule`'s supertype.
   api(project(":sempods-commons"))
 
-  // `api`: the driver's own types are part of this module's surface — `AuthorizationCodeStore`
-  // takes a `MongoDatabase` and hands back a `Document`. `:sempods-commons-mongo` supplies the document
-  // helpers and stays behind the wall.
+  // `api`: the driver's own types are part of this module's surface, and all three stores put them
+  // there. `MongoDatabase` is in every constructor. `Document` is the receiver of the payload
+  // codecs `OneTimeStore` and `RefreshTokenStore` are built from — deliberately, so a codec can use
+  // the `commons-mongo` helpers and keep the wire contract with them — and six store classes across
+  // `:sempods-server`, `:sempods-auth` and `:sempods-mcp` write one. `Bson` is what
+  // `RefreshTokenStore.revokeWhere` and `deleteWhere` take, which is how a service expresses a
+  // revocation the mechanism cannot. `:sempods-commons-mongo` supplies the document helpers and
+  // stays behind the wall.
   // Note this is the driver, not a framework: it constrains nobody's HTTP stack.
   implementation(project(":sempods-commons-mongo"))
   api(libs.mongodb)

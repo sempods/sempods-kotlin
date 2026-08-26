@@ -153,7 +153,7 @@ class RefreshTokenStoreTest {
 
     val doc = document(issued.token.tokenHash)
     assertFalse(doc.toJson().contains(issued.plaintext), "only the hash is stored")
-    assertEquals(issued.token.id, doc.getObjectId("_id"), "an insert stores under the id it returns")
+    assertNotNull(doc.getObjectId("_id"), "the row is keyed by an id the store mints and never hands out")
   }
 
   @Test

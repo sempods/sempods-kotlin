@@ -113,11 +113,12 @@ there is no layout for a new row to match. What holds for them is the field *set
   (`test.<name>.<purpose>`, outside the production names), which the suites need: they run
   against the developer's own database, so a test that cleared a real collection to know what it was
   looking at would be destructive and order-dependent.
-- **An insert returns the id it stored under.** `datastore.save()` used to write the generated `_id`
-  back into the instance it was handed; `insertOne` does not, so a caller reading the id off the
-  object it passed in gets `null`. `PodServiceClientStore.register` did exactly that, and the whole
-  provisioning contract collapsed into `registrationId: null` until the DAO started returning the
-  stored row.
+- **An insert returns the id it stored under, wherever a caller needs one.** `datastore.save()` used
+  to write the generated `_id` back into the instance it was handed; `insertOne` does not, so a
+  caller reading the id off the object it passed in gets `null`. `PodServiceClientStore.register`
+  did exactly that, and the whole provisioning contract collapsed into `registrationId: null` until
+  the DAO started returning the stored row. `RefreshTokenStore` is the case that needs none — its
+  `Token` is the row minus its `_id`, and the KDoc there says why.
 
 ## Which database
 
