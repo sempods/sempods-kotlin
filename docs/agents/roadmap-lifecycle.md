@@ -36,8 +36,12 @@ manifests, verification checklists and dated banners.
 
 ## 3. Handle what is left
 
-- Items still open: if they belong to a different milestone, move them to that roadmap or leave the
-  file in place, slimmed, holding only them. Rephrase as work still to do.
+- An item still open that belongs to **this** milestone means the milestone is not done, and this
+  procedure is premature. Stop here: the file keeps every entry it has, completed ones included,
+  and consolidation waits. Slimming it down to the open items is the one thing a running roadmap
+  must never have done to it.
+- An item still open that belongs to a **different** milestone: move it to that roadmap, or file a
+  new one for it, rephrased as work still to do. This milestone is then done and dissolves whole.
 - A workaround that survives: it belongs in the IST document, called out as a deviation with the
   reason the code looks that way. This is the one case where rule 3 of the strategy yields.
 - A minor open item that deserves no roadmap section: a plain `// TODO:` at the exact code location,
@@ -45,7 +49,9 @@ manifests, verification checklists and dated banners.
 
 ## 4. Delete
 
-When nothing is left, delete the roadmap file.
+Delete the roadmap file. A consolidation that reaches this step is one where nothing is left to
+carry: what was done lives in the concept and the IST documents, and what was open has moved to the
+roadmap that owns it.
 
 ## 5. Sweep
 
