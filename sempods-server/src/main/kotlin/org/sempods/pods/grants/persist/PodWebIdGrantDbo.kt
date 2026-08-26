@@ -34,7 +34,7 @@ import java.time.Instant
  * the query's equality fields plus `$setOnInsert`. [PodWebIdGrantsDao.addGrants] is where that
  * order is actually decided.
  */
-data class PodWebIdGrantDbo(
+internal data class PodWebIdGrantDbo(
   val id: ObjectId? = null,
   val podId: ObjectId,
   val webId: String,

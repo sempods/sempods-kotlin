@@ -133,7 +133,7 @@ open class SempodsBaseEndpoint(
     )
   }
 
-  protected fun fetchPodOrThrow(pod: String): PodDbo {
+  internal fun fetchPodOrThrow(pod: String): PodDbo {
     return podDao.fetchByName(pod) ?: throw WebApplicationException(Response.status(404).build())
   }
 

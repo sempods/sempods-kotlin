@@ -58,16 +58,16 @@ class PodServiceClientDao(db: MongoDatabase, collectionName: String) {
    * compare-and-swap over exactly this value — so it is minted before the write rather than hoped
    * for afterwards.
    */
-  fun create(dbo: PodServiceClientDbo): PodServiceClientDbo {
+  internal fun create(dbo: PodServiceClientDbo): PodServiceClientDbo {
     val stored = dbo.copy(id = dbo.id ?: ObjectId())
     serviceClients.insertOne(stored.toDocument())
     return stored
   }
 
-  fun findByClientId(podId: ObjectId, clientId: String): PodServiceClientDbo? =
+  internal fun findByClientId(podId: ObjectId, clientId: String): PodServiceClientDbo? =
     serviceClients.find(keyFilter(podId, clientId)).first()?.toDbo()
 
-  fun findByPod(podId: ObjectId): List<PodServiceClientDbo> =
+  internal fun findByPod(podId: ObjectId): List<PodServiceClientDbo> =
     serviceClients.find(Filters.eq(PodServiceClientDboFields.podId, podId))
       .map { it.toDbo() }
       .toList()
@@ -78,7 +78,7 @@ class PodServiceClientDao(db: MongoDatabase, collectionName: String) {
    * `updateOne`, because `MorphiaDao.updateFields` issued `UpdateOptions().upsert(false)` without
    * `multi` — and the unique index means there is never a second row to reach anyway.
    */
-  fun touchLastUsed(podId: ObjectId, clientId: String, at: Instant = Instant.now()): Boolean =
+  internal fun touchLastUsed(podId: ObjectId, clientId: String, at: Instant = Instant.now()): Boolean =
     serviceClients.updateOne(
       keyFilter(podId, clientId),
       Updates.set(PodServiceClientDboFields.lastUsedAt, at),
@@ -137,7 +137,7 @@ class PodServiceClientDao(db: MongoDatabase, collectionName: String) {
    * the caller can answer `409` instead of handing out a dead secret. Pass `null` only where
    * unconditional removal is intended (pod deletion, cleanup).
    */
-  fun delete(podId: ObjectId, clientId: String, expectedId: ObjectId? = null): Boolean {
+  internal fun delete(podId: ObjectId, clientId: String, expectedId: ObjectId? = null): Boolean {
     val filter = if (expectedId == null) {
       keyFilter(podId, clientId)
     } else {
@@ -153,7 +153,7 @@ class PodServiceClientDao(db: MongoDatabase, collectionName: String) {
    * `deleteMany`, because Morphia's `deleteAll()` is `DeleteOptions().multi(true)`: a `deleteOne`
    * carried over here would leave every registration but one behind on a deleted pod.
    */
-  fun deleteByPod(podId: ObjectId): Long =
+  internal fun deleteByPod(podId: ObjectId): Long =
     serviceClients.deleteMany(Filters.eq(PodServiceClientDboFields.podId, podId)).deletedCount
 
   private companion object {

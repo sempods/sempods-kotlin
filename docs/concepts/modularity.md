@@ -300,6 +300,17 @@ compiles perfectly — and cannot be compiled against by anyone holding only the
 reads the bytecode and the Kotlin metadata and fails the build on it. Configuration and the
 reasoning behind each exception live in `settings.gradle.kts`.
 
+**`internal` is part of that boundary**, because the plugin reads the Kotlin metadata: the
+persistence layer of `:sempods-server` — the `…Dbo` rows, their DAOs and the stores over them — is
+`internal`, so the module names no `org.bson` type in its ABI and declares `bson` on
+`implementation`.
+
+**A consumer still resolves the driver**, and the two reasons are separate from that: `MongoDatabase`
+is in every DAO constructor, which stays public for Guice, so `mongodb` is `api` here (#41); and
+`bson` arrives through `api(project(":sempods-auth-core"))`, whose `RefreshTokenStore.Token.id` is
+an `ObjectId` (#40). What is checked is narrower: this module does not *name* a driver type in
+anything it publishes.
+
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no
 consumers, so it computes no ABI for one at all. `sempods-auth` and `sempods-mcp` are both things at

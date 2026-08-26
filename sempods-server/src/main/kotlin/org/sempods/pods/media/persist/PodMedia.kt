@@ -28,7 +28,7 @@ import java.time.Instant
  *   sweep reads it; [PodMediaDao] maintains it atomically, because deriving it in the caller
  *   would leave a window in which a row is unreferenced and does not say so.
  */
-data class PodMedia(
+internal data class PodMedia(
   val podId: ObjectId,
   val mediaId: String,
   val size: Long,
@@ -76,7 +76,7 @@ data class PodMedia(
  *   contexts may legitimately disagree about the same bytes, and the content route answers with the
  *   claim made in a context the reader can see.
  */
-data class MediaAssignment(
+internal data class MediaAssignment(
   val context: String,
   val contentType: String,
   val filename: String?,

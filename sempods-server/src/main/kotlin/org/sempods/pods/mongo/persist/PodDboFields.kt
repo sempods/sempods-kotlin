@@ -1,6 +1,6 @@
 package org.sempods.pods.mongo.persist
 
-object PodDboFields {
+internal object PodDboFields {
   const val id = "_id"
   const val name = "name"
   const val owner = "owner"

@@ -92,9 +92,9 @@ oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.3"
 mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
-# `ObjectId` and `Document`, which sit in public signatures across the repository: `PodMediaRef`
-# speaks `ObjectId`, and `:sempods-server` names it in some fifty of them (#12). Separate from the
-# driver above so a module can export the types without exporting the driver.
+# `ObjectId` and `Document`. Separate from the driver above so a module can export the types
+# without exporting the driver: `:sempods-commons-mongo` and `:sempods-auth-core` carry them in
+# public signatures, `:sempods-server` only in DAO bodies.
 bson = { module = "org.mongodb:bson", version.ref = "mongodb" }
 morphiaCore = { module = "dev.morphia.morphia:morphia-core", version.ref = "morphia" }
 morphiaKotlin = { module = "dev.morphia.morphia:morphia-kotlin", version.ref = "morphia" }

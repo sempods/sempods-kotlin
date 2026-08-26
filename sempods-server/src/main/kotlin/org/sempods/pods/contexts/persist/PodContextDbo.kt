@@ -14,7 +14,7 @@ import java.time.Instant
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `PodContextsDao.toDocument` writes the fields in exactly this sequence.
  */
-data class PodContextDbo(
+internal data class PodContextDbo(
   val id: ObjectId? = null,
   val podId: ObjectId,
   val contextUri: String,
