@@ -3216,6 +3216,171 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a did-web client is not answered over cleartext http on its own origin`() {
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+
+    // `covers` matches host, port and path and says nothing about the scheme, so each of these
+    // is the identifier's own origin over cleartext. The second is the quiet one: `:443`
+    // normalizes to the port `covers` expects, and 443 is where TLS listens.
+    for ((clientId, cleartext) in listOf(
+      "did:web:example.org%3A8443" to "http://example.org:8443/cb",
+      "did:web:example.org" to "http://example.org:443/cb",
+      "did:web:apps.example.org:mcp" to "http://apps.example.org/mcp/cb",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", clientId)
+        .addQueryParam("redirect_uri", cleartext)
+        .addQueryParam("state", "s")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been refused: $clientId -> $cleartext")
+      assertTrue(response.getHeader("Location").isNullOrBlank(), cleartext)
+    }
+  }
+
+  @Test
+  fun `https on the origin a did-web client names is still answered`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // The other side of the rule above — a non-default port and a path prefix included.
+    for ((clientId, allowed) in listOf(
+      "did:web:example.org%3A8443" to "https://example.org:8443/cb",
+      "did:web:example.org" to "https://example.org/cb",
+      "did:web:apps.example.org:mcp" to "https://apps.example.org/mcp/cb",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", clientId)
+        .addQueryParam("redirect_uri", allowed)
+        .addQueryParam("state", "s")
+        .executeSignedInAs(ownerWebId)
+
+      assertEquals(200, response.statusCode, "should have been served: $clientId -> $allowed")
+      assertTrue(response.responseBody.contains("consent"), allowed)
+    }
+  }
+
+  @Test
+  fun `a did-web client may still be answered over http on loopback in development`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // `example.org` does not cover `127.0.0.1`, so this reaches the development-only loopback
+    // branch and nothing else. The suite runs outside a deployment, hence `Env.isDevelopment`.
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", "did:web:example.org")
+      .addQueryParam("redirect_uri", "http://127.0.0.1:51000/cb")
+      .addQueryParam("state", "s")
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertTrue(response.responseBody.contains("consent"))
+  }
+
+  @Test
+  fun `a native client on the IPv6 loopback address keeps its callback`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    // RFC 8252 §7.3 names `[::1]` alongside `127.0.0.1`, and `URI.getHost` returns it bracketed.
+    // Registration and the ephemeral-port re-match both have to see through that.
+    val dynClientId = registerDynamicClient(pod.name, "http://[::1]:51000/cb")
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", dynClientId)
+      .addQueryParam("redirect_uri", "http://[::1]:65373/cb")
+      .addQueryParam("state", "ipv6-loopback-state")
+      .addQueryParam("code_challenge", testCodeChallenge)
+      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertTrue(response.responseBody.contains("consent"))
+  }
+
+  @Test
+  fun `a redirect_uri that is not a URI at all is a client error, not a server error`() {
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+
+    // A malformed parameter is a client error, not a `URISyntaxException` reaching
+    // `ApiExceptionMapper` as a 500. No `Location` on any of them either way.
+    for (malformed in listOf(
+      "https://example.org/%zz",
+      "https://example.org/a b",
+      "https://exa mple.org/cb",
+      "http://[::1/cb",
+      "::::",
+    )) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", malformed)
+        .addQueryParam("state", "s")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been a client error: $malformed")
+      assertTrue(response.getHeader("Location").isNullOrBlank(), malformed)
+    }
+  }
+
+  @Test
+  fun `an escaped path segment is not the same address as the two segments it spells`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    // One path segment named `cb/admin` against two segments `cb` then `admin`. The `dyn:` match
+    // compares canonical forms, and loopback ports are interchangeable (RFC 8252 §7.3), so the
+    // path is the only thing left to disagree.
+    val dynClientId = registerDynamicClient(pod.name, "http://localhost:51000/cb%2Fadmin")
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", dynClientId)
+      .addQueryParam("redirect_uri", "http://localhost:65373/cb/admin")
+      .addQueryParam("state", "escaped-segment-state")
+      .addQueryParam("code_challenge", testCodeChallenge)
+      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+      .executeSignedInAs(ownerWebId)
+
+    assertEquals(400, response.statusCode, "an unregistered path must not be reachable through %2F")
+  }
+
+  @Test
+  fun `register refuses a cleartext redirect_uri on a public host`() {
+    val pod = sempodsTestFactory.newPod()
+
+    // Refused while the client is asking, rather than at every login attempt afterwards.
+    for (rejected in listOf(
+      "http://apps.example.org/cb",
+      "http://apps.example.org:8443/cb",
+      "https://apps.example.org/cb#frag",
+      // Bracketed, but not loopback: the brackets are stripped to compare, not to excuse.
+      "http://[2001:db8::1]/cb",
+    )) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody("""{"redirect_uris":["$rejected"]}""")
+        .execute()
+
+      assertEquals(400, response.statusCode, "should have been refused: $rejected")
+      assertTrue("invalid_redirect_uri" in response.responseBody, response.responseBody)
+    }
+  }
+
+  @Test
   fun `a path-scoped did-web client cannot be answered on a sibling path`() {
     val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
 

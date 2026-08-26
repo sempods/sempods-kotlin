@@ -88,6 +88,44 @@ class ClientRedirectPolicyTest {
   }
 
   @Test
+  fun `an identifier whose own origin is loopback is gated like any other loopback address`() {
+    // `covers` would answer for these on their own origin without ever reaching `allowLoopback`.
+    // A `did:web:` is asserted, not issued, so in production anyone could name one.
+    for (loopbackClient in listOf(
+      "did:web:localhost%3A5173",
+      "did:web:127.0.0.1%3A5173",
+      "did:web:localhost",
+      "did:web:localhost%3A5173:mcp",
+    )) {
+      assertFalse(
+        policy.permits(loopbackClient, redirectFor(loopbackClient)),
+        "must be refused in production: $loopbackClient",
+      )
+    }
+
+    // The gate is about where the code lands, not how it travels there.
+    assertFalse(policy.permits("did:web:localhost%3A5173", "https://localhost:5173/cb"))
+  }
+
+  @Test
+  fun `and is served in development, which is what the gate is for`() {
+    assertTrue(devPolicy.permits("did:web:localhost%3A5173", "http://localhost:5173/cb"))
+    assertTrue(devPolicy.permits("did:web:localhost%3A5173", "https://localhost:5173/cb"))
+    assertTrue(devPolicy.permits("did:web:localhost%3A5173:mcp", "http://localhost:5173/mcp/cb"))
+    // Only loopback is relaxed — a public address stays confined to the named origin. Within
+    // loopback the path is relaxed too: the fallback serves native clients on ephemeral ports.
+    assertFalse(devPolicy.permits("did:web:localhost%3A5173", "https://evil.example/cb"))
+  }
+
+  @Test
+  fun `gating loopback identifiers leaves public origins untouched`() {
+    // The refusal keys on the identifier's host, so a real origin is unaffected.
+    assertTrue(policy.permits("did:web:pod.example.org", "https://pod.example.org/cb"))
+    assertTrue(policy.permits("did:web:pod.example.org%3A8443", "https://pod.example.org:8443/cb"))
+    assertFalse(policy.permits("did:web:pod.example.org", "https://localhost.example.org/cb"))
+  }
+
+  @Test
   fun `a fragment can never be registered`() {
     // RFC 6749 §3.1.2 — the component is reserved for the response.
     assertFalse(policy.permits("did:web:pod.example.org", "https://pod.example.org/cb#frag"))
@@ -120,5 +158,12 @@ class ClientRedirectPolicyTest {
     val uri = OAuthErrors.errorUri("https://sempods.org/docs/oauth-errors", OAuthErrorCode.INVALID_REQUEST)
 
     kotlin.test.assertEquals("https://sempods.org/docs/oauth-errors#invalid_request", uri)
+  }
+
+  /** The address an identifier names as its own — the one `covers` answers `true` for. */
+  private fun redirectFor(clientId: String): String {
+    val target = assertNotNull(DidWeb.targetOf(clientId))
+    val path = if (target.pathPrefix == "/") "/cb" else "${target.pathPrefix}/cb"
+    return "http://${target.host}:${target.port}$path"
   }
 }
