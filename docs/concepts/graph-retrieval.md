@@ -98,7 +98,7 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
 - **Optional `context` downscope.** A caller may narrow the search to specific
   contexts (graphs) *within* what it may read, via the repeatable `context=<iri>`
   parameter (MCP: `context_iri` array). This is the universal read-downscope the
-  LOD read routes already expose (`lod-crud/lod-layer.md` §"Reads"), **not** the
+  LOD read routes already expose ([`../lod-crud/lod-layer.md`](../lod-crud/lod-layer.md) §"Reads"), **not** the
   general predicate filter below: the server intersects `{requested}` with the
   readable set and silently drops unknown/unreadable contexts (no 403/404 — no
   topology leak); an all-unreadable request yields an empty result, not an error.
@@ -309,7 +309,7 @@ any AI.
   swappable adapter SPI, the optional OR-combined `type` facet, the optional
   `context` read-downscope, the optional `include_contexts` provenance form, and
   the fixed `type` / `label` / `name` expansion. MCP reference:
-  [`mcp/tools.md`](../mcp/tools.md#find-read).
+  [`../mcp/tools.md`](../mcp/tools.md#find-read).
 - **Open** — a vector / hybrid `find` engine (same contract), the per-type
   expansion registry, the general predicate filter, and SHACL-gated app
   surfaces. The concept for all of it is

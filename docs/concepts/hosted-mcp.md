@@ -381,7 +381,7 @@ not a reason to remove it where it exists.
 
 Whether to **retire** the per-pod MCP later is a **separate, larger decision** — one that
 would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
-[`tools.md`](../mcp/tools.md), [`authentication.md`](../mcp/authentication.md) — and
+[`../mcp/tools.md`](../mcp/tools.md), [`../mcp/authentication.md`](../mcp/authentication.md) — and
 `McpEndpoint` itself, and weigh the lost direct-access property. It is
 **not the current lean**: all three coexist and are exercised first.
 
