@@ -637,16 +637,40 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     // literal `%20` keeps working, and the check only fails when neither exists.
     val escapes = Regex("""(?:%[0-9a-fA-F]{2})+""")
 
+    // A backslash escapes the character after it, so `\[example](missing.md)` renders as text and
+    // is not a link — checking it would fail the build for a line that documents syntax rather
+    // than points anywhere. Odd is escaped: `\\[` is a literal backslash in front of a real
+    // opener.
+    fun escaped(line: String, at: Int): Boolean {
+      var slashes = 0
+      var i = at - 1
+      while (i >= 0 && line[i] == '\\') {
+        slashes++
+        i--
+      }
+      return slashes % 2 == 1
+    }
+
     // A destination may contain balanced parentheses — `docs/setup_(linux).md` is a legal target —
     // so it cannot be read by stopping at the first `)`, and a regex cannot count. This walks the
-    // line instead. It is deliberately not a CommonMark parser: backslash escapes and brackets
-    // inside a label are out of scope, because getting those wrong costs a missed check, while
-    // miscounting parentheses costs a red build for a link that is fine. False green over false
-    // red, for a guard whose whole value is that people leave it switched on.
+    // line instead. It is deliberately not a CommonMark parser — indented code blocks are the
+    // known gap, because telling one from a nested list item needs block-level parsing and this
+    // repository has three live links inside indented list items and no indented code block at
+    // all. Where the two kinds of error are in tension the rule is false green over false red: a
+    // missed check costs one stale link, while a red build for a link that is fine costs a guard
+    // that people switch off.
     fun destinations(line: String): List<String> {
       val found = mutableListOf<String>()
       var cursor = line.indexOf("](")
       while (cursor >= 0) {
+        // The label's own brackets have to be real ones. An escaped `]` closes nothing, and an
+        // escaped `[` never opened a label — either way this is text that looks like a link.
+        val opener = line.lastIndexOf('[', cursor - 1)
+        if (escaped(line, cursor) || opener < 0 || escaped(line, opener)) {
+          cursor = line.indexOf("](", cursor + 2)
+          continue
+        }
+
         var i = cursor + 2
         while (i < line.length && line[i].isWhitespace()) i++
 
