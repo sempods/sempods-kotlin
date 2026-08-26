@@ -10,9 +10,14 @@ directly.
 ## 1. What changed
 
 ```bash
-git diff --name-only
-git diff
+git status --short   # everything, new and untracked files included
+git diff HEAD        # the change itself, staged or not
 ```
+
+Against `HEAD`, not the index. A bare `git diff` compares the working tree with the index, so a
+change that has already been staged shows nothing — and staging before proposing a commit is
+exactly what this repository's procedures ask for, which would make this step silently report a
+clean tree at the one moment it matters most.
 
 Behaviour, a public signature, a stored shape, an HTTP surface, a permission rule — those need this
 procedure. A refactor that moves code without changing what it does usually needs nothing, and

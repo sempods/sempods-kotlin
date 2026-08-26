@@ -625,6 +625,11 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
     // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
     val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
+    // A destination is a URL, so a renderer percent-decodes it: `design%20notes.md` opens
+    // `design notes.md`. A run of escapes is decoded together, because one character may be
+    // several bytes. Both spellings are then accepted — a file whose name really does contain a
+    // literal `%20` keeps working, and the check only fails when neither exists.
+    val escapes = Regex("""(?:%[0-9a-fA-F]{2})+""")
 
     // A destination may contain balanced parentheses — `docs/setup_(linux).md` is a legal target —
     // so it cannot be read by stopping at the first `)`, and a regex cannot count. This walks the
@@ -702,13 +707,23 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             val path = target.substringBefore('#').substringBefore('?')
             if (path.isEmpty()) return
 
-            val resolved =
-              if (path.startsWith("/")) File(repositoryRoot, path.removePrefix("/"))
-              else File(file.parentFile, path)
+            fun resolve(candidate: String) =
+              if (candidate.startsWith("/")) File(repositoryRoot, candidate.removePrefix("/"))
+              else File(file.parentFile, candidate)
+
+            val spellings = mutableListOf(path)
+            if (escapes.containsMatchIn(path)) {
+              spellings += escapes.replace(path) { run ->
+                String(
+                  run.value.chunked(3).map { it.substring(1).toInt(16).toByte() }.toByteArray(),
+                  Charsets.UTF_8,
+                )
+              }
+            }
 
             // A directory is a legitimate target — `docs/auth/` and `.claude/skills/` are both
             // linked as places rather than documents.
-            if (!resolved.exists()) {
+            if (spellings.none { resolve(it).exists() }) {
               broken += "${file.relativeTo(repositoryRoot)}:${index + 1} -> $target"
             }
           }
