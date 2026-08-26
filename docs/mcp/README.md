@@ -104,4 +104,5 @@ Standards are *named*, not re-explained in these docs.
   and the two server-side ones now run one shared implementation. Live on
   `mcp.sempods.org` (M1–M6 done).
 - **[`../roadmaps/`](../roadmaps/)** — the milestone currently being implemented,
-  if one is. Open items only, dissolved when it ships.
+  if one is. Completed items stay marked done until the whole milestone is
+  consolidated; the file is dissolved then, not item by item.

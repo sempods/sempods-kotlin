@@ -627,8 +627,10 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val definition = Regex("""^ {0,3}\[[^\]]+]:\s*([^\s<>]+)(\s.*)?$""")
     val angleDefinition = Regex("""^ {0,3}\[[^\]]+]:\s*<([^>]*)>(\s.*)?$""")
     val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
-    // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
-    val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
+    // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape. So
+    // does a leading `//`, which is a URL that borrows the page's scheme — never a path in here,
+    // and the branch below would otherwise resolve it against the repository root.
+    val elsewhere = Regex("""^([a-zA-Z][a-zA-Z0-9+.\-]*:|//)""")
     // A destination is a URL, so a renderer percent-decodes it: `design%20notes.md` opens
     // `design notes.md`. A run of escapes is decoded together, because one character may be
     // several bytes. Both spellings are then accepted — a file whose name really does contain a

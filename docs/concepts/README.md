@@ -4,8 +4,12 @@ A concept document owns one topic. It says what the topic *is*, what is true tod
 target state is — and it links to the roadmap implementing that target and to the IST documents
 describing the parts already built.
 
-Concepts are permanent. Unlike a roadmap, a concept is not dissolved: when its SOLL comes true, that
-section is rewritten as IST.
+A concept outlives the roadmaps that implement it. Where a roadmap is dissolved by design, a
+concept's SOLL section is rewritten as IST when it comes true, and the document stays. The one
+exception is a concept that ends up with nothing left to say: if it is entirely IST and small
+enough, it folds into the IST document it points at and is deleted — see
+[`../agents/roadmap-lifecycle.md`](../agents/roadmap-lifecycle.md) §2. Keeping a document that only
+repeats another one is not preservation.
 
 This folder is the repository-wide one. A module may hold its own — `<module>/docs/concepts/` — for
 a topic that is true of that module only. The rules below apply at every level; do not copy this
