@@ -15,7 +15,7 @@ tool surface does not grow ad-hoc against implicit assumptions.
 Names and shapes no longer have to be kept in lockstep by hand; they are one declaration. The
 forward-looking conformance profile would expand that same artifact into a public, **versioned**
 spec with cross-implementation tests — concept, not yet built (see
-[`../../docs/mcp/hosted-mcp.md`](../../docs/mcp/hosted-mcp.md)).
+[`../../docs/concepts/hosted-mcp.md`](../../docs/concepts/hosted-mcp.md)).
 
 ## Identity & gating
 
@@ -209,4 +209,4 @@ consolidation M3 a read entry also carries the pod's `status`, the same as a wri
 
 The public conformance profile + capability-discovery endpoint (the versioned "what counts as a pod")
 is forward-looking concept, tracked in
-[`../../docs/mcp/hosted-mcp.md`](../../docs/mcp/hosted-mcp.md), not here.
+[`../../docs/concepts/hosted-mcp.md`](../../docs/concepts/hosted-mcp.md), not here.

@@ -39,7 +39,7 @@ server primitives, but it makes existing gaps visibly painful:
 2. **`find` entry primitive** server-side — the semantic entry to the
    graph; structural traversal then uses the shipped `get_resource` /
    `sparql_*`. Currently the entry is emulated client-side, which is
-   slow. → MCP roadmap (M2); see also `mcp/vision.md`.
+   slow. → MCP roadmap (M2); see also `concepts/mcp-agent-interface.md`.
 3. **Per-context summaries in `list_contexts`** — for the pod wizard
    and the per-session hint block. → MCP roadmap (M2).
 4. **Ergonomic `public-read` bearers** — anonymous browser visitors
@@ -53,4 +53,4 @@ server primitives, but it makes existing gaps visibly painful:
    → auth roadmap.
 7. **Optional SHACL-gated app-MCP analog for `dyn:` chat clients** —
    once the chat app offers "tick-the-box edits only" as a permission
-   shape. → `mcp/vision.md`.
+   shape. → `concepts/mcp-agent-interface.md`.

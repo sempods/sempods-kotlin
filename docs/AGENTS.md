@@ -8,19 +8,31 @@ This folder contains sempods specification and implementation-facing documentati
 
 ## Documentation policy
 
-- Keep docs in English.
-- Keep **IST** docs strictly aligned with current code behavior.
-- Keep future/planned work in roadmap docs.
-- Avoid mixing runtime facts and target-state assumptions in the same section.
-- Keep docs high-level and example-driven; put field-level contracts into code (KDoc on interfaces/DTOs) and link to those files.
+[`agents/documentation-strategy.md`](agents/documentation-strategy.md) is the authority — the four
+types, how they nest, and when something should not be documented at all. Read it before editing
+anything here. What it means for this folder:
+
+- English.
+- `vision.md` is the repository-wide vision; `concepts/` holds one document per topic, each stating
+  IST and SOLL; `roadmaps/` holds the milestone being implemented, if one is; everything else
+  describes what the code does today.
+- Never mix runtime facts and target state in the same section.
+- High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
+  document links to the file.
+- Logic that follows the standard gets no document at all. When a special case becomes ordinary,
+  its section goes.
 
 ## Key references
 
+- `docs/agents/` — the AI instruction hub, the documentation strategy, and the two procedures
+  (`roadmap-lifecycle.md`, `documentation-sync.md`)
+- `docs/concepts/` — one document per topic, each stating IST and SOLL: modular deployment
+  (deployment-selected seams, the invariants that are not selectable, open-source blockers), graph
+  retrieval, hosted MCP, the MCP agent interface, inference contexts
+- `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it ships
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
-- `docs/vision.md` — core standard (IST)
-- `docs/modularity.md` — deployment-selected seams of the reference
-  implementation, the invariants that are not selectable, open-source blockers
+- `docs/vision.md` — core standard
 - `docs/persistence.md` — the collection layer: hand-written driver DAOs, the document
   contract every one of them writes to, and the two query asymmetries that follow from it
 - `docs/ai-layer.md` — AI provider abstraction
@@ -28,7 +40,6 @@ This folder contains sempods specification and implementation-facing documentati
   three configuration states, the reference-counting lifecycle, and what is deliberately outside
 - `docs/ai/semweb/text2model.md`
 - `docs/ai/semweb/use-cases/tasks.md`
-- `sempods/AGENTS.md`
 
 ## Auth and security docs
 
@@ -72,5 +83,5 @@ Per-pod MCP specification and design docs live in `docs/mcp/`:
   the synthetic `authorize` tool, DCR fingerprint
 - `docs/mcp/clients.md` — client setup + observed behavioral clusters
   (Claude, ChatGPT, Copilot, Open-Code)
-- `docs/mcp/vision.md` — retrieval primitives, SHACL-gated app
+- `docs/concepts/mcp-agent-interface.md` — retrieval primitives, SHACL-gated app
   contracts, cross-pod orchestration

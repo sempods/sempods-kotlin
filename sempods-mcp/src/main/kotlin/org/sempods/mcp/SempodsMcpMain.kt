@@ -48,7 +48,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * MCP as an LLM-tooling layer over the pod's primitives (external-first). Toward each pod it
  * is an ordinary OAuth client.
  *
- * Concept (why / trade-offs / direction): docs/mcp/hosted-mcp.md
+ * Concept (why / trade-offs / direction): docs/concepts/hosted-mcp.md
  * As-built phase status:                  sempods-mcp/AGENTS.md
  *
  * Live on mcp.sempods.org (M1–M6 done): service login / identity (own MCP-OAuth resource server /

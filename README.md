@@ -213,7 +213,7 @@ The server is a **reference implementation, not one particular hosting**. Behavi
 deployment may need to replace — the RDF store, the `find` engine, resource expansion, the AI
 provider, admin authority — are interfaces with a deployment-selected binding rather than
 forks. Which ones exist, which do not yet, and what each costs is documented in
-[`docs/modularity.md`](docs/modularity.md).
+[`docs/concepts/modularity.md`](docs/concepts/modularity.md).
 
 ## Documentation
 
@@ -223,12 +223,16 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [`docs/auth/`](docs/auth/) | contexts, grants, scopes, the OAuth profile, identity |
 | [`docs/lod-crud/`](docs/lod-crud/) | the data plane: LOD layer and system layer |
 | [`docs/mcp/`](docs/mcp/) | the MCP surfaces and how clients behave against them |
-| [`docs/ai-retrieval.md`](docs/ai-retrieval.md) | graph retrieval — `find`, then traverse |
+| [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | binaries a pod owns, and what stays outside |
-| [`docs/modularity.md`](docs/modularity.md) | what a deployment may replace |
+| [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
+| [`docs/concepts/`](docs/concepts/) | one document per topic, each stating what is and what is planned |
 
 Documentation is split into **IST** (implemented, verifiable in code) and **SOLL** (planned).
-Where the two disagree, the code is right and the document is a bug.
+Where the two disagree, the code is right and the document is a bug. How the two are kept apart —
+and when something should not be documented at all — is
+[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which applies to
+human and AI contributors alike.
 
 ## Contributing
 

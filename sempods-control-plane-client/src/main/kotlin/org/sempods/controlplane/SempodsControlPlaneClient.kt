@@ -26,8 +26,8 @@ import java.net.URI
  * (`SEMPODS_ADMIN_CLIENTS` on the server side). It grants **no** pod scopes and is not
  * interchangeable with the pod-scoped service tokens the data path uses: lifecycle authority cannot
  * be expressed as a pod permission, because at [createPod] the pod does not exist yet and there is
- * nothing to scope against. See `docs/modularity.md` §"The authority boundary outlived the
- * types" and the maintainer's internal roadmap.
+ * nothing to scope against. See `docs/concepts/modularity.md` §"The authority boundary outlived
+ * the types" and the maintainer's internal roadmap.
  *
  * Known consumers: an application backend that provisions pods for its users, and — planned — the
  * operator UI `admin.sempods.org` (roadmap A3) and the pod-owner layer `my.sempods.org` for its

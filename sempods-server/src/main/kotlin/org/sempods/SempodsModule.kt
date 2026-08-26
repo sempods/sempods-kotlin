@@ -110,7 +110,7 @@ class SempodsModule : BaseModule() {
 
     // The composition, and the whole of what the pod server takes from the shared infrastructure.
     // Deliberately no application framework: this module is published, so what it installs is what
-    // a third party would have to run. See `docs/modularity.md` §"Open-source readiness".
+    // a third party would have to run. See `docs/concepts/modularity.md` §"Open-source readiness".
     bind<SempodsConfig>().toInstance(config)
     install(OkHttpClientModule)
     install(MongoModule(connectionString = config.mongoUrl, databaseName = config.mongoDb))
@@ -372,7 +372,7 @@ class SempodsModule : BaseModule() {
    * something an operator should be able to get wrong. What keeps it an interface rather than a
    * concrete class is that the behaviour behind it is genuinely deployment-shaped — a fixed
    * read-only view over virtual contexts, or an external policy engine, are the cases
-   * `docs/modularity.md` names. This method is where such a selection would go back in.
+   * `docs/concepts/modularity.md` names. This method is where such a selection would go back in.
    *
    * What no implementation may do is decide *whether* the sandbox applies; see [PodAuthorizer].
    */

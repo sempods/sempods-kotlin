@@ -221,4 +221,4 @@ it.
   shares the base64url id convention and nothing else.
 - [`lod-crud/system-layer.md`](lod-crud/system-layer.md) — why control-plane state lives in MongoDB
   rather than in the graph. The media registry is the same kind of thing.
-- [`modularity.md`](modularity.md) — the seam table this store is a row of.
+- [`concepts/modularity.md`](concepts/modularity.md) — the seam table this store is a row of.

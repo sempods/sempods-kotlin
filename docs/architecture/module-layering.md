@@ -25,7 +25,7 @@ the Ollama and OpenAI implementations behind it.
 It is deliberately **not** the mandatory shape of every cross-module call. An interface with one
 implementation and one caller documents nothing and costs indirection, which is why the
 `SempodsService` abstraction was retired — see
-[`../modularity.md`](../modularity.md) §"The authority boundary
+[`../concepts/modularity.md`](../concepts/modularity.md) §"The authority boundary
 outlived the types". The authority boundary it was thought to carry — who may do what — lives in
 the authorization model, not in a type.
 
@@ -92,7 +92,7 @@ Service Impl ──┘
   nothing in `sempods-commons` may depend back on it. `sempods-server`, `sempods-auth`, `sempods-mcp`,
   `sempods-model`, `sempods-client`, `sempods-control-plane-client` and the pod server's deployment
   image take `sempods-commons` and no framework at all. See
-  [`../modularity.md`](../modularity.md) §"Open-source readiness"
+  [`../concepts/modularity.md`](../concepts/modularity.md) §"Open-source readiness"
 - **A Facade is a legitimate reuse surface.** sempods is a *reference implementation* built from
   selectable seams, and a toolkit whose parts cannot be called from outside is not a toolkit. A
   consuming module depends on a facade directly; it does not need an interface in between to make

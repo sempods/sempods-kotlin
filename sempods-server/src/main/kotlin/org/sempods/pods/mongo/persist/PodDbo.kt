@@ -60,7 +60,7 @@ internal data class PodDbo(
  * the result carries the pod's own URI rather than a name that means nothing without it.
  *
  * Drops [PodDbo.id]: that is this implementation's storage key, and it has no place in a signature
- * a deployment could supply its own implementation for — see `docs/modularity.md`
+ * a deployment could supply its own implementation for — see `docs/concepts/modularity.md`
  * §"The pattern". Code that needs the key back resolves it from [PodDbo.name] through
  * `PodFacade.getPodId`, which is cached. The edge runs this way only: `sempods-model` knows nothing
  * about this class.

@@ -16,6 +16,13 @@
 - [ ] `./gradlew test` passes
 - [ ] `./gradlew buildHealth` passes — required whenever a dependency or a
       public signature moved
+- [ ] `./gradlew checkDocLinks` passes — every relative link in a markdown file
+      still resolves
+- [ ] The documentation is current *in this same change*: the IST documents, the
+      KDoc on any signature that moved, and `context7.json` if a fact it asserts
+      did. `docs/agents/documentation-strategy.md` §"Definition of done" is the
+      list — and the place to check whether the right answer is to delete a
+      section rather than write one
 - [ ] A model that did substantial work here is named in a `Co-Authored-By:`
       trailer, and the change is one I can defend in review
 

@@ -10,7 +10,7 @@ plugins {
 }
 
 // The api/implementation boundary, checked. `./gradlew buildHealth` writes its report to
-// `build/reports/dependency-analysis/`; `docs/modularity.md` §"Open-source readiness" says what it
+// `build/reports/dependency-analysis/`; `docs/concepts/modularity.md` §"Open-source readiness" says what it
 // guards and what it cannot. Coordinates are strings because a settings script has no
 // version-catalog accessors.
 dependencyAnalysis {

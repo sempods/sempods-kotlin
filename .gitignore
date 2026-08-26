@@ -13,3 +13,10 @@
 # Local configuration, which `deployments/local/env/local.example.env` tells you to create here.
 # The template promises the copy is ignored; this is the rule that keeps the promise.
 deployments/local/env/local.env
+
+# Claude Code's per-developer state, now that `.claude/` holds something the project owns.
+# `settings.local.json` is a permission allowlist — one machine's answer, and one that grants
+# elevated privileges, so it is never the project's. `worktrees/` is scratch checkouts.
+# `.claude/skills/` is tracked: the procedures it wraps are in `docs/agents/` and belong to everyone.
+.claude/settings.local.json
+.claude/worktrees/

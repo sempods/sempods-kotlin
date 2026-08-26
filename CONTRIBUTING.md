@@ -108,6 +108,13 @@ pull request costs more to triage than to write, and it will be closed. Review i
 the scarce resource on a one-maintainer project; the useful contribution arrives
 already understood by the person sending it.
 
+**The rules an agent needs are in the repository.** `AGENTS.md` at the root is the
+canonical file, and `docs/agents/ai-instructions.md` is the hub every frontend routes
+through — Codex and opencode read `AGENTS.md` natively, while `CLAUDE.md`, `GEMINI.md`,
+`.github/copilot-instructions.md` and `.cursor/rules/` are pointers back to it. Point
+your agent at the hub before it starts; the self-check there is a task you can hand it
+verbatim.
+
 ## What this project will not change
 
 Some properties are not trade-offs to be balanced; they are what the model is.
@@ -157,8 +164,17 @@ it only warns about, is in
 
 The rule, short: **an artifact whose types appear in a module's public signatures
 is declared by that module, on `api`** — not inherited from a sibling that
-happens to bring it. `docs/modularity.md` §"Open-source readiness" says what this
+happens to bring it. `docs/concepts/modularity.md` §"Open-source readiness" says what this
 guards and what it cannot.
+
+Two more run in CI and are worth running locally when a change touches them:
+`./gradlew checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks`. The last
+one walks every markdown file and fails on a relative link that points at nothing.
+
+A behaviour change carries its documentation in the same commit —
+`docs/agents/documentation-strategy.md` §"Definition of done" is the list. It is also
+the file that says when *not* to write documentation, which is more often than people
+expect.
 
 ## Practical expectations
 

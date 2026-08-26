@@ -31,7 +31,7 @@ import org.eclipse.rdf4j.rio.Rio
 
 /**
  * `GET`/`POST /{pod}/_system/find` — the semantic entry to the graph retrieval pattern
- * (`docs/ai-retrieval.md`). Returns a context-sandboxed RDF subgraph (found resources +
+ * (`docs/concepts/graph-retrieval.md`). Returns a context-sandboxed RDF subgraph (found resources +
  * best-effort `type`/`label`/`name` expansion) as JSON-LD (default) or N-Quads, mirroring the
  * `_system/sparql` graph negotiation.
  *
@@ -45,7 +45,7 @@ import org.eclipse.rdf4j.rio.Rio
  *
  * The `POST` form ([findPost]) takes the same parameters in a JSON body for requests that no longer
  * fit a URL (many `contexts`); GET and POST share [executeFind]. The general predicate `filter`
- * stays a deferred additive extension (see `ai-retrieval.md`).
+ * stays a deferred additive extension (see `docs/concepts/graph-retrieval.md`).
  */
 @Path("{pod}/_system/find")
 @Produces("application/ld+json", "application/n-quads")
@@ -181,11 +181,12 @@ class FindEndpoint @Inject constructor(
       }
     }
 
-    // Permission-scoped caching (ai-retrieval.md "GET caching is permission-scoped"): the body
-    // depends on the negotiated serialization (Accept) AND on the bearer — an anonymous caller
-    // sees public contexts only, an authenticated one sees private contexts too. A bearer-backed
-    // result must never be served to a different caller from a shared cache, so it is marked
-    // `private, no-store`; anonymous results may be cached. `Vary` keys shared caches on both.
+    // Permission-scoped caching (`docs/concepts/graph-retrieval.md` "GET caching is
+    // permission-scoped"): the body depends on the negotiated serialization (Accept) AND on the
+    // bearer — an anonymous caller sees public contexts only, an authenticated one sees private
+    // contexts too. A bearer-backed result must never be served to a different caller from a shared
+    // cache, so it is marked `private, no-store`; anonymous results may be cached. `Vary` keys
+    // shared caches on both.
     val cacheControl = if (credentials.oauthClientId != null) "private, no-store" else "public"
     return Response.ok(entity)
       .type(format.contentType)

@@ -371,7 +371,7 @@ class SempodsPodClient(
   // The methods above ask fixed questions. These two carry a question only the caller knows, and
   // they know nothing about it: a query string, a passthrough.
   //
-  // **That generality is the point, not a concession.** `docs/modularity.md` §"The service
+  // **That generality is the point, not a concession.** `docs/concepts/modularity.md` §"The service
   // contract is semantic, not a facade over RDF" forbids a method whose *name* encodes an app's
   // question — a `findReferencingMedia` would move one app's rule into every pod. Without a raw
   // passthrough, giving such a media check the retry below would have required exactly such a

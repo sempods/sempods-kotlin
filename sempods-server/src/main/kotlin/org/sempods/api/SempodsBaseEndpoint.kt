@@ -74,7 +74,7 @@ open class SempodsBaseEndpoint(
    * Two collaborators, and the split between them is the point: [PodTokenAuthenticator] decides
    * whether the bearer is good (protocol — concrete, one implementation per definition), and
    * [PodAuthorizer] decides what a good bearer may reach (policy — the seam a deployment may
-   * replace, `docs/modularity.md`). What stays here is the third thing, which is neither:
+   * replace, `docs/concepts/modularity.md`). What stays here is the third thing, which is neither:
    * how a refusal becomes an HTTP status.
    *
    * - **No bearer** → anonymous caller, resolved by [PodAuthorizer.anonymous].

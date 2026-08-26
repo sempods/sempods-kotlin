@@ -36,8 +36,9 @@ Three primitives:
 - **Expose pod primitives, not abstractions.** SPARQL queries and
   resource CRUD, gated by OAuth and the context sandbox. The `find` entry
   primitive ships as the one retrieval ergonomic; richer retrieval (vector,
-  expansion registry) and SHACL-gated contracts are tracked as Vision (see
-  `vision.md`).
+  expansion registry) and SHACL-gated contracts are the concept, not the
+  current surface (see
+  [`../concepts/mcp-agent-interface.md`](../concepts/mcp-agent-interface.md)).
 - **Commons server, not one-per-use-case.** A single MCP server per pod
   serves all usage patterns; new patterns require new contexts, not new
   MCP variants. App-/user-defined MCP surfaces under `apps/…` and
@@ -90,11 +91,11 @@ Standards are *named*, not re-explained in these docs.
   (proactive vs. defensive) for Claude Desktop / Code / Web, ChatGPT,
   Copilot / VS Code, Open-Code, plus known client-side limits we
   document but do not work around.
-- **`vision.md`** — longer-term concepts: SHACL-gated app
-  contracts, vector-assisted retrieval (the `find` primitive itself
-  shipped — see `tools.md`), cross-pod orchestration. Captures intent
+- **[`../concepts/mcp-agent-interface.md`](../concepts/mcp-agent-interface.md)** — the concept:
+  SHACL-gated app contracts, vector-assisted retrieval (the `find` primitive
+  itself shipped — see `tools.md`), cross-pod orchestration. Target state,
   without committing to a delivery shape.
-- **`hosted-mcp.md`** — a standalone MCP service (the `sempods-mcp` module)
+- **[`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md)** — a standalone MCP service (the `sempods-mcp` module)
   that fronts many pods over one connection, treating MCP as an
   LLM-tooling layer *over* the pod's primitives rather than a per-pod
   feature. Covers the value (one connection, server-side token refresh),
@@ -102,4 +103,6 @@ Standards are *named*, not re-explained in these docs.
   three tool surfaces** (per-pod MCP, chat app, hosted) — all three stay,
   and the two server-side ones now run one shared implementation. Live on
   `mcp.sempods.org` (M1–M6 done).
-- **MCP roadmap (currently internal)** — open items only.
+- **[`../roadmaps/`](../roadmaps/)** — the milestone currently being implemented,
+  if one is. Completed items stay marked done until the whole milestone is
+  consolidated; the file is dissolved then, not item by item.

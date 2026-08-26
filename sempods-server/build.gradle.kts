@@ -7,7 +7,7 @@ dependencies {
 
   // dependent projects. **No application framework, and that is the point** — this module goes
   // public, so it carries no framework a third party would have to inherit; see
-  // `docs/modularity.md` §"Open-source readiness". Everything below used to arrive
+  // `docs/concepts/modularity.md` §"Open-source readiness". Everything below used to arrive
   // transitively through a framework's `api` declarations and is named here instead.
   // `api` because their types appear in this module's public signatures, so a deployment
   // implementing a seam has to name them.

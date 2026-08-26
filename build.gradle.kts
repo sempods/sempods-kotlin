@@ -588,3 +588,241 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
   archiveFileName = "central-bundle.zip"
   destinationDirectory = layout.buildDirectory
 }
+
+// A documentation set is a graph, and the one property of it that can be checked mechanically is
+// whether its edges still point at something. Nothing else here reads the markdown, so a link that
+// rots survives every green run and is found by a reader — usually an agent, which then follows
+// it to nothing and invents the rest. The failure this exists for is retiring a roadmap: the
+// file goes away and the pointers to it do not. See `docs/agents/documentation-strategy.md`.
+//
+// Only relative links: an external URL is somebody else's uptime, and checking it would make the
+// build depend on the network. Anchors are not resolved either — heading text drifts for reasons
+// that are not mistakes, and a check that fires on a rename teaches people to disable it.
+val checkDocLinks = tasks.register("checkDocLinks") {
+  group = "verification"
+  description = "Fails if a relative link in a markdown file points at a path that does not exist."
+
+  // Read out here rather than in `doLast`: `rootDir` on the task receiver would be the project's,
+  // which is the same directory today and would quietly stop being it if this ever moved.
+  val repositoryRoot = rootDir
+
+  doLast {
+    // Build output holds generated copies of documents that are checked at their source, and
+    // `.git` holds every version of every document that was ever wrong.
+    val skipped = setOf("build", ".git", ".gradle", ".idea", "node_modules")
+
+    // `.claude/worktrees/` holds whole checkouts of this repository — the `.gitignore` entry is the
+    // other half of the same fact. Walking into one reads a different branch's documentation, so
+    // this checkout would fail for a link that is not in it, and the scan would do the work twice.
+    // A path rather than a name: a directory called `worktrees` elsewhere is an ordinary directory.
+    val worktrees = File(repositoryRoot, ".claude/worktrees")
+
+    // The reference form — `[label]: target "title"` on its own line, used from `[text][label]`.
+    // Nothing here writes links that way today, but it is ordinary markdown and the scanner above
+    // is blind to it: the definition is the only place the path appears, and the use site never
+    // names one. A stale target in that form would render as a dead link and pass this check.
+    //
+    // Two patterns, because the angle form exists to let a destination hold spaces — a single one
+    // that excluded whitespace would simply not match it, and the definition would be skipped.
+    val definition = Regex("""^ {0,3}\[[^\]]+]:\s*([^\s<>]+)(\s.*)?$""")
+    val angleDefinition = Regex("""^ {0,3}\[[^\]]+]:\s*<([^>]*)>(\s.*)?$""")
+    val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
+    // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape. So
+    // does a leading `//`, which is a URL that borrows the page's scheme — never a path in here,
+    // and the branch below would otherwise resolve it against the repository root.
+    val elsewhere = Regex("""^([a-zA-Z][a-zA-Z0-9+.\-]*:|//)""")
+    // A destination is a URL, so a renderer percent-decodes it: `design%20notes.md` opens
+    // `design notes.md`. A run of escapes is decoded together, because one character may be
+    // several bytes. Both spellings are then accepted — a file whose name really does contain a
+    // literal `%20` keeps working, and the check only fails when neither exists.
+    val escapes = Regex("""(?:%[0-9a-fA-F]{2})+""")
+
+    // A backslash escapes the character after it, so `\[example](missing.md)` renders as text and
+    // is not a link — checking it would fail the build for a line that documents syntax rather
+    // than points anywhere. Odd is escaped: `\\[` is a literal backslash in front of a real
+    // opener.
+    fun escaped(line: String, at: Int): Boolean {
+      var slashes = 0
+      var i = at - 1
+      while (i >= 0 && line[i] == '\\') {
+        slashes++
+        i--
+      }
+      return slashes % 2 == 1
+    }
+
+    // A destination may contain balanced parentheses — `docs/setup_(linux).md` is a legal target —
+    // so it cannot be read by stopping at the first `)`, and a regex cannot count. This walks the
+    // line instead. It is deliberately not a CommonMark parser — indented code blocks are the
+    // known gap, because telling one from a nested list item needs block-level parsing and this
+    // repository has three live links inside indented list items and no indented code block at
+    // all. Where the two kinds of error are in tension the rule is false green over false red: a
+    // missed check costs one stale link, while a red build for a link that is fine costs a guard
+    // that people switch off.
+    fun destinations(line: String): List<String> {
+      val found = mutableListOf<String>()
+      var cursor = line.indexOf("](")
+      while (cursor >= 0) {
+        // The label's own brackets have to be real ones. An escaped `]` closes nothing, and an
+        // escaped `[` never opened a label — either way this is text that looks like a link.
+        val opener = line.lastIndexOf('[', cursor - 1)
+        if (escaped(line, cursor) || opener < 0 || escaped(line, opener)) {
+          cursor = line.indexOf("](", cursor + 2)
+          continue
+        }
+
+        var i = cursor + 2
+        while (i < line.length && line[i].isWhitespace()) i++
+
+        if (i < line.length && line[i] == '<') {
+          // The angle form ends at the first `>`; it exists so a destination may hold spaces.
+          val close = line.indexOf('>', i + 1)
+          if (close > 0) {
+            found += line.substring(i + 1, close)
+            i = close
+          }
+        } else {
+          val start = i
+          var depth = 0
+          while (i < line.length) {
+            val c = line[i]
+            // Whitespace ends the destination: what follows is the optional `"title"`.
+            if (c.isWhitespace()) break
+            if (c == '(') depth++
+            if (c == ')') {
+              if (depth == 0) break
+              depth--
+            }
+            i++
+          }
+          if (i > start) found += line.substring(start, i)
+        }
+        cursor = line.indexOf("](", i)
+      }
+      return found
+    }
+
+    // A link inside an inline code span is a link being *shown*, not one being made — a renderer
+    // prints it. Fences already cover the block form; this is the same thought for one line, and
+    // it matters here because this repository now documents its own markdown conventions. The
+    // span is replaced by a space rather than removed, so nothing on either side of it can be
+    // joined into a `](` that was never written. An unterminated run of backticks is literal.
+    fun withoutCodeSpans(line: String): String {
+      if (!line.contains('`')) return line
+      val out = StringBuilder()
+      var i = 0
+      while (i < line.length) {
+        if (line[i] != '`') {
+          out.append(line[i])
+          i++
+          continue
+        }
+        var run = 0
+        while (i + run < line.length && line[i + run] == '`') run++
+
+        // A span closes on a run of exactly the same length; a shorter one is content.
+        var j = i + run
+        var close = -1
+        while (j < line.length) {
+          if (line[j] != '`') {
+            j++
+            continue
+          }
+          var length = 0
+          while (j + length < line.length && line[j + length] == '`') length++
+          if (length == run) {
+            close = j
+            break
+          }
+          j += length
+        }
+
+        if (close < 0) {
+          out.append("`".repeat(run))
+          i += run
+        } else {
+          out.append(' ')
+          i = close + run
+        }
+      }
+      return out.toString()
+    }
+
+    val broken = mutableListOf<String>()
+
+    repositoryRoot.walkTopDown()
+      .onEnter { it.name !in skipped && it != worktrees }
+      .filter { it.isFile && it.extension == "md" }
+      .sortedBy { it.path }
+      .forEach { file ->
+        // Code fences are skipped, because the templates in `docs/roadmaps/README.md` and
+        // `docs/concepts/README.md` show links with placeholder targets — the fence is what marks
+        // them as an example rather than a claim. A fence opened with four backticks is closed only
+        // by four, which is how a template containing a fenced block stays one block.
+        var open: String? = null
+
+        file.readLines().forEachIndexed { index, line ->
+          val marker = fence.find(line)?.groupValues?.get(1)
+          val current = open
+
+          if (current != null) {
+            if (marker != null && marker[0] == current[0] && marker.length >= current.length) {
+              open = null
+            }
+            return@forEachIndexed
+          }
+          if (marker != null) {
+            open = marker
+            return@forEachIndexed
+          }
+
+          fun check(target: String) {
+            if (target.startsWith("#") || elsewhere.containsMatchIn(target)) return
+
+            // Anchors and queries are addressing inside the target, not part of the path.
+            val path = target.substringBefore('#').substringBefore('?')
+            if (path.isEmpty()) return
+
+            fun resolve(candidate: String) =
+              if (candidate.startsWith("/")) File(repositoryRoot, candidate.removePrefix("/"))
+              else File(file.parentFile, candidate)
+
+            val spellings = mutableListOf(path)
+            if (escapes.containsMatchIn(path)) {
+              spellings += escapes.replace(path) { run ->
+                String(
+                  run.value.chunked(3).map { it.substring(1).toInt(16).toByte() }.toByteArray(),
+                  Charsets.UTF_8,
+                )
+              }
+            }
+
+            // A directory is a legitimate target — `docs/auth/` and `.claude/skills/` are both
+            // linked as places rather than documents.
+            if (spellings.none { resolve(it).exists() }) {
+              broken += "${file.relativeTo(repositoryRoot)}:${index + 1} -> $target"
+            }
+          }
+
+          val scannable = withoutCodeSpans(line)
+          destinations(scannable).forEach { check(it) }
+          // At most one per line: a definition owns its line. The angle form is tried first,
+          // because the other pattern would read `<docs/a` out of it.
+          val reference = angleDefinition.find(scannable) ?: definition.find(scannable)
+          reference?.let { check(it.groupValues[1]) }
+        }
+      }
+
+    if (broken.isNotEmpty()) {
+      throw GradleException(
+        broken.joinToString(
+          prefix = "Markdown links that point at nothing:\n  - ",
+          separator = "\n  - ",
+          postfix = "\n\nFix the link, or the document it should point at now. " +
+            "See `docs/agents/documentation-strategy.md`.",
+        ),
+      )
+    }
+  }
+}
+tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }

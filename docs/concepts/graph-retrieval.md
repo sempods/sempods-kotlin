@@ -1,4 +1,4 @@
-# Graph Retrieval — Resource Navigation for Any Consumer (IST + vision)
+# Graph retrieval — resource navigation for any consumer (Concept)
 
 ## Purpose
 
@@ -13,6 +13,11 @@ build on it, not reinvent retrieval per application. The retrieval primitives
 are **consumer-agnostic**: the same `find` + structural traversal serves a
 React event list and a GPT-class agent. The only AI-specific addition is the
 final answer step (`model2text`).
+
+Sections below describe the shipped behaviour (IST). Two things here are not
+built yet and say so where they appear: the `later:` line in the `find` response
+shape, and §"Possible later extension — general structured filters".
+§"Status & where the work lives" is the summary of both.
 
 ## The retrieval unit: resources, not chunks
 
@@ -93,7 +98,7 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
 - **Optional `context` downscope.** A caller may narrow the search to specific
   contexts (graphs) *within* what it may read, via the repeatable `context=<iri>`
   parameter (MCP: `context_iri` array). This is the universal read-downscope the
-  LOD read routes already expose (`lod-crud/lod-layer.md` §"Reads"), **not** the
+  LOD read routes already expose ([`../lod-crud/lod-layer.md`](../lod-crud/lod-layer.md) §"Reads"), **not** the
   general predicate filter below: the server intersects `{requested}` with the
   readable set and silently drops unknown/unreadable contexts (no 403/404 — no
   topology leak); an all-unreadable request yields an empty result, not an error.
@@ -133,14 +138,20 @@ list:
 
 ```
 POST /{pod}/_system/find
-{ "text": "…", "type": [<iri>…]?, "contexts": [<iri>…]?, "include_contexts": false?, "limit": 10?, "filter": {…}? }
+{ "text": "…", "type": [<iri>…]?, "contexts": [<iri>…]?, "include_contexts": false?, "limit": 10? }
 ```
 
 `contexts` carries the same read-downscope semantics as the GET `context=`
 parameter (`{requested} ∩ readable`, silent exclusion); `include_contexts` is the
 same provenance switch as the GET parameter. Content negotiation (JSON-LD vs.
-N-Quads) is still driven by the `Accept` header. `filter` is the deferred general
-predicate filter above and remains the only POST-body field not yet implemented.
+N-Quads) is still driven by the `Accept` header.
+
+The body is parsed with a **strict** mapper
+([`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt)
+enables `FAIL_ON_UNKNOWN_PROPERTIES`), so an unknown field is a 400 rather than a
+silently broadened result — `filter` included, since the general predicate filter
+above is not a field yet. That is what makes the envelope above copyable as it
+stands.
 
 ## Structural traversal — `find` is only the entry
 
@@ -298,9 +309,9 @@ any AI.
   swappable adapter SPI, the optional OR-combined `type` facet, the optional
   `context` read-downscope, the optional `include_contexts` provenance form, and
   the fixed `type` / `label` / `name` expansion. MCP reference:
-  [`mcp/tools.md`](mcp/tools.md#find-read).
+  [`../mcp/tools.md`](../mcp/tools.md#find-read).
 - **Open** — a vector / hybrid `find` engine (same contract), the per-type
   expansion registry, the general predicate filter, and SHACL-gated app
-  surfaces. The vector engine and remaining MCP retrieval work are tracked in
-  the MCP roadmap (currently internal); the broader concepts live in
-  [`mcp/vision.md`](mcp/vision.md).
+  surfaces. The concept for all of it is
+  [`mcp-agent-interface.md`](mcp-agent-interface.md); whichever piece is being
+  implemented has its breakdown in [`../roadmaps/`](../roadmaps/).

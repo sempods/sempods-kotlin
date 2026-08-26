@@ -175,7 +175,7 @@ with run history is designed and not built.
 
 ## Related documents
 
-- [`modularity.md`](modularity.md) — what is selectable per deployment, and open-source readiness
+- [`concepts/modularity.md`](concepts/modularity.md) — what is selectable per deployment, and open-source readiness
 - [`../sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`](../sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md) —
   the RDF side: `PodRepository`, the MemoryStore, the write-through path
 - [`architecture/module-layering.md`](architecture/module-layering.md) — where

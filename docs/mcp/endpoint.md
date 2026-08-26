@@ -119,7 +119,7 @@ its instructions block the same way, through `list_contexts`.
 The hosted MCP service in `sempods-mcp` runs the same executor over the
 same routes; what differs between them is fan-out, not semantics. The
 shared module and the cut between them are in
-[`../modularity.md`](../modularity.md).
+[`../concepts/modularity.md`](../concepts/modularity.md).
 
 ### What it costs
 

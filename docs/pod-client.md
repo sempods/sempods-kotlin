@@ -12,7 +12,7 @@ speak belong to whoever owns the surface: the pod surface to the specification
 reference implementation. Exact per-method contracts are KDoc on the classes.
 
 Why there are two modules rather than two classes is the authority boundary, and it is stated once
-in [`modularity.md`](modularity.md) §"The authority boundary outlived the types": a pod offers a
+in [`concepts/modularity.md`](concepts/modularity.md) §"The authority boundary outlived the types": a pod offers a
 graph, an addressing scheme and a permission model, and that is what a specification can describe;
 hosting many pods cannot be described the same way, because at `createPod` the pod does not exist
 and no `<context>#permission` scope can authorize it. The consequence a dependency declaration can
@@ -94,7 +94,7 @@ The rule that keeps a layered client from multiplying its method count by the nu
 
 *The test:* a new pod route can be added at one tier without forcing a method at the others.
 
-The raw passthrough is not a concession. [`modularity.md`](modularity.md) §"The service contract is
+The raw passthrough is not a concession. [`concepts/modularity.md`](concepts/modularity.md) §"The service contract is
 semantic, not a facade over RDF" forbids a method whose *name* encodes an app's question — a
 `findReferencingMedia` would move one app's rule into every pod — and a generic passthrough is that
 rule's positive form: the app's rules stay in its query text, and what the client offers is the

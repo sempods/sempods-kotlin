@@ -10,7 +10,7 @@ dependencies {
   // its classpath can choose. See `SempodsMediaModule` in `:deployments:sempods:image`, and
   // `docs/media.md` §"The seam".
   // **No application framework here, ever** — this module was born in the target shape `:sempods-server` has
-  // since reached; see `docs/modularity.md` §"Open-source readiness".
+  // since reached; see `docs/concepts/modularity.md` §"Open-source readiness".
   // `api`: `S3PodMediaStore` is public and implements `PodMediaStore`, which lives there.
   api(project(":sempods-server"))
 
