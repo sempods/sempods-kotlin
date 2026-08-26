@@ -56,8 +56,7 @@ documentation rather than against this code. That is the first evidence that the
 implementable somewhere else, which is the claim this project actually needs to support.
 
 **What does not exist yet:** a standalone specification document (the contract lives in
-[`docs/`](docs/) for now), a conformance suite, published Maven artifacts, and a one-command
-distribution.
+[`docs/`](docs/) for now), a conformance suite, and a one-command distribution.
 
 **Stable despite `0.x`.** A leading zero is a licence to move the API, not the data. These do not
 move, because the first deployment that is not mine freezes them whatever the version number says
@@ -135,6 +134,46 @@ are minted from it), and `MONGODB_URL`. The natural-language layer has **no off 
 `AI_PROVIDER` defaults to `ollama`, so the AI routes are mounted in every deployment. Without a
 token they answer `401`, never `404` — which is how you can tell they are there — and with one they
 answer `500 ai_provider_error` until a provider is reachable. Everything else runs without one.
+
+## Using it as a library
+
+The libraries are on Maven Central as of `0.1.0`. One version covers the whole repository, so pin
+the platform and let the modules carry no version of their own:
+
+```kotlin
+dependencies {
+  implementation(platform("org.sempods:sempods-bom:0.1.0"))
+
+  implementation("org.sempods:sempods-client")
+  implementation("org.sempods:sempods-model")
+}
+```
+
+The modules are built, tested and released in lockstep, and a consumer holding `sempods-client`
+0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
+for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary
+constraints, so a *different* dependency asking for a newer sempods module can still pull that one
+ahead of the rest. `enforcedPlatform(...)` in place of `platform(...)` makes them strict and forces
+the platform's versions on the whole graph instead. That choice is left to you on purpose — made
+here, it would propagate to everyone.
+
+Published bytecode targets **Java 21**. Building this repository needs 25; depending on it does
+not.
+
+The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
+ones — resolve from Gradle, which reads the capability that carries them. Maven has no notion of
+that capability, and the fixtures' own test libraries are deliberately kept out of the published
+POM so that an ordinary consumer does not inherit them. The jar itself is published under the
+`test-fixtures` classifier, so a Maven build can reach it — by naming that classifier and
+supplying those dependencies itself.
+
+Between releases `main` carries a `-SNAPSHOT` version, and merging to it republishes that version
+to `https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
+Two things skip the publish: a version without `-SNAPSHOT`, so a `main` that is mid-release
+publishes nothing, and a commit that is no longer the tip once its run reaches the gate, so a burst
+of merges leaves only the newest — the snapshot follows `main`, not each commit on the way. A
+snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release instead unless
+you specifically want to find out early that something changed.
 
 ## The three services
 
