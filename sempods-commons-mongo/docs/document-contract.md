@@ -54,8 +54,12 @@ so there is no layout for a new row to match and what holds is the field *set*.
 ## Conventions
 
 - **Indexes are created by the DAO constructor**, imperatively, with the options spelled out —
-  `unique`, `partialFilterExpression`, `expireAfterSeconds`. Neither the driver nor Mongo names an
-  index; the caller does, as `a_1_b_1`.
+  `unique`, `partialFilterExpression`, `expireAfterSeconds`. **No call passes a name.**
+  `Indexes.ascending(…)` leaves that to MongoDB, which derives one from the keys — `a_1_b_1`,
+  `expiresAt_1`. That is load-bearing rather than a shortcut: `createIndex` throws
+  `IndexOptionsConflict` when an existing index's options differ, so against a database whose
+  indexes were created unnamed, adding an explicit name turns a harmless no-op at boot into a
+  failure to boot. `PodServiceAuditLogDao` names the two it measured on the running database.
 - **The collection name is a constructor parameter**, with the production name either on an
   `@Inject` secondary constructor (where Guice constructs the DAO) or as a default (where a
   `@Provides` method does). That is the whole cost of giving a test a collection of its own
