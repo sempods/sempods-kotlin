@@ -6,8 +6,16 @@ private. Reports are taken seriously and are welcome.
 
 ## Reporting a vulnerability
 
-**Email `hello@sempods.org`.** Do not open a public issue, and do not include
-details in a pull request description.
+**Use GitHub's private reporting** — the *Report a vulnerability* button on the
+[Security tab](https://github.com/sempods/sempods-kotlin/security/advisories/new).
+It opens a draft advisory only you and the maintainer can see, and it keeps the
+report, the discussion and the fix in one place.
+
+**Or email `hello@sempods.org`** if you have no GitHub account, or would rather
+not use one. Both channels reach the same person.
+
+Either way: do not open a public issue, and do not put details in a pull request
+description.
 
 Helpful to include, as far as you have it:
 
@@ -17,7 +25,8 @@ Helpful to include, as far as you have it:
 * whether the issue is already public anywhere
 
 If you would prefer to encrypt the report, say so in a first message without
-details and a key will be provided.
+details and a key will be provided. A draft advisory is private already, so this
+only matters for email.
 
 ## What to expect
 
@@ -36,6 +45,9 @@ means something went wrong on this side, not that the report was dismissed.
 Coordinated disclosure. The report stays private until a fix is available, then
 both sides publish. If you set a disclosure deadline, say so up front and it
 will be respected; 90 days is a reasonable default.
+
+A report that arrived as a draft advisory is published from there, which is also
+the route by which a CVE is requested when the finding warrants one.
 
 Reporters are credited by name unless they prefer otherwise.
 
