@@ -618,10 +618,14 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val worktrees = File(repositoryRoot, ".claude/worktrees")
 
     // The reference form — `[label]: target "title"` on its own line, used from `[text][label]`.
-    // Nothing here writes links that way today, but it is ordinary markdown and the pattern above
+    // Nothing here writes links that way today, but it is ordinary markdown and the scanner above
     // is blind to it: the definition is the only place the path appears, and the use site never
     // names one. A stale target in that form would render as a dead link and pass this check.
-    val definition = Regex("""^ {0,3}\[[^\]]+]:\s*<?([^\s<>]+)>?(\s.*)?$""")
+    //
+    // Two patterns, because the angle form exists to let a destination hold spaces — a single one
+    // that excluded whitespace would simply not match it, and the definition would be skipped.
+    val definition = Regex("""^ {0,3}\[[^\]]+]:\s*([^\s<>]+)(\s.*)?$""")
+    val angleDefinition = Regex("""^ {0,3}\[[^\]]+]:\s*<([^>]*)>(\s.*)?$""")
     val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
     // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
     val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
@@ -670,6 +674,52 @@ val checkDocLinks = tasks.register("checkDocLinks") {
         cursor = line.indexOf("](", i)
       }
       return found
+    }
+
+    // A link inside an inline code span is a link being *shown*, not one being made — a renderer
+    // prints it. Fences already cover the block form; this is the same thought for one line, and
+    // it matters here because this repository now documents its own markdown conventions. The
+    // span is replaced by a space rather than removed, so nothing on either side of it can be
+    // joined into a `](` that was never written. An unterminated run of backticks is literal.
+    fun withoutCodeSpans(line: String): String {
+      if (!line.contains('`')) return line
+      val out = StringBuilder()
+      var i = 0
+      while (i < line.length) {
+        if (line[i] != '`') {
+          out.append(line[i])
+          i++
+          continue
+        }
+        var run = 0
+        while (i + run < line.length && line[i + run] == '`') run++
+
+        // A span closes on a run of exactly the same length; a shorter one is content.
+        var j = i + run
+        var close = -1
+        while (j < line.length) {
+          if (line[j] != '`') {
+            j++
+            continue
+          }
+          var length = 0
+          while (j + length < line.length && line[j + length] == '`') length++
+          if (length == run) {
+            close = j
+            break
+          }
+          j += length
+        }
+
+        if (close < 0) {
+          out.append("`".repeat(run))
+          i += run
+        } else {
+          out.append(' ')
+          i = close + run
+        }
+      }
+      return out.toString()
     }
 
     val broken = mutableListOf<String>()
@@ -728,9 +778,12 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             }
           }
 
-          destinations(line).forEach { check(it) }
-          // At most one per line: a definition owns its line.
-          definition.find(line)?.let { check(it.groupValues[1]) }
+          val scannable = withoutCodeSpans(line)
+          destinations(scannable).forEach { check(it) }
+          // At most one per line: a definition owns its line. The angle form is tried first,
+          // because the other pattern would read `<docs/a` out of it.
+          val reference = angleDefinition.find(scannable) ?: definition.find(scannable)
+          reference?.let { check(it.groupValues[1]) }
         }
       }
 
