@@ -23,7 +23,7 @@ import org.bson.types.ObjectId
  * this module may read (`docs/architecture/module-layering.md` §"Module Boundaries"). A facade
  * earns a caller by taking values that caller can obtain *and* answering in values it may hold;
  * this one has always only done the first. Giving it a row-free answer is what would open it again,
- * and that is a design question rather than a modifier.
+ * and that is a design question rather than a modifier — #42, which #35 will reach first.
  */
 class PodServiceClientFacade @Inject constructor(
   private val podDao: PodDao,

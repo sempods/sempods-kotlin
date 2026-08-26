@@ -29,9 +29,9 @@ dependencies {
   // `mongodb` stays `api`, and what holds it there is now a different list: `MongoDatabase` sits in
   // the constructor of every DAO and store. Those constructors are public because Guice builds
   // them, so closing them means handing Guice `internal` `@Inject` constructors — a risk this
-  // change does not carry and worth its own one. And it would buy less than it looks: a consumer
-  // inherits both artifacts through `:sempods-auth-core` either way, since
-  // `RefreshTokenStore.Token.id` is an `ObjectId` there.
+  // change does not carry and worth its own one; #41. And it would buy less than it looks: a
+  // consumer inherits both artifacts through `:sempods-auth-core` either way, since
+  // `RefreshTokenStore.Token.id` is an `ObjectId` there; #40.
   api(libs.mongodb)
   implementation(libs.bson)
   api(libs.jacksonDatabind)

@@ -311,7 +311,8 @@ every DAO constructor, which stays public so Guice can build it, so `mongodb` is
 and `bson` arrives anyway through `api(project(":sempods-auth-core"))`, whose
 `RefreshTokenStore.Token.id` is an `ObjectId` — a return type of a real seam, where `internal` is
 not the lever. What changed is narrower and checkable: this module no longer *names* a driver type
-in anything it publishes.
+in anything it publishes. The two remaining halves are #41 (the constructors) and #40 (auth-core),
+and only both together give a seam implementation a driver-free classpath.
 
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no
