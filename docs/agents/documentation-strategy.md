@@ -13,7 +13,9 @@ concepts/<topic>.md         The high-level concept for one topic. Names the conc
                             (what is true today) and SOLL (the target state), and links to the
                             roadmap implementing it and to the IST documents describing it.
                             Carries SOLL permanently — once shipped, that section is rewritten
-                            as IST rather than deleted.
+                            as IST rather than deleted, and the document stays. Unless it is
+                            left with nothing the IST document does not already say, in which
+                            case it folds in and goes: see roadmap-lifecycle.md §2.
 
 roadmaps/<milestone>.md     Temporary. The breakdown and status of one milestone. Links to its
                             concept instead of repeating it. Dissolved when the milestone ships.

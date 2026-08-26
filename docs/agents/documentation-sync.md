@@ -10,14 +10,21 @@ directly.
 ## 1. What changed
 
 ```bash
-git status --short   # everything, new and untracked files included
-git diff HEAD        # the change itself, staged or not
+git status --short                        # everything, new and untracked files included
+git add -A -N                             # so a new file's contents reach the diff below
+git diff HEAD                             # the change itself, staged or not
 ```
 
 Against `HEAD`, not the index. A bare `git diff` compares the working tree with the index, so a
 change that has already been staged shows nothing — and staging before proposing a commit is
 exactly what this repository's procedures ask for, which would make this step silently report a
 clean tree at the one moment it matters most.
+
+`git add -A -N` records the *path* of a new file without staging its contents, which is what makes
+it appear in the diff. Without it an untracked file shows up in `git status` as a name and nothing
+more — and a name does not tell you the signature, the stored shape or the behaviour that has to be
+documented. If you would rather not touch the index, read them instead:
+`git ls-files --others --exclude-standard`.
 
 Behaviour, a public signature, a stored shape, an HTTP surface, a permission rule — those need this
 procedure. A refactor that moves code without changing what it does usually needs nothing, and
