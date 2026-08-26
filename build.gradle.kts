@@ -611,6 +611,12 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     // `.git` holds every version of every document that was ever wrong.
     val skipped = setOf("build", ".git", ".gradle", ".idea", "node_modules")
 
+    // `.claude/worktrees/` holds whole checkouts of this repository — the `.gitignore` entry is the
+    // other half of the same fact. Walking into one reads a different branch's documentation, so
+    // this checkout would fail for a link that is not in it, and the scan would do the work twice.
+    // A path rather than a name: a directory called `worktrees` elsewhere is an ordinary directory.
+    val worktrees = File(repositoryRoot, ".claude/worktrees")
+
     // `[text](target)`, with an optional `"title"` after the target that markdown allows and this
     // does not care about.
     val link = Regex("""\[[^\]]*]\(\s*([^)\s]+)[^)]*\)""")
@@ -621,7 +627,7 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val broken = mutableListOf<String>()
 
     repositoryRoot.walkTopDown()
-      .onEnter { it.name !in skipped }
+      .onEnter { it.name !in skipped && it != worktrees }
       .filter { it.isFile && it.extension == "md" }
       .sortedBy { it.path }
       .forEach { file ->

@@ -9,7 +9,7 @@ in [`../roadmaps/`](../roadmaps/); the overarching direction is
 ## Retrieval primitives — what remains
 
 The `find` entry primitive shipped — as `GET /{pod}/_system/find` and an
-MCP `find` tool over one `FindService` (see [`tools.md`](../mcp/tools.md#find-read)
+MCP `find` tool over one `FindService` (see [`../mcp/tools.md`](../mcp/tools.md#find-read)
 and the contract in [`graph-retrieval.md`](graph-retrieval.md)). Structural
 traversal uses the shipped `get_resource` / `sparql_*`; there is no separate
 `retrieve` / `expand` primitive. What is still vision, all **behind the same
@@ -75,7 +75,7 @@ The pod now has one MCP surface, so that carrier is gone — and with it one
 property nothing else replaces: a per-app URL forced distinct DCR clients
 on cloud connectors that collapse several UI entries onto one OAuth
 client. That was given up knowingly; see
-[`endpoint.md`](../mcp/endpoint.md#url).
+[`../mcp/endpoint.md`](../mcp/endpoint.md#url).
 
 What survives the move is what mattered: the contract is discoverable
 without out-of-band configuration (the grant is what `initialize` and
@@ -183,7 +183,7 @@ deliberately.
   pattern the primitives operationalize.
 - [`../roadmaps/`](../roadmaps/) — the breakdown of whichever of these is
   currently being implemented, if any is. `find` itself shipped, see
-  [`tools.md`](../mcp/tools.md#find-read).
+  [`../mcp/tools.md`](../mcp/tools.md#find-read).
 - [`../vision.md`](../vision.md) §"What comes later" — where SHACL,
   reactivity, the vector index and the enhanced MCP interface sit in the
   overall direction.

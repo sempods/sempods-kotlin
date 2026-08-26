@@ -13,8 +13,8 @@ entries — that is the point of it.
 ## 1. Inventory
 
 Read the roadmap. For each item, decide **done / partially done / open**, with evidence rather than
-the checkbox: `git log --oneline --grep=<keyword>`, `grep -rn <symbol>`, does the test exist and does
-it assert the behaviour.
+the checkbox: `git log --oneline --grep=<keyword>`, a search for the symbol, does the test exist and
+does it assert the behaviour.
 
 A ticked item whose code is not there is the failure mode this step exists to catch.
 
@@ -49,9 +49,18 @@ When nothing is left, delete the roadmap file.
 
 ## 5. Sweep
 
-- `grep -rn '<roadmap-filename>'` across `*.md`, `*.kt` and `*.kts`. Update or remove every hit.
-  A comment pointing at a section that no longer exists is re-anchored to the IST document if it
-  guards a real invariant, and removed if it only named a phase.
+- Search the sources for the roadmap's filename, and bound the search — a bare `grep -r` reads
+  everything under `.`, which here includes `build/` and any checkout under `.claude/worktrees/`,
+  and stale copies derail the sweep:
+
+  ```bash
+  grep -rn --include='*.md' --include='*.kt' --include='*.kts' \
+    --exclude-dir=build --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=worktrees \
+    '<roadmap-filename>' .
+  ```
+
+  Update or remove every hit. A comment pointing at a section that no longer exists is re-anchored
+  to the IST document if it guards a real invariant, and removed if it only named a phase.
 - Check every `AGENTS.md` from the root down: remove entries for the retired roadmap, add entries
   for any new IST document.
 - Check [`../../context7.json`](../../context7.json). The milestone changed behaviour; its `rules`
