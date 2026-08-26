@@ -36,8 +36,9 @@ Three primitives:
 - **Expose pod primitives, not abstractions.** SPARQL queries and
   resource CRUD, gated by OAuth and the context sandbox. The `find` entry
   primitive ships as the one retrieval ergonomic; richer retrieval (vector,
-  expansion registry) and SHACL-gated contracts are tracked as Vision (see
-  `vision.md`).
+  expansion registry) and SHACL-gated contracts are the concept, not the
+  current surface (see
+  [`../concepts/mcp-agent-interface.md`](../concepts/mcp-agent-interface.md)).
 - **Commons server, not one-per-use-case.** A single MCP server per pod
   serves all usage patterns; new patterns require new contexts, not new
   MCP variants. App-/user-defined MCP surfaces under `apps/…` and

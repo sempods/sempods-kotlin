@@ -26,7 +26,7 @@ free to apply no reasoning at all — the reference implementation (RDF4J
 - `?s a <Event>` matches only resources typed *exactly* `<Event>`; subclasses
   are not folded in.
 - `find`'s `type` filter is, by contract, **exact match, no subclass reasoning**
-  (see `ai-retrieval.md`).
+  (see [`graph-retrieval.md`](graph-retrieval.md)).
 - SPARQL 1.1 property paths (`?s a/rdfs:subClassOf* <Event>`) only help when the
   `rdfs:subClassOf` triples are themselves present in the data — usually they
   are not, because pods store instance data (ABox), rarely the ontology (TBox).
@@ -178,7 +178,9 @@ TBox is out of scope and the closure silently empties.
 
 ## Related
 
-- `ai-retrieval.md` — retrieval primitives; `find`'s exact-match `type` contract.
+- [`graph-retrieval.md`](graph-retrieval.md) — retrieval primitives; `find`'s exact-match
+  `type` contract.
 - `apps/chat/docs/concepts/multi-pod.md` (sempods-apps repo) — the consumer-side
   three-step coverage strategy this layer upgrades.
-- `mcp/vision.md` — retrieval primitives and cross-pod orchestration.
+- [`mcp-agent-interface.md`](mcp-agent-interface.md) — retrieval primitives and cross-pod
+  orchestration.

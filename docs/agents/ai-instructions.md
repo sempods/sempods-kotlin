@@ -25,9 +25,12 @@ Start here, then read what this file points at. It is deliberately short.
 
 One rule, and it covers both `AGENTS.md` files and the four documentation types:
 
-- From the working directory, walk **upwards** to the repository root and load every `AGENTS.md`
-  found. Inside a subtree, also load the ones **below** it.
-- **The more specific file wins** where two conflict.
+- What governs a change is the `AGENTS.md` files on the path from the repository root **down to the
+  directory of the file being changed** — those, and no others. `sempods-server/AGENTS.md` does not
+  govern an edit in `sempods-client/`, however specific it is.
+- **The more specific file wins** where two on that path conflict.
+- Reading a sibling subtree's file for orientation is fine. It still does not govern the edit; the
+  path decides, not what happens to be loaded.
 - Documentation nests the same way. Every `docs/` directory — at the root, at a module, later at a
   larger package — may hold the same four types: `vision.md`, `concepts/`, `roadmaps/`, and IST
   documents. A module's `docs/` is the place for what is true of that module only.
@@ -81,9 +84,10 @@ Hand this to any agent as a task:
 
 1. Read the root `AGENTS.md` and note what it references.
 2. Read `docs/agents/documentation-strategy.md`.
-3. From the working directory, walk upwards to the repository root, loading each `AGENTS.md`.
-4. Working in a subtree? Also load the `AGENTS.md` files below it, and that subtree's `docs/` if it
-   has one. Apply the most specific.
+3. For each file you intend to change, load the `AGENTS.md` files on the path from the repository
+   root down to its directory — not the ones in subtrees you are not touching.
+4. If that path passes a module with its own `docs/`, that is where its documentation lives. Apply
+   the most specific of what the path yields.
 5. Confirm the tool's own pointer file, if any, still routes back here.
 6. Before coding, state the rules that apply and confirm no conflict remains.
 
