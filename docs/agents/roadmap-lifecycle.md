@@ -55,14 +55,13 @@ roadmap that owns it.
 
 ## 5. Sweep
 
-- Search the sources for the roadmap's filename, and bound the search — a bare `grep -r` reads
-  everything under `.`, which here includes `build/` and any checkout under `.claude/worktrees/`,
-  and stale copies derail the sweep:
+- Search the sources for the roadmap's filename. `git grep` rather than `grep -r`, because
+  tracked files are exactly the right scope: it never reads `build/`, and never the checkouts
+  under `.claude/worktrees/`, without a list of exclusions that would also skip an ordinary
+  directory that happens to share a name.
 
   ```bash
-  grep -rn --include='*.md' --include='*.kt' --include='*.kts' \
-    --exclude-dir=build --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=worktrees \
-    '<roadmap-filename>' .
+  git grep -n '<roadmap-filename>' -- '*.md' '*.kt' '*.kts'
   ```
 
   Update or remove every hit. A comment pointing at a section that no longer exists is re-anchored
