@@ -13,11 +13,17 @@ Report unacceptable behaviour to **`hello@sempods.org`**. Reports are handled
 confidentially and reviewed by the maintainer.
 
 The obvious limitation: right now the maintainer is one person, who is also the
-person you would report *about* if the problem were with them. Should that
-happen, or should you not want to report to that address for any other reason,
-the Contributor Covenant's escalation path applies — and as soon as this
-project has more than one active maintainer, a second contact will be named
-here.
+person you would report *about* if the problem were with them. **There is no
+independent channel, and the Contributor Covenant does not supply one** — it
+directs reports to the project's own community leaders, which here is that same
+address.
+
+So, plainly: if the problem is with the maintainer, and writing to them is not
+something you are willing to do, what is left is public — raise it in a
+[Discussion](https://github.com/sempods/sempods-kotlin/discussions), or anywhere
+else the project can be seen. That is a thin answer, and it is the true one. As
+soon as sempods has more than one active maintainer, a second contact is named
+here and this paragraph goes away.
 
 Stating this plainly seems better than implying a review body that does not
 exist.
