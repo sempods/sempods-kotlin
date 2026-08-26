@@ -592,8 +592,8 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
 // A documentation set is a graph, and the one property of it that can be checked mechanically is
 // whether its edges still point at something. Nothing else here reads the markdown, so a link that
 // rots survives every green run and is found by a reader — usually an agent, which then follows
-// it to nothing and invents the rest. The failure this exists for is retiring a roadmap: the file goes
-// away and the pointers to it do not. See `docs/agents/documentation-strategy.md`.
+// it to nothing and invents the rest. The failure this exists for is retiring a roadmap: the
+// file goes away and the pointers to it do not. See `docs/agents/documentation-strategy.md`.
 //
 // Only relative links: an external URL is somebody else's uptime, and checking it would make the
 // build depend on the network. Anchors are not resolved either — heading text drifts for reasons
@@ -617,9 +617,6 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     // A path rather than a name: a directory called `worktrees` elsewhere is an ordinary directory.
     val worktrees = File(repositoryRoot, ".claude/worktrees")
 
-    // `[text](target)`, with an optional `"title"` after the target that markdown allows and this
-    // does not care about, and an optional `<>` around it that it has to strip.
-    val link = Regex("""\[[^\]]*]\(\s*<?([^)\s<>]+)>?[^)]*\)""")
     // The reference form — `[label]: target "title"` on its own line, used from `[text][label]`.
     // Nothing here writes links that way today, but it is ordinary markdown and the pattern above
     // is blind to it: the definition is the only place the path appears, and the use site never
@@ -628,6 +625,47 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     val fence = Regex("""^ {0,3}(`{3,}|~{3,})""")
     // A scheme means somewhere else: `https:`, `mailto:`, and anything else with that shape.
     val elsewhere = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*:""")
+
+    // A destination may contain balanced parentheses — `docs/setup_(linux).md` is a legal target —
+    // so it cannot be read by stopping at the first `)`, and a regex cannot count. This walks the
+    // line instead. It is deliberately not a CommonMark parser: backslash escapes and brackets
+    // inside a label are out of scope, because getting those wrong costs a missed check, while
+    // miscounting parentheses costs a red build for a link that is fine. False green over false
+    // red, for a guard whose whole value is that people leave it switched on.
+    fun destinations(line: String): List<String> {
+      val found = mutableListOf<String>()
+      var cursor = line.indexOf("](")
+      while (cursor >= 0) {
+        var i = cursor + 2
+        while (i < line.length && line[i].isWhitespace()) i++
+
+        if (i < line.length && line[i] == '<') {
+          // The angle form ends at the first `>`; it exists so a destination may hold spaces.
+          val close = line.indexOf('>', i + 1)
+          if (close > 0) {
+            found += line.substring(i + 1, close)
+            i = close
+          }
+        } else {
+          val start = i
+          var depth = 0
+          while (i < line.length) {
+            val c = line[i]
+            // Whitespace ends the destination: what follows is the optional `"title"`.
+            if (c.isWhitespace()) break
+            if (c == '(') depth++
+            if (c == ')') {
+              if (depth == 0) break
+              depth--
+            }
+            i++
+          }
+          if (i > start) found += line.substring(start, i)
+        }
+        cursor = line.indexOf("](", i)
+      }
+      return found
+    }
 
     val broken = mutableListOf<String>()
 
@@ -675,7 +713,7 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             }
           }
 
-          link.findAll(line).forEach { check(it.groupValues[1]) }
+          destinations(line).forEach { check(it) }
           // At most one per line: a definition owns its line.
           definition.find(line)?.let { check(it.groupValues[1]) }
         }

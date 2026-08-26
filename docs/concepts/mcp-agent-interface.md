@@ -1,9 +1,14 @@
 # MCP agent interface (Concept)
 
-Where the per-pod MCP surface is going, beyond what it does today. Everything
-here is **SOLL — not implemented**; the file exists so the design is not lost
-while the base ships. The breakdown of whatever is currently being built lives
-in [`../roadmaps/`](../roadmaps/); the overarching direction is
+Where the per-pod MCP surface is going, beyond what it does today. The
+**proposals** here are SOLL — not implemented; the file exists so the design is
+not lost while the base ships. Where a section names something that already
+ships — §"Retrieval primitives" opens with `find`, `get_resource` and `sparql_*`
+— that is the baseline the proposal extends, and it says so. The shipped surface
+itself is documented in [`../mcp/`](../mcp/), which is the IST authority for it.
+
+The breakdown of whatever is currently being built lives in
+[`../roadmaps/`](../roadmaps/); the overarching direction is
 [`../vision.md`](../vision.md).
 
 ## Retrieval primitives — what remains
