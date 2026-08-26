@@ -2,10 +2,12 @@
 
 ## Purpose
 
-An app that works on a pod needs a credential, and something has to decide that it may have one.
-Today that decision belongs to whoever runs the host: service-client registration sits on the admin
-surface, and [`../auth/service-clients.md`](../auth/service-clients.md) states that as intent rather
-than as an accident of where the route landed.
+An app that only reads a pod's public contexts needs no credential at all — anonymous is a
+supported mode there, not a degraded one. Everything else needs one, and something has to decide
+that the app may have it. Today that decision belongs to whoever runs the host: service-client
+registration sits on the admin surface, and
+[`../auth/service-clients.md`](../auth/service-clients.md) states that as intent rather than as an
+accident of where the route landed.
 
 This document is about who else may make that decision. Not about how an app authenticates —
 that is [`../auth/`](../auth/), and the protocol is ordinary OAuth with nothing sempods-specific at
@@ -32,15 +34,21 @@ context management route: an admin bearer is neither the pod owner nor the holde
 
 ## Why the authority is split (IST)
 
-Creating and deleting a pod cannot be expressed as a pod-scoped permission. At `createPod` the pod
-does not exist, so there is no context for a `<context-iri>#permission` scope to name. That is the
-line the admin surface exists for, and it is stated once in
-[`modularity.md`](modularity.md) §"The authority boundary outlived the types".
+Creating a pod cannot be expressed as a pod-scoped permission. At `createPod` the pod does not
+exist, so there is no context for a `<context-iri>#permission` scope to name and no credential
+scoped to that pod to hold it. That is the line the admin surface exists for, and it is stated once
+in [`modularity.md`](modularity.md) §"The authority boundary outlived the types".
 
-Registering an app is not on that side of the line. It names a pod that exists and a context that
-exists or is about to, and both are things a pod-scoped credential can already talk about. The route
-sits on the admin surface because that is where the first caller for it was, not because pod
-authority is unable to express it.
+Deleting one sits on the same surface for a different reason, and the two are worth keeping apart:
+by then the pod and its owner both exist, so the structural argument does not reach it. What keeps
+it there is that a pod is a tenancy, and the host holds authority over tenancy. Whether that could
+be expressed some other way is a question this document does not open — it only refuses to borrow
+the first paragraph's reason for it.
+
+Registering an app is on neither footing. It names a pod that exists and a context that exists or is
+about to, and both are things a pod-scoped credential can already talk about. The route sits on the
+admin surface because that is where the first caller for it was, not because pod authority is unable
+to express it.
 
 ## What an owner's token already does (IST)
 
@@ -79,8 +87,9 @@ sanitizing every token, so no root reachable this way can become a pod-wide wild
 promise is unchanged in wording and in effect: a service client is confined to the subtree its
 `manage` root names.
 
-The host-level acts stay where they are. Creating and deleting pods is not expressible here for the
-reason in §"Why the authority is split", and nothing about owner self-service moves that line.
+The host-level acts stay where they are: creating a pod because no pod-scoped credential can carry
+it, deleting one because tenancy is the host's — §"Why the authority is split". Nothing about owner
+self-service moves either.
 
 ## Delegated authority is granted authority (SOLL)
 
