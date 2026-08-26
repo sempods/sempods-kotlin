@@ -62,8 +62,9 @@ so there is no layout for a new row to match and what holds is the field *set*.
   (`test.<name>.<purpose>`, outside the production names), which the suites need: they run against
   the developer's own database, so a test that cleared a real collection to know what it was looking
   at would be destructive and order-dependent.
-- **An insert returns the id it stored under, wherever a caller needs one.** `insertOne` does not
-  write the generated `_id` back into the document it was handed, so a caller reading the id off the
-  object it passed in gets `null` and the DAO has to hand back the stored row instead. A store whose
-  callers never ask for the key needs no such answer and should not invent one: `RefreshTokenStore`
-  mints its `_id` at write time and its `Token` does not carry it.
+- **An insert returns the id it stored under, wherever a caller needs one.** `insertOne` mints the
+  `_id` and does write it into the `Document` it was handed — but that document is the throwaway
+  `toDocument()` built, and the DBO the caller passed in is a different object that never sees it.
+  So a DAO whose caller needs the key hands back the stored row; reading it off the object that went
+  in gets `null`. A store whose callers never ask for the key needs no such answer and should not
+  invent one: `RefreshTokenStore` mints its `_id` at write time and its `Token` does not carry it.

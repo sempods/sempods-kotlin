@@ -58,7 +58,7 @@ returns a row is `internal` too — giving one a public answer means giving it a
 - Write-through store, change dispatch, recovery (IST): `write-through.md`
 - This module's collections — driver DAOs, which database, the updater (IST):
   [`collections.md`](../../../../../../docs/collections.md)
-- The document contract every DAO writes to, and the conventions over it (IST):
+- The document contract the `commons-mongo` helpers implement, and the conventions over it (IST):
   [`document-contract.md`](../../../../../../../sempods-commons-mongo/docs/document-contract.md)
 - Architecture: `docs/architecture/module-layering.md`
 - Pod store & journal roadmap (SOLL): the maintainer's internal roadmap
