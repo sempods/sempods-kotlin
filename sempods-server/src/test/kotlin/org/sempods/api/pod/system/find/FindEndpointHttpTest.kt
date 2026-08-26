@@ -78,6 +78,24 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `find matches case-insensitively in both directions`() {
+    val pod = sempodsTestFactory.newPod()
+    val event = newPublicEvent(pod.name, "Alice Workshop ${TestUtil.randomId()}")
+
+    // The literal is mixed-case; an upper-cased query must still match it. This is the direction
+    // that used to depend on `FindRequestParser` having folded the token before it reached the
+    // query builder — the builder now folds it itself, so the endpoint keeps this behaviour no
+    // matter how the FindRequest was produced.
+    val upper = http.prepareGet(findUrl(pod.name)).addQueryParam("text", "ALICE WORKSHOP").execute()
+    assertEquals(200, upper.statusCode)
+    assertTrue(upper.responseBody.contains(event.toString()), "upper-cased query should match a mixed-case literal")
+
+    val mixed = http.prepareGet(findUrl(pod.name)).addQueryParam("text", "aLiCe").execute()
+    assertEquals(200, mixed.statusCode)
+    assertTrue(mixed.responseBody.contains(event.toString()), "mixed-case query should match a mixed-case literal")
+  }
+
+  @Test
   fun `find with empty text returns 400`() {
     val pod = sempodsTestFactory.newPod()
 
