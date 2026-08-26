@@ -121,15 +121,16 @@ class PodAuthEndpoint @Inject constructor(
         .build()
     }
 
+    // The rule `/authorize` applies, through the same method: an address stored here that
+    // `isAllowedRedirectUri` would refuse is a registration no login can honour.
     redirectUris.forEach { uri ->
-      val parsed = runCatching { URI(uri) }.getOrNull()
-      val scheme = parsed?.scheme?.lowercase()
-      if (scheme != "http" && scheme != "https") {
+      if (!RedirectUri.isValid(uri)) {
         return Response.status(400)
           .entity(
             mapOf(
               "error" to "invalid_redirect_uri",
-              "error_description" to "redirect_uri must use http or https: $uri",
+              "error_description" to
+                  "redirect_uri must be https, or http on a loopback host, with no fragment: $uri",
             )
           )
           .type(MediaType.APPLICATION_JSON)
@@ -302,7 +303,7 @@ class PodAuthEndpoint @Inject constructor(
         .entity("client_id must be a did:web or dyn: identity").type("text/plain").build()
     }
 
-    if (!isAllowedRedirectUri(podDbo, normalizedClientId, URI(normalizedRedirectUri))) {
+    if (!isAllowedRedirectUri(podDbo, normalizedClientId, normalizedRedirectUri)) {
       return Response.status(400).entity("redirect_uri not allowed for this client_id").type("text/plain").build()
     }
 
@@ -756,7 +757,7 @@ class PodAuthEndpoint @Inject constructor(
     val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
       ?: return Response.status(400).entity("missing redirect_uri").type("text/plain").build()
 
-    if (!isAllowedRedirectUri(podDbo, normalizedClientId, URI(normalizedRedirectUri))) {
+    if (!isAllowedRedirectUri(podDbo, normalizedClientId, normalizedRedirectUri)) {
       return Response.status(400).entity("redirect_uri not allowed for this client_id").type("text/plain").build()
     }
 
@@ -1721,9 +1722,18 @@ class PodAuthEndpoint @Inject constructor(
     return Response.temporaryRedirect(uri).build()
   }
 
-  private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUri: URI): Boolean {
-    val scheme = redirectUri.scheme?.lowercase() ?: return false
-    if (scheme != "http" && scheme != "https") return false
+  /**
+   * Takes the string and parses it here — a value that is no URI at all is then a 400 like any
+   * other bad parameter, rather than a `URISyntaxException` raised at the call site.
+   */
+  private fun isAllowedRedirectUri(podDbo: PodDbo, appId: String, redirectUriString: String): Boolean {
+    // What an address may look like at all is `RedirectUri`'s question, asked through the same
+    // method by `DidWebRedirectPolicy` and `OpenIdProviderEndpoint`. Load-bearing here because
+    // `DidWeb.Target.covers` below matches host, port and path and says nothing about the scheme:
+    // it alone would answer `did:web:example.org%3A8443` at `http://example.org:8443/cb`, and a
+    // `did:web:` client sends no `code_challenge` to protect a code that travels there.
+    if (!RedirectUri.isValid(redirectUriString)) return false
+    val redirectUri = runCatching { URI(redirectUriString) }.getOrNull() ?: return false
 
     // Dynamic clients (RFC 7591): redirect_uri must match one of the values submitted at
     // registration time. Lookup is pod-scoped — a clientId from a different pod is rejected.
@@ -1732,13 +1742,19 @@ class PodAuthEndpoint @Inject constructor(
     // and the same rule already governs the `/register` fingerprint dedup.
     if (appId.startsWith("dyn:")) {
       val registration = dynamicClientStore.lookup(checkNotNull(podDbo.id), appId) ?: return false
-      val requestedCanonical = RedirectUri.canonicalize(redirectUri.toString())
+      val requestedCanonical = RedirectUri.canonicalize(redirectUriString)
       return registration.redirectUris.any { registered ->
         RedirectUri.canonicalize(registered) == requestedCanonical
       }
     }
 
     val didTarget = DidWeb.targetOf(appId) ?: return false
+
+    // Ahead of `covers`, which would otherwise answer for `did:web:localhost%3A5173` on its own
+    // origin and never reach the development gate. `DidWebRedirectPolicy` carries the same
+    // refusal, and its test asserts the production side: `Env.isDevelopment` is process-wide, so
+    // this module's suite only ever runs as development.
+    if (!Env.isDevelopment && RedirectUri.isLoopback(didTarget.host)) return false
 
     // `covers` matches on path segments, not on a string prefix. This endpoint used to compare
     // host and port only, so `did:web:example.org:mcp` would have been answered at

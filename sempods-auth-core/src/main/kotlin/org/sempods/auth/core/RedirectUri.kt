@@ -46,7 +46,7 @@ object RedirectUri {
     if (!parsed.isAbsolute) return false
     if (parsed.fragment != null) return false
     val scheme = parsed.scheme?.lowercase() ?: return false
-    val host = parsed.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+    val host = hostOf(parsed) ?: return false
     return when (scheme) {
       "https" -> true
       "http" -> host in loopbackHosts
@@ -55,15 +55,37 @@ object RedirectUri {
   }
 
   /** Whether [host] reaches only the user's own machine — the question `isValid` asks of `http`. */
-  fun isLoopback(host: String?): Boolean = host?.trim()?.lowercase() in loopbackHosts
+  fun isLoopback(host: String?): Boolean = normalizeHost(host) in loopbackHosts
 
   /** Loopback-aware canonical form: the port is dropped for [portInsensitiveHosts], nothing else. */
   fun canonicalize(uri: String): String {
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return uri
-    val host = parsed.host?.lowercase() ?: return uri
+    val host = hostOf(parsed) ?: return uri
     if (host !in portInsensitiveHosts) return uri
-    return runCatching {
-      URI(parsed.scheme, parsed.userInfo, host, -1, parsed.path, parsed.query, parsed.fragment).toString()
-    }.getOrDefault(uri)
+
+    // Raw components, so nothing but the port moves: the `dyn:` match and the registration
+    // fingerprint compare these strings, and `URI.getPath` would read `/cb%2Fadmin` as
+    // `/cb/admin` — one path segment named `cb/admin`, spelled as two. Hence also the brackets
+    // by hand: the multi-argument constructor that would add them is the one being avoided.
+    val scheme = parsed.scheme?.let { "$it://" } ?: "//"
+    val authority = if (':' in host) "[$host]" else host
+    val userInfo = parsed.rawUserInfo?.let { "$it@" }.orEmpty()
+    val query = parsed.rawQuery?.let { "?$it" }.orEmpty()
+    val fragment = parsed.rawFragment?.let { "#$it" }.orEmpty()
+    return scheme + userInfo + authority + parsed.rawPath.orEmpty() + query + fragment
   }
+
+  /** [uri]'s host, spelled the way the sets above spell one. */
+  private fun hostOf(uri: URI): String? = normalizeHost(uri.host)?.takeIf { it.isNotBlank() }
+
+  /**
+   * A host as the sets above write it: lowercase, and an IPv6 literal without its brackets —
+   * `URI.getHost` returns those, and they are URL syntax (RFC 3986 §3.2.2), not the address.
+   *
+   * Exact spellings, not an address classifier: `[0:0:0:0:0:0:0:1]` does not match. Classifying
+   * would mean resolving, and a public name may resolve to loopback — `http://` on any host whose
+   * DNS points there is the address this whole check exists to refuse.
+   */
+  private fun normalizeHost(host: String?): String? =
+    host?.trim()?.lowercase()?.removeSurrounding("[", "]")
 }

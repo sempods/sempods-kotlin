@@ -38,6 +38,10 @@ object DynamicClientFingerprint {
    * every deployment is still a proof of concept, and the alternative was to carry the
    * inconsistency into the public repository forever.
    *
+   * There is no legacy-digest lookup, so touching [RedirectUri.canonicalize] is a decision about
+   * consent: every registration whose canonical form moves re-registers once under a new
+   * `client_id`.
+   *
    * Only the hosted service fills the realm today. The pod passes `null`: it has one MCP surface,
    * so there is nothing to fork registrations by.
    */
