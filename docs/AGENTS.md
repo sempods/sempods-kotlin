@@ -28,8 +28,9 @@ anything here. What it means for this folder:
   (`roadmap-lifecycle.md`, `documentation-sync.md`)
 - `docs/concepts/` — one document per topic, each stating IST and SOLL: modular deployment
   (deployment-selected seams, the invariants that are not selectable, open-source blockers), graph
-  retrieval, hosted MCP, the MCP agent interface, inference contexts
-- `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it ships
+  retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
+- `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it ships.
+  Running: `owner-app-installation.md` — a pod owner registers a service client on their own pod
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
 - `docs/vision.md` — core standard

@@ -116,8 +116,11 @@ Vision and concepts:
 
 - Vision: `docs/vision.md`
 - Concepts: `docs/concepts/` — one document per topic, each stating IST and SOLL. Currently
-  modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts
-- Roadmaps: `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it ships
+  modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
+  app installation
+- Roadmaps: `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it
+  ships. Running: `owner-app-installation.md` — a pod owner registers a service client on their
+  own pod
 
 IST documentation:
 
