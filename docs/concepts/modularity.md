@@ -299,33 +299,24 @@ compile classpath, so a type in a public signature whose artifact is declared `i
 compiles perfectly — and cannot be compiled against by anyone holding only the published jar.
 `./gradlew buildHealth` ([`com.autonomousapps.dependency-analysis`](https://github.com/autonomousapps/dependency-analysis-gradle-plugin))
 reads the bytecode and the Kotlin metadata and fails the build on it. Configuration and the
-reasoning behind each exception live in `settings.gradle.kts`.
+reasoning behind each exception live in `settings.gradle.kts`. It discriminates only where the
+artifact reaches a consumer through this module alone: one that arrives over some *other* module's
+`api` edge as well leaves the declaration here free to be wrong in either direction, silently.
 
-**`internal` is part of that boundary**, because the plugin reads the Kotlin metadata rather than the
-access flag: the persistence layer of `:sempods-server` — the `…Dbo` rows, the DAO functions over
-them, and the constructors those DAOs and stores take a `MongoDatabase` in — is `internal`, so the
-module names no `com.mongodb` or `org.bson` type in its ABI and declares both on `implementation`.
-The constructor is where that reads oddly and does not fail: an `internal` one is `ACC_PUBLIC` in
-the bytecode with its name unchanged, where an `internal` *function* is mangled, so Guice keeps
-building every DAO from an annotation it can still see.
+**`internal` is part of that boundary**, because the plugin reads the Kotlin metadata rather than
+the access flag. The persistence layer of `:sempods-server` is `internal` down to the constructors
+its DAOs take a `MongoDatabase` in, so the module names no driver type in its ABI and declares both
+artifacts on `implementation`. What that is and is not worth to a consumer is in
+[`../../sempods-server/docs/collections.md`](../../sempods-server/docs/collections.md)
+§"Conventions".
 
-**A consumer still resolves the driver**, and the reason has left this module: both artifacts arrive
-through `api(project(":sempods-auth-core"))`, whose shared stores take a `MongoDatabase` in their
-constructors, and whose `OneTimeStore` and `RefreshTokenStore` take their payload codecs as
-`Document`-receiver lambdas, the latter `Bson` filters besides. Whoever wires one of those stores
-writes those types themselves, so the artifact is theirs to declare — and it is deliberate:
-`OneTimeStore`'s KDoc argues for a `Document` over a map, because a codec that loses the
-`commons-mongo` helpers loses the wire contract with them, and a filter is how a service expresses a
-revocation the mechanism cannot. #47 holds what is left of it. What is checked is narrower: this
-module does not *name* a driver type in anything it publishes.
-
-**One thing the check cannot do is tell those two apart**, and a green report is read as more than
-it is otherwise. An artifact already on a consumer's api classpath through some *other* `api` edge
-gives the plugin no reason to ask for `api` on this module's own declaration — so for as long as
-`:sempods-auth-core` exports the driver, `:sempods-server` could put a `MongoDatabase` back into a
-public signature and nothing would fail. The mechanism is sound where it can discriminate — the same
-construction over `OkHttpClient`, which reaches that module no other way, is caught and keeps
-`okhttp` on `api` — it just has nothing to say about the driver until #47 closes.
+**A consumer still resolves the driver**, and the reason has left this module: it arrives through
+`api(project(":sempods-auth-core"))`, whose stores are shared by three services and carry the
+driver's types in their signatures on purpose — `OneTimeStore`'s KDoc argues for a `Document` over a
+map, because a codec that loses the `commons-mongo` helpers loses the wire contract with them.
+Whoever wires one of those stores writes those types themselves, so the artifact is theirs to
+declare. What this section claims is therefore narrower than "a consumer needs no driver": a module
+does not *name* a driver type in anything it publishes.
 
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no
