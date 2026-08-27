@@ -82,7 +82,9 @@ the owner assign them later through service-client management.
 
 Consent must show not only what the installer can do, but how long the credential shape lasts:
 
-- an installer access token is short-lived and used during installation;
+- an installer access token is short-lived and used during installation; if the installer feature
+  scope is one-shot, the underlying authorization is consumed after installation rather than
+  auto-granted on the next login, and if it is durable the UI says so;
 - `offline_access` means a refresh token can keep an interactive connection alive until it is
   revoked or unused beyond its rolling lifetime; and
 - a service client secret lives until it is rotated or the registration is removed, while its access

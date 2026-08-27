@@ -32,9 +32,12 @@ migrated or deliberately broken.
 - [ ] 3 — Carry requested feature scopes through consent. Today `runAuthorize` renders no requested
   feature-scope set and the auto-grant branch re-issues stored feature scopes without intersecting
   the request. The new path must render privileged feature scopes only when requested, never
-  preselect the installer feature scope, persist `requested ∩ granted`, and auto-grant only the same
-  intersection. `public-read` keeps its existing preselect and public-context rule; neither
-  generalizes.
+  preselect the installer feature scope, and must not let a normal persistent grant make this
+  authority silently reusable. If the first implementation treats installer authorization as
+  one-shot, the consent result is consumed or revoked after the protected DCR call and the auto-grant
+  path never re-issues it without a fresh owner screen. If it is intentionally durable, the UI must
+  say so and tests must cover repeated installs from the same installer grant. `public-read` keeps
+  its existing preselect, persistence and public-context rule; none of those behaviours generalize.
 - [ ] 4 — Make token lifetime visible in the service-client install UI. This milestone owns the
   service-client lifetime wording only: the grant-consent page distinguishes the
   short-lived installer access token from the durable service-client registration and once-returned
@@ -118,8 +121,11 @@ migrated or deliberately broken.
   authority rule.
 - Refresh-token prerequisite — before protected DCR is exposed, either the related
   `offline_access` hardening has landed or this milestone suppresses refresh-token issuance for
-  installer-feature-scope-only authorizations. Otherwise the installer keeps durable
-  service-client-lifecycle authority after the short-lived access token was supposed to be discarded.
+  installer-feature-scope-only authorizations. That is necessary but not sufficient: if the
+  installer feature scope is persisted like an ordinary static-client grant, the installer can start
+  another authorization-code flow and recover the same authority through auto-grant. Decide whether
+  installer authorization is one-shot by default or deliberately durable, then implement and display
+  that lifetime honestly.
 - Sandbox convenience — creating `apps/<serverAssignedClientId>#manage` is useful but no longer
   mandatory. Decide whether the first UI defaults to "no grants until selected", "read existing
   contexts", or "create private app sandbox".
