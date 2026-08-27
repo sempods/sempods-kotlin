@@ -28,34 +28,46 @@ OAuth.
 
 A pod owner installs a service client through the pod's ordinary OAuth surface:
 
-1. a first-party pod UI, or another installer client, obtains a pod access token through
-   Authorization Code + PKCE;
+1. an owner-facing installer, such as the built-in consent page, `my.sempods.org`, or a later CLI,
+   obtains a pod access token through Authorization Code + PKCE;
 2. the token names the owner in `sub`, the installer in `client_id`, and the `service-clients`
    feature scope;
 3. the installer calls the pod's protected Dynamic Client Registration endpoint to create a
    confidential service client;
-4. sempods records the service client's context grants as resource-server policy; and
-5. the service client later uses Client Credentials with its own `client_id` and secret.
+4. the pod assigns the service client's `client_id` and returns the secret exactly once;
+5. sempods records explicitly selected context grants as resource-server policy; and
+6. the service client later uses Client Credentials with its own `client_id` and secret.
 
-The first-party UI does not bypass OAuth. It is simply the built-in installer client of that pod
-deployment, so it can use the same token path as any later CLI or hosted installer. The authorization
-check starts as owner recognition and settles on `sub == pod.owner` plus the `service-clients`
-feature scope before the route is exposed as a general contract.
+The installer does not need to be a control-plane UI and does not bypass OAuth. A built-in sempods
+installer may be first-party, while an owner console such as `my.sempods.org` stays
+implementation-agnostic and talks to the pod surface. The authorization check starts as owner
+recognition and settles on `sub == pod.owner` plus the `service-clients` feature scope before the
+route is exposed as a general contract.
 
 ## The standard line (SOLL)
 
 The standard-shaped pieces stay standard-shaped:
 
 - Authorization Code + PKCE obtains the installer token.
-- Dynamic Client Registration creates the service client's OAuth client record.
+- Dynamic Client Registration creates the service client's OAuth client record, with the
+  authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
 - `offline_access` is the opt-in signal for issuing refresh tokens to interactive clients.
 
+Server-assigned client IDs are a security property, not just a naming preference. The caller must not
+choose the service client's `client_id` or a registration root. The escalation class in the old
+self-service sketch came from caller-chosen identifiers and roots: naming another app's client ID,
+naming an existing context, or relying on an empty-root corner case.
+
 The sempods-specific piece is grant assignment. A service client may be registered with no data
-authority at all, then granted read, write or manage on selected contexts. Creating a fresh
-`apps/<clientId>` sandbox and granting `<root>#manage` is a convenience choice in the installation
-UI, not the definition of installing a service client. A permanent reader is therefore a first-class
-case rather than a write-capable app forced through a sandbox it does not need.
+authority at all, then granted read, write or manage on selected contexts. The `service-clients`
+feature scope authorizes service-client lifecycle operations; it is not context data authority by
+itself. A grant operation may write grants only when it is bound to an owner consent transaction for
+the exact service client and selected contexts, or when the caller independently holds covering
+context authority. Creating a fresh `apps/<serverAssignedClientId>` sandbox and granting
+`<root>#manage` is a convenience choice in the installation UI, not the definition of installing a
+service client. A permanent reader is therefore a first-class case rather than a write-capable app
+forced through a sandbox it does not need.
 
 ## Token lifetime is part of consent (SOLL)
 
@@ -79,3 +91,5 @@ this UI install one service client now" and "let this remote installer keep comi
   permissions.
 - [`../roadmaps/owner-app-installation.md`](../roadmaps/owner-app-installation.md) — the milestone
   that implements this target state.
+- [`../roadmaps/offline-access-refresh-tokens.md`](../roadmaps/offline-access-refresh-tokens.md) —
+  the separate milestone for `offline_access`, refresh-token hardening and MCP migration.

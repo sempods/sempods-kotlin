@@ -118,9 +118,10 @@ Vision and concepts:
 - Concepts: `docs/concepts/` — one document per topic, each stating IST and SOLL. Currently
   modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
   app installation
-- Roadmaps: `docs/roadmaps/` — the milestone being implemented, if one is. Dissolved when it
-  ships. Running: `owner-app-installation.md` — a pod owner installs a service client through
-  first-party OAuth and protected DCR
+- Roadmaps: `docs/roadmaps/` — milestones being implemented, if any. Dissolved when they ship.
+  Running: `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and
+  protected DCR; `offline-access-refresh-tokens.md` — `offline_access`, refresh-token hardening and
+  hosted MCP migration
 
 IST documentation:
 
