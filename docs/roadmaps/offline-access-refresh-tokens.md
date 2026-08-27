@@ -12,10 +12,11 @@ shared concept; the service-client installation state belongs to
 [`owner-app-installation.md`](owner-app-installation.md).
 
 When this is done, pod refresh tokens are issued only when `offline_access` was explicitly granted,
-the consent UI makes that lifetime visible, and hosted MCP requests the standard-shaped
-`openid offline_access` scope set it depends on instead of relying on today's permissive PoC
-behaviour. If sempods deliberately accepts bare `offline_access`, that must be documented as a
-sempods-specific extension rather than plain OAuth or OIDC.
+the consent UI makes that lifetime visible, and hosted MCP requests the sempods-specific
+`offline_access` OAuth extension it depends on instead of relying on today's permissive PoC
+behaviour. This roadmap deliberately does not introduce OIDC Provider behaviour; using the
+standard-shaped `openid offline_access` request would require a separate milestone for OIDC
+discovery, ID-token issuance and validation.
 
 ## Work
 
@@ -25,9 +26,9 @@ sempods-specific extension rather than plain OAuth or OIDC.
   rows and decide whether they are migrated, preserved until reconnect, or intentionally broken with
   a reconnect requirement.
 - [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
-  should request `openid offline_access` when it needs a durable pod connection, and tests pin the
-  authorize URL so the dependency remains visible. If the chosen profile allows bare
-  `offline_access`, the docs and metadata must advertise it as a sempods extension.
+  requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
+  so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
+  not as plain OAuth and not as OIDC.
 - [ ] 3 — Render refresh-token lifetime in consent. Reuse the service-client lifetime vocabulary
   owned by the owner-installation milestone, but this item owns only the `offline_access` text:
   short-lived access token without it, rolling refresh token with it. Tests assert that requesting
@@ -52,8 +53,9 @@ sempods-specific extension rather than plain OAuth or OIDC.
 
 - PoC migration — from actual stored rows and users, choose reconnect-only, compatibility-until-use,
   or explicit migration before token issuance changes.
-- Request shape — prefer the OIDC-shaped `openid offline_access` request for standards alignment.
-  Accept bare `offline_access` only if the profile is deliberately documented as sempods-specific.
+- Request shape — this milestone keeps bare `offline_access` as a deliberately documented sempods
+  OAuth extension. Moving to the standard-shaped `openid offline_access` request requires first
+  making the pod an OIDC Provider with discovery, ID-token issuance and validation.
 - Scope presentation — consent should describe the resulting lifetime class, not only the literal
   `offline_access` scope name.
 - Refresh narrowing — decide whether refresh responses preserve the originally granted scope set

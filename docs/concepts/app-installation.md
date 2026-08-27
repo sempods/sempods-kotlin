@@ -53,9 +53,9 @@ The standard-shaped pieces stay standard-shaped:
 - Dynamic Client Registration creates the service client's OAuth client record, with the
   authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
-- The standard-shaped refresh-token signal is an OIDC request that includes `openid offline_access`.
-  If sempods later accepts bare `offline_access` without `openid`, that profile is advertised as a
-  sempods extension rather than plain OAuth.
+- The refresh-token opt-in is `offline_access`, advertised as a sempods OAuth extension unless and
+  until the pod also implements the OIDC pieces that make `openid offline_access` standard-shaped:
+  OIDC discovery and `id_token` issuance.
 
 Server-assigned client IDs are a security property, not just a naming preference. The caller must not
 choose the service client's `client_id` or a registration root. The escalation class in the old
