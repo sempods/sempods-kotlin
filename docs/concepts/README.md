@@ -29,6 +29,8 @@ documentation types and the writing rules.
 - [`mcp-agent-interface.md`](mcp-agent-interface.md) — where the per-pod MCP surface is going:
   SHACL-gated app contracts, cross-pod orchestration.
 - [`inference-context.md`](inference-context.md) — a TBox layer for type and predicate coverage.
+- [`app-installation.md`](app-installation.md) — how a pod owner turns an interactive decision into
+  a durable service-client credential.
 
 ## Template
 
