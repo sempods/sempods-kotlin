@@ -37,7 +37,7 @@ import java.time.Instant
  * is composed by Mongo out of the filter's equality fields plus `$setOnInsert`, in an order it
  * picks. The field *set* is what holds, and `PodGrantsDaoTest` asserts it.
  */
-class PodGrantsDao(db: MongoDatabase, collectionName: String) {
+class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -45,7 +45,7 @@ class PodGrantsDao(db: MongoDatabase, collectionName: String) {
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.GRANTS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.GRANTS)
 
   private val grantRows = db.getCollection(collectionName)
 

@@ -38,7 +38,7 @@ import java.time.Instant
  * The collection with the most bytes in it and the simplest mapping: every field is non-null, so
  * nothing here is omitted and nothing has to be defaulted on the way back.
  */
-class RdfResourceBackupDao(db: MongoDatabase, collectionName: String) {
+class RdfResourceBackupDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -46,7 +46,7 @@ class RdfResourceBackupDao(db: MongoDatabase, collectionName: String) {
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.RESOURCES)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.RESOURCES)
 
   private val backups = db.getCollection(collectionName)
 

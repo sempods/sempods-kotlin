@@ -20,12 +20,31 @@ dependencies {
   // The artifacts behind those signatures. `JsonNode` and `ObjectMapper` are in many of them, and
   // `jakarta.ws.rs-api` is what `BaseEndpoint`'s subclasses hand back a `Response` from.
   //
-  // `mongodb` is `api` for the `MongoDatabase` in the DAO and store constructors; `bson` is
-  // `implementation` because `ObjectId` is named only in their bodies. #41 would close the
-  // constructors. A consumer resolves both artifacts either way, and neither reason is here:
-  // `mongodb` for the same constructors, `bson` through `:sempods-auth-core`, whose shared stores
-  // take `Document` codecs and `Bson` filters.
-  api(libs.mongodb)
+  // `mongodb` and `bson` are both `implementation`: no `com.mongodb` or `org.bson` type is left in
+  // a signature this module publishes. `bson` never had one — `ObjectId` is named in DAO bodies
+  // only. What held `mongodb` on `api` was the `MongoDatabase` in thirteen DAO and store
+  // constructors, and those are `internal` now.
+  //
+  // **`internal` is a Kotlin visibility and not a bytecode one, and both halves of that matter
+  // here.** `javap` puts every one of those constructors at `ACC_PUBLIC` with its name unmangled
+  // and `@Inject` intact, which is why Guice keeps building them — constructors are not mangled the
+  // way `internal` *functions* are, and one class file shows both, `exists$org_sempods_sempods_server`
+  // beside a plain constructor descriptor. That asymmetry was the open question before this change,
+  // since #24 had already caught one "should be fine" assumption about mangling being wrong. The
+  // ABI still shrinks, because the plugin reads the Kotlin metadata rather than the access flag.
+  //
+  // **What `buildHealth` cannot do is hold this particular declaration**, and that is worth knowing
+  // before someone reads a green report as a check. `mongodb` reaches a consumer's api classpath
+  // through `:sempods-auth-core` anyway, so the plugin has no reason to ask for `api` here — put a
+  // constructor back to public and the report stays as silent as it is now. The mechanism itself
+  // works: the same construction over an artifact that arrives no other way is caught, which is
+  // what keeps `okhttp` on `api` below. So this declaration is held by the reading above until the
+  // remaining edges in #47 close.
+  //
+  // A consumer therefore still resolves both artifacts, and neither reason is in this file:
+  // `:sempods-auth-core`'s shared stores take a `MongoDatabase` in their constructors, `Document`
+  // codecs and `Bson` filters.
+  implementation(libs.mongodb)
   implementation(libs.bson)
   api(libs.jacksonDatabind)
   api(libs.jakartaWsRsApi)

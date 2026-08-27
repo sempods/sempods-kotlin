@@ -26,7 +26,7 @@ import java.time.Duration
  * consent POST checks both — a token lifted out of a page is worthless without the cookie it was
  * rendered beside.
  */
-class ConsentTransactionStore @Inject constructor(db: MongoDatabase) {
+class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
 
   /**
    * @param webId whose consent screen this is. Compared against the session presenting it, so a

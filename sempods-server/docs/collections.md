@@ -61,11 +61,15 @@ Both are instances of a rule stated in the document contract, and both are this 
 
 ## Conventions
 
-- **The rows, the `*DboFields` objects and the DAO functions over them are `internal`** — the
-  document format is not a published surface, and `buildHealth` fails the build if one reaches a
-  public signature. **The DAO classes and their constructors are not**: Guice builds them, and
-  `SempodsModule`'s `@Provides` methods name their types. The shared stores in `sempods-auth-core`
-  are the deliberate exception — being callable from three services is what they are for.
+- **The rows, the `*DboFields` objects, the DAO functions over them and the DAO constructors are
+  `internal`** — neither the document format nor the `MongoDatabase` a DAO is built from is a
+  published surface, and `buildHealth` fails the build if one reaches a public signature. **Guice
+  builds them anyway, and that is not the coincidence it looks like**: an `internal` constructor is
+  `ACC_PUBLIC` in the bytecode with its name unchanged, where an `internal` *function* carries a
+  `$org_sempods_sempods_server` suffix. So the annotation still finds its target, and a DAO stays
+  unconstructible from outside the module. The DAO *classes* are public, because a facade taking one
+  names its type. The shared stores in `sempods-auth-core` are the deliberate exception — being
+  callable from three services is what they are for.
 
 Everything else a DAO here follows is
 [`../../sempods-commons-mongo/docs/document-contract.md`](../../sempods-commons-mongo/docs/document-contract.md)

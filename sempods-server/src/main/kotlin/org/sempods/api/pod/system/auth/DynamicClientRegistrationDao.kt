@@ -44,7 +44,7 @@ import java.time.Instant
 //  written for this, and read by nothing — plus what to do with the grants that hang off a swept
 //  clientId. `sempods-mcp`'s DcrClientDao carries the same note for its own copy, where the risk
 //  is recorded as accepted in `sempods-mcp/docs/multi-tenancy-review.md` (M6.4).
-class DynamicClientRegistrationDao(db: MongoDatabase, collectionName: String) {
+class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -52,7 +52,7 @@ class DynamicClientRegistrationDao(db: MongoDatabase, collectionName: String) {
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_CLIENT_REGISTRATIONS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_CLIENT_REGISTRATIONS)
 
   private val registrations = db.getCollection(collectionName)
 

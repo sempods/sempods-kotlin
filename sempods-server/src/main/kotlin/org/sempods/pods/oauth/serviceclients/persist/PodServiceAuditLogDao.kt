@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
  *
  * @param retentionDays how long a row is kept — [SempodsConfig.serviceAuditRetentionDays].
  */
-class PodServiceAuditLogDao(
+class PodServiceAuditLogDao internal constructor(
   db: MongoDatabase,
   collectionName: String,
   private val retentionDays: Long,
@@ -50,7 +50,7 @@ class PodServiceAuditLogDao(
    * waiting on the server's TTL reaper.
    */
   @Inject
-  constructor(db: MongoDatabase, config: SempodsConfig) : this(
+  internal constructor(db: MongoDatabase, config: SempodsConfig) : this(
     db,
     SempodsCollections.OAUTH_SERVICE_AUDIT_LOG,
     config.serviceAuditRetentionDays,
