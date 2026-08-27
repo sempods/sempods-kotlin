@@ -39,7 +39,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
    * only so that a test can point an instance at a collection of its own, for the reason
-   * `docs/persistence.md` §"Conventions" states.
+   * `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
    */
   @Inject
   constructor(db: MongoDatabase) : this(db, SempodsCollections.MEDIA)

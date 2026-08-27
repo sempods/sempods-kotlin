@@ -126,7 +126,8 @@ IST documentation:
   or a published IRI depends on them
 - Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the tiers and which one a consumer takes, the rule for what may be added at which tier, why the transport is OkHttp (SSRF resolve-and-pin needs a DNS hook the JDK client does not offer) without an OkHttp type ever reaching a consumer, and what the client deliberately is not
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
-- Collection layer (IST): `docs/persistence.md` — the fifteen MongoDB collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, the document contract (null and empty omitted, `Instant` at milliseconds, `_id`), and the two places where a filter and the decoder disagree
+- MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
+- Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's fifteen collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
 - AI layer (IST): `docs/ai-layer.md`
 - MCP per-pod surface (IST): `docs/mcp/` — JSON-RPC endpoint, tools, OAuth-gated access, client behavioral clusters
 - LOD/REST/CRUD layer (spec): `docs/lod-crud/` — two-layer model (LOD resource HTTP + System slot HTTP via `_system/resources/{b64url(uri)}`), context rules, base64url convention

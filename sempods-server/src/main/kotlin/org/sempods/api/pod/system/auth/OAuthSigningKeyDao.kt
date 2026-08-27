@@ -24,7 +24,7 @@ import org.bson.types.ObjectId
  * reload; until then, one process reads once at boot and holds the keys for its
  * lifetime.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. The document this writes is
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The document this writes is
  * byte-identical to what Morphia's `PojoCodec` wrote for the same entity — field order included —
  * which is pinned without a database by a wire-format test on the mapping side. That parity is the whole
  * migration: no stored key was rewritten, and a process on either side of the change reads what the

@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit
  *   list: the pod server keys by `(podId, clientId, webId)` while storing `podName` beside them,
  *   because the name is carried for the caller's benefit and never queried on.
  * @param writeOwner / @param readOwner the only things that know what an owner is. A row missing an
- *   owner field fails loudly, the way [readIssuedAt] does and for the same reason — the row cannot
+ *   owner field fails loudly, the way [readInstant] does and for the same reason — the row cannot
  *   serve the exchange it belongs to, and inventing a value would hand out authority nobody granted.
  * @param clock the "now" of issuing, rotation and revocation. A parameter because the interesting
  *   cases are about time and testing them by waiting is not testing them.
@@ -79,14 +79,18 @@ class RefreshTokenStore<OWNER>(
   }
 
   /**
-   * A stored token, as it is on disk.
+   * A stored token, as it is on disk — everything but the row's `_id`.
    *
-   * [issuedAt] and [expiresAt] are millisecond-truncated at mint, so this really is the row and not
-   * an in-memory value that will read back slightly different — BSON's date type has nowhere to put
-   * the nanoseconds, and `commons-mongo` documents the same trap.
+   * That one field stays behind because nothing above the store has ever had a use for it: a row is
+   * found by [tokenHash], a family is revoked by [familyId], and a service's own bulk revocations go
+   * through [revokeWhere] over the owner's fields. Carrying the key out would put the collection's
+   * identifier type in this class's signature to answer a question no caller asks.
+   *
+   * [issuedAt] and [expiresAt] are millisecond-truncated at mint, so the rest really is the row and
+   * not an in-memory value that will read back slightly different — BSON's date type has nowhere to
+   * put the nanoseconds, and `commons-mongo` documents the same trap.
    */
   data class Token<OWNER>(
-    val id: ObjectId,
     val tokenHash: String,
     val familyId: String,
     val owner: OWNER,
@@ -159,7 +163,6 @@ class RefreshTokenStore<OWNER>(
     val plaintext = PLAINTEXT_PREFIX + Secrets.newSecret()
     val now = clock().truncatedTo(ChronoUnit.MILLIS)
     val token = Token(
-      id = ObjectId(),
       tokenHash = sha256Hex(plaintext),
       familyId = familyId,
       owner = owner,
@@ -246,8 +249,14 @@ class RefreshTokenStore<OWNER>(
   fun findByFamily(familyId: String): List<Token<OWNER>> =
     tokens.find(Filters.eq(Field.FAMILY_ID, familyId)).map { it.toToken() }.toList()
 
+  /**
+   * The row, in the order it is written — and the `_id` is minted here rather than left to the
+   * driver on purpose. Field order is the encoder's (`sempods-commons-mongo/docs/document-contract.md` §"Field order"), and
+   * both live collections carry `_id` first; a driver-generated key would hand that placement to a
+   * code path this file does not control. Called once, at insert.
+   */
   private fun Token<OWNER>.toDocument(): Document = Document()
-    .putNotNull(Field.ID, id)
+    .putNotNull(Field.ID, ObjectId())
     .putNotNull(Field.TOKEN_HASH, tokenHash)
     .putNotNull(Field.FAMILY_ID, familyId)
     .apply { writeOwner(owner) }
@@ -258,7 +267,6 @@ class RefreshTokenStore<OWNER>(
     .putInstant(Field.REVOKED_AT, revokedAt)
 
   private fun Document.toToken(): Token<OWNER> = Token(
-    id = getObjectId(Field.ID),
     tokenHash = getString(Field.TOKEN_HASH),
     familyId = getString(Field.FAMILY_ID),
     owner = readOwner(),

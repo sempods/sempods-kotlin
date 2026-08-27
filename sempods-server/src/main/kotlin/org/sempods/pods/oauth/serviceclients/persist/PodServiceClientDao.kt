@@ -22,7 +22,7 @@ import java.time.Instant
  * [findByClientId], called from the token endpoint when an incoming
  * `grant_type=client_credentials` request authenticates via HTTP Basic.
  *
- * **On the MongoDB driver, mapped by hand** — see `docs/persistence.md`. The document this writes is identical
+ * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The document this writes is identical
  * to what Morphia's `PojoCodec` wrote for the same entity — field order included — which is pinned
  * without a database by a wire-format test on the mapping side. No stored row was rewritten, and a
  * process on either side of the change reads what the other wrote.

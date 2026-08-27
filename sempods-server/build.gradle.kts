@@ -22,7 +22,9 @@ dependencies {
   //
   // `mongodb` is `api` for the `MongoDatabase` in the DAO and store constructors; `bson` is
   // `implementation` because `ObjectId` is named only in their bodies. #41 would close the
-  // constructors; #40 is why a consumer resolves both artifacts either way.
+  // constructors. A consumer resolves both artifacts either way, and neither reason is here:
+  // `mongodb` for the same constructors, `bson` through `:sempods-auth-core`, whose shared stores
+  // take `Document` codecs and `Bson` filters.
   api(libs.mongodb)
   implementation(libs.bson)
   api(libs.jacksonDatabind)

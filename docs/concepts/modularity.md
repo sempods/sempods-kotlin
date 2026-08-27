@@ -276,7 +276,7 @@ share is the `sempods-commons` family (`sempods-commons`, `sempods-commons-jaxrs
 The dependency direction runs one way, from every module into that family and never back out of
 it. `SempodsModule` composes from `org.sempods.commons.guice.BaseModule` and installs what it
 uses, `SempodsConfig` is the pod server's own configuration, and the fifteen collections sit on
-the MongoDB driver ([`../persistence.md`](../persistence.md)).
+the MongoDB driver ([`../../sempods-server/docs/collections.md`](../../sempods-server/docs/collections.md)).
 
 That matters for a reader who is meant to copy this. Frameworks are unavoidable and not the point;
 an *in-house* layer over them is, because it is the one thing a reader cannot look up. A reference
@@ -308,9 +308,13 @@ persistence layer of `:sempods-server` — the `…Dbo` rows, their DAOs and the
 
 **A consumer still resolves the driver**, and the two reasons are separate from that: `MongoDatabase`
 is in every DAO constructor, which stays public for Guice, so `mongodb` is `api` here (#41); and
-`bson` arrives through `api(project(":sempods-auth-core"))`, whose `RefreshTokenStore.Token.id` is
-an `ObjectId` (#40). What is checked is narrower: this module does not *name* a driver type in
-anything it publishes.
+`bson` arrives through `api(project(":sempods-auth-core"))`, because `OneTimeStore` and
+`RefreshTokenStore` take their payload codecs as `Document`-receiver lambdas and the latter takes
+`Bson` filters besides. Whoever wires one of those stores writes those types themselves, so the
+artifact is theirs to declare — and both are deliberate: `OneTimeStore`'s KDoc argues for a
+`Document` over a map, because a codec that loses the `commons-mongo` helpers loses the wire
+contract with them, and a filter is how a service expresses a revocation the mechanism cannot. What
+is checked is narrower: this module does not *name* a driver type in anything it publishes.
 
 It has one blind spot, and it is structural rather than a setting: the plugin decides a project is
 an *application* from its plugins — `application`, Jib and a few others — and an application has no

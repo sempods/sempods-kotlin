@@ -102,6 +102,6 @@ Service Impl ──┘
   and that is precisely what must not become a shared surface: a second module reading the same
   collection turns a storage detail into a contract nobody declared. Reach the data through the
   owning module's facade. In `:sempods-server` this is `internal` and checked by `buildHealth` —
-  see `../persistence.md` §"Conventions"
+  see `../../sempods-server/docs/collections.md` §"Conventions"
 - Which modules may depend on which is the harder boundary, and it is not a matter of visibility
   modifiers — see the layering rules above and the module list in the root `AGENTS.md`

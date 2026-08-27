@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
  * hand the browser an opaque key, and pick it up again when the browser comes back — once. That
  * covers login state, consent screens and authorization codes alike; the mechanism had been written
  * seven times, and the copies had already drifted: one wrote BSON nulls against the contract
- * `docs/persistence.md` states, and one kept its rows in a `ConcurrentHashMap`, so every
+ * `sempods-commons-mongo/docs/document-contract.md` states, and one kept its rows in a `ConcurrentHashMap`, so every
  * login in flight died with the process and a second replica never saw them at all.
  *
  * Four properties, and losing any of them is silent:

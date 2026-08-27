@@ -1,0 +1,74 @@
+# The document contract (IST)
+
+What a document written through the `sempods-commons-mongo` helpers looks like on the wire, and the
+conventions for writing a DAO on top of it. A DAO that diverges produces rows indistinguishable from
+correct ones until a filter misses them.
+
+**The contract is the helpers', and it binds only the DAOs that use them.** `putNotNull`,
+`putInstant` and `putStrings` implement the omission rules; a DAO that reaches past them to
+`Document.put` stores whatever it is handed, BSON `null` included. Several here do —
+`MongoSigningKeyStore.createInitial` writes `retiredAt` as an explicit null, and most of the hosted
+MCP service's DAOs (`AuditLogDao`, `DcrClientDao`, `SigningKeyDao`, `ConnectionRegistryDao`,
+`TokenVaultDao`, `PodConnectStateStore`) write their nullable fields directly.
+
+**So check which kind of DAO wrote a collection before filtering on it.** On those rows an unset
+field is present and null rather than absent, so `exists(false)` does not find it — while
+`{field: null}` matches either way, which is how the mismatch stays invisible until a query needs
+the distinction.
+
+`Documents.kt` carries the field-level reasoning and says why these rules and not others.
+`DocumentsTest` pins the contract without needing a database.
+
+## The contract
+
+- **A null field is omitted**, not written as BSON `null`.
+- **An empty collection is omitted too**, not written as `[]`. This changes what `Filters.exists`
+  and `Filters.size` see, and both are used.
+- **An `Instant` is stored at millisecond precision.** A round trip is not the identity function:
+  `10:15:30.123456789Z` returns as `10:15:30.123Z`.
+- **The id field is `_id`.** A filter naming `id` matches nothing — quietly. Every `*DboFields`
+  object states `const val id = "_id"` with the reason on the line above it.
+
+## Two consequences worth knowing before writing a query
+
+- **`{field: null}` matches a missing field as well as an explicit BSON null**, and is not
+  interchangeable with `exists(false)`. `RefreshTokenStore.markRotated` depends on this: no live
+  token carries `rotatedAt` or `revokedAt`, so the rotation filter only works because the equality
+  matches an absent field. `RefreshTokenStoreTest` pins it, including why it must not be tidied.
+- **`{field: false}` does *not* match a missing field.** A boolean added to a row shape later is
+  invisible to an equality filter on every row written before it, even where the decoder defaults
+  them — so the fix is a `$ne: true` filter and a decision about the pre-backfill rows, not a
+  correction to the decoder. `:sempods-server`'s context listing carries a live instance
+  ([`../../sempods-server/docs/collections.md`](../../sempods-server/docs/collections.md)).
+
+## Field order
+
+Wherever an encoder writes the document, the field order is the DBO's declaration order, and it is
+kept: a row that differs from its neighbours only in order reads differently in a dump.
+
+**An upsert is the exception, and not a controllable one.** Mongo composes the inserted document out
+of the filter's equality fields plus `$setOnInsert`, and picks an order that varies from row to row
+for one and the same command. An upserted collection is laid out inconsistently among its own rows,
+so there is no layout for a new row to match and what holds is the field *set*.
+
+## Conventions
+
+- **Indexes are created by the DAO constructor**, imperatively, with the options spelled out —
+  `unique`, `partialFilterExpression`, `expireAfterSeconds`. **No call passes a name.**
+  `Indexes.ascending(…)` leaves that to MongoDB, which derives one from the keys — `a_1_b_1`,
+  `expiresAt_1`. That is load-bearing rather than a shortcut: `createIndex` throws
+  `IndexOptionsConflict` when an existing index's options differ, so against a database whose
+  indexes were created unnamed, adding an explicit name turns a harmless no-op at boot into a
+  failure to boot. `PodServiceAuditLogDao` names the two it measured on the running database.
+- **The collection name is a constructor parameter**, with the production name either on an
+  `@Inject` secondary constructor (where Guice constructs the DAO) or as a default (where a
+  `@Provides` method does). That is the whole cost of giving a test a collection of its own
+  (`test.<name>.<purpose>`, outside the production names), which the suites need: they run against
+  the developer's own database, so a test that cleared a real collection to know what it was looking
+  at would be destructive and order-dependent.
+- **An insert returns the id it stored under, wherever a caller needs one.** `insertOne` mints the
+  `_id` and does write it into the `Document` it was handed — but that document is the throwaway
+  `toDocument()` built, and the DBO the caller passed in is a different object that never sees it.
+  So a DAO whose caller needs the key hands back the stored row; reading it off the object that went
+  in gets `null`. A store whose callers never ask for the key needs no such answer and should not
+  invent one: `RefreshTokenStore` mints its `_id` at write time and its `Token` does not carry it.

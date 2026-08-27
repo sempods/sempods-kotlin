@@ -76,7 +76,8 @@ system. `SempodsUpdater` runs a hardcoded list on every boot; an update can decl
 `blocking` and then finishes before the first request, which is the part that works. What is
 missing is around it: no history, no "already applied" check, and a failure — blocking or not — is
 logged while boot continues. The list is empty today.
-[`docs/persistence.md`](docs/persistence.md) §"Schema changes" says what that means for an upgrade.
+[`sempods-server/docs/collections.md`](sempods-server/docs/collections.md) §"Schema changes" says
+what that means for an upgrade.
 Take a backup first, and read the startup log.
 
 

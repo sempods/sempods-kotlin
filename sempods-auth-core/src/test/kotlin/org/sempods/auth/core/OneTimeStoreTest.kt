@@ -114,7 +114,7 @@ class OneTimeStoreTest {
 
   @Test
   fun `a row omits its empty fields rather than writing null`() {
-    // `commons-mongo`'s contract, which `docs/persistence.md` states and which one of the
+    // `commons-mongo`'s contract, which `sempods-commons-mongo/docs/document-contract.md` states and which one of the
     // hand-written copies of this store did not keep. It changes what `exists` and `size` mean on
     // the collection later.
     val store = store()
