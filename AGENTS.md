@@ -181,9 +181,18 @@ introduce one, and do not assume one has run. Style comes from the surrounding f
 - no file-level licence headers — a file starts with `package`
 - KDoc on interfaces and DTOs carries the field-level contract; most files open with one
 
-Build files, workflow files and `gradle.properties` carry several paragraphs of reasoning per
-value, saying what went wrong before and why the value is what it is. That is the house style
-there. Match it; do not compress it away.
+Build files, workflow files and `gradle.properties` carry the reasoning for a value that is **not**
+what a reader would expect — a pinned version, a configuration that looks wrong until you know what
+it prevents. That reasoning is often several paragraphs, and it is not to be compressed away while
+the value still needs it.
+
+The other half of that rule matters as much and is the one that gets skipped: a value doing the
+ordinary thing carries **no** comment, and a value that *becomes* ordinary loses the comment it had.
+A dependency on `implementation` because nothing it holds is in a public signature needs no more
+explanation than a `val` needs a comment saying it is a variable. What does not happen is a comment
+recording that it used to be otherwise — that is what the commit message is for. This is rule 4 and
+rule 5 of [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which
+apply to code comments exactly as they apply to markdown; nothing about a `.kts` file exempts it.
 
 **No schema-migration system.** `SempodsUpdater` runs a hardcoded list every boot, with no history
 and no already-applied check. Do not propose a migration framework as a fix for a data change.
