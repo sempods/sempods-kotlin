@@ -304,7 +304,7 @@ class SempodsModule : BaseModule() {
    */
   @Provides
   @Singleton
-  fun providePodMediaDao(db: MongoDatabase): PodMediaDao = PodMediaDao(db)
+  internal fun providePodMediaDao(db: MongoDatabase): PodMediaDao = PodMediaDao(db)
 
   /**
    * The pod's signing keys, read (or minted) once at construction.

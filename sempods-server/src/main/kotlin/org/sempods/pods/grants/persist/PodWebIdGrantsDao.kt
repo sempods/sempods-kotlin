@@ -42,7 +42,7 @@ import java.time.Instant
  *   console roadmap (C2). It exposes the facade's grant/replace/revoke methods over HTTP,
  *   authorized by owner / `<root>#manage` like `PodContextsEndpoint`.
  */
-class PodWebIdGrantsDao(db: MongoDatabase, collectionName: String) {
+class PodWebIdGrantsDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -50,7 +50,7 @@ class PodWebIdGrantsDao(db: MongoDatabase, collectionName: String) {
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.WEB_ID_GRANTS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.WEB_ID_GRANTS)
 
   private val grantRows = db.getCollection(collectionName)
 

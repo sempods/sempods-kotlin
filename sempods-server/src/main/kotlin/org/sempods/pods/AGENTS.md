@@ -47,9 +47,10 @@ PodFacade  (business logic: resources, slots, context lifecycle)
 
 ## The persistence layer is module-internal
 
-The `…Dbo` rows under `*/persist/` and the DAO functions over them are `internal`; the DAO classes
-and their constructors are not, because Guice builds them. A facade or endpoint member that takes or
-returns a row is `internal` too — giving one a public answer means giving it a row-free type. See
+The `…Dbo` rows under `*/persist/` and the DAO functions and constructors over them are `internal`;
+the DAO classes are not, because a facade taking one names its type. Guice still builds them —
+`internal` mangles a function's name but not a constructor's. A facade or endpoint member that takes
+or returns a row is `internal` too — giving one a public answer means giving it a row-free type. See
 [`collections.md`](../../../../../../docs/collections.md) §"Conventions".
 
 ## Related docs

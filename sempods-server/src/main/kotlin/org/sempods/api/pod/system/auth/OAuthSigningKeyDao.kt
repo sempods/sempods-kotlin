@@ -30,7 +30,7 @@ import org.bson.types.ObjectId
  * migration: no stored key was rewritten, and a process on either side of the change reads what the
  * other wrote.
  */
-class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
+class OAuthSigningKeyDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for.
@@ -41,7 +41,7 @@ class OAuthSigningKeyDao(db: MongoDatabase, collectionName: String) {
    * dependent on running alone. See `PodTokenIssuerPersistenceTest`.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_SIGNING_KEYS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_SIGNING_KEYS)
 
   private val keys = db.getCollection(collectionName)
 

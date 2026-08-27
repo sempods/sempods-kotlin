@@ -19,16 +19,11 @@ dependencies {
 
   // The artifacts behind those signatures. `JsonNode` and `ObjectMapper` are in many of them, and
   // `jakarta.ws.rs-api` is what `BaseEndpoint`'s subclasses hand back a `Response` from.
-  //
-  // `mongodb` is `api` for the `MongoDatabase` in the DAO and store constructors; `bson` is
-  // `implementation` because `ObjectId` is named only in their bodies. #41 would close the
-  // constructors. A consumer resolves both artifacts either way, and neither reason is here:
-  // `mongodb` for the same constructors, `bson` through `:sempods-auth-core`, whose shared stores
-  // take `Document` codecs and `Bson` filters.
-  api(libs.mongodb)
-  implementation(libs.bson)
   api(libs.jacksonDatabind)
   api(libs.jakartaWsRsApi)
+
+  implementation(libs.mongodb)
+  implementation(libs.bson)
 
   // OkHttp, and not by choice: `CommonsHttpTransport`, `MediaSourceFetcher` and the two AI
   // services take an `OkHttpClient` in a public `@Inject` constructor, so it is in this module's

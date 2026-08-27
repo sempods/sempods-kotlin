@@ -18,7 +18,7 @@ import java.time.Duration
  *
  * One-time, hashed and TTL'd by [OneTimeStore]; what is specific here is only the payload.
  */
-class PodLoginStateStore @Inject constructor(db: MongoDatabase) {
+class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
 
   /**
    * @param codeVerifier never travels through the browser. Presenting it at the id-server's token

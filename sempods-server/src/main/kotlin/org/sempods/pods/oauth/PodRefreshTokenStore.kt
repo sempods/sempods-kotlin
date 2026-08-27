@@ -23,10 +23,10 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions"
  *   states.
  */
-class PodRefreshTokenStore(db: MongoDatabase, collectionName: String) {
+class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionName: String) {
 
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_REFRESH_TOKENS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_REFRESH_TOKENS)
 
   /**
    * @param podId the pod the token is good for, and the key everything bulk-revoking starts from.

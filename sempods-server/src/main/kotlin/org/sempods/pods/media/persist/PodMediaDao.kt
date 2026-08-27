@@ -34,7 +34,7 @@ import java.util.Date
  * pure registry work and touch no byte, so `PodFacade` and `SempodsFacade` inject this DAO directly.
  * Only what needs the store lives behind the store's binding.
  */
-class PodMediaDao(db: MongoDatabase, collectionName: String) {
+class PodMediaDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -42,7 +42,7 @@ class PodMediaDao(db: MongoDatabase, collectionName: String) {
    * `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.MEDIA)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.MEDIA)
 
   private val media = db.getCollection(collectionName)
 

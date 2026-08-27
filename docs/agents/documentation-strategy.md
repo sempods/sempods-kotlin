@@ -84,7 +84,10 @@ comments exactly as it applies to markdown.
 **5. When a logic becomes standard, its documentation shrinks or goes.** A special case that gets
 folded into the normal path takes its explanation with it — the prose and the comments both.
 Deleting documentation is a correct change, not a loss, and a pull request that removes a section
-because the code stopped being unusual needs no apology.
+because the code stopped being unusual needs no apology. The failure mode is not keeping the old
+text but *replacing* it: an explanation of why the thing is now ordinary is a longer way of writing
+nothing, and one that also records the history rule 3 rules out. The change deletes; the commit
+message carries what moved.
 
 **6. Field-level contracts live in KDoc.** Markdown stays high-level and links to the code path.
 Most files here already open with a KDoc block; that is where a reader looks for what a field means,

@@ -25,7 +25,7 @@ import java.time.Instant
  * without a database by a wire-format test on the mapping side. No stored row was rewritten, and a
  * process on either side of the change reads what the other wrote.
  */
-class PodDao(
+class PodDao internal constructor(
   db: MongoDatabase,
   private val webIdUriDeriver: WebIdUriDeriver,
   collectionName: String,
@@ -37,7 +37,7 @@ class PodDao(
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase, webIdUriDeriver: WebIdUriDeriver) : this(db, webIdUriDeriver, SempodsCollections.PODS)
+  internal constructor(db: MongoDatabase, webIdUriDeriver: WebIdUriDeriver) : this(db, webIdUriDeriver, SempodsCollections.PODS)
 
   private val pods = db.getCollection(collectionName)
 

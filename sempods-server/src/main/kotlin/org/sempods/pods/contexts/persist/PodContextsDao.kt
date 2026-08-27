@@ -24,7 +24,7 @@ import org.bson.types.ObjectId
  * without a database by a wire-format test on the mapping side. No stored row was rewritten, and a
  * process on either side of the change reads what the other wrote.
  */
-class PodContextsDao(db: MongoDatabase, collectionName: String) {
+class PodContextsDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**
    * The production constructor — the one collection this DAO exists for. The name is a parameter
@@ -32,7 +32,7 @@ class PodContextsDao(db: MongoDatabase, collectionName: String) {
    * `OAuthSigningKeyDao` states.
    */
   @Inject
-  constructor(db: MongoDatabase) : this(db, SempodsCollections.CONTEXTS)
+  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.CONTEXTS)
 
   private val contexts = db.getCollection(collectionName)
 
