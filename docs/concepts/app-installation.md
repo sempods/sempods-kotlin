@@ -41,8 +41,9 @@ A pod owner installs a service client through the pod's ordinary OAuth surface:
 The installer does not need to be a control-plane UI and does not bypass OAuth. A built-in sempods
 installer may be first-party, while an owner console such as `my.sempods.org` stays
 implementation-agnostic and talks to the pod surface. The authorization check starts as owner
-recognition and settles on `sub == pod.owner` plus the installer feature scope before the route is
-exposed as a general contract.
+recognition and settles on the existing alias-aware owner decision plus the installer feature scope
+before the route is exposed as a general contract. It must not rely on literal `sub == pod.owner`,
+because a canonical WebID can authenticate the same owner whose pod stores one of its aliases.
 
 ## The standard line (SOLL)
 
@@ -52,7 +53,9 @@ The standard-shaped pieces stay standard-shaped:
 - Dynamic Client Registration creates the service client's OAuth client record, with the
   authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
-- `offline_access` is the opt-in signal for issuing refresh tokens to interactive clients.
+- The standard-shaped refresh-token signal is an OIDC request that includes `openid offline_access`.
+  If sempods later accepts bare `offline_access` without `openid`, that profile is advertised as a
+  sempods extension rather than plain OAuth.
 
 Server-assigned client IDs are a security property, not just a naming preference. The caller must not
 choose the service client's `client_id` or a registration root. The escalation class in the old
@@ -82,8 +85,8 @@ Consent must show not only what the installer can do, but how long the credentia
 - an installer access token is short-lived and used during installation;
 - `offline_access` means a refresh token can keep an interactive connection alive until it is
   revoked or unused beyond its rolling lifetime; and
-- a service client secret lives until the registration is removed, while its access tokens stay
-  short-lived.
+- a service client secret lives until it is rotated or the registration is removed, while its access
+  tokens stay short-lived.
 
 This is not just UI polish. Without the lifetime, a user cannot tell the difference between "let
 this UI install one service client now" and "let this remote installer keep coming back".

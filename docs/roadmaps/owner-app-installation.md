@@ -38,19 +38,23 @@ migrated or deliberately broken.
 - [ ] 4 — Make token lifetime visible in the service-client install UI. This milestone owns the
   service-client lifetime wording only: the grant-consent page distinguishes the
   short-lived installer access token from the durable service-client registration and once-returned
-  secret. `offline_access` and refresh-token lifetime are handled by the related refresh-token
-  milestone, which must reuse this vocabulary rather than redefine the service-client secret text.
+  secret, and describes that secret as valid until rotation or registration removal. `offline_access`
+  and refresh-token lifetime are handled by the related refresh-token milestone, which must reuse
+  this vocabulary rather than redefine the service-client secret text.
 - [ ] 5 — Split `/register` into its two profiles without changing the public one. Unauthenticated
   RFC 7591 DCR continues to register public `dyn:` clients for Authorization Code. The protected
   profile is selected by an owner bearer plus `grant_types=["client_credentials"]` and
-  `token_endpoint_auth_method="client_secret_basic"`; it requires `sub == pod.owner` and the
-  installer feature scope. The mirror guard is just as important: an unauthenticated `/register`
-  request that asks for `client_credentials`, `client_secret_basic`, or any other confidential-client
-  metadata must be rejected, not silently downgraded into a public client and not upgraded into a
-  confidential one. The protected profile returns a confidential client registration with the secret
-  exactly once and rejects public-client metadata on the protected profile. It must write the
-  service-client row consumed by Client Credentials token exchange; standard conformance is at the
-  HTTP surface, not in a separate DCR-only collection. Depends on 1.
+  `token_endpoint_auth_method="client_secret_basic"`; it requires alias-aware owner recognition
+  equivalent to `PodGrantsFacade.isPodOwner(podDbo, identity.allUris)` and the installer feature
+  scope. It must not require literal `sub == pod.owner`, because the access token may carry the
+  canonical WebID while ownership was recognized through an alias. The mirror guard is just as
+  important: an unauthenticated `/register` request that asks for `client_credentials`,
+  `client_secret_basic`, or any other confidential-client metadata must be rejected, not silently
+  downgraded into a public client and not upgraded into a confidential one. The protected profile
+  returns a confidential client registration with the secret exactly once and rejects public-client
+  metadata on the protected profile. It must write the service-client row consumed by Client
+  Credentials token exchange; standard conformance is at the HTTP surface, not in a separate
+  DCR-only collection. Depends on 1.
 - [ ] 6 — Preserve server-assigned identifiers as an invariant. The protected registration body must
   not accept `client_id`, `clientId`, `contextRoot`, or a caller-named app root. Every private sandbox
   path is derived from the server-assigned service-client ID. This is the main security reason for
@@ -70,11 +74,15 @@ migrated or deliberately broken.
   client and exact grant set, or when the caller independently holds covering context authority. The
   UI may offer "create a private `apps/<serverAssignedClientId>` sandbox and grant manage" as a
   convenience, but a permanent reader with only `#read` on existing contexts is equally valid.
-  Depends on 5 and 6.
-- [ ] 8 — Add list, revoke and rotate surfaces for owner-installed service clients. Revoking a
-  service client removes the registration and stops future Client Credentials tokens without
-  deleting the data context. Secret rotation follows the same once-returned-secret rule as
-  registration and must not require deleting the context. Depends on 5 and 7.
+  Existing service-client persistence rejects empty scope sets and deletes rows emptied by context
+  revocation, so this item must add tests and storage changes for zero-grant registrations that
+  remain listable and rotatable while minting no useful resource authority. Depends on 5 and 6.
+- [ ] 8 — Add list, grant assignment/update, revoke and rotate surfaces for owner-installed service
+  clients. Revoking a service client removes the registration and stops future Client Credentials
+  tokens without deleting the data context. Removing the last grant leaves a zero-grant service
+  client registration in place unless the owner explicitly revokes the client. Secret rotation
+  follows the same once-returned-secret rule as registration and must not require deleting the
+  context. Depends on 5 and 7.
 - [ ] 9 — Budget the registration surfaces. `/register` is unauthenticated for public DCR today and
   unbounded; the protected service-client profile also mints bcrypt-cost secrets. Add rate limits
   that preserve real MCP reconnect behaviour but prevent unbounded DCR rows and secret-minting
@@ -86,7 +94,8 @@ migrated or deliberately broken.
   the management surface or a second pod-rendered consent for explicit grant assignment, Client
   Credentials token, allowed read or write inside the selected grants, refused outside them, revoke,
   and token mint refused. If the immediate-grant path ships, a CLI-path test must cover both browser
-  hand-offs and the second transaction's completion signal explicitly.
+  hand-offs and the second transaction's completion signal explicitly. Tests also cover zero-grant
+  registration, last-grant removal, later grant assignment, and alias-aware owner recognition.
 
 ## Open decisions
 
@@ -107,6 +116,10 @@ migrated or deliberately broken.
   alone must never mean "grant this service client any context authority the owner could have
   granted manually". Generalizing beyond owner-bound consent needs a distinct context-management
   authority rule.
+- Refresh-token prerequisite — before protected DCR is exposed, either the related
+  `offline_access` hardening has landed or this milestone suppresses refresh-token issuance for
+  installer-feature-scope-only authorizations. Otherwise the installer keeps durable
+  service-client-lifecycle authority after the short-lived access token was supposed to be discarded.
 - Sandbox convenience — creating `apps/<serverAssignedClientId>#manage` is useful but no longer
   mandatory. Decide whether the first UI defaults to "no grants until selected", "read existing
   contexts", or "create private app sandbox".
@@ -126,5 +139,6 @@ Before each implementation item starts, inspect existing stored rows or code pat
 and record whether migration, compatibility, or intentional PoC breakage is the chosen path.
 
 Related hardening lives in
-[`offline-access-refresh-tokens.md`](offline-access-refresh-tokens.md), because refresh-token
-issuance and hosted MCP migration can ship independently from owner-installed service clients.
+[`offline-access-refresh-tokens.md`](offline-access-refresh-tokens.md). Hosted MCP migration can
+ship independently from owner-installed service clients, but the installer rollout still needs the
+refresh-token boundary for installer-feature-scope authorizations before it is exposed.
