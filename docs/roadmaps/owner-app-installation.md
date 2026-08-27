@@ -35,9 +35,12 @@ migrated or deliberately broken.
   preselect the installer feature scope, and must not let a normal persistent grant make this
   authority silently reusable. If the first implementation treats installer authorization as
   one-shot, the consent result is consumed or revoked after the protected DCR call and the auto-grant
-  path never re-issues it without a fresh owner screen. If it is intentionally durable, the UI must
-  say so and tests must cover repeated installs from the same installer grant. `public-read` keeps
-  its existing preselect, persistence and public-context rule; none of those behaviours generalize.
+  path never re-issues it without a fresh owner screen. Protected DCR must also reject replay of the
+  already-issued installer bearer after the first successful registration, because the feature scope
+  is carried in the access token and is not re-resolved from the grant store on every call. If the
+  installer authority is intentionally durable, the UI must say so and tests must cover repeated
+  installs from the same installer grant and bearer lifetime. `public-read` keeps its existing
+  preselect, persistence and public-context rule; none of those behaviours generalize.
 - [ ] 4 — Make token lifetime visible in the service-client install UI. This milestone owns the
   service-client lifetime wording only: the grant-consent page distinguishes the
   short-lived installer access token from the durable service-client registration and once-returned
@@ -98,7 +101,8 @@ migrated or deliberately broken.
   Credentials token, allowed read or write inside the selected grants, refused outside them, revoke,
   and token mint refused. If the immediate-grant path ships, a CLI-path test must cover both browser
   hand-offs and the second transaction's completion signal explicitly. Tests also cover zero-grant
-  registration, last-grant removal, later grant assignment, and alias-aware owner recognition.
+  registration, last-grant removal, later grant assignment, alias-aware owner recognition, and replay
+  of the same installer bearer after its first successful protected DCR call.
 
 ## Open decisions
 
@@ -125,7 +129,8 @@ migrated or deliberately broken.
   installer feature scope is persisted like an ordinary static-client grant, the installer can start
   another authorization-code flow and recover the same authority through auto-grant. Decide whether
   installer authorization is one-shot by default or deliberately durable, then implement and display
-  that lifetime honestly.
+  that lifetime honestly. For the one-shot path, protect both layers: no silent re-issuance on the
+  next authorization flow, and no repeated protected-DCR calls with the already-issued bearer.
 - Sandbox convenience — creating `apps/<serverAssignedClientId>#manage` is useful but no longer
   mandatory. Decide whether the first UI defaults to "no grants until selected", "read existing
   contexts", or "create private app sandbox".
