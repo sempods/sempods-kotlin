@@ -5,6 +5,7 @@ import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.query.QueryLanguage
 import org.eclipse.rdf4j.query.parser.QueryParserUtil
 import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
@@ -29,6 +30,20 @@ class FindQueryBuilderTest {
   @Test
   fun `expansion with clean hit IRIs produces parseable SPARQL`() {
     val query = FindQueryBuilder.expansion(listOf(vf.createIRI("https://e/a"), vf.createIRI("https://e/b")))
+    QueryParserUtil.parseQuery(QueryLanguage.SPARQL, query.sparql, null)
+  }
+
+  @Test
+  fun `textMatch folds token case itself, so a hand-built request still matches`() {
+    // The FILTER compares LCASE(literal) against the bound token, so the token has to be folded for
+    // the comparison to be case-insensitive. Doing it here rather than trusting `FindRequestParser`
+    // is what keeps a directly-constructed FindRequest — the SPI's public input type, which any
+    // adapter or embedder may build — from silently matching nothing.
+    val query = FindQueryBuilder.textMatch(
+      FindRequest(tokens = listOf("Alice", "BOB"), types = emptySet(), limit = 10),
+    )
+    assertEquals("alice", query.bindings["tok0"]?.stringValue())
+    assertEquals("bob", query.bindings["tok1"]?.stringValue())
     QueryParserUtil.parseQuery(QueryLanguage.SPARQL, query.sparql, null)
   }
 

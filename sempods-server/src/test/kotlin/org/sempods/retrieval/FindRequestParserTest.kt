@@ -29,9 +29,19 @@ class FindRequestParserTest {
       typeIris = listOf("https://schema.org/Event", "  ", "https://schema.org/Person"),
       limit = 5,
     )
-    assertEquals(listOf("alice", "bob"), request.tokens)
+    assertEquals(listOf("Alice", "Bob"), request.tokens, "the caller's casing must survive parsing")
     assertEquals(2, request.types.size)
     assertEquals(5, request.limit)
+  }
+
+  @Test
+  fun `preserves token casing verbatim`() {
+    // Casing is signal for adapters that forward the query to an external engine, and it cannot be
+    // recovered once discarded — so the shared request carries it and each adapter folds its own.
+    assertEquals(
+      listOf("Alice", "IT", "iPhone"),
+      FindRequestParser.parse("Alice IT iPhone", emptyList(), null).tokens,
+    )
   }
 
   @Test
