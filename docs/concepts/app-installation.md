@@ -69,6 +69,11 @@ context authority. Creating a fresh `apps/<serverAssignedClientId>` sandbox and 
 service client. A permanent reader is therefore a first-class case rather than a write-capable app
 forced through a sandbox it does not need.
 
+That usually means two browser-visible consent moments: first the installer gets permission to
+register service clients, then the pod asks the owner for the concrete grants after the
+server-assigned service-client ID exists. The second transaction is sempods policy, not OAuth client
+registration metadata.
+
 ## Token lifetime is part of consent (SOLL)
 
 Consent must show not only what the installer can do, but how long the credential shape lasts:
