@@ -23,16 +23,16 @@ migrated or deliberately broken.
 - [ ] 2 — Build the owner-facing installer as an OAuth caller rather than a UI-only session bypass.
   The first implementation may be the existing consent page, a built-in installer, `my.sempods.org`,
   or a later CLI, but it still runs Authorization Code + PKCE against the pod, requests
-  `service-clients`, receives a short-lived pod access token, calls the protected install surface,
-  and discards the token. `my.sempods.org` remains an implementation-agnostic owner surface, not a
-  control-plane-only shortcut. Because the service client does not exist during the first authorize
-  step, the installer must also be able to send the owner through a second pod-rendered grant-consent
-  screen after protected DCR succeeds. Covered by an HTTP flow test; no service-client registration
-  route accepts a browser cookie alone.
+  the installer feature scope, receives a short-lived pod access token, calls the protected install
+  surface, and discards the token. `my.sempods.org` remains an implementation-agnostic owner surface,
+  not a control-plane-only shortcut. If the install flow assigns grants immediately, the installer
+  must also be able to send the owner through a second pod-rendered grant-consent screen after
+  protected DCR succeeds. Covered by an HTTP flow test; no service-client registration route accepts
+  a browser cookie alone.
 - [ ] 3 — Carry requested feature scopes through consent. Today `runAuthorize` renders no requested
   feature-scope set and the auto-grant branch re-issues stored feature scopes without intersecting
   the request. The new path must render privileged feature scopes only when requested, never
-  preselect `service-clients`, persist `requested ∩ granted`, and auto-grant only the same
+  preselect the installer feature scope, persist `requested ∩ granted`, and auto-grant only the same
   intersection. `public-read` keeps its existing preselect and public-context rule; neither
   generalizes.
 - [ ] 4 — Make token lifetime visible in the service-client install UI. This milestone owns the
@@ -50,23 +50,27 @@ migrated or deliberately broken.
   confidential one. The protected profile returns a confidential client registration with the secret
   exactly once and rejects public-client metadata on the protected profile. It must write the
   service-client row consumed by Client Credentials token exchange; standard conformance is at the
-  HTTP surface, not in a separate DCR-only collection.
+  HTTP surface, not in a separate DCR-only collection. Depends on 1.
 - [ ] 6 — Preserve server-assigned identifiers as an invariant. The protected registration body must
   not accept `client_id`, `clientId`, `contextRoot`, or a caller-named app root. Every private sandbox
   path is derived from the server-assigned service-client ID. This is the main security reason for
   using DCR here: the caller loses the ability to name another app or existing context into the
   installation.
 - [ ] 7 — Keep sempods grants out of OAuth client registration state. Protected DCR creates the
-  service client with no data authority by default. A separate owner-authorized grant operation uses
-  a second pod-rendered consent screen after registration, because the service-client identity and
-  server-assigned ID are not known during the installer-token authorize step. Reuse the existing
-  `ConsentTransactionStore` shape where possible: one screen, once, bound to the browser session and
-  exact grant set. `service-clients` permits service-client lifecycle; it does not itself confer
-  authority over every context owned by the pod owner. A grant write is valid only when bound to an
-  owner consent transaction for this service client and exact grant set, or when the caller
-  independently holds covering context authority. The UI may offer "create a private
-  `apps/<serverAssignedClientId>` sandbox and grant manage" as a convenience, but a permanent reader
-  with only `#read` on existing contexts is equally valid. Depends on 5 and 6.
+  service client with no data authority by default. Grants can be assigned later through the
+  management surfaces from item 8, or immediately through a separate owner-authorized grant
+  operation. The immediate path uses a second pod-rendered consent screen after registration, because
+  the service-client identity and server-assigned ID are not known during the installer-token
+  authorize step. Reuse the existing `ConsentTransactionStore` shape where possible: one screen,
+  once, bound to the browser session and exact grant set. Define the completion grammar for this
+  second sempods transaction: where the browser returns, how a CLI installer learns success or
+  refusal, and whether it may poll the list surface from item 8. The installer feature scope permits
+  service-client lifecycle; it does not itself confer authority over every context owned by the pod
+  owner. A grant write is valid only when bound to an owner consent transaction for this service
+  client and exact grant set, or when the caller independently holds covering context authority. The
+  UI may offer "create a private `apps/<serverAssignedClientId>` sandbox and grant manage" as a
+  convenience, but a permanent reader with only `#read` on existing contexts is equally valid.
+  Depends on 5 and 6.
 - [ ] 8 — Add list, revoke and rotate surfaces for owner-installed service clients. Revoking a
   service client removes the registration and stops future Client Credentials tokens without
   deleting the data context. Secret rotation follows the same once-returned-secret rule as
@@ -78,9 +82,11 @@ migrated or deliberately broken.
 - [ ] 10 — Update clients and examples. `SempodsPodClient` can drive the protected DCR and grant
   operations for owner-facing UI tests and future CLI installers.
 - [ ] 11 — End-to-end acceptance test: owner-facing installer flow, first consent for an owner token
-  with `service-clients`, protected DCR, second pod-rendered consent for explicit grant assignment,
-  Client Credentials token, allowed read or write inside the selected grants, refused outside them,
-  revoke, and token mint refused. A CLI-path test must cover the two browser hand-offs explicitly.
+  with the installer feature scope, protected DCR, either no initial grants plus later assignment via
+  the management surface or a second pod-rendered consent for explicit grant assignment, Client
+  Credentials token, allowed read or write inside the selected grants, refused outside them, revoke,
+  and token mint refused. If the immediate-grant path ships, a CLI-path test must cover both browser
+  hand-offs and the second transaction's completion signal explicitly.
 
 ## Open decisions
 
@@ -90,10 +96,13 @@ migrated or deliberately broken.
   unlike `public-read`.
 - Installer identity — whether the first implementation is the existing consent page, a built-in
   first-party installer, `my.sempods.org`, or a CLI path. Either way, the installer must obtain a pod
-  access token and support the second browser stop for grant consent; no cookie-only install bypass.
+  access token; no cookie-only install bypass. If immediate grant assignment ships, the installer
+  also needs a second browser hand-off and a completion signal for the grant-consent transaction.
 - Grant API shape — protected DCR plus a separate grant operation is the cleaner standard boundary.
-  A single UI may still call both in one submit. If a combined HTTP endpoint is chosen instead, it
-  must be documented as a sempods extension rather than as plain RFC 7591 DCR.
+  Registration without grants can finish after one browser stop, with grants assigned later through
+  the management surface. Immediate grants need either the second pod-rendered consent transaction or
+  independent covering context authority; if a combined HTTP endpoint is chosen instead, it must be
+  documented as a sempods extension rather than as plain RFC 7591 DCR.
 - Grant authority model — the initial implementation may stay owner-only, but `service-clients`
   alone must never mean "grant this service client any context authority the owner could have
   granted manually". Generalizing beyond owner-bound consent needs a distinct context-management
