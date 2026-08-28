@@ -95,8 +95,9 @@ class PodContextWriteAuthorizer @Inject constructor(
   /**
    * Resolve a read-side `?context=` downscope filter into a set of context URIs, intersected
    * with the pod's known contexts. Empty input → `null` (caller-side filtering by readable
-   * contexts takes over). Unknown / unreadable contexts are silently excluded per
-   * `SPS-CRUD-014` (sempods-spec) — no topology leak.
+   * contexts takes over). The parameter itself is `SPS-CRUD-014`; that unknown and unreadable
+   * contexts are excluded **silently** is `SPS-CRUD-015`, and the reason is `SPS-CORE-017` — an
+   * error here would answer "this context exists" to anyone who guessed one.
    *
    * NOTE: This does NOT intersect with the caller's readable contexts; callers must do that
    * step themselves so they can keep their existing visibility filter (anonymous public

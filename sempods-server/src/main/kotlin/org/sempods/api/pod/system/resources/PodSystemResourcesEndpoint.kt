@@ -550,9 +550,10 @@ class PodSystemResourcesEndpoint @Inject constructor(
    * with the caller's readable contexts. Empty list → no `?context=` parameter → null
    * (caller-side filtering takes over).
    *
-   * Repeated `?context=A&context=B` is allowed (intersection downscope, spec §"Cross-context
-   * reads"). Unreadable / unknown contexts are silently excluded; an empty result set surfaces
-   * as `404` upstream.
+   * Repeated `?context=A&context=B` is allowed — the intersection downscope of `SPS-CRUD-014`.
+   * Unreadable and unknown contexts are excluded silently (`SPS-CRUD-015`), and an empty result
+   * set surfaces as `404` upstream, which `SPS-CRUD-017` requires to be indistinguishable from a
+   * resource that simply has nothing there.
    */
   private fun resolveReadContexts(
     pod: String,

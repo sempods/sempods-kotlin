@@ -23,7 +23,7 @@ import java.net.URI
  * @property contextFilter the optional caller-requested **downscope** within [visibleContexts]
  *   (`null` = no downscope → search pod-wide inside the ceiling). It is always already intersected
  *   with the readable set by the endpoint (`requested ∩ readable`, unknown/unreadable contexts
- *   silently dropped — see sempods-spec `spec/core/lod-crud.md` §4 §"Reads"), so it can be empty ("everything the
+ *   silently dropped — `SPS-CRUD-015`), so it can be empty ("everything the
  *   caller asked for is unreadable/unknown" → empty result) and can never exceed the ceiling.
  *   Kept separate from [visibleContexts] because a search/vector adapter needs the explicit filter
  *   to set as a concrete `context IN (…)` index clause, and conflating the two would erase the
