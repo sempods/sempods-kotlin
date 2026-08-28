@@ -228,7 +228,7 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 
 | | |
 |---|---|
-| [sempods-spec](https://github.com/sempods/sempods-spec) | the contract as a specification, separate from this implementation — start there if you are implementing a pod rather than running one |
+| [sempods-spec](https://github.com/sempods/sempods-spec) | where the contract is becoming a specification. Read it for the model, the module split and the requirement scheme — but the chapters are still being extracted, so if you are implementing a pod today, the rows below are the contract |
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
 | [`docs/auth/`](docs/auth/) | contexts, grants, scopes, the OAuth profile, identity |
 | [`docs/lod-crud/`](docs/lod-crud/) | the data plane: LOD layer and system layer |
