@@ -12,39 +12,35 @@ the numbers, the limits and the machinery this one chose. The token endpoint's r
 budget, the timeouts on the OIDC legs, service-client provisioning over the admin
 surface and its audit trail, and the page every OAuth `error_uri` points at.
 
-## Mental model
+## The model is not here
 
-Four primitives:
+Identity, context, grant and token are [`spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md),
+[`spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) and
+[`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). Two points are worth carrying across, because
+this folder's documents lean on them and an old reading of either produces wrong code:
 
-- **Identity** — a person or agent identified by a stable WebID URI
-  (or a synthetic anonymous URN for public reads).
-- **Context** — a named graph in a pod. Canonical IRI. Single permission
-  boundary; everything is per-context.
-- **Scope** — `<context-iri>#read|write|manage`, plus the `public-read`
-  pseudo-scope.
-- **Token** — a pod-issued JWT carrying three orthogonal dimensions:
-  `client_id` (which app), `sub` (which user), `scope` (what is allowed).
-  Service tokens (2-leg, no user) collapse `sub` to the `client_id` and
-  are marked `client_type = "service"` (see `service-clients.md`).
+- A **grant** is durable server-side policy and never travels in a token
+  ([`SPS-GRANT-001`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-001)). An access token's `scope`
+  claim carries feature scopes only ([`SPS-AUTH-029`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-029));
+  per-context grants are resolved per request from the store, keyed by the verified
+  `(client, subject)` pair ([`SPS-GRANT-002`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-002)).
+- Parts of this code still say "scope" where "grant" is meant, because both travel through the
+  OAuth `scope` parameter at consent time. `PodScopeValidator` is what tells the three shapes
+  apart — OIDC scope, feature scope, and the `<context-iri>#<permission>` grant request — and
+  anything that needs to know which it is asks the validator rather than matching on the string.
 
-Authorization is set intersection: an app gets the subset of the user's
-scopes that the user explicitly delegates at consent time. The pod
-enforces the result on every request — apps never decide their own access.
+## What this implementation adds
 
-## Design principles
+The rules above are the specification's. What follows is this deployment's own, and would still
+be a conforming pod if it were done differently:
 
-- **Server-enforced, deterministic.** No custom policy languages; access
-  is decidable from `(context, scope, sub, client_id)` alone.
-- **Standards-first.** OAuth 2.1, OIDC Core 1.0, RFC 7591 (DCR), RFC 9728
-  (PRM), RFC 6750 (Bearer), PKCE S256. Where sempods deviates, the
-  deviation is documented (see sempods-spec `spec/core/grants.md` on `manage`, and
-  `oauth.md` on `dyn:` clients and `public-read`).
-- **Identities are external.** WebID URIs are the canonical handle. Pods
-  don't manage person identity — they store WebID URIs in grants.
-- **Pod-owned tokens.** Each pod issues and signs its own access tokens
-  (RS256, per-pod RSA keys). No shared OAuth server.
-- **Copyable data, stable identities.** Scopes reference full IRIs so
-  that resources copied between pods retain unambiguous provenance.
+- **Pod-owned signing keys.** Each pod issues and signs its own access tokens with its own RSA
+  key pair, RS256. There is no shared authorization server and no shared key material, so a pod
+  is verifiable from its own JWKS alone and stays that way if it is moved.
+- **A second issuer in the same repository.** `sempods-auth` is an OIDC identity provider that
+  issues *identity* tokens; a pod issues *access* tokens. They are separate issuers with separate
+  keys that happen to ship together — [`identity.md`](identity.md) is the one that explains why
+  a WebID needs an issuer at all.
 
 ## Standards used
 

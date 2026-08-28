@@ -904,36 +904,20 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // Which is also why this comment describes the shapes rather than spelling them: written
       // out, they would be citations in a scanned file, and the guard would report itself.
       // Deliberate — that is the check working, and the examples live in the commit message.
-      // Matches anything that looks like somebody *meant* an identifier, not anything that is one.
+      // Matches anything that looks like somebody *meant* an identifier, not anything that is
+      // one: the prefix followed by any run of identifier characters, separators included. Whether
+      // what spells out is a live requirement is the index's question, not the pattern's — a
+      // pattern that describes the valid form accepts the valid part of a malformed token, and a
+      // typo that resolves to its own prefix is exactly what this exists to catch. No ordinary
+      // word here starts with that prefix, so the wide net costs nothing.
       //
-      // Three narrower versions of this were wrong, each in the same way and each after being
-      // "tightened": a pattern that describes the valid form necessarily accepts the part of a
-      // malformed token that is valid, and misses malformed tokens that break earlier than it
-      // starts looking. A trailing character, a trailing separator with text behind it, and a
-      // missing first separator each slipped through a different one of them.
+      // It must not swallow the notation for the form itself — the prefix, a separator and a
+      // bracketed placeholder, which is how the scheme is written in prose and in `context7.json`.
+      // That is a description of the shape rather than something written in it, so a token has to
+      // reach an alphanumeric to count.
       //
-      // So this stops describing the target and describes the *neighbourhood*: the prefix followed
-      // by any run of identifier characters. Whether the token that spells out is a live
-      // requirement is then the index's question, not the pattern's — which is the only division
-      // of labour here that does not keep needing another exception. There is no ordinary word in
-      // this repository that starts with that prefix, which is what makes the wide net cheap.
-      //
-      // It takes trailing separators with it, deliberately. Ending the token on an alphanumeric
-      // was one more way of describing the valid form: it let the match give the final character
-      // back, so a citation with a dangling separator collapsed onto the live identifier in front
-      // of it and passed. Nothing here writes a real citation with a separator behind it, so
-      // consuming them costs nothing and closes the last shape of that class.
-      //
-      // The one thing it must *not* swallow is the notation for the form itself — the prefix, a
-      // separator, and a bracketed placeholder, which is how the scheme is written in prose and in
-      // `context7.json`. That is not a citation attempt and never resolves to one, so the token
-      // has to reach an alphanumeric to count. The distinction is "somebody wrote something in
-      // this shape" against "somebody described the shape", and it is the only exception here that
-      // is about intent rather than about form.
-      //
-      // The prose above never writes the prefix followed by a word for the same reason: the
-      // pattern is wide enough that describing it is citing it, and the check reported its own
-      // comment twice before this was written down.
+      // The prose here never writes the prefix followed by a word, for the same reason: this
+      // pattern is wide enough that describing it would be citing it.
       val citation = Regex("\\bSPS[-_]*[A-Za-z0-9][A-Za-z0-9_-]*")
 
       // An abbreviated range — a citation followed by a bare number stood in for the second
