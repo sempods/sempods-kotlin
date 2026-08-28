@@ -464,8 +464,11 @@ Specified, not described here: one dispatch path shared with the HTTP query surf
 rejected by parsing rather than by keyword search
 ([`SPS-SPARQL-003`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-003),
 [`SPS-SPARQL-005`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-005)), any absolute resource IRI accepted
-([`SPS-MCP-022`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-022)), and per-context write scope checked at write time
-([`SPS-GRANT-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-025)).
+([`SPS-MCP-022`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-022)), and the caller's per-context write grant checked
+server-side at write time ([`SPS-GRANT-023`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-023)), with an
+insufficient one answering `403` ([`SPS-GRANT-027`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-027)). That
+the write names exactly one context in the first place is
+[`SPS-GRANT-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-025).
 
 Two things this implementation chose and the specification leaves open. The query timeout is
 10 seconds. And the closure is enforced in two places, because the tool catalogue has two sources:

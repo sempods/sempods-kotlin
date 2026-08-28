@@ -337,7 +337,8 @@ class PodSystemResourcesEndpoint @Inject constructor(
   // ETag base flow through the shared [PodResourceReadService]. Context rules, conditional
   // writes, the canonical JSON-LD representation, and the ETag validator are therefore
   // byte-identical to the canonical path, so a pod-owned IRI has one identity across both
-  // routes. See `SPS-CRUD-040` (sempods-spec).
+  // routes — which is `SPS-CRUD-002`, and `SPS-CRUD-001` for why the identity is the LOD IRI and
+  // this is only an operations address. The verb set this route owes is `SPS-CRUD-040`.
 
   @GET
   @Path("{resourceB64}")

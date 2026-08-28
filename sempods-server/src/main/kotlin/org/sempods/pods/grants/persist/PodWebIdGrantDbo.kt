@@ -5,9 +5,9 @@ import java.time.Instant
 
 /**
  * An **owner-level, app-independent** grant: a WebID may exercise [scope] on this pod,
- * regardless of which app it authenticates through. This is the "user-level scopes" layer
- * from `SPS-GRANT-013` (sempods-spec) — what a *person* is allowed
- * to do on a pod, keyed `(podId, webId, scope)`.
+ * regardless of which app it authenticates through. This is the row `SPS-GRANT-012` requires —
+ * a person's grants, explicit and stored per pod and per identity, keyed `(podId, webId, scope)`.
+ * It is the left-hand side of the intersection in `SPS-GRANT-013`, not the intersection itself.
  *
  * Distinct from [PodGrantDbo] (`grants`), which is app-*delegated* — keyed
  * additionally by `appId` and written by the OAuth consent flow to record what a user
