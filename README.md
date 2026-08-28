@@ -57,10 +57,10 @@ architecture — its own tenancy, its own authorisation, its own search engine �
 documentation rather than against this code. That is the first evidence that the contract is
 implementable somewhere else, which is the claim this project actually needs to support.
 
-**What does not exist yet:** the specification *text* — [sempods-spec](https://github.com/sempods/sempods-spec)
-has existed since 2026-08-28 and carries the model, the requirement scheme and the chapter map, but
-the chapters themselves are still being extracted from [`docs/`](docs/), which is where the contract
-lives until they are. Also missing: a conformance suite, and a one-command distribution.
+**What does not exist yet:** the specification *text*. [sempods-spec](https://github.com/sempods/sempods-spec)
+carries the model, the requirement scheme and the chapter map, but the chapters themselves are
+still being extracted from [`docs/`](docs/), which is where the contract lives until they are. Also
+missing: a conformance suite, and a one-command distribution.
 
 **Which of the two is right, while both exist.** The specification is *descriptive* until it tags
 `0.1`: it is being extracted from this implementation, so where the text and this code disagree
