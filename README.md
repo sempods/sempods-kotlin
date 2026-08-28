@@ -236,7 +236,6 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [**sempods-spec**](https://github.com/sempods/sempods-spec) | **the contract** — contexts, grants, auth, CRUD, SPARQL, find, and the three modules. Start there to implement a pod |
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
 | [`docs/auth/`](docs/auth/) | what this implementation does around the OAuth contract: rate limits, timeouts, provisioning, the error page |
-
 | [`docs/mcp/`](docs/mcp/) | this implementation's MCP surfaces: the tool reference, the challenge store, and how real clients behave |
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |

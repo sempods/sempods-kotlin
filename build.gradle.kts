@@ -904,7 +904,12 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // Which is also why this comment describes the shapes rather than spelling them: written
       // out, they would be citations in a scanned file, and the guard would report itself.
       // Deliberate — that is the check working, and the examples live in the commit message.
-      val citation = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+")
+      // Consumes the whole contiguous token, separators included. Two narrower versions of this
+      // were wrong in the same way: a pattern that stops after the third segment matches a *prefix*
+      // of a longer malformed token and reports it as the live identifier it begins with — first
+      // with a trailing character, then with a trailing separator and more text. The token ends
+      // where SPS-like characters stop, and what it spells is then either known or reported.
+      val citation = Regex("SPS(?:[-_][A-Za-z0-9]+)+")
 
       // An abbreviated range — a citation followed by a bare number stood in for the second
       // endpoint — hides that endpoint from every check above: only the first token carries the

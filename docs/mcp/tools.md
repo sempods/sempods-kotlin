@@ -467,9 +467,15 @@ rejected by parsing rather than by keyword search
 ([`SPS-MCP-022`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-022)), and per-context write scope checked at write time
 ([`SPS-GRANT-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-025)).
 
-Two numbers this implementation chose and the specification leaves open: the query timeout is
-10 seconds, and the closed-schema check runs in `buildTools`, which is also what emits the
-advertised schema — one source, so the two cannot drift.
+Two things this implementation chose and the specification leaves open. The query timeout is
+10 seconds. And the closure is enforced in two places, because the tool catalogue has two sources:
+`ToolCatalog.validate()` refuses an undeclared argument for every catalogue tool, and
+`McpEndpoint.unknownArgumentsRefusal()` does the same for the synthetic `authorize`, which is this
+surface's own and not in the catalogue.
+
+What keeps the advertised schema and the enforced one from drifting is that both read the same
+`ToolCatalog` specs — `buildTools` only assembles the list it advertises from them. Hardening the
+check means the two validators above, not that assembly.
 
 ## Instructions block
 
