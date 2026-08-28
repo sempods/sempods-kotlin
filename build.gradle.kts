@@ -918,10 +918,23 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // of labour here that does not keep needing another exception. There is no ordinary word in
       // this repository that starts with that prefix, which is what makes the wide net cheap.
       //
+      // It takes trailing separators with it, deliberately. Ending the token on an alphanumeric
+      // was one more way of describing the valid form: it let the match give the final character
+      // back, so a citation with a dangling separator collapsed onto the live identifier in front
+      // of it and passed. Nothing here writes a real citation with a separator behind it, so
+      // consuming them costs nothing and closes the last shape of that class.
+      //
+      // The one thing it must *not* swallow is the notation for the form itself — the prefix, a
+      // separator, and a bracketed placeholder, which is how the scheme is written in prose and in
+      // `context7.json`. That is not a citation attempt and never resolves to one, so the token
+      // has to reach an alphanumeric to count. The distinction is "somebody wrote something in
+      // this shape" against "somebody described the shape", and it is the only exception here that
+      // is about intent rather than about form.
+      //
       // The prose above never writes the prefix followed by a word for the same reason: the
       // pattern is wide enough that describing it is citing it, and the check reported its own
       // comment twice before this was written down.
-      val citation = Regex("\\bSPS[A-Za-z0-9_-]*[A-Za-z0-9]")
+      val citation = Regex("\\bSPS[-_]*[A-Za-z0-9][A-Za-z0-9_-]*")
 
       // An abbreviated range — a citation followed by a bare number stood in for the second
       // endpoint — hides that endpoint from every check above: only the first token carries the
