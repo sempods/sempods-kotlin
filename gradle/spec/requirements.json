@@ -1,1881 +1,2200 @@
 {
   "specVersion": "0.1-dev",
+  "versions": {
+    "core": "0.1-dev",
+    "oidc": "0.1-dev",
+    "media": "0.1-dev",
+    "mcp": "0.1-dev"
+  },
   "repository": "https://github.com/sempods/sempods-spec",
   "requirements": [
     {
       "id": "SPS-AUTH-001",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "The only user-facing flow an implementation MUST support is OAuth 2.1 Authorization Code.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-002",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST support the Client Credentials grant for service clients (§4), and MUST NOT offer it to any other class of client.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-003",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A `did:web:` client identifier MUST be parsed locally and structurally.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-004",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A `did:web:` client's `redirect_uri` MUST match the identifier's host **and** port.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-005",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A path-scoped identifier MUST be matched **per path segment**.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-006",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An identifier naming a loopback origin MUST be refused outside development, and the refusal MUST be evaluated **before** the host-and-port match that would otherwise accept it.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-007",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST NOT require a `did:web:` client to register.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-008",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST offer RFC 7591 dynamic client registration at `POST {pod}/_system/auth/register`, and MUST issue identifiers prefixed `dyn:`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-009",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A `dyn:` client registers with `token_endpoint_auth_method=none`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-010",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST render the consent screen for every **interactive** `dyn:` authorization request, regardless of existing grants and regardless of any `prompt` value other than `none`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-011",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST NOT issue a service token to a `dyn:` client.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-012",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A service client MUST be registered out of band, through host-level operator authority.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-013",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A service client's grants MUST be fixed at registration and MUST consist only of per-context grants.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-014",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST refuse a service client's `#manage` root that sits at or above the pod's context namespace.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-015",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A service client's secret MUST be stored only as a slow one-way hash, and MUST be returned exactly once, at the moment it is minted.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-016",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST NOT let response timing reveal whether a client identifier is registered.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-017",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A service token's `sub` MUST be the client identifier, and the token MUST be marked as belonging to the service class.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-018",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A redirect URI MUST be absolute, MUST NOT carry a fragment, MUST use `https` on any host, and MAY use `http` only on a loopback address.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-019",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST apply `SPS-AUTH-018` at registration as well as at authorization, so that an address a login could never honour is refused when it is first offered rather than at first use.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-020",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A loopback redirect URI MUST be matched with its port ignored (RFC 8252 §7.3).",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-021",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST serve `GET {pod}/_system/auth/authorize` accepting `response_type=code`, `client_id`, `redirect_uri`, `state`, `code_challenge`, `code_challenge_method`, and OPTIONAL `scope` and `prompt`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-022",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where a `code_challenge` is present, `S256` MUST be the only accepted method, and the method name MUST be compared case-sensitively (RFC 7636 §4.3).",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-023",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "PKCE is RECOMMENDED but NOT REQUIRED for a `did:web:` client.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-024",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "The standard delegation flow MUST NOT require a `scope` parameter naming contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-025",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "On success the implementation MUST redirect to the request's **validated** `redirect_uri` carrying `code` and `state`; on failure, carrying `error` and `error_description`, and OPTIONALLY `error_uri`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-026",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Submitting a consent decision MUST require two independent things: a session established on the pod's own origin, and a token minted for that one consent screen and accepted only once.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-027",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST serve `POST {pod}/_system/auth/token` accepting `application/x-www-form-urlencoded`, supporting `authorization_code`, `refresh_token` and `client_credentials`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-028",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An access token MUST be a signed JWT whose issuer is the pod's base URL, and MUST carry the authorizing subject, the client identifier, and its scope set.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-029",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "The `scope` claim MUST carry feature scopes only.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-030",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST publish its signing keys at `GET {pod}/_system/auth/jwks.json`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-031",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A `scope` parameter on a refresh exchange MAY narrow the token's feature scopes and MUST NOT widen them.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-032",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST reject a `scope` parameter on a `client_credentials` exchange with `invalid_scope`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-033",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Refresh tokens MUST be rotated.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-034",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A refresh token MUST NOT be stored in a form from which the presented value can be recovered.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-035",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A token issued for `public-read` MUST NOT carry a refresh token.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-036",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A service token MUST NOT carry a refresh token.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-037",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation SHOULD rate-limit the token endpoint, and where it does, it MUST key the first tier on the caller's network address rather than on a client identifier.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-038",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where a request is refused for rate, the response MUST be `429` with `Retry-After` and the OAuth error `slow_down`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-039",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST interpret `prompt` per OIDC Core 1.0 §3.1.2.1: space-separated and multi-valued.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-040",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "`prompt=none` MUST succeed only where all three hold: the pod itself remembers the person, the client is not a `dyn:` client, and grants for that client survive.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-041",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "`prompt=login` MUST NOT be satisfied by an existing session.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-042",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "`scope=public-read` MUST be accepted at the authorization endpoint, with or without an established identity.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-043",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where an identity assertion is present but invalid or expired, the implementation MUST fail with `access_denied`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-044",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where the pod has no public context, the implementation MUST answer `consent_required` rather than issue a token that can read nothing.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-045",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST serve RFC 9728 Protected Resource Metadata at `GET {pod}/.well-known/oauth-protected-resource`, without authentication, carrying at least `resource`, `authorization_servers` and `bearer_methods_supported`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-046",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Protected Resource Metadata MUST NOT enumerate the pod's public context IRIs.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-047",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A consumer MUST tolerate members of the metadata document it does not recognise.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-048",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where an implementation advertises RFC 8414 Authorization Server Metadata, its `grant_types_supported` MUST list `client_credentials` only if the implementation registers service clients.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-049",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A pod MUST know a person only as a WebID URI.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-050",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where a person is introduced by an email address, the implementation MUST derive a deterministic identity URI from it and store that.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-051",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Pod ownership MUST be decided by comparing the request's subject against the pod's recorded owner, not by a grant and not by a scope.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-052",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where a person is known by several equivalent identity URIs, an implementation MUST apply the equivalence when a grant is **written**, and MUST NOT apply it when one is read.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-053",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An identity assertion MUST NOT be usable as a pod credential.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-054",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A browser session established at a pod MUST be scoped to that pod.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-055",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "The response parameters MUST be **added to** the redirect URI's query component per RFC 6749 §4.1.2, preserving any component it already carries.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-056",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST **also** serve the metadata at the host-rooted form RFC 9728 §3.1 constructs, by inserting `/.well-known/oauth-protected-resource` between the authority and the pod's path: `{origin}/.well-known/oauth-protected-resource/{pod}`.",
       "withdrawn": false
     },
     {
       "id": "SPS-AUTH-057",
+      "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "Where an implementation advertises RFC 8414 Authorization Server Metadata, it MUST serve it at the host-rooted form for its issuer as well as at the append form, and both MUST return the same document.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-001",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHALL`, `SHALL NOT`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY` and `OPTIONAL` in this specification are to be interpreted as described in RFC 2119 and RFC 8174, and only when they appear in all capitals.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-002",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "Every normative statement in this specification carries a requirement identifier of the form `SPS-<AREA>-<NNN>`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-003",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "Requirement identifiers are permanent.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-004",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A **conformant sempods implementation** MUST satisfy every `MUST` and `REQUIRED` statement in the core chapters: this chapter, `contexts`, `grants`, `auth`, `lod-crud`, `sparql` and `find`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-005",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A **module** is an optional chapter set with its own area prefix and its own version.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-006",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "An implementation MUST NOT advertise a module it satisfies only in part.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-007",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A pod is addressed under a base URL of the form `{origin}/{pod}`, where `{pod}` is the pod's identifier within the deployment.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-008",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "The path segment `_system` immediately below a pod base URL is reserved for the control plane.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-009",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A pod's resource IRIs are minted from the address the server is publicly known by, not from the address a particular request arrived at.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-010",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "An implementation MUST serve `GET {pod}/_system/conformance`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-011",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "The response MUST be `application/json` and MUST carry a `specVersion` string naming the core version implemented, and a `modules` array.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-012",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A module absent from `modules` MUST be treated by a client as not provided.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-013",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "A client MUST tolerate a `modules` entry whose `id` it does not recognise, and MUST NOT fail on unknown members of the response object.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-014",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "An implementation MUST answer with the following status codes:",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-015",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "**On an operation that requires authentication**, a missing bearer token and a rejected bearer token MUST produce the same response: `401` with `invalid_token`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-016",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "Where an operation is one an unauthenticated caller may perform, the absence of a bearer token is not an error.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-017",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "On a **read**, an implementation MUST NOT disclose the existence of a context the caller has no read grant for.",
       "withdrawn": false
     },
     {
       "id": "SPS-CORE-018",
+      "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "On a **write**, the two failures are currently distinguished: a context that is not registered produces `404`, and a registered context the caller may not write produces `403`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-001",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A resource's **identity** is its LOD IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-002",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "For a resource inside the pod namespace, the two addresses MUST behave identically: the same body, the same entity tag, the same context rules, the same conditional-write semantics.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-003",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "For an IRI outside the pod namespace there is no LOD address.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-004",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A resource path equal to `_system` or beginning `_system/` MUST NOT be addressable through the LOD layer.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-005",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An IRI embedded in a system-layer path segment MUST be encoded as base64url without padding (RFC 4648 §5).",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-006",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST NOT inspect an embedded IRI to decide how to decode it.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-007",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Every write MUST carry exactly one `?context=`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-008",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The repetition rule MUST be applied to the parameter's *occurrence count*, not to its non-blank values.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-009",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST accept a canonical context IRI, and MAY additionally accept a pod-relative context path which it resolves to the canonical IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-010",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A `?context=` value naming a context that is not registered MUST be `404`; a registered context the caller may not write MUST be `403` ([`SPS-CORE-018`](index.md#SPS-CORE-018)).",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-011",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The resource IRI and the target context are **independent dimensions**.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-012",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Any `@graph` or context member inside a request body MUST be treated as advisory.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-013",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "There is no atomic multi-context write, at any layer.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-014",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "On a read, `?context=` is an OPTIONAL downscope filter.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-015",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A requested context the caller cannot read MUST be excluded silently ([`SPS-CORE-017`](index.md#SPS-CORE-017)).",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-016",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A comma-separated list MUST NOT be accepted.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-017",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Where the resulting set contains no statement for the resource, the response MUST be `404` — whether that is because the resource has none, because the requested contexts were unreadable, or because they do not exist.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-018",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST serve `GET`, `HEAD`, `OPTIONS`, `PUT`, `PATCH` and `DELETE` at `{pod}/{resourcePath}`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-019",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`POST` MUST NOT be offered on a resource IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-020",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`GET` MUST return every statement whose subject is the resource IRI and which is visible in the selected contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-021",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The default JSON-LD representation MUST be the **merged** resource object, with named-graph provenance collapsed.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-022",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`include_contexts=true` MUST switch the representation to a JSON-LD named-graph array grouped by RDF context.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-023",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The canonical JSON-LD shape is what `GET` returns with `Accept: application/ld+json` and without `include_contexts=true`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-024",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST NOT emit a top-level `@context`, and MUST NOT emit compact terms or CURIE-like keys.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-025",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST NOT expand CURIEs or resolve prefixes on any request body.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-026",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`application/ld+json` MUST be supported and MUST be the default.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-027",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An `Accept` header that cannot be satisfied MUST be `406`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-028",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`application/n-quads` is graph-aware by format and MUST NOT be altered by `include_contexts`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-029",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Every `GET` and `HEAD` response MUST carry a strong `ETag`, and `If-None-Match` MUST be honoured per RFC 7232.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-030",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A successful write MUST NOT claim an entity tag for the representation it just stored on the LOD resource path.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-031",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`PUT` MUST replace all outgoing statements of the resource **in the target context**.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-032",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A request body MUST contain statements for the target resource only.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-033",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Creation MUST answer `201` with a `Location` header.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-034",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`If-Match` MUST be honoured, and a mismatch MUST be `412`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-035",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`PATCH` MUST accept `application/merge-patch+json` and MUST apply RFC 7396 strictly to the canonical JSON-LD representation in the target context.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-036",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The accepted top-level members MUST be exactly: `@id` — OPTIONAL, and where present it MUST equal the request's resource IRI or the request MUST be `400`; `@type`; and absolute IRI predicate keys.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-037",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "Every other JSON-LD keyword — including `@context`, `@graph`, `@reverse`, `@nest` and `@included` — MUST be `400`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-038",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "RFC 7396 array semantics MUST be preserved exactly: a multivalued property is replaced wholesale.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-039",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`DELETE` MUST remove the resource's outgoing statements in the target context and MUST leave incoming statements untouched.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-040",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The resource-node route MUST offer `GET`, `HEAD`, `OPTIONS`, `PUT`, `PATCH` and `DELETE` with the semantics of §4, for an IRI at any scheme.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-041",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The slot route MUST offer `GET`, `PUT`, `POST` and `DELETE`:",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-042",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The single-edge route MUST offer `DELETE`, removing exactly `(subject, predicate, target)` and leaving the slot's other values in place.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-043",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A `Location` header on a system-layer create MUST point at the system-layer route, because the canonical path does not exist for an external IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-044",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "The three idempotent slot mutations MUST answer with a body naming the outcome:",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-045",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`POST` on a slot is idempotent in practice, because adding a statement that already exists is a no-op under RDF set semantics.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-046",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`GET` on a slot returns an unordered set.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-047",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`POST` MUST answer `201` with `Location` when a new edge was inserted and `200` without `Location` when the value was already present.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-048",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A literal MUST NOT be addressable as a path segment.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-049",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`POST` MUST accept a literal, carrying `@value` and an optional `@language` or `@type`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-050",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A slot `GET` resolving to exactly one context MUST emit an `ETag` when the slot holds at least one statement there.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-051",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A slot `GET` spanning more than one context MUST NOT emit an `ETag`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-052",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`PUT`, `POST` and slot `DELETE` MUST echo the slot's new `ETag`, so a client can chain conditional writes without an intervening `GET`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-053",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`If-None-Match: *` on a slot MUST mean *the slot holds no statement for `(subject, predicate)` in the write context*.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-054",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "`PUT` MUST honour `If-Match`, with `412` on mismatch.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-055",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST NOT canonicalise predicate IRIs.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-056",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST NOT accept SPARQL Update, JSON Patch or N3 Patch bodies on either layer.",
       "withdrawn": false
     },
     {
       "id": "SPS-CRUD-057",
+      "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A slot `GET` MUST support `include_contexts` with the same meaning it has on a resource read ([`SPS-CRUD-022`](#SPS-CRUD-022)): default is the merged value array, and `true` switches to the named-graph form grouped by source context.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-001",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "Every statement stored in a pod MUST belong to exactly one context.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-002",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A context MUST be identified by its full canonical IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-003",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "An implementation MUST NOT introduce a permission abstraction above or beside the context — no project, no folder, no role, no group.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-004",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "Context IRIs MUST live under `{pod}/_system/contexts/`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-005",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The management route and the context IRI MUST be the same string: `PUT {pod}/_system/contexts/apps/notes/public` manages exactly the context `{pod}/_system/contexts/apps/notes/public`.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-006",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A context **delegated** to someone MUST carry a delegation type as its first path segment, followed by the delegate's identifier.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-007",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The pod owner's identity MUST NOT appear in a context path.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-008",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The delegation type `users` is reserved for guest contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-009",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "An implementation MUST accept a freely chosen context name that breaks none of the structural rules below.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-010",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The segment `_system` MUST be rejected anywhere in a context path.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-011",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The delegation types `apps` and `users` MUST be reserved as the **first** path segment.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-012",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A **type root** — a path consisting of a delegation type and one further segment, such as `apps/notes` — MUST NOT be creatable through the context management route.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-013",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A context path that could not be addressed again MUST be rejected.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-014",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "The naming rules `SPS-CTX-009` through `SPS-CTX-012` MUST apply on **creation only**.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-015",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`PUT {pod}/_system/contexts/{path}` MUST create the context at that IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-016",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`PUT` MUST be idempotent.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-017",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context, and MUST also remove the state that rested on it: grants naming it, refresh tokens scoped to it, and the context's statements.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-018",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "Deletion MUST NOT cascade into sub-contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-019",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`PUT` and `DELETE` MUST require the pod owner, or a `#manage` grant covering the target context under the slash-delimited rule of [`SPS-GRANT-007`](grants.md#SPS-GRANT-007).",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-020",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "On `DELETE`, an implementation MUST check authorization **before** existence, so that a caller outside their sandbox receives `403` and not a `404` that would confirm the context exists.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-021",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`GET {pod}/_system/contexts` MUST list the contexts visible to the caller, each with the permissions the caller effectively holds on it, and MUST separately name the contexts the caller may write to.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-022",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "This route is the authoritative client-visible view of effective context permissions.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-023",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A client MUST NOT construct a context IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-024",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "`GET {pod}/_system/contexts/{path}` MUST return what the registry holds for that context.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-025",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "Control-plane state MUST NOT be reachable through the data path.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-026",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "A statement whose subject is a `_system` IRI MUST be treated as ordinary data.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-027",
+      "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "Where the `public` flag is absent — including on a request with no body at all — the context MUST be created **private**.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-001",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`find` is a contract, not an algorithm.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-002",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The request MUST NOT carry a mode, an engine name or a ranking strategy.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-003",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The response MUST be RDF: a subgraph the caller can merge into a working graph and traverse.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-004",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "An implementation MUST offer both forms, and they MUST be equivalent.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-005",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`text` is REQUIRED.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-006",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`type` is OPTIONAL, repeatable, and combines as OR.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-007",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`type` MUST be matched exactly.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-008",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`type` constrains what comes back, not where matching happens.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-009",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`context` (GET, repeatable) and `contexts` (POST) are the read downscope, with the semantics of [`SPS-CRUD-014`](lod-crud.md#SPS-CRUD-014) and [`SPS-CRUD-015`](lod-crud.md#SPS-CRUD-015): intersection with the readable set, unreadable entries dropped in silence.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-010",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The downscope MUST apply to the whole operation, the expansion included.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-011",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`limit` is OPTIONAL.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-012",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "There is no cursor and no pagination.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-013",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "A `POST` body MUST be parsed strictly.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-014",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The context sandbox MUST apply exactly as it does to CRUD and SPARQL.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-015",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Where the caller can read nothing, or where the downscope resolves to nothing, the implementation MUST answer `200` with an empty graph.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-016",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The response MUST contain the matched resources, and SHOULD expand each with at least its `rdf:type` and its label.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-017",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "An implementation MUST NOT return a full `DESCRIBE`-style expansion by default.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-018",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "By default the response MUST be a flat graph: no ordering, no score, and no marker distinguishing a hit from an expansion.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-019",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`include_contexts=true` MUST group the response by the context each statement came from — named-graph JSON-LD, or the fourth term in N-Quads.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-020",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "The response MUST be content-negotiated, with JSON-LD as the default and N-Quads available.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-021",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "A `find` response depends on the caller's readable contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-022",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Per-hit metadata MUST NOT appear in the default response.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-023",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Authoritative facts about a hit — its types, its labels, its timestamps — MUST come from the store during expansion and MUST NOT be asserted by the metadata node.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-024",
+      "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Where such metadata is emitted, it is **transient**: it MUST NOT be written to the store, it MUST NOT appear in the named-graph grouping that `include_contexts=true` produces, and a caller MUST NOT expect to retrieve it again.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-001",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A **grant** is durable server-side policy on one context.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-002",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "An implementation MUST resolve a request's grants from durable storage on every request, keyed by the **pair** of the verified client identifier and the verified subject.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-003",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A grant that is revoked MUST take effect on the caller's next request.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-004",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The separator MUST be the **last** `#` in the grant string.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-005",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The left side MUST be a canonical context IRI inside the pod's base URL.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-006",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The right side MUST be exactly one of `read`, `write` or `manage`.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-007",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Given `R#manage`, an implementation MUST authorize a context `C` if and only if `C` equals `R`, or `C` begins with `R` followed by `/`.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-008",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "When a `#manage` grant is **expanded into a set of contexts** — to answer what a caller may read, to list what they may write, or to sweep delegations on revocation — the expansion MUST cover registered contexts only.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-009",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "`#write` MUST imply `#read`, and `#manage` MUST imply both `#write` and `#read`, on the same context.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-010",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A client MUST NOT request `#read` alongside `#write` for the same context, and an implementation MUST NOT require it.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-011",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The pod owner MUST hold `read`, `write` and `manage` on every registered context of that pod, implicitly.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-012",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Any other person's grants MUST be explicit, stored per pod and per identity.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-013",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "What an application receives MUST be the intersection of what it requested with what the authorizing person **effectively holds**:",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-014",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Where that intersection is empty and no public context is available, the authorization flow MUST fail as `consent_required`, which is recoverable.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-015",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "When a person's grants are narrowed or removed, an implementation MUST recompute what they still hold and remove every application delegation no longer covered by it.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-016",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "That removal MUST be a recomputation, not a string match on the revoked grant.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-017",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Deleting a context MUST run the same recomputation, for the same reason.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-018",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Consent MUST persist its result first and re-check second, and MUST answer `consent_required` if nothing survives the re-check.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-019",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Widening a person's grants MUST NOT widen an application retroactively.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-020",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "`public-read` is a **scope**, not a grant.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-021",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The set of public contexts MUST be expanded at access time, not frozen at consent time.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-022",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Revoking a person's context grants MUST NOT remove `public-read`.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-023",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "An implementation MUST enforce grants on the server.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-024",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A read MUST return statements only from contexts the caller may read.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-025",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A write MUST name its target context explicitly and MUST land only there.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-026",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "The statements parsed from a write request MUST concern the target resource only.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-027",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A valid token whose scope is insufficient for an operation MUST produce `403`.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-028",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "\"Effectively holds\" MUST be the person's grants **after** expanding `#manage` roots over the registered contexts they cover ([`SPS-GRANT-007`](#SPS-GRANT-007)) and after applying the implications of [`SPS-GRANT-009`](#SPS-GRANT-009).",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-029",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "An implementation MUST NOT grant an application more than the authorizing person effectively holds.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-030",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "An implementation MUST NOT require an application to be installed or pre-registered with the pod before a person may delegate to it, and MUST NOT require the authorizing person to be the pod owner.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-031",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "A caller presenting **no credential at all** MUST be able to read the pod's public contexts, over every read surface this specification defines.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-032",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "An unauthenticated caller's readable set MUST be exactly the pod's public contexts — no more, and not empty because no token was presented.",
       "withdrawn": false
     },
     {
       "id": "SPS-GRANT-033",
+      "part": "core",
       "chapter": "spec/core/grants.md",
       "summary": "Expansion is not the same question as authorization of a single target.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-001",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST serve `POST {pod}/_system/mcp` speaking JSON-RPC 2.0 over `application/json`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-002",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "It MUST support `initialize`, `notifications/initialized`, `tools/list` and `tools/call`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-003",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "It MUST answer `resources/list` and `prompts/list` with an empty collection.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-004",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Error responses MUST use JSON-RPC codes: parse error, invalid request, method or tool not found, invalid params, internal error.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-005",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Anonymous access MUST be supported.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-006",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Write tools MUST require a bearer.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-007",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An invalid bearer — expired, tampered, wrong signature — MUST be rejected.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-008",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "The sandbox for a bearer MUST be the grants resolved server-side for its `(client, subject)` pair, unioned with the pod's public contexts **only** where the token carries `public-read` ([`SPS-GRANT-020`](../core/grants.md#SPS-GRANT-020)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-009",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Every `401` MUST carry `WWW-Authenticate: Bearer` naming the pod's realm and the pod-level Protected Resource Metadata URL.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-010",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST expose a synthetic `authorize` tool, and it MUST be visible in `tools/list` in every authentication mode.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-011",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Calling it without sufficient access MUST produce the `401` challenge of `SPS-MCP-009`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-012",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Where `reauthorize` is true, the implementation MUST issue the challenge even for a bearer that would otherwise suffice, and MUST revoke the refresh tokens of the affected `(pod, client, subject)`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-013",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST distinguish the client's automatic replay after the OAuth round trip from a fresh re-authorization request, and MUST answer the replay with the acknowledgement rather than a second challenge.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-014",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "A recorded challenge MUST expire, and MUST be consumable exactly once.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-015",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An end-user MCP client MUST use dynamic registration ([`SPS-AUTH-008`](../core/auth.md#SPS-AUTH-008)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-016",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Where a client re-registers with the same stable metadata, the implementation MUST return the existing client identifier rather than minting a new one.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-017",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "The tool catalogue MUST cover context discovery, query, retrieval, resource read, resource write, and slot-level property editing:",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-018",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Every tool MUST be a projection of the HTTP surface the core chapters define.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-019",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "The query tools MUST dispatch through the same validation and the same sandbox as the HTTP query surface ([`SPS-SPARQL-020`](../core/sparql.md#SPS-SPARQL-020)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-020",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "A write tool MUST carry its target context as an argument, and MUST resolve exactly one.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-021",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Tools MUST accept absolute IRIs only, and MUST perform no prefix or CURIE expansion ([`SPS-CRUD-025`](../core/lod-crud.md#SPS-CRUD-025)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-022",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST accept any absolute resource IRI, including one in the pod's own control-plane area ([`SPS-CRUD-011`](../core/lod-crud.md#SPS-CRUD-011)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-023",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Where a tool wraps one of the three operations for which [`SPS-CRUD-044`](../core/lod-crud.md#SPS-CRUD-044) defines an outcome word — adding a value to a slot, clearing a slot, removing an edge — its result MUST carry that same word.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-024",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Every tool schema MUST declare that no additional arguments are permitted, and the implementation MUST **enforce** it: a call carrying an argument the tool does not declare MUST be rejected before dispatch.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-025",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An unknown argument MUST NOT be silently dropped.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-026",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "The advertised schema and the enforcement MUST come from one source, so they cannot drift.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-027",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "`initialize` SHOULD return per-session instructions naming the pod, the contexts granted with their permission levels, which of them are writable, and how to discover the pod's vocabulary.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-028",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Where instructions are returned, they MUST be regenerated on every `initialize`, so that a reconnect after a consent change reflects the new access.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-029",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "The `authorize` tool MUST declare exactly one argument, a boolean `reauthorize`, OPTIONAL and defaulting to false.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-030",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Its acknowledgement result MUST be an object naming the pod and the contexts the caller may write.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-031",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Some clients treat the MCP URL itself as the protected-resource identifier.",
       "withdrawn": false
     },
     {
       "id": "SPS-MCP-032",
+      "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST NOT serve Authorization Server Metadata for the MCP URL.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-001",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "This module holds bytes and a content type.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-002",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Where the module is not provided, the media routes MUST NOT exist.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-003",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "A media identifier MUST be the SHA-256 of the bytes, encoded base64url without padding.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-004",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Content addressing MUST deduplicate within a pod and MUST NOT deduplicate across pods.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-005",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "An upload MUST NOT write RDF.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-006",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "`POST`, `PUT` and `DELETE` MUST each resolve exactly one write context, with the rules of [`SPS-CRUD-007`](../core/lod-crud.md#SPS-CRUD-007).",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-007",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "`PUT` MUST be idempotent, and `DELETE` MUST be ensure-absent: dropping an assignment that is not there MUST succeed.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-008",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Assigning a media to a further context MUST require **both** write on the target context and read on a context the media is already assigned to.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-009",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "A media MUST be readable exactly when its assignment set intersects the caller's readable contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-010",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "A media the caller may not read MUST answer `404`, and an identifier that does not exist MUST answer the same `404`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-011",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "`POST` MUST always answer `201`, never `200`, including where the bytes were already stored.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-012",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Metadata MUST list only the assignments the caller may read.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-013",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "The content URL MUST always be `{pod}/_system/media/{id}/content`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-014",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "The entity tag on a content response MUST be derived from the content hash and from the declared type of the assignment the response was built from ([`SPS-MEDIA-027`](#SPS-MEDIA-027)).",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-015",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Metadata and content responses MUST be marked private and MUST vary on the credential.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-016",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Every content response MUST carry `X-Content-Type-Options: nosniff` and a content security policy that sandboxes the response.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-017",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "`Content-Disposition` MUST be decided by an **allowlist**: inline for a small set of known-safe image types, attachment for everything else, including unknown types.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-018",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "`image/svg+xml` and `text/html` MUST always be attachment.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-019",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "An implementation MAY accept an upload that names a source URL for the server to fetch.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-020",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "The address policy MUST be derived from the IANA special-purpose address registries' *not globally reachable* column, not from a hand-written list of private ranges.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-021",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Deleting a context MUST remove it from every media assignment.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-022",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "A media whose assignment set becomes empty MUST be marked unreferenced from that moment, and the mark MUST be cleared if it is assigned again.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-023",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Collection MUST NOT be immediate.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-024",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Collection MUST delete the stored object before the registry entry.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-025",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "A reconciliation facility, where offered, MUST report divergence and MUST NOT repair it.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-026",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "On a raw upload, the request's `Content-Type` header is the media's declared type.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-027",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Where the same bytes carry different declared types across several assignments, the type used for a content response MUST be chosen deterministically from the assignments **the caller may read** — by the lowest context IRI among them.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-028",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Where a raw upload declares no type, the implementation MUST record `application/octet-stream`.",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-029",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "An implementation providing this module MUST serve exactly these addresses, with these verbs:",
       "withdrawn": false
     },
     {
       "id": "SPS-MEDIA-030",
+      "part": "media",
       "chapter": "spec/modules/media.md",
       "summary": "Where the server fetched the bytes, the declared type MUST be the `Content-Type` the fetched response carried.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-001",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "Without this module, an implementation MUST still be able to address a person by a deterministic identity URI derived from an email address ([`SPS-AUTH-050`](../core/auth.md#SPS-AUTH-050)).",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-002",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The identity assertion MUST be an OpenID Connect ID Token, signed, with the issuer's keys published at a JWKS endpoint.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-003",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "`sub` MUST be the person's canonical WebID URI.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-004",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "`aud` MUST name the relying party the assertion was issued to.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-005",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The assertion MAY carry the equivalent identity URIs known for the person.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-006",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "A relying party MUST validate issuer, audience, nonce, expiry and signature together against the issuer's published keys.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-007",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "A pod MUST act as an ordinary OpenID Connect relying party: discover the issuer through its discovery document, send the browser to the issuer's authorization endpoint with PKCE, a `state` and a `nonce`, and fetch the assertion over a back channel.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-008",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The PKCE verifier MUST NOT travel through the browser.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-009",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "An identity assertion MUST NOT be delivered to a redirect address, in a query parameter, in a fragment, or in any other browser-visible form.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-010",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "A pod MUST identify itself to the issuer as `did:web:` its own host, and MUST NOT be required to register.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-011",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The request the person was making MUST be parked on the server under the `state` and resumed at the callback.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-012",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "Federation between identity services, where offered, MUST be expressed as `owl:sameAs` links between WebID documents.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-013",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "Federation MUST be opt-in.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-014",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "A pod providing this module MUST serve a callback route under its own control-plane prefix, and it is the **only** HTTP surface the module adds to a pod.",
       "withdrawn": false
     },
     {
       "id": "SPS-OIDC-015",
+      "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The callback MUST reject a `state` it did not park, and MUST consume each one exactly once.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-001",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An implementation MUST offer `POST {pod}/_system/sparql/query`, accepting `application/sparql-query`.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-002",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "The SPARQL surface MUST be read-only.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-003",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Rejection MUST be decided by **parsing** the query against the SPARQL grammar.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-004",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "A query that does not parse as a read query MUST be refused, and the refusal MUST NOT distinguish a malformed query from an Update.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-005",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "`SERVICE` MUST be rejected anywhere in a query, including inside a subquery.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-006",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Mutations reach a pod through the CRUD surface only ([`lod-crud.md`](lod-crud.md)).",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-007",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "A query MUST see exactly the contexts the caller may read, and nothing else.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-008",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An implementation MUST NOT trust a client-supplied dataset clause.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-009",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An implementation MUST NOT attempt to enforce the sandbox by rewriting the query.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-010",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Where the caller can read nothing, the implementation MUST answer successfully with an empty result.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-011",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An implementation MAY accept `default-graph-uri` and `named-graph-uri`.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-012",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "A requested context the caller cannot read MUST be dropped silently, with no error and no diagnostic ([`SPS-CORE-017`](index.md#SPS-CORE-017)).",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-013",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Presence of a dataset parameter MUST be judged on the **raw** parameter, not on its value.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-014",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Dataset-parameter resolution MUST use the same context resolution as the rest of the pod, so that a context IRI means the same thing on every surface.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-015",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "`SELECT` and `ASK` MUST produce `application/sparql-results+json`.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-016",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "`CONSTRUCT` and `DESCRIBE` MUST produce `application/ld+json` by default, and MUST support `application/n-quads` by content negotiation.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-017",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An empty query body MUST be `400`.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-018",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An empty result MUST be a well-formed result document of the negotiated type, not an error and not an empty body.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-019",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "An implementation MUST bound a query's execution time.",
       "withdrawn": false
     },
     {
       "id": "SPS-SPARQL-020",
+      "part": "core",
       "chapter": "spec/core/sparql.md",
       "summary": "Where an implementation exposes the same query capability through another surface, both MUST dispatch through the same validation and the same sandbox.",
       "withdrawn": false
