@@ -600,7 +600,9 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
 // that are not mistakes, and a check that fires on a rename teaches people to disable it.
 val checkDocLinks = tasks.register("checkDocLinks") {
   group = "verification"
-  description = "Fails if a relative link in a markdown file points at a path that does not exist."
+  description =
+    "Fails if a relative markdown link points at nothing, or if a specification requirement " +
+      "cited anywhere points at an identifier the vendored index does not define."
 
   // Read out here rather than in `doLast`: `rootDir` on the task receiver would be the project's,
   // which is the same directory today and would quietly stop being it if this ever moved.
@@ -822,6 +824,90 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             "See `docs/agents/documentation-strategy.md`.",
         ),
       )
+    }
+
+    // ── Specification citations ────────────────────────────────────────────────────────────────
+    //
+    // The contract this implements is specified in `sempods/sempods-spec`, and the documents that
+    // moved there are cited from here by requirement identifier — `SPS-GRANT-007` — rather than by
+    // file path. That is the whole point of the identifier: it survives a chapter being renamed,
+    // split or reordered, which a path does not.
+    //
+    // It only buys anything if a typo is distinguishable from a live identifier, so the index is
+    // vendored (`gradle/spec/requirements.json`, see its README) and checked against here. Not
+    // fetched: a build that reached across a network to validate a comment would fail for reasons
+    // nobody in this build controls, and would fail differently depending on the day.
+    //
+    // Kotlin as well as markdown, because most of these citations are prose inside KDoc — which is
+    // exactly the half no markdown checker has ever been able to see, and the half that rots
+    // silently.
+    val index = File(repositoryRoot, "gradle/spec/requirements.json")
+    if (index.exists()) {
+      val text = index.readText()
+
+      // Hand-parsed rather than pulled through a JSON library: this runs in the build script, the
+      // file is generated with a fixed shape, and adding a dependency to read four fields out of a
+      // vendored artifact is a worse trade than a regex over a file this repository never writes.
+      val known = Regex("\"id\"\\s*:\\s*\"(SPS-[A-Z]+-\\d{3})\"")
+        .findAll(text).map { it.groupValues[1] }.toSet()
+      val withdrawn = Regex(
+        "\"id\"\\s*:\\s*\"(SPS-[A-Z]+-\\d{3})\"[^}]*?\"withdrawn\"\\s*:\\s*true",
+        RegexOption.DOT_MATCHES_ALL,
+      ).findAll(text).map { it.groupValues[1] }.toSet()
+
+      val declared = Regex("\"specVersion\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.get(1)
+      val implemented = project.findProperty("specVersion")?.toString()
+      if (declared != null && implemented != null && declared != implemented) {
+        throw GradleException(
+          "This repository claims to implement sempods specification '$implemented' " +
+            "(`specVersion` in gradle.properties), but the vendored index is '$declared' " +
+            "(`gradle/spec/requirements.json`). Upgrading the specification is one change: " +
+            "replace the vendored file and set that line.",
+        )
+      }
+
+      val citation = Regex("SPS-[A-Z]+-\\d{3}")
+      val unknown = mutableListOf<String>()
+      val retired = mutableListOf<String>()
+
+      repositoryRoot.walkTopDown()
+        .onEnter { it.name !in skipped && it != worktrees }
+        .filter { it.isFile && (it.extension == "md" || it.extension == "kt" || it.extension == "kts") }
+        .filter { it.absolutePath != index.absolutePath }
+        .sortedBy { it.path }
+        .forEach { file ->
+          file.readLines().forEachIndexed { no, line ->
+            citation.findAll(line).forEach { hit ->
+              val id = hit.value
+              val where = "${file.relativeTo(repositoryRoot)}:${no + 1} -> $id"
+              when {
+                id !in known -> unknown += where
+                id in withdrawn -> retired += where
+              }
+            }
+          }
+        }
+
+      if (unknown.isNotEmpty() || retired.isNotEmpty()) {
+        val parts = mutableListOf<String>()
+        if (unknown.isNotEmpty()) {
+          parts += unknown.joinToString(
+            prefix = "Specification requirements cited here that the index does not define:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        if (retired.isNotEmpty()) {
+          parts += retired.joinToString(
+            prefix = "Withdrawn requirements still cited here:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        throw GradleException(
+          parts.joinToString("\n\n") +
+            "\n\nEither the identifier is a typo, or the specification moved on and this " +
+            "repository has not. `gradle/spec/README.md` says how to upgrade the vendored index.",
+        )
+      }
     }
   }
 }
