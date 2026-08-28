@@ -600,7 +600,9 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
 // that are not mistakes, and a check that fires on a rename teaches people to disable it.
 val checkDocLinks = tasks.register("checkDocLinks") {
   group = "verification"
-  description = "Fails if a relative link in a markdown file points at a path that does not exist."
+  description =
+    "Fails if a relative markdown link points at nothing, or if a specification requirement " +
+      "cited anywhere points at an identifier the vendored index does not define."
 
   // Read out here rather than in `doLast`: `rootDir` on the task receiver would be the project's,
   // which is the same directory today and would quietly stop being it if this ever moved.
@@ -822,6 +824,173 @@ val checkDocLinks = tasks.register("checkDocLinks") {
             "See `docs/agents/documentation-strategy.md`.",
         ),
       )
+    }
+
+    // ── Specification citations ────────────────────────────────────────────────────────────────
+    //
+    // The contract this implements is specified in `sempods/sempods-spec`, and the documents that
+    // moved there are cited from here by requirement identifier — `SPS-GRANT-007` — rather than by
+    // file path. That is the whole point of the identifier: it survives a chapter being renamed,
+    // split or reordered, which a path does not.
+    //
+    // It only buys anything if a typo is distinguishable from a live identifier, so the index is
+    // vendored (`gradle/spec/requirements.json`, see its README) and checked against here. Not
+    // fetched: a build that reached across a network to validate a comment would fail for reasons
+    // nobody in this build controls, and would fail differently depending on the day.
+    //
+    // Kotlin as well as markdown, because most of these citations are prose inside KDoc — which is
+    // exactly the half no markdown checker has ever been able to see, and the half that rots
+    // silently.
+    //
+    // What this cannot do, so nobody assumes more of it: it checks that an identifier *exists*,
+    // never that it is the right one. Citing `SPS-CRUD-011` where `SPS-CRUD-007` was meant passes,
+    // because both are live — and that mistake has already been made here once. The index carries
+    // each requirement's first sentence for exactly that reading, and a reviewer is what compares
+    // it against the claim beside it.
+    // Absence is a failure, not a reason to skip. A guard that disables itself when its source of
+    // truth is missing passes at exactly the moment it was needed — and this file is a vendored
+    // build input, so it going missing is a mistake rather than a configuration.
+    val index = File(repositoryRoot, "gradle/spec/requirements.json")
+    if (!index.exists()) {
+      throw GradleException(
+        "The vendored specification index is missing: gradle/spec/requirements.json.\n" +
+          "Every requirement cited in this repository is checked against it. " +
+          "`gradle/spec/README.md` says where it comes from.",
+      )
+    }
+
+    run {
+      val text = index.readText()
+
+      // Parsed rather than pattern-matched. The first version of this read the file with two
+      // regexes and got the withdrawal one wrong: `[^}]*?` between an identifier and its
+      // `withdrawn` field stops at the first `}` — and eighteen summaries contain one, because
+      // they quote route templates like `{pod}`. Every citation to those would have kept passing
+      // after the requirement was withdrawn, which is the single thing this check exists to catch.
+      @Suppress("UNCHECKED_CAST")
+      val parsed = groovy.json.JsonSlurper().parseText(text) as Map<String, Any?>
+      val entries = (parsed["requirements"] as? List<Map<String, Any?>>).orEmpty()
+      val known = entries.mapNotNull { it["id"] as? String }.toSet()
+      val withdrawn = entries.filter { it["withdrawn"] == true }.mapNotNull { it["id"] as? String }.toSet()
+
+      // Absence fails like a mismatch. Either value going missing leaves the claim unverified,
+      // and an unverified claim that passes is the same outcome as no check at all.
+      val declared = parsed["specVersion"] as? String
+      val implemented = project.findProperty("specVersion")?.toString()
+      if (declared.isNullOrBlank() || implemented.isNullOrBlank()) {
+        throw GradleException(
+          "The implemented sempods specification version is not stated on both sides: " +
+            "gradle.properties says '${implemented ?: "<missing>"}', " +
+            "gradle/spec/requirements.json says '${declared ?: "<missing>"}'. " +
+            "Both are required — see `gradle/spec/README.md`.",
+        )
+      }
+      if (declared != implemented) {
+        throw GradleException(
+          "This repository claims to implement sempods specification '$implemented' " +
+            "(`specVersion` in gradle.properties), but the vendored index is '$declared' " +
+            "(`gradle/spec/requirements.json`). Upgrading the specification is one change: " +
+            "replace the vendored file and set that line.",
+        )
+      }
+
+      // Deliberately wider than the identifier form. A pattern anchored to exactly three digits
+      // matches a *prefix* of a mistyped citation — a trailing digit or letter is simply left
+      // outside the match — so the typo passes as the live identifier it begins with. This
+      // captures the whole identifier-shaped token instead, and the token as a whole is then either known
+      // or reported. A guard meant to separate citations from typos must not accept a typo's
+      // prefix.
+      //
+      // Which is also why this comment describes the shapes rather than spelling them: written
+      // out, they would be citations in a scanned file, and the guard would report itself.
+      // Deliberate — that is the check working, and the examples live in the commit message.
+      // Matches anything that looks like somebody *meant* an identifier, not anything that is
+      // one: the prefix followed by any run of identifier characters, separators included. Whether
+      // what spells out is a live requirement is the index's question, not the pattern's — a
+      // pattern that describes the valid form accepts the valid part of a malformed token, and a
+      // typo that resolves to its own prefix is exactly what this exists to catch. No ordinary
+      // word here starts with that prefix, so the wide net costs nothing.
+      //
+      // It must not swallow the notation for the form itself — the prefix, a separator and a
+      // bracketed placeholder, which is how the scheme is written in prose and in `context7.json`.
+      // That is a description of the shape rather than something written in it, so a token has to
+      // reach an alphanumeric to count.
+      //
+      // The prose here never writes the prefix followed by a word, for the same reason: this
+      // pattern is wide enough that describing it would be citing it.
+      val citation = Regex("\\bSPS[-_]*[A-Za-z0-9][A-Za-z0-9_-]*")
+
+      // An abbreviated range — a citation followed by a bare number stood in for the second
+      // endpoint — hides that endpoint from every check above: only the first token carries the
+      // prefix the scanner looks for, so the other one could be a typo or a withdrawn requirement
+      // and stay green. Cheaper to refuse the shorthand than to teach the scanner to reconstruct
+      // it, and spelling both out is what a reader wants anyway.
+      //
+      // Words count as separators, not only punctuation. "001 to 003" and "001 through 003" read
+      // more naturally than an ellipsis and hide the second endpoint exactly as well — the first
+      // version of this knew only punctuation, which is the kind of gap that looks closed.
+      val abbreviated = Regex(
+        "SPS-[A-Za-z0-9]+-[A-Za-z0-9]+`?\\s*(?:…|\\.\\.\\.|–|—|-|\\bto\\b|\\bthrough\\b)\\s*`?\\d{3}\\b",
+      )
+
+      val unknown = mutableListOf<String>()
+      val retired = mutableListOf<String>()
+      val shorthand = mutableListOf<String>()
+
+      repositoryRoot.walkTopDown()
+        .onEnter { it.name !in skipped && it != worktrees }
+        // `context7.json` earns its place here: it carries requirement citations and is *published*
+        // to agents outside this repository, so a typo there is served rather than merely stored.
+        // The index itself is excluded by path — it is what defines the identifiers.
+        .filter {
+          it.isFile &&
+            (it.extension == "md" || it.extension == "kt" || it.extension == "kts" || it.extension == "json")
+        }
+        .filter { it.absolutePath != index.absolutePath }
+        .sortedBy { it.path }
+        .forEach { file ->
+          file.readLines().forEachIndexed { no, line ->
+            abbreviated.find(line)?.let {
+              shorthand += "${file.relativeTo(repositoryRoot)}:${no + 1} -> ${it.value}"
+            }
+            citation.findAll(line).forEach { hit ->
+              val id = hit.value
+              val where = "${file.relativeTo(repositoryRoot)}:${no + 1} -> $id"
+              when {
+                id !in known -> unknown += where
+                id in withdrawn -> retired += where
+              }
+            }
+          }
+        }
+
+      if (unknown.isNotEmpty() || retired.isNotEmpty() || shorthand.isNotEmpty()) {
+        val parts = mutableListOf<String>()
+        if (unknown.isNotEmpty()) {
+          parts += unknown.joinToString(
+            prefix = "Specification requirements cited here that the index does not define:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        if (retired.isNotEmpty()) {
+          parts += retired.joinToString(
+            prefix = "Withdrawn requirements still cited here:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        if (shorthand.isNotEmpty()) {
+          parts += shorthand.joinToString(
+            prefix = "Abbreviated requirement ranges — spell both endpoints out, or the second " +
+              "one is checked by nothing:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        throw GradleException(
+          parts.joinToString("\n\n") +
+            "\n\nEither the identifier is a typo, or the specification moved on and this " +
+            "repository has not. `gradle/spec/README.md` says how to upgrade the vendored index.",
+        )
+      }
     }
   }
 }

@@ -39,7 +39,7 @@ import org.eclipse.rdf4j.rio.Rio
  * negotiate the serialization. `text` is required (whitespace-only → 400). The optional, repeatable
  * `type` constrains the returned hit's `rdf:type` (OR-combined). The optional, repeatable `context`
  * is a read downscope within the caller's readable contexts — same `requested ∩ readable` /
- * silent-exclusion semantics as the LOD read routes (`lod-crud/lod-layer.md` §"Reads"). The optional
+ * silent-exclusion semantics as the LOD read routes (sempods-spec `spec/core/lod-crud.md` §4 §"Reads"). The optional
  * `include_contexts` switches the result to the named-graph (provenance) form: each hit/expansion
  * statement grouped by the context it came from (JSON-LD), or carried as the 4th N-Quads term.
  *

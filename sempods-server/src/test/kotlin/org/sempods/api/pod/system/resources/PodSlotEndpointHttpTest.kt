@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 
 /**
  * Integration tests for the slot/edge routes of [PodSystemResourcesEndpoint] — LOD-CRUD System-layer slot CRUD per
- * `docs/lod-crud/system-layer.md`.
+ * sempods-spec `spec/core/lod-crud.md` §5.
  *
  * Acceptance criterion of LOD-CRUD Iteration 1: adding a `schema:children` value to an
  * existing person works via HTTP `POST` without losing existing children, and removing one
@@ -222,8 +222,8 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `DELETE single edge that does not exist returns 200 already_absent (idempotent)`() {
-    // Per system-layer.md §"HTTP verbs on a single edge", single-edge removal is
-    // idempotent — a missing edge succeeds just like removing a present one. This lets
+    // The route is `SPS-CRUD-042`; that removal is idempotent and answers `already_absent` is
+    // `SPS-CRUD-044` — a missing edge succeeds just like removing a present one. This lets
     // clients retry a successful delete and use "ensure not-present" patterns without a
     // prior read. The 200 body's `outcome` reports which case occurred.
     val pod = sempodsTestFactory.newPod()

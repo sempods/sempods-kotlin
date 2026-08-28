@@ -9,7 +9,7 @@ import java.net.URI
 
 /**
  * Single source of truth for sempods context-permission resolution — in particular the
- * slash-delimited `<root>#manage` semantics from `docs/auth/authorization.md`
+ * slash-delimited `<root>#manage` semantics from sempods-spec `spec/core/grants.md`
  * §"manage semantics".
  *
  * Consolidates logic that previously lived in two places and could drift:
@@ -33,7 +33,7 @@ import java.net.URI
  * TODO: the `scopes` naming here predates the token slimming — `effectiveScopes` /
  *   `rawContextScopes` hold *grant strings* (`<context>#read|write|manage`), which are server-side
  *   policy and never travel in a token, unlike the OAuth feature scopes they sit next to. Rename
- *   when touching this class; `docs/auth/authorization.md` §"Terminology" has the split.
+ *   when touching this class; sempods-spec `spec/core/grants.md` §"Terminology" has the split.
  */
 class PodContextPermissionResolver @Inject constructor(
   private val podContextsDao: PodContextsDao,

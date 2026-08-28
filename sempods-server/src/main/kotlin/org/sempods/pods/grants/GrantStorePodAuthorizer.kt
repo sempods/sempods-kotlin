@@ -19,7 +19,7 @@ import org.sempods.spec.PodRef
  * `public-read` is **additive**: the effective contexts are the resolved grants ∪ the pod's public
  * contexts, and the second half only if the token carries the scope. The consent UI pre-checks it,
  * but a user may deselect it, and then the bearer sees its explicit grants and nothing else. See
- * `docs/auth/authorization.md` §"The `public-read` pseudo-scope".
+ * `SPS-GRANT-020` (sempods-spec).
  */
 class GrantStorePodAuthorizer @Inject constructor(
   private val podFacade: PodFacade,

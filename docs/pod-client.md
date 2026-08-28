@@ -8,7 +8,8 @@ and the sibling that speaks the host-level admin surface beside it, `:sempods-co
 This document is the *shape* of those clients — what tiers they have, how a caller supplies a
 credential, what they are built on, and the rules that decide what may be added. The **routes** they
 speak belong to whoever owns the surface: the pod surface to the specification
-([`lod-crud`](lod-crud), [`media.md`](media.md), [`auth`](auth)), the admin surface to the
+(the specification's [CRUD](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) and [media](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md)
+chapters, [`auth`](auth)), the admin surface to the
 reference implementation. Exact per-method contracts are KDoc on the classes.
 
 Why there are two modules rather than two classes is the authority boundary, and it is stated once

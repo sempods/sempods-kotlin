@@ -152,7 +152,7 @@ object RdfWriterUtil {
    *   - plain string literals: `{ "@value": "..." }`
    *
    * This is the only shape the LOD-layer `PATCH` endpoint accepts as patch document; see
-   * `docs/lod-crud/lod-layer.md` §"Canonical JSON-LD representation".
+   * `SPS-CRUD-023` (sempods-spec).
    */
   fun toCanonicalJsonLdEntry(model: Model, resource: Resource): MutableMap<String, Any> {
     val entry = linkedMapOf<String, Any>()

@@ -149,7 +149,7 @@ class SempodsUriBuilder {
     /**
      * Where context IRIs live, relative to the pod root. Inside `_system` so contexts inherit the
      * control-plane protection rather than sitting in the freely writable resource namespace —
-     * `docs/auth/authorization.md` §"Contexts as the permission boundary" has the reasoning.
+     * sempods-spec `spec/core/contexts.md` §2 has the reasoning.
      *
      * Single definition on purpose: `PodContextsEndpoint` (management route),
      * `PodAuthEndpoint` (consent dialog) and `SempodsClient.contextManagementUrl` all derive from

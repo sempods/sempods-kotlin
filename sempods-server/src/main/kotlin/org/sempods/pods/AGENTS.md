@@ -55,7 +55,7 @@ or returns a row is `internal` too — giving one a public answer means giving i
 
 ## Related docs
 
-- Authorization model, grant vs. scope, revocation (IST): `docs/auth/authorization.md`
+- Authorization model, grant vs. scope, revocation: [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md)
 - Write-through store, change dispatch, recovery (IST): `write-through.md`
 - This module's collections — driver DAOs, which database, the updater (IST):
   [`collections.md`](../../../../../../docs/collections.md)

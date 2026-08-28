@@ -54,7 +54,7 @@ class ClientRedirectPolicyTest {
   @Test
   fun `a sibling that merely shares the first characters is not inside the subtree`() {
     // The bug a string prefix produces: `/mcp-other` starts with `/mcp` and is a different
-    // service. `authorization.md` states the same rule for the `manage` scope and says why it is
+    // service. sempods-spec `spec/core/grants.md` states the same rule for the `manage` scope and says why it is
     // load-bearing — a prefix describes a tree, and `-` is not a separator.
     val scoped = "did:web:example.org:mcp"
 

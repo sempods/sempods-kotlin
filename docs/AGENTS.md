@@ -49,34 +49,34 @@ anything here. What it means for this folder:
 
 ## Auth and security docs
 
-Pod-side authentication & authorization is consolidated under
-`docs/auth/`:
+Pod-side authentication and authorization are **specified elsewhere** (above); what lives
+under `docs/auth/` is this implementation's side of it:
+
+**The authorization model itself is not here.** Contexts, grants, the OAuth profile and the client
+identity shapes are [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md),
+[`grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) and [`auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). What stays under
+`docs/auth/` is what this implementation does around that contract:
 
 - `docs/auth/README.md` — overview, mental model, doc map
 - `docs/auth/identity.md` — WebID identities, identity JWT, OIDC bridge concept
-- `docs/auth/authorization.md` — contexts, scopes, grants, server-side enforcement
-- `docs/auth/oauth.md` — Authorization Code + PKCE, refresh, public-read, PRM
-- `docs/auth/service-clients.md` — 2-leg client credentials for backend services (service tokens, manage-root sandbox, audit)
-- `docs/auth/oauth-errors.md` — the page every OAuth `error_uri` points at: one heading per error code a redirect can carry
+- `docs/auth/oauth.md` — the numbers and limits the specification leaves open: the token endpoint's
+  rate budget, the OIDC leg timeouts, the sharp edges
+- `docs/auth/service-clients.md` — provisioning over the admin surface, the audit trail and its
+  retention
+- `docs/auth/oauth-errors.md` — the page every OAuth `error_uri` points at: one heading per error
+  code a redirect can carry
 
 Identity service (`sempods-auth/docs/`):
 
 - `sempods-auth/docs/README.md` — module overview
 - `sempods-auth/docs/identity-service.md` — id-server internals: URI namespaces, OIDC bridge, identity merge, federation
 
-## LOD-CRUD docs
+## The CRUD layer is not documented here
 
-HTTP CRUD layer for RDF resources and slots, consolidated under
-`docs/lod-crud/`:
-
-- `docs/lod-crud/README.md` — two-layer architecture,
-  identity vs. operations, base64url encoding convention, doc map
-- `docs/lod-crud/lod-layer.md` — LOD-layer spec:
-  GET/PUT/PATCH/DELETE on resource URIs, context rule for writes
-  and reads, conformance requirements
-- `docs/lod-crud/system-layer.md` — System-layer spec: slot
-  model, base64url routes under `_system/resources/...`, HTTP verbs
-  per slot, conditional requests, local-vs-external URI handling
+It is [sempods-spec `spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) — both layers, the context
+rule, the canonical representation, the slot and edge routes, and the acknowledged deviations from
+HTTP. This code cites it by requirement identifier, and `./gradlew checkDocLinks` checks every
+citation against the vendored index in `gradle/spec/`.
 
 ## MCP docs
 

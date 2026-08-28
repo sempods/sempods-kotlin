@@ -99,7 +99,7 @@ this UI install one service client now" and "let this remote installer keep comi
 - [`../auth/oauth.md`](../auth/oauth.md) — Authorization Code + PKCE, DCR, refresh tokens.
 - [`../auth/service-clients.md`](../auth/service-clients.md) — current service-client registration,
   token exchange and audit.
-- [`../auth/authorization.md`](../auth/authorization.md) — scope versus grant and context
+- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — scope versus grant and context
   permissions.
 - [`../roadmaps/owner-app-installation.md`](../roadmaps/owner-app-installation.md) — the milestone
   that implements this target state.

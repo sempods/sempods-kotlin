@@ -9,7 +9,7 @@ import java.net.URI
  * authorization path — [GrantStorePodAuthorizer] unions the public contexts in only when a token
  * carries it — and written on the consent path in `PodAuthEndpoint`; neither side owns it.
  *
- * See `docs/auth/authorization.md` ("The `public-read` pseudo-scope").
+ * See `SPS-GRANT-020` (sempods-spec).
  */
 const val PUBLIC_READ_SCOPE = "public-read"
 
@@ -87,7 +87,7 @@ class PodScopeValidator {
      * and similar capability gates may be added here. Keeping this an explicit allow-list is
      * what lets the validator tell a legitimate feature scope from a typo once access tokens
      * carry only feature scopes (context permissions resolve server-side). See
-     * `docs/auth/authorization.md` ("Why context permissions are resolved
+     * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved
      * server-side"). Which additional feature scopes to accept is still open
      * (the maintainer's internal roadmap).
      */

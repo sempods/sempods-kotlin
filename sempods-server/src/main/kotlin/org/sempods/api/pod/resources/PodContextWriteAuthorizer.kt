@@ -71,7 +71,7 @@ class PodContextWriteAuthorizer @Inject constructor(
 
   /**
    * Resolve a single write-side `?context=` parameter from a query-list value. Writes target
-   * exactly one context per `lod-layer.md` §"Writes"; repeated `?context=` is rejected with
+   * exactly one context per `SPS-CRUD-007` (sempods-spec); repeated `?context=` is rejected with
    * `400` regardless of whether any of the repeats are blank — `?context=valid&context=` is
    * still a repeated parameter, and the strict "exactly one" rule applies to the parameter
    * occurrence count, not to the count of non-blank values.
@@ -95,8 +95,9 @@ class PodContextWriteAuthorizer @Inject constructor(
   /**
    * Resolve a read-side `?context=` downscope filter into a set of context URIs, intersected
    * with the pod's known contexts. Empty input → `null` (caller-side filtering by readable
-   * contexts takes over). Unknown / unreadable contexts are silently excluded per
-   * `lod-layer.md` §"Reads" — no topology leak.
+   * contexts takes over). The parameter itself is `SPS-CRUD-014`; that unknown and unreadable
+   * contexts are excluded **silently** is `SPS-CRUD-015`, and the reason is `SPS-CORE-017` — an
+   * error here would answer "this context exists" to anyone who guessed one.
    *
    * NOTE: This does NOT intersect with the caller's readable contexts; callers must do that
    * step themselves so they can keep their existing visibility filter (anonymous public
@@ -176,7 +177,7 @@ class PodContextWriteAuthorizer @Inject constructor(
    * context under `<pod-base>`. The validator also enforces the slash-delimited boundary by
    * construction, so `tasks#manage` still doesn't reach `tasks-private`.
    *
-   * Load-bearing — see `authorization.md` §"manage semantics". Thin wrapper over
+   * Load-bearing — see `SPS-GRANT-007` (sempods-spec). Thin wrapper over
    * [PodContextPermissionResolver.isCoveredByManageScope], the single source of truth for the
    * slash-delimited rule, shared with [org.sempods.pods.grants.GrantStorePodAuthorizer]'s
    * read-path manage-cascade and

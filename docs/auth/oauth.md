@@ -13,7 +13,7 @@ Credentials grant** (RFC 6749 §4.4), restricted to out-of-band
 registered service clients — see `service-clients.md`.
 
 For the underlying authorization model (scopes, grants, enforcement)
-see `authorization.md`. For identity tokens used during the authorize
+see sempods-spec `spec/core/grants.md`. For identity tokens used during the authorize
 step see `identity.md`.
 
 ## Endpoints
@@ -133,7 +133,7 @@ RS256-signed JWTs with `iss = pod base URL`, `sub = <WebID>`,
 scopes only** (e.g. `public-read`); per-context permissions are not in
 the token — they are resolved server-side per request from the grant
 store, and the `scope=` down-scope on refresh applies to feature scopes
-only (`authorization.md` "Pod-issued access tokens"). Public keys are
+only (sempods-spec `spec/core/grants.md` "Pod-issued access tokens"). Public keys are
 published at `jwks.json` and rotation-prepared
 (`kid`/`algorithm`/`retiredAt` columns); auto-rotation is open work.
 
@@ -289,7 +289,7 @@ Order of checks at `/authorize` for `scope=public-read`:
    public-read consent screen lands (open work).
 
 `public-read` is additive at the model level — see
-`authorization.md` ("The `public-read` pseudo-scope"). The
+`SPS-GRANT-020` (sempods-spec). The
 `/authorize` endpoint accepts it combined with per-context scopes; at
 token issuance and at resource access it behaves as the union semantics
 described there.
@@ -343,7 +343,7 @@ constraints. The full list is in [`README.md`](README.md)
 
 - Identity tokens, OIDC bridge, anonymous subjects → `identity.md`.
 - Scopes, grants, server-side enforcement, error semantics →
-  `authorization.md`.
+  sempods-spec `spec/core/grants.md`.
 - Service clients (2-leg client credentials, service tokens, audit) →
   `service-clients.md`.
 - Open items and follow-up work → [`README.md`](README.md)

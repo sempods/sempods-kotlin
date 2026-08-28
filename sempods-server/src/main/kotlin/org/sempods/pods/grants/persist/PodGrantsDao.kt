@@ -24,7 +24,7 @@ import java.time.Instant
  *
  * Naming: the `scope` column holds *grant strings* (`<context-iri>#read|write|manage`), which are
  * not OAuth scopes — they never travel in an access token and are resolved server-side per request
- * (`docs/auth/authorization.md` §"Why context permissions are resolved server-side"). The
+ * (`SPS-GRANT-001`, `SPS-GRANT-002` and `SPS-GRANT-003` (sempods-spec)). The
  * one genuine OAuth scope that also lives here is the feature scope `public-read`, persisted so
  * `prompt=none` auto-grant honours the user's choice. Any consumer that filters by
  * "context grants only" must route through `PodScopeValidator`, not string shape.

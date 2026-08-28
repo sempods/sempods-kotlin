@@ -98,7 +98,7 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
 - **Optional `context` downscope.** A caller may narrow the search to specific
   contexts (graphs) *within* what it may read, via the repeatable `context=<iri>`
   parameter (MCP: `context_iri` array). This is the universal read-downscope the
-  LOD read routes already expose ([`../lod-crud/lod-layer.md`](../lod-crud/lod-layer.md) §"Reads"), **not** the
+  LOD read routes already expose ([`SPS-CRUD-014`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md#SPS-CRUD-014)), **not** the
   general predicate filter below: the server intersects `{requested}` with the
   readable set and silently drops unknown/unreadable contexts (no 403/404 — no
   topology leak); an all-unreadable request yields an empty result, not an error.

@@ -20,8 +20,21 @@ import java.net.URI
  * `?context=…` and picks its own transport; every value here is relative and carries no leading
  * slash, so it composes with both `URI.resolve` and plain concatenation onto a trimmed base.
  *
- * The routes themselves are specified in `docs/lod-crud/`, `docs/media.md` and
- * `docs/auth/`; this object is where a client reads them, not where they are decided.
+ * The routes themselves are specified in sempods-spec, and this object is where a client reads
+ * them rather than where they are decided: `spec/core/lod-crud.md` for the resource routes,
+ * `spec/core/contexts.md` for the context routes, `spec/core/auth.md` for the token endpoint,
+ * `spec/core/sparql.md` and `spec/core/find.md` for the two read surfaces, and
+ * `spec/modules/media.md` for media.
+ *
+ * The OIDC callback is `spec/modules/oidc.md`, which requires the route (`SPS-OIDC-014`) and fixes
+ * what it does (`SPS-OIDC-011`, `SPS-OIDC-015`) without fixing where it sits; only
+ * `openapi/module-oidc.yaml` spells the path. That is the weaker guarantee it looks like: the path
+ * is a redirect URI registered with an upstream provider, so it is pinned by deployments rather
+ * than by the spec.
+ *
+ * [META_DATE_MODIFIED] has nothing behind it at all. It exists because sync clients need a cheap
+ * change probe, and until it is written down it is this implementation's alone — a client reading
+ * the constant as a cross-implementation promise would be wrong.
  */
 object SempodsPodRoutes {
 

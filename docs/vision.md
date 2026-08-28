@@ -74,7 +74,7 @@ are possible as long as they follow the standard.
       the type segments and `_system` are reserved.
     - Protected does not mean undescribable: statements *about* a `_system` IRI are ordinary
       data, because the control plane lives in MongoDB and is not reachable through the data
-      path at all. See [`auth/authorization.md`](auth/authorization.md)
+      path at all. See [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md)
       §"Contexts as the permission boundary".
 
 ## What comes later (extensions)

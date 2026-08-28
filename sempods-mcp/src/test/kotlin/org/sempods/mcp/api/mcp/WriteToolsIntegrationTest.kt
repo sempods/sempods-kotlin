@@ -239,7 +239,7 @@ class WriteToolsIntegrationTest {
   fun `a control-plane subject is forwarded, the pod decides, and it allows one`() = runBlocking {
     // `PodReservedArea` was removed on purpose: a `_system` IRI is describable like any foreign
     // resource, and a statement *about* a context is ordinary data living in some context
-    // (`docs/lod-crud/lod-layer.md`). This service refusing it was a policy the pod does
+    // (sempods-spec `spec/core/lod-crud.md` §4). This service refusing it was a policy the pod does
     // not have — the write still lands in a context the caller holds `#write` on.
     val subject = "$pod/_system/contexts/contacts"
     server.`when`(request().withMethod("POST").withPath("/p/_system/resources/${b64(subject)}/${b64("https://schema.org/name")}"))

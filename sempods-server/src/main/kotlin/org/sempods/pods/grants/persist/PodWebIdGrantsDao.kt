@@ -19,7 +19,7 @@ import java.time.Instant
 /**
  * Store for owner-level, app-independent WebID grants ([PodWebIdGrantDbo], `webIdGrants`).
  *
- * This is the *user level* of the two-level model in `docs/auth/authorization.md`
+ * This is the *user level* of the two-level model in sempods-spec `spec/core/grants.md`
  * §"Authorization model" — what a person may do on this pod, independent of any app. The app level
  * ([PodGrantsDao]) is derived from it at consent time via `granted = requested ∩ user_grants`.
  *

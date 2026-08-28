@@ -12,7 +12,7 @@ resulting tokens look like.
 
 For the user-facing flows (Authorization Code + PKCE, refresh,
 public-read) see `oauth.md`. For scopes, grants, and enforcement see
-`authorization.md`.
+sempods-spec `spec/core/grants.md`.
 
 ## Registration
 
@@ -47,7 +47,7 @@ The shape is a single scope `<app-root>#manage`, where the app root
 follows the app-context convention
 `<pod>/_system/contexts/apps/<app>/...` (for an app called `notes`:
 `<pod>/_system/contexts/apps/notes#manage`). The slash-delimited
-`manage` semantics (`authorization.md`, "manage semantics") give the
+`manage` semantics (`SPS-GRANT-007` (sempods-spec)) give the
 client an automatic sandbox under that root — no new scope type and no
 super-scope.
 
@@ -90,7 +90,7 @@ the path from the convention. The server owns where the sandbox lives;
 a caller that derives it independently keeps writing under the old root
 the day that location changes, while its scope points at the new one —
 a runtime 403, not a build error. Where the sandbox lives today is
-`authorization.md` §"Contexts as the permission boundary".
+sempods-spec `spec/core/contexts.md` §2.
 
 **Idempotency.** The server cannot know whether the caller still holds
 a working credential — only the caller can decrypt and verify its own

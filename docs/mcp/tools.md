@@ -8,7 +8,7 @@ the OAuth handshake helper (`authorize`), the discovery helper
 System-layer property-value tools (`set_property_values`,
 `add_property_value`, `remove_property_value`, `clear_property_values`) —
 each a thin MCP wrapper over the LOD-CRUD
-[System layer](../lod-crud/system-layer.md).
+[the system layer](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md).
 
 All tools enforce the same context sandbox: the caller sees / writes
 only the contexts their bearer covers (or the pod's public contexts when
@@ -282,7 +282,7 @@ of an existing resource in a consented context. 404 if the resource does
 not yet exist. Same scope rule as `create_resource`.
 
 Important: `update_resource` follows the LOD-layer `PATCH` contract from
-[`../lod-crud/lod-layer.md`](../lod-crud/lod-layer.md#patch-semantics).
+[`SPS-CRUD-035`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md#SPS-CRUD-035).
 The patch body is **not** JSON-LD-expanded. Top-level `@id` is allowed
 only when it matches `resource_iri`, which keeps GET-modify-PATCH
 round-trips usable. Top-level `@context`, `@graph`, `@reverse`, `@nest`,
@@ -312,10 +312,11 @@ resource changed since then.
 
 ### System-layer property-value tools (write)
 
-These tools are MCP wrappers over the LOD-CRUD
-[System layer](../lod-crud/system-layer.md). They exist because
-`update_resource` is deliberately RFC 7396-strict: it replaces arrays
-wholesale and does not perform RDF-aware patching.
+These tools are MCP wrappers over the specification's system layer
+([`spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) §5). They exist because
+`update_resource` is deliberately RFC 7396-strict: it replaces arrays wholesale
+and does not perform RDF-aware patching
+([`SPS-CRUD-038`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md#SPS-CRUD-038)).
 
 All property-value tools:
 
@@ -336,7 +337,7 @@ All property-value tools:
   cannot say what happened — `created`/`already_present`,
   `cleared`/`already_empty`, `removed`/`already_absent`. It is the pod's
   own word, taken from the HTTP twin's `{"outcome": …}` body (see
-  [`../lod-crud/system-layer.md`](../lod-crud/system-layer.md#the-outcome-representation)),
+  [`SPS-CRUD-044`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md#SPS-CRUD-044)),
   so MCP and plain-HTTP clients report identical outcomes.
   `set_property_values` has none: a wholesale replace has no second case.
 
@@ -457,48 +458,27 @@ trip.
 
 ## Sandbox & security
 
-These rules apply to every tool, not per-tool — they're documented once
-to keep the catalog above readable.
+Specified, not described here: one dispatch path shared with the HTTP query surface
+([`SPS-MCP-019`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-019)), closed tool schemas that are **enforced** rather than advertised
+([`SPS-MCP-024`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-024), [`SPS-MCP-025`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-025)), Update forms and `SERVICE`
+rejected by parsing rather than by keyword search
+([`SPS-SPARQL-003`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-003),
+[`SPS-SPARQL-005`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-005)), any absolute resource IRI accepted
+([`SPS-MCP-022`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-022)), and the caller's per-context write grant checked
+server-side at write time ([`SPS-GRANT-023`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-023)), with an
+insufficient one answering `403` ([`SPS-GRANT-027`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-027)). That
+the write names exactly one context in the first place is
+[`SPS-GRANT-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-025).
 
-- **Single sandbox path.** Both REST `_system/sparql/query` and the MCP
-  read tools dispatch through `SparqlQueryService` and share
-  `SparqlSandbox.buildDataset`. The MCP surface cannot drift away from
-  REST.
-- **Unknown arguments rejected (`additionalProperties: false` enforced).**
-  Every tool schema sets `additionalProperties: false`, and the server now
-  enforces it: a `tools/call` carrying a top-level argument the tool does not
-  declare is rejected with a tool error before dispatch — it is **not**
-  silently dropped. This is fail-closed against an LLM that hallucinates an
-  extra field (a deferred `filter` on `find`, a typo'd `context_iri`, a
-  `statements`/`triples`/`quads` alongside `jsonld`): a half-honored call must
-  never broaden a read or write the wrong data. Mirrors the strict body
-  parsing on REST `POST /_system/find`. The advertised schema and the
-  server-side check come from one source (`buildTools`), so they cannot drift.
-- **Write keywords parser-rejected.** `INSERT`, `DELETE`, `LOAD`,
-  `CLEAR`, `CREATE`, `DROP`, `COPY`, `MOVE`, `ADD` are rejected by
-  parsing against the RDF4J SPARQL grammar in
-  `SparqlQueryService.validateReadOnly()`, then surfaced as
-  `ToolCallResult.isError = true` (`Error: …`). No pre-parser substring
-  filter — literals containing keyword tokens (e.g.
-  `?p schema:address`) parse correctly.
-- **`SERVICE` rejected.** Detected by walking the parsed algebra
-  (`AbstractQueryModelVisitor`), so it catches `SERVICE` anywhere
-  (including subqueries). SSRF protection.
-- **Query timeout: 10 seconds.**
-- **Any absolute `resource_iri` is accepted** — local, external, or one in
-  this pod's own `_system` area. Statements about a control-plane IRI are
-  statements: they live in the context the caller may write and cannot
-  change what they describe, since contexts, grants and registrations are
-  held in MongoDB rather than in the graph. The authoritative answer for
-  such an IRI comes from the control plane itself (for a context:
-  `GET {pod}/_system/contexts/{path}`), so a claim and a definition stay
-  distinguishable. Same arrangement as for another pod's resources; see
-  [`../lod-crud/system-layer.md`](../lod-crud/system-layer.md).
-- **Per-context write scope.** `<context_iri>#write` (or `manage` along
-  the slash-delimited rule from
-  [`../auth/authorization.md`](../auth/authorization.md)) is checked at
-  write time by `PodResourceWriteService` — wrong scope returns
-  `403 insufficient_scope` packaged as a `ToolCallResult.isError`.
+Two things this implementation chose and the specification leaves open. The query timeout is
+10 seconds. And the closure is enforced in two places, because the tool catalogue has two sources:
+`ToolCatalog.validate()` refuses an undeclared argument for every catalogue tool, and
+`McpEndpoint.unknownArgumentsRefusal()` does the same for the synthetic `authorize`, which is this
+surface's own and not in the catalogue.
+
+What keeps the advertised schema and the enforced one from drifting is that both read the same
+`ToolCatalog` specs — `buildTools` only assembles the list it advertises from them. Hardening the
+check means the two validators above, not that assembly.
 
 ## Instructions block
 
@@ -635,7 +615,7 @@ the rejected keyword.
 
 - [`endpoint.md`](endpoint.md) — JSON-RPC envelope, methods, error codes.
 - [`authentication.md`](authentication.md) — bearer / anonymous / `authorize` tool.
-- [`../auth/authorization.md`](../auth/authorization.md) — context model
+- [`spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — context model
   and `manage` slash-delimited rule.
 - Tests:
   [`McpEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/mcp/McpEndpointHttpTest.kt)
