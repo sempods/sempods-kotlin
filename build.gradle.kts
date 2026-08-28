@@ -897,7 +897,7 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // Deliberately wider than the identifier form. A pattern anchored to exactly three digits
       // matches a *prefix* of a mistyped citation — a trailing digit or letter is simply left
       // outside the match — so the typo passes as the live identifier it begins with. This
-      // captures the whole SPS-like token instead, and the token as a whole is then either known
+      // captures the whole identifier-shaped token instead, and the token as a whole is then either known
       // or reported. A guard meant to separate citations from typos must not accept a typo's
       // prefix.
       //
@@ -907,15 +907,19 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // Consumes the whole contiguous token, separators included. Two narrower versions of this
       // were wrong in the same way: a pattern that stops after the third segment matches a *prefix*
       // of a longer malformed token and reports it as the live identifier it begins with — first
-      // with a trailing character, then with a trailing separator and more text. The token ends
-      // where SPS-like characters stop, and what it spells is then either known or reported.
+      // with a trailing character, then with a trailing separator and more text. The token now ends
+      // where the run of segments ends, and what it spells is then either known or reported.
+      //
+      // Which is why the prose here never writes the prefix followed by a word: this pattern is
+      // wide enough that a description of it is a citation of it, and the check would report its
+      // own comment. It did, twice.
       val citation = Regex("SPS(?:[-_][A-Za-z0-9]+)+")
 
       // An abbreviated range — a citation followed by a bare number stood in for the second
       // endpoint — hides that endpoint from every check above: only the first token carries the
-      // `SPS-` prefix the scanner looks for, so the other one could be a typo or a withdrawn
-      // requirement and stay green. Cheaper to refuse the shorthand than to teach the scanner to
-      // reconstruct it, and spelling both out is what a reader wants anyway.
+      // prefix the scanner looks for, so the other one could be a typo or a withdrawn requirement
+      // and stay green. Cheaper to refuse the shorthand than to teach the scanner to reconstruct
+      // it, and spelling both out is what a reader wants anyway.
       val abbreviated = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+`?\\s*(?:…|\\.\\.\\.|-|–)\\s*`?\\d{3}\\b")
 
       val unknown = mutableListOf<String>()
