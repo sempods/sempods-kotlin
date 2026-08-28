@@ -941,7 +941,13 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // prefix the scanner looks for, so the other one could be a typo or a withdrawn requirement
       // and stay green. Cheaper to refuse the shorthand than to teach the scanner to reconstruct
       // it, and spelling both out is what a reader wants anyway.
-      val abbreviated = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+`?\\s*(?:…|\\.\\.\\.|-|–)\\s*`?\\d{3}\\b")
+      //
+      // Words count as separators, not only punctuation. "001 to 003" and "001 through 003" read
+      // more naturally than an ellipsis and hide the second endpoint exactly as well — the first
+      // version of this knew only punctuation, which is the kind of gap that looks closed.
+      val abbreviated = Regex(
+        "SPS-[A-Za-z0-9]+-[A-Za-z0-9]+`?\\s*(?:…|\\.\\.\\.|–|—|-|\\bto\\b|\\bthrough\\b)\\s*`?\\d{3}\\b",
+      )
 
       val unknown = mutableListOf<String>()
       val retired = mutableListOf<String>()

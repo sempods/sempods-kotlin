@@ -1,14 +1,20 @@
 # Authentication & Authorization
 
-This folder is the canonical home for sempods auth concepts. It covers
-**how a pod knows who is calling it (authentication) and what they may do
-(authorization)**, the OAuth flows apps use to obtain tokens, and the
-runtime enforcement that happens on every request.
+**The auth model itself is not here any more.** Who may do what, the grant grammar,
+the client-identity shapes and the OAuth profile are the specification:
+[`spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md),
+[`spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md) and
+[`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). A second implementation reads those; nothing
+in this folder binds it.
 
-If a topic isn't here, it isn't part of the auth model. Implementation
-details, PR plans, and shipped work deliberately do not live in these
-docs — only the model, the current state, and the open points, which are
-named under "Known limitations" below.
+What stays here is what the specification deliberately leaves to an implementation —
+the numbers, the limits and the machinery this one chose. The token endpoint's rate
+budget, the timeouts on the OIDC legs, service-client provisioning over the admin
+surface and its audit trail, and the page every OAuth `error_uri` points at.
+
+The old rule for this folder was "if a topic isn't here, it isn't part of the auth
+model". That is now the specification's job, and the inverse holds here: if a topic is
+here, it is *this pod server's* answer to something the contract left open.
 
 ## Mental model
 
@@ -144,14 +150,13 @@ code.
 - **`identity.md`** — authentication: WebID identity layers, identity
   JWTs issued by `id.sempods.org`, the OIDC bridge, trust model,
   anonymous subjects.
-- **sempods-spec `spec/core/grants.md`** — authorization model: contexts, scopes, grants,
-  enforcement points, error semantics.
-- **`oauth.md`** — OAuth flows for apps and MCP-style clients:
-  Authorization Code + PKCE, refresh, public-read, `dyn:` vs `did:web:`
-  clients, Protected Resource Metadata.
-- **`service-clients.md`** — 2-leg client credentials for backend
-  services: out-of-band registration, manage-root sandbox, service
-  tokens, auditing, revocation.
+- **`oauth.md`** — what the flows cost and where they are bounded here: the token
+  endpoint's rate budget and its two tiers, the timeouts on both OIDC legs, and the
+  sharp edges. The flows themselves are
+  [`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md).
+- **`service-clients.md`** — provisioning a service client over the admin surface,
+  idempotency, the audit trail and its retention. What a service client *is* and what
+  it may hold is [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012) onwards.
 - **`oauth-errors.md`** — the recovery page every OAuth `error_uri`
   points at: one heading per error code a redirect can carry.
 - **`../../sempods-auth/docs/identity-service.md`** — implementation
