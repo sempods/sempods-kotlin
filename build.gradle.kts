@@ -841,6 +841,12 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     // Kotlin as well as markdown, because most of these citations are prose inside KDoc — which is
     // exactly the half no markdown checker has ever been able to see, and the half that rots
     // silently.
+    //
+    // What this cannot do, so nobody assumes more of it: it checks that an identifier *exists*,
+    // never that it is the right one. Citing `SPS-CRUD-011` where `SPS-CRUD-007` was meant passes,
+    // because both are live — and that mistake has already been made here once. The index carries
+    // each requirement's first sentence for exactly that reading, and a reviewer is what compares
+    // it against the claim beside it.
     // Absence is a failure, not a reason to skip. A guard that disables itself when its source of
     // truth is missing passes at exactly the moment it was needed — and this file is a vendored
     // build input, so it going missing is a mistake rather than a configuration.
@@ -899,8 +905,17 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // out, they would be citations in a scanned file, and the guard would report itself.
       // Deliberate — that is the check working, and the examples live in the commit message.
       val citation = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+")
+
+      // An abbreviated range — a citation followed by a bare number stood in for the second
+      // endpoint — hides that endpoint from every check above: only the first token carries the
+      // `SPS-` prefix the scanner looks for, so the other one could be a typo or a withdrawn
+      // requirement and stay green. Cheaper to refuse the shorthand than to teach the scanner to
+      // reconstruct it, and spelling both out is what a reader wants anyway.
+      val abbreviated = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+`?\\s*(?:…|\\.\\.\\.|-|–)\\s*`?\\d{3}\\b")
+
       val unknown = mutableListOf<String>()
       val retired = mutableListOf<String>()
+      val shorthand = mutableListOf<String>()
 
       repositoryRoot.walkTopDown()
         .onEnter { it.name !in skipped && it != worktrees }
@@ -915,6 +930,9 @@ val checkDocLinks = tasks.register("checkDocLinks") {
         .sortedBy { it.path }
         .forEach { file ->
           file.readLines().forEachIndexed { no, line ->
+            abbreviated.find(line)?.let {
+              shorthand += "${file.relativeTo(repositoryRoot)}:${no + 1} -> ${it.value}"
+            }
             citation.findAll(line).forEach { hit ->
               val id = hit.value
               val where = "${file.relativeTo(repositoryRoot)}:${no + 1} -> $id"
@@ -926,7 +944,7 @@ val checkDocLinks = tasks.register("checkDocLinks") {
           }
         }
 
-      if (unknown.isNotEmpty() || retired.isNotEmpty()) {
+      if (unknown.isNotEmpty() || retired.isNotEmpty() || shorthand.isNotEmpty()) {
         val parts = mutableListOf<String>()
         if (unknown.isNotEmpty()) {
           parts += unknown.joinToString(
@@ -937,6 +955,13 @@ val checkDocLinks = tasks.register("checkDocLinks") {
         if (retired.isNotEmpty()) {
           parts += retired.joinToString(
             prefix = "Withdrawn requirements still cited here:\n  - ",
+            separator = "\n  - ",
+          )
+        }
+        if (shorthand.isNotEmpty()) {
+          parts += shorthand.joinToString(
+            prefix = "Abbreviated requirement ranges — spell both endpoints out, or the second " +
+              "one is checked by nothing:\n  - ",
             separator = "\n  - ",
           )
         }
