@@ -113,9 +113,10 @@ class PodSlotWriteService @Inject constructor(
   }
 
   /**
-   * Remove the single edge `(subject, predicate, target)` in [contextUri]. Per
-   * `SPS-CRUD-042` (sempods-spec), this operation
-   * is idempotent: a missing edge yields the same outcome as removing a present one. The
+   * Remove the single edge `(subject, predicate, target)` in [contextUri]. The route is
+   * `SPS-CRUD-042`; that this operation is **idempotent**, and the `removed` / `already_absent`
+   * words it answers with, are `SPS-CRUD-044` — a missing edge yields the same outcome as
+   * removing a present one. The
    * returned boolean lets callers (HTTP audit, MCP outcome) distinguish "actually removed"
    * from "already absent" — it is NOT a success/failure signal.
    */
@@ -138,10 +139,10 @@ class PodSlotWriteService @Inject constructor(
   }
 
   /**
-   * Empty the slot `(subject, predicate)` in [contextUri]. Per
-   * `SPS-CRUD-041` (sempods-spec), whole-slot DELETE is
-   * idempotent: a slot that was already empty yields the same outcome as one that held
-   * triples. Returned boolean carries the secondary "did anything actually change" signal
+   * Empty the slot `(subject, predicate)` in [contextUri]. The verb is `SPS-CRUD-041`; that
+   * whole-slot DELETE is **idempotent**, and the `cleared` / `already_empty` words it answers
+   * with, are `SPS-CRUD-044` — a slot that was already empty yields the same outcome as one that
+   * held triples. Returned boolean carries the secondary "did anything actually change" signal
    * for audit / MCP outcome reporting, not success/failure.
    */
   fun clearSlot(

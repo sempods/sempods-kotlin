@@ -904,16 +904,24 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       // Which is also why this comment describes the shapes rather than spelling them: written
       // out, they would be citations in a scanned file, and the guard would report itself.
       // Deliberate — that is the check working, and the examples live in the commit message.
-      // Consumes the whole contiguous token, separators included. Two narrower versions of this
-      // were wrong in the same way: a pattern that stops after the third segment matches a *prefix*
-      // of a longer malformed token and reports it as the live identifier it begins with — first
-      // with a trailing character, then with a trailing separator and more text. The token now ends
-      // where the run of segments ends, and what it spells is then either known or reported.
+      // Matches anything that looks like somebody *meant* an identifier, not anything that is one.
       //
-      // Which is why the prose here never writes the prefix followed by a word: this pattern is
-      // wide enough that a description of it is a citation of it, and the check would report its
-      // own comment. It did, twice.
-      val citation = Regex("SPS(?:[-_][A-Za-z0-9]+)+")
+      // Three narrower versions of this were wrong, each in the same way and each after being
+      // "tightened": a pattern that describes the valid form necessarily accepts the part of a
+      // malformed token that is valid, and misses malformed tokens that break earlier than it
+      // starts looking. A trailing character, a trailing separator with text behind it, and a
+      // missing first separator each slipped through a different one of them.
+      //
+      // So this stops describing the target and describes the *neighbourhood*: the prefix followed
+      // by any run of identifier characters. Whether the token that spells out is a live
+      // requirement is then the index's question, not the pattern's — which is the only division
+      // of labour here that does not keep needing another exception. There is no ordinary word in
+      // this repository that starts with that prefix, which is what makes the wide net cheap.
+      //
+      // The prose above never writes the prefix followed by a word for the same reason: the
+      // pattern is wide enough that describing it is citing it, and the check reported its own
+      // comment twice before this was written down.
+      val citation = Regex("\\bSPS[A-Za-z0-9_-]*[A-Za-z0-9]")
 
       // An abbreviated range — a citation followed by a bare number stood in for the second
       // endpoint — hides that endpoint from every check above: only the first token carries the
