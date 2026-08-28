@@ -1,95 +1,10 @@
-# Pod media — binaries a pod owns (IST)
+# Pod media — how this implementation holds the bytes (IST)
 
-Upload against the pod, access decided by the context permissions that already exist, and a
-defensible answer to "nobody needs these bytes any more".
-
-Exact contracts are KDoc on the classes named under "Contract source". This document is the model
-and the boundaries.
-
-## Model
-
-- **Any binary, not images.** The pod server holds bytes and a content type. No image knowledge, no
-  variant concept. Rendering and resizing belong to the application, which does its own before
-  uploading.
-- **The pod streams the bytes itself**, after checking the context permissions. No CDN, no redirect,
-  no signed URLs; see "Delivery" for the door that stays open.
-- **Registry only, no RDF written by the upload.** The upload returns a media URL; whoever wants a
-  `schema:ImageObject` writes it. Registry and graph do not know each other, so there is nothing to
-  synchronise and nothing to drift.
-- **Opt-in.** With no backend configured the `_system/media` routes do not exist. A pod server holds
-  RDF; only a deployment that means to hold binaries configures a store.
-
-`{id}` is the **SHA-256 of the bytes**, base64url without padding — the encoding convention the
-[`_system/resources`](lod-crud/README.md) routes already use. Content-addressed, so an upload dedups
-within the pod and a re-upload yields the same URL. **Never across pods:** the storage key carries
-the `podId`, because a shared object would make pod A's deletion depend on pod B.
-
-## Routes
-
-```
-POST   {pod}/_system/media?context=<ctx>        upload; raw body + Content-Type, or a
-                                                source descriptor. 201 + Location.
-GET    {pod}/_system/media/{id}                 metadata (JSON), read check
-HEAD   {pod}/_system/media/{id}
-GET    {pod}/_system/media/{id}/content         the bytes, read check, ETag
-HEAD   {pod}/_system/media/{id}/content
-PUT    {pod}/_system/media/{id}?context=<ctx>   context-copy: add an assignment (idempotent)
-DELETE {pod}/_system/media/{id}?context=<ctx>   remove an assignment (ensure-absent, always 204)
-```
-
-Host-level operator routes: `POST _system/admin/media/sweep` (grace-period collection, `dryRun`
-supported) and `POST _system/admin/media/reconcile` (store↔registry drift, a report only). They are
-host-level rather than pod-scoped because a deleted pod's rows outlive the pod.
-
-`POST` also accepts `application/vnd.sempods.media-source+json` (`{"source_url", "filename"}`) and
-fetches the source itself. That path is an SSRF surface and is guarded — scheme allowlist, every A
-and AAAA record validated, the validated address pinned for the connection, the whole chain re-run
-per redirect hop, and a size cap enforced while streaming. The policy is the IANA special-purpose
-registries' *not globally reachable* column as a CIDR table, not a hand-picked list of private
-ranges.
-
-## Authorization
-
-Media inherit the pod's existing model rather than adding one.
-
-- **Write** (POST/PUT/DELETE) goes through `PodContextWriteAuthorizer`, manage-cascade included.
-- **Read**: a media is readable exactly when its assignment set intersects the caller's
-  `SempodsCredentials.restrictedContexts` (`null` = unrestricted).
-
-So anonymous/public access, `public-read`, the manage cascade, revocation and the context-deletion
-cascade all apply with no media-specific authorization logic.
-
-**Two consequences that look like quirks and are not:**
-
-- **`404`, never `403`,** for media the caller may not read — and the same `404` for ids that do not
-  exist. The id is a content hash, so a distinguishable `403` would answer "does this pod hold
-  exactly this file".
-- **`POST` always answers `201`,** never `200` for a dedup hit, and metadata lists only the
-  assignments the caller may read. Same reason.
-
-**Context-copy needs two permissions:** write on the target context *and* read on a context the
-media is already assigned to. Otherwise write anywhere would let anyone attach an arbitrary media id
-to their own context.
-
-## Delivery
-
-`schema:contentUrl` is **always** `{podBase}/_system/media/{id}/content`. That is the load-bearing
-property: a later CDN or signed-URL delivery changes what the server *answers* there, never what the
-data says — an optimisation rather than a migration.
-
-- ETag **is** the content hash, so it is a strong validator by construction; `304` on `If-None-Match`.
-- Metadata is `private, no-store`, content `private, no-cache`, both `Vary: Authorization`. Explicit
-  because the answer changes per caller and over time for the same one, and revocation is promised
-  to be immediate.
-- `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox` on every response.
-  `Content-Disposition` is an allowlist: `inline` for png/jpeg/gif/webp/avif, `attachment` for
-  everything else including unknown types. **`image/svg+xml` and `text/html` are always
-  `attachment`** — SVG carries script, and inline in the pod's origin means same-origin access.
-
-The door left open: presigned GET is standard S3, so `S3PodMediaStore` would gain
-`presignedGetUrl(key, ttl)` and the endpoint would redirect instead of stream. The filesystem store
-has no equivalent and keeps streaming — delivery is a property of the backend, and a deployment that
-wants the redirect picks a backend that can do it.
+**The contract is [`spec/modules/media.md`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md) in sempods-spec** — the
+routes, the content-addressed identifier, the authorization rule, delivery, and the collection
+order. This document does not repeat it. What is here is what the specification deliberately does
+not say: which store is behind the seam, how a deployment selects one, and what it takes on by
+enabling the module.
 
 ## The seam — storage backends
 
@@ -154,10 +69,9 @@ supplied.
   `SempodsFacade.deletePod` stamps the pod's rows unreferenced rather than deleting them, so the
   grace period cushions an accidental pod deletion. Both are pure registry work and never touch a
   byte. Both stamp with `$ifNull`, so an unrelated deletion does not restart a running grace period.
-- **The sweep** deletes the object first and the row second, conditionally on
-  `unreferencedSince < cutoff`. That order is the one whose interrupted state is harmless (an object
-  with no row is inert and reconcile reports it) and it lets a failing delete be retried by the next
-  run. Grace period defaults to 30 days.
+- **The sweep** order is [`SPS-MEDIA-024`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-024) — object
+  first, row second, so an interruption leaves a state the next run repairs. Here it runs
+  conditionally on `unreferencedSince < cutoff`, and the grace period defaults to 30 days.
 - **No in-process scheduler.** An operator cron against the admin route is the answer; sempods runs
   no tasks.
 - **Reconcile corrects nothing**, in either direction. The remedy is an operator's: delete the stray
@@ -166,22 +80,19 @@ supplied.
 
 ## Named limitations
 
-- **No range requests.** `Accept-Ranges` is not advertised.
-- **Two check-then-act races survive, narrowed rather than closed.** The registry, the context
-  registry and the blob store are separate systems with no shared transaction:
-  - between an upload's `exists` check and the sweep's object delete, the upload can end up with a
-    row whose bytes are gone. It is logged, counted as `brokenMedia`, listed by reconcile under
-    `rowsWithoutObject`, and healed by the next upload of the same content.
-  - between authorizing an upload and writing its assignment, `removeContext` can run.
-    `PodContextWriteAuthorizer.requireContextStillRegisteredOrThrow` repeats the check where the
-    decision is taken and answers `409`; the residual gap is one statement wide.
-- **No "no triple names this media any more → drop the assignment" reconciliation.** Assignments
-  linger if someone deletes a `schema:ImageObject` through the LOD layer without the media DELETE.
-  That is the price of keeping registry and graph apart; an application that owns both sides handles
-  it itself.
-- **Checksums are not re-verified.** An upload is covered by construction — the id *is* the digest
-  of the staged file — but nothing re-reads the bytes afterwards. Corruption in transit or at rest
-  is the backup's and the store's job (`restic check --read-data`, an object store's own scrub).
+The module chapter names four ([`spec/modules/media.md`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md) §7): no range
+requests, two surviving check-then-act races, no reconciliation of the graph against the registry,
+and checksums that are never re-verified. What that section cannot say is where they land in this
+code:
+
+- The **upload-versus-sweep** race is logged, counted as `brokenMedia`, listed by reconcile under
+  `rowsWithoutObject`, and healed by the next upload of the same content.
+- The **context-deleted-mid-upload** race is narrowed by
+  `PodContextWriteAuthorizer.requireContextStillRegisteredOrThrow`, which repeats the check where
+  the decision is taken and answers `409`. The residual gap is one statement wide.
+- **Checksums**: an upload is covered by construction — the identifier *is* the digest of the
+  staged file — and nothing re-reads the bytes afterwards. That is the backup's and the store's job
+  (`restic check --read-data`, an object store's own scrub).
 
 ## Deliberately outside
 
@@ -217,8 +128,11 @@ it.
 
 ## Related docs
 
-- [`lod-crud/README.md`](lod-crud/README.md) — the RDF CRUD layers. Media is **not** RDF CRUD; it
-  shares the base64url id convention and nothing else.
-- [`lod-crud/system-layer.md`](lod-crud/system-layer.md) — why control-plane state lives in MongoDB
-  rather than in the graph. The media registry is the same kind of thing.
+- [sempods-spec `spec/modules/media.md`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md) — the contract this
+  implements.
+- [sempods-spec `spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) — the RDF CRUD layers. Media is
+  **not** RDF CRUD; it shares the base64url identifier convention and nothing else. Why
+  control-plane state lives in MongoDB rather than in the graph is
+  [`SPS-CTX-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md#SPS-CTX-025); the media registry is the same kind of
+  thing.
 - [`concepts/modularity.md`](concepts/modularity.md) — the seam table this store is a row of.

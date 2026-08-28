@@ -125,7 +125,7 @@ across the three services — one concept, one spelling.
 
 **Identifiers on the wire**
 
-- `https://schema.sempods.org/` with prefix `sps:` — [`../NAMESPACE.md`](../NAMESPACE.md)
+- `https://schema.sempods.org/` with prefix `sps:` — [sempods-spec `vocabulary/`](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md)
   guarantees the IRI is never moved, renamed or re-cased after publication, with 12-month
   deprecation. This is the strongest promise in the project.
 - `https://sempods.org/ontology#` with prefix `sempods:` — emitted in WebID documents, so it is
@@ -195,5 +195,5 @@ half (KDoc links, logger names, the composition guard) and the module names are 
   as opposed to how they are spelled
 - [`../TRADEMARKS.md`](../TRADEMARKS.md) — what third parties may
   call their work
-- [`../NAMESPACE.md`](../NAMESPACE.md) — the vocabulary IRI
+- [sempods-spec `vocabulary/README.md`](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md) — the vocabulary IRI
   guarantees

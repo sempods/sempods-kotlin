@@ -1,27 +1,15 @@
-# MCP Authentication
+# MCP authentication — how this implementation realises it (IST)
 
-The MCP endpoint reuses the pod's OAuth 2.1 stack. This file documents
-only the pieces specific to MCP clients; the full pod auth model lives
-in [`../auth`](../auth).
+**The contract is [`spec/modules/mcp.md`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md)**: the three authentication modes
+([`SPS-MCP-005`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-005) to [`SPS-MCP-008`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-008)), the bearer challenge
+([`SPS-MCP-009`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-009)), the `authorize` tool and its `reauthorize` argument
+([`SPS-MCP-010`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-010) to [`SPS-MCP-014`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-014),
+[`SPS-MCP-029`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-029)), and registration dedup
+([`SPS-MCP-016`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-016)). Not repeated here.
 
-## Modes
-
-A request to `POST /{pod}/_system/mcp` is in one of three
-states:
-
-| Mode | Bearer | What works |
-|---|---|---|
-| **Anonymous** | none | `initialize`, `tools/list`, `resources/list`, `prompts/list`, `list_contexts`, `sparql_select`, `sparql_graph` — restricted to the pod's public contexts. The synthetic `authorize` tool emits a 401 with `WWW-Authenticate`. Write tools throw `InvalidBearerException` (also 401). |
-| **Public-read bearer** | `scope=public-read` only | Same as anonymous, but the `sub` is either the user's WebID or a synthetic `urn:sempods:anon:<uuid>`. The `authorize` tool still emits 401 to upgrade. |
-| **Context-granted bearer** | a normal user/service token whose `(client_id, sub)` has per-context grants in the store; the token's `scope` claim carries only feature scopes, optionally `public-read` | Sandbox = granted contexts (resolved server-side per request from `PodGrantsDao` / `PodServiceClientDao`) ∪ (public contexts only if `public-read` is in the token's scope set). The token does **not** carry `<context>#…` scopes. `public-read` is *additive*, not implicit: a normal feature scope the consent UI pre-checks by default but the user may deselect ([`../auth/authorization.md`](../auth/authorization.md) "The `public-read` pseudo-scope"; enforced in `GrantStorePodAuthorizer.authorize()`, which unions the pod's public contexts in only when the token carries the scope). Without it, the bearer sees only its resolved grants. |
-
-An *invalid* bearer (manipulated, expired, signature mismatch) is
-always rejected — the server never silently downgrades a failed auth
-attempt to anonymous.
-
-For the underlying scope grammar, the `manage` slash-delimited rule, and
-the public-read token semantics, see
-[`../auth/authorization.md`](../auth/authorization.md).
+What follows is the machinery underneath: which clients made the `authorize` tool necessary, how a
+replay is told apart from a fresh request, and what this implementation digests to dedup a
+registration.
 
 ## The `authorize` tool
 
@@ -149,7 +137,8 @@ Code / Web, ChatGPT, Copilot / VS Code, Open-Code) see
   embedding in JSON-RPC error envelopes.
 - [`tools.md`](tools.md) — the `authorize` tool description and
   per-tool scope checks.
-- [`../auth/oauth.md`](../auth/oauth.md) — OAuth 2.1 flow, refresh
-  rotation, public-read flow, error semantics at the pod level.
-- [`../auth/authorization.md`](../auth/authorization.md) — scope
-  grammar, `manage` rule, sandbox enforcement.
+- [sempods-spec `spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md) — the OAuth flows, refresh rotation
+  and the public-read flow.
+- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — the grant grammar, the
+  slash-delimited `manage` rule ([`SPS-GRANT-007`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-007)) and
+  server-side enforcement.

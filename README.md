@@ -66,7 +66,8 @@ move, because the first deployment that is not mine freezes them whatever the ve
 - **Stored formats.** Mongo database and collection names, the shape of the refresh-token rows,
   and the claim names in the tokens the services issue.
 - **Ontology IRIs.** Every term under `https://schema.sempods.org/` — see
-  [`NAMESPACE.md`](NAMESPACE.md), which also states the deprecation period they carry.
+  [the vocabulary](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md) in sempods-spec, which also states the deprecation
+  period they carry.
 
 The one surface deliberately *not* on that list is the Maven coordinates. Snapshots are published,
 but a snapshot is mutable and expires; the coordinates freeze at the first release.
@@ -127,7 +128,8 @@ curl http://localhost:8090/demo/.well-known/oauth-protected-resource
 ```
 
 From here, [`docs/auth/oauth.md`](docs/auth/oauth.md) walks through registering an app and
-obtaining a token, and [`docs/lod-crud/`](docs/lod-crud/) covers reading and writing resources.
+obtaining a token, and the specification's [CRUD chapter](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) covers reading
+and writing resources.
 
 Configuration is documented where it is used; the variables that matter for a first run are
 `SEMPODS_HTTP_PORT`, `SEMPODS_PUBLIC_BASE_URL` (the address the server is *known by* — pod IRIs
@@ -222,7 +224,7 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 |---|---|
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
 | [`docs/auth/`](docs/auth/) | contexts, grants, scopes, the OAuth profile, identity |
-| [`docs/lod-crud/`](docs/lod-crud/) | the data plane: LOD layer and system layer |
+
 | [`docs/mcp/`](docs/mcp/) | the MCP surfaces and how clients behave against them |
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | binaries a pod owns, and what stays outside |
@@ -261,7 +263,7 @@ out separately in [`TRADEMARKS.md`](TRADEMARKS.md) — deliberately permissive: 
 commercially, embed it in a closed product, fork it. The name is regulated only where it would
 suggest that this project produced or endorsed something it did not.
 
-Vocabulary terms and their stability guarantees: [`NAMESPACE.md`](NAMESPACE.md).
+Vocabulary terms and their stability guarantees: [sempods-spec `vocabulary/`](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md).
 
 ---
 
