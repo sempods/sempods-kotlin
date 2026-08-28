@@ -143,7 +143,10 @@ issue rather than a pull request.
   a seam rather than in a fork. If the seam you need does not exist yet, say so
   in an issue; extending the set of replaceable behaviours is welcome work.
 * **Specification changes** move slower than implementation changes and need a
-  written rationale, because other implementations depend on them.
+  written rationale, because other implementations depend on them. They belong
+  in https://github.com/sempods/sempods-spec, which has its own process and its
+  own version line. A change to behaviour that the specification already
+  describes needs both — the chapter and the code.
 * **Implementation changes** need tests, preferably at the HTTP level, since
   that is where the contract lives.
 

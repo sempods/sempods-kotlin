@@ -109,6 +109,13 @@ Key design choices:
 
 ## Documentation map
 
+**The specification is a separate repository**, [sempods-spec](https://github.com/sempods/sempods-spec).
+Nothing has moved out of `docs/` yet, so every document below is still the contract. What changes
+today is where a *new* one goes: a document a second, non-Kotlin implementation would have to read
+in order to be conformant belongs there, and one describing how this implementation happens to do
+it belongs here. When in doubt, write it here and say so — a document in the wrong repository is
+cheaper to move before anything cites it.
+
 Agent instructions: `docs/agents/` — the hub, the documentation strategy, and the two procedures
 (`roadmap-lifecycle.md`, `documentation-sync.md`).
 

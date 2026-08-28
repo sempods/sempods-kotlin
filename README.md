@@ -10,8 +10,10 @@ A **pod** inverts that. It is a data space you host, addressed over HTTP, holdin
 linked data. Apps and agents come to your data instead of keeping copies of it, and you decide
 who may read or write what — and can change your mind without losing anything.
 
-This repository holds the **specification** of that model and its **reference
-implementation**.
+This repository is the **reference implementation**. The specification has its own home at
+[sempods-spec](https://github.com/sempods/sempods-spec) — where the contract is being written down
+so that it can be implemented without reading Kotlin. Until those chapters exist, the contract is
+still what [`docs/`](docs/) says, and this code is what those documents describe.
 
 ---
 
@@ -55,8 +57,14 @@ architecture — its own tenancy, its own authorisation, its own search engine �
 documentation rather than against this code. That is the first evidence that the contract is
 implementable somewhere else, which is the claim this project actually needs to support.
 
-**What does not exist yet:** a standalone specification document (the contract lives in
-[`docs/`](docs/) for now), a conformance suite, and a one-command distribution.
+**What does not exist yet:** the specification *text* — [sempods-spec](https://github.com/sempods/sempods-spec)
+has existed since 2026-08-28 and carries the model, the requirement scheme and the chapter map, but
+the chapters themselves are still being extracted from [`docs/`](docs/), which is where the contract
+lives until they are. Also missing: a conformance suite, and a one-command distribution.
+
+**Which of the two is right, while both exist.** The specification is *descriptive* until it tags
+`0.1`: it is being extracted from this implementation, so where the text and this code disagree
+today, this code is right. At that tag it reverses, and a deviation here becomes the bug.
 
 **Stable despite `0.x`.** A leading zero is a licence to move the API, not the data. These do not
 move, because the first deployment that is not mine freezes them whatever the version number says
@@ -220,6 +228,7 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 
 | | |
 |---|---|
+| [sempods-spec](https://github.com/sempods/sempods-spec) | the contract as a specification, separate from this implementation — start there if you are implementing a pod rather than running one |
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
 | [`docs/auth/`](docs/auth/) | contexts, grants, scopes, the OAuth profile, identity |
 | [`docs/lod-crud/`](docs/lod-crud/) | the data plane: LOD layer and system layer |
