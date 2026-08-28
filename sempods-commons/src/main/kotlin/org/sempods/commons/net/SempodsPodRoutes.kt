@@ -26,11 +26,15 @@ import java.net.URI
  * `spec/core/sparql.md` and `spec/core/find.md` for the two read surfaces, and
  * `spec/modules/media.md` for media.
  *
- * Two are not specified there, and a client should not read the constant as a promise. The OIDC
- * callback appears only in `openapi/module-oidc.yaml`, with no requirement behind it — its path is
- * a redirect URI registered with the provider, so changing it breaks deployments regardless of
- * what any document says. [META_DATE_MODIFIED] is unspecified outright; it exists because sync
- * clients need a cheap change probe, and until it is written down it is this implementation's.
+ * The OIDC callback is `spec/modules/oidc.md`, which requires the route (`SPS-OIDC-014`) and fixes
+ * what it does (`SPS-OIDC-011`, `SPS-OIDC-015`) without fixing where it sits; only
+ * `openapi/module-oidc.yaml` spells the path. That is the weaker guarantee it looks like: the path
+ * is a redirect URI registered with an upstream provider, so it is pinned by deployments rather
+ * than by the spec.
+ *
+ * [META_DATE_MODIFIED] has nothing behind it at all. It exists because sync clients need a cheap
+ * change probe, and until it is written down it is this implementation's alone — a client reading
+ * the constant as a cross-implementation promise would be wrong.
  */
 object SempodsPodRoutes {
 
