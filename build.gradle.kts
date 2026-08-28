@@ -841,8 +841,19 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     // Kotlin as well as markdown, because most of these citations are prose inside KDoc — which is
     // exactly the half no markdown checker has ever been able to see, and the half that rots
     // silently.
+    // Absence is a failure, not a reason to skip. A guard that disables itself when its source of
+    // truth is missing passes at exactly the moment it was needed — and this file is a vendored
+    // build input, so it going missing is a mistake rather than a configuration.
     val index = File(repositoryRoot, "gradle/spec/requirements.json")
-    if (index.exists()) {
+    if (!index.exists()) {
+      throw GradleException(
+        "The vendored specification index is missing: gradle/spec/requirements.json.\n" +
+          "Every requirement cited in this repository is checked against it. " +
+          "`gradle/spec/README.md` says where it comes from.",
+      )
+    }
+
+    run {
       val text = index.readText()
 
       // Hand-parsed rather than pulled through a JSON library: this runs in the build script, the
@@ -872,7 +883,13 @@ val checkDocLinks = tasks.register("checkDocLinks") {
 
       repositoryRoot.walkTopDown()
         .onEnter { it.name !in skipped && it != worktrees }
-        .filter { it.isFile && (it.extension == "md" || it.extension == "kt" || it.extension == "kts") }
+        // `context7.json` earns its place here: it carries requirement citations and is *published*
+        // to agents outside this repository, so a typo there is served rather than merely stored.
+        // The index itself is excluded by path — it is what defines the identifiers.
+        .filter {
+          it.isFile &&
+            (it.extension == "md" || it.extension == "kt" || it.extension == "kts" || it.extension == "json")
+        }
         .filter { it.absolutePath != index.absolutePath }
         .sortedBy { it.path }
         .forEach { file ->
