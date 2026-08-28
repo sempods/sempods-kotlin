@@ -10,8 +10,13 @@ A **pod** inverts that. It is a data space you host, addressed over HTTP, holdin
 linked data. Apps and agents come to your data instead of keeping copies of it, and you decide
 who may read or write what — and can change your mind without losing anything.
 
-This repository holds the **specification** of that model and its **reference
-implementation**.
+This repository is the **reference implementation**. The specification is its own repository,
+[sempods-spec](https://github.com/sempods/sempods-spec) — 313 requirements over six core chapters and three optional modules, with
+hand-written OpenAPI descriptions of the HTTP surface.
+
+The split is not bookkeeping. A contract that lives inside one implementation is a contract nobody
+can tell apart from that implementation's habits; a second implementer reading `docs/` here would
+have had to guess which parts were obligations and which were Kotlin.
 
 ---
 
@@ -55,8 +60,14 @@ architecture — its own tenancy, its own authorisation, its own search engine �
 documentation rather than against this code. That is the first evidence that the contract is
 implementable somewhere else, which is the claim this project actually needs to support.
 
-**What does not exist yet:** a standalone specification document (the contract lives in
-[`docs/`](docs/) for now), a conformance suite, and a one-command distribution.
+**Which of the two is right, while both exist.** The specification is *descriptive* until it tags
+`0.1`: it was extracted from this code, so where the two disagree today, **this code is right**. At
+that tag it reverses, and a deviation here becomes the bug. `gradle.properties` names the version
+this implements, and `./gradlew checkDocLinks` fails if that claim drifts from the vendored index in
+`gradle/spec/`.
+
+**What does not exist yet:** a conformance suite — so nobody can prove an implementation conformant,
+including this one — and a one-command distribution.
 
 **Stable despite `0.x`.** A leading zero is a licence to move the API, not the data. These do not
 move, because the first deployment that is not mine freezes them whatever the version number says
@@ -209,7 +220,7 @@ sempods-client/     HTTP client implementing the contract against a remote pod
 sempods-control-plane-client/
                     HTTP client for the host-level admin surface (pod hosting)
 deployments/        the server as a process, and the local stack
-docs/               the contract, the model, and the reasoning behind both
+docs/               how this implementation works, and why. The contract is sempods-spec
 ```
 
 The server is a **reference implementation, not one particular hosting**. Behaviours a
@@ -222,12 +233,13 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 
 | | |
 |---|---|
+| [**sempods-spec**](https://github.com/sempods/sempods-spec) | **the contract** — contexts, grants, auth, CRUD, SPARQL, find, and the three modules. Start there to implement a pod |
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
-| [`docs/auth/`](docs/auth/) | contexts, grants, scopes, the OAuth profile, identity |
+| [`docs/auth/`](docs/auth/) | what this implementation does around the OAuth contract: rate limits, timeouts, provisioning, the error page |
 
-| [`docs/mcp/`](docs/mcp/) | the MCP surfaces and how clients behave against them |
+| [`docs/mcp/`](docs/mcp/) | this implementation's MCP surfaces: the tool reference, the challenge store, and how real clients behave |
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
-| [`docs/media.md`](docs/media.md) | binaries a pod owns, and what stays outside |
+| [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
 | [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
 | [`docs/concepts/`](docs/concepts/) | one document per topic, each stating what is and what is planned |
 

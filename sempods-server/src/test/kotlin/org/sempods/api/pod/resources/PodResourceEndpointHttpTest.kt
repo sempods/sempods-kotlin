@@ -1222,7 +1222,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     // Read-side counterpart to "PUT with manage scope … descendant". A service token
     // carrying only `<R>#manage` must reach `<R>/...` for reads too — otherwise a client
     // can write `<R>/events/abc` and immediately get 404 on GET. See
-    // `docs/auth/authorization.md` §"manage semantics".
+    // `SPS-GRANT-007` (sempods-spec).
     val pod = sempodsTestFactory.newPod()
     val rootContext = "apps/test-app/tasks"
     val rootContextUri = sempodsUriBuilder.buildContext(pod.name, rootContext)

@@ -10,7 +10,7 @@ The service is implemented by `sempods-auth` and is **optional**. sempods
 works without it — but with reduced identity capabilities.
 
 This document complements:
-- `docs/auth/authorization.md` (pod-side enforcement, scopes)
+- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) (pod-side enforcement, grants and scopes)
 - `docs/auth/identity.md` (pod trust model for identity JWTs)
 
 ---

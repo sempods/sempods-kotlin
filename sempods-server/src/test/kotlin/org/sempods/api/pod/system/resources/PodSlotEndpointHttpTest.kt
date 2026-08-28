@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 
 /**
  * Integration tests for the slot/edge routes of [PodSystemResourcesEndpoint] — LOD-CRUD System-layer slot CRUD per
- * `docs/lod-crud/system-layer.md`.
+ * sempods-spec `spec/core/lod-crud.md` §5.
  *
  * Acceptance criterion of LOD-CRUD Iteration 1: adding a `schema:children` value to an
  * existing person works via HTTP `POST` without losing existing children, and removing one

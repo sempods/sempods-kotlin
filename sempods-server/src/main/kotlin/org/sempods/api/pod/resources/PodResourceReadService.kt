@@ -17,7 +17,7 @@ import java.net.URI
  * Centralizing context-visibility resolution and the ETag base value here is what guarantees
  * the two addressing routes produce a byte-identical representation and validator for the same
  * `(resource, contexts)` — the cross-route conditional-write parity required by
- * `docs/lod-crud/system-layer.md`. A pod-owned IRI therefore has one identity whether
+ * sempods-spec `spec/core/lod-crud.md` §5. A pod-owned IRI therefore has one identity whether
  * fetched via the pretty canonical path or the b64 system-layer route.
  */
 class PodResourceReadService @Inject constructor(

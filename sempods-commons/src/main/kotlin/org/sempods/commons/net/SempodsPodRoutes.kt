@@ -20,7 +20,7 @@ import java.net.URI
  * `?context=…` and picks its own transport; every value here is relative and carries no leading
  * slash, so it composes with both `URI.resolve` and plain concatenation onto a trimmed base.
  *
- * The routes themselves are specified in `docs/lod-crud/`, `docs/media.md` and
+ * The routes themselves are specified in sempods-spec `spec/core/lod-crud.md`, `docs/media.md` and
  * `docs/auth/`; this object is where a client reads them, not where they are decided.
  */
 object SempodsPodRoutes {

@@ -368,7 +368,7 @@ repository these modules are extracted from, so it holds by construction rather 
 - [`../../AGENTS.md`](../../AGENTS.md) — mission, terminology, non-negotiable invariants
 - `docs/vision.md` — the standard itself
 - `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md` — pod data layer, `PodRepository`
-- `docs/auth/authorization.md` — the authorization model a seam would abstract
+- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — the authorization model a seam would abstract
 - `docs/ai-layer.md` — the provider abstraction that set the configuration precedent
 - `docs/architecture/dependency-injection.md` — the repo-wide rules for writing and composing a
   Guice module; the three binding shapes above are the sempods-specific reading of them

@@ -86,7 +86,7 @@ class PodResourceWriteService @Inject constructor(
   /**
    * Apply a strict RFC 7396 JSON merge-patch to the resource's canonical JSON-LD
    * representation in [contextUri]. The patch body MUST be in the canonical JSON-LD shape
-   * defined by `docs/lod-crud/lod-layer.md` §"Canonical JSON-LD representation":
+   * defined by `SPS-CRUD-023` (sempods-spec):
    *
    * - top-level `@id` only when it equals the request resource URI
    * - `@type` allowed (string, array of strings, or `null` to remove all `rdf:type` triples)

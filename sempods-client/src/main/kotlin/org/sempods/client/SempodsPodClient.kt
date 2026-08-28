@@ -277,7 +277,7 @@ class SempodsPodClient(
    *
    * **The way to write a subject the pod does not host.** External URIs are first-class here and
    * refused by [putResource], which is the difference between the two layers rather than a
-   * limitation of either (`docs/lod-crud/`).
+   * limitation of either (sempods-spec `spec/core/lod-crud.md`).
    */
   fun putSlot(subjectUri: URI, predicateUri: URI, contextUri: URI, values: List<Value>) =
     withTokenRetry { token ->

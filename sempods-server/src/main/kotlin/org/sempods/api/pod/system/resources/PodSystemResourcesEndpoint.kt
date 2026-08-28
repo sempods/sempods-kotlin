@@ -29,7 +29,7 @@ import java.net.URI
  * - **whole resource** — CRUD on an entire resource at an arbitrary IRI (the dynamic
  *   resource-by-IRI route; see the section further down in this class).
  *
- * See `docs/lod-crud/system-layer.md`.
+ * See sempods-spec `spec/core/lod-crud.md` §5.
  *
  * URL scheme (all path segments base64url-encoded, RFC 4648 §5, no padding):
  *
@@ -322,7 +322,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
    * One helper so they cannot drift into three spellings of the same idea — the distinction each
    * reports (`created`/`already_present`, `cleared`/`already_empty`, `removed`/`already_absent`) is
    * the same distinction, and it is what a caller cannot recover from an idempotent status code.
-   * Documented in `docs/lod-crud/system-layer.md`.
+   * Documented in sempods-spec `spec/core/lod-crud.md` §5.
    */
   private fun outcomeBody(outcome: String): String = "{\"outcome\":\"$outcome\"}"
 
@@ -337,7 +337,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
   // ETag base flow through the shared [PodResourceReadService]. Context rules, conditional
   // writes, the canonical JSON-LD representation, and the ETag validator are therefore
   // byte-identical to the canonical path, so a pod-owned IRI has one identity across both
-  // routes. See `docs/lod-crud/system-layer.md` §"Whole-resource CRUD by IRI".
+  // routes. See `SPS-CRUD-040` (sempods-spec).
 
   @GET
   @Path("{resourceB64}")

@@ -19,7 +19,8 @@ everyone else's.
 
 * Code — Apache License 2.0 (see `LICENSE`)
 * Documentation and specification text — CC BY 4.0
-* Vocabulary terms — CC BY 4.0 (see `NAMESPACE.md`)
+* Vocabulary terms — CC BY 4.0, and they live in sempods-spec now
+  (https://github.com/sempods/sempods-spec, `vocabulary/`)
 
 By contributing, you agree your contribution is licensed under the same terms
 as the file it lands in.

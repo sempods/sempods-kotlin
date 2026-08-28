@@ -55,7 +55,7 @@ import java.nio.file.Path as FilePath
  * ```
  *
  * **Under `_system` because a media registry is control-plane state**, the same reason contexts,
- * grants and service-client registrations are — `docs/lod-crud/system-layer.md` states the rule.
+ * grants and service-client registrations are — sempods-spec `spec/core/lod-crud.md` §5 states the rule.
  * Nothing here writes RDF: whoever wants a `schema:ImageObject` writes it themselves and points its
  * `schema:contentUrl` at the content route. Registry and graph stay unaware of each other, so
  * there is no synchronisation path to drift.

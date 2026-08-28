@@ -37,7 +37,7 @@ import java.net.URI
  * `{pod}/_system/contexts/apps/notes/public` manages the context whose
  * URI is `{pod}/_system/contexts/apps/notes/public`. Contexts live inside
  * the reserved `_system` tree because they are control-plane state, not data —
- * `docs/auth/authorization.md` §"Contexts as the permission boundary" — so
+ * sempods-spec `spec/core/contexts.md` §2 — so
  * identity and management route are one string and cannot drift apart.
  *
  * Structure rules live in [org.sempods.pods.contexts.ContextPathRules] and are shared with

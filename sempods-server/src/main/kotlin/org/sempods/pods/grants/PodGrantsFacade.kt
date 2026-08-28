@@ -19,7 +19,7 @@ import java.net.URI
  *
  * ## The two levels, and why they can drift
  *
- * `docs/auth/authorization.md` §"Authorization model" defines authorization as a
+ * `SPS-GRANT-013` (sempods-spec) defines authorization as a
  * two-level intersection:
  *
  * ```

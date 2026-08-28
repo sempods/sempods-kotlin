@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 /**
  * Docker-free unit test of the consolidated slash-delimited `<root>#manage` semantics
- * (`docs/auth/authorization.md` §"manage semantics"). Covers manage-root coverage and
+ * (`SPS-GRANT-007` (sempods-spec)). Covers manage-root coverage and
  * manage-cascade expansion, including the sibling-prefix isolation rule that a raw
  * `startsWith` would violate (`tasks#manage` must not reach `tasks-private`).
  */

@@ -50,8 +50,8 @@ This is not a business idea. Optimize for openness, clarity, and interoperabilit
 - Grant: a permission on a context, written `<context-iri>#read|write|manage`. Durable server-side
   policy, resolved per request from the grant store — it never travels in an access token.
 - Scope: an OAuth scope in the RFC 6749 sense — a coarse feature capability such as `public-read`.
-  These *do* travel in the token. See `docs/auth/authorization.md` §"Terminology: scope vs. grant";
-  parts of the code still say "scope" where "grant" is meant.
+  These *do* travel in the token. See [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md)
+  §1; parts of the code still say "scope" where "grant" is meant.
 
 ## Non-negotiable invariants
 
@@ -134,8 +134,8 @@ IST documentation:
 - Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's fifteen collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
 - AI layer (IST): `docs/ai-layer.md`
 - MCP per-pod surface (IST): `docs/mcp/` — JSON-RPC endpoint, tools, OAuth-gated access, client behavioral clusters
-- LOD/REST/CRUD layer (spec): `docs/lod-crud/` — two-layer model (LOD resource HTTP + System slot HTTP via `_system/resources/{b64url(uri)}`), context rules, base64url convention
-- Context namespace (IST): `docs/auth/authorization.md` §"Contexts as the permission boundary" — where context IRIs live (`_system/contexts/…`, typed when delegated, freely named when the owner keeps them), what a context may be called, and why a `_system` IRI is protected but still describable
+- LOD/REST/CRUD layer: **not here** — it is [sempods-spec `spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md). Two-layer model, context rules, base64url convention. Cited from this code by requirement identifier
+- Context namespace: **not here** — [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md). Where context IRIs live, what a context may be called, and why a `_system` IRI is protected but still describable
 - Text2Model endpoint (IST): `docs/ai/semweb/text2model.md`
 - Task use-case playbook (IST, includes `model2model` examples): `docs/ai/semweb/use-cases/tasks.md`
 - What agents may be told about this project: `context7.json` — its `rules` array asserts facts

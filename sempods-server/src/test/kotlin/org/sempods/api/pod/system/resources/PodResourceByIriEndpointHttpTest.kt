@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for the whole-resource CRUD-by-IRI route on [PodSystemResourcesEndpoint]
  * (`{pod}/_system/resources/{b64u(resourceIri)}`) — see
- * `docs/lod-crud/system-layer.md` §"HTTP verbs on the resource node".
+ * `SPS-CRUD-040` (sempods-spec).
  *
  * Acceptance focus:
  * - whole-resource create → merge-patch → delete on an IRI **outside** the pod namespace,

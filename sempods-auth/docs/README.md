@@ -23,5 +23,5 @@ External person-identity service for sempods.
 ## Related docs
 
 - `docs/auth/identity.md` — pod trust model for identity JWTs
-- `docs/auth/authorization.md` — pod-side authorization model and scopes
+- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — pod-side authorization model, grants and scopes
 - `docs/auth/oauth.md` — pod-issued access tokens, OAuth flows
