@@ -12,10 +12,6 @@ the numbers, the limits and the machinery this one chose. The token endpoint's r
 budget, the timeouts on the OIDC legs, service-client provisioning over the admin
 surface and its audit trail, and the page every OAuth `error_uri` points at.
 
-The old rule for this folder was "if a topic isn't here, it isn't part of the auth
-model". That is now the specification's job, and the inverse holds here: if a topic is
-here, it is *this pod server's* answer to something the contract left open.
-
 ## Mental model
 
 Four primitives:

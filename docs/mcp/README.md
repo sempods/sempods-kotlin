@@ -1,12 +1,13 @@
 # Model Context Protocol (MCP)
 
-This folder is the canonical home for the per-pod MCP surface — **how AI
-clients (Claude Desktop / Code, ChatGPT, Copilot, …) reach a sempod over
-JSON-RPC, what tools the pod exposes, and how OAuth gates them**.
+**The MCP contract is [`spec/modules/mcp.md`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md)** — the endpoint,
+the authentication modes, the `authorize` tool, the tool catalogue and the closed schemas.
+It is an optional module: a pod advertises it or does not provide it.
 
-Implementation details, PR history, and shipped roadmap items deliberately
-do not live here — only the model, the current state, and the high-level
-open points (tracked in the MCP roadmap, currently internal).
+This folder is how *this* pod server realises it, and what the module deliberately leaves
+open — the exact tool arguments, the challenge store behind re-authorization, the
+registration fingerprint, the session instructions, and how real clients behave against
+all of it.
 
 ## Mental model
 

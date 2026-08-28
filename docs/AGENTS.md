@@ -49,8 +49,8 @@ anything here. What it means for this folder:
 
 ## Auth and security docs
 
-Pod-side authentication & authorization is consolidated under
-`docs/auth/`:
+Pod-side authentication and authorization are **specified elsewhere** (above); what lives
+under `docs/auth/` is this implementation's side of it:
 
 **The authorization model itself is not here.** Contexts, grants, the OAuth profile and the client
 identity shapes are [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md),
