@@ -334,7 +334,7 @@ class PodMediaEndpoint @Inject constructor(
    * without a readable assignment. `no-cache` then forces revalidation before every reuse, because
    * `private` alone leaves the response eligible for a cache's *heuristic* freshness lifetime
    * (RFC 9111 §4.2.2): a browser could go on serving bytes after the grant that allowed them was
-   * revoked. `authorization.md` promises revocation takes effect immediately, and a cache that may
+   * revoked. sempods-spec `spec/core/grants.md` promises revocation takes effect immediately, and a cache that may
    * answer for an unbounded window would make that promise false.
    *
    * `no-cache` rather than `no-store` because the entity tag exists precisely to make revalidation

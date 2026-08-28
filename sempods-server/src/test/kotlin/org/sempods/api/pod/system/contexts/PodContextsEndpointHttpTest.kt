@@ -520,7 +520,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `list contexts with manage root token should include slash-delimited descendants with grants`() {
     // A service token carrying only `<R>#manage` must surface every registered
     // descendant `<R>/...` in the listing, with read/write/manage permissions —
-    // matching the slash-delimited authorization rule (`authorization.md` §"manage
+    // matching the slash-delimited authorization rule (sempods-spec `spec/core/grants.md` §"manage
     // semantics"). Sibling-prefix contexts (`<R>-private`) must stay out.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)

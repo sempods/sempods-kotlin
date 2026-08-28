@@ -368,7 +368,7 @@ class PodFacade @Inject constructor(
   /**
    * Add one value to the slot `(subject, predicate)` in [contextUri]. Idempotent: if the
    * exact statement already exists, returns [SlotAddOutcome.ALREADY_PRESENT] and does not
-   * touch the store (RDF set semantics; see `system-layer.md` §"Acknowledged deviations" 3).
+   * touch the store (RDF set semantics; see sempods-spec `spec/core/lod-crud.md` §5 §"Acknowledged deviations" 3).
    */
   internal fun addSlotValue(
     podName: String,

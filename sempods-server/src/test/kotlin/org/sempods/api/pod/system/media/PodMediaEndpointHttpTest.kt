@@ -505,7 +505,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     // Both URLs answer differently per caller AND over time: a context turning private, or a grant
     // being revoked, changes the answer without changing the URL. Without an explicit directive a
     // cache may apply heuristic freshness (RFC 9111 §4.2.2) and keep serving the old one — which
-    // would quietly contradict authorization.md's promise that revocation takes effect immediately.
+    // would quietly contradict `SPS-GRANT-003`: revocation takes effect on the next request.
     assertEquals("private, no-store", metadata.getHeader("Cache-Control"), "metadata must not be stored at all")
     assertEquals("private, no-cache", content.getHeader("Cache-Control"), "content may be stored but must be revalidated")
     assertEquals(304, revalidated.statusCode)

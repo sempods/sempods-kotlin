@@ -123,7 +123,7 @@ urn:sempods:anon:<random-uuid>
 These subjects are **not** stable across requests. They exist so that
 the resource layer always has a `sub` for rate-limiting and audit logs;
 they grant nothing beyond the pod's `public-read` scope. See
-`oauth.md` for how this is requested and `authorization.md` for what
+`oauth.md` for how this is requested and sempods-spec `spec/core/grants.md` for what
 it can access.
 
 ## Identity phases
@@ -151,4 +151,4 @@ across deployments is opt-in via `owl:sameAs` in WebID documents.
   `../../sempods-auth/docs/identity-service.md`.
 - Pod-issued access tokens, refresh tokens, OAuth flows → see
   `oauth.md`.
-- Scope grammar, grants, enforcement → see `authorization.md`.
+- Scope grammar, grants, enforcement → see sempods-spec `spec/core/grants.md`.

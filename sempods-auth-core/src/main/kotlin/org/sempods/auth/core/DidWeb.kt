@@ -31,7 +31,7 @@ object DidWeb {
      *
      * Matching on **path segments**, not on a string prefix. `did:web:example.org:mcp` covers
      * `/mcp` and `/mcp/cb` and must not cover `/mcp-other/cb` — the two share five characters and
-     * nothing else. `authorization.md` states the same rule for the `manage` scope and adds why it
+     * nothing else. sempods-spec `spec/core/grants.md` states the same rule for the `manage` scope and adds why it
      * is load-bearing there: an implementation using raw `startsWith` is wrong, because the point
      * of the prefix is a tree and `-` is not a separator.
      *

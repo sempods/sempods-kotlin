@@ -29,7 +29,7 @@ import java.net.URI
  *
  * `PUT` / `DELETE` are authorized for the pod owner (catch-all) or for a service
  * client holding a `<root>#manage` scope that covers the target context via the
- * slash-delimited rule (`authorization.md` §"manage semantics") — the same rule the
+ * slash-delimited rule (`SPS-GRANT-007` (sempods-spec)) — the same rule the
  * write enforcer applies, shared through
  * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope].
  *
@@ -113,7 +113,7 @@ class PodContextsEndpoint @Inject constructor(
    * This is what makes a context IRI dereferenceable, and it is what separates the *original* from
    * what anyone may say *about* it. Triples whose subject is a context IRI are ordinary statements
    * living in some context — the same way a pod can hold statements about `did:web:bob.example` or
-   * another pod's resources (`lod-crud/lod-layer.md` §"Writes": resource IRI and target graph are
+   * another pod's resources (sempods-spec `spec/core/lod-crud.md` §4 §"Writes": resource IRI and target graph are
    * independent dimensions). They are read back through `_system/resources/{b64url(iri)}`. What the
    * registry says about the context comes from here, and RDF cannot change it: contexts, grants and
    * registrations live in MongoDB, not in the graph.

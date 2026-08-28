@@ -87,7 +87,7 @@ open class CorsFilter(
         "Authorization",
         "Content-Type",
 
-        // Conditional writes per lod-layer.md: `If-Match` for race-safe update/delete,
+        // Conditional writes per `SPS-CRUD-034`: `If-Match` for race-safe update/delete,
         // `If-None-Match: *` for create-only PUT. Without these in the preflight allow-list
         // the browser blocks the actual request with a TypeError before it ever hits the server.
         "If-Match",
@@ -115,7 +115,7 @@ open class CorsFilter(
     // `If-Match`, so every update/delete/clear/set against a concurrent-safe pod would be
     // refused as `etag_unavailable`. `Location` lets POST callers distinguish
     // `created` (Location header present, 201) from `already_present` (no Location, 200)
-    // per `system-layer.md` §"Acknowledged deviations" #3.
+    // per sempods-spec `spec/core/lod-crud.md` §5 §"Acknowledged deviations" #3.
     val exposedHeaders =
       listOf(
         "WWW-Authenticate",

@@ -27,7 +27,7 @@ class PodResourceReadService @Inject constructor(
 ) {
 
   /**
-   * Apply read-side context downscoping per `lod-layer.md` §"Reads": parse repeated `?context=`
+   * Apply read-side context downscoping per `SPS-CRUD-014` (sempods-spec): parse repeated `?context=`
    * parameters, intersect with the caller's readable contexts.
    *
    * - `null` return = no `?context=` parameter → caller-visible context set is the full readable

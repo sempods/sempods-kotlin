@@ -908,8 +908,8 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `remove_property_value on already-absent edge is idempotent (already_absent)`() {
-    // System-layer single-edge delete is idempotent (system-layer.md §"HTTP verbs on a
-    // single edge"). MCP mirrors that as outcome=already_absent on the second call —
+    // System-layer single-edge delete is idempotent (`SPS-CRUD-042`), and the outcome word is
+    // `SPS-CRUD-044`'s. MCP mirrors it as outcome=already_absent on the second call —
     // no isError, so agents can lean on this for "ensure this triple does not exist".
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")

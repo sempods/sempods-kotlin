@@ -856,19 +856,30 @@ val checkDocLinks = tasks.register("checkDocLinks") {
     run {
       val text = index.readText()
 
-      // Hand-parsed rather than pulled through a JSON library: this runs in the build script, the
-      // file is generated with a fixed shape, and adding a dependency to read four fields out of a
-      // vendored artifact is a worse trade than a regex over a file this repository never writes.
-      val known = Regex("\"id\"\\s*:\\s*\"(SPS-[A-Z]+-\\d{3})\"")
-        .findAll(text).map { it.groupValues[1] }.toSet()
-      val withdrawn = Regex(
-        "\"id\"\\s*:\\s*\"(SPS-[A-Z]+-\\d{3})\"[^}]*?\"withdrawn\"\\s*:\\s*true",
-        RegexOption.DOT_MATCHES_ALL,
-      ).findAll(text).map { it.groupValues[1] }.toSet()
+      // Parsed rather than pattern-matched. The first version of this read the file with two
+      // regexes and got the withdrawal one wrong: `[^}]*?` between an identifier and its
+      // `withdrawn` field stops at the first `}` — and eighteen summaries contain one, because
+      // they quote route templates like `{pod}`. Every citation to those would have kept passing
+      // after the requirement was withdrawn, which is the single thing this check exists to catch.
+      @Suppress("UNCHECKED_CAST")
+      val parsed = groovy.json.JsonSlurper().parseText(text) as Map<String, Any?>
+      val entries = (parsed["requirements"] as? List<Map<String, Any?>>).orEmpty()
+      val known = entries.mapNotNull { it["id"] as? String }.toSet()
+      val withdrawn = entries.filter { it["withdrawn"] == true }.mapNotNull { it["id"] as? String }.toSet()
 
-      val declared = Regex("\"specVersion\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.get(1)
+      // Absence fails like a mismatch. Either value going missing leaves the claim unverified,
+      // and an unverified claim that passes is the same outcome as no check at all.
+      val declared = parsed["specVersion"] as? String
       val implemented = project.findProperty("specVersion")?.toString()
-      if (declared != null && implemented != null && declared != implemented) {
+      if (declared.isNullOrBlank() || implemented.isNullOrBlank()) {
+        throw GradleException(
+          "The implemented sempods specification version is not stated on both sides: " +
+            "gradle.properties says '${implemented ?: "<missing>"}', " +
+            "gradle/spec/requirements.json says '${declared ?: "<missing>"}'. " +
+            "Both are required — see `gradle/spec/README.md`.",
+        )
+      }
+      if (declared != implemented) {
         throw GradleException(
           "This repository claims to implement sempods specification '$implemented' " +
             "(`specVersion` in gradle.properties), but the vendored index is '$declared' " +
@@ -877,7 +888,17 @@ val checkDocLinks = tasks.register("checkDocLinks") {
         )
       }
 
-      val citation = Regex("SPS-[A-Z]+-\\d{3}")
+      // Deliberately wider than the identifier form. A pattern anchored to exactly three digits
+      // matches a *prefix* of a mistyped citation — a trailing digit or letter is simply left
+      // outside the match — so the typo passes as the live identifier it begins with. This
+      // captures the whole SPS-like token instead, and the token as a whole is then either known
+      // or reported. A guard meant to separate citations from typos must not accept a typo's
+      // prefix.
+      //
+      // Which is also why this comment describes the shapes rather than spelling them: written
+      // out, they would be citations in a scanned file, and the guard would report itself.
+      // Deliberate — that is the check working, and the examples live in the commit message.
+      val citation = Regex("SPS-[A-Za-z0-9]+-[A-Za-z0-9]+")
       val unknown = mutableListOf<String>()
       val retired = mutableListOf<String>()
 

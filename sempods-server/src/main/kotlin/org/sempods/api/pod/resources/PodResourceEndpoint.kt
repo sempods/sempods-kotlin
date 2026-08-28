@@ -165,7 +165,7 @@ class PodResourceEndpoint @Inject constructor(
     val body = if (includeContexts) {
       RdfWriterUtil.toJsonLdNamedGraphs(model = model, resource = resourceUri.toIri())
     } else {
-      // Canonical JSON-LD per `lod-layer.md` §"Canonical JSON-LD representation": absolute
+      // Canonical JSON-LD per `SPS-CRUD-023` (sempods-spec): absolute
       // IRI predicate keys, no @context, value objects as arrays. This is the only shape the
       // LOD-layer PATCH endpoint accepts as patch document — same shape on the way out.
       RdfWriterUtil.toCanonicalJsonLdEntry(

@@ -35,7 +35,7 @@ enforces the result on every request — apps never decide their own access.
   is decidable from `(context, scope, sub, client_id)` alone.
 - **Standards-first.** OAuth 2.1, OIDC Core 1.0, RFC 7591 (DCR), RFC 9728
   (PRM), RFC 6750 (Bearer), PKCE S256. Where sempods deviates, the
-  deviation is documented (see `authorization.md` on `manage`, and
+  deviation is documented (see sempods-spec `spec/core/grants.md` on `manage`, and
   `oauth.md` on `dyn:` clients and `public-read`).
 - **Identities are external.** WebID URIs are the canonical handle. Pods
   don't manage person identity — they store WebID URIs in grants.
@@ -144,7 +144,7 @@ code.
 - **`identity.md`** — authentication: WebID identity layers, identity
   JWTs issued by `id.sempods.org`, the OIDC bridge, trust model,
   anonymous subjects.
-- **`authorization.md`** — authorization model: contexts, scopes, grants,
+- **sempods-spec `spec/core/grants.md`** — authorization model: contexts, scopes, grants,
   enforcement points, error semantics.
 - **`oauth.md`** — OAuth flows for apps and MCP-style clients:
   Authorization Code + PKCE, refresh, public-read, `dyn:` vs `did:web:`
