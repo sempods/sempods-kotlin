@@ -4,9 +4,10 @@ Scope: applies to `docs/**`.
 
 ## Context
 
-This folder documents *this implementation*. The specification moved to `sempods-spec`; a
-statement about what a pod must do belongs there, and what is written here is what this
-server does about it. [`README.md`](README.md) indexes the folder by documentation type.
+This folder documents *this repository* — all three services and the libraries under them, not the
+pod server alone. The specification moved to `sempods-spec`; a statement about what a pod must do
+belongs there, and what is written here is what this implementation does about it.
+[`README.md`](README.md) indexes the folder by documentation type.
 
 ## Documentation policy
 
