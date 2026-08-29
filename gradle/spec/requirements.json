@@ -383,7 +383,7 @@
       "id": "SPS-AUTH-054",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "A browser session established at a pod MUST be scoped to that pod.",
+      "summary": "A pod MUST accept a browser session credential only where it issued that credential for itself.",
       "withdrawn": false
     },
     {
@@ -391,20 +391,6 @@
       "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "The response parameters MUST be **added to** the redirect URI's query component per RFC 6749 §4.1.2, preserving any component it already carries.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-AUTH-056",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "An implementation MUST **also** serve the metadata at the host-rooted form RFC 9728 §3.1 constructs, by inserting `/.well-known/oauth-protected-resource` between the authority and the pod's path: `{origin}/.well-known/oauth-protected-resource/{pod}`.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-AUTH-057",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "Where an implementation advertises RFC 8414 Authorization Server Metadata, it MUST serve it at the host-rooted form for its issuer as well as at the append form, and both MUST return the same document.",
       "withdrawn": false
     },
     {
@@ -425,7 +411,7 @@
       "id": "SPS-CORE-003",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "Requirement identifiers are permanent.",
+      "summary": "From the `0.1` release on, requirement identifiers are permanent: an identifier MUST NOT be reassigned to a different statement, MUST NOT be renumbered, and a requirement that is retired MUST be marked `withdrawn`, keep its identifier and its original text, and name its successor if it has one.",
       "withdrawn": false
     },
     {
@@ -453,7 +439,7 @@
       "id": "SPS-CORE-007",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "A pod is addressed under a base URL of the form `{origin}/{pod}`, where `{pod}` is the pod's identifier within the deployment.",
+      "summary": "A pod is addressed under a base URL.",
       "withdrawn": false
     },
     {
@@ -531,6 +517,20 @@
       "part": "core",
       "chapter": "spec/core/index.md",
       "summary": "On a **write**, the two failures are currently distinguished: a context that is not registered produces `404`, and a registered context the caller may not write produces `403`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CORE-019",
+      "part": "core",
+      "chapter": "spec/core/index.md",
+      "summary": "A pod's base URL MUST be absolute, MUST use `https` on any host and MAY use `http` only on a loopback address, MUST carry no query and no fragment, and its path MUST NOT end in a slash.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CORE-020",
+      "part": "core",
+      "chapter": "spec/core/index.md",
+      "summary": "A pod's base URL path MUST NOT contain a dot segment, a backslash, or a percent-encoded octet.",
       "withdrawn": false
     },
     {
@@ -1769,7 +1769,7 @@
       "id": "SPS-MEDIA-004",
       "part": "media",
       "chapter": "spec/modules/media.md",
-      "summary": "Content addressing MUST deduplicate within a pod and MUST NOT deduplicate across pods.",
+      "summary": "Content addressing MUST deduplicate within a pod, and a collected object MUST become unretrievable at that pod whatever else holds the same bytes.",
       "withdrawn": false
     },
     {

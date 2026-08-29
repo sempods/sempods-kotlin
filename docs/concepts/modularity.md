@@ -212,6 +212,14 @@ an authority that authorizes every caller would be legitimate only where the sur
 reachable across a trust boundary at all, and wrong anywhere the server listens on an
 interface someone else can reach — which is why no such implementation exists here.
 
+**The unit of conformance is one pod, not the deployment.** The specification describes a single
+pod and nothing above it: a pod has one base URL and the specification does not prescribe how that
+URL decomposes ([`SPS-CORE-007`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-007)), so path-segment resolution,
+a fixed pod and a host that *is* one pod are equally conformant and equally invisible to it.
+Hosting many pods is therefore not a conformance question at all. It is this implementation's
+extension, the pod-resolution seam above is where it lives, and a hosting conforms exactly when
+each of its pods does.
+
 This is what keeps conformance testable: a conformance suite runs against the invariants,
 not against a particular set of bindings.
 
