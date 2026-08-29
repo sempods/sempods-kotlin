@@ -175,24 +175,31 @@ A pod-bound MCP needs to advertise where to obtain a bearer. Different
 clients probe different paths; the pod serves all of them. The protected
 resource is always the pod URL, and the pod has exactly one issuer.
 
+A host-rooted route is one the well-known segment is inserted *in front of*, so it lives on the
+origin rather than under a pod's base URL. Three of the six below are that shape, and the
+specification requires exactly one of the three — `SPS-MCP-031`, at the MCP URL. The other two are
+this deployment's own; [`../auth/README.md`](../auth/README.md) §"What this implementation adds"
+says why it serves them anyway.
+
 ### Pod-level
 
 ```
-GET /{pod}/.well-known/oauth-protected-resource
-GET /.well-known/oauth-protected-resource/{pod}                              ← RFC-9728 §3.1 strict
+GET /{pod}/.well-known/oauth-protected-resource                    ← SPS-AUTH-045
+GET /.well-known/oauth-protected-resource/{pod}                    ← host-rooted, this deployment's
 GET /{pod}/_system/auth/.well-known/oauth-authorization-server
-GET /.well-known/oauth-authorization-server/{pod}/_system/auth               ← RFC-8414 strict
+GET /.well-known/oauth-authorization-server/{pod}/_system/auth     ← host-rooted, this deployment's
 ```
 
 ### At the MCP URL
 
 MCP 2025-11-25 clients treat the MCP URL as the protected-resource
 identifier and probe it before they ever see a 401. Both routes serve the
-pod-level body — the MCP URL is another spelling of the same resource:
+pod-level body — the MCP URL is another spelling of the same resource, and
+[`SPS-MCP-031`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-031) requires both:
 
 ```
-GET /{pod}/_system/mcp/.well-known/oauth-protected-resource
-GET /.well-known/oauth-protected-resource/{pod}/_system/mcp                  ← RFC-9728 §3.1 strict
+GET /{pod}/_system/mcp/.well-known/oauth-protected-resource        ← SPS-MCP-031
+GET /.well-known/oauth-protected-resource/{pod}/_system/mcp        ← SPS-MCP-031, host-rooted
 ```
 
 There is deliberately **no** `oauth-authorization-server` route under the

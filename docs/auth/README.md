@@ -41,6 +41,15 @@ be a conforming pod if it were done differently:
   issues *identity* tokens; a pod issues *access* tokens. They are separate issuers with separate
   keys that happen to ship together — [`identity.md`](identity.md) is the one that explains why
   a WebID needs an issuer at all.
+- **Host-rooted OAuth metadata.** The specification requires protected-resource metadata only at
+  the pod-relative append form, `GET /{pod}/.well-known/oauth-protected-resource`
+  ([`SPS-AUTH-045`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-045)). The addresses RFC 9728 §3.1 and RFC 8414
+  construct sit on the *origin* instead — `/.well-known/oauth-protected-resource/{pod}` and its
+  authorization-server sibling — which is above any one pod's base URL, so no pod can be obliged to
+  serve them. This deployment owns the origin and serves them anyway, because a generic OAuth
+  client probes there before it has ever seen a `401`. That is hosting behaviour, not conformance:
+  a pod that served only the append form would be exactly as conformant.
+  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six.
 
 ## Standards used
 
