@@ -32,7 +32,13 @@ today and what the target is, and links down to both.
 
 ## Reference — what the system is today
 
-All IST. Where one of these disagrees with the code, the code is right and the document is the bug.
+**IST.** Where one of these disagrees with the code, the code is right and the document is the bug.
+
+Two carry a **marked SOLL section** for work that is planned rather than built:
+[`pod-client.md`](pod-client.md) (`explicitApi()`, the owner and operator surfaces) and
+[`auth/identity.md`](auth/identity.md) (DPoP). That marking is the rule, not an exception —
+[`agents/documentation-strategy.md`](agents/documentation-strategy.md) forbids mixing the two inside
+one section precisely so a reader can tell them apart. **Trust the section marker, not the folder.**
 
 **By area**
 
@@ -72,12 +78,3 @@ they govern how the rest of this directory is written rather than describing the
 [`documentation-strategy.md`](agents/documentation-strategy.md) the authority on the four types, and
 [`documentation-sync.md`](agents/documentation-sync.md) and
 [`roadmap-lifecycle.md`](agents/roadmap-lifecycle.md) the two procedures.
-
-## Not yet filed
-
-[`chat-app-brainstorm.md`](chat-app-brainstorm.md) opens by saying the brainstorm moved to
-`sempods-apps`, and then carries seven server-side gaps the chat app pushes against — CORS policy,
-a server-side `find` entry, per-context summaries, ergonomic `public-read` bearers, operator CORS
-guidance, token revocation from the pod, and a SHACL-gated app-MCP analog. Those belong to this
-repository, not to the app, and each names a roadmap it has not been added to. The pointer half is
-also stale: the target file does not exist in `sempods-apps`.
