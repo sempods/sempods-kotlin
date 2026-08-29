@@ -161,7 +161,7 @@ code.
 - **`service-clients.md`** — provisioning a service client over the admin surface,
   idempotency, the audit trail and its retention. What a service client *is* and what
   it may hold is [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012) onwards.
-- **`oauth-errors.md`** — the recovery page every OAuth `error_uri`
+- **[`oauth-errors.md`](oauth-errors.md)** — the recovery page every OAuth `error_uri`
   points at: one heading per error code a redirect can carry.
 - **`../../sempods-auth/docs/identity-service.md`** — implementation
   details for the id-server (URI namespaces, OIDC bridge internals,

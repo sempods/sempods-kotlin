@@ -4,7 +4,9 @@ Scope: applies to `docs/**`.
 
 ## Context
 
-This folder contains sempods specification and implementation-facing documentation.
+This folder documents *this implementation*. The specification moved to `sempods-spec`; a
+statement about what a pod must do belongs there, and what is written here is what this
+server does about it. [`README.md`](README.md) indexes the folder by documentation type.
 
 ## Documentation policy
 
