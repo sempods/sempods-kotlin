@@ -48,8 +48,11 @@ be a conforming pod if it were done differently:
   authorization-server sibling — which is above any one pod's base URL, so no pod can be obliged to
   serve them. This deployment owns the origin and serves them anyway, because a generic OAuth
   client probes there before it has ever seen a `401`. That is hosting behaviour, not conformance:
-  a pod that served only the append form would be exactly as conformant.
-  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six.
+  a pod that served only the append forms would be exactly as conformant. The same holds for the
+  third host-rooted route, the one at the MCP URL, and for the pod-relative authorization-server
+  metadata, which the specification now places nowhere at all —
+  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six and says which
+  two the specification asks for.
 
 ## Standards used
 

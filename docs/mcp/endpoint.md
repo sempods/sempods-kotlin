@@ -175,18 +175,20 @@ A pod-bound MCP needs to advertise where to obtain a bearer. Different
 clients probe different paths; the pod serves all of them. The protected
 resource is always the pod URL, and the pod has exactly one issuer.
 
-A host-rooted route is one the well-known segment is inserted *in front of*, so it lives on the
-origin rather than under a pod's base URL. Three of the six below are that shape, and the
-specification requires exactly one of the three — `SPS-MCP-031`, at the MCP URL. The other two are
-this deployment's own; [`../auth/README.md`](../auth/README.md) §"What this implementation adds"
-says why it serves them anyway.
+Two of the six below are the specification's — `SPS-AUTH-045` and `SPS-MCP-031`, both append forms
+under the pod's own base URL. The other four are this deployment's. Three of those are *host-rooted*:
+the well-known segment is inserted in front of the path, so the route lives on the origin and no pod
+can serve it alone, which is why the specification asks for none of them. The fourth is the
+authorization-server metadata under the pod, which the specification simply no longer places
+anywhere. [`../auth/README.md`](../auth/README.md) §"What this implementation adds" says why this
+deployment serves all of them anyway.
 
 ### Pod-level
 
 ```
 GET /{pod}/.well-known/oauth-protected-resource                    ← SPS-AUTH-045
 GET /.well-known/oauth-protected-resource/{pod}                    ← host-rooted, this deployment's
-GET /{pod}/_system/auth/.well-known/oauth-authorization-server
+GET /{pod}/_system/auth/.well-known/oauth-authorization-server     ← this deployment's
 GET /.well-known/oauth-authorization-server/{pod}/_system/auth     ← host-rooted, this deployment's
 ```
 
@@ -194,12 +196,13 @@ GET /.well-known/oauth-authorization-server/{pod}/_system/auth     ← host-root
 
 MCP 2025-11-25 clients treat the MCP URL as the protected-resource
 identifier and probe it before they ever see a 401. Both routes serve the
-pod-level body — the MCP URL is another spelling of the same resource, and
-[`SPS-MCP-031`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-031) requires both:
+pod-level body — the MCP URL is another spelling of the same resource.
+[`SPS-MCP-031`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-031) requires the append form; the host-rooted one is
+this deployment's, like the two above it:
 
 ```
 GET /{pod}/_system/mcp/.well-known/oauth-protected-resource        ← SPS-MCP-031
-GET /.well-known/oauth-protected-resource/{pod}/_system/mcp        ← SPS-MCP-031, host-rooted
+GET /.well-known/oauth-protected-resource/{pod}/_system/mcp        ← host-rooted, this deployment's
 ```
 
 There is deliberately **no** `oauth-authorization-server` route under the
