@@ -11,7 +11,7 @@ linked data. Apps and agents come to your data instead of keeping copies of it, 
 who may read or write what — and can change your mind without losing anything.
 
 This repository is the **reference implementation**. The specification is its own repository,
-[sempods-spec](https://github.com/sempods/sempods-spec) — 313 requirements over six core chapters and three optional modules, with
+[sempods-spec](https://github.com/sempods/sempods-spec) — a core every pod implements and optional modules on top, with
 hand-written OpenAPI descriptions of the HTTP surface.
 
 The split is not bookkeeping. A contract that lives inside one implementation is a contract nobody
