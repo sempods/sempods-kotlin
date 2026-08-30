@@ -20,6 +20,12 @@ the model — it revealed why the model was right. Agents navigate structured, l
 natively. What was once a niche capability is now a primary use case. The Zeitgeist caught
 up with the architecture, not the other way around.
 
+That familiarity is a strength, not a caveat. sempods does not try to replace the web stack with a
+private protocol, database or query language. It specifies the missing contract between known
+pieces: HTTP-addressed resources, RDF contexts, JSON-LD representations, SPARQL queries,
+OAuth/OIDC authorization, and MCP as an agent-facing projection of the same rules. The new work is
+the coherent fit.
+
 ---
 
 ## What is a Semantic Pod?
