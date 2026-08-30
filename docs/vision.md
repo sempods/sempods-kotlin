@@ -23,7 +23,7 @@ up with the architecture, not the other way around.
 That familiarity is a strength, not a caveat. sempods does not try to replace the web stack with a
 private protocol, database or query language. It specifies the missing contract between known
 pieces: HTTP-addressed resources, RDF contexts, JSON-LD representations, SPARQL queries,
-OAuth/OIDC authorization, and MCP as an agent-facing projection of the same rules. The new work is
+OAuth authorization, OIDC identity, and MCP as an agent-facing projection of the same rules. The new work is
 the coherent fit.
 
 ---
