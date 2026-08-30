@@ -18,6 +18,11 @@ The split is not bookkeeping. A contract that lives inside one implementation is
 can tell apart from that implementation's habits; a second implementer reading `docs/` here would
 have had to guess which parts were obligations and which were Kotlin.
 
+The lower stack is intentionally familiar. This implementation uses existing HTTP, RDF, SPARQL,
+OAuth/OIDC and MCP machinery where it can; the sempods-specific work is the contract that makes
+those pieces behave as one pod: context-scoped data, server-side grant resolution, sandboxed query
+surfaces and the same authority model for apps, websites and agents.
+
 ---
 
 ## What a pod is, in five points
