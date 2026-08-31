@@ -481,6 +481,30 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `the pod authorize URL asks for offline_access, because the connection lives on a refresh token`() = testApplication {
+    // This service holds a pod connection open by rotating the pod's refresh token. A pod is free
+    // to issue one only to a client that asked for it, so the ask is pinned here rather than left
+    // to the pod's current permissiveness: without it, the day a pod stops handing out refresh
+    // tokens unasked, every connection would die an hour after it was made and nothing in the flow
+    // would say why. Connect and re-authorize share `buildPodAuthorizeRedirect`, so one covers both.
+    val user = "https://id.test/e/web-user-offline"
+    val tokenIssuer = installWebUi()
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
+          issuer = authBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase))
+
+      assertEquals("offline_access", authorize.parameters["scope"], "$authorize")
+    }
+  }
+
+  @Test
   fun `a pod-denied callback returns to the consent flow (returnTo), keeping the profile`() = testApplication {
     val tokenIssuer = installWebUi()
     val user = "https://id.test/e/web-user6"

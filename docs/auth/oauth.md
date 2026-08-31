@@ -202,6 +202,20 @@ What it does **not** address is replay: one accepted request is enough to
 revoke a family, and every limiter admits the first request. That is the
 rotation rule below.
 
+### `offline_access`
+
+A client whose connection has to outlive the access token's hour asks for
+`scope=offline_access`. It is a **sempods extension**, not OIDC: the name
+is OIDC's, but it is requested bare — a pod is not an OIDC Provider,
+issues no `id_token`, and does not advertise `openid`. Both discovery
+documents list it under `scopes_supported`, which is where a client that
+has read no sempods documentation finds it.
+
+The authorization-code exchange returns a refresh token whether or not the
+scope was requested, so asking changes nothing at the pod. The hosted MCP
+service asks regardless: what it depends on is then visible in the flow
+rather than resting on that permissiveness.
+
 ### Refresh token rotation
 
 Per RFC 6749 §10.4 / OAuth 2.1 best practice. Refresh tokens belong to
@@ -301,8 +315,9 @@ resource access the union semantics described there apply.
 
 `GET /{pod}/.well-known/oauth-protected-resource` advertises:
 
-- `resource`, `authorization_servers`, `bearer_methods_supported`
-  (RFC 9728 minimum).
+- `resource`, `authorization_servers`, `bearer_methods_supported`,
+  `scopes_supported` (RFC 9728 §2). The authorization-server metadata
+  carries the same scope list.
 - `name` — optional human-readable display name (from
   `PodDbo.displayName`); SDKs use this for `PodConnection.displayName`.
 - `public_contexts` — count of public-read contexts (not the URIs;

@@ -220,6 +220,7 @@ Protected-resource metadata (RFC 9728 + sempods extensions):
   "resource": "https://<host>/<pod>",
   "authorization_servers": ["https://<host>/<pod>/_system/auth"],
   "bearer_methods_supported": ["header"],
+  "scopes_supported": ["public-read", "offline_access"],
   "public_contexts": 2,
   "name": "<optional pod display name>"
 }
@@ -233,10 +234,13 @@ Notes:
   leak topology to advertise the existence of public-read content.
 - `name` is `PodDbo.displayName` when set; SDKs surface it as
   `PodConnection.displayName`.
-- `scopes_supported` is not advertised — the request-side scope space is
-  the feature-scope set alone (`public-read`). Per-context permissions are
-  grants, agreed in the consent dialog and resolved per request, never
-  asked for through `scope`.
+- `scopes_supported` is the whole of what a client may put in `scope`. It
+  is short because per-context permissions are grants — agreed in the
+  consent dialog and resolved per request, never asked for through
+  `scope` — and it carries `offline_access` because a client that has read
+  no sempods documentation has no other way to learn the extension exists
+  (see [`../auth/oauth.md`](../auth/oauth.md#offline_access)). `openid` is
+  absent: a pod issues no `id_token`.
 
 Authorization-server metadata (RFC 8414):
 
@@ -248,9 +252,10 @@ Authorization-server metadata (RFC 8414):
   "registration_endpoint":                 "https://<host>/<pod>/_system/auth/register",
   "jwks_uri":                              "https://<host>/<pod>/_system/auth/jwks.json",
   "response_types_supported":              ["code"],
-  "grant_types_supported":                 ["authorization_code", "refresh_token"],
+  "grant_types_supported":                 ["authorization_code", "refresh_token", "client_credentials"],
+  "scopes_supported":                      ["public-read", "offline_access"],
   "code_challenge_methods_supported":      ["S256"],
-  "token_endpoint_auth_methods_supported": ["none"]
+  "token_endpoint_auth_methods_supported": ["none", "client_secret_basic"]
 }
 ```
 

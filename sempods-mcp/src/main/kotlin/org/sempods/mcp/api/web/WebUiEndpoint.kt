@@ -154,7 +154,9 @@ fun Application.webUiEndpoint(
         expiresAt = expiresAt, returnTo = returnTo,
       )
     }
-    return podOAuthClient.buildAuthorizeUrl(metadata, podClientId, podCallbackUri, challenge, state, scope = null)
+    return podOAuthClient.buildAuthorizeUrl(
+      metadata, podClientId, podCallbackUri, challenge, state, scope = OFFLINE_ACCESS_SCOPE,
+    )
   }
 
   routing {
@@ -606,3 +608,13 @@ private fun withParam(url: String, param: String): String =
   url + (if (url.contains('?')) '&' else '?') + param
 
 private const val SERVICE_VERSION = "0.2.0-M2"
+
+/**
+ * The scope this service asks a pod for, on every connect and re-authorize.
+ *
+ * It holds the connection open with the pod's refresh token instead of sending the user back
+ * through consent every hour, so the authority is asked for rather than taken: a pod is free to
+ * refuse it, and one that does not know the scope ignores it. A sempods extension — the OIDC scope
+ * name used outside OIDC, requested bare, without `openid`, because no `id_token` is involved.
+ */
+private const val OFFLINE_ACCESS_SCOPE = "offline_access"
