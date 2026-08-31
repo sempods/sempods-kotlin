@@ -27,9 +27,11 @@ discovery, ID-token issuance and validation.
   token in its vault; MCP clients connected to a pod directly, which cannot ask for a scope the pod
   does not advertise; and the hosted service's own MCP clients, a second refresh layer that belongs
   to item 6. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
-  exchange and the refresh grant checks nothing new, so families already issued keep rotating until
-  their user reconnects. That costs no code and no legacy branch, at the price of an old family
-  living on indefinitely — every rotation renews the full TTL.
+  exchange and the refresh grant checks nothing new, so families already issued keep rotating. That
+  costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
+  reconnect mints a second family and retires nothing, every rotation renews the full TTL, and only
+  an explicit revocation ends one — consent withdrawal, the MCP `reauthorize` path, reuse detection,
+  or a context or pod cascade.
 - [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
   requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
   so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
@@ -51,9 +53,10 @@ discovery, ID-token issuance and validation.
   from granted `offline_access`. It touches every station, so it is also where the hand-written
   message layer can move onto `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
   and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
-  are drop-in and `Prompt.isValid` is `OAuthSyntax.isContradictoryPrompt`, but `Prompt.parse` is
-  not: it refuses unknown values our parser keeps deliberately. `sempods-server` does not carry the
-  SDK yet.
+  are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
+  **inverted** — it answers true for a legal set — so a substitution has to negate it. `Prompt.parse`
+  is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
+  does not carry the SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   when `offline_access` was requested and granted. Token refresh keeps the existing rotating-family
   reuse detection, but refresh responses cannot silently widen feature scopes.
@@ -62,7 +65,9 @@ discovery, ID-token issuance and validation.
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
   refresh rows by a context-shaped scope, and no row issued today can hold one, because the code
   exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
-  still justify it — the identically named service-client path is unaffected and stays.
+  still justify it — the identically named service-client path is unaffected and stays. The same
+  item decides whether a reconnect should retire the family it supersedes, which today it does not:
+  the code exchange mints a new family and revokes nothing.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for durable interactive connections and the absence of refresh
   tokens otherwise.
