@@ -97,6 +97,14 @@ class PodOAuthClient(
       ?.trimEnd('/')
       ?: throw PodOAuthException("pod protected-resource metadata has no authorization_servers")
 
+    // The resource's half of `scopes_supported` (RFC 9728 §2). It is the fallback, not the answer:
+    // the authorization server is the party that answers `invalid_scope`, so where it publishes a
+    // list of its own that list wins, even one that omits what the resource advertises. Both are
+    // optional, and both RFCs say a server may leave supported values out of them — which is why a
+    // pod that publishes neither answers the empty set and gets asked for nothing, rather than
+    // being guessed at.
+    val prmScopes = scopeList(prm["scopes_supported"])
+
     // Prefer RFC 8414 AS metadata when the pod publishes it (the full sempods pod, with DCR). Only a
     // genuine **404** means "this pod does not publish AS metadata" → fall back to the sempods
     // **convention**: the AS endpoints sit directly under the issuer (`/authorize`, `/token`), there
@@ -133,6 +141,9 @@ class PodOAuthClient(
         tokenEndpoint = req("token_endpoint"),
         registrationEndpoint = str("registration_endpoint"),
         jwksUri = str("jwks_uri"),
+        // Present-and-empty is still the AS speaking; only an absent (or unreadable) member falls
+        // back to the resource's list.
+        scopesSupported = (asm["scopes_supported"] as? List<*>)?.let(::scopeList) ?: prmScopes,
       )
     } else {
       logger.info {
@@ -145,6 +156,7 @@ class PodOAuthClient(
         tokenEndpoint = "$issuer/token",
         registrationEndpoint = null,
         jwksUri = null,
+        scopesSupported = prmScopes,
       )
     }
     // Fail fast: vet every discovered endpoint against the SSRF guard before any use.
@@ -154,6 +166,21 @@ class PodOAuthClient(
     metadata.jwksUri?.let { requireAllowed(it) }
     return metadata
   }
+
+  /**
+   * The strings of a `scopes_supported` array, or empty for anything that is not one. Two
+   * overloads because the two documents arrive in two shapes: the protected-resource metadata is
+   * read with Jackson (it has no type in the OAuth SDK), the AS metadata through the SDK's own
+   * JSON reader. Neither may throw on a pod that publishes junk here — a scope list this cannot
+   * read is a pod that gets asked for nothing, not a connect that fails.
+   */
+  private fun scopeList(node: JsonNode?): Set<String> =
+    node?.takeIf { it.isArray }
+      ?.mapNotNullTo(mutableSetOf()) { it.takeIf(JsonNode::isTextual)?.asText()?.trim()?.takeIf(String::isNotEmpty) }
+      .orEmpty()
+
+  private fun scopeList(values: List<*>?): Set<String> =
+    values?.mapNotNullTo(mutableSetOf()) { (it as? String)?.trim()?.takeIf(String::isNotEmpty) }.orEmpty()
 
   /** A pod access token's subject (the pod-local WebID) plus whether it was signature-verified. */
   data class PodSubject(val webId: String, val verified: Boolean)

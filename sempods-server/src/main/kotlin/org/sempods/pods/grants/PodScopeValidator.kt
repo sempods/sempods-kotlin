@@ -13,6 +13,14 @@ import java.net.URI
  */
 const val PUBLIC_READ_SCOPE = "public-read"
 
+/**
+ * OAuth scope literal by which a client says it needs a durable connection — a sempods extension
+ * and not the OIDC scope of the same name: it is requested bare, without `openid`, and this pod
+ * issues no `id_token`. Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator
+ * classifies it, `PodOAuthMetadataEndpoint` advertises it, and neither owns it.
+ */
+const val OFFLINE_ACCESS_SCOPE = "offline_access"
+
 class PodScopeValidator {
 
   fun validate(scope: String, podBaseUrl: String): ScopeValidationResult {
@@ -79,7 +87,7 @@ class PodScopeValidator {
   }
 
   companion object {
-    val oidcScopes: Set<String> = setOf("openid", "offline_access")
+    val oidcScopes: Set<String> = setOf("openid", OFFLINE_ACCESS_SCOPE)
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
