@@ -16,16 +16,17 @@ in consent, the dialog shows that lifetime as a choice rather than as a scope na
 asks for the sempods-specific `offline_access` extension it depends on instead of relying on today's
 permissive PoC behaviour.
 
-The grant is the person's, not the client's. OAuth defines refresh tokens but no way to request one,
-which is why every client gets one today; `offline_access` is an OpenID Connect scope borrowed for
-an OAuth surface. Reading the client's request as the decision would break every client that cannot
-send it — the MCP authorization chain has no place for scopes — so the request preselects and the
-consent decides.
+The grant is the person's and not the client's: the request preselects the control, the consent
+decides it. That rule, why it has to be that way and the two limits the dialog cannot overrule are
+the concept's, not this file's — see its §"Token lifetime is part of consent".
 
 This roadmap introduces no OIDC Provider behaviour. The standard-shaped `openid offline_access`
 request belongs to the planned per-pod OIDC route, on a parallel path with an issuer of its own, and
-that is a separate milestone which needs nothing from this one: the rules below sit on the consent
-transaction rather than on the request, so they hold on either route.
+that is a separate milestone. The **lifetime policy** below needs nothing from it and holds on
+either route, because it sits on the consent transaction rather than on the request. The
+**machinery** is shared in one direction: item 4 builds the request-to-consent-to-code chain that an
+OIDC route needs for `nonce`, so an OIDC milestone starting after this one inherits it and one
+starting before it builds it.
 
 ## Work
 
@@ -81,8 +82,13 @@ transaction rather than on the request, so they hold on either route.
   dialog cannot overrule — an authorization that carries the installer feature scope at all never
   becomes durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox
   cannot make that escalation visible and pairing the scope with `public-read` does not change that;
-  and anonymous public-read keeps its refresh-token-free shortcut. Token refresh keeps the existing
-  rotating-family reuse detection, and refresh responses cannot silently widen feature scopes.
+  and anonymous public-read keeps its refresh-token-free shortcut. Withholding durability at a later
+  consent revokes the families that authorization already has: today `exchangeRefreshToken` gives up
+  a family only when every grant for the app is gone, so a person who unticks the control while
+  keeping their context grants would otherwise have changed nothing they can observe. Test that the
+  old refresh token stops working, not merely that no new one is minted. Token refresh keeps the
+  existing rotating-family reuse detection, and refresh responses cannot silently widen feature
+  scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
@@ -90,7 +96,8 @@ transaction rather than on the request, so they hold on either route.
   exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
   still justify it — the identically named service-client path is unaffected and stays. The same
   item decides whether a reconnect should retire the family it supersedes, which today it does not:
-  the code exchange mints a new family and revokes nothing.
+  the code exchange mints a new family and revokes nothing. Item 5's withdrawal path is the same
+  question asked from the other end, and the two answers have to agree.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
