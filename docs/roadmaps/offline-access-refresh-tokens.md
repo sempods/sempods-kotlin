@@ -73,6 +73,15 @@ discovery, ID-token issuance and validation.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for durable interactive connections and the absence of refresh
   tokens otherwise.
+- [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
+  than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
+  reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
+  The companion change says when a refresh token may be issued, that `offline_access` is a sempods
+  extension and not an OIDC scope, and what consent must show about lifetime; check whether
+  `spec/modules/mcp.md` needs the same for clients that connect to a pod directly. It is a pull
+  request in `sempods/sempods-spec` and cannot ride in this repository's commits, and the
+  requirement identifiers cited here have to point at requirements that exist — so it lands before
+  this roadmap is consolidated, not after.
 
 ## Open decisions
 

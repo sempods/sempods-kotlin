@@ -136,6 +136,12 @@ A behaviour change is not finished until, **in the same change**:
   facts about grants, contexts, the SPARQL surface, client identity and trademark language, and it
   is served to agents everywhere. A behaviour change can turn one of those assertions into a lie
   that this repository then publishes;
+- the specification still describes what the code does. Requirements from
+  [sempods-spec](https://github.com/sempods/sempods-spec) are cited by identifier throughout this
+  repository, and the model — grants, the OAuth profile, client identity — is owned there, not
+  here. A change that contradicts a requirement is not finished until the companion change is open
+  in that repository. It is the one item on this list that cannot land in the same commit, which is
+  exactly why it is the one that gets forgotten;
 - the `AGENTS.md` pointers still resolve, and any new document is reachable from one.
 
 [`documentation-sync.md`](documentation-sync.md) is the procedure that walks this list.
