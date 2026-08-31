@@ -62,11 +62,14 @@ starting before it builds it.
   lifetime class rather than naming a scope: without it a short-lived access token, with it a
   rolling refresh token until revoked or left unused. Reuse the service-client lifetime vocabulary
   owned by the owner-installation milestone; this item owns only the durable-connection text.
-  `offline_access` in the request preselects the control and nothing more. Tests assert both
-  directions: asking does not grant, and a client that never asked can still be granted durability
-  by the person in front of the dialog. Which of the clients in
-  [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises it is worth
-  knowing for how the control is presented, but nothing here waits on the answer.
+  `offline_access` in the request preselects the control and nothing more — except where item 5's
+  veto already decides the answer: an authorization carrying the installer feature scope must not
+  offer a ticked control it cannot honour, so the control is absent there, or shown unavailable
+  with the reason. Tests assert both directions: asking does not grant, a client that never asked can
+  still be granted durability by the person in front of the dialog, and asking together with the
+  installer scope neither presents the control as available nor ends in a refresh token. Which of
+  the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises
+  it is worth knowing for how the control is presented, but nothing here waits on the answer.
 
   **Items 3 to 5 reach a user together.** They are three pieces of work and one release: a control
   that renders before the exchange honours it tells a person they chose a short-lived connection
