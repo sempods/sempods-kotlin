@@ -61,7 +61,9 @@ starting before it builds it.
   owned by the owner-installation milestone; this item owns only the durable-connection text.
   `offline_access` in the request preselects the control and nothing more. Tests assert both
   directions: asking does not grant, and a client that never asked can still be granted durability
-  by the person in front of the dialog.
+  by the person in front of the dialog. Which of the clients in
+  [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises it is worth
+  knowing for how the control is presented, but nothing here waits on the answer.
 - [ ] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,

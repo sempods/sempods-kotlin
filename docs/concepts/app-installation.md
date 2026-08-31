@@ -97,12 +97,14 @@ this UI install one service client now" and "let this remote installer keep comi
 
 **The durable connection is granted in consent, not requested by the client.** OAuth defines refresh
 tokens but no way to ask for one, so today every client receives one whether or not it needs it;
-`offline_access` is an OpenID Connect scope borrowed for an OAuth surface, and the MCP authorization
-chain has no place for scopes at all. Reading the client's request as the decision would therefore
-deny a durable connection to every client that cannot send the scope, while the person who should be
-deciding is standing in front of the dialog. So the request preselects the control and the consent
-decides it, and withdrawing the choice ends the connection's durability rather than only declining
-to extend it.
+`offline_access` is an OpenID Connect scope borrowed for an OAuth surface. A resource server can
+advertise it — `scopes_supported` is the field an MCP client would read — but the MCP authorization
+specification defines no scope of its own and requires none, so whether a client asks is that
+client's choice rather than something the protocol secures. Making the request the decision would
+therefore hand the lifetime of a person's credential to whichever clients happen to implement the
+lever, while the person who should be deciding is standing in front of the dialog. So the request
+preselects the control and the consent decides it, and withdrawing the choice ends the connection's
+durability rather than only declining to extend it.
 
 Two limits are the server's and not the dialog's. An authorization that carries the installer
 feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that
