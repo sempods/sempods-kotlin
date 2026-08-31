@@ -20,15 +20,23 @@ discovery, ID-token issuance and validation.
 
 ## Work
 
-- [ ] 1 — Inventory current refresh-token reliance before changing semantics. Hosted MCP currently
-  builds the pod authorization URL without an explicit scope and stores the refresh token returned by
-  the pod, so it relies on refresh tokens without requesting `offline_access`. Check existing PoC
-  rows and decide whether they are migrated, preserved until reconnect, or intentionally broken with
-  a reconnect requirement.
+- [x] 1 — Inventory current refresh-token reliance before changing semantics. The pod issues a
+  refresh token on every authorization-code exchange except the anonymous `public-read` one, and
+  `offline_access` is read nowhere on the authorize, consent or token path. Three consumers rely on
+  that: hosted MCP, which builds the pod authorization URL without a scope and keeps the returned
+  token in its vault; MCP clients connected to a pod directly, which cannot ask for a scope the pod
+  does not advertise; and the hosted service's own MCP clients, a second refresh layer that belongs
+  to item 6. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
+  exchange and the refresh grant checks nothing new, so families already issued keep rotating until
+  their user reconnects. That costs no code and no legacy branch, at the price of an old family
+  living on indefinitely — every rotation renews the full TTL.
 - [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
   requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
   so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
-  not as plain OAuth and not as OIDC.
+  not as plain OAuth and not as OIDC; the metadata half includes `scopes_supported` in the
+  protected-resource metadata, which is the one field a third-party MCP client reads. This must land
+  before item 5 — otherwise a fresh connection is stored without a refresh token and dies an hour
+  later in silence.
 - [ ] 3 — Render refresh-token lifetime in consent. Reuse the service-client lifetime vocabulary
   owned by the owner-installation milestone, but this item owns only the `offline_access` text:
   short-lived access token without it, rolling refresh token with it. Tests assert that requesting
@@ -51,8 +59,12 @@ discovery, ID-token issuance and validation.
 
 ## Open decisions
 
-- PoC migration — from actual stored rows and users, choose reconnect-only, compatibility-until-use,
-  or explicit migration before token issuance changes.
+- Directly connected MCP clients — `offline_access` is not part of the MCP authorization chain, and
+  a client requests only what the resource server advertises. Item 2 advertises it; what has to be
+  measured then is which of the clients in [`../mcp/clients.md`](../mcp/clients.md) actually ask for
+  it. Without a refresh token they have no silent path at all: a `dyn:` client always gets the
+  consent screen and `prompt=none` answers `consent_required`, so item 5 either costs them an
+  hourly consent dialog or needs a rule of its own. Decide on the measurement, not on a guess.
 - Request shape — this milestone keeps bare `offline_access` as a deliberately documented sempods
   OAuth extension. Moving to the standard-shaped `openid offline_access` request requires first
   making the pod an OIDC Provider with discovery, ID-token issuance and validation.
@@ -68,6 +80,3 @@ One focused command should cover the milestone once code exists:
 ```bash
 ./gradlew :sempods-server:test --tests "org.sempods.api.pod.system.auth.*" :sempods-mcp:test :sempods-client:test
 ```
-
-Before implementation starts, inspect the hosted MCP authorize URL construction and refresh-token
-storage path, then record the chosen PoC migration behaviour in item 1.
