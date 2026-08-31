@@ -96,9 +96,12 @@ starting before it builds it.
   keeping their context grants would otherwise have changed nothing they can observe. Test that the
   old refresh token stops working, not merely that no new one is minted — and that a code minted
   under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
-  stays redeemable for five minutes and the client holds its verifier. Token refresh keeps the
-  existing rotating-family reuse detection, and refresh responses cannot silently widen feature
-  scopes.
+  stays redeemable for five minutes and the client holds its verifier. It must survive a refresh
+  landing in the same instant too: rotation is two writes, `markRotated` then `issueInFamily`, and a
+  revocation in between revokes what exists and misses the successor — bind the successor to the
+  stored decision or re-check it after the insert, and test the two running together. Token refresh
+  keeps the existing rotating-family reuse detection, and refresh responses cannot silently widen
+  feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
