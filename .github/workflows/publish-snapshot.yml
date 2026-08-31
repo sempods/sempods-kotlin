@@ -33,11 +33,11 @@ jobs:
 
       # Not `./.github/actions/setup-test-environment`, which also starts MongoDB, Garage and the
       # rest of the compose stack. Nothing here runs a test, and the artifacts do not need them.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: 25
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: gradle/actions/setup-gradle@v6
 
       # No test run, because `main` cannot hold an untested commit: the ruleset requires `build` and
       # `check` to pass on the pull request, and its bypass list is empty. Re-running the suite here
