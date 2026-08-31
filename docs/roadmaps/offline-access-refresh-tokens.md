@@ -148,6 +148,15 @@ starting before it builds it.
 
 ## Open decisions
 
+- Denying everything — an empty selection answers `access_denied` and returns before any grant is
+  written, so a person who unticks every box, the durable control included, changes nothing: the
+  grants they had and the family they already hold both survive. As OAuth that is defensible, a
+  denial is not a revocation. It stops being defensible on a screen that also carries a control the
+  person reads as "stay connected", because unticking everything is then the most obvious way to
+  ask for a disconnect. Either the empty selection revokes what the authorization holds and stops
+  being a denial, or the dialog says where disconnecting actually happens. Item 5's withdrawal test
+  covers only unticking durability while keeping context grants, so whichever answer is chosen needs
+  its own. Decide before item 5 ships.
 - Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
   means, and there is only one today: a family's TTL is rolling and every rotation renews it in
   full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from
