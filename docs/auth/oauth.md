@@ -290,9 +290,10 @@ Order of checks at `/authorize` for `scope=public-read`:
 
 `public-read` is additive at the model level — see
 `SPS-GRANT-020` (sempods-spec). The
-`/authorize` endpoint accepts it combined with per-context scopes; at
-token issuance and at resource access it behaves as the union semantics
-described there.
+`/authorize` endpoint reads it and nothing else from `scope`: a value
+naming a context is accepted rather than refused, but has no effect there,
+because contexts are ticked in the consent dialog. At token issuance and at
+resource access the union semantics described there apply.
 
 ## Protected Resource Metadata (RFC 9728)
 

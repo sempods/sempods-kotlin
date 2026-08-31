@@ -85,7 +85,7 @@ class PodScopeValidator {
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
      * follow the `<context-uri>#<permission>` grammar. `public-read` today; `ai` / `search`
      * and similar capability gates may be added here. Keeping this an explicit allow-list is
-     * what lets the validator tell a legitimate feature scope from a typo once access tokens
+     * what lets the validator tell a legitimate feature scope from a typo now that access tokens
      * carry only feature scopes (context permissions resolve server-side). See
      * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved
      * server-side"). Which additional feature scopes to accept is still open

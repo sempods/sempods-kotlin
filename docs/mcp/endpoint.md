@@ -233,9 +233,10 @@ Notes:
   leak topology to advertise the existence of public-read content.
 - `name` is `PodDbo.displayName` when set; SDKs surface it as
   `PodConnection.displayName`.
-- `scopes_supported` is intentionally omitted — the scope space is
-  per-context and partially synthesised by apps, so the consent dialog
-  is the single source of truth.
+- `scopes_supported` is not advertised — the request-side scope space is
+  the feature-scope set alone (`public-read`). Per-context permissions are
+  grants, agreed in the consent dialog and resolved per request, never
+  asked for through `scope`.
 
 Authorization-server metadata (RFC 8414):
 

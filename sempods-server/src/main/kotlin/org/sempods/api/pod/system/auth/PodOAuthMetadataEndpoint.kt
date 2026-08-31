@@ -45,8 +45,9 @@ import jakarta.ws.rs.core.Response
  *     counterpart (on [org.sempods.api.pod.system.mcp.McpEndpoint]), kept alongside the strict
  *     form because the exact claude.ai probe set is not fully documented.
  *
- * `scopes_supported` is intentionally omitted — the scope space is per-context and partially
- * synthesised by apps, so the consent dialog is the single source of truth for grantable scopes.
+ * `scopes_supported` is not advertised. The request-side scope space is the feature-scope set
+ * alone (`public-read` today) — the per-context permissions a caller ends up with are grants,
+ * agreed in the consent dialog and resolved per request, never asked for through `scope`.
  */
 @Path("{pod}")
 class PodOAuthMetadataEndpoint @Inject constructor(

@@ -34,9 +34,11 @@ discovery, ID-token issuance and validation.
   requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
   so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
   not as plain OAuth and not as OIDC; the metadata half includes `scopes_supported` in the
-  protected-resource metadata, which is the one field a third-party MCP client reads. This must land
-  before item 5 — otherwise a fresh connection is stored without a refresh token and dies an hour
-  later in silence.
+  protected-resource metadata, which is the one field a third-party MCP client reads. Advertising it
+  is complete rather than a half-truth: the request-side scope space is the fixed feature-scope set
+  — `public-read`, this milestone's `offline_access`, later the installer scope — because contexts
+  are agreed as grants in consent and resolved per request. This item must land before item 5 —
+  otherwise a fresh connection is stored without a refresh token and dies an hour later in silence.
 - [ ] 3 — Render refresh-token lifetime in consent. Reuse the service-client lifetime vocabulary
   owned by the owner-installation milestone, but this item owns only the `offline_access` text:
   short-lived access token without it, rolling refresh token with it. Tests assert that requesting
@@ -46,13 +48,21 @@ discovery, ID-token issuance and validation.
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
-  from granted `offline_access`.
+  from granted `offline_access`. It touches every station, so it is also where the hand-written
+  message layer can move onto `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
+  and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
+  are drop-in and `Prompt.isValid` is `OAuthSyntax.isContradictoryPrompt`, but `Prompt.parse` is
+  not: it refuses unknown values our parser keeps deliberately. `sempods-server` does not carry the
+  SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   when `offline_access` was requested and granted. Token refresh keeps the existing rotating-family
   reuse detection, but refresh responses cannot silently widen feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
-  `offline_access`.
+  `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
+  refresh rows by a context-shaped scope, and no row issued today can hold one, because the code
+  exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
+  still justify it — the identically named service-client path is unaffected and stays.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for durable interactive connections and the absence of refresh
   tokens otherwise.
@@ -65,6 +75,11 @@ discovery, ID-token issuance and validation.
   it. Without a refresh token they have no silent path at all: a `dyn:` client always gets the
   consent screen and `prompt=none` answers `consent_required`, so item 5 either costs them an
   hourly consent dialog or needs a rule of its own. Decide on the measurement, not on a guess.
+- Strictness at `/authorize` — an unknown scope is dropped in silence today, so a typo
+  (`offline-access`) buys a one-hour token and no explanation once item 5 lands. Answering
+  `invalid_scope` (RFC 6749 §4.1.2.1) is the standard behaviour, but it is a breaking change of its
+  own for clients that send scope names from their own world, and turning it at the same time as
+  item 5 makes the two indistinguishable in a bug report. Decide it on the same measurement.
 - Request shape — this milestone keeps bare `offline_access` as a deliberately documented sempods
   OAuth extension. Moving to the standard-shaped `openid offline_access` request requires first
   making the pod an OIDC Provider with discovery, ID-token issuance and validation.
