@@ -11,12 +11,21 @@ Consolidation of this roadmap may update only the refresh-token and `offline_acc
 shared concept; the service-client installation state belongs to
 [`owner-app-installation.md`](owner-app-installation.md).
 
-When this is done, pod refresh tokens are issued only when `offline_access` was explicitly granted,
-the consent UI makes that lifetime visible, and hosted MCP requests the sempods-specific
-`offline_access` OAuth extension it depends on instead of relying on today's permissive PoC
-behaviour. This roadmap deliberately does not introduce OIDC Provider behaviour; using the
-standard-shaped `openid offline_access` request would require a separate milestone for OIDC
-discovery, ID-token issuance and validation.
+When this is done, a pod issues a refresh token only where the person granted a durable connection
+in consent, the dialog shows that lifetime as a choice rather than as a scope name, and hosted MCP
+asks for the sempods-specific `offline_access` extension it depends on instead of relying on today's
+permissive PoC behaviour.
+
+The grant is the person's, not the client's. OAuth defines refresh tokens but no way to request one,
+which is why every client gets one today; `offline_access` is an OpenID Connect scope borrowed for
+an OAuth surface. Reading the client's request as the decision would break every client that cannot
+send it — the MCP authorization chain has no place for scopes — so the request preselects and the
+consent decides.
+
+This roadmap introduces no OIDC Provider behaviour. The standard-shaped `openid offline_access`
+request belongs to the planned per-pod OIDC route, on a parallel path with an issuer of its own, and
+that is a separate milestone which needs nothing from this one: the rules below sit on the consent
+transaction rather than on the request, so they hold on either route.
 
 ## Work
 
@@ -28,8 +37,9 @@ discovery, ID-token issuance and validation.
   does not advertise; and the hosted service's own MCP clients, a second refresh layer this
   milestone leaves as it is — the goal above is pod-issued refresh tokens, so item 6 checks only
   that its revocation and liveness still agree. Whether that surface should ask for `offline_access`
-  too is its own question, and naming it in an inventory is not the same as planning it. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
-  exchange and the refresh grant checks nothing new, so families already issued keep rotating. That
+  too is its own question, and naming it in an inventory is not the same as planning it. Existing
+  rows are **not** migrated: the item 5 gate sits in the authorization-code exchange and the refresh
+  grant checks nothing new, so families already issued keep rotating. That
   costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
   reconnect mints a second family and retires nothing, and every rotation renews the full TTL. Which
   events do end a family is item 6's subject — and one of the answers there is already known to be
@@ -43,16 +53,21 @@ discovery, ID-token issuance and validation.
   — `public-read`, this milestone's `offline_access`, later the installer scope — because contexts
   are agreed as grants in consent and resolved per request. This item must land before item 5 —
   otherwise a fresh connection is stored without a refresh token and dies an hour later in silence.
-- [ ] 3 — Render refresh-token lifetime in consent. Reuse the service-client lifetime vocabulary
-  owned by the owner-installation milestone, but this item owns only the `offline_access` text:
-  short-lived access token without it, rolling refresh token with it. Tests assert that requesting
-  `offline_access` changes the rendered text, and that requesting the installer feature scope
-  without `offline_access` does not imply a refresh token.
+- [ ] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
+  its own control for keeping the connection alive, beside the context grants, describing the
+  lifetime class rather than naming a scope: without it a short-lived access token, with it a
+  rolling refresh token until revoked or left unused. Reuse the service-client lifetime vocabulary
+  owned by the owner-installation milestone; this item owns only the durable-connection text.
+  `offline_access` in the request preselects the control and nothing more. Tests assert both
+  directions: asking does not grant, and a client that never asked can still be granted durability
+  by the person in front of the dialog.
 - [ ] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
-  from granted `offline_access`. It touches every station, so it is also where the hand-written
+  from what the person granted. The chain it builds — request parameter through consent to the
+  code — is also what a later OIDC route needs for `nonce`, so it is worth building once. It
+  touches every station, so it is also where the hand-written
   message layer can move onto `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
   and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
   are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
@@ -60,8 +75,14 @@ discovery, ID-token issuance and validation.
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
-  when `offline_access` was requested and granted. Token refresh keeps the existing rotating-family
-  reuse detection, but refresh responses cannot silently widen feature scopes.
+  where consent granted a durable connection, and the token response names what was granted wherever
+  that differs from what was asked for (RFC 6749 §3.3). No client is broken by this, which is the
+  point of gating on the grant: one that cannot ask is still one the person can grant. Two rules the
+  dialog cannot overrule — an authorization carrying only the installer feature scope never becomes
+  durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox cannot make
+  that escalation visible; and anonymous public-read keeps its refresh-token-free shortcut. Token
+  refresh keeps the existing rotating-family reuse detection, and refresh responses cannot silently
+  widen feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
@@ -85,24 +106,19 @@ discovery, ID-token issuance and validation.
 
 ## Open decisions
 
-- Directly connected MCP clients — `offline_access` is not part of the MCP authorization chain, and
-  a client requests only what the resource server advertises. Item 2 advertises it; what has to be
-  measured then is which of the clients in [`../mcp/clients.md`](../mcp/clients.md) actually ask for
-  it. A client holding grants beyond `public-read` then has no silent path at all: consent is always
-  rendered for a `dyn:` client and `prompt=none` answers `consent_required`, so item 5 either costs
-  it an hourly consent dialog or needs a rule of its own. Anonymous public-read is not in that
-  bind — it never received a refresh token and keeps its `prompt=none` shortcut, which is reached
-  before the dynamic-client rule. Decide on the measurement, not on a guess.
+- Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
+  means, and there is only one today: a family's TTL is rolling and every rotation renews it in
+  full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from
+  the moment of consent is what most people read into such a list, and it is a second stored field,
+  a second check on the refresh path and a question for item 6. Until that is decided the classes
+  stay two, short-lived and durable — an offered choice that means something other than it says is
+  the failure this milestone exists to remove.
 - Strictness at `/authorize` — an unknown scope is dropped in silence today, so a typo
-  (`offline-access`) buys a one-hour token and no explanation once item 5 lands. Answering
-  `invalid_scope` (RFC 6749 §4.1.2.1) is the standard behaviour, but it is a breaking change of its
-  own for clients that send scope names from their own world, and turning it at the same time as
-  item 5 makes the two indistinguishable in a bug report. Decide it on the same measurement.
-- Request shape — this milestone keeps bare `offline_access` as a deliberately documented sempods
-  OAuth extension. Moving to the standard-shaped `openid offline_access` request requires first
-  making the pod an OIDC Provider with discovery, ID-token issuance and validation.
-- Scope presentation — consent should describe the resulting lifetime class, not only the literal
-  `offline_access` scope name.
+  (`offline-access`) is answered with a working token and no explanation. Answering `invalid_scope`
+  (RFC 6749 §4.1.2.1) is the standard behaviour and no longer costs anyone their durable
+  connection, now that consent decides it; what it still costs is a refusal for clients that send
+  scope names from their own world. Decide it on its own and after item 5, so a client broken by
+  one can be told which.
 - Refresh narrowing — decide whether refresh responses preserve the originally granted scope set
   exactly or allow a requested subset, but never allow widening.
 
