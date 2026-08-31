@@ -94,7 +94,9 @@ starting before it builds it.
   consent revokes the families that authorization already has: today `exchangeRefreshToken` gives up
   a family only when every grant for the app is gone, so a person who unticks the control while
   keeping their context grants would otherwise have changed nothing they can observe. Test that the
-  old refresh token stops working, not merely that no new one is minted. Token refresh keeps the
+  old refresh token stops working, not merely that no new one is minted — and that a code minted
+  under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
+  stays redeemable for five minutes and the client holds its verifier. Token refresh keeps the
   existing rotating-family reuse detection, and refresh responses cannot silently widen feature
   scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant

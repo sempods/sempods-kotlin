@@ -104,7 +104,9 @@ client's choice rather than something the protocol secures. Making the request t
 therefore hand the lifetime of a person's credential to whichever clients happen to implement the
 lever, while the person who should be deciding is standing in front of the dialog. So the request
 preselects the control and the consent decides it, and withdrawing the choice ends the connection's
-durability rather than only declining to extend it.
+durability rather than only declining to extend it. The decision is resolved from the stored consent
+whenever a token is issued, the way context permissions already are, so nothing a client is still
+holding — an authorization code from an earlier and more generous consent — outlives the choice.
 
 Two limits are the server's and not the dialog's. An authorization that carries the installer
 feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that
