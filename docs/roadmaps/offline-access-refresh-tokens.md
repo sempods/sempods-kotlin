@@ -64,6 +64,12 @@ starting before it builds it.
   by the person in front of the dialog. Which of the clients in
   [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises it is worth
   knowing for how the control is presented, but nothing here waits on the answer.
+
+  **Items 3 to 5 reach a user together.** They are three pieces of work and one release: a control
+  that renders before the exchange honours it tells a person they chose a short-lived connection
+  while a ninety-day rolling credential is minted for them, which is the failure this milestone
+  exists to remove, dressed as a fix for it. The group's assertion is therefore end-to-end and not
+  cosmetic — leave the control unticked and the token response carries no `refresh_token`.
 - [ ] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
