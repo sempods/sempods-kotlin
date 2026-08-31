@@ -77,7 +77,10 @@ starting before it builds it.
   from what the person granted. Three states, not two: granted, refused, and nothing recorded at all
   — the last one is every authorization that predates the control, which item 1 settled keeps
   rotating. Collapsing it into either of the others is a bug in both directions, killing deployed
-  connections or reopening the bypass item 5 closes. The chain it builds — request parameter through
+  connections or reopening the bypass item 5 closes. Auto-grant has to be able to acquire one:
+  it renders no dialog for a static client, so with nothing recorded it falls through to consent
+  once rather than silently re-issuing, or such an authorization could never hold a decision at
+  all. The chain it builds — request parameter through
   consent to the code — is also what a later OIDC route needs for `nonce`, so it is worth building
   once. It touches every station, so it is also where the hand-written message layer can move onto
   `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
@@ -87,10 +90,13 @@ starting before it builds it.
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
-  where consent granted a durable connection — an authorization with no decision recorded is the
-  legacy case from item 1, not a refusal — and the token response names what was granted wherever it
-  differs from what was asked for (RFC 6749 §3.3). No client is broken by this, which is the
-  point of gating on the grant: one that cannot ask is still one the person can grant. Two rules the
+  where consent granted a durable connection. An absent decision is not a grant: it keeps an
+  already-rotating legacy family alive, which is all item 1 settled, and it never mints a new one —
+  otherwise a static client whose grants predate the control would go on minting ninety-day
+  credentials through the auto-grant branch, which renders no dialog at all. The token response
+  names what was granted wherever it differs from what was asked for (RFC 6749 §3.3). No client is
+  broken by this, which is the point of gating on the grant: one that cannot ask is still one the
+  person can grant. Two rules the
   dialog cannot overrule — an authorization that carries the installer feature scope at all never
   becomes durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox
   cannot make that escalation visible and pairing the scope with `public-read` does not change that;
