@@ -80,10 +80,13 @@ starting before it builds it.
   from what the person granted. Three states, not two: granted, refused, and nothing recorded at all
   — the last one is every authorization that predates the control, which item 1 settled keeps
   rotating. Collapsing it into either of the others is a bug in both directions, killing deployed
-  connections or reopening the bypass item 5 closes. Auto-grant has to be able to acquire one:
-  it renders no dialog for a static client, so with nothing recorded it falls through to consent
-  once rather than silently re-issuing, or such an authorization could never hold a decision at
-  all. The chain it builds — request parameter through
+  connections or reopening the bypass item 5 closes. Auto-grant has to be able to acquire one: it
+  renders no dialog for a static client, so with nothing recorded and interaction allowed it falls
+  through to consent once rather than silently re-issuing, or such an authorization could never hold
+  a decision at all. Under `prompt=none` there is no interaction to fall through to and
+  `consent_required` would retire a contract `PodAuthEndpointHttpTest` pins — so that request keeps
+  its silent code and receives what an absent decision means anyway: a short-lived token and no
+  refresh token. The chain it builds — request parameter through
   consent to the code — is also what a later OIDC route needs for `nonce`, so it is worth building
   once. It touches every station, so it is also where the hand-written message layer can move onto
   `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
