@@ -39,10 +39,13 @@ starting before it builds it.
   milestone leaves as it is — the goal above is pod-issued refresh tokens, so item 6 checks only
   that its revocation and liveness still agree. Whether that surface should ask for `offline_access`
   too is its own question, and naming it in an inventory is not the same as planning it. Existing
-  rows are **not** migrated: the item 5 gate sits in the authorization-code exchange and the refresh
-  grant checks nothing new, so families already issued keep rotating. That
-  costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
-  reconnect mints a second family and retires nothing, and every rotation renews the full TTL. Which
+  rows are **not** migrated: a family already rotating keeps rotating, and no stored row is
+  rewritten to make that true. The decision stands; the cost recorded with it does not. Items 4 and
+  5 settled that the stored decision needs a third state for "nothing recorded" and that the refresh
+  path has to tell that apart from a refusal, which ends the family — cheaper than a migration, but
+  a branch all the same, and it lives there. The price of not migrating is also steeper than "until
+  the user reconnects": a reconnect mints a second family and retires nothing, and every rotation
+  renews the full TTL. Which
   events do end a family is item 6's subject — and one of the answers there is already known to be
   wrong.
 - [x] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
@@ -103,7 +106,12 @@ starting before it builds it.
   and anonymous public-read keeps its refresh-token-free shortcut. Withholding durability at a later
   consent revokes the families that authorization already has: today `exchangeRefreshToken` gives up
   a family only when every grant for the app is gone, so a person who unticks the control while
-  keeping their context grants would otherwise have changed nothing they can observe. Test that the
+  keeping their context grants would otherwise have changed nothing they can observe. It follows the
+  person and not one URI: `revokeForUser` matches a single exact `webId` today, so a family issued
+  under an alias the pod stores would survive its owner withdrawing under their canonical WebID —
+  and would then read as "nothing recorded" and be grandfathered. Both the decision and the
+  revocation work over the equivalent URIs, the way grant resolution already does, with a test for
+  the linked identity. Test that the
   old refresh token stops working, not merely that no new one is minted — and that a code minted
   under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
   stays redeemable for five minutes and the client holds its verifier. It must also survive an
