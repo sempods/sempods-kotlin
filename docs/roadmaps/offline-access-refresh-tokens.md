@@ -31,9 +31,9 @@ discovery, ID-token issuance and validation.
   too is its own question, and naming it in an inventory is not the same as planning it. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
   exchange and the refresh grant checks nothing new, so families already issued keep rotating. That
   costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
-  reconnect mints a second family and retires nothing, every rotation renews the full TTL, and only
-  an explicit revocation ends one — consent withdrawal, the MCP `reauthorize` path, reuse detection,
-  or a context or pod cascade.
+  reconnect mints a second family and retires nothing, and every rotation renews the full TTL. Which
+  events do end a family is item 6's subject — and one of the answers there is already known to be
+  wrong.
 - [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
   requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
   so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
@@ -79,9 +79,11 @@ discovery, ID-token issuance and validation.
 - Directly connected MCP clients — `offline_access` is not part of the MCP authorization chain, and
   a client requests only what the resource server advertises. Item 2 advertises it; what has to be
   measured then is which of the clients in [`../mcp/clients.md`](../mcp/clients.md) actually ask for
-  it. Without a refresh token they have no silent path at all: a `dyn:` client always gets the
-  consent screen and `prompt=none` answers `consent_required`, so item 5 either costs them an
-  hourly consent dialog or needs a rule of its own. Decide on the measurement, not on a guess.
+  it. A client holding grants beyond `public-read` then has no silent path at all: consent is always
+  rendered for a `dyn:` client and `prompt=none` answers `consent_required`, so item 5 either costs
+  it an hourly consent dialog or needs a rule of its own. Anonymous public-read is not in that
+  bind — it never received a refresh token and keeps its `prompt=none` shortcut, which is reached
+  before the dynamic-client rule. Decide on the measurement, not on a guess.
 - Strictness at `/authorize` — an unknown scope is dropped in silence today, so a typo
   (`offline-access`) buys a one-hour token and no explanation once item 5 lands. Answering
   `invalid_scope` (RFC 6749 §4.1.2.1) is the standard behaviour, but it is a breaking change of its
