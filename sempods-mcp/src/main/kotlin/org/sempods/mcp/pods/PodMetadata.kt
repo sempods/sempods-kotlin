@@ -17,9 +17,14 @@ data class PodOAuthMetadata(
   val registrationEndpoint: String?,
   val jwksUri: String?,
   /**
-   * What the pod says a client may put in `scope` — the union of `scopes_supported` in its
-   * protected-resource metadata (RFC 9728 §2) and its AS metadata (RFC 8414 §2), empty for a pod
-   * that advertises neither.
+   * What the pod says a client may put in `scope`: `scopes_supported` from its AS metadata
+   * (RFC 8414 §2) where it publishes that member, and from its protected-resource metadata
+   * (RFC 9728 §2) otherwise. Empty for a pod that publishes neither.
+   *
+   * The authorization server wins because it is the party that answers `invalid_scope`. Both
+   * members are optional and both RFCs allow a server to leave supported values out of them, so
+   * neither list proves a scope is refused — which is why this is read as permission to ask rather
+   * than as a contract, and why the fallback is "ask for nothing" rather than "ask anyway".
    *
    * Read once, when the authorize URL is built. `PodConnectStateStore` deliberately does not carry
    * it across the redirect: what comes back is a code to exchange, and the exchange asks for no

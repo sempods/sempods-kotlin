@@ -97,9 +97,12 @@ class PodOAuthClient(
       ?.trimEnd('/')
       ?: throw PodOAuthException("pod protected-resource metadata has no authorization_servers")
 
-    // RFC 9728 §2 and RFC 8414 §2 both carry `scopes_supported`, and a pod may publish it in either
-    // document alone, so the two are unioned rather than one being preferred. A pod that publishes
-    // neither answers the empty set, which a caller reads as "ask this pod for nothing".
+    // The resource's half of `scopes_supported` (RFC 9728 §2). It is the fallback, not the answer:
+    // the authorization server is the party that answers `invalid_scope`, so where it publishes a
+    // list of its own that list wins, even one that omits what the resource advertises. Both are
+    // optional, and both RFCs say a server may leave supported values out of them — which is why a
+    // pod that publishes neither answers the empty set and gets asked for nothing, rather than
+    // being guessed at.
     val prmScopes = scopeList(prm["scopes_supported"])
 
     // Prefer RFC 8414 AS metadata when the pod publishes it (the full sempods pod, with DCR). Only a
@@ -138,7 +141,9 @@ class PodOAuthClient(
         tokenEndpoint = req("token_endpoint"),
         registrationEndpoint = str("registration_endpoint"),
         jwksUri = str("jwks_uri"),
-        scopesSupported = prmScopes + scopeList(asm["scopes_supported"] as? List<*>),
+        // Present-and-empty is still the AS speaking; only an absent (or unreadable) member falls
+        // back to the resource's list.
+        scopesSupported = (asm["scopes_supported"] as? List<*>)?.let(::scopeList) ?: prmScopes,
       )
     } else {
       logger.info {

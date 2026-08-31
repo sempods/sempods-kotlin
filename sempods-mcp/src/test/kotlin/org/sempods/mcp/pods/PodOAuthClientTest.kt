@@ -75,10 +75,10 @@ class PodOAuthClientTest {
   }
 
   @Test
-  fun `discovery unions the scope lists of both metadata documents`() = runBlocking {
-    // A pod may publish `scopes_supported` in the protected-resource metadata (RFC 9728 §2), in the
-    // AS metadata (RFC 8414 §2), or in both, and the two are read by different parsers here. What
-    // the caller needs is one answer to "may I ask for this", so the union is what it gets.
+  fun `the authorization server's scope list wins over the resource's`() = runBlocking {
+    // Both documents may carry `scopes_supported` (RFC 9728 §2, RFC 8414 §2) and they can disagree.
+    // The authorization server is the party that answers `invalid_scope`, so its list is the one
+    // that decides what may be asked for — including when it omits what the resource advertises.
     val authBase = "$base/_system/auth"
     server.reset()
     server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
@@ -98,9 +98,56 @@ class PodOAuthClientTest {
     val metadata = client.discoverMetadata(base)
 
     assertEquals(
-      setOf("public-read", "offline_access"), metadata.scopesSupported,
-      "both documents contribute, and a non-string or blank entry is not a scope",
+      setOf("offline_access"), metadata.scopesSupported,
+      "the AS list decides, and a non-string or blank entry in it is not a scope",
     )
+  }
+
+  @Test
+  fun `the resource's scope list is used when the authorization server publishes none`() = runBlocking {
+    // The common shape: an AS metadata document that says nothing about scopes at all. Silence is
+    // not a refusal — RFC 8414 §2 makes the member optional — so the resource's list stands.
+    val authBase = "$base/_system/auth"
+    server.reset()
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"resource":"$base","authorization_servers":["$authBase"],"scopes_supported":["offline_access"]}""",
+        ),
+      )
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token"}""",
+        ),
+      )
+
+    val metadata = client.discoverMetadata(base)
+
+    assertEquals(setOf("offline_access"), metadata.scopesSupported)
+  }
+
+  @Test
+  fun `an authorization server that publishes an empty scope list is taken at its word`() = runBlocking {
+    // Present-and-empty is the AS speaking, not silence, so the resource's list does not revive it.
+    val authBase = "$base/_system/auth"
+    server.reset()
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"resource":"$base","authorization_servers":["$authBase"],"scopes_supported":["offline_access"]}""",
+        ),
+      )
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","scopes_supported":[]}""",
+        ),
+      )
+
+    val metadata = client.discoverMetadata(base)
+
+    assertEquals(emptySet(), metadata.scopesSupported)
   }
 
   @Test
