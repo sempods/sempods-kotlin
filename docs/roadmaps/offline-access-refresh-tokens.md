@@ -74,18 +74,22 @@ starting before it builds it.
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
-  from what the person granted. The chain it builds — request parameter through consent to the
-  code — is also what a later OIDC route needs for `nonce`, so it is worth building once. It
-  touches every station, so it is also where the hand-written
-  message layer can move onto `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
+  from what the person granted. Three states, not two: granted, refused, and nothing recorded at all
+  — the last one is every authorization that predates the control, which item 1 settled keeps
+  rotating. Collapsing it into either of the others is a bug in both directions, killing deployed
+  connections or reopening the bypass item 5 closes. The chain it builds — request parameter through
+  consent to the code — is also what a later OIDC route needs for `nonce`, so it is worth building
+  once. It touches every station, so it is also where the hand-written message layer can move onto
+  `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
   and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
   are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
   **inverted** — it answers true for a legal set — so a substitution has to negate it. `Prompt.parse`
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
-  where consent granted a durable connection, and the token response names what was granted wherever
-  that differs from what was asked for (RFC 6749 §3.3). No client is broken by this, which is the
+  where consent granted a durable connection — an authorization with no decision recorded is the
+  legacy case from item 1, not a refusal — and the token response names what was granted wherever it
+  differs from what was asked for (RFC 6749 §3.3). No client is broken by this, which is the
   point of gating on the grant: one that cannot ask is still one the person can grant. Two rules the
   dialog cannot overrule — an authorization that carries the installer feature scope at all never
   becomes durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox
@@ -96,10 +100,12 @@ starting before it builds it.
   keeping their context grants would otherwise have changed nothing they can observe. Test that the
   old refresh token stops working, not merely that no new one is minted — and that a code minted
   under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
-  stays redeemable for five minutes and the client holds its verifier. It must survive a refresh
-  landing in the same instant too: rotation is two writes, `markRotated` then `issueInFamily`, and a
-  revocation in between revokes what exists and misses the successor — bind the successor to the
-  stored decision or re-check it after the insert, and test the two running together. Token refresh
+  stays redeemable for five minutes and the client holds its verifier. It must also survive an
+  issuance landing in the same instant, on either path: both read the decision and then insert a row
+  — `markRotated` then `issueInFamily` on refresh, the same read-then-insert on the code exchange —
+  so a revocation arriving between the two revokes what exists and misses what is about to appear.
+  Bind each insert to the decision it read, or re-check after it, and test both paths against a
+  concurrent withdrawal. Token refresh
   keeps the existing rotating-family reuse detection, and refresh responses cannot silently widen
   feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
