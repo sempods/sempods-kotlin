@@ -78,11 +78,11 @@ transaction rather than on the request, so they hold on either route.
   where consent granted a durable connection, and the token response names what was granted wherever
   that differs from what was asked for (RFC 6749 §3.3). No client is broken by this, which is the
   point of gating on the grant: one that cannot ask is still one the person can grant. Two rules the
-  dialog cannot overrule — an authorization carrying only the installer feature scope never becomes
-  durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox cannot make
-  that escalation visible; and anonymous public-read keeps its refresh-token-free shortcut. Token
-  refresh keeps the existing rotating-family reuse detection, and refresh responses cannot silently
-  widen feature scopes.
+  dialog cannot overrule — an authorization that carries the installer feature scope at all never
+  becomes durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox
+  cannot make that escalation visible and pairing the scope with `public-read` does not change that;
+  and anonymous public-read keeps its refresh-token-free shortcut. Token refresh keeps the existing
+  rotating-family reuse detection, and refresh responses cannot silently widen feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
@@ -92,8 +92,10 @@ transaction rather than on the request, so they hold on either route.
   item decides whether a reconnect should retire the family it supersedes, which today it does not:
   the code exchange mints a new family and revokes nothing.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
-  explicit `offline_access` request for durable interactive connections and the absence of refresh
-  tokens otherwise.
+  explicit `offline_access` request for a client that wants the durable option preselected, and must
+  keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
+  never sent the scope can still hold one, and only a consent that withheld durability means there
+  is none.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
