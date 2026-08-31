@@ -53,9 +53,10 @@ The standard-shaped pieces stay standard-shaped:
 - Dynamic Client Registration creates the service client's OAuth client record, with the
   authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
-- The refresh-token opt-in is `offline_access`, advertised as a sempods OAuth extension unless and
-  until the pod also implements the OIDC pieces that make `openid offline_access` standard-shaped:
-  OIDC discovery and `id_token` issuance.
+- A client signals that it needs a durable connection with `offline_access`, a sempods OAuth
+  extension on this route: the scope name is OpenID Connect's, requested bare. The standard-shaped
+  `openid offline_access` belongs to a pod's optional OIDC route, with its own issuer and its own
+  `id_token`. The signal is not the grant — see §"Token lifetime is part of consent".
 
 Server-assigned client IDs are a security property, not just a naming preference. The caller must not
 choose the service client's `client_id` or a registration root. The escalation class in the old
@@ -86,13 +87,31 @@ Consent must show not only what the installer can do, but how long the credentia
   scope is one-shot, the protected registration call consumes that authority so the same bearer
   cannot install again, the underlying authorization is not auto-granted on the next login, and if it
   is durable the UI says so;
-- `offline_access` means a refresh token can keep an interactive connection alive until it is
-  revoked or unused beyond its rolling lifetime; and
+- a durable connection means a refresh token can keep an interactive session alive until it is
+  revoked or left unused beyond its rolling lifetime; and
 - a service client secret lives until it is rotated or the registration is removed, while its access
   tokens stay short-lived.
 
 This is not just UI polish. Without the lifetime, a user cannot tell the difference between "let
 this UI install one service client now" and "let this remote installer keep coming back".
+
+**The durable connection is granted in consent, not requested by the client.** OAuth defines refresh
+tokens but no way to ask for one, so today every client receives one whether or not it needs it;
+`offline_access` is an OpenID Connect scope borrowed for an OAuth surface. A resource server can
+advertise it — `scopes_supported` is the field an MCP client would read — but the MCP authorization
+specification defines no scope of its own and requires none, so whether a client asks is that
+client's choice rather than something the protocol secures. Making the request the decision would
+therefore hand the lifetime of a person's credential to whichever clients happen to implement the
+lever, while the person who should be deciding is standing in front of the dialog. So the request
+preselects the control and the consent decides it, and withdrawing the choice ends the connection's
+durability rather than only declining to extend it. The decision is resolved from the stored consent
+whenever a token is issued, the way context permissions already are, so nothing a client is still
+holding — an authorization code from an earlier and more generous consent — outlives the choice.
+
+Two limits are the server's and not the dialog's. An authorization that carries the installer
+feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that
+escalation visible — a durable installer is a thing to design, not to tick. And an anonymous
+public-read token has no person to grant anything, so it stays short-lived and refresh-token-free.
 
 ## Related
 

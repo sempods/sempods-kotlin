@@ -124,13 +124,17 @@ migrated or deliberately broken.
   granted manually". Generalizing beyond owner-bound consent needs a distinct context-management
   authority rule.
 - Refresh-token prerequisite — before protected DCR is exposed, either the related
-  `offline_access` hardening has landed or this milestone suppresses refresh-token issuance for
-  installer-feature-scope-only authorizations. That is necessary but not sufficient: if the
-  installer feature scope is persisted like an ordinary static-client grant, the installer can start
-  another authorization-code flow and recover the same authority through auto-grant. Decide whether
-  installer authorization is one-shot by default or deliberately durable, then implement and display
-  that lifetime honestly. For the one-shot path, protect both layers: no silent re-issuance on the
-  next authorization flow, and no repeated protected-DCR calls with the already-issued bearer.
+  `offline_access` hardening has landed or this milestone suppresses refresh-token issuance itself.
+  The rule belongs to the concept rather than to this file: an authorization carrying the installer
+  feature scope does not become durable, whatever else it carries and whatever the consent dialog
+  offers — see
+  [`../concepts/app-installation.md`](../concepts/app-installation.md#token-lifetime-is-part-of-consent-soll).
+  That is necessary but not sufficient: if the installer feature scope is persisted like an ordinary
+  static-client grant, the installer can start another authorization-code flow and recover the same
+  authority through auto-grant. Whether a deliberately durable installer is ever wanted is this
+  milestone's question, and answering it yes means designing that exception here rather than letting
+  a tick buy it. For the one-shot path, protect both layers: no silent re-issuance on the next
+  authorization flow, and no repeated protected-DCR calls with the already-issued bearer.
 - Sandbox convenience — creating `apps/<serverAssignedClientId>#manage` is useful but no longer
   mandatory. Decide whether the first UI defaults to "no grants until selected", "read existing
   contexts", or "create private app sandbox".
