@@ -25,8 +25,10 @@ discovery, ID-token issuance and validation.
   `offline_access` is read nowhere on the authorize, consent or token path. Three consumers rely on
   that: hosted MCP, which builds the pod authorization URL without a scope and keeps the returned
   token in its vault; MCP clients connected to a pod directly, which cannot ask for a scope the pod
-  does not advertise; and the hosted service's own MCP clients, a second refresh layer that belongs
-  to item 6. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
+  does not advertise; and the hosted service's own MCP clients, a second refresh layer this
+  milestone leaves as it is — the goal above is pod-issued refresh tokens, so item 6 checks only
+  that its revocation and liveness still agree. Whether that surface should ask for `offline_access`
+  too is its own question, and naming it in an inventory is not the same as planning it. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
   exchange and the refresh grant checks nothing new, so families already issued keep rotating. That
   costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
   reconnect mints a second family and retires nothing, every rotation renews the full TTL, and only
