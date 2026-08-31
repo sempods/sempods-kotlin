@@ -44,15 +44,15 @@ transaction rather than on the request, so they hold on either route.
   reconnect mints a second family and retires nothing, and every rotation renews the full TTL. Which
   events do end a family is item 6's subject — and one of the answers there is already known to be
   wrong.
-- [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
-  requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
-  so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
-  not as plain OAuth and not as OIDC; the metadata half includes `scopes_supported` in the
-  protected-resource metadata, which is the one field a third-party MCP client reads. Advertising it
-  is complete rather than a half-truth: the request-side scope space is the fixed feature-scope set
-  — `public-read`, this milestone's `offline_access`, later the installer scope — because contexts
-  are agreed as grants in consent and resolved per request. This item must land before item 5 —
-  otherwise a fresh connection is stored without a refresh token and dies an hour later in silence.
+- [x] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
+  now sends `scope=offline_access` on connect and re-authorize — from every pod whose discovery
+  advertises it, and from no other, because this service connects to pods it does not host and an
+  authorization server may refuse a scope it does not know. Both halves are pinned by
+  `WebUiEndpointTest`. The pod side advertises `scopes_supported` in both discovery documents,
+  pinned by `PodOAuthMetadataEndpointHttpTest`, which flips two assertions that used to require the
+  field's absence, and `docs/auth/oauth.md` §`offline_access` states the extension. Nothing about
+  issuance changed — the pod still returns a refresh token whether or not the scope was asked for,
+  which is what makes this safe to land ahead of item 5 and is exactly what item 5 removes.
 - [ ] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
   its own control for keeping the connection alive, beside the context grants, describing the
   lifetime class rather than naming a scope: without it a short-lived access token, with it a

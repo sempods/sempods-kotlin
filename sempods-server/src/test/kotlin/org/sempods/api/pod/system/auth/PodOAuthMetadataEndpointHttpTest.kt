@@ -78,9 +78,14 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "bearer_methods_supported must declare 'header'"
     )
 
-    // scopes_supported is not advertised: the request-side scope space is the feature-scope set
-    // alone, and context permissions are grants rather than scopes a client asks for.
-    assertNull(body["scopes_supported"], "scopes_supported must not be advertised")
+    // The whole of what a client may put in `scope`. It is short because context permissions are
+    // grants rather than scopes, and `offline_access` is on it because a client that reads only
+    // this document has no other way to learn the extension exists. `openid` is not: no `id_token`.
+    assertEquals(
+      listOf("public-read", "offline_access"),
+      body["scopes_supported"],
+      "scopes_supported must name the feature scopes and the refresh-token extension",
+    )
 
     // R5: public_contexts is the count of the pod's public contexts, read from the registry.
     // `SempodsTestFactory.newPod` registers one, so the count is > 0 for any pod created here.
@@ -154,7 +159,11 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       listOf("none", "client_secret_basic"),
       body["token_endpoint_auth_methods_supported"],
     )
-    assertNull(body["scopes_supported"], "scopes_supported must not be advertised")
+    assertEquals(
+      listOf("public-read", "offline_access"),
+      body["scopes_supported"],
+      "the AS metadata must name the same scope set as the protected-resource metadata",
+    )
   }
 
   @Test

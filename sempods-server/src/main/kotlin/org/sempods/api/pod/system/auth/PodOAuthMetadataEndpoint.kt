@@ -3,6 +3,8 @@ package org.sempods.api.pod.system.auth
 import com.google.inject.Inject
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.PodFacade
+import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
+import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.GET
@@ -45,9 +47,12 @@ import jakarta.ws.rs.core.Response
  *     counterpart (on [org.sempods.api.pod.system.mcp.McpEndpoint]), kept alongside the strict
  *     form because the exact claude.ai probe set is not fully documented.
  *
- * `scopes_supported` is not advertised. The request-side scope space is the feature-scope set
- * alone (`public-read` today) — the per-context permissions a caller ends up with are grants,
- * agreed in the consent dialog and resolved per request, never asked for through `scope`.
+ * `scopes_supported` names everything a client may put in `scope`: the feature scopes, and
+ * `offline_access` for a client that needs a refresh token. The list is short and complete because
+ * the per-context permissions a caller ends up with are grants — agreed in the consent dialog and
+ * resolved per request, never asked for through `scope`. Advertising it is what lets a client that
+ * has read no sempods documentation discover the extension at all; `openid` is deliberately absent,
+ * because this pod issues no `id_token`.
  */
 @Path("{pod}")
 class PodOAuthMetadataEndpoint @Inject constructor(
@@ -122,6 +127,9 @@ class RootOAuthMetadataEndpoint @Inject constructor(
   }
 }
 
+/** RFC 9728 §2 and RFC 8414 §2 both call the field `scopes_supported`, and both mean this list. */
+private val SCOPES_SUPPORTED = listOf(PUBLIC_READ_SCOPE, OFFLINE_ACCESS_SCOPE)
+
 internal fun buildProtectedResourceMetadata(
   pod: PodDbo,
   apiBaseUrl: String,
@@ -137,6 +145,7 @@ internal fun buildProtectedResourceMetadata(
     "resource" to podBaseUrl,
     "authorization_servers" to listOf(authIssuer),
     "bearer_methods_supported" to listOf("header"),
+    "scopes_supported" to SCOPES_SUPPORTED,
     "public_contexts" to publicContextsCount,
   )
   pod.displayName?.takeIf { it.isNotBlank() }?.let { body["name"] = it }
@@ -161,6 +170,7 @@ internal fun buildAuthorizationServerMetadata(
     // to reflect what the token endpoint actually accepts, so we advertise it
     // honestly. `client_secret_basic` is its required authentication method.
     "grant_types_supported" to listOf("authorization_code", "refresh_token", "client_credentials"),
+    "scopes_supported" to SCOPES_SUPPORTED,
     "code_challenge_methods_supported" to listOf("S256"),
     "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic"),
   )
