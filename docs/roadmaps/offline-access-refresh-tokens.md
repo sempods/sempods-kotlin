@@ -20,15 +20,29 @@ discovery, ID-token issuance and validation.
 
 ## Work
 
-- [ ] 1 — Inventory current refresh-token reliance before changing semantics. Hosted MCP currently
-  builds the pod authorization URL without an explicit scope and stores the refresh token returned by
-  the pod, so it relies on refresh tokens without requesting `offline_access`. Check existing PoC
-  rows and decide whether they are migrated, preserved until reconnect, or intentionally broken with
-  a reconnect requirement.
+- [x] 1 — Inventory current refresh-token reliance before changing semantics. The pod issues a
+  refresh token on every authorization-code exchange except the anonymous `public-read` one, and
+  `offline_access` is read nowhere on the authorize, consent or token path. Three consumers rely on
+  that: hosted MCP, which builds the pod authorization URL without a scope and keeps the returned
+  token in its vault; MCP clients connected to a pod directly, which cannot ask for a scope the pod
+  does not advertise; and the hosted service's own MCP clients, a second refresh layer this
+  milestone leaves as it is — the goal above is pod-issued refresh tokens, so item 6 checks only
+  that its revocation and liveness still agree. Whether that surface should ask for `offline_access`
+  too is its own question, and naming it in an inventory is not the same as planning it. Existing rows are **not** migrated: the item 5 gate sits in the authorization-code
+  exchange and the refresh grant checks nothing new, so families already issued keep rotating. That
+  costs no code and no legacy branch, and the price is steeper than "until the user reconnects": a
+  reconnect mints a second family and retires nothing, and every rotation renews the full TTL. Which
+  events do end a family is item 6's subject — and one of the answers there is already known to be
+  wrong.
 - [ ] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
   requests `offline_access` when it needs a durable pod connection, and tests pin the authorize URL
   so the dependency remains visible. Docs and metadata advertise this as a sempods OAuth extension,
-  not as plain OAuth and not as OIDC.
+  not as plain OAuth and not as OIDC; the metadata half includes `scopes_supported` in the
+  protected-resource metadata, which is the one field a third-party MCP client reads. Advertising it
+  is complete rather than a half-truth: the request-side scope space is the fixed feature-scope set
+  — `public-read`, this milestone's `offline_access`, later the installer scope — because contexts
+  are agreed as grants in consent and resolved per request. This item must land before item 5 —
+  otherwise a fresh connection is stored without a refresh token and dies an hour later in silence.
 - [ ] 3 — Render refresh-token lifetime in consent. Reuse the service-client lifetime vocabulary
   owned by the owner-installation milestone, but this item owns only the `offline_access` text:
   short-lived access token without it, rolling refresh token with it. Tests assert that requesting
@@ -38,21 +52,52 @@ discovery, ID-token issuance and validation.
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
-  from granted `offline_access`.
+  from granted `offline_access`. It touches every station, so it is also where the hand-written
+  message layer can move onto `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
+  and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
+  are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
+  **inverted** — it answers true for a legal set — so a substitution has to negate it. `Prompt.parse`
+  is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
+  does not carry the SDK yet.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   when `offline_access` was requested and granted. Token refresh keeps the existing rotating-family
   reuse detection, but refresh responses cannot silently widen feature scopes.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
-  `offline_access`.
+  `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
+  refresh rows by a context-shaped scope, and no row issued today can hold one, because the code
+  exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
+  still justify it — the identically named service-client path is unaffected and stays. The same
+  item decides whether a reconnect should retire the family it supersedes, which today it does not:
+  the code exchange mints a new family and revokes nothing.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for durable interactive connections and the absence of refresh
   tokens otherwise.
+- [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
+  than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
+  reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
+  The companion change says when a refresh token may be issued, that `offline_access` is a sempods
+  extension and not an OIDC scope, and what consent must show about lifetime; check whether
+  `spec/modules/mcp.md` needs the same for clients that connect to a pod directly. It is a pull
+  request in `sempods/sempods-spec` and cannot ride in this repository's commits, and the
+  requirement identifiers cited here have to point at requirements that exist — so it lands before
+  this roadmap is consolidated, not after.
 
 ## Open decisions
 
-- PoC migration — from actual stored rows and users, choose reconnect-only, compatibility-until-use,
-  or explicit migration before token issuance changes.
+- Directly connected MCP clients — `offline_access` is not part of the MCP authorization chain, and
+  a client requests only what the resource server advertises. Item 2 advertises it; what has to be
+  measured then is which of the clients in [`../mcp/clients.md`](../mcp/clients.md) actually ask for
+  it. A client holding grants beyond `public-read` then has no silent path at all: consent is always
+  rendered for a `dyn:` client and `prompt=none` answers `consent_required`, so item 5 either costs
+  it an hourly consent dialog or needs a rule of its own. Anonymous public-read is not in that
+  bind — it never received a refresh token and keeps its `prompt=none` shortcut, which is reached
+  before the dynamic-client rule. Decide on the measurement, not on a guess.
+- Strictness at `/authorize` — an unknown scope is dropped in silence today, so a typo
+  (`offline-access`) buys a one-hour token and no explanation once item 5 lands. Answering
+  `invalid_scope` (RFC 6749 §4.1.2.1) is the standard behaviour, but it is a breaking change of its
+  own for clients that send scope names from their own world, and turning it at the same time as
+  item 5 makes the two indistinguishable in a bug report. Decide it on the same measurement.
 - Request shape — this milestone keeps bare `offline_access` as a deliberately documented sempods
   OAuth extension. Moving to the standard-shaped `openid offline_access` request requires first
   making the pod an OIDC Provider with discovery, ID-token issuance and validation.
@@ -68,6 +113,3 @@ One focused command should cover the milestone once code exists:
 ```bash
 ./gradlew :sempods-server:test --tests "org.sempods.api.pod.system.auth.*" :sempods-mcp:test :sempods-client:test
 ```
-
-Before implementation starts, inspect the hosted MCP authorize URL construction and refresh-token
-storage path, then record the chosen PoC migration behaviour in item 1.

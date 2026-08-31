@@ -289,10 +289,13 @@ Order of checks at `/authorize` for `scope=public-read`:
    public-read consent screen lands (open work).
 
 `public-read` is additive at the model level — see
-`SPS-GRANT-020` (sempods-spec). The
-`/authorize` endpoint accepts it combined with per-context scopes; at
-token issuance and at resource access it behaves as the union semantics
-described there.
+`SPS-GRANT-020` (sempods-spec). A `scope` value naming a context is
+accepted rather than refused, but it grants nothing: contexts are ticked
+in the consent dialog, not requested. The anonymous variant above is the
+one place the rest of the value is read — it requires `public-read` and
+nothing else, so `scope=public-read <context>#read` without a session is
+`login_required` rather than an anonymous code. At token issuance and at
+resource access the union semantics described there apply.
 
 ## Protected Resource Metadata (RFC 9728)
 

@@ -78,7 +78,8 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "bearer_methods_supported must declare 'header'"
     )
 
-    // scopes_supported is intentionally omitted — the consent dialog is the source of truth.
+    // scopes_supported is not advertised: the request-side scope space is the feature-scope set
+    // alone, and context permissions are grants rather than scopes a client asks for.
     assertNull(body["scopes_supported"], "scopes_supported must not be advertised")
 
     // R5: public_contexts is the count of the pod's public contexts, read from the registry.
