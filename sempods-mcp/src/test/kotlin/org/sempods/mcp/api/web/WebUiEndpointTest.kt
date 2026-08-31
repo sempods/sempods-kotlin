@@ -481,13 +481,40 @@ class WebUiEndpointTest {
   }
 
   @Test
-  fun `the pod authorize URL asks for offline_access, because the connection lives on a refresh token`() = testApplication {
+  fun `a pod that advertises offline_access is asked for it, because the connection lives on a refresh token`() = testApplication {
     // This service holds a pod connection open by rotating the pod's refresh token. A pod is free
     // to issue one only to a client that asked for it, so the ask is pinned here rather than left
     // to the pod's current permissiveness: without it, the day a pod stops handing out refresh
     // tokens unasked, every connection would die an hour after it was made and nothing in the flow
     // would say why. Connect and re-authorize share `buildPodAuthorizeRedirect`, so one covers both.
     val user = "https://id.test/e/web-user-offline"
+    val tokenIssuer = installWebUi()
+    withSimulatedPod(
+      registersAs = "dyn:fresh",
+      advertisedScopes = listOf("public-read", "offline_access"),
+    ) { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
+          issuer = authBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase))
+
+      assertEquals("offline_access", authorize.parameters["scope"], "$authorize")
+    }
+  }
+
+  @Test
+  fun `a pod that advertises nothing is asked for nothing, not for a scope it may refuse`() = testApplication {
+    // The counter-case, and the reason the ask is conditional at all: RFC 6749 §4.1.2.1 lets an
+    // authorization server answer `invalid_scope` for a value it does not know. This service
+    // connects to pods it does not host, so a scope sent to a pod that never advertised it could
+    // end the flow in the browser — losing the connection outright to ask for a refresh token that
+    // pod hands out unasked anyway.
+    val user = "https://id.test/e/web-user-no-offline"
     val tokenIssuer = installWebUi()
     withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
       ConnectionRegistryDao(db!!).upsert(
@@ -500,7 +527,7 @@ class WebUiEndpointTest {
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase))
 
-      assertEquals("offline_access", authorize.parameters["scope"], "$authorize")
+      assertNull(authorize.parameters["scope"], "$authorize")
     }
   }
 
@@ -593,16 +620,19 @@ class WebUiEndpointTest {
    */
   private suspend fun withSimulatedPod(
     registersAs: String,
+    advertisedScopes: List<String> = emptyList(),
     body: suspend (pod: ClientAndServer, podBase: String, authBase: String) -> Unit,
   ) {
     val pod = ClientAndServer.startClientAndServer(0)
     try {
       val podBase = "http://localhost:${pod.port}/p"
       val authBase = "$podBase/_system/auth"
+      val scopes = advertisedScopes.joinToString(",") { "\"$it\"" }
+        .let { if (it.isEmpty()) "" else ",\"scopes_supported\":[$it]" }
       pod.`when`(request().withMethod("GET").withPath("/p/.well-known/oauth-protected-resource"))
         .respond(
           response().withStatusCode(200)
-            .withBody("""{"resource":"$podBase","authorization_servers":["$authBase"]}"""),
+            .withBody("""{"resource":"$podBase","authorization_servers":["$authBase"]$scopes}"""),
         )
       pod.`when`(request().withMethod("GET").withPath("/p/_system/auth/.well-known/oauth-authorization-server"))
         .respond(

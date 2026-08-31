@@ -35,9 +35,12 @@ discovery, ID-token issuance and validation.
   events do end a family is item 6's subject — and one of the answers there is already known to be
   wrong.
 - [x] 2 — Make long-lived interactive clients request refresh-token authority explicitly. Hosted MCP
-  now sends `scope=offline_access` on connect and re-authorize, pinned by `WebUiEndpointTest`; both
-  discovery documents advertise `scopes_supported`, pinned by `PodOAuthMetadataEndpointHttpTest`,
-  which flips two assertions that used to require the field's absence. `docs/auth/oauth.md`
+  now sends `scope=offline_access` on connect and re-authorize — from every pod whose discovery
+  advertises it, and from no other, because this service connects to pods it does not host and an
+  authorization server may refuse a scope it does not know. Both halves are pinned by
+  `WebUiEndpointTest`. The pod side advertises `scopes_supported` in both discovery documents,
+  pinned by `PodOAuthMetadataEndpointHttpTest`, which flips two assertions that used to require the
+  field's absence. `docs/auth/oauth.md`
   §`offline_access` states the extension. Nothing about issuance changed — the pod still returns a
   refresh token whether or not the scope was asked for, which is what makes this safe to land ahead
   of item 5 and is exactly what item 5 removes.

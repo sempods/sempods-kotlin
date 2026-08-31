@@ -16,6 +16,16 @@ data class PodOAuthMetadata(
    */
   val registrationEndpoint: String?,
   val jwksUri: String?,
+  /**
+   * What the pod says a client may put in `scope` — the union of `scopes_supported` in its
+   * protected-resource metadata (RFC 9728 §2) and its AS metadata (RFC 8414 §2), empty for a pod
+   * that advertises neither.
+   *
+   * Read once, when the authorize URL is built. `PodConnectStateStore` deliberately does not carry
+   * it across the redirect: what comes back is a code to exchange, and the exchange asks for no
+   * scopes.
+   */
+  val scopesSupported: Set<String> = emptySet(),
 )
 
 /** A pod token-endpoint response (authorization_code or refresh_token grant). */

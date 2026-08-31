@@ -154,9 +154,18 @@ fun Application.webUiEndpoint(
         expiresAt = expiresAt, returnTo = returnTo,
       )
     }
-    return podOAuthClient.buildAuthorizeUrl(
-      metadata, podClientId, podCallbackUri, challenge, state, scope = OFFLINE_ACCESS_SCOPE,
-    )
+    // Asked for only where the pod says it is understood. RFC 6749 §4.1.2.1 lets an authorization
+    // server answer `invalid_scope` for a value it does not know, and this service connects to pods
+    // it does not host — so a pod that advertises nothing gets the scope-less request it got before
+    // rather than a flow that dies in the browser.
+    val scope = OFFLINE_ACCESS_SCOPE.takeIf { it in metadata.scopesSupported }
+    if (scope == null) {
+      logger.info {
+        "pod '${forLog(podBaseUrl)}' does not advertise '$OFFLINE_ACCESS_SCOPE' — " +
+          "connecting without it, so the connection lasts as long as the pod chooses to make it"
+      }
+    }
+    return podOAuthClient.buildAuthorizeUrl(metadata, podClientId, podCallbackUri, challenge, state, scope)
   }
 
   routing {
@@ -610,7 +619,8 @@ private fun withParam(url: String, param: String): String =
 private const val SERVICE_VERSION = "0.2.0-M2"
 
 /**
- * The scope this service asks a pod for, on every connect and re-authorize.
+ * The scope this service asks a pod for — on connect and on re-authorize, from every pod whose
+ * discovery says it is understood.
  *
  * It holds the connection open with the pod's refresh token instead of sending the user back
  * through consent every hour, so the authority is asked for rather than taken: a pod is free to

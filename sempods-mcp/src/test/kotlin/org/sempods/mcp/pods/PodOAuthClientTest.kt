@@ -75,6 +75,43 @@ class PodOAuthClientTest {
   }
 
   @Test
+  fun `discovery unions the scope lists of both metadata documents`() = runBlocking {
+    // A pod may publish `scopes_supported` in the protected-resource metadata (RFC 9728 §2), in the
+    // AS metadata (RFC 8414 §2), or in both, and the two are read by different parsers here. What
+    // the caller needs is one answer to "may I ask for this", so the union is what it gets.
+    val authBase = "$base/_system/auth"
+    server.reset()
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"resource":"$base","authorization_servers":["$authBase"],"scopes_supported":["public-read"]}""",
+        ),
+      )
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(
+        response().withStatusCode(200).withBody(
+          """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize",""" +
+            """"token_endpoint":"$authBase/token","scopes_supported":["offline_access",42,"  "]}""",
+        ),
+      )
+
+    val metadata = client.discoverMetadata(base)
+
+    assertEquals(
+      setOf("public-read", "offline_access"), metadata.scopesSupported,
+      "both documents contribute, and a non-string or blank entry is not a scope",
+    )
+  }
+
+  @Test
+  fun `a pod that advertises no scopes answers the empty set, not a failure`() = runBlocking {
+    // The pods that exist today. Discovery must not become the place a connect starts failing.
+    val metadata = client.discoverMetadata(base)
+
+    assertEquals(emptySet(), metadata.scopesSupported)
+  }
+
+  @Test
   fun `discover register exchange refresh against a simulated pod`() = runBlocking {
     val metadata = client.discoverMetadata(base)
     assertEquals("$base/_system/auth/token", metadata.tokenEndpoint)
