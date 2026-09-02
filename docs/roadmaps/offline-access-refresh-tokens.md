@@ -202,9 +202,11 @@ written so that the test is HTTP-level where it can be.
 - **I16 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
   and carry their feature scopes, so nothing retracts one inside its hour; context access stops at
   once, because that is resolved per request from the grant store. This is the promise narrowed on
-  purpose rather than a gap to discover later — and it is why the installer feature scope has to be
-  consumed server-side rather than trusted to be short-lived, which
-  [`owner-app-installation.md`](owner-app-installation.md) owns.
+  purpose rather than a gap to discover later. What follows for a privileged feature scope is a
+  constraint and not a policy: a disconnect cannot shorten a bearer already issued, so whichever
+  lifetime the installer scope ends up with — one-shot or deliberately durable, which
+  [`owner-app-installation.md`](owner-app-installation.md) decides — it has to hold without relying
+  on a revocation reaching that bearer.
 
 **Nothing that worked stops working**
 
