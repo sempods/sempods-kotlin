@@ -10,12 +10,31 @@ import com.nimbusds.jwt.JWTClaimsSet
  * tab, whether they returned a `List` or a `Set`, and whether they read `scp` as well as `scope`.
  * None of the differences was intended. All of them are gone; a seventh belongs here rather than
  * at its call site.
+ *
+ * **The grammars are the specifications', not a lenient reading of them.** Both parsers used to
+ * split on tabs as well as spaces and the `prompt` one lower-cased what it read, which accepted
+ * requests the specifications do not define: RFC 6749 §3.3 separates scope tokens with a single
+ * space and does not admit a tab *inside* one either, and OIDC Core §3.1.2.1 calls `prompt` a
+ * case-sensitive list. Tolerating more than that guesses at what a malformed request meant, and a
+ * guess that happens to match a real scope grants on the strength of it. `OAuthSyntaxTest` holds
+ * both parsers against the OAuth SDK's own so a future divergence is a red test rather than a
+ * discovery.
+ *
+ * What is *not* tightened here is an unrecognised value. Neither specification says to refuse one,
+ * and refusing would be a policy of this server rather than conformance — the roadmap's strictness
+ * decision owns that question. Unknown values therefore survive parsing and are judged by whoever
+ * reads them.
  */
 object OAuthSyntax {
 
-  /** `scope` per RFC 6749 §3.3. Tabs are accepted alongside spaces; empty entries drop out. */
+  /**
+   * `scope` per RFC 6749 §3.3: values separated by spaces. Repeated spaces collapse — a formatting
+   * slip cannot be told from the single separator the grammar names — and nothing else is treated
+   * as a separator, so a tab travels inside the value it sits in and is refused there as the
+   * unknown scope it makes.
+   */
   fun parseScope(raw: String?): Set<String> =
-    raw?.split(' ', '\t')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
+    raw?.split(' ')?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
 
   fun formatScope(scopes: Collection<String>): String = scopes.joinToString(" ")
 
@@ -42,14 +61,16 @@ object OAuthSyntax {
   }
 
   /**
-   * `prompt` per OIDC Core 1.0 §3.1.2.1 — multi-valued, space-delimited, lower-cased.
+   * `prompt` per OIDC Core 1.0 §3.1.2.1 — multi-valued, space-delimited, **case sensitive**, which
+   * is why nothing is folded here: `NONE` is not the `none` the specification defines, and treating
+   * it as one would apply the strictest rule in the parameter to a request that did not ask for it.
    *
    * Unknown values are **kept**, not dropped: `none` is only meaningful in combination with what
    * else was asked for, so a caller has to see the whole set to reject the illegal combinations.
    * Deciding which values may travel on to an upstream provider is [OidcPrompt]'s job.
    */
   fun parsePrompt(raw: String?): Set<String> =
-    raw?.lowercase()?.split(' ', '\t')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
+    raw?.split(' ')?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
 
   /** `prompt` values that demand a fresh authentication rather than accepting a live session. */
   val FORCE_REAUTH_PROMPTS: Set<String> = setOf("login", "select_account")
