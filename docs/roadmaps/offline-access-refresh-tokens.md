@@ -186,11 +186,18 @@ written so that the test is HTTP-level where it can be.
 - **I7 — Withdrawal kills what is already held.** The old refresh token stops working, not merely no
   new one is minted: `exchangeRefreshToken` gives up a family only when every grant for the app is
   gone, so unticking while keeping context grants would otherwise change nothing observable.
-- **I8 — Withdrawal follows the person, not one URI.** A family issued under an alias the pod stores
-  dies when its owner withdraws under their canonical WebID. `revokeForUser` matches one exact
-  `webId` today, and the survivor would read as "nothing recorded" and be grandfathered.
-- **I9 — A stale durable code cannot revive durability.** A code minted under an earlier consent
-  stays redeemable for five minutes and the client holds its verifier.
+- **I8 — The person is a set of URIs, on every path that ends access.** A family issued under an
+  alias the pod stores dies when its owner withdraws under their canonical WebID — `revokeForUser`
+  matches one exact `webId` today, and the survivor would read as "nothing recorded" and be
+  grandfathered. The same holds for the grants and for the dialog: `fetchGrantStrings` is called with
+  a single `webId` at authorize, so an authorization stored under an alias reads as a first
+  authorization, hides the disconnect action by I11's own rule, and leaves a bearer whose `sub` is
+  that alias resolving those rows. An HTTP test proves alias-bound context access stops.
+- **I9 — A code is bound to the consent it was issued under.** It stays redeemable for five minutes
+  and the client holds its verifier, so once the stored decision has moved the code is spent: a
+  withdrawal, or a disconnect followed by a narrower reconnect inside that window, must not let it
+  mint what the earlier consent allowed. Refusing only an authorization that now holds nothing is
+  too weak — after the reconnect it holds something again.
 - **I10 — A withdrawal landing mid-issuance still wins.** Both paths read the decision and then
   insert a row — `markRotated` then `issueInFamily` on refresh, read-then-insert on the code
   exchange — so a revocation between the two misses the successor unless each insert is bound to the
@@ -198,9 +205,9 @@ written so that the test is HTTP-level where it can be.
   no row and cannot be recalled once returned, so the binding covers what the exchange hands back
   and not only what it stores: a disconnect that lands first must not be answered with a bearer.
 - **I11 — Disconnect leaves neither.** The app's grants are gone and its refresh token is dead; the
-  client still receives `access_denied`. An authorization code it was still holding cannot be
-  redeemed afterwards either — the code exchange refuses an authorization that now holds nothing,
-  the way the refresh path already does on `currentGrants.isEmpty()`.
+  client still receives `access_denied`. A code it was still holding is spent with the consent that
+  issued it (I9), and the action is offered only where there is something to remove — which, by I8,
+  is a question about the person and not about one URI.
 - **I16 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
   and carry their feature scopes, so nothing retracts one inside its hour; context access stops at
   once, because that is resolved per request from the grant store. This is the promise narrowed on
