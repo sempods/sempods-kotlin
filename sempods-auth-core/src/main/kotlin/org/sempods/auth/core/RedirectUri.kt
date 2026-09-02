@@ -1,6 +1,8 @@
 package org.sempods.auth.core
 
 import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /**
  * What may appear as a `redirect_uri` at all (RFC 6749 §3.1.2, RFC 8252 §7.3).
@@ -12,6 +14,7 @@ import java.net.URI
  * - absolute, with a scheme and a host
  * - no fragment — the component is reserved for the response and must never be registered
  * - `https` anywhere; `http` only for loopback, so a plain-text address cannot be a real target
+ * - no `code`, `response` or `state` in the query, for the same reason as the fragment
  */
 object RedirectUri {
 
@@ -39,12 +42,44 @@ object RedirectUri {
    */
   private val portInsensitiveHosts = loopbackHosts + "0.0.0.0"
 
+  /**
+   * Query parameters an address may not bring with it, because the authorization response puts
+   * them there: `code`, `response` and `state`.
+   *
+   * The reason is the one the fragment rule already states, one component further along. Neither
+   * server that builds a response deletes what it did not write, and neither could: overwriting a
+   * registered `state` would break the client that registered it, and keeping it hands that value
+   * to a client which cannot tell it from the one this server chose.
+   *
+   * What each of the two then does with a colliding parameter differs, and both are wrong:
+   *
+   * - The pod builds its redirect with [org.sempods.commons.net.UrlUtil], which *overwrites* — so
+   *   a registered `state` survives exactly when the request carried none, and the client reads
+   *   its own registered value as the CSRF token this server issued.
+   * - The MCP authorization server builds its redirect with the OAuth SDK, which *appends* — so
+   *   `…/cb?code=old` receives `?code=old&code=C1`. Which of the two a client redeems is its
+   *   parser's business; most read the first.
+   *
+   * That second one is why the rule belongs here rather than at either call site. The SDK's
+   * response builder and its `RedirectURIValidator` are a matched pair — the builder is safe only
+   * on an address the validator would have passed — and this repository adopted the builder
+   * without the validator. The set and its semantics are that validator's, measured rather than
+   * read: case-sensitive (`?CODE=` is not the `code` a client reads), decoded before comparing
+   * (`?%63ode=` is), and a bare `?code` with no value counts.
+   *
+   * `error` and `error_description` are deliberately **not** here, for the same reason the SDK
+   * leaves them out: a client that registers them can only confuse itself, and no other client's
+   * response is reachable through them.
+   */
+  private val prohibitedQueryParams = setOf("code", "response", "state")
+
   // TODO: RFC 8252 private-use schemes (`com.example.app:/cb`) for native clients — no consumer
   //  needs them today, and accepting a scheme nobody validates would widen the surface for free.
   fun isValid(uri: String): Boolean {
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
     if (!parsed.isAbsolute) return false
     if (parsed.fragment != null) return false
+    if (carriesResponseParameter(parsed)) return false
     val scheme = parsed.scheme?.lowercase() ?: return false
     val host = hostOf(parsed) ?: return false
     return when (scheme) {
@@ -53,6 +88,20 @@ object RedirectUri {
       else -> false
     }
   }
+
+  /**
+   * Whether [uri]'s query names one of [prohibitedQueryParams].
+   *
+   * Reads the *raw* query and decodes each name on its own, which is the only order that answers
+   * `?%63ode=x`: `URI.getQuery` would decode the whole string first, and a `%26` inside a value
+   * would then split into a parameter that was never there.
+   */
+  private fun carriesResponseParameter(uri: URI): Boolean =
+    uri.rawQuery?.split('&')?.any { decodeName(it.substringBefore('=')) in prohibitedQueryParams } ?: false
+
+  /** A query parameter's name as the client's server will read it, or null if it cannot be read. */
+  private fun decodeName(raw: String): String? =
+    runCatching { URLDecoder.decode(raw, StandardCharsets.UTF_8) }.getOrNull()
 
   /** Whether [host] reaches only the user's own machine — the question `isValid` asks of `http`. */
   fun isLoopback(host: String?): Boolean = normalizeHost(host) in loopbackHosts

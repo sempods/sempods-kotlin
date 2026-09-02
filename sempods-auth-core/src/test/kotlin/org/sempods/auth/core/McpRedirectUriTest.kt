@@ -95,6 +95,37 @@ class McpRedirectUriTest {
     assertFalse(RedirectUri.isValid("http://127.0.0.1/cb#x"))
   }
 
+  @Test fun `an address may not bring a response parameter with it`() {
+    // The response puts these three there. A registered one is either overwritten — breaking the
+    // client that registered it — or kept, and then read as a value this server chose.
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?code=old"))
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?state=attacker"))
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?response=x"))
+    assertFalse(RedirectUri.isValid("http://127.0.0.1:51000/cb?state=x"))
+    // Alongside the client's own parameters, which stay allowed.
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?next=%2Fhome&state=x"))
+    assertTrue(RedirectUri.isValid("https://app.example.com/cb?next=%2Fhome"))
+  }
+
+  @Test fun `the prohibited names are matched the way a client's server reads them`() {
+    // Measured against the OAuth SDK's `RedirectURIValidator`, whose set this is, because the SDK
+    // builds the MCP server's redirect and is safe only on an address that validator would pass.
+    //
+    // Case-sensitive: `?CODE=` is not the `code` any client reads, and refusing it would refuse an
+    // address that is fine.
+    assertTrue(RedirectUri.isValid("https://app.example.com/cb?CODE=x"))
+    // Decoded first: `%63ode` arrives at the client as `code`, so it is one.
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?%63ode=x"))
+    // A name with no value is still that name.
+    assertFalse(RedirectUri.isValid("https://app.example.com/cb?code"))
+    // A prohibited name inside a *value* is not a parameter. Read from the raw query one name at a
+    // time: decoding the query first would turn this single `next` into two.
+    assertTrue(RedirectUri.isValid("https://app.example.com/cb?next=a%26state%3Dx"))
+    // Not the same rule as the fragment's — an error parameter is a client confusing itself, and
+    // no other client's response can be reached through it.
+    assertTrue(RedirectUri.isValid("https://app.example.com/cb?error=denied"))
+  }
+
   @Test fun `non-http(s) schemes are rejected for now`() {
     assertFalse(RedirectUri.isValid("ftp://example.com/cb"))
     assertFalse(RedirectUri.isValid("com.example.app:/cb"))
