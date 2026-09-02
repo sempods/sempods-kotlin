@@ -1991,7 +1991,7 @@ class PodAuthEndpoint @Inject constructor(
     // R6: emit a single structured audit-log line per authorize-error so spike runs
     // can grep `[oauth/authorize-audit]` to reconstruct what each MCP client triggered.
     logger.info {
-      "[oauth/authorize-audit] outcome=error error=$error error_description=\"$errorDescription\" " +
+      "[oauth/authorize-audit] outcome=error error=${error.code} error_description=\"$errorDescription\" " +
           "state=${state ?: "(none)"} redirect_uri=${redirectUri ?: "(none)"}"
     }
     if (redirectUri.isNullOrBlank()) {
