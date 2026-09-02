@@ -53,6 +53,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var refreshTokenStore: PodRefreshTokenStore
 
   @Inject
+  private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
+
+  @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   private val testClientId = "did:web:localhost%3A5173"
@@ -694,6 +697,191 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(303, submit().statusCode, "the first submission consents")
     assertEquals(403, submit().statusCode, "a replayed page must not consent again")
   }
+
+  @Test
+  fun `the lifetime control grants the refresh token, not the scope in the request`() {
+    // I1 and I2 together, from the two sides that matter. A client can ask — it preselects the
+    // control and nothing more — and a client that never asked is still one the person can grant.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val clear = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "clear")))
+    assertNull(clear["refresh_token"], "an unticked control must not produce one: $clear")
+
+    val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
+    assertNotNull(ticked["refresh_token"], "a ticked control grants it, whatever the client asked: $ticked")
+  }
+
+  @Test
+  fun `offline_access in the request only preselects the control`() {
+    // The other half of I1, on the page rather than in the token: what the client asks decides how
+    // the box is rendered, and a person can clear it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    fun render(scope: String?) = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "render")
+      .addQueryParam("prompt", "consent")
+      .apply { if (scope != null) addQueryParam("scope", scope) }
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    val asked = render("offline_access")
+    assertTrue(
+      Regex("id=\"durableToggle\"[^>]*checked").containsMatchIn(asked),
+      "a request that asks must arrive with the control ticked",
+    )
+    assertFalse(
+      Regex("id=\"durableToggle\"[^>]*checked").containsMatchIn(render(null)),
+      "a request that does not ask must arrive with it clear",
+    )
+  }
+
+  @Test
+  fun `an authorization made before the control mints no new refresh token`() {
+    // I3: an absent decision is not a grant. A static client whose grants predate the dialog takes
+    // the auto-grant branch, which renders nothing — so reading the silence as consent would let it
+    // mint ninety-day credentials for ever, with nobody ever seeing the lifetime.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    val autoGranted = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "legacy")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(303, autoGranted.statusCode, autoGranted.responseBody)
+
+    val body = exchangeCode(pod, codeFrom(autoGranted))
+    assertNull(body["refresh_token"], "nothing recorded is not a grant: $body")
+  }
+
+  @Test
+  fun `withholding the durable connection revokes what the app already held`() {
+    // I7: the choice has to take effect on what exists, not only on what is minted next. Without
+    // this, somebody unticks the control, keeps their context grants, and changes nothing they can
+    // observe — the family they just declined keeps rotating.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "withheld").statusCode)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, "the declined family must be dead: ${refreshed.responseBody}")
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+  }
+
+  @Test
+  fun `removing access leaves neither the grants nor the refresh token`() {
+    // I11. The client is still told `access_denied` — the request really was denied — and what
+    // changed is that the denial now has an effect.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    val response = submitConsent(pod, ownerWebId, state = "gone", disconnect = true)
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertTrue("error=access_denied" in checkNotNull(response.getHeader("Location")))
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "the app must hold no grant afterwards",
+    )
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+  }
+
+  @Test
+  fun `the way out is not offered where there is nothing to remove`() {
+    // The narrowing I11 needs: reporting a disconnect of something never connected is the same lie
+    // as reporting nothing when something ended.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    fun renderedPage() = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "offer")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    assertFalse("disconnectBtn" in renderedPage(), "a first authorization has nothing to disconnect")
+
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+    assertTrue("disconnectBtn" in renderedPage(), "an app that holds something can be removed")
+  }
+
+  /** Submits the consent form the way the rendered page does. */
+  private fun submitConsent(
+    pod: org.sempods.pods.mongo.persist.PodDbo,
+    webId: String,
+    state: String,
+    durable: Boolean = false,
+    disconnect: Boolean = false,
+  ): org.sempods.commons.okhttp.TestHttpResponse {
+    val browser = signIn(pod.name, webId)
+    return http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=$state&csrf=${enc(browser.csrf)}" +
+          (if (disconnect) "&action=disconnect" else "&scope=public-read") +
+          (if (durable) "&durable=1" else ""),
+      )
+      .setFollowRedirect(false).execute()
+  }
+
+  private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
+    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.responseBody}" }
+    return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun exchangeCode(pod: org.sempods.pods.mongo.persist.PodDbo, code: String): Map<String, Any?> {
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(code)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+    return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+  }
+
+  private fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
   @Test
   fun `a consent token from one person is not spendable by another`() {
@@ -2913,6 +3101,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = setOf("public-read"),
       grantedBy = webId,
     )
+    // The refresh token follows the recorded consent, not the code: without a decision this
+    // exchange answers with an access token alone, which
+    // `an authorization made before the control mints no new refresh token` is about.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
 
     val response = postForm(
       tokenUrl(pod.name),
@@ -2946,6 +3138,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       codeChallenge = null,
       codeChallengeMethod = null,
     )
+    // Same as above: the durable connection is what the person granted, and the exchange reads it
+    // from the store rather than from the code.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, "https://id.test/user", durable = true)
 
     val response = postForm(
       tokenUrl(pod.name),

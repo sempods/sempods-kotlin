@@ -97,7 +97,9 @@ refreshes stay silent for both client classes.
    the person.
 4. The pod resolves the user's scopes on this pod (owner: implicit;
    others: explicit grants) and either auto-grants from existing
-   `PodGrants` or shows the consent UI.
+   `PodGrants` or shows the consent UI. The dialog carries the contexts,
+   the public-read toggle, the lifetime control, and — only for an app
+   that already holds something — a named way to remove its access.
 5. On success, redirects to `redirect_uri?code=...&state=...`.
 6. On failure, redirects with `?error=...&error_description=...&error_uri=...`.
 
@@ -211,13 +213,20 @@ issues no `id_token`, and does not advertise `openid`. Both discovery
 documents list it under `scopes_supported`, which is where a client that
 has read no sempods documentation finds it.
 
-The authorization-code exchange returns a refresh token whether or not the
-scope was requested, so asking changes nothing at the pod. The hosted MCP
-service asks a pod whose authorization server advertises the scope, which
-makes what the service depends on visible in the flow rather than resting
-on that permissiveness. A pod that advertises nothing is asked for nothing:
-RFC 6749 §4.1.2.1 lets an authorization server refuse a scope it does not
-know, and the service connects to pods it does not host.
+Asking is not getting. The scope preselects the consent page's
+"keep this app connected" control; what grants a refresh token is the
+person ticking it, which is why a client that cannot send the scope is
+not thereby denied a durable connection. The exchange reads that decision
+from the store rather than from the authorization code, so a code carries
+the request and never the authority.
+
+An authorization that predates the control has no decision recorded, and
+that is not a grant either: it mints no new family, while the one it
+already rotates is left alone. The hosted MCP service asks a pod whose
+authorization server advertises the scope, and a pod that advertises
+nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
+server refuse a scope it does not know, and the service connects to pods
+it does not host.
 
 ### Refresh token rotation
 

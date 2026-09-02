@@ -57,7 +57,7 @@ starting before it builds it.
   field's absence, and `docs/auth/oauth.md` §`offline_access` states the extension. Nothing about
   issuance changed — the pod still returns a refresh token whether or not the scope was asked for,
   which is what makes this safe to land ahead of item 5 and is exactly what item 5 removes.
-- [ ] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
+- [x] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
   its own control for keeping the connection alive, beside the context grants, describing the
   lifetime class rather than naming a scope: without it a short-lived access token, with it a
   rolling refresh token until revoked or left unused. Reuse the service-client lifetime vocabulary
@@ -78,7 +78,13 @@ starting before it builds it.
   the action is not offered and an empty submission stays the plain denial it is today. Telling
   somebody they disconnected something they never connected is the same lie in the other direction.
 
-  Holds I1, I2, I5, I11.
+  Holds I1, I2, I5, I11. Landed with the enforcement it promises, as required below: the control
+  and the named way out in `consent.html`, the decision in `PodConsentDecisionStore` — a document
+  per authorization, where an absent one is the third state and needs no migration — the gate in
+  `exchangeAuthorizationCode`, and the revocation on withholding. `PodAuthEndpointHttpTest` covers
+  I1, I2, I3, I7, I11 and the narrowing that the way out is not offered where nothing is held; two
+  tests that pinned unconditional issuance now record a granted consent instead. I5 is vacuous
+  until the installer feature scope exists.
 
   Which of the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod
   advertises it is worth knowing for how the control is presented, but nothing waits on the answer.
@@ -102,13 +108,20 @@ starting before it builds it.
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 
-  Holds I4, I14, I15.
+  Holds I4, I14, I15. Item 3 brought I4 (the three states) and I14 (`prompt=none` keeps its silent
+  code, and with nothing recorded receives no refresh token). **I15 is open and is the gap to close
+  first**: auto-grant still renders nothing for a static client, so an authorization whose grants
+  predate the control has no way to acquire a decision — it keeps working, short-lived, for ever.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   where consent granted a durable connection, and no client is broken by that — one that cannot ask
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I13 and I17 — most of the milestone's weight sits here, and the list is where
+  Holds I3 to I13 and I17. Item 3 brought I3, I7 and I11's first half; open are I8 (alias-aware
+  lookup and revocation), I9 (a code bound to its consent generation — the store already carries the
+  counter), I10 (both issuance races), I11's outstanding-code half, I13 (the stale consent page) and
+  I17 (the response naming a granted scope that differs). Most of the milestone's weight sits here,
+  and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for

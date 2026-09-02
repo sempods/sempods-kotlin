@@ -378,6 +378,28 @@
       </ul>
     </div>
 
+    <!-- How long the credential lasts, said as a lifetime rather than as a scope name. Ticked when
+         the client asked for it, or when this person granted it here before; what the client asks
+         only preselects, the tick is what grants. -->
+    <div class="public-read-section">
+      <h2>How long</h2>
+      <label class="public-read-toggle">
+        <input type="checkbox"
+               id="durableToggle"
+               name="durable"
+               value="1"
+               th:checked="${durablePreselected}"/>
+        <span class="text">
+          Keep this app connected.
+          <span class="description">
+            Ticked, the app can renew its own access without asking you again, until you
+            disconnect it or it goes unused for a long time. Unticked, its access expires
+            within the hour and it has to ask you the next time.
+          </span>
+        </span>
+      </label>
+    </div>
+
     <div class="contexts-list" th:if="${!contexts.isEmpty()}">
       <h2>Contexts</h2>
       <div class="context-item" th:each="ctx : ${contexts}">
@@ -466,6 +488,19 @@
     </template>
 
     <div class="consent-footer">
+      <!-- Only where there is something to remove: offering it on a first authorization would
+           report a disconnect of nothing. Named and confirmed, so nobody ends an app's access
+           while trying to dismiss this page. -->
+      <button type="submit"
+              th:if="${disconnectAvailable}"
+              class="btn btn-secondary"
+              id="disconnectBtn"
+              name="action"
+              value="disconnect"
+              formnovalidate
+              onclick="return confirm('Remove this app\u2019s access to your pod? It loses every grant it holds, and any connection it kept open stops working.')">
+        Remove access
+      </button>
       <button type="button" class="btn btn-secondary" onclick="window.history.back()">Cancel</button>
       <button type="submit" class="btn btn-primary" id="authorizeBtn">Authorize</button>
     </div>
