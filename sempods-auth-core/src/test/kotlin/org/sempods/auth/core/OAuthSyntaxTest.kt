@@ -2,7 +2,6 @@ package org.sempods.auth.core
 
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.oauth2.sdk.ParseException
-import com.nimbusds.oauth2.sdk.Scope
 import com.nimbusds.openid.connect.sdk.Prompt
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,6 +17,8 @@ class OAuthSyntaxTest {
 
   @Test
   fun `a scope parameter splits on spaces, and on nothing else`() {
+    // The grammar is the SDK's; these are the answers three services depend on, so an upgrade that
+    // changes one of them fails here rather than quietly changing what a pod accepts.
     assertEquals(setOf("read", "write"), OAuthSyntax.parseScope("read write"))
     // Repeated spaces collapse: the grammar names one separator and a formatting slip is not
     // distinguishable from it. A tab is not a separator and not a legal character inside a scope
@@ -39,27 +40,18 @@ class OAuthSyntaxTest {
   }
 
   @Test
-  fun `both parsers agree with the OAuth SDK, and the two places they do not are deliberate`() {
-    // The point of this test is that a divergence becomes a red test rather than a discovery —
-    // including one introduced by a future version of the SDK.
-    for (raw in listOf("read write", "  read  write  ", "read\twrite", "", "openid offline_access")) {
-      assertEquals(
-        Scope.parse(raw).toStringList().toSet(),
-        OAuthSyntax.parseScope(raw),
-        "scope grammar diverged from the SDK for '$raw'",
-      )
-    }
-
-    // Divergence one: the SDK refuses a value it does not know, where this keeps it. Refusing is a
-    // policy rather than conformance — neither specification asks for it — and it would have
-    // turned `prompt=create` into an error for as long as the SDK version in use predated the
-    // registration of that value.
+  fun `the prompt parser keeps what the OAuth SDK refuses, on purpose`() {
+    // `prompt` is the half that cannot be delegated, and these are the two reasons.
+    //
+    // The SDK refuses a value it does not know. Refusing is a policy rather than conformance —
+    // neither specification asks for it — and it would have answered `prompt=create` with an error
+    // for as long as the SDK version in use predated the registration of that value.
     assertEquals(setOf("login", "somethingNew"), OAuthSyntax.parsePrompt("login somethingNew"))
     assertFailsWith<ParseException> { Prompt.parse("login somethingNew") }
 
-    // Divergence two: the SDK refuses the contradiction at parse time, where this keeps the set and
-    // lets [OAuthSyntax.isContradictoryPrompt] name it — the two answers are the same, and only one
-    // of them can also tell a contradiction from a typo.
+    // And it refuses the contradiction at parse time, where this keeps the set and lets
+    // [OAuthSyntax.isContradictoryPrompt] name it. The verdict is the same; only one of the two can
+    // also tell a contradiction from a typo, which is what the endpoint answers differently.
     assertTrue(OAuthSyntax.isContradictoryPrompt(OAuthSyntax.parsePrompt("none consent")))
     assertFailsWith<ParseException> { Prompt.parse("none consent") }
   }

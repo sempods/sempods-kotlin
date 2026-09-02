@@ -1,6 +1,7 @@
 package org.sempods.auth.core
 
 import com.nimbusds.jwt.JWTClaimsSet
+import com.nimbusds.oauth2.sdk.Scope
 
 /**
  * The two space-delimited request parameters OAuth and OIDC define, parsed once.
@@ -22,13 +23,17 @@ import com.nimbusds.jwt.JWTClaimsSet
 object OAuthSyntax {
 
   /**
-   * `scope` per RFC 6749 §3.3: values separated by spaces. Repeated spaces collapse — a formatting
-   * slip cannot be told from the single separator the grammar names — and nothing else is treated
-   * as a separator, so a tab travels inside the value it sits in and is refused there as the
-   * unknown scope it makes.
+   * `scope` per RFC 6749 §3.3, as the OAuth SDK reads it: values separated by spaces, repeated
+   * separators collapsing, and nothing else treated as one — so a tab travels inside the value it
+   * sits in and is refused there as the unknown scope it makes.
+   *
+   * The grammar is the SDK's rather than a second reading of the same section. What stays here is
+   * the shape the callers need — a `Set<String>`, absent input answering the empty set instead of
+   * null — and `OAuthSyntaxTest` states the answers, so an upgrade that changes one of them is a
+   * red test rather than three services quietly accepting something else.
    */
   fun parseScope(raw: String?): Set<String> =
-    raw?.split(' ')?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
+    raw?.let { Scope.parse(it)?.toStringList()?.toSet() } ?: emptySet()
 
   fun formatScope(scopes: Collection<String>): String = scopes.joinToString(" ")
 
