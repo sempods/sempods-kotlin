@@ -11,19 +11,13 @@ import com.nimbusds.jwt.JWTClaimsSet
  * None of the differences was intended. All of them are gone; a seventh belongs here rather than
  * at its call site.
  *
- * **The grammars are the specifications', not a lenient reading of them.** Both parsers used to
- * split on tabs as well as spaces and the `prompt` one lower-cased what it read, which accepted
- * requests the specifications do not define: RFC 6749 §3.3 separates scope tokens with a single
- * space and does not admit a tab *inside* one either, and OIDC Core §3.1.2.1 calls `prompt` a
- * case-sensitive list. Tolerating more than that guesses at what a malformed request meant, and a
- * guess that happens to match a real scope grants on the strength of it. `OAuthSyntaxTest` holds
- * both parsers against the OAuth SDK's own so a future divergence is a red test rather than a
- * discovery.
+ * **Neither grammar is loosened, and the reason is not tidiness.** Accepting a separator the
+ * specification does not name guesses at what a malformed request meant, and a guess that happens
+ * to match a real scope grants on the strength of it.
  *
- * What is *not* tightened here is an unrecognised value. Neither specification says to refuse one,
- * and refusing would be a policy of this server rather than conformance — the roadmap's strictness
- * decision owns that question. Unknown values therefore survive parsing and are judged by whoever
- * reads them.
+ * An unrecognised *value* is a different question and is deliberately left open: neither
+ * specification says to refuse one, so refusing would be this server's policy rather than
+ * conformance. Unknown values survive parsing and are judged by whoever reads them.
  */
 object OAuthSyntax {
 
