@@ -2,6 +2,7 @@ package org.sempods.api.pod.system.auth
 
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.DidWeb
+import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RedirectUri
@@ -26,7 +27,9 @@ import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
@@ -50,6 +53,7 @@ class PodAuthEndpoint @Inject constructor(
   private val templateRenderer: TemplateRenderer,
   private val podTokenIssuer: PodTokenIssuer,
   private val refreshTokenStore: PodRefreshTokenStore,
+  private val consentDecisionStore: PodConsentDecisionStore,
   private val tokenRateLimiter: PodTokenRateLimiter,
   private val podContextsDao: PodContextsDao,
   private val podServiceClientStore: PodServiceClientStore,
@@ -130,7 +134,8 @@ class PodAuthEndpoint @Inject constructor(
             mapOf(
               "error" to "invalid_redirect_uri",
               "error_description" to
-                  "redirect_uri must be https, or http on a loopback host, with no fragment: $uri",
+                  "redirect_uri must be https, or http on a loopback host, with no fragment " +
+                  "and no code/response/state in the query: $uri",
             )
           )
           .type(MediaType.APPLICATION_JSON)
@@ -315,7 +320,7 @@ class PodAuthEndpoint @Inject constructor(
     val requestedResponseType = responseType?.trim().orEmpty()
     if (requestedResponseType != "code") {
       return oauthError(
-        normalizedRedirectUri, "unsupported_response_type",
+        normalizedRedirectUri, OAuthErrorCode.UNSUPPORTED_RESPONSE_TYPE,
         "response_type must be 'code'", state,
       )
     }
@@ -327,7 +332,7 @@ class PodAuthEndpoint @Inject constructor(
     val trimmedCodeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() }
     if (normalizedClientId.startsWith("dyn:") && trimmedCodeChallenge == null) {
       return oauthError(
-        normalizedRedirectUri, "invalid_request",
+        normalizedRedirectUri, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge is required for dynamic clients (PKCE)", state,
       )
     }
@@ -338,7 +343,7 @@ class PodAuthEndpoint @Inject constructor(
     // on it here.
     if (trimmedCodeChallenge != null && !Pkce.isSupportedMethod(trimmedCodeChallengeMethod)) {
       return oauthError(
-        normalizedRedirectUri, "invalid_request",
+        normalizedRedirectUri, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge_method must be ${Pkce.METHOD_S256}", state,
       )
     }
@@ -348,7 +353,7 @@ class PodAuthEndpoint @Inject constructor(
     if (OAuthSyntax.isContradictoryPrompt(promptValues)) {
       // Spec: `none` is exclusive — if combined with anything else it's a request error.
       return oauthError(
-        normalizedRedirectUri, "invalid_request",
+        normalizedRedirectUri, OAuthErrorCode.INVALID_REQUEST,
         "prompt=none cannot be combined with other prompt values", state,
       )
     }
@@ -381,7 +386,7 @@ class PodAuthEndpoint @Inject constructor(
       val publicContexts = podFacade.getPublicContexts(podName = podDbo.name)
       if (publicContexts.isEmpty()) {
         return oauthError(
-          normalizedRedirectUri, "consent_required",
+          normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED,
           "pod has no public-read contexts", state,
         )
       }
@@ -422,7 +427,7 @@ class PodAuthEndpoint @Inject constructor(
       //   ride instead of the one-time ticket. That needs CSRF protection on the form, so it is
       //   its own change rather than a rider on this one.
       if ("none" in promptValues) {
-        return oauthError(normalizedRedirectUri, "login_required", "user is not authenticated", state)
+        return oauthError(normalizedRedirectUri, OAuthErrorCode.LOGIN_REQUIRED, "user is not authenticated", state)
       }
       // Federate the login to the id-server as an ordinary OIDC relying party. The whole request
       // stays here, under a `state` this server minted; what comes back through the browser is a
@@ -498,6 +503,11 @@ class PodAuthEndpoint @Inject constructor(
     val userGrants = podGrantsFacade.resolveUserGrants(podDbo, identity.allUris, podBaseUrl)
 
     val podId = checkNotNull(podDbo.id)
+    // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
+    // WebID and does not re-key what it finds, while `resolveFromGrants` and the refresh path both
+    // query the token's subject — so counting an alias's rows here would auto-grant a token with no
+    // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
+    // different question, and `holdsAnything` is where it is asked.
     val existingGrants = podGrantsDao.fetchGrantStrings(podId, normalizedClientId, listOf(identity.webId))
 
     logger.info {
@@ -517,6 +527,15 @@ class PodAuthEndpoint @Inject constructor(
     // pre-checked in the dialog, so repeat flows are one-click. /token exchanges
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith("dyn:")
+    // An authorization that predates the lifetime control has no decision recorded, and this branch
+    // renders nothing — so it could never acquire one: it would keep working, short-lived, for ever,
+    // without anybody being asked. Once, therefore, it falls through to the dialog instead. Only
+    // where there is a dialog to fall through to: `prompt=none` has none, and answering it with
+    // `consent_required` would retire a silent re-authorization that works today, so it keeps its
+    // code and receives what an absent decision means anyway — an access token and nothing else.
+    val decisionRecorded =
+      consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
+    val mayAutoGrant = decisionRecorded || "none" in promptValues
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
       // stay in the durable store and are resolved server-side per request; public-read is an
@@ -551,10 +570,12 @@ class PodAuthEndpoint @Inject constructor(
               "webId='${identity.webId}', before=${existingGrants.size}, after=${persisted.size}"
         }
       }
-      // Auto-grant if anything is still granted; the slim token carries only feature scopes.
-      // Falls through to the consent UI when nothing survived, rather than handing out a token
-      // that authorizes nothing.
-      if (persisted.isNotEmpty()) {
+      // Auto-grant if anything is still granted and the person has answered once; the slim token
+      // carries only feature scopes. Falls through to the consent UI when nothing survived, rather
+      // than handing out a token that authorizes nothing — and when nothing has been answered,
+      // which is the dialog this authorization needs. The repair above happens either way: it is
+      // what a failed cascade is owed, and it has nothing to do with which of the two follows.
+      if (persisted.isNotEmpty() && mayAutoGrant) {
         return issueAuthCodeAndRedirect(
           podDbo = podDbo,
           clientId = normalizedClientId,
@@ -565,6 +586,11 @@ class PodAuthEndpoint @Inject constructor(
           codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
           codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
           logPrefix = "[oauth/auto-grant]",
+          // The subject's own document, because that is the one redemption will read: the newest
+          // across the person's URIs is what the dialog wants, and binding to it would refuse a
+          // code the moment an alias carried a higher count.
+          consentGeneration = consentDecisionStore
+            .find(podId, normalizedClientId, listOf(identity.webId))?.generation,
         )
       }
     }
@@ -583,10 +609,10 @@ class PodAuthEndpoint @Inject constructor(
         } else {
           "no app-specific scopes available for this user"
         }
-        return oauthError(normalizedRedirectUri, "consent_required", desc, state)
+        return oauthError(normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED, desc, state)
       }
       return oauthError(
-        normalizedRedirectUri, "consent_required", "user has not granted access to this app", state,
+        normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED, "user has not granted access to this app", state,
       )
     }
 
@@ -599,7 +625,7 @@ class PodAuthEndpoint @Inject constructor(
       val publicContexts = podFacade.getPublicContexts(podName = podDbo.name)
       if (publicContexts.isEmpty()) {
         return oauthError(
-          normalizedRedirectUri, "consent_required",
+          normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED,
           "no app-specific scopes available for this user", state,
         )
       }
@@ -613,6 +639,7 @@ class PodAuthEndpoint @Inject constructor(
         codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
         publicContexts = publicContexts.map { it.toString() }.sorted(),
         publicReadPreselected = true,
+        durableRequested = OFFLINE_ACCESS_SCOPE in requestedScopes,
         userGrants = emptySet(),
         existingGrants = emptySet(),
         isOwner = false,
@@ -637,6 +664,7 @@ class PodAuthEndpoint @Inject constructor(
       codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       publicContexts = publicContextsForUi,
       publicReadPreselected = publicReadPreselected,
+      durableRequested = OFFLINE_ACCESS_SCOPE in requestedScopes,
       userGrants = userGrants,
       existingGrants = existingGrants,
       isOwner = isOwner,
@@ -661,6 +689,7 @@ class PodAuthEndpoint @Inject constructor(
     codeChallengeMethod: String?,
     publicContexts: List<String>,
     publicReadPreselected: Boolean,
+    durableRequested: Boolean = false,
     userGrants: Set<String> = emptySet(),
     existingGrants: Set<String> = emptySet(),
     isOwner: Boolean = false,
@@ -685,6 +714,18 @@ class PodAuthEndpoint @Inject constructor(
           "public_read_preselected=$publicReadPreselected"
     }
 
+    // What the person decided last time outranks what the client asked for this time: a request
+    // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
+    // which is all `offline_access` does — it preselects, it does not grant.
+    val recordedDurable = consentDecisionStore
+      .find(checkNotNull(podDbo.id), normalizedClientId, identity.allUris)
+      ?.durable
+    // Removing an app's access is only on offer where there is something to remove. Saying it
+    // happened on a first authorization would be the same lie as saying nothing happened on a
+    // later one. Asked over the person rather than over this URI, because that is what the action
+    // itself clears.
+    val disconnectAvailable = holdsAnything(podDbo, normalizedClientId, identity)
+
     val consentAction = "${config.apiBaseUrl}${podDbo.name}/_system/auth/authorize/consent"
     val html = templateRenderer.render(
       "consent", mapOf(
@@ -699,7 +740,14 @@ class PodAuthEndpoint @Inject constructor(
         "codeChallengeMethod" to (codeChallengeMethod ?: ""),
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending
         // it also requires the session cookie it was rendered beside.
-        "csrfToken" to consentTransactionStore.issue(podDbo.name, identity.webId),
+        // Bound to the subject's own document, which is what the submission will be compared
+        // against — the newest across the person's URIs is what the control above wants.
+        "csrfToken" to consentTransactionStore.issue(
+          podDbo.name,
+          identity.webId,
+          consentDecisionStore.find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+            ?.generation,
+        ),
         "webId" to identity.webId,
         "contexts" to contexts,
         "podBaseUrl" to podBaseUrl,
@@ -718,6 +766,8 @@ class PodAuthEndpoint @Inject constructor(
         "publicReadAvailable" to publicContexts.isNotEmpty(),
         "publicReadPreselected" to publicReadPreselected,
         "publicReadScope" to PUBLIC_READ_SCOPE,
+        "durablePreselected" to (recordedDurable ?: durableRequested),
+        "disconnectAvailable" to disconnectAvailable,
       ))
     return Response.ok(html, MediaType.TEXT_HTML).build()
   }
@@ -740,6 +790,8 @@ class PodAuthEndpoint @Inject constructor(
     @FormParam("scope") scopes: List<String>?,
     @FormParam("new_context") newContexts: List<String>?,
     @FormParam("new_context_scope") newContextScopes: List<String>?,
+    @FormParam("durable") durable: String?,
+    @FormParam("action") action: String?,
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
 
@@ -781,6 +833,43 @@ class PodAuthEndpoint @Inject constructor(
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
 
+    // Single-use stops this page being posted twice; it says nothing about a *second* page opened
+    // before the app was disconnected, which would submit its own older selection as the
+    // authoritative new state and hand back everything the person just removed. So a page carries
+    // what stood when it was rendered, and one from before a disconnect is refused.
+    //
+    // Only that case. Screens are allowed to coexist on purpose — `ConsentTransactionStore` says
+    // why, and `two sign-ins running at once in one browser both complete` pins it — so a page
+    // that is merely older than the current answer, on an authorization that still holds
+    // something, submits as it always did. A page that would resurrect a disconnected app does
+    // not.
+    val standing = consentDecisionStore
+      .find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+      ?.generation
+    if (transaction.consentGeneration != standing && !holdsAnything(podDbo, normalizedClientId, identity)) {
+      logger.info {
+        "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
+            "standing=${standing ?: "(none)"})"
+      }
+      return Response.status(403)
+        .entity("this form is no longer valid — please re-authorize")
+        .type("text/plain")
+        .build()
+    }
+
+    // Before anything is created. The form can carry a context the person typed, and choosing to
+    // remove an app's access is not the moment to build one for it — they asked for the opposite of
+    // an authorization. The empty-submission route to the same place is further down, because it
+    // can only be recognised once the selection has been resolved.
+    if (action?.trim() == DISCONNECT_ACTION) {
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
+      }
+    }
+
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
     val isOwner = podGrantsFacade.isPodOwner(podDbo, identity.allUris)
 
@@ -806,6 +895,18 @@ class PodAuthEndpoint @Inject constructor(
       ?.filter { it.isNotBlank() }
       ?: emptyList()
 
+    // Nothing ticked anywhere is the other way to ask for the way out, and it is answerable here:
+    // with no scope submitted and no permission on a pending context, no selection can survive the
+    // creation below, so creating one would build a context for an authorization that is not
+    // happening. The backstop after the resolution stays, for a selection that empties there.
+    if (rawSubmitted.isEmpty() && newContextScopesRequested.isEmpty()) {
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
+      }
+    }
+
     if (publicReadRequested) {
       // public-read needs at least one public context to be meaningful — drop
       // it from the grant set if the pod has no public contexts (rather than
@@ -813,7 +914,7 @@ class PodAuthEndpoint @Inject constructor(
       val publicContexts = podFacade.getPublicContexts(podName = podDbo.name)
       if (publicContexts.isEmpty() && perContextSubmitted.isEmpty() && newContextsRequested.isEmpty()) {
         return oauthError(
-          normalizedRedirectUri, "consent_required",
+          normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED,
           "pod has no public-read contexts and no per-context scopes were selected", state,
         )
       }
@@ -899,8 +1000,17 @@ class PodAuthEndpoint @Inject constructor(
       selectedPerContext
     }
 
+    // The submission is the authoritative new state, and clearing it is the extreme case of that
+    // rather than an exception to it. Two ways to arrive here mean the same thing — the named
+    // action, and a submission with nothing ticked — and both end the authorization where there is
+    // one. Where there is none the answer stays the plain denial it always was: reporting a
+    // disconnect of nothing is the same lie as reporting nothing when something ended.
     if (selectedScopes.isEmpty()) {
-      return oauthError(normalizedRedirectUri, "access_denied", "no scopes selected", state)
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
+      }
     }
 
     // Persist the user's grant selection for this app (replace — the checkbox submission is the
@@ -925,14 +1035,36 @@ class PodAuthEndpoint @Inject constructor(
             "pod='${podDbo.name}', clientId='$normalizedClientId', webId='${identity.webId}'"
       }
       return oauthError(
-        normalizedRedirectUri, "consent_required",
+        normalizedRedirectUri, OAuthErrorCode.CONSENT_REQUIRED,
         "granted access changed while consenting; please re-authorize", state,
       )
     }
 
+    // Recorded whichever way it was answered, because a refusal has to be tellable from a silence:
+    // an authorization that predates the control has nothing written and keeps what it holds.
+    val durableGranted = durable != null
+    val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
+    if (!durableGranted) {
+      // Withholding is not merely declining to extend: the families this authorization already has
+      // would otherwise keep rotating, and the person would have changed nothing they can observe.
+      val revoked = refreshTokenStore.revokeForUser(
+        podId = checkNotNull(podDbo.id),
+        clientId = normalizedClientId,
+        webIds = identity.allUris,
+      )
+      if (revoked > 0) {
+        logger.info {
+          "[oauth/consent] Durable connection withheld — refresh tokens revoked: " +
+              "pod='${podDbo.name}', clientId='$normalizedClientId', webId='${identity.webId}', " +
+              "revokedRows=$revoked"
+        }
+      }
+    }
+
     logger.info {
       "[oauth/consent] Grants saved: pod='${podDbo.name}', clientId='$normalizedClientId', " +
-          "webId='${identity.webId}', scopes=${persistedScopes.size}, public_read=$publicReadRequested"
+          "webId='${identity.webId}', scopes=${persistedScopes.size}, public_read=$publicReadRequested, " +
+          "durable=$durableGranted, generation=${decision.generation}"
     }
 
     // Slim access token: context permissions are resolved server-side from the grant just
@@ -949,7 +1081,90 @@ class PodAuthEndpoint @Inject constructor(
       codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       logPrefix = "[oauth/consent]",
+      consentGeneration = decision.generation,
     )
+  }
+
+  /**
+   * End what this app holds for this person.
+   *
+   * The grants go, the decision is written as a refusal — a silence would read as an authorization
+   * that predates the control and be left alone — and the refresh families are revoked, because
+   * withholding that is merely declining to extend would leave the person's most emphatic gesture
+   * with nothing to show for it. The client is still told `access_denied`: the request really was
+   * denied, and what changed is that the denial now has an effect.
+   */
+  /**
+   * Write the answer under every URI that names this person, and hand back the one for the URI they
+   * are signed in as.
+   *
+   * One document per URI rather than one per person, because that is how the rows this sits beside
+   * are keyed — and because the alternative is worse than the duplication: a code issued while an
+   * alias was the session identity carries that alias's generation, and only a document of its own
+   * can move when the person answers again under their canonical WebID. Without that, the older
+   * code would still compare equal and redeem against a consent that has been replaced.
+   */
+  private fun recordDecision(
+    podDbo: PodDbo,
+    clientId: String,
+    identity: PersonIdentity,
+    durable: Boolean,
+  ): PodConsentDecisionStore.Decision {
+    val podId = checkNotNull(podDbo.id)
+    val forSubject = consentDecisionStore.record(podId, clientId, identity.webId, durable)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.record(podId, clientId, alias, durable)
+    }
+    return forSubject
+  }
+
+  /**
+   * Whether the person has refused this app a durable connection.
+   *
+   * Not the negation of granted: an authorization with nothing recorded predates the control and is
+   * left alone, which is why this asks for a recorded refusal rather than for the absence of a
+   * grant.
+   */
+  private fun refusedDurability(podDbo: PodDbo, clientId: String, webId: String): Boolean =
+    consentDecisionStore.find(checkNotNull(podDbo.id), clientId, listOf(webId))?.durable == false
+
+  /**
+   * Whether this app holds anything for this person — the question that decides both whether the
+   * way out is offered and whether taking it means anything. Asked over every URI that names the
+   * person: an authorization stored under an alias is one they can still end.
+   */
+  private fun holdsAnything(podDbo: PodDbo, clientId: String, identity: PersonIdentity): Boolean =
+    podGrantsDao
+      .fetchGrantStrings(checkNotNull(podDbo.id), clientId, identity.allUris.toList())
+      .isNotEmpty()
+
+  private fun disconnectApp(
+    podDbo: PodDbo,
+    clientId: String,
+    identity: PersonIdentity,
+    redirectUri: String,
+    state: String?,
+  ): Response {
+    val podId = checkNotNull(podDbo.id)
+    // Once per URI that names the person, because that is how the rows are keyed: an authorization
+    // made under an alias is one this person can end, and `holdsAnything` already counted it.
+    identity.allUris.forEach { uri ->
+      podGrantsFacade.replaceAppGrants(
+        podDbo = podDbo,
+        appId = clientId,
+        webId = uri,
+        subjectUris = identity.allUris,
+        grants = emptySet(),
+        grantedBy = identity.webId,
+      )
+    }
+    val decision = recordDecision(podDbo, clientId, identity, durable = false)
+    val revoked = refreshTokenStore.revokeForUser(podId, clientId, identity.allUris)
+    logger.info {
+      "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
+          "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"
+    }
+    return oauthError(redirectUri, OAuthErrorCode.ACCESS_DENIED, "app disconnected", state)
   }
 
   // ─── OAuth token ──────────────────────────────────────────────────────────
@@ -1000,7 +1215,7 @@ class PodAuthEndpoint @Inject constructor(
       )
 
       else -> tokenError(
-        "unsupported_grant_type",
+        OAuthErrorCode.UNSUPPORTED_GRANT_TYPE,
         "only authorization_code, refresh_token and client_credentials are supported",
       )
     }
@@ -1056,14 +1271,14 @@ class PodAuthEndpoint @Inject constructor(
     //   resolver-honored claim) — then this rejection can relax to the subset path.
     if (!requestedScope.isNullOrBlank()) {
       return tokenError(
-        "invalid_scope",
+        OAuthErrorCode.INVALID_SCOPE,
         "scope down-scoping is not supported on client_credentials; the token grants the " +
             "client's full registered scope set",
       )
     }
 
     if (client.scopes.isEmpty()) {
-      return tokenError("invalid_scope", "no scopes registered for this client")
+      return tokenError(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")
     }
 
     // Only feature scopes travel in a slim service token. Service clients register context
@@ -1104,25 +1319,25 @@ class PodAuthEndpoint @Inject constructor(
     codeVerifier: String?,
   ): Response {
     val normalizedCode = code?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError("invalid_request", "missing code")
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code")
     val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError("invalid_request", "missing redirect_uri")
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing redirect_uri")
     val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError("invalid_request", "missing client_id")
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
 
     // Consume the authorization code (one-time use).
     val entry = authorizationCodeStore.consume(normalizedCode)
-      ?: return tokenError("invalid_grant", "invalid or expired authorization code")
+      ?: return tokenError(OAuthErrorCode.INVALID_GRANT, "invalid or expired authorization code")
 
     // Validate that redirect_uri and client_id match the original authorize request.
     if (entry.redirectUri != normalizedRedirectUri) {
-      return tokenError("invalid_grant", "redirect_uri mismatch")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "redirect_uri mismatch")
     }
     if (entry.clientId != normalizedClientId) {
-      return tokenError("invalid_grant", "client_id mismatch")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "client_id mismatch")
     }
     if (entry.realm != podDbo.name) {
-      return tokenError("invalid_grant", "pod mismatch")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "pod mismatch")
     }
 
     // PKCE verification. The challenge is bound to a local because the store lives in another
@@ -1130,7 +1345,7 @@ class PodAuthEndpoint @Inject constructor(
     val issuedChallenge = entry.codeChallenge
     if (issuedChallenge != null) {
       val verifier = codeVerifier?.trim()?.takeIf { it.isNotBlank() }
-        ?: return tokenError("invalid_request", "missing code_verifier")
+        ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code_verifier")
       // `Pkce` rather than a local comparison: it compares in constant time. A byte-by-byte
       // early exit leaks the stored challenge one character per request, and the challenge is
       // what stands between an intercepted authorization code and a token. The method is
@@ -1139,7 +1354,7 @@ class PodAuthEndpoint @Inject constructor(
       if (!Pkce.isSupportedMethod(entry.codeChallengeMethod) ||
         !Pkce.verifyS256(verifier, issuedChallenge)
       ) {
-        return tokenError("invalid_grant", "PKCE verification failed")
+        return tokenError(OAuthErrorCode.INVALID_GRANT, "PKCE verification failed")
       }
     }
 
@@ -1160,22 +1375,60 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
 
+    // A code is a request, not an authority: it must not pick up a consent given after it. The
+    // generation it carries is the one that produced it, so a disconnect — or any later answer —
+    // makes it stale, and its scopes are stale with it. Compared in both directions, because the
+    // first answer an authorization ever gets supersedes the codes issued before it just as surely
+    // as the second: a code from an authorization that had none carries none, and matches only for
+    // as long as none is recorded.
+    val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    val issuedUnder = entry.consentGeneration
+    if (decision?.generation != issuedUnder) {
+      logger.info {
+        "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
+            "clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "codeGeneration=$issuedUnder, current=${decision?.generation ?: "(none)"}"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
+    }
+
     // Hard guarantee the access token is slim: keep only feature scopes, whatever the
     // authorization-code entry happens to carry. Context permissions are resolved per request
     // from the grant store, never echoed into the token. This also bounds the refresh row.
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
-    val issuedRefresh = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(podDbo.id),
-      podName = podDbo.name,
-      clientId = entry.clientId,
-      webId = entry.subject,
-      scopes = featureScopes,
-    )
+    // Read from the stored consent, not from the code: a code carries what was asked for, never the
+    // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
+    // which the refresh grant still honours, and mints no new one here.
+    val durable = decision?.durable == true
+    val issuedRefresh = if (durable) {
+      refreshTokenStore.issueNewFamily(
+        podId = checkNotNull(podDbo.id),
+        podName = podDbo.name,
+        clientId = entry.clientId,
+        webId = entry.subject,
+        scopes = featureScopes,
+      )
+    } else {
+      null
+    }
+
+    // The same two moments on this path: the decision was read above and the family is inserted
+    // here, so a withdrawal in between would revoke what it saw and leave this one standing.
+    if (issuedRefresh != null && refusedDurability(podDbo, entry.clientId, entry.subject)) {
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      logger.info {
+        "[oauth/token] durable connection withdrawn mid-exchange — family revoked: " +
+            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
+    }
 
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podDbo.name}', clientId='${entry.clientId}', " +
-          "webId='${entry.subject}', scopes=${featureScopes.size}, familyId='${issuedRefresh.token.familyId}'"
+          "webId='${entry.subject}', scopes=${featureScopes.size}, durable=$durable, " +
+          "familyId='${issuedRefresh?.token?.familyId ?: "(none)"}'"
     }
 
     // Liveness touch on the DCR row — feeds cleanup sweeps and the future Active-Connections
@@ -1187,7 +1440,8 @@ class PodAuthEndpoint @Inject constructor(
       clientId = entry.clientId,
       webId = entry.subject,
       scopes = featureScopes,
-      refreshToken = issuedRefresh.plaintext,
+      refreshToken = issuedRefresh?.plaintext,
+      grantedDurable = durable,
     )
   }
 
@@ -1198,9 +1452,9 @@ class PodAuthEndpoint @Inject constructor(
     requestedScope: String?,
   ): Response {
     val normalizedToken = refreshToken?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError("invalid_request", "missing refresh_token")
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing refresh_token")
     val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError("invalid_request", "missing client_id")
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
 
     val lookup = refreshTokenStore.lookup(normalizedToken)
     val token = lookup.token
@@ -1221,7 +1475,7 @@ class PodAuthEndpoint @Inject constructor(
           "[oauth/token] refresh_token not recognized — unknown, or expired and already reaped: " +
               "pod='${podDbo.name}', clientId='$normalizedClientId', tokenFp='${lookup.fingerprint}'"
         }
-        return tokenError("invalid_grant", "refresh token not recognized")
+        return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token not recognized")
       }
 
       RefreshTokenStore.LookupState.EXPIRED -> {
@@ -1229,7 +1483,7 @@ class PodAuthEndpoint @Inject constructor(
           "[oauth/token] refresh_token expired: pod='${podDbo.name}', clientId='$normalizedClientId', " +
               "familyId='${token!!.familyId}'"
         }
-        return tokenError("invalid_grant", "refresh token expired")
+        return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token expired")
       }
 
       RefreshTokenStore.LookupState.REVOKED -> {
@@ -1237,7 +1491,7 @@ class PodAuthEndpoint @Inject constructor(
           "[oauth/token] refresh_token revoked: pod='${podDbo.name}', clientId='$normalizedClientId', " +
               "familyId='${token!!.familyId}'"
         }
-        return tokenError("invalid_grant", "refresh token revoked")
+        return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
       }
 
       RefreshTokenStore.LookupState.REUSED -> {
@@ -1250,7 +1504,7 @@ class PodAuthEndpoint @Inject constructor(
           "[oauth/token] refresh_token reuse detected — revoking family: pod='${podDbo.name}', " +
               "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
         }
-        return tokenError("invalid_grant", "refresh token reuse detected")
+        return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
       }
 
       RefreshTokenStore.LookupState.ACTIVE -> Unit
@@ -1264,14 +1518,14 @@ class PodAuthEndpoint @Inject constructor(
         "[oauth/token] refresh_token pod mismatch: tokenPod='${token.owner.podName}', requestPod='${podDbo.name}', " +
             "clientId='$normalizedClientId'"
       }
-      return tokenError("invalid_grant", "refresh token does not belong to this pod")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token does not belong to this pod")
     }
     if (token.owner.clientId != normalizedClientId) {
       logger.warn {
         "[oauth/token] refresh_token client mismatch: tokenClient='${token.owner.clientId}', " +
             "requestClient='$normalizedClientId', pod='${podDbo.name}'"
       }
-      return tokenError("invalid_grant", "refresh token does not belong to this client")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token does not belong to this client")
     }
 
     // Context permissions are resolved per request from the durable grant store, so a partial
@@ -1290,7 +1544,7 @@ class PodAuthEndpoint @Inject constructor(
             "pod='${podDbo.name}', clientId='$normalizedClientId', webId='${token.owner.webId}', " +
             "familyId='${token.familyId}'"
       }
-      return tokenError("invalid_grant", "all previously granted scopes have been revoked")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "all previously granted scopes have been revoked")
     }
 
     // The slim token carries only feature scopes; keep the ones the user still grants
@@ -1302,15 +1556,34 @@ class PodAuthEndpoint @Inject constructor(
 
     // Optional down-scoping of the feature scopes. Unknown scopes are rejected per RFC 6749
     // §6 ("The requested scope […] MUST NOT include any scope not originally granted").
+    //
+    // `offline_access` is taken out of that comparison first, because the response says it was
+    // granted and a client that does the standard thing — echo the granted scope back on the next
+    // refresh — would otherwise be told the scope it was just handed is not covered. It is never a
+    // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
+    // is already proving it holds, and a refusal on record has ended the family further up.
+    val requested = OAuthSyntax.parseScope(requestedScope)
+    val durableEchoed = OFFLINE_ACCESS_SCOPE in requested
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
     } else {
-      val requested = OAuthSyntax.parseScope(requestedScope)
-      val unknown = requested - effectiveFeatureScopes
+      val requestedFeatures = requested - OFFLINE_ACCESS_SCOPE
+      val unknown = requestedFeatures - effectiveFeatureScopes
       if (unknown.isNotEmpty()) {
-        return tokenError("invalid_scope", "requested scopes not covered by this refresh token")
+        return tokenError(OAuthErrorCode.INVALID_SCOPE, "requested scopes not covered by this refresh token")
       }
-      requested
+      requestedFeatures
+    }
+
+    // A refusal ends the family, whether or not the withdrawal's own revocation reached it: that
+    // sweep sees the rows that exist at the moment it runs, and rotation inserts one after it.
+    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] refresh refused — the durable connection was withdrawn: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
     }
 
     // Rotate atomically. If another caller slipped in between our lookup and rotation,
@@ -1322,10 +1595,23 @@ class PodAuthEndpoint @Inject constructor(
         "[oauth/token] refresh_token rotation race — treating as reuse: pod='${podDbo.name}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
-      return tokenError("invalid_grant", "refresh token reuse detected")
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
     }
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
+
+    // Asked again, because the check above and this insert are two moments: a withdrawal landing
+    // between them revokes what it can see and misses the row about to appear. Whoever arrives
+    // second undoes the other's work rather than leaving a live successor behind.
+    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] durable connection withdrawn mid-rotation — successor revoked: " +
+            "pod='${podDbo.name}', clientId='$normalizedClientId', familyId='${token.familyId}', " +
+            "revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
+    }
 
     logger.info {
       "[oauth/token] Tokens issued (refresh_token): pod='${podDbo.name}', clientId='${token.owner.clientId}', " +
@@ -1340,6 +1626,13 @@ class PodAuthEndpoint @Inject constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
+      // A rotation hands back a successor, so the durable connection is what this client holds, and
+      // a client refreshing its view of the granted scope from the newest response must not watch
+      // it disappear at the first rotation. Except where the client narrowed the request itself and
+      // left it out: RFC 6749 §6 down-scoping asks for a particular set, and answering with more
+      // than was asked for reads as ignoring the narrowing — `refresh_token down-scope to a granted
+      // feature subset succeeds` pins that. A client that echoed it back is asking, and is told.
+      grantedDurable = requestedScope.isNullOrBlank() || durableEchoed,
     )
   }
 
@@ -1378,7 +1671,8 @@ class PodAuthEndpoint @Inject constructor(
     clientId: String,
     webId: String,
     scopes: Set<String>,
-    refreshToken: String,
+    refreshToken: String?,
+    grantedDurable: Boolean = false,
   ): Response {
     val accessToken = podTokenIssuer.issue(
       pod = podName,
@@ -1390,9 +1684,17 @@ class PodAuthEndpoint @Inject constructor(
       "access_token" to accessToken,
       "token_type" to "Bearer",
       "expires_in" to 3600,
-      "refresh_token" to refreshToken,
-      "scope" to scopes.joinToString(" "),
+      // RFC 6749 §3.3: where what was granted differs from what was asked for, the response says
+      // so. A durable connection is granted by the person and not by the request, so it can differ
+      // in either direction — the client asked and was refused, or never asked and was granted —
+      // and either way the `scope` member is where a client finds out. The access token's own
+      // claim stays slim: this is what was granted, not what the bearer carries.
+      "scope" to (if (grantedDurable) scopes + OFFLINE_ACCESS_SCOPE else scopes).joinToString(" "),
     )
+    // Absent rather than null when no durable connection was granted: RFC 6749 §5.1 makes the
+    // member optional, and a client reading `"refresh_token": null` as a token is a bug this
+    // response should not be able to provoke.
+    refreshToken?.let { body["refresh_token"] = it }
     // RFC 6749 §5.1 — token responses MUST carry Cache-Control: no-store + Pragma: no-cache.
     // Strict OAuth clients (observed: GitHub Copilot CLI) silently drop tokens received without
     // these headers, which manifests as "consent completed, tokens issued, but no follow-up
@@ -1502,9 +1804,9 @@ class PodAuthEndpoint @Inject constructor(
       // nor be blamed for.
       val upstreamClass = when (error) {
         // The refusal, in the two spellings this tree sees: RFC 6749's, and Apple's.
-        "access_denied", "user_cancelled_authorize" -> "access_denied"
-        "temporarily_unavailable" -> "temporarily_unavailable"
-        else -> "server_error"
+        "access_denied", "user_cancelled_authorize" -> OAuthErrorCode.ACCESS_DENIED
+        "temporarily_unavailable" -> OAuthErrorCode.TEMPORARILY_UNAVAILABLE
+        else -> OAuthErrorCode.SERVER_ERROR
       }
       // The upstream code survives in the description even when the class above is not it, so a
       // reclassification never costs the one detail an operator needs to find the cause.
@@ -1516,7 +1818,7 @@ class PodAuthEndpoint @Inject constructor(
     // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
     // rather than `access_denied`, so a client does not record a decision that was never made.
     val authorizationCode = code?.trim()?.takeIf { it.isNotBlank() }
-      ?: return oauthError(pending.redirectUri, "server_error", "no authorization code", pending.clientState)
+      ?: return oauthError(pending.redirectUri, OAuthErrorCode.SERVER_ERROR, "no authorization code", pending.clientState)
 
     val verified = try {
       identityProvider.relyingParty(podDbo.name)
@@ -1527,10 +1829,11 @@ class PodAuthEndpoint @Inject constructor(
       // not a verdict. That is `temporarily_unavailable`, which a client may retry. Anything else
       // reaching here is this server's own fault and says so.
       val unreachable = generateSequence(e as Throwable?) { it.cause }.any { it is IOException }
-      val failureClass = if (unreachable) "temporarily_unavailable" else "server_error"
+      val failureClass =
+        if (unreachable) OAuthErrorCode.TEMPORARILY_UNAVAILABLE else OAuthErrorCode.SERVER_ERROR
       logger.warn(e) {
         "[oauth/authorize] id-server token exchange failed: pod='${podDbo.name}', " +
-            "clientId='${pending.clientId}', answered='$failureClass'"
+            "clientId='${pending.clientId}', answered='${failureClass.code}'"
       }
       return oauthError(pending.redirectUri, failureClass, "login failed", pending.clientState)
     }
@@ -1580,13 +1883,14 @@ class PodAuthEndpoint @Inject constructor(
     codeChallenge: String?,
     codeChallengeMethod: String?,
     logPrefix: String,
+    consentGeneration: Long? = null,
   ): Response {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
     // never mint an auth code for a dynamic (public) client without PKCE.
     if (clientId.startsWith("dyn:")) {
       if (codeChallenge.isNullOrBlank() || !Pkce.isSupportedMethod(codeChallengeMethod)) {
         return oauthError(
-          redirectUri, "invalid_request",
+          redirectUri, OAuthErrorCode.INVALID_REQUEST,
           "PKCE (S256) is required for dynamic clients", state,
         )
       }
@@ -1599,6 +1903,7 @@ class PodAuthEndpoint @Inject constructor(
       redirectUri = redirectUri,
       codeChallenge = codeChallenge,
       codeChallengeMethod = codeChallengeMethod,
+      consentGeneration = consentGeneration,
     )
 
     logger.info {
@@ -1623,8 +1928,8 @@ class PodAuthEndpoint @Inject constructor(
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private fun tokenError(error: String, description: String): Response {
-    val body = """{"error":"$error","error_description":"$description"}"""
+  private fun tokenError(error: OAuthErrorCode, description: String): Response {
+    val body = """{"error":"${error.code}","error_description":"$description"}"""
     // RFC 6749 §5.2 — error responses from the token endpoint follow the same cache rules
     // as successful ones.
     return Response.status(400)
@@ -1680,20 +1985,20 @@ class PodAuthEndpoint @Inject constructor(
 
   private fun oauthError(
     redirectUri: String?,
-    error: String,
+    error: OAuthErrorCode,
     errorDescription: String,
     state: String?,
   ): Response {
     // R6: emit a single structured audit-log line per authorize-error so spike runs
     // can grep `[oauth/authorize-audit]` to reconstruct what each MCP client triggered.
     logger.info {
-      "[oauth/authorize-audit] outcome=error error=$error error_description=\"$errorDescription\" " +
+      "[oauth/authorize-audit] outcome=error error=${error.code} error_description=\"$errorDescription\" " +
           "state=${state ?: "(none)"} redirect_uri=${redirectUri ?: "(none)"}"
     }
     if (redirectUri.isNullOrBlank()) {
-      return Response.status(400).entity("$error: $errorDescription").type("text/plain").build()
+      return Response.status(400).entity("${error.code}: $errorDescription").type("text/plain").build()
     }
-    var uri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "error", error)
+    var uri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "error", error.code)
     uri = UrlUtil.addOrUpdateQueryParameter(uri, "error_description", errorDescription)
     // R6: an OAuth error may carry an `error_uri` pointing at a documentation page that
     // describes the recovery procedure (re-authorize with `prompt=login`, drop the connection,
@@ -1710,7 +2015,7 @@ class PodAuthEndpoint @Inject constructor(
     // `…/cb?error_uri=…` would otherwise receive its own value back looking exactly like one this
     // server chose, on a deployment that turned the parameter off. Overwrite or delete; never
     // leave somebody else's.
-    val errorUri = config.oauthErrorUri(error)
+    val errorUri = config.oauthErrorUri(error.code)
     uri = if (errorUri != null) {
       UrlUtil.addOrUpdateQueryParameter(uri, "error_uri", errorUri)
     } else {
@@ -1849,6 +2154,9 @@ class PodAuthEndpoint @Inject constructor(
      * (`PodLoginStateStore`, 15 min) or the round trip times out at the shorter of the two.
      */
     private const val LOGIN_PIN_TTL_SECONDS = 15 * 60
+
+    /** The consent form's named way out, as the submit button sends it. */
+    private const val DISCONNECT_ACTION = "disconnect"
 
     /**
      * What a rate-limited caller is told to wait — the window the budget is stated in, which is

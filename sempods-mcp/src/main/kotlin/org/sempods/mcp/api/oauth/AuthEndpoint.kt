@@ -125,7 +125,10 @@ fun Application.authEndpoint(
       return call.respondJson(
         HttpStatusCode.BadRequest, objectMapper,
         RegistrationError.INVALID_REDIRECT_URI
-          .setDescription("redirect_uris must be https, or http on a loopback host, with no fragment")
+          .setDescription(
+            "redirect_uris must be https, or http on a loopback host, with no fragment and no " +
+                "code/response/state in the query"
+          )
           .toJSONObject(),
       )
     }

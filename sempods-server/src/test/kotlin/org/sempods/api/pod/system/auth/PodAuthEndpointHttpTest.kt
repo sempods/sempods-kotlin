@@ -53,6 +53,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var refreshTokenStore: PodRefreshTokenStore
 
   @Inject
+  private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
+
+  @Inject
+  private lateinit var consentTransactionStore: org.sempods.auth.ConsentTransactionStore
+
+  @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   private val testClientId = "did:web:localhost%3A5173"
@@ -153,6 +159,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -270,6 +279,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -298,6 +310,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf("public-read"),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -332,6 +347,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf("public-read", readScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -694,6 +712,564 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(303, submit().statusCode, "the first submission consents")
     assertEquals(403, submit().statusCode, "a replayed page must not consent again")
   }
+
+  @Test
+  fun `the lifetime control grants the refresh token, not the scope in the request`() {
+    // I1 and I2 together, from the two sides that matter. A client can ask — it preselects the
+    // control and nothing more — and a client that never asked is still one the person can grant.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val clear = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "clear")))
+    assertNull(clear["refresh_token"], "an unticked control must not produce one: $clear")
+
+    val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
+    assertNotNull(ticked["refresh_token"], "a ticked control grants it, whatever the client asked: $ticked")
+  }
+
+  @Test
+  fun `offline_access in the request only preselects the control`() {
+    // The other half of I1, on the page rather than in the token: what the client asks decides how
+    // the box is rendered, and a person can clear it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    fun render(scope: String?) = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "render")
+      .addQueryParam("prompt", "consent")
+      .apply { if (scope != null) addQueryParam("scope", scope) }
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    val asked = render("offline_access")
+    assertTrue(
+      Regex("id=\"durableToggle\"[^>]*checked").containsMatchIn(asked),
+      "a request that asks must arrive with the control ticked",
+    )
+    assertFalse(
+      Regex("id=\"durableToggle\"[^>]*checked").containsMatchIn(render(null)),
+      "a request that does not ask must arrive with it clear",
+    )
+  }
+
+  @Test
+  fun `an authorization made before the control mints no new refresh token`() {
+    // I3: an absent decision is not a grant. A static client whose grants predate the dialog takes
+    // the auto-grant branch, which renders nothing — so reading the silence as consent would let it
+    // mint ninety-day credentials for ever, with nobody ever seeing the lifetime.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    val autoGranted = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "legacy")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(303, autoGranted.statusCode, autoGranted.responseBody)
+
+    val body = exchangeCode(pod, codeFrom(autoGranted))
+    assertNull(body["refresh_token"], "nothing recorded is not a grant: $body")
+  }
+
+  @Test
+  fun `withholding the durable connection revokes what the app already held`() {
+    // I7: the choice has to take effect on what exists, not only on what is minted next. Without
+    // this, somebody unticks the control, keeps their context grants, and changes nothing they can
+    // observe — the family they just declined keeps rotating.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "withheld").statusCode)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, "the declined family must be dead: ${refreshed.responseBody}")
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+  }
+
+  @Test
+  fun `removing access leaves neither the grants nor the refresh token`() {
+    // I11. The client is still told `access_denied` — the request really was denied — and what
+    // changed is that the denial now has an effect.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    val response = submitConsent(pod, ownerWebId, state = "gone", disconnect = true)
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertTrue("error=access_denied" in checkNotNull(response.getHeader("Location")))
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "the app must hold no grant afterwards",
+    )
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+  }
+
+  @Test
+  fun `the way out is not offered where there is nothing to remove`() {
+    // The narrowing I11 needs: reporting a disconnect of something never connected is the same lie
+    // as reporting nothing when something ended.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    fun renderedPage() = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "offer")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    assertFalse("disconnectBtn" in renderedPage(), "a first authorization has nothing to disconnect")
+
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+    assertTrue("disconnectBtn" in renderedPage(), "an app that holds something can be removed")
+  }
+
+  @Test
+  fun `a code cannot pick up a consent granted after it`() {
+    // I9. The code is a request, not an authority. Disconnect, reconnect with the durable control
+    // ticked, and an outstanding code from the earlier consent would otherwise mint a family — and
+    // carry the scopes of a consent that has since been replaced.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val stale = codeFrom(submitConsent(pod, ownerWebId, state = "first"))
+    submitConsent(pod, ownerWebId, state = "again", durable = true)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(stale)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `removing access does not first create the context the form was carrying`() {
+    // Choosing the way out is the opposite of an authorization, so nothing is built for one. The
+    // form can carry a context the person typed before changing their mind.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    seedRefreshToken(pod, webId = ownerWebId)
+
+    val browser = signIn(pod.name, ownerWebId)
+    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=bail&csrf=${enc(browser.csrf)}&action=disconnect" +
+          "&new_context=notes&new_context_scope=${enc("notes#read")}",
+      )
+      .setFollowRedirect(false).execute()
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertNull(
+      podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
+      "a disconnect must not build the context the form was carrying",
+    )
+  }
+
+  @Test
+  fun `an empty submission does not build the context it was carrying either`() {
+    // The other route to the way out, and it must not have side effects the named one avoids: with
+    // nothing ticked anywhere, no selection can survive the creation, so creating one would build a
+    // context for an authorization that is not happening.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    seedRefreshToken(pod, webId = ownerWebId)
+
+    val browser = signIn(pod.name, ownerWebId)
+    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=empty&csrf=${enc(browser.csrf)}&new_context=notes",
+      )
+      .setFollowRedirect(false).execute()
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertNull(
+      podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
+      "an empty submission must not build a context on its way out",
+    )
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "and it still ends the authorization",
+    )
+  }
+
+  @Test
+  fun `the first consent an authorization receives supersedes the codes issued before it`() {
+    // The other end of I9. An authorization that predates the control mints codes carrying no
+    // generation; the moment somebody answers, those codes are as stale as any other — otherwise
+    // one of them redeems against the answer, with the scopes of the silence that came before.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    val silent = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "before")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    val stale = codeFrom(silent)
+
+    submitConsent(pod, ownerWebId, state = "answered", durable = true)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(stale)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `an auto-granted code still redeems after the person has consented once`() {
+    // The counter-case, and the bug the binding introduced: the generation embedded at auto-grant
+    // has to be the subject's own, not the highest an alias of theirs happens to carry, or a
+    // perfectly ordinary silent re-authorization is refused as superseded.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    submitConsent(pod, ownerWebId, state = "consented", durable = true)
+
+    val silent = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "again")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(303, silent.statusCode, silent.responseBody)
+
+    val body = exchangeCode(pod, codeFrom(silent))
+    assertNotNull(body["refresh_token"], "the durable consent still stands: $body")
+  }
+
+  @Test
+  fun `a page rendered before a disconnect cannot write its grants back`() {
+    // I13. Several consent screens may coexist by design, and single-use only stops the same page
+    // being posted twice. A page opened before the app was disconnected would otherwise submit its
+    // own older selection as the authoritative new state.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    submitConsent(pod, ownerWebId, state = "first", durable = true)
+    val staleForm = renderedFormToken(pod, ownerWebId)
+    submitConsent(pod, ownerWebId, state = "gone", disconnect = true)
+
+    val late = submitConsent(pod, ownerWebId, state = "late", durable = true, csrf = staleForm)
+
+    assertEquals(403, late.statusCode, late.responseBody)
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "the disconnect must stand",
+    )
+  }
+
+  @Test
+  fun `a refusal on record ends the family even where the withdrawal missed it`() {
+    // I10, rotation half, at the point the race would leave behind: a family that exists while the
+    // decision says the person refused. The sweep sees the rows of its own moment; rotation inserts
+    // one after it, so the refusal has to be asked again rather than assumed to have been applied.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    assertTrue(
+      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
+      "the family goes with the refusal, not just this rotation",
+    )
+  }
+
+  @Test
+  fun `the response names the durable connection where the client never asked for it`() {
+    // I17. The person can grant what the client did not request, so RFC 6749 §3.3's "say what was
+    // granted where it differs" is the client's only way to learn it did get one.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val body = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "granted", durable = true)))
+
+    assertNotNull(body["refresh_token"])
+    assertTrue(
+      (body["scope"] as String).split(" ").contains("offline_access"),
+      "the granted scope has to name it: ${body["scope"]}",
+    )
+    val claim = com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet
+    assertFalse(
+      (claim.getStringClaim("scope") ?: "").contains("offline_access"),
+      "and the bearer's own claim stays slim: ${claim.getStringClaim("scope")}",
+    )
+  }
+
+  @Test
+  fun `an app whose grants sit under an alias can still be disconnected`() {
+    // I8, lookup half. The pod stores whichever WebID authenticated; asking about one leaves an
+    // alias-held authorization reading as a first authorization, which hides the way out exactly
+    // where somebody needs it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val canonical = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val alias = "https://id.test/oidc/alias-of-owner"
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = alias,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = alias,
+    )
+
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "alias")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, canonical, alsoKnownAs = listOf(alias)).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    assertTrue("disconnectBtn" in page, "an alias-held authorization is one this person can end")
+  }
+
+  @Test
+  fun `a rotation keeps naming the durable connection it hands back`() {
+    // The response is where a client reads what it was granted, so a view refreshed from the newest
+    // one must not watch the durable connection vanish at the first rotation — it is still holding
+    // a successor.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertNotNull(body["refresh_token"])
+    assertTrue(
+      (body["scope"] as String).split(" ").contains("offline_access"),
+      "a rotation still hands back a durable connection: ${body["scope"]}",
+    )
+  }
+
+  @Test
+  fun `a client may echo the granted scope back on the next refresh`() {
+    // The standard thing to do with a `scope` in a token response is to send it again, and the
+    // response now names the durable connection — so refusing that echo would tell a client its own
+    // granted scope is not covered. `offline_access` is not a feature scope and cannot be
+    // down-scoped to; it names the connection this request is already proving it holds.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId, scopes = setOf("public-read"))
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}" +
+        "&scope=${enc("public-read offline_access")}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals("public-read offline_access", body["scope"], "what it echoed is what it gets back")
+    assertEquals(
+      "public-read",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+      "and the bearer carries the feature scope alone",
+    )
+    assertNotNull(body["refresh_token"])
+  }
+
+  @Test
+  fun `an authorization older than the control is asked once, then auto-grants again`() {
+    // I15. Auto-grant renders nothing, so an authorization whose grants predate the lifetime
+    // control could never acquire a decision — it would work for ever, short-lived, without anybody
+    // being asked. It falls through to the dialog once; after that the silent path is back.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    fun authorize() = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "legacy")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+
+    val asked = authorize()
+    assertEquals(200, asked.statusCode, "with nothing recorded the person is asked once")
+    assertTrue("durableToggle" in asked.responseBody, "and asked about the lifetime")
+
+    submitConsent(pod, ownerWebId, state = "answered", durable = true)
+
+    val silent = authorize()
+    assertEquals(303, silent.statusCode, "with an answer on record the silent path is back")
+    assertTrue("code=" in checkNotNull(silent.getHeader("Location")))
+  }
+
+  @Test
+  fun `a stale grant is narrowed even when the visit ends in the dialog`() {
+    // The repair is what a failed owner-level cascade is owed — there are no transactions here, so
+    // this visit is its second chance — and it has nothing to do with whether the visit ends in a
+    // code or in a dialog. Gating it on a recorded decision would have withheld it from exactly the
+    // authorizations that predate the control, while `resolveFromGrants` reads the app rows alone
+    // and an existing token would go on carrying access that was revoked.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val backed = "${contextUri(pod.name, "public/tasks")}#read"
+    val unbacked = "${contextUri(pod.name, "public/gone")}#read"
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf(backed, unbacked), grantedBy = ownerWebId,
+    )
+
+    // No decision on record, so this visit renders the dialog rather than a code.
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "repair")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    assertEquals(
+      setOf(backed),
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)),
+      "the grant nothing backs is gone, dialog or no dialog",
+    )
+  }
+
+  /** Submits the consent form the way the rendered page does. */
+  private fun submitConsent(
+    pod: org.sempods.pods.mongo.persist.PodDbo,
+    webId: String,
+    state: String,
+    durable: Boolean = false,
+    disconnect: Boolean = false,
+    csrf: String? = null,
+  ): org.sempods.commons.okhttp.TestHttpResponse {
+    val browser = signIn(pod.name, webId)
+    return http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=$state&csrf=${enc(csrf ?: renderedFormToken(pod, webId))}" +
+          (if (disconnect) "&action=disconnect" else "&scope=public-read") +
+          (if (durable) "&durable=1" else ""),
+      )
+      .setFollowRedirect(false).execute()
+  }
+
+  /** The token a freshly rendered page would carry: bound to the consent standing right now. */
+  private fun renderedFormToken(pod: org.sempods.pods.mongo.persist.PodDbo, webId: String): String =
+    consentTransactionStore.issue(
+      pod.name,
+      webId,
+      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId))?.generation,
+    )
+
+  private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
+    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.responseBody}" }
+    return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun exchangeCode(pod: org.sempods.pods.mongo.persist.PodDbo, code: String): Map<String, Any?> {
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(code)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+    return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+  }
+
+  private fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
   @Test
   fun `a consent token from one person is not spendable by another`() {
@@ -2095,6 +2671,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -2897,6 +3476,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // standard token response with refresh-token rotation.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/anyone"
+    // In the order the endpoint uses it: the consent is recorded, and the code is issued under it.
+    // A refresh token follows that decision, not the code — which is why the code carries the
+    // generation it was minted under.
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -2905,6 +3488,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       redirectUri = testRedirectUri,
       codeChallenge = null,
       codeChallengeMethod = null,
+      consentGeneration = consent.generation,
     )
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
@@ -2929,7 +3513,13 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertNotNull(body["access_token"])
     assertEquals("Bearer", body["token_type"])
     assertEquals(3600, body["expires_in"])
-    assertEquals("public-read", body["scope"])
+    // The response says what was granted, the durable connection included (RFC 6749 §3.3); the
+    // bearer's own claim carries the feature scopes and nothing else.
+    assertEquals("public-read offline_access", body["scope"])
+    assertEquals(
+      "public-read",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+    )
     assertNotNull(body["refresh_token"], "authenticated public-read tokens must carry a refresh_token")
   }
 
@@ -2937,6 +3527,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `authorization_code exchange returns both access_token and refresh_token`() {
     val pod = sempodsTestFactory.newPod()
     val scope = "${contextUri(pod.name, "public/tasks")}#read"
+    val consent =
+      consentDecisionStore.record(checkNotNull(pod.id), testClientId, "https://id.test/user", durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -2945,8 +3537,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       redirectUri = testRedirectUri,
       codeChallenge = null,
       codeChallengeMethod = null,
+      consentGeneration = consent.generation,
     )
-
     val response = postForm(
       tokenUrl(pod.name),
       "grant_type=authorization_code" +
@@ -2965,9 +3557,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val refreshToken = body["refresh_token"] as? String
     assertNotNull(refreshToken, "authorization_code exchange must return a refresh_token")
     assertTrue(refreshToken.startsWith("rt_"), "refresh token plaintext should carry the rt_ prefix")
-    // Slim token (token-slimming): even though the auth-code carried a context scope, the
-    // exchange filters it out — the access token's `scope` is feature-only (empty here).
-    assertEquals("", body["scope"])
+    // The response names the granted durable connection and nothing else — the auth code carried a
+    // context scope and no feature scope survived it. Slimming is a property of the token, so it is
+    // asserted where it lives: the bearer's own claim.
+    assertEquals("offline_access", body["scope"])
+    assertEquals(
+      "",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+    )
   }
 
   @Test
