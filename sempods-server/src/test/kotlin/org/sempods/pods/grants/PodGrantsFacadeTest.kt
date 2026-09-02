@@ -274,6 +274,37 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `deleting the context an app's last grant named also ends its session`() {
+    // The pair this leaves with nothing never reaches the recompute: its only row is deleted
+    // before that pass reads the pod, so there is no group for the emptiness branch to find. The
+    // owner-level cascade, which reads its rows first, has always covered the same case — this is
+    // the two paths giving one answer.
+    val pod = sempodsTestFactory.newPod()
+    val webId = newPerson()
+    val ctx = contextUri(pod.name, "reports")
+    createContext(pod, "reports")
+
+    podWebIdGrantsDao.addGrants(checkNotNull(pod.id), webId, listOf("$ctx#read"), grantedBy = null)
+    assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
+
+    val issued = refreshTokenStore.issueNewFamily(
+      podId = checkNotNull(pod.id),
+      podName = pod.name,
+      clientId = testClientId,
+      webId = webId,
+      scopes = emptySet(),
+    )
+
+    podFacade.removeContext(pod.name, URI(ctx))
+
+    assertEquals(emptySet(), appGrants(pod, webId))
+    assertNotNull(
+      refreshTokenStore.findByFamily(issued.token.familyId).single().revokedAt,
+      "an app left holding nothing loses its family here too, not only at its next refresh",
+    )
+  }
+
+  @Test
   fun `revoking every context grant also revokes the app's refresh family`() {
     val pod = sempodsTestFactory.newPod()
     val webId = newPerson()

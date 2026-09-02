@@ -127,6 +127,16 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     if (familyIds.isEmpty()) 0
     else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, familyIds))
 
+  /**
+   * Every `(clientId, webId)` on [podId] that still holds a live family, each named once.
+   *
+   * The grant cascade's question, asked from the credential side: which connections are standing,
+   * so that it can check each against the grants that survive its own deletes. Reading the store
+   * rather than being handed a list is what keeps that cascade retryable — it derives its work from
+   * what is in the store, never from state captured before its deletes.
+   */
+  internal fun liveOwners(podId: ObjectId): Set<Owner> = store.ownersWhere(podFilter(podId))
+
   /** What one app holds for one person, or null where no URI names them. */
   private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {
     val distinct = webIds.filter { it.isNotBlank() }.distinct()

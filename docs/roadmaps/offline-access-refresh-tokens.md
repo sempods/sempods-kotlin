@@ -154,6 +154,16 @@ starting before it builds it.
   holding nothing is `PodGrantsFacadeTest`'s, together with its new counterpart that a deletion
   leaving other grants does not end the session.
 
+  Removing the sweep put a question to the condition that replaces it, and the answer needed a
+  third pass. A pair whose *last* grant named the deleted context never reaches
+  `sweepUnbackedAppGrants`' emptiness branch — its rows are gone before that recompute reads the
+  pod — so it kept a family the owner-level cascade would have ended, and had kept one for every
+  non-legacy family since tokens went slim. The pass asks the credential side which connections
+  still stand and checks each against the grants that survived, which makes it retryable like
+  everything else there and repairs an earlier run's leak as readily as its own. Keyed on the
+  family's own `webId`, exactly as the refresh exchange keys `currentGrants`, so the proactive
+  answer and the lazy one cannot disagree — which was the point of the item.
+
   **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
   answer to the lifetime question governs what stands after it. Withholding retires outright at
   consent; granting retires at the code exchange, once the successor exists, so answering "yes"

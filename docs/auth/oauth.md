@@ -246,10 +246,11 @@ withholding it retires them outright, and both span every URI derivable
 from the person's WebID. So a reconnect replaces the client's refresh
 token rather than adding a second ninety-day credential beside it.
 
-Deleting a context revokes no refresh token. A family carries feature
-scopes only and context permissions are resolved per request, so the
-deletion's own cascade — the grant rows — is what ends the access, and a
-family is revoked there only when its app is left holding nothing.
+Deleting a context revokes no refresh token *for naming it*. A family
+carries feature scopes only and context permissions are resolved per
+request, so the deletion's own cascade — the grant rows — is what ends
+the access. A family goes there on one condition, the same one the
+refresh exchange applies: its app is left holding no grant at all.
 
 Public-read tokens (see below) **do not** receive a refresh token —
 the client re-authorizes when expired.

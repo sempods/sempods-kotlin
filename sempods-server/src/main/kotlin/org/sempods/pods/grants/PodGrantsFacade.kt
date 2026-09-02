@@ -12,6 +12,7 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.bson.types.ObjectId
 import java.net.URI
 
 /**
@@ -266,13 +267,23 @@ class PodGrantsFacade @Inject constructor(
    * Revokes everything anchored at [contextUri] when the context itself is being deleted:
    * app-delegated grants, owner-level WebID grants, and static service-client registrations.
    *
-   * **Refresh tokens are not among them, and that is not an omission.** A refresh row carries
-   * feature scopes only — both insert paths intersect against [PodScopeValidator.featureScopes] —
-   * and the refresh exchange intersects again before issuing, so a family holds no authority over
-   * a context to lose. What closes the re-create-with-same-URI window is the grant deletion below:
-   * permissions are resolved per request from these rows, so a context recreated under the same
-   * URI inherits nothing. Sweeping the families as well would end the sessions of apps that still
-   * hold other grants, and would do it only to families old enough to carry a context scope.
+   * **A refresh family is never revoked for naming the context, only for being left with nothing.**
+   * A refresh row carries feature scopes only — both insert paths intersect against
+   * [PodScopeValidator.featureScopes] — and the refresh exchange intersects again before issuing,
+   * so a family holds no authority over a context to lose. What closes the
+   * re-create-with-same-URI window is the grant deletion below: permissions are resolved per
+   * request from these rows, so a context recreated under the same URI inherits nothing. Sweeping
+   * families by the scope string would instead end the sessions of apps that still hold other
+   * grants, and only those families old enough to carry a context scope at all.
+   *
+   * What does end a family here is the same condition [sweepUnbackedAppGrants] applies — the app
+   * is left holding nothing — and it needs a pass of its own, because a pair whose *last* grant
+   * named the deleted context never reaches that one: its rows are gone before the recompute
+   * reads them. The pass asks the credential side which connections still stand and checks each
+   * against the grants that survived, so it repairs a leak an earlier run left behind as readily
+   * as one this run would have created. Keyed on the family's own `webId`, exactly as the refresh
+   * exchange keys its `currentGrants` check, so the proactive answer and the lazy one cannot
+   * disagree.
    *
    * The exact-string sweep alone is **not** sufficient, and this is easy to get wrong. Context
    * deletion does not cascade into sub-contexts — `R/sub` survives with its own data — but
@@ -313,10 +324,50 @@ class PodGrantsFacade @Inject constructor(
     // captured before the deletes — see the retry note above.
     val derived = sweepSubtreeAppGrants(podDbo, contextUri)
 
+    // Third pass, and the reason it is a pass rather than a line inside the second: the pairs it
+    // is for have no rows left for the recompute to group. Read from the store for the same
+    // reason everything else here is — a captured list would be the one thing a retry could not
+    // reconstruct.
+    val orphaned = revokeGrantlessFamilies(podId)
+
     return GrantCascadeResult(
       deletedAppGrants = deletedAppGrants + derived.deletedAppGrants,
-      revokedRefreshTokens = derived.revokedRefreshTokens,
-      affectedApps = derived.affectedApps,
+      revokedRefreshTokens = derived.revokedRefreshTokens + orphaned.revokedRefreshTokens,
+      affectedApps = derived.affectedApps + orphaned.affectedApps,
+    )
+  }
+
+  /**
+   * Revokes the families of every `(clientId, webId)` on [podId] that holds no grant at all.
+   *
+   * A no-op in the ordinary case, and idempotent: a family already revoked is not among the live
+   * ones, and an app that holds a grant is left alone. What it revokes was functionally dead
+   * already — the refresh exchange refuses a token whose app has no grants, so nothing could have
+   * been minted from it — which is why this is about the two cascades agreeing rather than about
+   * closing a hole.
+   */
+  private fun revokeGrantlessFamilies(podId: ObjectId): GrantCascadeResult {
+    var revokedRefreshTokens = 0L
+    val affectedApps = mutableSetOf<String>()
+    refreshTokenStore.liveOwners(podId).forEach { owner ->
+      if (podGrantsDao.fetchGrantStrings(podId, owner.clientId, listOf(owner.webId)).isNotEmpty()) return@forEach
+      revokedRefreshTokens += refreshTokenStore.revokeForUser(
+        podId = podId,
+        clientId = owner.clientId,
+        webId = owner.webId,
+      )
+      affectedApps += owner.clientId
+    }
+    if (revokedRefreshTokens > 0) {
+      logger.info {
+        "[grants/revoke] Families left without any grant revoked: podId='$podId', " +
+            "revokedRefreshTokens=$revokedRefreshTokens, apps=${affectedApps.sorted()}"
+      }
+    }
+    return GrantCascadeResult(
+      deletedAppGrants = 0,
+      revokedRefreshTokens = revokedRefreshTokens,
+      affectedApps = affectedApps,
     )
   }
 

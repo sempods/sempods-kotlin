@@ -253,6 +253,18 @@ class RefreshTokenStore<OWNER>(
     ).toSet()
 
   /**
+   * The owners of the still-live rows matching [filter], each named once.
+   *
+   * For a service asking *whose* credentials are still standing — a question about the owner, which
+   * only the service can then answer against its own records. Rotated rows share their family's
+   * owner, so the result is far shorter than the rows it is read from.
+   */
+  fun ownersWhere(filter: Bson): Set<OWNER> =
+    tokens.find(Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)))
+      .map { it.readOwner() }
+      .toSet()
+
+  /**
    * Hard-deletes every row matching [filter].
    *
    * For the cascade where revocation is moot because the thing the tokens name is gone. Deleting
