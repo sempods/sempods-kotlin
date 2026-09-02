@@ -236,7 +236,20 @@ it does not host.
 Per RFC 6749 §10.4 / OAuth 2.1 best practice. Refresh tokens belong to
 a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
-tokens are SHA-256 hashed at rest; default TTL is 90 days.
+tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
+rolling — every rotation renews it in full.
+
+**One authorization, one family.** An answer to the lifetime question
+governs what stands after it: a consent granting a durable connection
+retires the families it supersedes once the successor exists, one
+withholding it retires them outright, and both span every URI derivable
+from the person's WebID. So a reconnect replaces the client's refresh
+token rather than adding a second ninety-day credential beside it.
+
+Deleting a context revokes no refresh token. A family carries feature
+scopes only and context permissions are resolved per request, so the
+deletion's own cascade — the grant rows — is what ends the access, and a
+family is revoked there only when its app is left holding nothing.
 
 Public-read tokens (see below) **do not** receive a refresh token —
 the client re-authorizes when expired.

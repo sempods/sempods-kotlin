@@ -264,8 +264,15 @@ class PodGrantsFacade @Inject constructor(
 
   /**
    * Revokes everything anchored at [contextUri] when the context itself is being deleted:
-   * refresh tokens carrying a grant on it, app-delegated grants, owner-level WebID grants, and
-   * static service-client registrations.
+   * app-delegated grants, owner-level WebID grants, and static service-client registrations.
+   *
+   * **Refresh tokens are not among them, and that is not an omission.** A refresh row carries
+   * feature scopes only — both insert paths intersect against [PodScopeValidator.featureScopes] —
+   * and the refresh exchange intersects again before issuing, so a family holds no authority over
+   * a context to lose. What closes the re-create-with-same-URI window is the grant deletion below:
+   * permissions are resolved per request from these rows, so a context recreated under the same
+   * URI inherits nothing. Sweeping the families as well would end the sessions of apps that still
+   * hold other grants, and would do it only to families old enough to carry a context scope.
    *
    * The exact-string sweep alone is **not** sufficient, and this is easy to get wrong. Context
    * deletion does not cascade into sub-contexts — `R/sub` survives with its own data — but
@@ -285,25 +292,17 @@ class PodGrantsFacade @Inject constructor(
    * sweep; that would be exactly the state a retry could no longer reconstruct. The sweep runs
    * before [org.sempods.pods.PodFacade.removeContext] touches data or the registry row, so a
    * failure here also leaves the caller's own retry path intact.
-   *
-   * **Tokens are revoked first**, the reverse of the ordering in [cascadeToAppGrants], and the
-   * difference is load-bearing rather than an inconsistency. Here the *data* vanishes and can be
-   * re-created under the same URI later, so a surviving refresh token is exactly the handle that
-   * outlives the check and must die first. There, the grant rows themselves *are* the check —
-   * consulted on every request — so killing tokens ahead of them would open a window in which the
-   * token family is dead while the surviving rows still authorize the outstanding access token.
    */
   internal fun revokeContextGrants(podDbo: PodDbo, contextUri: String): GrantCascadeResult {
     val podId = checkNotNull(podDbo.id)
-    val revokedTokens = refreshTokenStore.revokeByContextScope(podId = podId, contextUri = contextUri)
     val deletedAppGrants = podGrantsDao.deleteByContext(podId = podId, contextUri = contextUri)
     // Owner-level, app-independent WebID grants cascade the same way as the app-delegated
     // grants above — a manage/write/read grant must not outlive its context.
     podWebIdGrantsDao.deleteByContext(podId = podId, contextUri = contextUri)
-    // Static service clients are revoked like grants/refresh tokens: grants anchored at the
-    // deleted context are stripped, grant-less registrations removed — otherwise the client
-    // secret could keep minting tokens for the deleted root (manage descendants, recreate the
-    // root).
+    // Static service clients are revoked like grants: scopes anchored at the deleted context are
+    // stripped, grant-less registrations removed — otherwise the client secret could keep minting
+    // tokens for the deleted root (manage descendants, recreate the root). Unlike a refresh row, a
+    // registration's context scopes *are* the authority the resolver reads.
     val revokedClients = podServiceClientDao.revokeByContextScope(podId = podId, contextUri = contextUri)
     if (revokedClients > 0) {
       logger.info { "Revoked $revokedClients service-client registration(s) anchored at deleted context $contextUri" }
@@ -316,7 +315,7 @@ class PodGrantsFacade @Inject constructor(
 
     return GrantCascadeResult(
       deletedAppGrants = deletedAppGrants + derived.deletedAppGrants,
-      revokedRefreshTokens = revokedTokens + derived.revokedRefreshTokens,
+      revokedRefreshTokens = derived.revokedRefreshTokens,
       affectedApps = derived.affectedApps,
     )
   }

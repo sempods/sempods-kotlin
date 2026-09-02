@@ -240,6 +240,40 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `deleting a context leaves a session the app still holds grants for`() {
+    // The refresh-token sweep that used to run alongside the grant deletion selected rows by a
+    // context-shaped scope. No row minted since the token went slim can hold one, and one old
+    // enough to hold it authorizes nothing by it — the refresh exchange intersects against the
+    // feature scopes before issuing, and context permissions are resolved per request from the
+    // rows deleted here. Sweeping by the scope would therefore end the sessions of the oldest
+    // families and only those, for a string that grants nothing.
+    val pod = sempodsTestFactory.newPod()
+    val webId = newPerson()
+    val ctx = contextUri(pod.name, "reports")
+    createContext(pod, "reports")
+
+    podWebIdGrantsDao.addGrants(checkNotNull(pod.id), webId, listOf("$ctx#read"), grantedBy = null)
+    assertEquals(303, consent(pod, webId, listOf("$ctx#read", "public-read")).statusCode)
+
+    // The shape a family predating slim tokens has on disk: the context scope is still on the row.
+    val issued = refreshTokenStore.issueNewFamily(
+      podId = checkNotNull(pod.id),
+      podName = pod.name,
+      clientId = testClientId,
+      webId = webId,
+      scopes = setOf("$ctx#read", "public-read"),
+    )
+
+    podFacade.removeContext(pod.name, URI(ctx))
+
+    assertEquals(setOf("public-read"), appGrants(pod, webId))
+    assertNull(
+      refreshTokenStore.findByFamily(issued.token.familyId).single().revokedAt,
+      "the app still holds a grant, so deleting one context must not end its session",
+    )
+  }
+
+  @Test
   fun `revoking every context grant also revokes the app's refresh family`() {
     val pod = sempodsTestFactory.newPod()
     val webId = newPerson()

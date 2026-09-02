@@ -25,8 +25,8 @@ import java.time.Instant
  * but [DynamicClientStore.register] runs a fingerprint dedup via
  * [findByFingerprint] before calling here, so re-registration of the same
  * logical client returns the existing row's `clientId` instead of producing a
- * duplicate. The one mutating operation is [touchLastAuthorized], which fuels
- * the orphan sweep.
+ * duplicate. The one mutating operation is [touchLastAuthorized] — the sweep it
+ * was written for is the TODO below.
  *
  * `findByClientId()` serves the hot-path `/authorize` lookup. Richer analysis
  * queries belong to Stage 2 and are not added pre-emptively.

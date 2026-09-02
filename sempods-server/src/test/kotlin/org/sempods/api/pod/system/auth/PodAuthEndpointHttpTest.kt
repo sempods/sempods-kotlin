@@ -860,6 +860,57 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a reconnect retires the family it supersedes`() {
+    // The withholding path's rule, asked from the other end: an answer governs what stands after
+    // it. Without this a reconnect adds a second ninety-day family rather than replacing the
+    // first, the next one a third, and every rotation renews each of their TTLs in full.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val first = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "first", durable = true)))
+    val superseded = checkNotNull(first["refresh_token"] as? String) { "the first consent grants one: $first" }
+
+    val second = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "again", durable = true)))
+    val successor = checkNotNull(second["refresh_token"] as? String) { "the reconnect grants one too: $second" }
+
+    val stale = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(superseded)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, stale.statusCode, "the superseded family must be dead: ${stale.responseBody}")
+    assertTrue("invalid_grant" in stale.responseBody, stale.responseBody)
+
+    val live = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(successor)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, live.statusCode, "the family the reconnect produced keeps working: ${live.responseBody}")
+  }
+
+  @Test
+  fun `a reconnect retires a family the pod recorded under an alias`() {
+    // I8 on the retirement path. The pod stores whichever URI authenticated, so the connection a
+    // reconnect replaces may sit under the twin of the one the code carries — and a survivor there
+    // is exactly the second credential this rule exists to prevent.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val alias = webIdUriDeriver.derivableAliases(ownerWebId).first { it != ownerWebId }
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = alias)
+
+    exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "reconnect", durable = true)))
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, "the alias-bound family must be dead: ${refreshed.responseBody}")
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+  }
+
+  @Test
   fun `a code cannot pick up a consent granted after it`() {
     // I9. The code is a request, not an authority. Disconnect, reconnect with the durable control
     // ticked, and an outstanding code from the earlier consent would otherwise mint a family — and

@@ -101,40 +101,42 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    * calling that a withdrawal leaves the connection the person meant to end running — and the
    * survivor then reads as an authorization with nothing recorded, which is grandfathered.
    */
-  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long {
-    val distinct = webIds.filter { it.isNotBlank() }.distinct()
-    if (distinct.isEmpty()) return 0
-    return store.revokeWhere(
-      Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
-        Filters.eq(FIELD_CLIENT_ID, clientId),
-        Filters.`in`(FIELD_WEB_ID, distinct),
-      ),
-    )
-  }
+  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
+    ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
 
   /**
-   * Revokes every token within [podId] whose `scopes` array holds any of
-   * `<contextUri>#read|write|manage`.
+   * The same, minus [keepFamilyId] — what a fresh consent supersedes.
    *
-   * The context-cascade delete path, so a token issued before the context was dropped cannot be
-   * exchanged after the fact — critical for the re-create-with-same-URI window, where the live
-   * context-existence check at write time would otherwise let a new context inherit the old token's
-   * authority. Access tokens are self-contained and unaffected; they expire after an hour.
+   * A reconnect answers the lifetime question again, and the answer governs what stands afterwards:
+   * withholding ends the families through [revokeForUser], granting replaces them. Without this the
+   * two answers disagree, and every reconnect leaves another ninety-day family behind that nobody
+   * counted and that renews its own TTL on each rotation.
    *
-   * `Filters.in` against an array field matches when **any** element is in the supplied list, which
-   * is exactly the semantics wanted here.
+   * Called once the successor exists, so a person who answered "yes" is never left holding nothing.
+   * The price is the mirror of the one [org.sempods.api.pod.system.auth.PodAuthEndpoint] pays on
+   * the refusal path: a rotation whose insert lands after this sweep survives it. There the
+   * survivor is a credential nobody granted, so the insert is re-checked; here it is a duplicate of
+   * one the person just granted, which the next full revocation reaches like any other.
    */
-  internal fun revokeByContextScope(podId: ObjectId, contextUri: String): Long =
-    store.revokeWhere(
-      Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
-        Filters.`in`(
-          RefreshTokenStore.Field.SCOPES,
-          listOf("$contextUri#read", "$contextUri#write", "$contextUri#manage"),
-        ),
-      ),
+  internal fun revokeOtherFamilies(
+    podId: ObjectId,
+    clientId: String,
+    webIds: Collection<String>,
+    keepFamilyId: String,
+  ): Long = ownerFilter(podId, clientId, webIds)?.let { owner ->
+    store.revokeWhere(Filters.and(owner, Filters.ne(RefreshTokenStore.Field.FAMILY_ID, keepFamilyId)))
+  } ?: 0
+
+  /** What one app holds for one person, or null where no URI names them. */
+  private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {
+    val distinct = webIds.filter { it.isNotBlank() }.distinct()
+    if (distinct.isEmpty()) return null
+    return Filters.and(
+      Filters.eq(FIELD_POD_ID, podId),
+      Filters.eq(FIELD_CLIENT_ID, clientId),
+      Filters.`in`(FIELD_WEB_ID, distinct),
     )
+  }
 
   /**
    * Hard-deletes every refresh token of the pod — the pod-cascade delete path, where family

@@ -11,6 +11,7 @@ import org.sempods.auth.core.Secrets
 import com.google.inject.Inject
 import com.google.inject.name.Named
 import org.sempods.commons.config.Env
+import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.net.UrlUtil
@@ -60,6 +61,7 @@ class PodAuthEndpoint @Inject constructor(
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
   private val consentTransactionStore: ConsentTransactionStore,
+  private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -1425,14 +1427,38 @@ class PodAuthEndpoint @Inject constructor(
       return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
     }
 
+    // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
+    // the withholding path gives from the other end, so that reconnecting twice does not leave two
+    // ninety-day families behind, each renewing its own TTL on every rotation. Retired only once
+    // the successor exists, so answering "yes" never leaves the person holding nothing, and across
+    // their derivable URIs, because the superseded family may have been minted under the twin of
+    // the URI this code carries.
+    if (issuedRefresh != null) {
+      val retired = refreshTokenStore.revokeOtherFamilies(
+        podId = checkNotNull(podDbo.id),
+        clientId = entry.clientId,
+        webIds = webIdUriDeriver.derivableAliases(entry.subject),
+        keepFamilyId = issuedRefresh.token.familyId,
+      )
+      if (retired > 0) {
+        logger.info {
+          "[oauth/token] reconnect retired what it supersedes: pod='${podDbo.name}', " +
+              "clientId='${entry.clientId}', webId='${entry.subject}', retiredRows=$retired"
+        }
+      }
+    }
+
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podDbo.name}', clientId='${entry.clientId}', " +
           "webId='${entry.subject}', scopes=${featureScopes.size}, durable=$durable, " +
           "familyId='${issuedRefresh?.token?.familyId ?: "(none)"}'"
     }
 
-    // Liveness touch on the DCR row — feeds cleanup sweeps and the future Active-Connections
-    // UI. Best-effort: did:web clients have no DCR row and return false here, which is fine.
+    // Liveness touch on the DCR row. Every completed flow reaches one of the three call sites —
+    // this one, the anonymous public-read branch above and the rotation below — so a connection
+    // the person kept short-lived stays as live as a durable one; it just says so by
+    // re-authorizing rather than by refreshing. Best-effort: did:web clients have no DCR row and
+    // return false here, which is fine.
     dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
 
     return buildTokenResponse(

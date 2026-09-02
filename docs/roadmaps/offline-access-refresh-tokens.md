@@ -141,15 +141,42 @@ starting before it builds it.
   the resolver rather than with a lifetime control.
   Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
-- [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
-  revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
-  `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
-  refresh rows by a context-shaped scope, and no row issued today can hold one, because the code
-  exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
-  still justify it — the identically named service-client path is unaffected and stays. The same
-  item decides whether a reconnect should retire the family it supersedes, which today it does not:
-  the code exchange mints a new family and revokes nothing. Item 5's withdrawal path is the same
-  question asked from the other end, and the two answers have to agree.
+- [x] 6 — Align revocation and liveness. Both decisions are taken, and the four paths agree.
+
+  **The refresh-token `revokeByContextScope` is gone**; the identically named service-client path
+  stays, because a registration's context scopes *are* what the resolver reads per request while a
+  refresh row's are not read at all. Rows predating slim tokens do not justify keeping it: such a
+  row's context scope authorizes nothing — the refresh exchange intersects against the feature
+  scopes before issuing — so the sweep would have ended the sessions of the oldest families and
+  only those, for a string. What closes the re-create-with-same-URI window is the grant deletion
+  that runs beside it, which is where permissions are resolved from. `SempodsFacadeTest`'s context
+  cascade lost its refresh-token half accordingly; the rule that a family dies when its app is left
+  holding nothing is `PodGrantsFacadeTest`'s, together with its new counterpart that a deletion
+  leaving other grants does not end the session.
+
+  **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
+  answer to the lifetime question governs what stands after it. Withholding retires outright at
+  consent; granting retires at the code exchange, once the successor exists, so answering "yes"
+  never leaves the person holding nothing. Across their derivable URIs, because the superseded
+  family may sit under the twin of the URI the code carries. One race is left open on purpose and
+  is the mirror of the one item 5 closed: a rotation whose insert lands after the sweep survives
+  it. There the survivor was a credential nobody granted, which is why that insert is re-checked;
+  here it is a duplicate of one the person just granted.
+
+  The audit found one more disagreement of the same shape and fixed it: the MCP surface's explicit
+  re-authorize revoked for a single `webId`, so a family recorded under an alias kept rotating
+  around the very consent screen the 401 exists to force. I8 is about every path that ends access,
+  and that is one. DCR liveness needed no change — all three `touchLastAuthorized` call sites still
+  fire, so a connection the person kept short-lived stays as live as a durable one and merely says
+  so by re-authorizing instead of refreshing; the stale claim that the stamp feeds an orphan sweep
+  is gone, the sweep being the TODO two lines below it. The hosted service's own layer, which item 1
+  put on this list, needed nothing either: its authorization server rotates against its own store
+  with no consent decision and no context scope in it, and a vault row the pod handed no refresh
+  token is never selected as due (`PodTokenProvider.isDue`), so it simply runs out and the person
+  reconnects — which is what withholding durability means. Left alone deliberately: an outstanding
+  code redeemed after a full grant revocation still mints a family, which that family's first
+  refresh then ends on `currentGrants.isEmpty()` — the proactive and the lazy answer differ in
+  timing, not in outcome.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
@@ -171,10 +198,12 @@ starting before it builds it.
 - Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
   means, and there is only one today: a family's TTL is rolling and every rotation renews it in
   full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from
-  the moment of consent is what most people read into such a list, and it is a second stored field,
-  a second check on the refresh path and a question for item 6. Until that is decided the classes
-  stay two, short-lived and durable — an offered choice that means something other than it says is
-  the failure this milestone exists to remove.
+  the moment of consent is what most people read into such a list, and it is a second stored field
+  and a second check on the refresh path. Item 6 was where that would have been decided and it was
+  not: retiring what a reconnect supersedes bounds how many credentials a person accumulates, not
+  how long one of them lives. Until it is decided the classes stay two, short-lived and durable —
+  an offered choice that means something other than it says is the failure this milestone exists to
+  remove.
 - Strictness at `/authorize` — the half no specification settles, the grammars themselves having
   stopped being the question. An unknown scope is dropped in silence today, so a typo
   (`offline-access`) is answered with a working token and no explanation. Answering `invalid_scope`
