@@ -61,8 +61,12 @@ case is gated again below.
   receive each other's codes. `DidWeb.Target.covers()` is the one place
   that answers this, for both the pod and the id-server.
 - No DCR; the app is its own identity.
-- Consent behaves per the `prompt` parameter (auto-grant when grants
-  exist and `prompt` isn't `consent`).
+- Consent behaves per the `prompt` parameter: auto-grant when grants
+  exist, `prompt` isn't `consent`, and the person has answered the
+  lifetime question for this app at least once. With no answer on record
+  the dialog is rendered instead — once, so an authorization older than
+  the control can acquire one; `prompt=none` has no dialog to render and
+  keeps its silent code.
 
 ### `dyn:*` — RFC 7591 dynamic clients (e.g., Claude Desktop, Copilot, ChatGPT)
 
