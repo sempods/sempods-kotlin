@@ -364,8 +364,9 @@ class RefreshTokenStoreTest {
 
   @Test
   fun `revokeWhere carries a filter the store itself could not express`() {
-    // The pod server's two: by person-and-client on consent withdrawal, and by context scope when a
-    // context is deleted. `Filters.in` against an array matches when ANY element is in the list.
+    // A filter over the owner's fields and over `scopes`, neither of which this class knows —
+    // the shape the pod server's revocations are built in. `Filters.in` against an array matches
+    // when ANY element is in the list.
     val readGrant = store.issueNewFamily(owner(), scopes = setOf("public-read", "$EVENTS_ROOT#read"))
     val manageGrant = store.issueNewFamily(owner(clientId = "other-app"), scopes = setOf("$EVENTS_ROOT#manage"))
     val featureOnly = store.issueNewFamily(owner(), scopes = setOf("public-read"))
@@ -398,6 +399,32 @@ class RefreshTokenStoreTest {
         ),
       ),
       "only the one row left unrevoked for this (pod, client, webId)",
+    )
+  }
+
+  @Test
+  fun `familiesWhere cannot name a family minted after it was asked`() {
+    // What a caller who revokes what it supersedes needs, and the reason the read comes before the
+    // insert rather than after it. Two exchanges can run under one standing consent, and a sweep
+    // phrased as "everything but my own family" has each of them revoke the other's — both clients
+    // then walk away with a refresh token that is already dead. A set measured beforehand cannot
+    // reach what appears afterwards.
+    val superseded = store.issueNewFamily(owner(), scopes = emptySet())
+    val measured = store.familiesWhere(
+      Filters.and(Filters.eq("podId", PROBE_POD), Filters.eq("clientId", "notes-app"), Filters.eq("webId", WEB_ID)),
+    )
+    val concurrent = store.issueNewFamily(owner(), scopes = emptySet())
+
+    assertEquals(setOf(superseded.token.familyId), measured, "only what existed when it was asked")
+
+    clock = REVOKED_AT
+    assertEquals(1L, store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, measured)))
+    assertEquals(REVOKED_AT, store.lookup(superseded.plaintext).token?.revokedAt)
+    assertNull(store.lookup(concurrent.plaintext).token?.revokedAt, "the racing exchange's family survives")
+
+    assertTrue(
+      store.familiesWhere(Filters.eq("podId", PROBE_POD)).none { it == superseded.token.familyId },
+      "and a revoked family is no longer something to supersede",
     )
   }
 

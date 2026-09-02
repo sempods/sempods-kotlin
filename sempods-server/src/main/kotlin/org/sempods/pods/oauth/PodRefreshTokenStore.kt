@@ -105,27 +105,27 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
 
   /**
-   * The same, minus [keepFamilyId] — what a fresh consent supersedes.
+   * The live families this app holds for this person — what a consent about to mint one supersedes.
    *
    * A reconnect answers the lifetime question again, and the answer governs what stands afterwards:
-   * withholding ends the families through [revokeForUser], granting replaces them. Without this the
-   * two answers disagree, and every reconnect leaves another ninety-day family behind that nobody
-   * counted and that renews its own TTL on each rotation.
+   * withholding ends the families through [revokeForUser], granting replaces them through this pair.
+   * Without it every reconnect leaves another ninety-day family behind that nobody counted and that
+   * renews its own TTL on each rotation.
    *
-   * Called once the successor exists, so a person who answered "yes" is never left holding nothing.
-   * The price is the mirror of the one [org.sempods.api.pod.system.auth.PodAuthEndpoint] pays on
-   * the refusal path: a rotation whose insert lands after this sweep survives it. There the
-   * survivor is a credential nobody granted, so the insert is re-checked; here it is a duplicate of
-   * one the person just granted, which the next full revocation reaches like any other.
+   * **Measured before the successor is minted, and that ordering is the correctness argument.** Two
+   * exchanges can run under one standing consent — auto-grant issues a code without recording a new
+   * decision — and a sweep phrased as "everything but my own family" would have each of them revoke
+   * the other's, handing both clients a refresh token that is already dead. A set read beforehand
+   * cannot name a family minted after it, and each caller reads before it inserts, so at most one of
+   * the two can have observed the other: either one retires the other, or neither does.
    */
-  internal fun revokeOtherFamilies(
-    podId: ObjectId,
-    clientId: String,
-    webIds: Collection<String>,
-    keepFamilyId: String,
-  ): Long = ownerFilter(podId, clientId, webIds)?.let { owner ->
-    store.revokeWhere(Filters.and(owner, Filters.ne(RefreshTokenStore.Field.FAMILY_ID, keepFamilyId)))
-  } ?: 0
+  internal fun liveFamilies(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(podId, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
+
+  /** Revokes each of [familyIds] — the sweep [liveFamilies] measured. */
+  internal fun revokeFamilies(familyIds: Collection<String>): Long =
+    if (familyIds.isEmpty()) 0
+    else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, familyIds))
 
   /** What one app holds for one person, or null where no URI names them. */
   private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {

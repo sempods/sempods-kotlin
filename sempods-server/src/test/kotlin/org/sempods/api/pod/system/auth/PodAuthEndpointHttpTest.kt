@@ -889,6 +889,43 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `two silent codes under one standing consent leave one live family`() {
+    // Auto-grant issues a code without recording a new decision, so a client can hold two codes
+    // under one generation and redeem both — the path where "retire what I supersede" has to be
+    // measured before the successor is minted rather than phrased as "everything but my own".
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "standing", durable = true).statusCode)
+
+    fun silentCode(state: String): String = codeFrom(
+      http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", state)
+        .addQueryParam("prompt", "none")
+        .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+        .setFollowRedirect(false).execute(),
+    )
+
+    val first = silentCode("one")
+    val second = silentCode("two")
+
+    val earlier = checkNotNull(exchangeCode(pod, first)["refresh_token"] as? String)
+    val later = checkNotNull(exchangeCode(pod, second)["refresh_token"] as? String)
+
+    fun refresh(token: String) = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refresh(earlier).statusCode, "the earlier family is superseded")
+    assertEquals(200, refresh(later).statusCode, "and exactly one is left alive")
+  }
+
+  @Test
   fun `a reconnect retires a family the pod recorded under an alias`() {
     // I8 on the retirement path. The pod stores whichever URI authenticated, so the connection a
     // reconnect replaces may sit under the twin of the one the code carries — and a survivor there

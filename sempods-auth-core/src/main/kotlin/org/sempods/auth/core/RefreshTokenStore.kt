@@ -237,6 +237,22 @@ class RefreshTokenStore<OWNER>(
     tokens.updateMany(filter, Updates.set(Field.REVOKED_AT, clock())).modifiedCount
 
   /**
+   * The families of the still-live rows matching [filter] — the ids, not the rows.
+   *
+   * For a caller that has to decide *what to revoke before it inserts*: a filter evaluated after
+   * the insert would also select what a concurrent caller inserted in the meantime, and two such
+   * callers would then revoke each other. Naming the families first makes the sweep unable to
+   * reach anything minted after it was measured. `revokedAt` is compared to `null` for the reason
+   * [markRotated] states — a live row does not carry the field at all.
+   */
+  fun familiesWhere(filter: Bson): Set<String> =
+    tokens.distinct(
+      Field.FAMILY_ID,
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      String::class.java,
+    ).toSet()
+
+  /**
    * Hard-deletes every row matching [filter].
    *
    * For the cascade where revocation is moot because the thing the tokens name is gone. Deleting

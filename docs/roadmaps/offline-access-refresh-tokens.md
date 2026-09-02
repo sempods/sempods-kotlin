@@ -158,10 +158,18 @@ starting before it builds it.
   answer to the lifetime question governs what stands after it. Withholding retires outright at
   consent; granting retires at the code exchange, once the successor exists, so answering "yes"
   never leaves the person holding nothing. Across their derivable URIs, because the superseded
-  family may sit under the twin of the URI the code carries. One race is left open on purpose and
-  is the mirror of the one item 5 closed: a rotation whose insert lands after the sweep survives
-  it. There the survivor was a credential nobody granted, which is why that insert is re-checked;
-  here it is a duplicate of one the person just granted.
+  family may sit under the twin of the URI the code carries. What the sweep revokes is **measured
+  before the successor is minted**, and that ordering is the whole of its concurrency argument: two
+  exchanges can run under one standing consent — auto-grant issues a code without recording a new
+  decision — and a sweep phrased as "everything but my own family" would have each of them revoke
+  the other's, handing both clients a refresh token that is already dead. A set read beforehand
+  cannot name a family minted after it, and each caller reads before it inserts, so at most one of
+  the two can have observed the other. `RefreshTokenStoreTest` pins the property the ordering rests
+  on; `two silent codes under one standing consent leave one live family` pins the path.
+
+  One race is still open on purpose and is the mirror of the one item 5 closed: a rotation whose
+  insert lands after the sweep survives it. There the survivor was a credential nobody granted,
+  which is why that insert is re-checked; here it is a duplicate of one the person just granted.
 
   The audit found one more disagreement of the same shape and fixed it: the MCP surface's explicit
   re-authorize revoked for a single `webId`, so a family recorded under an alias kept rotating

@@ -1403,6 +1403,21 @@ class PodAuthEndpoint @Inject constructor(
     // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
     // which the refresh grant still honours, and mints no new one here.
     val durable = decision?.durable == true
+
+    // What this exchange supersedes, named *before* the successor exists — see
+    // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
+    // person's derivable URIs, because the superseded family may have been minted under the twin
+    // of the URI this code carries.
+    val superseded = if (durable) {
+      refreshTokenStore.liveFamilies(
+        podId = checkNotNull(podDbo.id),
+        clientId = entry.clientId,
+        webIds = webIdUriDeriver.derivableAliases(entry.subject),
+      )
+    } else {
+      emptySet()
+    }
+
     val issuedRefresh = if (durable) {
       refreshTokenStore.issueNewFamily(
         podId = checkNotNull(podDbo.id),
@@ -1429,21 +1444,15 @@ class PodAuthEndpoint @Inject constructor(
 
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
     // the withholding path gives from the other end, so that reconnecting twice does not leave two
-    // ninety-day families behind, each renewing its own TTL on every rotation. Retired only once
-    // the successor exists, so answering "yes" never leaves the person holding nothing, and across
-    // their derivable URIs, because the superseded family may have been minted under the twin of
-    // the URI this code carries.
-    if (issuedRefresh != null) {
-      val retired = refreshTokenStore.revokeOtherFamilies(
-        podId = checkNotNull(podDbo.id),
-        clientId = entry.clientId,
-        webIds = webIdUriDeriver.derivableAliases(entry.subject),
-        keepFamilyId = issuedRefresh.token.familyId,
-      )
+    // ninety-day families behind, each renewing its own TTL on every rotation. Swept only once the
+    // successor exists, so answering "yes" never leaves the person holding nothing.
+    if (superseded.isNotEmpty()) {
+      val retired = refreshTokenStore.revokeFamilies(superseded)
       if (retired > 0) {
         logger.info {
           "[oauth/token] reconnect retired what it supersedes: pod='${podDbo.name}', " +
-              "clientId='${entry.clientId}', webId='${entry.subject}', retiredRows=$retired"
+              "clientId='${entry.clientId}', webId='${entry.subject}', " +
+              "retiredFamilies=${superseded.size}, retiredRows=$retired"
         }
       }
     }
