@@ -194,6 +194,15 @@ starting before it builds it.
   the two can have observed the other. `RefreshTokenStoreTest` pins the property the ordering rests
   on; `two silent codes under one standing consent leave one live family` pins the path.
 
+  The generation is asked twice for the same reason the refusal is. It was compared before the
+  family existed, and the sweep that follows is destructive: an answer landing in between is a
+  *later* one than this code's, so retiring what its exchange produced would let the older code win
+  — I9 running backwards, through the sweep instead of through the mint. The second ask ends this
+  exchange's own family and sends the client back through consent, which is what a superseded code
+  is owed. Only its sequential counterpart has a test (`a code cannot pick up a consent granted
+  after it`); the interleaving itself sits between two statements and is not reachable from an HTTP
+  test.
+
   What that ordering buys is a bound, not serialisation: two codes redeemed at the same instant can
   each observe only the families predating both, so two coexist until the next answer. Electing a
   single winner was considered and refused. There is no way for the loser of such an election to end

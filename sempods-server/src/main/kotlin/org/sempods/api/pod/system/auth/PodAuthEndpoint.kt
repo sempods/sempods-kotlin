@@ -1442,6 +1442,25 @@ class PodAuthEndpoint @Inject constructor(
       return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
     }
 
+    // I9 again, and this time about the sweep rather than the mint. The generation was compared
+    // before any of this existed, and what follows it is destructive: an answer landing in between
+    // is a *later* one than this code's, so retiring what its exchange produced would let the older
+    // code win — the supersession running backwards. Asked once more for the same reason the
+    // refusal above is, and answered the same way: this exchange's own family goes and the client
+    // is told to come back through consent.
+    if (issuedRefresh != null &&
+      consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+        ?.generation != issuedUnder
+    ) {
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      logger.info {
+        "[oauth/token] consent moved mid-exchange — family revoked before the sweep: " +
+            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "codeGeneration=$issuedUnder, revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
+    }
+
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
     // the withholding path gives from the other end, so that reconnecting twice does not leave two
     // ninety-day families behind, each renewing its own TTL on every rotation. Swept only once the
