@@ -534,7 +534,7 @@ class PodAuthEndpoint @Inject constructor(
     val decisionRecorded =
       consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
-    if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty() && mayAutoGrant) {
+    if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
       // stay in the durable store and are resolved server-side per request; public-read is an
       // additive persisted grant, still valid as long as the pod has public contexts.
@@ -568,10 +568,12 @@ class PodAuthEndpoint @Inject constructor(
               "webId='${identity.webId}', before=${existingGrants.size}, after=${persisted.size}"
         }
       }
-      // Auto-grant if anything is still granted; the slim token carries only feature scopes.
-      // Falls through to the consent UI when nothing survived, rather than handing out a token
-      // that authorizes nothing.
-      if (persisted.isNotEmpty()) {
+      // Auto-grant if anything is still granted and the person has answered once; the slim token
+      // carries only feature scopes. Falls through to the consent UI when nothing survived, rather
+      // than handing out a token that authorizes nothing — and when nothing has been answered,
+      // which is the dialog this authorization needs. The repair above happens either way: it is
+      // what a failed cascade is owed, and it has nothing to do with which of the two follows.
+      if (persisted.isNotEmpty() && mayAutoGrant) {
         return issueAuthCodeAndRedirect(
           podDbo = podDbo,
           clientId = normalizedClientId,

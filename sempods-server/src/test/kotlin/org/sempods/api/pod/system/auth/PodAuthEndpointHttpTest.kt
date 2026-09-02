@@ -1188,6 +1188,41 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue("code=" in checkNotNull(silent.getHeader("Location")))
   }
 
+  @Test
+  fun `a stale grant is narrowed even when the visit ends in the dialog`() {
+    // The repair is what a failed owner-level cascade is owed — there are no transactions here, so
+    // this visit is its second chance — and it has nothing to do with whether the visit ends in a
+    // code or in a dialog. Gating it on a recorded decision would have withheld it from exactly the
+    // authorizations that predate the control, while `resolveFromGrants` reads the app rows alone
+    // and an existing token would go on carrying access that was revoked.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val backed = "${contextUri(pod.name, "public/tasks")}#read"
+    val unbacked = "${contextUri(pod.name, "public/gone")}#read"
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf(backed, unbacked), grantedBy = ownerWebId,
+    )
+
+    // No decision on record, so this visit renders the dialog rather than a code.
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "repair")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    assertEquals(
+      setOf(backed),
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)),
+      "the grant nothing backs is gone, dialog or no dialog",
+    )
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,
