@@ -61,12 +61,8 @@ case is gated again below.
   receive each other's codes. `DidWeb.Target.covers()` is the one place
   that answers this, for both the pod and the id-server.
 - No DCR; the app is its own identity.
-- Consent behaves per the `prompt` parameter: auto-grant when grants
-  exist, `prompt` isn't `consent`, and the person has answered the
-  lifetime question for this app at least once. With no answer on record
-  the dialog is rendered instead — once, so an authorization older than
-  the control can acquire one; `prompt=none` has no dialog to render and
-  keeps its silent code.
+- Consent behaves per the `prompt` parameter — see the table under
+  §"The `prompt` parameter", which is where that rule lives.
 
 ### `dyn:*` — RFC 7591 dynamic clients (e.g., Claude Desktop, Copilot, ChatGPT)
 
@@ -267,10 +263,15 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 
 | Value | Behavior |
 |---|---|
-| (not set) | Auto-grant if grants exist; otherwise consent UI |
+| (not set) | Auto-grant if grants exist **and** the lifetime question has been answered once for this app; otherwise consent UI |
 | `none` | No UI. Auto-granted only when all of the prerequisites below hold; `login_required` or `consent_required` otherwise |
 | `consent` | Always show consent UI |
 | `login` / `select_account` | Force fresh authentication; the value is forwarded to the id-server, which passes it to the upstream provider where supported (Google honours both; Apple does not document `prompt`) |
+
+An unanswered lifetime question is what sends an authorization older than the
+control to the dialog, once, so it can acquire an answer at all; afterwards the
+auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
+code and receives what an absent answer means — an access token and nothing more.
 
 `prompt=none` succeeds only when **three** things hold together, and it
 is worth being exact because the common case does not qualify:
