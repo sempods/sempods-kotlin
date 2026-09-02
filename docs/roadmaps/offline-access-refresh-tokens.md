@@ -94,24 +94,28 @@ starting before it builds it.
   while a ninety-day rolling credential is minted for them, which is the failure this milestone
   exists to remove, dressed as a fix for it. The group's assertion is therefore end-to-end and not
   cosmetic — leave the control unticked and the token response carries no `refresh_token`.
-- [ ] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
+- [x] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
   from what the person granted. The chain it builds — request parameter through consent to the
-  code — is also what a later OIDC route needs for `nonce`, so it is worth building once. It touches
-  every station, so it is also where the hand-written message layer can move onto
-  `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side and held inside
-  `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
-  are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
-  **inverted** — it answers true for a legal set — so a substitution has to negate it. `Prompt.parse`
-  is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
-  does not carry the SDK yet.
+  code — is also what a later OIDC route needs for `nonce`, so it is worth building once.
 
-  Holds I4, I14, I15. Item 3 brought I4 (the three states) and I14 (`prompt=none` keeps its silent
-  code, and with nothing recorded receives no refresh token). **I15 is open and is the gap to close
-  first**: auto-grant still renders nothing for a static client, so an authorization whose grants
-  predate the control has no way to acquire a decision — it keeps working, short-lived, for ever.
+  **The message layer stays hand-written, and this item is where that was settled.** Moving it onto
+  `com.nimbusds:oauth2-oidc-sdk` was planned here and does not survive being tried against the jar:
+  `Scope.parse("a\tb")` answers one scope containing a tab where `OAuthSyntax` answers two, so a
+  swap changes behaviour in all three services; `Prompt.parse` throws on `none consent` *and* on any
+  unknown value, so `isValid` is unreachable without losing the values a public endpoint must keep
+  and the ability to tell a contradiction from a typo; and `OAuth2Error` would be a second
+  vocabulary beside `OAuthErrorCode`, which exists for the reason nimbus would give. It also runs
+  against a decision this repository already states in `../mcp/endpoint.md`: the parsing side uses
+  the library, the producing side does not. The pod's OAuth surface is a producing side.
+
+  Holds I4, I14, I15, all of them now. Item 3 brought I4 and I14; I15 is what this item added —
+  auto-grant renders nothing, so an authorization whose grants predate the control could never
+  acquire a decision and would work short-lived for ever. It falls through to the dialog once, and
+  only where there is one: `prompt=none` keeps its silent code, which `PodAuthEndpointHttpTest`
+  pins.
 - [x] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   where consent granted a durable connection, and no client is broken by that — one that cannot ask
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse

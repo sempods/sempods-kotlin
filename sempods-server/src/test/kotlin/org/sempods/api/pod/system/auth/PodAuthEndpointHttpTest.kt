@@ -159,6 +159,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -276,6 +279,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -304,6 +310,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf("public-read"),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -338,6 +347,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf("public-read", readScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -1141,6 +1153,39 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "and the bearer carries the feature scope alone",
     )
     assertNotNull(body["refresh_token"])
+  }
+
+  @Test
+  fun `an authorization older than the control is asked once, then auto-grants again`() {
+    // I15. Auto-grant renders nothing, so an authorization whose grants predate the lifetime
+    // control could never acquire a decision — it would work for ever, short-lived, without anybody
+    // being asked. It falls through to the dialog once; after that the silent path is back.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    fun authorize() = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "legacy")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+
+    val asked = authorize()
+    assertEquals(200, asked.statusCode, "with nothing recorded the person is asked once")
+    assertTrue("durableToggle" in asked.responseBody, "and asked about the lifetime")
+
+    submitConsent(pod, ownerWebId, state = "answered", durable = true)
+
+    val silent = authorize()
+    assertEquals(303, silent.statusCode, "with an answer on record the silent path is back")
+    assertTrue("code=" in checkNotNull(silent.getHeader("Location")))
   }
 
   /** Submits the consent form the way the rendered page does. */
@@ -2591,6 +2636,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = listOf(grantedScope),
       grantedBy = ownerWebId,
     )
+    // An answer on record, because auto-grant only runs where there is one: an authorization
+    // that predates the lifetime control is asked once. What was answered does not matter here.
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
