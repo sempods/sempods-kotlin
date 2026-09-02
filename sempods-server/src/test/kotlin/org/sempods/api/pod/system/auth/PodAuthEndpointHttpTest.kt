@@ -894,6 +894,38 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
   }
 
+  @Test
+  fun `an empty submission does not build the context it was carrying either`() {
+    // The other route to the way out, and it must not have side effects the named one avoids: with
+    // nothing ticked anywhere, no selection can survive the creation, so creating one would build a
+    // context for an authorization that is not happening.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    seedRefreshToken(pod, webId = ownerWebId)
+
+    val browser = signIn(pod.name, ownerWebId)
+    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=empty&csrf=${enc(browser.csrf)}&new_context=notes",
+      )
+      .setFollowRedirect(false).execute()
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertNull(
+      podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
+      "an empty submission must not build a context on its way out",
+    )
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "and it still ends the authorization",
+    )
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,

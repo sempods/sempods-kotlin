@@ -841,6 +841,18 @@ class PodAuthEndpoint @Inject constructor(
       ?.filter { it.isNotBlank() }
       ?: emptyList()
 
+    // Nothing ticked anywhere is the other way to ask for the way out, and it is answerable here:
+    // with no scope submitted and no permission on a pending context, no selection can survive the
+    // creation below, so creating one would build a context for an authorization that is not
+    // happening. The backstop after the resolution stays, for a selection that empties there.
+    if (rawSubmitted.isEmpty() && newContextScopesRequested.isEmpty()) {
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, "access_denied", "no scopes selected", state)
+      }
+    }
+
     if (publicReadRequested) {
       // public-read needs at least one public context to be meaningful — drop
       // it from the grant set if the pod has no public contexts (rather than
@@ -977,12 +989,7 @@ class PodAuthEndpoint @Inject constructor(
     // Recorded whichever way it was answered, because a refusal has to be tellable from a silence:
     // an authorization that predates the control has nothing written and keeps what it holds.
     val durableGranted = durable != null
-    val decision = consentDecisionStore.record(
-      podId = checkNotNull(podDbo.id),
-      appId = normalizedClientId,
-      webId = identity.webId,
-      durable = durableGranted,
-    )
+    val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
     if (!durableGranted) {
       // Withholding is not merely declining to extend: the families this authorization already has
       // would otherwise keep rotating, and the person would have changed nothing they can observe.
@@ -1034,6 +1041,30 @@ class PodAuthEndpoint @Inject constructor(
    * denied, and what changed is that the denial now has an effect.
    */
   /**
+   * Write the answer under every URI that names this person, and hand back the one for the URI they
+   * are signed in as.
+   *
+   * One document per URI rather than one per person, because that is how the rows this sits beside
+   * are keyed — and because the alternative is worse than the duplication: a code issued while an
+   * alias was the session identity carries that alias's generation, and only a document of its own
+   * can move when the person answers again under their canonical WebID. Without that, the older
+   * code would still compare equal and redeem against a consent that has been replaced.
+   */
+  private fun recordDecision(
+    podDbo: PodDbo,
+    clientId: String,
+    identity: PersonIdentity,
+    durable: Boolean,
+  ): PodConsentDecisionStore.Decision {
+    val podId = checkNotNull(podDbo.id)
+    val forSubject = consentDecisionStore.record(podId, clientId, identity.webId, durable)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.record(podId, clientId, alias, durable)
+    }
+    return forSubject
+  }
+
+  /**
    * Whether this app holds anything for this person — the question that decides both whether the
    * way out is offered and whether taking it means anything. Asked over every URI that names the
    * person: an authorization stored under an alias is one they can still end.
@@ -1063,7 +1094,7 @@ class PodAuthEndpoint @Inject constructor(
         grantedBy = identity.webId,
       )
     }
-    val decision = consentDecisionStore.record(podId, clientId, identity.webId, durable = false)
+    val decision = recordDecision(podDbo, clientId, identity, durable = false)
     val revoked = refreshTokenStore.revokeForUser(podId, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
