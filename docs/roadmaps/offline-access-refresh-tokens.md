@@ -112,17 +112,29 @@ starting before it builds it.
   code, and with nothing recorded receives no refresh token). **I15 is open and is the gap to close
   first**: auto-grant still renders nothing for a static client, so an authorization whose grants
   predate the control has no way to acquire a decision — it keeps working, short-lived, for ever.
-- [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
+- [x] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   where consent granted a durable connection, and no client is broken by that — one that cannot ask
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I13 and I17. Item 3 brought I3, I7, I9, I11, the revocation half of I8 and the half of
-  I13 that needs no race — a page rendered before a disconnect cannot write its grants back. Open
-  are I8's lookup half (`fetchGrantStrings` at authorize still takes one WebID), I10 (both issuance
-  races), I13's remainder (a page that merely predates a *narrowing*, which cannot be refused
-  without retiring the coexisting screens `ConsentTransactionStore` allows on purpose — decide which
-  wins), and I17 (the response naming a granted scope that differs).
+  Holds I3 to I13 and I17, all of them now except two. I10 is closed by asking the recorded refusal
+  again after each insert — the check and the insert are two moments, so whoever arrives second
+  undoes the other's work — and I17 names the durable connection in the response while the bearer's
+  claim stays slim, except where a client narrowed the request and gets exactly what it asked for.
+  I8 holds where access *ends*: withdrawal, disconnect and the offer of the way out all ask about
+  the person.
+
+  **Two remainders, and neither is a line to slip in.** A consent page that predates a mere
+  *narrowing* still submits: refusing it means retiring the coexisting screens
+  `ConsentTransactionStore` allows on purpose, which `two sign-ins running at once in one browser
+  both complete` pins — staleness against coexistence, and only one can win.
+
+  And I8 stops at the paths that end access. Where access is *granted*, the subject's own rows are
+  what count: `resolveFromGrants` and the refresh path both key on the token's subject, so counting
+  an alias's rows at authorize would auto-grant a token carrying no context permissions whose first
+  refresh fails. Making that work means re-keying the rows to the issued subject, or teaching
+  request-time resolution the alias set — a change to how a grant is addressed, which belongs with
+  the resolver rather than with a lifetime control.
   Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant

@@ -1013,6 +1013,136 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
   }
 
+  @Test
+  fun `a refusal on record ends the family even where the withdrawal missed it`() {
+    // I10, rotation half, at the point the race would leave behind: a family that exists while the
+    // decision says the person refused. The sweep sees the rows of its own moment; rotation inserts
+    // one after it, so the refusal has to be asked again rather than assumed to have been applied.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    assertTrue(
+      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
+      "the family goes with the refusal, not just this rotation",
+    )
+  }
+
+  @Test
+  fun `the response names the durable connection where the client never asked for it`() {
+    // I17. The person can grant what the client did not request, so RFC 6749 §3.3's "say what was
+    // granted where it differs" is the client's only way to learn it did get one.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val body = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "granted", durable = true)))
+
+    assertNotNull(body["refresh_token"])
+    assertTrue(
+      (body["scope"] as String).split(" ").contains("offline_access"),
+      "the granted scope has to name it: ${body["scope"]}",
+    )
+    val claim = com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet
+    assertFalse(
+      (claim.getStringClaim("scope") ?: "").contains("offline_access"),
+      "and the bearer's own claim stays slim: ${claim.getStringClaim("scope")}",
+    )
+  }
+
+  @Test
+  fun `an app whose grants sit under an alias can still be disconnected`() {
+    // I8, lookup half. The pod stores whichever WebID authenticated; asking about one leaves an
+    // alias-held authorization reading as a first authorization, which hides the way out exactly
+    // where somebody needs it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val canonical = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val alias = "https://id.test/oidc/alias-of-owner"
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = alias,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = alias,
+    )
+
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "alias")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, canonical, alsoKnownAs = listOf(alias)).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    assertTrue("disconnectBtn" in page, "an alias-held authorization is one this person can end")
+  }
+
+  @Test
+  fun `a rotation keeps naming the durable connection it hands back`() {
+    // The response is where a client reads what it was granted, so a view refreshed from the newest
+    // one must not watch the durable connection vanish at the first rotation — it is still holding
+    // a successor.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertNotNull(body["refresh_token"])
+    assertTrue(
+      (body["scope"] as String).split(" ").contains("offline_access"),
+      "a rotation still hands back a durable connection: ${body["scope"]}",
+    )
+  }
+
+  @Test
+  fun `a client may echo the granted scope back on the next refresh`() {
+    // The standard thing to do with a `scope` in a token response is to send it again, and the
+    // response now names the durable connection — so refusing that echo would tell a client its own
+    // granted scope is not covered. `offline_access` is not a feature scope and cannot be
+    // down-scoped to; it names the connection this request is already proving it holds.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId, scopes = setOf("public-read"))
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}" +
+        "&scope=${enc("public-read offline_access")}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals("public-read offline_access", body["scope"], "what it echoed is what it gets back")
+    assertEquals(
+      "public-read",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+      "and the bearer carries the feature scope alone",
+    )
+    assertNotNull(body["refresh_token"])
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,
@@ -3300,7 +3430,13 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertNotNull(body["access_token"])
     assertEquals("Bearer", body["token_type"])
     assertEquals(3600, body["expires_in"])
-    assertEquals("public-read", body["scope"])
+    // The response says what was granted, the durable connection included (RFC 6749 §3.3); the
+    // bearer's own claim carries the feature scopes and nothing else.
+    assertEquals("public-read offline_access", body["scope"])
+    assertEquals(
+      "public-read",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+    )
     assertNotNull(body["refresh_token"], "authenticated public-read tokens must carry a refresh_token")
   }
 
@@ -3338,9 +3474,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val refreshToken = body["refresh_token"] as? String
     assertNotNull(refreshToken, "authorization_code exchange must return a refresh_token")
     assertTrue(refreshToken.startsWith("rt_"), "refresh token plaintext should carry the rt_ prefix")
-    // Slim token (token-slimming): even though the auth-code carried a context scope, the
-    // exchange filters it out — the access token's `scope` is feature-only (empty here).
-    assertEquals("", body["scope"])
+    // The response names the granted durable connection and nothing else — the auth code carried a
+    // context scope and no feature scope survived it. Slimming is a property of the token, so it is
+    // asserted where it lives: the bearer's own claim.
+    assertEquals("offline_access", body["scope"])
+    assertEquals(
+      "",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+    )
   }
 
   @Test

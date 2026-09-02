@@ -501,6 +501,11 @@ class PodAuthEndpoint @Inject constructor(
     val userGrants = podGrantsFacade.resolveUserGrants(podDbo, identity.allUris, podBaseUrl)
 
     val podId = checkNotNull(podDbo.id)
+    // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
+    // WebID and does not re-key what it finds, while `resolveFromGrants` and the refresh path both
+    // query the token's subject — so counting an alias's rows here would auto-grant a token with no
+    // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
+    // different question, and `holdsAnything` is where it is asked.
     val existingGrants = podGrantsDao.fetchGrantStrings(podId, normalizedClientId, listOf(identity.webId))
 
     logger.info {
@@ -704,8 +709,9 @@ class PodAuthEndpoint @Inject constructor(
       ?.durable
     // Removing an app's access is only on offer where there is something to remove. Saying it
     // happened on a first authorization would be the same lie as saying nothing happened on a
-    // later one.
-    val disconnectAvailable = existingGrants.isNotEmpty()
+    // later one. Asked over the person rather than over this URI, because that is what the action
+    // itself clears.
+    val disconnectAvailable = holdsAnything(podDbo, normalizedClientId, identity)
 
     val consentAction = "${config.apiBaseUrl}${podDbo.name}/_system/auth/authorize/consent"
     val html = templateRenderer.render(
@@ -1100,6 +1106,16 @@ class PodAuthEndpoint @Inject constructor(
   }
 
   /**
+   * Whether the person has refused this app a durable connection.
+   *
+   * Not the negation of granted: an authorization with nothing recorded predates the control and is
+   * left alone, which is why this asks for a recorded refusal rather than for the absence of a
+   * grant.
+   */
+  private fun refusedDurability(podDbo: PodDbo, clientId: String, webId: String): Boolean =
+    consentDecisionStore.find(checkNotNull(podDbo.id), clientId, listOf(webId))?.durable == false
+
+  /**
    * Whether this app holds anything for this person — the question that decides both whether the
    * way out is offered and whether taking it means anything. Asked over every URI that names the
    * person: an authorization stored under an alias is one they can still end.
@@ -1384,6 +1400,18 @@ class PodAuthEndpoint @Inject constructor(
       null
     }
 
+    // The same two moments on this path: the decision was read above and the family is inserted
+    // here, so a withdrawal in between would revoke what it saw and leave this one standing.
+    if (issuedRefresh != null && refusedDurability(podDbo, entry.clientId, entry.subject)) {
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      logger.info {
+        "[oauth/token] durable connection withdrawn mid-exchange — family revoked: " +
+            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "revokedRows=$revoked"
+      }
+      return tokenError("invalid_grant", "the durable connection was withdrawn")
+    }
+
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podDbo.name}', clientId='${entry.clientId}', " +
           "webId='${entry.subject}', scopes=${featureScopes.size}, durable=$durable, " +
@@ -1400,6 +1428,7 @@ class PodAuthEndpoint @Inject constructor(
       webId = entry.subject,
       scopes = featureScopes,
       refreshToken = issuedRefresh?.plaintext,
+      grantedDurable = durable,
     )
   }
 
@@ -1514,15 +1543,34 @@ class PodAuthEndpoint @Inject constructor(
 
     // Optional down-scoping of the feature scopes. Unknown scopes are rejected per RFC 6749
     // §6 ("The requested scope […] MUST NOT include any scope not originally granted").
+    //
+    // `offline_access` is taken out of that comparison first, because the response says it was
+    // granted and a client that does the standard thing — echo the granted scope back on the next
+    // refresh — would otherwise be told the scope it was just handed is not covered. It is never a
+    // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
+    // is already proving it holds, and a refusal on record has ended the family further up.
+    val requested = OAuthSyntax.parseScope(requestedScope)
+    val durableEchoed = OFFLINE_ACCESS_SCOPE in requested
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
     } else {
-      val requested = OAuthSyntax.parseScope(requestedScope)
-      val unknown = requested - effectiveFeatureScopes
+      val requestedFeatures = requested - OFFLINE_ACCESS_SCOPE
+      val unknown = requestedFeatures - effectiveFeatureScopes
       if (unknown.isNotEmpty()) {
         return tokenError("invalid_scope", "requested scopes not covered by this refresh token")
       }
-      requested
+      requestedFeatures
+    }
+
+    // A refusal ends the family, whether or not the withdrawal's own revocation reached it: that
+    // sweep sees the rows that exist at the moment it runs, and rotation inserts one after it.
+    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] refresh refused — the durable connection was withdrawn: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError("invalid_grant", "the durable connection was withdrawn")
     }
 
     // Rotate atomically. If another caller slipped in between our lookup and rotation,
@@ -1539,6 +1587,19 @@ class PodAuthEndpoint @Inject constructor(
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
 
+    // Asked again, because the check above and this insert are two moments: a withdrawal landing
+    // between them revokes what it can see and misses the row about to appear. Whoever arrives
+    // second undoes the other's work rather than leaving a live successor behind.
+    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] durable connection withdrawn mid-rotation — successor revoked: " +
+            "pod='${podDbo.name}', clientId='$normalizedClientId', familyId='${token.familyId}', " +
+            "revokedRows=$revoked"
+      }
+      return tokenError("invalid_grant", "the durable connection was withdrawn")
+    }
+
     logger.info {
       "[oauth/token] Tokens issued (refresh_token): pod='${podDbo.name}', clientId='${token.owner.clientId}', " +
           "webId='${token.owner.webId}', scopes=${finalScopes.size}, familyId='${token.familyId}'"
@@ -1552,6 +1613,13 @@ class PodAuthEndpoint @Inject constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
+      // A rotation hands back a successor, so the durable connection is what this client holds, and
+      // a client refreshing its view of the granted scope from the newest response must not watch
+      // it disappear at the first rotation. Except where the client narrowed the request itself and
+      // left it out: RFC 6749 §6 down-scoping asks for a particular set, and answering with more
+      // than was asked for reads as ignoring the narrowing — `refresh_token down-scope to a granted
+      // feature subset succeeds` pins that. A client that echoed it back is asking, and is told.
+      grantedDurable = requestedScope.isNullOrBlank() || durableEchoed,
     )
   }
 
@@ -1591,6 +1659,7 @@ class PodAuthEndpoint @Inject constructor(
     webId: String,
     scopes: Set<String>,
     refreshToken: String?,
+    grantedDurable: Boolean = false,
   ): Response {
     val accessToken = podTokenIssuer.issue(
       pod = podName,
@@ -1602,7 +1671,12 @@ class PodAuthEndpoint @Inject constructor(
       "access_token" to accessToken,
       "token_type" to "Bearer",
       "expires_in" to 3600,
-      "scope" to scopes.joinToString(" "),
+      // RFC 6749 §3.3: where what was granted differs from what was asked for, the response says
+      // so. A durable connection is granted by the person and not by the request, so it can differ
+      // in either direction — the client asked and was refused, or never asked and was granted —
+      // and either way the `scope` member is where a client finds out. The access token's own
+      // claim stays slim: this is what was granted, not what the bearer carries.
+      "scope" to (if (grantedDurable) scopes + OFFLINE_ACCESS_SCOPE else scopes).joinToString(" "),
     )
     // Absent rather than null when no durable connection was granted: RFC 6749 §5.1 makes the
     // member optional, and a client reading `"refresh_token": null` as a token is a bug this
