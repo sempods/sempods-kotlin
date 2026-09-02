@@ -31,11 +31,14 @@ step see `identity.md`.
 Two `client_id` shapes, with different rules:
 
 Both shapes ask `RedirectUri.isValid` first, before any
-client-specific rule: absolute, no fragment, `https` on any host,
-`http` only on loopback. `/register` applies it too, so an address a
-login could never honour is refused at registration. A code therefore
-reaches a cleartext address only on the user's own machine, and that
-case is gated again below.
+client-specific rule: absolute, no fragment, no `code`, `response` or
+`state` in the query, `https` on any host, `http` only on loopback.
+`/register` applies it too, so an address a login could never honour is
+refused at registration. A code therefore reaches a cleartext address
+only on the user's own machine, and that case is gated again below.
+The query rule has the same reason as the fragment one: those names
+belong to the response, and a registered copy is read as the value this
+server chose.
 
 ### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 

@@ -175,7 +175,8 @@ starting before it builds it.
   a second check on the refresh path and a question for item 6. Until that is decided the classes
   stay two, short-lived and durable — an offered choice that means something other than it says is
   the failure this milestone exists to remove.
-- Strictness at `/authorize` — an unknown scope is dropped in silence today, so a typo
+- Strictness at `/authorize` — the half no specification settles, the grammars themselves having
+  stopped being the question. An unknown scope is dropped in silence today, so a typo
   (`offline-access`) is answered with a working token and no explanation. Answering `invalid_scope`
   (RFC 6749 §4.1.2.1) is the standard behaviour and no longer costs anyone their durable
   connection, now that consent decides it; what it still costs is a refusal for clients that send

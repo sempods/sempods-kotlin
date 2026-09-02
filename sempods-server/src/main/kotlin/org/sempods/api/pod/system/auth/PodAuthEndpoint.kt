@@ -134,7 +134,8 @@ class PodAuthEndpoint @Inject constructor(
             mapOf(
               "error" to "invalid_redirect_uri",
               "error_description" to
-                  "redirect_uri must be https, or http on a loopback host, with no fragment: $uri",
+                  "redirect_uri must be https, or http on a loopback host, with no fragment " +
+                  "and no code/response/state in the query: $uri",
             )
           )
           .type(MediaType.APPLICATION_JSON)

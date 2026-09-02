@@ -1,6 +1,7 @@
 package org.sempods.auth.core
 
 import com.nimbusds.jwt.JWTClaimsSet
+import com.nimbusds.oauth2.sdk.Scope
 
 /**
  * The two space-delimited request parameters OAuth and OIDC define, parsed once.
@@ -10,12 +11,29 @@ import com.nimbusds.jwt.JWTClaimsSet
  * tab, whether they returned a `List` or a `Set`, and whether they read `scp` as well as `scope`.
  * None of the differences was intended. All of them are gone; a seventh belongs here rather than
  * at its call site.
+ *
+ * **Neither grammar is loosened, and the reason is not tidiness.** Accepting a separator the
+ * specification does not name guesses at what a malformed request meant, and a guess that happens
+ * to match a real scope grants on the strength of it.
+ *
+ * An unrecognised *value* is a different question and is deliberately left open: neither
+ * specification says to refuse one, so refusing would be this server's policy rather than
+ * conformance. Unknown values survive parsing and are judged by whoever reads them.
  */
 object OAuthSyntax {
 
-  /** `scope` per RFC 6749 §3.3. Tabs are accepted alongside spaces; empty entries drop out. */
+  /**
+   * `scope` per RFC 6749 §3.3, as the OAuth SDK reads it: values separated by spaces, repeated
+   * separators collapsing, and nothing else treated as one — so a tab travels inside the value it
+   * sits in and is refused there as the unknown scope it makes.
+   *
+   * The grammar is the SDK's rather than a second reading of the same section. What stays here is
+   * the shape the callers need — a `Set<String>`, absent input answering the empty set instead of
+   * null — and `OAuthSyntaxTest` states the answers, so an upgrade that changes one of them is a
+   * red test rather than three services quietly accepting something else.
+   */
   fun parseScope(raw: String?): Set<String> =
-    raw?.split(' ', '\t')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
+    raw?.let { Scope.parse(it)?.toStringList()?.toSet() } ?: emptySet()
 
   fun formatScope(scopes: Collection<String>): String = scopes.joinToString(" ")
 
@@ -42,14 +60,16 @@ object OAuthSyntax {
   }
 
   /**
-   * `prompt` per OIDC Core 1.0 §3.1.2.1 — multi-valued, space-delimited, lower-cased.
+   * `prompt` per OIDC Core 1.0 §3.1.2.1 — multi-valued, space-delimited, **case sensitive**, which
+   * is why nothing is folded here: `NONE` is not the `none` the specification defines, and treating
+   * it as one would apply the strictest rule in the parameter to a request that did not ask for it.
    *
    * Unknown values are **kept**, not dropped: `none` is only meaningful in combination with what
    * else was asked for, so a caller has to see the whole set to reject the illegal combinations.
    * Deciding which values may travel on to an upstream provider is [OidcPrompt]'s job.
    */
   fun parsePrompt(raw: String?): Set<String> =
-    raw?.lowercase()?.split(' ', '\t')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
+    raw?.split(' ')?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
 
   /** `prompt` values that demand a fresh authentication rather than accepting a live session. */
   val FORCE_REAUTH_PROMPTS: Set<String> = setOf("login", "select_account")
