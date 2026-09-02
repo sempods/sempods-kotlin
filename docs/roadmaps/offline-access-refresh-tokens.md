@@ -194,6 +194,15 @@ starting before it builds it.
   the two can have observed the other. `RefreshTokenStoreTest` pins the property the ordering rests
   on; `two silent codes under one standing consent leave one live family` pins the path.
 
+  What that ordering buys is a bound, not serialisation: two codes redeemed at the same instant can
+  each observe only the families predating both, so two coexist until the next answer. Electing a
+  single winner was considered and refused. There is no way for the loser of such an election to end
+  up holding the survivor — it never sees that plaintext — so it would have to be answered with an
+  error, or with a token revoked the moment it was returned, and both are the failure this milestone
+  opened by describing: a client told it has a durable connection that does not work. An extra
+  credential for a connection the person did just grant is the smaller one, and the next answer
+  collapses it.
+
   One race is still open on purpose and is the mirror of the one item 5 closed: a rotation whose
   insert lands after the sweep survives it. There the survivor was a credential nobody granted,
   which is why that insert is re-checked; here it is a duplicate of one the person just granted.

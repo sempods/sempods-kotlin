@@ -239,12 +239,23 @@ previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
 rolling — every rotation renews it in full.
 
-**One authorization, one family.** An answer to the lifetime question
-governs what stands after it: a consent granting a durable connection
-retires the families it supersedes once the successor exists, one
-withholding it retires them outright, and both span every URI derivable
-from the person's WebID. So a reconnect replaces the client's refresh
-token rather than adding a second ninety-day credential beside it.
+**A reconnect replaces, it does not accumulate.** An answer to the
+lifetime question governs what stands after it: a consent granting a
+durable connection retires the families it supersedes once the successor
+exists, one withholding it retires them outright, and both span every URI
+derivable from the person's WebID. So reconnecting replaces the client's
+refresh token rather than leaving a second ninety-day credential beside
+it.
+
+Each exchange retires what it observed before minting its own, which
+bounds it rather than serialising it: two codes redeemed at the same
+instant under one standing consent can each observe only the families
+that predate both, and two then coexist until the next answer. That is
+deliberate. The alternative is a compare-and-set electing one winner,
+and the loser of that election is a client that completed a legitimate
+exchange — it would have to be handed an error, or a token already dead.
+An extra credential of a connection the person did just grant is the
+smaller failure.
 
 Deleting a context revokes no refresh token *for naming it*. A family
 carries feature scopes only and context permissions are resolved per
