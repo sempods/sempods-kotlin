@@ -117,11 +117,10 @@ starting before it builds it.
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I13 and I17. Item 3 brought I3, I7 and I11's first half; open are I8 (alias-aware
-  lookup and revocation), I9 (a code bound to its consent generation — the store already carries the
-  counter), I10 (both issuance races), I11's outstanding-code half, I13 (the stale consent page) and
-  I17 (the response naming a granted scope that differs). Most of the milestone's weight sits here,
-  and the list is where
+  Holds I3 to I13 and I17. Item 3 brought I3, I7, I9, I11 and the revocation half of I8; open are
+  I8's lookup half (`fetchGrantStrings` at authorize still takes one WebID), I10 (both issuance
+  races), I13 (the stale consent page) and I17 (the response naming a granted scope that differs).
+  Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for

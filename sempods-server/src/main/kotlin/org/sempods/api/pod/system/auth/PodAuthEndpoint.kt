@@ -568,6 +568,8 @@ class PodAuthEndpoint @Inject constructor(
           codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
           codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
           logPrefix = "[oauth/auto-grant]",
+          consentGeneration = consentDecisionStore
+            .find(podId, normalizedClientId, identity.allUris)?.generation,
         )
       }
     }
@@ -802,6 +804,18 @@ class PodAuthEndpoint @Inject constructor(
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
 
+    // Before anything is created. The form can carry a context the person typed, and choosing to
+    // remove an app's access is not the moment to build one for it — they asked for the opposite of
+    // an authorization. The empty-submission route to the same place is further down, because it
+    // can only be recognised once the selection has been resolved.
+    if (action?.trim() == DISCONNECT_ACTION) {
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, "access_denied", "no scopes selected", state)
+      }
+    }
+
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
     val isOwner = podGrantsFacade.isPodOwner(podDbo, identity.allUris)
 
@@ -925,15 +939,12 @@ class PodAuthEndpoint @Inject constructor(
     // action, and a submission with nothing ticked — and both end the authorization where there is
     // one. Where there is none the answer stays the plain denial it always was: reporting a
     // disconnect of nothing is the same lie as reporting nothing when something ended.
-    val disconnecting = action?.trim() == DISCONNECT_ACTION || selectedScopes.isEmpty()
-    if (disconnecting) {
-      val hadGrants = podGrantsDao
-        .fetchGrantStrings(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
-        .isNotEmpty()
-      if (!hadGrants) {
-        return oauthError(normalizedRedirectUri, "access_denied", "no scopes selected", state)
+    if (selectedScopes.isEmpty()) {
+      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
+        disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
+      } else {
+        oauthError(normalizedRedirectUri, "access_denied", "no scopes selected", state)
       }
-      return disconnectApp(podDbo, normalizedClientId, identity, normalizedRedirectUri, state)
     }
 
     // Persist the user's grant selection for this app (replace — the checkbox submission is the
@@ -978,7 +989,7 @@ class PodAuthEndpoint @Inject constructor(
       val revoked = refreshTokenStore.revokeForUser(
         podId = checkNotNull(podDbo.id),
         clientId = normalizedClientId,
-        webId = identity.webId,
+        webIds = identity.allUris,
       )
       if (revoked > 0) {
         logger.info {
@@ -1009,6 +1020,7 @@ class PodAuthEndpoint @Inject constructor(
       codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       logPrefix = "[oauth/consent]",
+      consentGeneration = decision.generation,
     )
   }
 
@@ -1021,6 +1033,16 @@ class PodAuthEndpoint @Inject constructor(
    * with nothing to show for it. The client is still told `access_denied`: the request really was
    * denied, and what changed is that the denial now has an effect.
    */
+  /**
+   * Whether this app holds anything for this person — the question that decides both whether the
+   * way out is offered and whether taking it means anything. Asked over every URI that names the
+   * person: an authorization stored under an alias is one they can still end.
+   */
+  private fun holdsAnything(podDbo: PodDbo, clientId: String, identity: PersonIdentity): Boolean =
+    podGrantsDao
+      .fetchGrantStrings(checkNotNull(podDbo.id), clientId, identity.allUris.toList())
+      .isNotEmpty()
+
   private fun disconnectApp(
     podDbo: PodDbo,
     clientId: String,
@@ -1029,16 +1051,20 @@ class PodAuthEndpoint @Inject constructor(
     state: String?,
   ): Response {
     val podId = checkNotNull(podDbo.id)
-    podGrantsFacade.replaceAppGrants(
-      podDbo = podDbo,
-      appId = clientId,
-      webId = identity.webId,
-      subjectUris = identity.allUris,
-      grants = emptySet(),
-      grantedBy = identity.webId,
-    )
+    // Once per URI that names the person, because that is how the rows are keyed: an authorization
+    // made under an alias is one this person can end, and `holdsAnything` already counted it.
+    identity.allUris.forEach { uri ->
+      podGrantsFacade.replaceAppGrants(
+        podDbo = podDbo,
+        appId = clientId,
+        webId = uri,
+        subjectUris = identity.allUris,
+        grants = emptySet(),
+        grantedBy = identity.webId,
+      )
+    }
     val decision = consentDecisionStore.record(podId, clientId, identity.webId, durable = false)
-    val revoked = refreshTokenStore.revokeForUser(podId, clientId, identity.webId)
+    val revoked = refreshTokenStore.revokeForUser(podId, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
           "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"
@@ -1254,6 +1280,21 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
 
+    // A code is a request, not an authority: it must not pick up a consent given after it. The
+    // generation it carries is the one that produced it, so a disconnect — or any later answer —
+    // makes it stale, and its scopes are stale with it. Codes minted where no decision existed
+    // carry none and are unaffected.
+    val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    val issuedUnder = entry.consentGeneration
+    if (issuedUnder != null && issuedUnder != decision?.generation) {
+      logger.info {
+        "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
+            "clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "codeGeneration=$issuedUnder, current=${decision?.generation ?: "(none)"}"
+      }
+      return tokenError("invalid_grant", "authorization code superseded by a later consent")
+    }
+
     // Hard guarantee the access token is slim: keep only feature scopes, whatever the
     // authorization-code entry happens to carry. Context permissions are resolved per request
     // from the grant store, never echoed into the token. This also bounds the refresh row.
@@ -1262,9 +1303,7 @@ class PodAuthEndpoint @Inject constructor(
     // Read from the stored consent, not from the code: a code carries what was asked for, never the
     // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
     // which the refresh grant still honours, and mints no new one here.
-    val durable = consentDecisionStore
-      .find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
-      ?.durable == true
+    val durable = decision?.durable == true
     val issuedRefresh = if (durable) {
       refreshTokenStore.issueNewFamily(
         podId = checkNotNull(podDbo.id),
@@ -1688,6 +1727,7 @@ class PodAuthEndpoint @Inject constructor(
     codeChallenge: String?,
     codeChallengeMethod: String?,
     logPrefix: String,
+    consentGeneration: Long? = null,
   ): Response {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
     // never mint an auth code for a dynamic (public) client without PKCE.
@@ -1707,6 +1747,7 @@ class PodAuthEndpoint @Inject constructor(
       redirectUri = redirectUri,
       codeChallenge = codeChallenge,
       codeChallengeMethod = codeChallengeMethod,
+      consentGeneration = consentGeneration,
     )
 
     logger.info {

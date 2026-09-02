@@ -844,6 +844,56 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue("disconnectBtn" in renderedPage(), "an app that holds something can be removed")
   }
 
+  @Test
+  fun `a code cannot pick up a consent granted after it`() {
+    // I9. The code is a request, not an authority. Disconnect, reconnect with the durable control
+    // ticked, and an outstanding code from the earlier consent would otherwise mint a family — and
+    // carry the scopes of a consent that has since been replaced.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val stale = codeFrom(submitConsent(pod, ownerWebId, state = "first"))
+    submitConsent(pod, ownerWebId, state = "again", durable = true)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(stale)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `removing access does not first create the context the form was carrying`() {
+    // Choosing the way out is the opposite of an authorization, so nothing is built for one. The
+    // form can carry a context the person typed before changing their mind.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    seedRefreshToken(pod, webId = ownerWebId)
+
+    val browser = signIn(pod.name, ownerWebId)
+    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=bail&csrf=${enc(browser.csrf)}&action=disconnect" +
+          "&new_context=notes&new_context_scope=${enc("notes#read")}",
+      )
+      .setFollowRedirect(false).execute()
+
+    assertEquals(307, response.statusCode, response.responseBody)
+    assertNull(
+      podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
+      "a disconnect must not build the context the form was carrying",
+    )
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,
