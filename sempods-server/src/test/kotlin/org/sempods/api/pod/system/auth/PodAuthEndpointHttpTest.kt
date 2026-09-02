@@ -1113,6 +1113,36 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
   }
 
+  @Test
+  fun `a client may echo the granted scope back on the next refresh`() {
+    // The standard thing to do with a `scope` in a token response is to send it again, and the
+    // response now names the durable connection — so refusing that echo would tell a client its own
+    // granted scope is not covered. `offline_access` is not a feature scope and cannot be
+    // down-scoped to; it names the connection this request is already proving it holds.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId, scopes = setOf("public-read"))
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}" +
+        "&scope=${enc("public-read offline_access")}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals("public-read offline_access", body["scope"], "what it echoed is what it gets back")
+    assertEquals(
+      "public-read",
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+      "and the bearer carries the feature scope alone",
+    )
+    assertNotNull(body["refresh_token"])
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,

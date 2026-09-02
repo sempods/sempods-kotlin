@@ -1543,15 +1543,23 @@ class PodAuthEndpoint @Inject constructor(
 
     // Optional down-scoping of the feature scopes. Unknown scopes are rejected per RFC 6749
     // §6 ("The requested scope […] MUST NOT include any scope not originally granted").
+    //
+    // `offline_access` is taken out of that comparison first, because the response says it was
+    // granted and a client that does the standard thing — echo the granted scope back on the next
+    // refresh — would otherwise be told the scope it was just handed is not covered. It is never a
+    // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
+    // is already proving it holds, and a refusal on record has ended the family further up.
+    val requested = OAuthSyntax.parseScope(requestedScope)
+    val durableEchoed = OFFLINE_ACCESS_SCOPE in requested
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
     } else {
-      val requested = OAuthSyntax.parseScope(requestedScope)
-      val unknown = requested - effectiveFeatureScopes
+      val requestedFeatures = requested - OFFLINE_ACCESS_SCOPE
+      val unknown = requestedFeatures - effectiveFeatureScopes
       if (unknown.isNotEmpty()) {
         return tokenError("invalid_scope", "requested scopes not covered by this refresh token")
       }
-      requested
+      requestedFeatures
     }
 
     // A refusal ends the family, whether or not the withdrawal's own revocation reached it: that
@@ -1607,11 +1615,11 @@ class PodAuthEndpoint @Inject constructor(
       refreshToken = issuedRefresh.plaintext,
       // A rotation hands back a successor, so the durable connection is what this client holds, and
       // a client refreshing its view of the granted scope from the newest response must not watch
-      // it disappear at the first rotation. Except where the client narrowed the request itself:
-      // RFC 6749 §6 down-scoping asks for a particular set, and answering with more than was asked
-      // for reads as ignoring the narrowing — `refresh_token down-scope to a granted feature subset
-      // succeeds` pins that. The refresh token in the response says the rest.
-      grantedDurable = requestedScope.isNullOrBlank(),
+      // it disappear at the first rotation. Except where the client narrowed the request itself and
+      // left it out: RFC 6749 §6 down-scoping asks for a particular set, and answering with more
+      // than was asked for reads as ignoring the narrowing — `refresh_token down-scope to a granted
+      // feature subset succeeds` pins that. A client that echoed it back is asking, and is told.
+      grantedDurable = requestedScope.isNullOrBlank() || durableEchoed,
     )
   }
 
