@@ -250,7 +250,10 @@ Deleting a context revokes no refresh token *for naming it*. A family
 carries feature scopes only and context permissions are resolved per
 request, so the deletion's own cascade — the grant rows — is what ends
 the access. A family goes there on one condition, the same one the
-refresh exchange applies: its app is left holding no grant at all.
+refresh exchange applies: it belongs to an app whose delegation the
+deletion removed, and that app is left holding no grant at all.
+A connection the deletion never held a grant of is not examined, so a
+consent replacing its grants at that moment cannot be caught mid-write.
 
 Public-read tokens (see below) **do not** receive a refresh token —
 the client re-authorizes when expired.

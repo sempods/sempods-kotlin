@@ -158,11 +158,20 @@ starting before it builds it.
   third pass. A pair whose *last* grant named the deleted context never reaches
   `sweepUnbackedAppGrants`' emptiness branch — its rows are gone before that recompute reads the
   pod — so it kept a family the owner-level cascade would have ended, and had kept one for every
-  non-legacy family since tokens went slim. The pass asks the credential side which connections
-  still stand and checks each against the grants that survived, which makes it retryable like
-  everything else there and repairs an earlier run's leak as readily as its own. Keyed on the
-  family's own `webId`, exactly as the refresh exchange keys `currentGrants`, so the proactive
-  answer and the lazy one cannot disagree — which was the point of the item.
+  non-legacy family since tokens went slim. Keyed on the family's own `webId`, exactly as the
+  refresh exchange keys `currentGrants`, so the proactive answer and the lazy one cannot disagree —
+  which was the point of the item.
+
+  Its candidates are the pairs holding a grant anchored at the deleted context, read **before** the
+  delete removes them, and that narrowing is not an optimisation. The alternative — deriving the
+  work afterwards by scanning the pod's live families — reaches connections this deletion never
+  touched, and `PodGrantsDao.replaceGrants` is a delete followed by inserts, so such a scan would
+  eventually catch an unrelated re-consent mid-replacement and irreversibly revoke the connection it
+  was renewing. The price of narrowing is the one place in `revokeContextGrants` that a retry cannot
+  reconstruct, and it is payable only here: a run dying between the delete and the revocation leaves
+  a family standing, which the refresh exchange then ends at its first use. Three tests hold the
+  shape — the emptied pair loses its family, a pair that kept other grants does not, and a
+  connection the deletion never held a grant of is not examined at all.
 
   **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
   answer to the lifetime question governs what stands after it. Withholding retires outright at
@@ -184,7 +193,15 @@ starting before it builds it.
   The audit found one more disagreement of the same shape and fixed it: the MCP surface's explicit
   re-authorize revoked for a single `webId`, so a family recorded under an alias kept rotating
   around the very consent screen the 401 exists to force. I8 is about every path that ends access,
-  and that is one. DCR liveness needed no change — all three `touchLastAuthorized` call sites still
+  and that is one.
+
+  It reaches the derivable twins and stops there, which is the whole of what a path holding a token
+  `sub` can resolve. `LoginService.aliasesFor` also carries a profile's `linkedIdentities`, so an
+  identity merge could name a person by two URIs with different hashes, and a family under the
+  second would survive — as it would survive `revokeWebIdGrants` and the retirement above, both of
+  which resolve the same way. Nothing writes `linkedIdentities` today, so no such family exists;
+  when something does, the answer is one answer for all three, and it is the resolver's, not a
+  lifetime control's. It is the same question item 5 parked, asked from the revoking side. DCR liveness needed no change — all three `touchLastAuthorized` call sites still
   fire, so a connection the person kept short-lived stays as live as a durable one and merely says
   so by re-authorizing instead of refreshing; the stale claim that the stamp feeds an orphan sweep
   is gone, the sweep being the TODO two lines below it. The hosted service's own layer, which item 1
