@@ -102,13 +102,13 @@ starting before it builds it.
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 
-  Holds I4, I13, I14.
+  Holds I4, I14, I15.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   where consent granted a durable connection, and no client is broken by that — one that cannot ask
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I12 and I16 — most of the milestone's weight sits here, and the list is where
+  Holds I3 to I13 and I17 — most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
@@ -216,19 +216,26 @@ written so that the test is HTTP-level where it can be.
   lifetime the installer scope ends up with — one-shot or deliberately durable, which
   [`owner-app-installation.md`](owner-app-installation.md) decides — it has to hold without relying
   on a revocation reaching that bearer.
+- **I13 — A consent page rendered before a disconnect cannot undo it.** Several consent screens may
+  coexist on purpose (`ConsentTransactionStore`: "Several can coexist"), so a page opened before the
+  disconnect stays submittable after it and would write the grants straight back. I9 does not catch
+  this one: nothing is stale from the code's point of view — the form is, and the code that form
+  yields is correctly bound to the state it has just written. So a consent transaction carries the
+  app's consent generation and compares it on submit, and a two-tab HTTP test proves the older page
+  cannot reconnect.
 
 **Nothing that worked stops working**
 
-- **I13 — `prompt=none` keeps its silent code.** With nothing recorded it yields a short-lived token
+- **I14 — `prompt=none` keeps its silent code.** With nothing recorded it yields a short-lived token
   and no refresh token. `PodAuthEndpointHttpTest` pins the contract; falling through to consent
   there would answer `consent_required` and retire it.
-- **I14 — Auto-grant can acquire a decision.** With nothing recorded and interaction allowed it
+- **I15 — Auto-grant can acquire a decision.** With nothing recorded and interaction allowed it
   falls through to consent once, or an authorization that predates the control could never hold one.
-- **I15 — Legacy families keep rotating.** Item 1's decision, unchanged by any of the above.
+- **I16 — Legacy families keep rotating.** Item 1's decision, unchanged by any of the above.
 
 **What the response says**
 
-- **I16 — The response names what was granted** wherever that differs from what was asked for
+- **I17 — The response names what was granted** wherever that differs from what was asked for
   (RFC 6749 §3.3), in the token response — the authorization response carries `code` and `state`
   only (§4.1.2).
 
