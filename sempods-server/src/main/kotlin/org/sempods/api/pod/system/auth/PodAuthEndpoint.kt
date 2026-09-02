@@ -525,6 +525,15 @@ class PodAuthEndpoint @Inject constructor(
     // pre-checked in the dialog, so repeat flows are one-click. /token exchanges
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith("dyn:")
+    // An authorization that predates the lifetime control has no decision recorded, and this branch
+    // renders nothing — so it could never acquire one: it would keep working, short-lived, for ever,
+    // without anybody being asked. Once, therefore, it falls through to the dialog instead. Only
+    // where there is a dialog to fall through to: `prompt=none` has none, and answering it with
+    // `consent_required` would retire a silent re-authorization that works today, so it keeps its
+    // code and receives what an absent decision means anyway — an access token and nothing else.
+    val decisionRecorded =
+      consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
+    val mayAutoGrant = decisionRecorded || "none" in promptValues
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
       // stay in the durable store and are resolved server-side per request; public-read is an
@@ -559,10 +568,12 @@ class PodAuthEndpoint @Inject constructor(
               "webId='${identity.webId}', before=${existingGrants.size}, after=${persisted.size}"
         }
       }
-      // Auto-grant if anything is still granted; the slim token carries only feature scopes.
-      // Falls through to the consent UI when nothing survived, rather than handing out a token
-      // that authorizes nothing.
-      if (persisted.isNotEmpty()) {
+      // Auto-grant if anything is still granted and the person has answered once; the slim token
+      // carries only feature scopes. Falls through to the consent UI when nothing survived, rather
+      // than handing out a token that authorizes nothing — and when nothing has been answered,
+      // which is the dialog this authorization needs. The repair above happens either way: it is
+      // what a failed cascade is owed, and it has nothing to do with which of the two follows.
+      if (persisted.isNotEmpty() && mayAutoGrant) {
         return issueAuthCodeAndRedirect(
           podDbo = podDbo,
           clientId = normalizedClientId,
