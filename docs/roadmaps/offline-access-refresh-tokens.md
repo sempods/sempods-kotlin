@@ -67,9 +67,18 @@ starting before it builds it.
   offer a ticked control it cannot honour, so the control is absent there, or shown unavailable
   with the reason. Tests assert both directions: asking does not grant, a client that never asked can
   still be granted durability by the person in front of the dialog, and asking together with the
-  installer scope neither presents the control as available nor ends in a refresh token. Which of
-  the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises
-  it is worth knowing for how the control is presented, but nothing here waits on the answer.
+  installer scope neither presents the control as available nor ends in a refresh token.
+
+  The dialog also gains the named way out, and loses a special case. Today an empty selection
+  answers `access_denied` and returns before anything is written, so unticking every box — the most
+  emphatic way to ask for a disconnect — changes nothing, while unticking all but one revokes the
+  rest: the rule that the submission is the authoritative new state inverts at its own endpoint.
+  Removing an app's access becomes an explicit, labelled action with a confirmation, and an empty
+  submission leads there instead of into a denial that does nothing. The client still receives
+  `access_denied` — the request really was denied; what changes is that it now has an effect.
+
+  Which of the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod
+  advertises it is worth knowing for how the control is presented, but nothing waits on the answer.
 
   **Items 3 to 5 reach a user together.** They are three pieces of work and one release: a control
   that renders before the exchange honours it tells a person they chose a short-lived connection
@@ -120,7 +129,8 @@ starting before it builds it.
   the linked identity. Test that the
   old refresh token stops working, not merely that no new one is minted — and that a code minted
   under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
-  stays redeemable for five minutes and the client holds its verifier. It must also survive an
+  stays redeemable for five minutes and the client holds its verifier, and that a disconnect leaves
+  neither behind — the app's grants gone and its refresh token dead. It must also survive an
   issuance landing in the same instant, on either path: both read the decision and then insert a row
   — `markRotated` then `issueInFamily` on refresh, the same read-then-insert on the code exchange —
   so a revocation arriving between the two revokes what exists and misses what is about to appear.
@@ -141,7 +151,8 @@ starting before it builds it.
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
   never sent the scope can still hold one, and only a consent that withheld durability means there
-  is none.
+  is none. [`../auth/oauth-errors.md`](../auth/oauth-errors.md) records today's empty selection as a
+  denial that writes nothing, which item 3 stops being true.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
@@ -154,15 +165,6 @@ starting before it builds it.
 
 ## Open decisions
 
-- Denying everything — an empty selection answers `access_denied` and returns before any grant is
-  written, so a person who unticks every box, the durable control included, changes nothing: the
-  grants they had and the family they already hold both survive. As OAuth that is defensible, a
-  denial is not a revocation. It stops being defensible on a screen that also carries a control the
-  person reads as "stay connected", because unticking everything is then the most obvious way to
-  ask for a disconnect. Either the empty selection revokes what the authorization holds and stops
-  being a denial, or the dialog says where disconnecting actually happens. Item 5's withdrawal test
-  covers only unticking durability while keeping context grants, so whichever answer is chosen needs
-  its own. Decide before item 5 ships.
 - Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
   means, and there is only one today: a family's TTL is rolling and every rotation renews it in
   full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from

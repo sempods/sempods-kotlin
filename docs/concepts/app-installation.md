@@ -108,6 +108,10 @@ durability rather than only declining to extend it. The decision is resolved fro
 whenever a token is issued, the way context permissions already are, so nothing a client is still
 holding — an authorization code from an earlier and more generous consent — outlives the choice.
 
+Ending an app's access altogether is an action of its own: named, and confirmed before it takes
+effect. Nobody should disconnect an app by accident while trying to dismiss a dialog, and nobody
+should be told they disconnected when nothing happened.
+
 Two limits are the server's and not the dialog's. An authorization that carries the installer
 feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that
 escalation visible — a durable installer is a thing to design, not to tick. And an anonymous
