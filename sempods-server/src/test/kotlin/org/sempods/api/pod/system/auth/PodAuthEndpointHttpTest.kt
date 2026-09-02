@@ -1087,6 +1087,32 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue("disconnectBtn" in page, "an alias-held authorization is one this person can end")
   }
 
+  @Test
+  fun `a rotation keeps naming the durable connection it hands back`() {
+    // The response is where a client reads what it was granted, so a view refreshed from the newest
+    // one must not watch the durable connection vanish at the first rotation — it is still holding
+    // a successor.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertNotNull(body["refresh_token"])
+    assertTrue(
+      (body["scope"] as String).split(" ").contains("offline_access"),
+      "a rotation still hands back a durable connection: ${body["scope"]}",
+    )
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,

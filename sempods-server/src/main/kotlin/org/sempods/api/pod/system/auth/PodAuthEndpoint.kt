@@ -501,11 +501,12 @@ class PodAuthEndpoint @Inject constructor(
     val userGrants = podGrantsFacade.resolveUserGrants(podDbo, identity.allUris, podBaseUrl)
 
     val podId = checkNotNull(podDbo.id)
-    // Over every URI that names the person, as `resolveUserGrants` above already does. Asking
-    // about one leaves an authorization stored under an alias reading as a first authorization —
-    // it would hide the way out, and auto-grant would not see what the app actually holds.
-    val existingGrants =
-      podGrantsDao.fetchGrantStrings(podId, normalizedClientId, identity.allUris.toList())
+    // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
+    // WebID and does not re-key what it finds, while `resolveFromGrants` and the refresh path both
+    // query the token's subject — so counting an alias's rows here would auto-grant a token with no
+    // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
+    // different question, and `holdsAnything` is where it is asked.
+    val existingGrants = podGrantsDao.fetchGrantStrings(podId, normalizedClientId, listOf(identity.webId))
 
     logger.info {
       "[oauth/authorize] Grants pre-check: pod='${podDbo.name}', clientId='$normalizedClientId', " +
@@ -708,8 +709,9 @@ class PodAuthEndpoint @Inject constructor(
       ?.durable
     // Removing an app's access is only on offer where there is something to remove. Saying it
     // happened on a first authorization would be the same lie as saying nothing happened on a
-    // later one.
-    val disconnectAvailable = existingGrants.isNotEmpty()
+    // later one. Asked over the person rather than over this URI, because that is what the action
+    // itself clears.
+    val disconnectAvailable = holdsAnything(podDbo, normalizedClientId, identity)
 
     val consentAction = "${config.apiBaseUrl}${podDbo.name}/_system/auth/authorize/consent"
     val html = templateRenderer.render(
@@ -1603,6 +1605,13 @@ class PodAuthEndpoint @Inject constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
+      // A rotation hands back a successor, so the durable connection is what this client holds, and
+      // a client refreshing its view of the granted scope from the newest response must not watch
+      // it disappear at the first rotation. Except where the client narrowed the request itself:
+      // RFC 6749 §6 down-scoping asks for a particular set, and answering with more than was asked
+      // for reads as ignoring the narrowing — `refresh_token down-scope to a granted feature subset
+      // succeeds` pins that. The refresh token in the response says the rest.
+      grantedDurable = requestedScope.isNullOrBlank(),
     )
   }
 
