@@ -109,8 +109,12 @@ whenever a token is issued, the way context permissions already are, so nothing 
 holding — an authorization code from an earlier and more generous consent — outlives the choice.
 
 Ending an app's access altogether is an action of its own: named, and confirmed before it takes
-effect. Nobody should disconnect an app by accident while trying to dismiss a dialog, and nobody
-should be told they disconnected when nothing happened.
+effect. It removes the grants and the durability at once, and what the app can read stops with them,
+because that is decided per request. An access token already in its hands is the exception: such a
+token is self-contained, nothing recalls it, and it keeps the feature scopes it carries until it
+expires. Nobody should disconnect an app by accident while trying to dismiss a dialog, nobody should
+be told they disconnected when nothing happened, and nobody should be promised an instant that the
+mechanism cannot deliver.
 
 Two limits are the server's and not the dialog's. An authorization that carries the installer
 feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that

@@ -194,7 +194,9 @@ written so that the test is HTTP-level where it can be.
 - **I10 — A withdrawal landing mid-issuance still wins.** Both paths read the decision and then
   insert a row — `markRotated` then `issueInFamily` on refresh, read-then-insert on the code
   exchange — so a revocation between the two misses the successor unless each insert is bound to the
-  decision it read, or re-checked after it.
+  decision it read, or re-checked after it. The code exchange also mints an access token, which is
+  no row and cannot be recalled once returned, so the binding covers what the exchange hands back
+  and not only what it stores: a disconnect that lands first must not be answered with a bearer.
 - **I11 — Disconnect leaves neither.** The app's grants are gone and its refresh token is dead; the
   client still receives `access_denied`. An authorization code it was still holding cannot be
   redeemed afterwards either — the code exchange refuses an authorization that now holds nothing,
