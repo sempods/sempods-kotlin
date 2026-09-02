@@ -117,9 +117,12 @@ starting before it builds it.
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I13 and I17. Item 3 brought I3, I7, I9, I11 and the revocation half of I8; open are
-  I8's lookup half (`fetchGrantStrings` at authorize still takes one WebID), I10 (both issuance
-  races), I13 (the stale consent page) and I17 (the response naming a granted scope that differs).
+  Holds I3 to I13 and I17. Item 3 brought I3, I7, I9, I11, the revocation half of I8 and the half of
+  I13 that needs no race — a page rendered before a disconnect cannot write its grants back. Open
+  are I8's lookup half (`fetchGrantStrings` at authorize still takes one WebID), I10 (both issuance
+  races), I13's remainder (a page that merely predates a *narrowing*, which cannot be refused
+  without retiring the coexisting screens `ConsentTransactionStore` allows on purpose — decide which
+  wins), and I17 (the response naming a granted scope that differs).
   Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant

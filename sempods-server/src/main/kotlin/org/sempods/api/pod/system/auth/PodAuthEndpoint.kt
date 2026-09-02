@@ -721,7 +721,14 @@ class PodAuthEndpoint @Inject constructor(
         "codeChallengeMethod" to (codeChallengeMethod ?: ""),
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending
         // it also requires the session cookie it was rendered beside.
-        "csrfToken" to consentTransactionStore.issue(podDbo.name, identity.webId),
+        // Bound to the subject's own document, which is what the submission will be compared
+        // against — the newest across the person's URIs is what the control above wants.
+        "csrfToken" to consentTransactionStore.issue(
+          podDbo.name,
+          identity.webId,
+          consentDecisionStore.find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+            ?.generation,
+        ),
         "webId" to identity.webId,
         "contexts" to contexts,
         "podBaseUrl" to podBaseUrl,
@@ -806,6 +813,31 @@ class PodAuthEndpoint @Inject constructor(
         .build()
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
+
+    // Single-use stops this page being posted twice; it says nothing about a *second* page opened
+    // before the app was disconnected, which would submit its own older selection as the
+    // authoritative new state and hand back everything the person just removed. So a page carries
+    // what stood when it was rendered, and one from before a disconnect is refused.
+    //
+    // Only that case. Screens are allowed to coexist on purpose — `ConsentTransactionStore` says
+    // why, and `two sign-ins running at once in one browser both complete` pins it — so a page
+    // that is merely older than the current answer, on an authorization that still holds
+    // something, submits as it always did. A page that would resurrect a disconnected app does
+    // not.
+    val standing = consentDecisionStore
+      .find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+      ?.generation
+    if (transaction.consentGeneration != standing && !holdsAnything(podDbo, normalizedClientId, identity)) {
+      logger.info {
+        "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
+            "standing=${standing ?: "(none)"})"
+      }
+      return Response.status(403)
+        .entity("this form is no longer valid — please re-authorize")
+        .type("text/plain")
+        .build()
+    }
 
     // Before anything is created. The form can carry a context the person typed, and choosing to
     // remove an app's access is not the moment to build one for it — they asked for the opposite of

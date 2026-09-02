@@ -56,6 +56,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
 
   @Inject
+  private lateinit var consentTransactionStore: org.sempods.auth.ConsentTransactionStore
+
+  @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   private val testClientId = "did:web:localhost%3A5173"
@@ -987,6 +990,29 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertNotNull(body["refresh_token"], "the durable consent still stands: $body")
   }
 
+  @Test
+  fun `a page rendered before a disconnect cannot write its grants back`() {
+    // I13. Several consent screens may coexist by design, and single-use only stops the same page
+    // being posted twice. A page opened before the app was disconnected would otherwise submit its
+    // own older selection as the authoritative new state.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    submitConsent(pod, ownerWebId, state = "first", durable = true)
+    val staleForm = renderedFormToken(pod, ownerWebId)
+    submitConsent(pod, ownerWebId, state = "gone", disconnect = true)
+
+    val late = submitConsent(pod, ownerWebId, state = "late", durable = true, csrf = staleForm)
+
+    assertEquals(403, late.statusCode, late.responseBody)
+    assertTrue(
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
+      "the disconnect must stand",
+    )
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,
@@ -994,6 +1020,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     state: String,
     durable: Boolean = false,
     disconnect: Boolean = false,
+    csrf: String? = null,
   ): org.sempods.commons.okhttp.TestHttpResponse {
     val browser = signIn(pod.name, webId)
     return http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
@@ -1001,12 +1028,20 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", browser.cookie)
       .setBody(
         "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
-          "&state=$state&csrf=${enc(browser.csrf)}" +
+          "&state=$state&csrf=${enc(csrf ?: renderedFormToken(pod, webId))}" +
           (if (disconnect) "&action=disconnect" else "&scope=public-read") +
           (if (durable) "&durable=1" else ""),
       )
       .setFollowRedirect(false).execute()
   }
+
+  /** The token a freshly rendered page would carry: bound to the consent standing right now. */
+  private fun renderedFormToken(pod: org.sempods.pods.mongo.persist.PodDbo, webId: String): String =
+    consentTransactionStore.issue(
+      pod.name,
+      webId,
+      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId))?.generation,
+    )
 
   private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
     val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.responseBody}" }
