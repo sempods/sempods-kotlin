@@ -38,6 +38,12 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     val codeChallenge: String?,
     val codeChallengeMethod: String?,
     val nonce: String?,
+    /**
+     * Which consent this code was issued under, for a server that versions its consent; null where
+     * the concept does not apply. Carried so a redemption can be refused once the person has
+     * answered again — a code is a request, and it must not pick up an authority granted after it.
+     */
+    val consentGeneration: Long? = null,
   )
 
   /**
@@ -60,6 +66,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       putNotNull("codeChallenge", it.codeChallenge)
       putNotNull("codeChallengeMethod", it.codeChallengeMethod)
       putNotNull("nonce", it.nonce)
+      putNotNull("consentGeneration", it.consentGeneration)
     },
     read = {
       Entry(
@@ -71,6 +78,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         codeChallenge = getString("codeChallenge"),
         codeChallengeMethod = getString("codeChallengeMethod"),
         nonce = getString("nonce"),
+        consentGeneration = get("consentGeneration", Number::class.java)?.toLong(),
       )
     },
   )
@@ -84,6 +92,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     codeChallenge: String?,
     codeChallengeMethod: String?,
     nonce: String? = null,
+    consentGeneration: Long? = null,
   ): String = codes.issue(
     Entry(
       subject = subject,
@@ -94,6 +103,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       codeChallenge = codeChallenge,
       codeChallengeMethod = codeChallengeMethod,
       nonce = nonce,
+      consentGeneration = consentGeneration,
     ),
   )
 

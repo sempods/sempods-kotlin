@@ -57,7 +57,7 @@ starting before it builds it.
   field's absence, and `docs/auth/oauth.md` §`offline_access` states the extension. Nothing about
   issuance changed — the pod still returns a refresh token whether or not the scope was asked for,
   which is what makes this safe to land ahead of item 5 and is exactly what item 5 removes.
-- [ ] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
+- [x] 3 — Make the lifetime a choice in consent, not a sentence about the request. The dialog gets
   its own control for keeping the connection alive, beside the context grants, describing the
   lifetime class rather than naming a scope: without it a short-lived access token, with it a
   rolling refresh token until revoked or left unused. Reuse the service-client lifetime vocabulary
@@ -65,69 +65,82 @@ starting before it builds it.
   `offline_access` in the request preselects the control and nothing more — except where item 5's
   veto already decides the answer: an authorization carrying the installer feature scope must not
   offer a ticked control it cannot honour, so the control is absent there, or shown unavailable
-  with the reason. Tests assert both directions: asking does not grant, a client that never asked can
-  still be granted durability by the person in front of the dialog, and asking together with the
-  installer scope neither presents the control as available nor ends in a refresh token. Which of
-  the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod advertises
-  it is worth knowing for how the control is presented, but nothing here waits on the answer.
+  with the reason.
+
+  The dialog also gains the named way out, and loses a special case. Today an empty selection
+  answers `access_denied` and returns before anything is written, so unticking every box — the most
+  emphatic way to ask for a disconnect — changes nothing, while unticking all but one revokes the
+  rest: the rule that the submission is the authoritative new state inverts at its own endpoint.
+  Removing an app's access becomes an explicit, labelled action with a confirmation, and an empty
+  submission leads there instead of into a denial that does nothing. The client still receives
+  `access_denied` — the request really was denied; what changes is that it now has an effect. Only
+  where there is something to remove: on a first authorization there are no grants and no family, so
+  the action is not offered and an empty submission stays the plain denial it is today. Telling
+  somebody they disconnected something they never connected is the same lie in the other direction.
+
+  Holds I1, I2, I5, I11. Landed with the enforcement it promises, as required below: the control
+  and the named way out in `consent.html`, the decision in `PodConsentDecisionStore` — a document
+  per authorization, where an absent one is the third state and needs no migration — the gate in
+  `exchangeAuthorizationCode`, and the revocation on withholding. `PodAuthEndpointHttpTest` covers
+  I1, I2, I3, I7, I11 and the narrowing that the way out is not offered where nothing is held; two
+  tests that pinned unconditional issuance now record a granted consent instead. I5 is vacuous
+  until the installer feature scope exists.
+
+  Which of the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod
+  advertises it is worth knowing for how the control is presented, but nothing waits on the answer.
 
   **Items 3 to 5 reach a user together.** They are three pieces of work and one release: a control
   that renders before the exchange honours it tells a person they chose a short-lived connection
   while a ninety-day rolling credential is minted for them, which is the failure this milestone
   exists to remove, dressed as a fix for it. The group's assertion is therefore end-to-end and not
   cosmetic — leave the control unticked and the token response carries no `refresh_token`.
-- [ ] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
+- [x] 4 — Carry `offline_access` through the full consent transaction. The current authorize flow
   persists context grants and `public-read` differently from OIDC scopes, while token exchange later
   narrows to feature scopes. Add explicit persistence and tests from authorize request, consent form,
   authorization code, token exchange and auto-grant so the exchange can distinguish requested-only
-  from what the person granted. Three states, not two: granted, refused, and nothing recorded at all
-  — the last one is every authorization that predates the control, which item 1 settled keeps
-  rotating. Collapsing it into either of the others is a bug in both directions, killing deployed
-  connections or reopening the bypass item 5 closes. Auto-grant has to be able to acquire one: it
-  renders no dialog for a static client, so with nothing recorded and interaction allowed it falls
-  through to consent once rather than silently re-issuing, or such an authorization could never hold
-  a decision at all. Under `prompt=none` there is no interaction to fall through to and
-  `consent_required` would retire a contract `PodAuthEndpointHttpTest` pins — so that request keeps
-  its silent code and receives what an absent decision means anyway: a short-lived token and no
-  refresh token. The chain it builds — request parameter through
-  consent to the code — is also what a later OIDC route needs for `nonce`, so it is worth building
-  once. It touches every station, so it is also where the hand-written message layer can move onto
-  `com.nimbusds:oauth2-oidc-sdk` — already used on the MCP client side
-  and held inside `sempods-auth-core` behind its own types. `Scope` and `OAuth2Error.INVALID_SCOPE`
-  are drop-in, and `Prompt.isValid` carries the same rule as `OAuthSyntax.isContradictoryPrompt`
-  **inverted** — it answers true for a legal set — so a substitution has to negate it. `Prompt.parse`
-  is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
-  does not carry the SDK yet.
-- [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
-  where consent granted a durable connection. An absent decision is not a grant: it keeps an
-  already-rotating legacy family alive, which is all item 1 settled, and it never mints a new one —
-  otherwise a static client whose grants predate the control would go on minting ninety-day
-  credentials through the auto-grant branch, which renders no dialog at all. The token response
-  names what was granted wherever it differs from what was asked for (RFC 6749 §3.3). No client is
-  broken by this, which is the point of gating on the grant: one that cannot ask is still one the
-  person can grant. Two rules the
-  dialog cannot overrule — an authorization that carries the installer feature scope at all never
-  becomes durable ([`owner-app-installation.md`](owner-app-installation.md)), because a checkbox
-  cannot make that escalation visible and pairing the scope with `public-read` does not change that;
-  and anonymous public-read keeps its refresh-token-free shortcut. Withholding durability at a later
-  consent revokes the families that authorization already has: today `exchangeRefreshToken` gives up
-  a family only when every grant for the app is gone, so a person who unticks the control while
-  keeping their context grants would otherwise have changed nothing they can observe. It follows the
-  person and not one URI: `revokeForUser` matches a single exact `webId` today, so a family issued
-  under an alias the pod stores would survive its owner withdrawing under their canonical WebID —
-  and would then read as "nothing recorded" and be grandfathered. Both the decision and the
-  revocation work over the equivalent URIs, the way grant resolution already does, with a test for
-  the linked identity. Test that the
-  old refresh token stops working, not merely that no new one is minted — and that a code minted
-  under an earlier, durable consent cannot mint a durable family after the withdrawal, since it
-  stays redeemable for five minutes and the client holds its verifier. It must also survive an
-  issuance landing in the same instant, on either path: both read the decision and then insert a row
-  — `markRotated` then `issueInFamily` on refresh, the same read-then-insert on the code exchange —
-  so a revocation arriving between the two revokes what exists and misses what is about to appear.
-  Bind each insert to the decision it read, or re-check after it, and test both paths against a
-  concurrent withdrawal. Token refresh
-  keeps the existing rotating-family reuse detection, and refresh responses cannot silently widen
-  feature scopes.
+  from what the person granted. The chain it builds — request parameter through consent to the
+  code — is also what a later OIDC route needs for `nonce`, so it is worth building once.
+
+  **The message layer stays hand-written, and this item is where that was settled.** Moving it onto
+  `com.nimbusds:oauth2-oidc-sdk` was planned here and does not survive being tried against the jar:
+  `Scope.parse("a\tb")` answers one scope containing a tab where `OAuthSyntax` answers two, so a
+  swap changes behaviour in all three services; `Prompt.parse` throws on `none consent` *and* on any
+  unknown value, so `isValid` is unreachable without losing the values a public endpoint must keep
+  and the ability to tell a contradiction from a typo; and `OAuth2Error` would be a second
+  vocabulary beside `OAuthErrorCode`, which exists for the reason nimbus would give. It also runs
+  against a decision this repository already states in `../mcp/endpoint.md`: the parsing side uses
+  the library, the producing side does not. The pod's OAuth surface is a producing side.
+
+  Holds I4, I14, I15, all of them now. Item 3 brought I4 and I14; I15 is what this item added —
+  auto-grant renders nothing, so an authorization whose grants predate the control could never
+  acquire a decision and would work short-lived for ever. It falls through to the dialog once, and
+  only where there is one: `prompt=none` keeps its silent code, which `PodAuthEndpointHttpTest`
+  pins.
+- [x] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
+  where consent granted a durable connection, and no client is broken by that — one that cannot ask
+  is still one the person can grant. Token refresh keeps the existing rotating-family reuse
+  detection, and refresh responses cannot silently widen feature scopes.
+
+  Holds I3 to I13 and I17, all of them now except two. I10 is closed by asking the recorded refusal
+  again after each insert — the check and the insert are two moments, so whoever arrives second
+  undoes the other's work — and I17 names the durable connection in the response while the bearer's
+  claim stays slim, except where a client narrowed the request and gets exactly what it asked for.
+  I8 holds where access *ends*: withdrawal, disconnect and the offer of the way out all ask about
+  the person.
+
+  **Two remainders, and neither is a line to slip in.** A consent page that predates a mere
+  *narrowing* still submits: refusing it means retiring the coexisting screens
+  `ConsentTransactionStore` allows on purpose, which `two sign-ins running at once in one browser
+  both complete` pins — staleness against coexistence, and only one can win.
+
+  And I8 stops at the paths that end access. Where access is *granted*, the subject's own rows are
+  what count: `resolveFromGrants` and the refresh path both key on the token's subject, so counting
+  an alias's rows at authorize would auto-grant a token carrying no context permissions whose first
+  refresh fails. Making that work means re-keying the rows to the issued subject, or teaching
+  request-time resolution the alias set — a change to how a grant is addressed, which belongs with
+  the resolver rather than with a lifetime control.
+  Most of the milestone's weight sits here, and the list is where
+  it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
@@ -141,7 +154,8 @@ starting before it builds it.
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
   never sent the scope can still hold one, and only a consent that withheld durability means there
-  is none.
+  is none. [`../auth/oauth-errors.md`](../auth/oauth-errors.md) records today's empty selection as a
+  denial that writes nothing, which item 3 stops being true.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
@@ -154,15 +168,6 @@ starting before it builds it.
 
 ## Open decisions
 
-- Denying everything — an empty selection answers `access_denied` and returns before any grant is
-  written, so a person who unticks every box, the durable control included, changes nothing: the
-  grants they had and the family they already hold both survive. As OAuth that is defensible, a
-  denial is not a revocation. It stops being defensible on a screen that also carries a control the
-  person reads as "stay connected", because unticking everything is then the most obvious way to
-  ask for a disconnect. Either the empty selection revokes what the authorization holds and stops
-  being a denial, or the dialog says where disconnecting actually happens. Item 5's withdrawal test
-  covers only unticking durability while keeping context grants, so whichever answer is chosen needs
-  its own. Decide before item 5 ships.
 - Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
   means, and there is only one today: a family's TTL is rolling and every rotation renews it in
   full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from
@@ -179,9 +184,95 @@ starting before it builds it.
 - Refresh narrowing — decide whether refresh responses preserve the originally granted scope set
   exactly or allow a requested subset, but never allow widening.
 
+## Invariants
+
+What items 3 to 5 have to be true about, each with the failure it prevents — I12 is the one that
+says what a disconnect deliberately does not do. They are the milestone's
+definition of done: an implementation is finished when every one of them has a test, and each is
+written so that the test is HTTP-level where it can be.
+
+**The decision**
+
+- **I1 — Asking does not grant.** `offline_access` in the request preselects the control and nothing
+  more; without the control granted there is no refresh token in the token response.
+- **I2 — Not asking does not forbid.** A client that never sent the scope receives one when the
+  person grants it. This is what keeps the MCP clients working, and it is why the gate is on the
+  grant.
+- **I3 — Nothing recorded is not a grant.** An absent decision keeps an already-rotating family
+  alive and never mints a new one. Otherwise a static client whose grants predate the control mints
+  ninety-day credentials for ever through auto-grant, which renders no dialog at all.
+- **I4 — The three states stay apart.** Granted, refused, and nothing recorded are distinguishable
+  in storage. Collapsing the third into either of the others kills deployed connections or reopens
+  the bypass.
+
+**Limits the dialog cannot overrule**
+
+- **I5 — The installer scope is never durable.** An authorization carrying it does not become
+  durable whatever is ticked, and the control is not offered as available there — a dialog must not
+  promise what issuance will refuse. Pairing the scope with `public-read` changes nothing.
+- **I6 — Anonymous public-read stays short-lived.** No person, no grant, no refresh token.
+
+**A choice that takes effect**
+
+- **I7 — Withdrawal kills what is already held.** The old refresh token stops working, not merely no
+  new one is minted: `exchangeRefreshToken` gives up a family only when every grant for the app is
+  gone, so unticking while keeping context grants would otherwise change nothing observable.
+- **I8 — The person is a set of URIs, on every path that ends access.** A family issued under an
+  alias the pod stores dies when its owner withdraws under their canonical WebID — `revokeForUser`
+  matches one exact `webId` today, and the survivor would read as "nothing recorded" and be
+  grandfathered. The same holds for the grants and for the dialog: `fetchGrantStrings` is called with
+  a single `webId` at authorize, so an authorization stored under an alias reads as a first
+  authorization, hides the disconnect action by I11's own rule, and leaves a bearer whose `sub` is
+  that alias resolving those rows. An HTTP test proves alias-bound context access stops.
+- **I9 — A code is bound to the consent it was issued under.** It stays redeemable for five minutes
+  and the client holds its verifier, so once the stored decision has moved the code is spent: a
+  withdrawal, or a disconnect followed by a narrower reconnect inside that window, must not let it
+  mint what the earlier consent allowed. Refusing only an authorization that now holds nothing is
+  too weak — after the reconnect it holds something again.
+- **I10 — A withdrawal landing mid-issuance still wins.** Both paths read the decision and then
+  insert a row — `markRotated` then `issueInFamily` on refresh, read-then-insert on the code
+  exchange — so a revocation between the two misses the successor unless each insert is bound to the
+  decision it read, or re-checked after it. The code exchange also mints an access token, which is
+  no row and cannot be recalled once returned, so the binding covers what the exchange hands back
+  and not only what it stores: a disconnect that lands first must not be answered with a bearer.
+- **I11 — Disconnect leaves neither.** The app's grants are gone and its refresh token is dead; the
+  client still receives `access_denied`. A code it was still holding is spent with the consent that
+  issued it (I9), and the action is offered only where there is something to remove — which, by I8,
+  is a question about the person and not about one URI.
+- **I12 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
+  and carry their feature scopes, so nothing retracts one inside its hour; context access stops at
+  once, because that is resolved per request from the grant store. This is the promise narrowed on
+  purpose rather than a gap to discover later. What follows for a privileged feature scope is a
+  constraint and not a policy: a disconnect cannot shorten a bearer already issued, so whichever
+  lifetime the installer scope ends up with — one-shot or deliberately durable, which
+  [`owner-app-installation.md`](owner-app-installation.md) decides — it has to hold without relying
+  on a revocation reaching that bearer.
+- **I13 — A consent page rendered before a disconnect cannot undo it.** Several consent screens may
+  coexist on purpose (`ConsentTransactionStore`: "Several can coexist"), so a page opened before the
+  disconnect stays submittable after it and would write the grants straight back. I9 does not catch
+  this one: nothing is stale from the code's point of view — the form is, and the code that form
+  yields is correctly bound to the state it has just written. So a consent transaction carries the
+  app's consent generation and compares it on submit, and a two-tab HTTP test proves the older page
+  cannot reconnect.
+
+**Nothing that worked stops working**
+
+- **I14 — `prompt=none` keeps its silent code.** With nothing recorded it yields a short-lived token
+  and no refresh token. `PodAuthEndpointHttpTest` pins the contract; falling through to consent
+  there would answer `consent_required` and retire it.
+- **I15 — Auto-grant can acquire a decision.** With nothing recorded and interaction allowed it
+  falls through to consent once, or an authorization that predates the control could never hold one.
+- **I16 — Legacy families keep rotating.** Item 1's decision, unchanged by any of the above.
+
+**What the response says**
+
+- **I17 — The response names what was granted** wherever that differs from what was asked for
+  (RFC 6749 §3.3), in the token response — the authorization response carries `code` and `state`
+  only (§4.1.2).
+
 ## Acceptance
 
-One focused command should cover the milestone once code exists:
+Every invariant above has a test, and one focused command runs them once code exists:
 
 ```bash
 ./gradlew :sempods-server:test --tests "org.sempods.api.pod.system.auth.*" :sempods-mcp:test :sempods-client:test

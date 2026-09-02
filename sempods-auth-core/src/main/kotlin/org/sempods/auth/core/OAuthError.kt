@@ -13,6 +13,7 @@ enum class OAuthErrorCode(val code: String) {
   UNSUPPORTED_RESPONSE_TYPE("unsupported_response_type"),
   INVALID_SCOPE("invalid_scope"),
   SERVER_ERROR("server_error"),
+  TEMPORARILY_UNAVAILABLE("temporarily_unavailable"),
   LOGIN_REQUIRED("login_required"),
   CONSENT_REQUIRED("consent_required"),
   INTERACTION_REQUIRED("interaction_required"),

@@ -61,8 +61,8 @@ case is gated again below.
   receive each other's codes. `DidWeb.Target.covers()` is the one place
   that answers this, for both the pod and the id-server.
 - No DCR; the app is its own identity.
-- Consent behaves per the `prompt` parameter (auto-grant when grants
-  exist and `prompt` isn't `consent`).
+- Consent behaves per the `prompt` parameter — see the table under
+  §"The `prompt` parameter", which is where that rule lives.
 
 ### `dyn:*` — RFC 7591 dynamic clients (e.g., Claude Desktop, Copilot, ChatGPT)
 
@@ -97,7 +97,9 @@ refreshes stay silent for both client classes.
    the person.
 4. The pod resolves the user's scopes on this pod (owner: implicit;
    others: explicit grants) and either auto-grants from existing
-   `PodGrants` or shows the consent UI.
+   `PodGrants` or shows the consent UI. The dialog carries the contexts,
+   the public-read toggle, the lifetime control, and — only for an app
+   that already holds something — a named way to remove its access.
 5. On success, redirects to `redirect_uri?code=...&state=...`.
 6. On failure, redirects with `?error=...&error_description=...&error_uri=...`.
 
@@ -211,13 +213,20 @@ issues no `id_token`, and does not advertise `openid`. Both discovery
 documents list it under `scopes_supported`, which is where a client that
 has read no sempods documentation finds it.
 
-The authorization-code exchange returns a refresh token whether or not the
-scope was requested, so asking changes nothing at the pod. The hosted MCP
-service asks a pod whose authorization server advertises the scope, which
-makes what the service depends on visible in the flow rather than resting
-on that permissiveness. A pod that advertises nothing is asked for nothing:
-RFC 6749 §4.1.2.1 lets an authorization server refuse a scope it does not
-know, and the service connects to pods it does not host.
+Asking is not getting. The scope preselects the consent page's
+"keep this app connected" control; what grants a refresh token is the
+person ticking it, which is why a client that cannot send the scope is
+not thereby denied a durable connection. The exchange reads that decision
+from the store rather than from the authorization code, so a code carries
+the request and never the authority.
+
+An authorization that predates the control has no decision recorded, and
+that is not a grant either: it mints no new family, while the one it
+already rotates is left alone. The hosted MCP service asks a pod whose
+authorization server advertises the scope, and a pod that advertises
+nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
+server refuse a scope it does not know, and the service connects to pods
+it does not host.
 
 ### Refresh token rotation
 
@@ -254,10 +263,15 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 
 | Value | Behavior |
 |---|---|
-| (not set) | Auto-grant if grants exist; otherwise consent UI |
+| (not set) | Auto-grant if grants exist **and** the lifetime question has been answered once for this app; otherwise consent UI |
 | `none` | No UI. Auto-granted only when all of the prerequisites below hold; `login_required` or `consent_required` otherwise |
 | `consent` | Always show consent UI |
 | `login` / `select_account` | Force fresh authentication; the value is forwarded to the id-server, which passes it to the upstream provider where supported (Google honours both; Apple does not document `prompt`) |
+
+An unanswered lifetime question is what sends an authorization older than the
+control to the dialog, once, so it can acquire an answer at all; afterwards the
+auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
+code and receives what an absent answer means — an access token and nothing more.
 
 `prompt=none` succeeds only when **three** things hold together, and it
 is worth being exact because the common case does not qualify:

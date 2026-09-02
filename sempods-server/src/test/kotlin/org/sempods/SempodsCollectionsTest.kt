@@ -34,6 +34,7 @@ class SempodsCollectionsTest {
         "oauth.serviceAuditLog",
         "oauth.clientRegistrations",
         "oauth.signingKeys",
+        "oauth.consentDecisions",
         "oauth.refreshTokens",
         "oauth.loginStates",
         "oauth.consentTransactions",

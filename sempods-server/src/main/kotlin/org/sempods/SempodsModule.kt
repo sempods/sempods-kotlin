@@ -21,6 +21,7 @@ import org.sempods.commons.mongo.MongoModule
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.admin.StaticCredentialAdminAuthorizer
@@ -174,6 +175,7 @@ class SempodsModule : BaseModule() {
     bind<DynamicClientStore>().asSingleton()
     bind<TemplateRenderer>().asSingleton()
     bind<OAuthSigningKeyDao>().asSingleton()
+    bind<PodConsentDecisionStore>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientFacade>().asSingleton()

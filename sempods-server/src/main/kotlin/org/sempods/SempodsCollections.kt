@@ -61,6 +61,9 @@ internal object SempodsCollections {
   /** The keys this server signs pod access tokens with. */
   const val OAUTH_SIGNING_KEYS = "oauth.signingKeys"
 
+  /** What a person decided about an app's credential lifetime — `(podId, appId, webId)`. */
+  const val OAUTH_CONSENT_DECISIONS = "oauth.consentDecisions"
+
   /** Refresh-token families, with rotation and reuse detection. */
   const val OAUTH_REFRESH_TOKENS = "oauth.refreshTokens"
 
@@ -93,6 +96,7 @@ internal object SempodsCollections {
     OAUTH_SERVICE_AUDIT_LOG,
     OAUTH_CLIENT_REGISTRATIONS,
     OAUTH_SIGNING_KEYS,
+    OAUTH_CONSENT_DECISIONS,
     OAUTH_REFRESH_TOKENS,
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,

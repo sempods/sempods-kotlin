@@ -3,7 +3,7 @@
 What the pod server stores that is not RDF. The RDF itself lives in the MemoryStore and is mirrored
 into `resources` by the write-through path — see
 [`../src/main/kotlin/org/sempods/pods/AGENTS.md`](../src/main/kotlin/org/sempods/pods/AGENTS.md) and
-`write-through.md`. This document is about the other fourteen.
+`write-through.md`. This document is about the other fifteen.
 
 **`SempodsCollections` is the list**, declared in one place and pinned by
 `SempodsCollectionsTest`. Naming them again here would be a second source for one fact, and the

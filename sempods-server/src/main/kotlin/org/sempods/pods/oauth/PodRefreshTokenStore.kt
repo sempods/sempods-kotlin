@@ -91,13 +91,27 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    * MCP surface's explicit re-authorization.
    */
   internal fun revokeForUser(podId: ObjectId, clientId: String, webId: String): Long =
-    store.revokeWhere(
+    revokeForUser(podId, clientId, listOf(webId))
+
+  /**
+   * The same, for every URI that names the same person.
+   *
+   * A pod stores whichever WebID authenticated at the time, so an authorization can hold families
+   * under an alias while its owner is signed in under their canonical URI. Revoking one of them and
+   * calling that a withdrawal leaves the connection the person meant to end running — and the
+   * survivor then reads as an authorization with nothing recorded, which is grandfathered.
+   */
+  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long {
+    val distinct = webIds.filter { it.isNotBlank() }.distinct()
+    if (distinct.isEmpty()) return 0
+    return store.revokeWhere(
       Filters.and(
         Filters.eq(FIELD_POD_ID, podId),
         Filters.eq(FIELD_CLIENT_ID, clientId),
-        Filters.eq(FIELD_WEB_ID, webId),
+        Filters.`in`(FIELD_WEB_ID, distinct),
       ),
     )
+  }
 
   /**
    * Revokes every token within [podId] whose `scopes` array holds any of
