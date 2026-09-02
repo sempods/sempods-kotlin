@@ -173,6 +173,14 @@ starting before it builds it.
   shape — the emptied pair loses its family, a pair that kept other grants does not, and a
   connection the deletion never held a grant of is not examined at all.
 
+  Narrowing alone does not settle the pairs the deletion *did* touch, and the read-before shape has
+  to be used twice for the same reason it was needed once. The pass names the families it finds
+  standing, asks the emptiness question, and revokes by name — so a re-consent for one of those very
+  pairs, completing inside that gap, keeps the family its own exchange just minted and may already
+  have handed to the client. `RefreshTokenStoreTest` pins the property both sites rest on. What
+  remains is benign: a re-consent restoring grants after the check loses the families it was
+  replacing, which is what its own exchange would have done to them.
+
   **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
   answer to the lifetime question governs what stands after it. Withholding retires outright at
   consent; granting retires at the code exchange, once the successor exists, so answering "yes"
