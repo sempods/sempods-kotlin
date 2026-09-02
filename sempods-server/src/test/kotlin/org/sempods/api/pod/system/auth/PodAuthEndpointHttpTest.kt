@@ -926,6 +926,67 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
   }
 
+  @Test
+  fun `the first consent an authorization receives supersedes the codes issued before it`() {
+    // The other end of I9. An authorization that predates the control mints codes carrying no
+    // generation; the moment somebody answers, those codes are as stale as any other — otherwise
+    // one of them redeems against the answer, with the scopes of the silence that came before.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id), appId = testClientId, webId = ownerWebId,
+      grants = listOf("${contextUri(pod.name, "public/tasks")}#read"), grantedBy = ownerWebId,
+    )
+
+    val silent = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "before")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    val stale = codeFrom(silent)
+
+    submitConsent(pod, ownerWebId, state = "answered", durable = true)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=${enc(stale)}" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `an auto-granted code still redeems after the person has consented once`() {
+    // The counter-case, and the bug the binding introduced: the generation embedded at auto-grant
+    // has to be the subject's own, not the highest an alias of theirs happens to carry, or a
+    // perfectly ordinary silent re-authorization is refused as superseded.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    submitConsent(pod, ownerWebId, state = "consented", durable = true)
+
+    val silent = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "again")
+      .addQueryParam("prompt", "none")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(303, silent.statusCode, silent.responseBody)
+
+    val body = exchangeCode(pod, codeFrom(silent))
+    assertNotNull(body["refresh_token"], "the durable consent still stands: $body")
+  }
+
   /** Submits the consent form the way the rendered page does. */
   private fun submitConsent(
     pod: org.sempods.pods.mongo.persist.PodDbo,
@@ -3167,6 +3228,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // standard token response with refresh-token rotation.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/anyone"
+    // In the order the endpoint uses it: the consent is recorded, and the code is issued under it.
+    // A refresh token follows that decision, not the code — which is why the code carries the
+    // generation it was minted under.
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -3175,6 +3240,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       redirectUri = testRedirectUri,
       codeChallenge = null,
       codeChallengeMethod = null,
+      consentGeneration = consent.generation,
     )
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
@@ -3183,10 +3249,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = setOf("public-read"),
       grantedBy = webId,
     )
-    // The refresh token follows the recorded consent, not the code: without a decision this
-    // exchange answers with an access token alone, which
-    // `an authorization made before the control mints no new refresh token` is about.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
 
     val response = postForm(
       tokenUrl(pod.name),
@@ -3211,6 +3273,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `authorization_code exchange returns both access_token and refresh_token`() {
     val pod = sempodsTestFactory.newPod()
     val scope = "${contextUri(pod.name, "public/tasks")}#read"
+    val consent =
+      consentDecisionStore.record(checkNotNull(pod.id), testClientId, "https://id.test/user", durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -3219,11 +3283,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       redirectUri = testRedirectUri,
       codeChallenge = null,
       codeChallengeMethod = null,
+      consentGeneration = consent.generation,
     )
-    // Same as above: the durable connection is what the person granted, and the exchange reads it
-    // from the store rather than from the code.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, "https://id.test/user", durable = true)
-
     val response = postForm(
       tokenUrl(pod.name),
       "grant_type=authorization_code" +

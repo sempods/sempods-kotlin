@@ -568,8 +568,11 @@ class PodAuthEndpoint @Inject constructor(
           codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
           codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
           logPrefix = "[oauth/auto-grant]",
+          // The subject's own document, because that is the one redemption will read: the newest
+          // across the person's URIs is what the dialog wants, and binding to it would refuse a
+          // code the moment an alias carried a higher count.
           consentGeneration = consentDecisionStore
-            .find(podId, normalizedClientId, identity.allUris)?.generation,
+            .find(podId, normalizedClientId, listOf(identity.webId))?.generation,
         )
       }
     }
@@ -1313,11 +1316,13 @@ class PodAuthEndpoint @Inject constructor(
 
     // A code is a request, not an authority: it must not pick up a consent given after it. The
     // generation it carries is the one that produced it, so a disconnect — or any later answer —
-    // makes it stale, and its scopes are stale with it. Codes minted where no decision existed
-    // carry none and are unaffected.
+    // makes it stale, and its scopes are stale with it. Compared in both directions, because the
+    // first answer an authorization ever gets supersedes the codes issued before it just as surely
+    // as the second: a code from an authorization that had none carries none, and matches only for
+    // as long as none is recorded.
     val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
-    if (issuedUnder != null && issuedUnder != decision?.generation) {
+    if (decision?.generation != issuedUnder) {
       logger.info {
         "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
             "clientId='${entry.clientId}', webId='${entry.subject}', " +
