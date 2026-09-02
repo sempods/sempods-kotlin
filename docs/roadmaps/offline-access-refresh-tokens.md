@@ -73,7 +73,10 @@ starting before it builds it.
   rest: the rule that the submission is the authoritative new state inverts at its own endpoint.
   Removing an app's access becomes an explicit, labelled action with a confirmation, and an empty
   submission leads there instead of into a denial that does nothing. The client still receives
-  `access_denied` — the request really was denied; what changes is that it now has an effect.
+  `access_denied` — the request really was denied; what changes is that it now has an effect. Only
+  where there is something to remove: on a first authorization there are no grants and no family, so
+  the action is not offered and an empty submission stays the plain denial it is today. Telling
+  somebody they disconnected something they never connected is the same lie in the other direction.
 
   Holds I1, I2, I5, I11.
 
@@ -105,8 +108,8 @@ starting before it builds it.
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I11 and I15 — most of the milestone's weight sits here, and the list is where it is
-  checkable. If this item is still one piece of work when it is picked up, split it there.
+  Holds I3 to I11 and I15 to I16 — most of the milestone's weight sits here, and the list is where
+  it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
   `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
@@ -152,7 +155,8 @@ starting before it builds it.
 
 ## Invariants
 
-What items 3 to 5 have to be true about, each with the failure it prevents. They are the milestone's
+What items 3 to 5 have to be true about, each with the failure it prevents — I16 is the one that
+says what a disconnect deliberately does not do. They are the milestone's
 definition of done: an implementation is finished when every one of them has a test, and each is
 written so that the test is HTTP-level where it can be.
 
@@ -192,7 +196,15 @@ written so that the test is HTTP-level where it can be.
   exchange — so a revocation between the two misses the successor unless each insert is bound to the
   decision it read, or re-checked after it.
 - **I11 — Disconnect leaves neither.** The app's grants are gone and its refresh token is dead; the
-  client still receives `access_denied`.
+  client still receives `access_denied`. An authorization code it was still holding cannot be
+  redeemed afterwards either — the code exchange refuses an authorization that now holds nothing,
+  the way the refresh path already does on `currentGrants.isEmpty()`.
+- **I16 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
+  and carry their feature scopes, so nothing retracts one inside its hour; context access stops at
+  once, because that is resolved per request from the grant store. This is the promise narrowed on
+  purpose rather than a gap to discover later — and it is why the installer feature scope has to be
+  consumed server-side rather than trusted to be short-lived, which
+  [`owner-app-installation.md`](owner-app-installation.md) owns.
 
 **Nothing that worked stops working**
 
