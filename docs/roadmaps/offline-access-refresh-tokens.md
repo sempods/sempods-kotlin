@@ -102,13 +102,13 @@ starting before it builds it.
   is no substitute at all: it refuses unknown values our parser keeps deliberately. `sempods-server`
   does not carry the SDK yet.
 
-  Holds I4, I12, I13.
+  Holds I4, I13, I14.
 - [ ] 5 — Harden pod token issuance. The authorization-code exchange issues a refresh token only
   where consent granted a durable connection, and no client is broken by that — one that cannot ask
   is still one the person can grant. Token refresh keeps the existing rotating-family reuse
   detection, and refresh responses cannot silently widen feature scopes.
 
-  Holds I3 to I11 and I15 to I16 — most of the milestone's weight sits here, and the list is where
+  Holds I3 to I12 and I16 — most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
 - [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
   revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
@@ -155,7 +155,7 @@ starting before it builds it.
 
 ## Invariants
 
-What items 3 to 5 have to be true about, each with the failure it prevents — I16 is the one that
+What items 3 to 5 have to be true about, each with the failure it prevents — I12 is the one that
 says what a disconnect deliberately does not do. They are the milestone's
 definition of done: an implementation is finished when every one of them has a test, and each is
 written so that the test is HTTP-level where it can be.
@@ -208,7 +208,7 @@ written so that the test is HTTP-level where it can be.
   client still receives `access_denied`. A code it was still holding is spent with the consent that
   issued it (I9), and the action is offered only where there is something to remove — which, by I8,
   is a question about the person and not about one URI.
-- **I16 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
+- **I12 — A disconnect does not recall a bearer already issued.** Access tokens are self-contained
   and carry their feature scopes, so nothing retracts one inside its hour; context access stops at
   once, because that is resolved per request from the grant store. This is the promise narrowed on
   purpose rather than a gap to discover later. What follows for a privileged feature scope is a
@@ -219,16 +219,16 @@ written so that the test is HTTP-level where it can be.
 
 **Nothing that worked stops working**
 
-- **I12 — `prompt=none` keeps its silent code.** With nothing recorded it yields a short-lived token
+- **I13 — `prompt=none` keeps its silent code.** With nothing recorded it yields a short-lived token
   and no refresh token. `PodAuthEndpointHttpTest` pins the contract; falling through to consent
   there would answer `consent_required` and retire it.
-- **I13 — Auto-grant can acquire a decision.** With nothing recorded and interaction allowed it
+- **I14 — Auto-grant can acquire a decision.** With nothing recorded and interaction allowed it
   falls through to consent once, or an authorization that predates the control could never hold one.
-- **I14 — Legacy families keep rotating.** Item 1's decision, unchanged by any of the above.
+- **I15 — Legacy families keep rotating.** Item 1's decision, unchanged by any of the above.
 
 **What the response says**
 
-- **I15 — The response names what was granted** wherever that differs from what was asked for
+- **I16 — The response names what was granted** wherever that differs from what was asked for
   (RFC 6749 §3.3), in the token response — the authorization response carries `code` and `state`
   only (§4.1.2).
 
