@@ -67,8 +67,8 @@ directly. This trade is the whole decision — taken deliberately, not by omissi
 
 ## It stays a client
 
-Even as the primary MCP layer, the service is structurally a **client** to each pod: its
-own DCR registration and bearer, keyed `(user, profile, pod)` (see
+Even as the primary MCP layer, the service is structurally a **client** to each pod: its own
+DCR registration there, and a bearer per `(user, profile, pod)` (see
 [identity and keying](#identity-and-keying)); the pod runs its own grants, consent, and
 server-side enforcement. The service adds **no cross-pod identity, grant, or revocation
 primitive** to any pod. "AI agents are clients, structurally identical to any other app"
@@ -288,25 +288,33 @@ The profile path lives on the service's URL, so it directly separates
    [`authentication.md#dcr-fingerprint`](../mcp/authentication.md#dcr-fingerprint)
    for the shared digest), forcing distinct OAuth clients on the connector
    side.
-2. **Service → pod.** This separation is **not** automatic from the
-   path. The service must enforce it explicitly: a separate DCR
-   registration, token, and grant set per `(user, profile, pod)` (or a
-   deliberately justified weaker isolation). Without that, `…/private` and
-   `…/cron-agent` would share pod tokens — UI isolation only, not hard
-   token / grant isolation.
+2. **Service → pod.** This separation is **not** automatic from the path,
+   and it is enforced in one half of the flow rather than both. The
+   **tokens** are isolated: registry and vault rows are keyed
+   `(user, profile, pod)`, so `…/private` and `…/cron-agent` hold separate
+   bearers and reach separate connection bundles. The **pod-side client
+   identity** is not: a pod dedups DCR on a fingerprint this service keeps
+   constant, so both profiles arrive at that pod as one `client_id` and
+   share the consent and grants held under it — grants are keyed
+   `(pod, client_id, WebID)`, so what separates one *user* from another
+   there is the WebID, not the profile. Why the fingerprint is
+   load-bearing is in [connecting a pod](#connecting-a-pod-oauth);
+   whether a named profile should carry its own pod-side identity is
+   [open](#open-questions).
 
 ### Identity and keying
 
-The canonical key throughout — connection registry, token vault, pod-side
-DCR client — is **`(user, profile, pod)`**, with the implicit default
-profile filling the slot before any named profiles exist. Keeping the
-profile in the key from day one is what makes profiles a real isolation
-boundary later rather than a relabelling of a shared token pool.
+The canonical key throughout — connection registry, token vault — is
+**`(user, profile, pod)`**, with the implicit default profile filling the
+slot before any named profiles exist. Keeping the profile in the key from
+day one is what makes profiles a real isolation boundary rather than a
+relabelling of a shared token pool. The pod-side DCR client is the one
+thing that is not keyed by it (above).
 
-`user` itself is the root of that key and must be a **stable identity from an explicit
-provider**, not a per-session placeholder — recommended default a **sempods WebID via
-`id.sempods.org`** (the `sempods-auth` module), with the service as a pluggable OIDC / JWT
-relying party. Fixing this is M1's job (see the roadmap); everything downstream keys off it.
+`user` is the root of that key and is a **stable identity from an explicit provider**, never
+a per-session placeholder: the service federates login to `id.sempods.org` (the `sempods-auth`
+module) as an OIDC relying party, so `user` is a **sempods WebID**. Everything downstream keys
+off it.
 
 Keep two separation axes distinct:
 
@@ -420,11 +428,11 @@ would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
 - **Profile isolation toward the pod.** The connection registry and the token vault key
   `(user, profile, pod)`, but the pod-side client identity does not: the DCR fingerprint is stable
   by design (see [connecting a pod](#connecting-a-pod-oauth)), so one user's profiles arrive at a
-  pod as a single `client_id` and share the consent and grants held under it. That is the
-  "deliberately justified weaker isolation" [two OAuth
-  layers](#two-oauth-layers--do-not-conflate-them) allows. Whether a named profile should instead
-  carry its own pod-side identity — which needs a per-profile redirect URI or another fingerprint
-  input, and orphans grants at a pod that does not dedup — is undecided.
+  pod as a single `client_id` and share the consent and grants held under it — the half of the
+  second OAuth layer that is not separated (see [two OAuth
+  layers](#two-oauth-layers--do-not-conflate-them)). Whether a named profile should instead carry
+  its own pod-side identity — which needs a per-profile redirect URI or another fingerprint input,
+  and orphans grants at a pod that does not dedup — is undecided.
 - **A registration a pod forgot silently.** Re-authorize presents the stored `client_id`, and only
   a connection the pod already refused with `invalid_grant` re-registers. A registration cleared
   while nothing had refreshed against it therefore still dead-ends in the browser on the pod's flat
