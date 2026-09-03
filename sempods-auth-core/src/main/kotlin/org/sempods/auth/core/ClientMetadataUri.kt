@@ -16,6 +16,12 @@ import java.net.URI
  * the response's own query parameters because a redirect *target* carries a response; a logo behind
  * `…/logo.png?v=2#icon` is an ordinary URL and refusing it would be an invented rule.
  *
+ * **Asked again wherever one of these values is read**, and not only where it arrives. A repeat
+ * registration returns the stored row untouched — the dynamic client store discards submitted
+ * metadata on a fingerprint hit — so a row that predates this rule would otherwise keep handing its
+ * value back for the life of the client. Checking on read is what makes the answer the same for
+ * every row, without a migration to get there.
+ *
  * Two stages, in the order that keeps them honest:
  *
  * 1. **The SDK's scheme rule**, `URIUtils.ensureSchemeIsHTTPSorHTTP` — the same call its own

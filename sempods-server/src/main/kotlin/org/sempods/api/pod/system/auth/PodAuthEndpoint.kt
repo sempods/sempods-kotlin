@@ -155,9 +155,7 @@ class PodAuthEndpoint @Inject constructor(
       ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
       ?: emptyList()
 
-    // The four RFC 7591 members that name something a *person* is shown or sent to. Registration
-    // is self-service, so each is a string a stranger chose, and refusing one here is the only
-    // place it can be refused once — everywhere downstream it is already stored.
+    // The four members [ClientMetadataUri] is about.
     listOf(
       "client_uri" to clientUri,
       "logo_uri" to logoUri,
@@ -168,9 +166,8 @@ class PodAuthEndpoint @Inject constructor(
         return Response.status(400)
           .entity(
             mapOf(
-              // RFC 7591 §3.2.2's code for a member whose value is unusable, spelled as the
-              // `invalid_redirect_uri` above it is: the registration error set is its own, and
-              // `OAuthErrorCode` is scoped to the authorize and token responses.
+              // A literal like the `invalid_redirect_uri` above: RFC 7591's registration errors are
+              // their own set, and `OAuthErrorCode` is scoped to authorize and token responses.
               "error" to "invalid_client_metadata",
               "error_description" to
                   "$field must be https, or http on a loopback host: $value",
@@ -230,11 +227,8 @@ class PodAuthEndpoint @Inject constructor(
       "response_types" to listOf("code"),
     )
     if (registration.clientName != null) body["client_name"] = registration.clientName
-    // Filtered on the way out, not only on the way in. A repeat registration returns the *stored*
-    // row untouched — `DynamicClientStore.register` discards the submitted metadata on a
-    // fingerprint hit — so a row written before this rule existed would otherwise keep handing its
-    // value back. Read-side is where the guarantee becomes true for every row rather than for the
-    // ones registered from here on, and it needs no migration to get there.
+    // Filtered on the way out as well — see [ClientMetadataUri], which says why the check at
+    // registration does not cover the row this may be reading.
     registration.clientUri?.takeIf(ClientMetadataUri::isValid)?.let { body["client_uri"] = it }
     registration.logoUri?.takeIf(ClientMetadataUri::isValid)?.let { body["logo_uri"] = it }
     if (registration.softwareId != null) body["software_id"] = registration.softwareId
@@ -764,9 +758,8 @@ class PodAuthEndpoint @Inject constructor(
         "consentAction" to consentAction,
         "clientId" to normalizedClientId,
         "clientName" to displayName,
-        // Same filter as the registration response, and this is the consumer it is really for:
-        // the day a template renders either of these, the value has already been through
-        // `ClientMetadataUri` no matter when the row behind it was written.
+        // The consumer [ClientMetadataUri] exists for: whatever a template does with these, the
+        // value reached it through that check.
         "clientUri" to (registration?.clientUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
         "logoUri" to (registration?.logoUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
         "redirectUri" to normalizedRedirectUri,
