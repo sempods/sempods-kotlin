@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
@@ -153,6 +154,32 @@ class PodAuthEndpoint @Inject constructor(
     val contacts = (request?.get("contacts") as? List<*>)
       ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
       ?: emptyList()
+
+    // The four RFC 7591 members that name something a *person* is shown or sent to. Registration
+    // is self-service, so each is a string a stranger chose, and refusing one here is the only
+    // place it can be refused once — everywhere downstream it is already stored.
+    listOf(
+      "client_uri" to clientUri,
+      "logo_uri" to logoUri,
+      "tos_uri" to tosUri,
+      "policy_uri" to policyUri,
+    ).forEach { (field, value) ->
+      if (value != null && !ClientMetadataUri.isValid(value)) {
+        return Response.status(400)
+          .entity(
+            mapOf(
+              // RFC 7591 §3.2.2's code for a member whose value is unusable, spelled as the
+              // `invalid_redirect_uri` above it is: the registration error set is its own, and
+              // `OAuthErrorCode` is scoped to the authorize and token responses.
+              "error" to "invalid_client_metadata",
+              "error_description" to
+                  "$field must be https, or http on a loopback host: $value",
+            )
+          )
+          .type(MediaType.APPLICATION_JSON)
+          .build()
+      }
+    }
 
     val registration = dynamicClientStore.register(
       registeredForPodId = checkNotNull(podDbo.id),

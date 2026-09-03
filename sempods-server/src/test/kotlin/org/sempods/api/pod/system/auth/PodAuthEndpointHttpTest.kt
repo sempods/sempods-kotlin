@@ -103,6 +103,49 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals("203.0.113.7", stored.remoteAddr)
   }
 
+  @Test
+  fun `a registration naming a script URL for something a person is shown is refused`() {
+    // Nothing renders `logo_uri` today, which is exactly why this is cheap now: the value is
+    // stored, and the day a consent screen shows it the stranger who registered it chose what
+    // the browser runs. Registration is the one place it can be refused once.
+    val pod = sempodsTestFactory.newPod()
+    for (field in listOf("logo_uri", "client_uri", "tos_uri", "policy_uri")) {
+      for (value in listOf("javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "http://app.example/x")) {
+        val response = http.preparePost(registerUrl(pod.name))
+          .addHeader("Content-Type", "application/json")
+          .setBody("""{"redirect_uris":["http://localhost:5173/callback"],"$field":"$value"}""")
+          .execute()
+        assertEquals(400, response.statusCode, "$field=$value should be refused: ${response.responseBody}")
+
+        @Suppress("UNCHECKED_CAST")
+        val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+        assertEquals("invalid_client_metadata", body["error"], "RFC 7591 §3.2.2 names this code")
+      }
+    }
+  }
+
+  @Test
+  fun `a registration naming ordinary addresses for those fields still succeeds`() {
+    // The check must not cost a legitimate client its registration: `https` anywhere, a query on
+    // a logo, and the loopback address a client under development actually serves from.
+    val pod = sempodsTestFactory.newPod()
+    val response = http.preparePost(registerUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .setBody(
+        """{"redirect_uris":["http://localhost:5173/callback"],""" +
+          """"logo_uri":"http://localhost:5173/logo.png?v=2",""" +
+          """"client_uri":"https://app.example",""" +
+          """"tos_uri":"https://app.example/tos","policy_uri":"https://app.example/privacy"}"""
+      )
+      .execute()
+    assertEquals(201, response.statusCode, response.responseBody)
+
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals("https://app.example", body["client_uri"])
+    assertEquals("http://localhost:5173/logo.png?v=2", body["logo_uri"])
+  }
+
   private fun authorizeUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/authorize"
 

@@ -40,6 +40,14 @@ The query rule has the same reason as the fragment one: those names
 belong to the response, and a registered copy is read as the value this
 server chose.
 
+`/register` asks a second, separate question of `client_uri`, `logo_uri`,
+`tos_uri` and `policy_uri` — `ClientMetadataUri.isValid`: absolute,
+`https` on any host, `http` only on loopback. Those four are not
+addresses the pod sends anything to; they are addresses it shows a
+person, and `logo_uri` exists to be rendered. RFC 7591 puts no scheme
+rule on them, so this one is the pod's, and a fragment or a query is
+allowed where a redirect target may carry neither.
+
 ### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
 - The identifier *names* an address; nothing is dereferenced to check
