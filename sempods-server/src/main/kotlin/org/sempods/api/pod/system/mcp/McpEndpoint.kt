@@ -31,6 +31,7 @@ import org.sempods.mcp.core.ToolsListResult
 import org.sempods.mcp.core.isNotification
 import com.google.inject.Inject
 import org.sempods.client.SempodsClientException
+import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.api.InvalidBearerException
 import org.sempods.api.OAuthUpgradeRequiredException
@@ -66,8 +67,8 @@ import java.net.URI
  * data tools are not**: [PodToolExecutor] in `:sempods-mcp-core` runs them, over HTTP against this
  * server's own `apiBaseUrl` — the path an external client takes, with no special case. This class
  * therefore injects no pod service at all; what is left ([reauthorizeChallengeStore],
- * [refreshTokenStore]) belongs to `authorize`, which is the one tool that reads the incoming
- * token's claims and means something different on every surface.
+ * [refreshTokenStore], [webIdUriDeriver]) belongs to `authorize`, which is the one tool that reads
+ * the incoming token's claims and means something different on every surface.
  *
  * The point is not brevity. The pod and the hosted `sempods-mcp` service used to be two
  * implementations of one tool contract, and only one of them was exercised by production traffic
@@ -81,6 +82,7 @@ class McpEndpoint @Inject constructor(
   private val podToolExecutor: PodToolExecutor,
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val refreshTokenStore: PodRefreshTokenStore,
+  private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -888,11 +890,13 @@ class McpEndpoint @Inject constructor(
     val webId = credentials.tokenSub ?: return
     // Scope is intentionally broad for this pod/client/user: explicit reauthorization
     // means "review current consent", so parallel sessions with the same dynamic
-    // client_id must not silently refresh around the consent UI.
+    // client_id must not silently refresh around the consent UI. Broad over the person too,
+    // not over the one URI this bearer happens to carry — a family minted under the twin would
+    // otherwise keep refreshing around exactly that UI.
     val revoked = refreshTokenStore.revokeForUser(
       podId = podId,
       clientId = clientId,
-      webId = webId,
+      webIds = webIdUriDeriver.derivableAliases(webId),
     )
     if (revoked > 0) {
       logger.info {

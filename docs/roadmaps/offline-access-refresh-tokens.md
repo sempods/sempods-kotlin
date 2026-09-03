@@ -141,15 +141,47 @@ starting before it builds it.
   the resolver rather than with a lifetime control.
   Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
-- [ ] 6 — Align revocation and liveness. Check that refresh-token revocation, context-grant
-  revocation, service-client revocation and DCR liveness still agree after MCP starts asking for
-  `offline_access`. One of them is already empty: `PodRefreshTokenStore.revokeByContextScope` selects
-  refresh rows by a context-shaped scope, and no row issued today can hold one, because the code
-  exchange stores feature scopes only. Decide whether it goes or whether rows predating slim tokens
-  still justify it — the identically named service-client path is unaffected and stays. The same
-  item decides whether a reconnect should retire the family it supersedes, which today it does not:
-  the code exchange mints a new family and revokes nothing. Item 5's withdrawal path is the same
-  question asked from the other end, and the two answers have to agree.
+- [x] 6 — Align revocation and liveness. Both decisions taken, and the four paths agree.
+
+  **The refresh-token `revokeByContextScope` is gone.** A refresh row carries feature scopes only,
+  so a family holds no authority over a context to lose, and what closes the re-create-with-same-URI
+  window is the grant deletion beside it. The identically named service-client path stays: a
+  registration's context scopes *are* what the resolver reads. What replaces the sweep is the
+  condition the owner-level cascade already applied — an app left holding nothing loses its family —
+  extended to reach the pairs a context deletion empties directly.
+
+  **A reconnect retires the family it supersedes.** One rule from both ends: an answer to the
+  lifetime question governs what stands after it. Withholding retires at consent, granting retires
+  at the code exchange once the successor exists. It bounds accumulation rather than serialising it,
+  and `docs/auth/oauth.md` §"Refresh token rotation" says so — electing a single winner was
+  considered and refused, because the loser of that election is a client holding a legitimate token.
+
+  The audit fixed one more disagreement of the same shape: the MCP surface's explicit re-authorize
+  revoked for a single `webId`, so a family recorded under an alias kept rotating around the very
+  consent screen the 401 exists to force. DCR liveness needed no change, and neither did the hosted
+  service's own refresh layer, which item 1 put on this list — it rotates against its own store with
+  no consent decision in it, and a vault row the pod handed no refresh token is never selected as
+  due.
+
+  Why each sweep reaches as far as it does, and which of these windows no test can enter, is stated
+  where the code is: `PodRefreshTokenStore`, `PodGrantsFacade.revokeContextGrants` and the three
+  re-asks in `exchangeRefreshToken`.
+
+  **Left open by this item:**
+
+  - `SPS-CTX-017` still describes the removed sweep. Not a conformance gap — the specification is
+    pre-`0.1` and descriptive, so its own governance makes the code right and the text the bug — but
+    the text needs correcting, and item 8 carries it.
+  - `gradle/spec/requirements.json` records that requirement under `spec/core/contexts.md` and
+    `part: core`; it has moved to `spec/modules/context-management.md` and is a module requirement.
+    Refreshing the index is the procedure in `gradle/spec/README.md`, whose diff is meant to be
+    reviewed on its own.
+  - Every revocation path holding only a token `sub` reaches the derivable twins and stops there,
+    so an identity merge would leave a family under a non-derivable alias standing. Nothing writes
+    `linkedIdentities` today, so none exists. When something does, the answer is one answer for
+    `revokeWebIdGrants`, the retirement and the MCP path alike, and it is the resolver's — the
+    question item 5 parked, asked from the revoking side.
+
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
@@ -159,6 +191,10 @@ starting before it builds it.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
+  It carries item 6's edit too: `SPS-CTX-017` still has context deletion remove "refresh tokens
+  scoped to it", which no token issued since slimming can be, so the clause needs to go or to say
+  what it now means. That one sits in `spec/modules/context-management.md`, not in the core chapter
+  the vendored index names.
   The companion change says when a refresh token may be issued, that `offline_access` is a sempods
   extension and not an OIDC scope, and what consent must show about lifetime; check whether
   `spec/modules/mcp.md` needs the same for clients that connect to a pod directly. It is a pull
@@ -171,10 +207,12 @@ starting before it builds it.
 - Graduated lifetimes — a dialog offering "one month" or "two days" has to say which clock it
   means, and there is only one today: a family's TTL is rolling and every rotation renews it in
   full, so a chosen duration would silently mean "after this much disuse". An absolute deadline from
-  the moment of consent is what most people read into such a list, and it is a second stored field,
-  a second check on the refresh path and a question for item 6. Until that is decided the classes
-  stay two, short-lived and durable — an offered choice that means something other than it says is
-  the failure this milestone exists to remove.
+  the moment of consent is what most people read into such a list, and it is a second stored field
+  and a second check on the refresh path. Item 6 was where that would have been decided and it was
+  not: retiring what a reconnect supersedes bounds how many credentials a person accumulates, not
+  how long one of them lives. Until it is decided the classes stay two, short-lived and durable —
+  an offered choice that means something other than it says is the failure this milestone exists to
+  remove.
 - Strictness at `/authorize` — the half no specification settles, the grammars themselves having
   stopped being the question. An unknown scope is dropped in silence today, so a typo
   (`offline-access`) is answered with a working token and no explanation. Answering `invalid_scope`
