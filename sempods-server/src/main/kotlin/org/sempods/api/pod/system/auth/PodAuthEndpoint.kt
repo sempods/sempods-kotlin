@@ -1372,7 +1372,10 @@ class PodAuthEndpoint @Inject constructor(
     // module now, where Kotlin will not smart-cast a public property across the boundary.
     val issuedChallenge = entry.codeChallenge
     if (issuedChallenge != null) {
-      val verifier = codeVerifier?.trim()?.takeIf { it.isNotBlank() }
+      // Not trimmed, unlike every other form value here. RFC 7636 §4.1's alphabet has no
+      // whitespace, so trimming would grant a leniency the rule does not — and grant it at two of
+      // this repository's three token endpoints, since the third passes the value as sent.
+      val verifier = codeVerifier?.takeIf { it.isNotBlank() }
         ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code_verifier")
       // `Pkce` rather than a local comparison: it compares in constant time. A byte-by-byte
       // early exit leaks the stored challenge one character per request, and the challenge is

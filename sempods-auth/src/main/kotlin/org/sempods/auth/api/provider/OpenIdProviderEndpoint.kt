@@ -210,7 +210,9 @@ fun Application.openIdProviderEndpoint(
         ?: return@post tokenError(OAuth2Error.INVALID_REQUEST.setDescription("missing client_id"))
       val redirectUri = form["redirect_uri"]?.trim()?.takeIf { it.isNotBlank() }
         ?: return@post tokenError(OAuth2Error.INVALID_REQUEST.setDescription("missing redirect_uri"))
-      val codeVerifier = form["code_verifier"]?.trim()?.takeIf { it.isNotBlank() }
+      // Not trimmed, unlike the values above it: RFC 7636 §4.1's alphabet has no whitespace, so
+      // trimming would grant a leniency the rule does not. `Pkce.verifyS256` sees what was sent.
+      val codeVerifier = form["code_verifier"]?.takeIf { it.isNotBlank() }
         ?: return@post tokenError(OAuth2Error.INVALID_REQUEST.setDescription("missing code_verifier"))
 
       // One-time: consumed here whether or not the rest of the checks pass, so a code cannot be
