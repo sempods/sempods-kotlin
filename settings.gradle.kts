@@ -5,7 +5,7 @@
 // Not 2.19.0, the version the plugin's README quotes: its ASM cannot read Java 25 bytecode and dies
 // with `Unsupported class file major version 69`. Needs Gradle 8.11 or newer.
 plugins {
-  id("com.autonomousapps.build-health") version "3.18.0"
+  id("com.autonomousapps.build-health") version "3.19.1"
   id("org.jetbrains.kotlin.jvm") version "2.4.10" apply false
 }
 

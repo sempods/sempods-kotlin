@@ -1,10 +1,10 @@
 [versions]
-awsSdk = "2.54.2"
+awsSdk = "2.54.7"
 coroutines = "1.11.0"
 jackson = "2.22.2"
 jersey = "4.0.2"
 ktor = "3.5.2"
-mongodb = "5.10.0"
+mongodb = "5.11.0"
 okhttp = "5.5.0"
 rdf4j = "6.0.1"
 slf4j = "2.0.18"
@@ -56,8 +56,8 @@ kotlinxIoCore = "org.jetbrains.kotlinx:kotlinx-io-core:0.9.1"
 
 # The Jetty container `JaxRsServerModule` builds by hand: `Server`, `ServerConnector`,
 # `GzipHandler`, `VirtualThreadPool`.
-jettyServer = "org.eclipse.jetty:jetty-server:12.0.27"
-jettyUtil = "org.eclipse.jetty:jetty-util:12.0.27"
+jettyServer = "org.eclipse.jetty:jetty-server:12.1.12"
+jettyUtil = "org.eclipse.jetty:jetty-util:12.1.12"
 
 commonsText = "org.apache.commons:commons-text:1.15.0"
 commonsValidator = "commons-validator:commons-validator:1.11.0"
