@@ -48,6 +48,12 @@ person, and `logo_uri` exists to be rendered. RFC 7591 puts no scheme
 rule on them, so this one is the pod's, and a fragment or a query is
 allowed where a redirect target may carry neither.
 
+The same check runs again where those values are *read* — the consent
+model and the registration response. A repeat registration returns the
+stored row untouched, so a row written before the rule would otherwise
+keep handing its value back; filtering on read makes the guarantee hold
+for every row instead of only for new ones, and asks for no migration.
+
 ### `did:web:*` — origin-bound apps (e.g., Focus, AppShell-based SPAs)
 
 - The identifier *names* an address; nothing is dereferenced to check

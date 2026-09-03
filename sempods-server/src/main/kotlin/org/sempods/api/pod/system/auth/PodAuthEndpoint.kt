@@ -230,13 +230,18 @@ class PodAuthEndpoint @Inject constructor(
       "response_types" to listOf("code"),
     )
     if (registration.clientName != null) body["client_name"] = registration.clientName
-    if (registration.clientUri != null) body["client_uri"] = registration.clientUri
-    if (registration.logoUri != null) body["logo_uri"] = registration.logoUri
+    // Filtered on the way out, not only on the way in. A repeat registration returns the *stored*
+    // row untouched — `DynamicClientStore.register` discards the submitted metadata on a
+    // fingerprint hit — so a row written before this rule existed would otherwise keep handing its
+    // value back. Read-side is where the guarantee becomes true for every row rather than for the
+    // ones registered from here on, and it needs no migration to get there.
+    registration.clientUri?.takeIf(ClientMetadataUri::isValid)?.let { body["client_uri"] = it }
+    registration.logoUri?.takeIf(ClientMetadataUri::isValid)?.let { body["logo_uri"] = it }
     if (registration.softwareId != null) body["software_id"] = registration.softwareId
     if (registration.softwareVersion != null) body["software_version"] = registration.softwareVersion
     if (registration.contacts.isNotEmpty()) body["contacts"] = registration.contacts
-    if (registration.tosUri != null) body["tos_uri"] = registration.tosUri
-    if (registration.policyUri != null) body["policy_uri"] = registration.policyUri
+    registration.tosUri?.takeIf(ClientMetadataUri::isValid)?.let { body["tos_uri"] = it }
+    registration.policyUri?.takeIf(ClientMetadataUri::isValid)?.let { body["policy_uri"] = it }
 
     return Response.status(201).entity(body).type(MediaType.APPLICATION_JSON).build()
   }
@@ -759,8 +764,11 @@ class PodAuthEndpoint @Inject constructor(
         "consentAction" to consentAction,
         "clientId" to normalizedClientId,
         "clientName" to displayName,
-        "clientUri" to (registration?.clientUri ?: ""),
-        "logoUri" to (registration?.logoUri ?: ""),
+        // Same filter as the registration response, and this is the consumer it is really for:
+        // the day a template renders either of these, the value has already been through
+        // `ClientMetadataUri` no matter when the row behind it was written.
+        "clientUri" to (registration?.clientUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
+        "logoUri" to (registration?.logoUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
         "redirectUri" to normalizedRedirectUri,
         "state" to (state?.trim()?.takeIf { it.isNotBlank() } ?: ""),
         "codeChallenge" to (codeChallenge ?: ""),
