@@ -172,10 +172,8 @@ starting before it builds it.
   - `SPS-CTX-017` still describes the removed sweep. Not a conformance gap — the specification is
     pre-`0.1` and descriptive, so its own governance makes the code right and the text the bug — but
     the text needs correcting, and item 8 carries it.
-  - `gradle/spec/requirements.json` records that requirement under `spec/core/contexts.md` and
-    `part: core`; it has moved to `spec/modules/context-management.md` and is a module requirement.
-    Refreshing the index is the procedure in `gradle/spec/README.md`, whose diff is meant to be
-    reviewed on its own.
+  - `SPS-CTX-017` sits in `spec/modules/context-management.md` and is a module requirement, which
+    the vendored index records once this change adopts the published one.
   - Every revocation path holding only a token `sub` reaches the derivable twins and stops there,
     so an identity merge would leave a family under a non-derivable alias standing. Nothing writes
     `linkedIdentities` today, so none exists. When something does, the answer is one answer for
@@ -192,9 +190,8 @@ starting before it builds it.
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
   It carries item 6's edit too: `SPS-CTX-017` still has context deletion remove "refresh tokens
-  scoped to it", which no token issued since slimming can be, so the clause needs to go or to say
-  what it now means. That one sits in `spec/modules/context-management.md`, not in the core chapter
-  the vendored index names.
+  scoped to it", which no token issued today can be, so the clause needs to go or to say what it now
+  means. That one sits in `spec/modules/context-management.md` rather than in the core chapter.
   The companion change says when a refresh token may be issued, that `offline_access` is a sempods
   extension and not an OIDC scope, and what consent must show about lifetime; check whether
   `spec/modules/mcp.md` needs the same for clients that connect to a pod directly. It is a pull

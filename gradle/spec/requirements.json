@@ -2,6 +2,7 @@
   "specVersion": "0.1-dev",
   "versions": {
     "core": "0.1-dev",
+    "context-management": "0.1-dev",
     "oidc": "0.1-dev",
     "media": "0.1-dev",
     "mcp": "0.1-dev"
@@ -138,7 +139,7 @@
       "id": "SPS-AUTH-019",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "An implementation MUST apply `SPS-AUTH-018` at registration as well as at authorization, so that an address a login could never honour is refused when it is first offered rather than at first use.",
+      "summary": "An implementation MUST apply `SPS-AUTH-018` and `SPS-AUTH-056` at registration as well as at authorization, so that an address a login could never honour is refused when it is first offered rather than at first use.",
       "withdrawn": false
     },
     {
@@ -394,6 +395,20 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-AUTH-056",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "A redirect URI MUST NOT carry `code`, `response` or `state` as a query parameter.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-057",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "A query parameter counts as one of `SPS-AUTH-056`'s prohibited names when its name, percent-decoded and matched case-sensitively, equals that name — whether or not the parameter carries a value.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CORE-001",
       "part": "core",
       "chapter": "spec/core/index.md",
@@ -411,7 +426,7 @@
       "id": "SPS-CORE-003",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "From the `0.1` release on, requirement identifiers are permanent: an identifier MUST NOT be reassigned to a different statement, MUST NOT be renumbered, and a requirement that is retired MUST be marked `withdrawn`, keep its identifier and its original text, and name its successor if it has one.",
+      "summary": "Requirement identifiers are permanent: an identifier MUST NOT be reassigned to a different statement, MUST NOT be renumbered, and a requirement that is retired MUST be marked `withdrawn`, keep its identifier and its original text, and name its successor if it has one.",
       "withdrawn": false
     },
     {
@@ -425,7 +440,7 @@
       "id": "SPS-CORE-005",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "A **module** is an optional chapter set with its own area prefix and its own version.",
+      "summary": "A **module** is an optional chapter set with its own version.",
       "withdrawn": false
     },
     {
@@ -446,7 +461,7 @@
       "id": "SPS-CORE-008",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "The path segment `_system` immediately below a pod base URL is reserved for the control plane.",
+      "summary": "The path segments `_system` and `.well-known`, immediately below a pod base URL, are reserved for the control plane.",
       "withdrawn": false
     },
     {
@@ -558,7 +573,7 @@
       "id": "SPS-CRUD-004",
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
-      "summary": "A resource path equal to `_system` or beginning `_system/` MUST NOT be addressable through the LOD layer.",
+      "summary": "A resource path equal to a segment reserved by [`SPS-CORE-008`](index.md#SPS-CORE-008) — `_system` or `.well-known` — or beginning with one of them followed by `/`, MUST NOT be addressable through the LOD layer.",
       "withdrawn": false
     },
     {
@@ -962,8 +977,8 @@
     },
     {
       "id": "SPS-CTX-005",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "The management route and the context IRI MUST be the same string: `PUT {pod}/_system/contexts/apps/notes/public` manages exactly the context `{pod}/_system/contexts/apps/notes/public`.",
       "withdrawn": false
     },
@@ -990,16 +1005,16 @@
     },
     {
       "id": "SPS-CTX-009",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
-      "summary": "An implementation MUST accept a freely chosen context name that breaks none of the structural rules below.",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "An implementation MUST accept a freely chosen context name that breaks none of the structural rules — [`SPS-CTX-006`](../core/contexts.md#SPS-CTX-006), [`SPS-CTX-007`](../core/contexts.md#SPS-CTX-007), [`SPS-CTX-008`](../core/contexts.md#SPS-CTX-008), [`SPS-CTX-010`](../core/contexts.md#SPS-CTX-010), [`SPS-CTX-011`](../core/contexts.md#SPS-CTX-011) and [`SPS-CTX-013`](../core/contexts.md#SPS-CTX-013) in core, and `SPS-CTX-012` below.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-010",
       "part": "core",
       "chapter": "spec/core/contexts.md",
-      "summary": "The segment `_system` MUST be rejected anywhere in a context path.",
+      "summary": "A context path MUST NOT contain the segment `_system`, anywhere in it.",
       "withdrawn": false
     },
     {
@@ -1011,8 +1026,8 @@
     },
     {
       "id": "SPS-CTX-012",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "A **type root** — a path consisting of a delegation type and one further segment, such as `apps/notes` — MUST NOT be creatable through the context management route.",
       "withdrawn": false
     },
@@ -1020,55 +1035,55 @@
       "id": "SPS-CTX-013",
       "part": "core",
       "chapter": "spec/core/contexts.md",
-      "summary": "A context path that could not be addressed again MUST be rejected.",
+      "summary": "A context path MUST be one that can be addressed again.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-014",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
-      "summary": "The naming rules `SPS-CTX-009` through `SPS-CTX-012` MUST apply on **creation only**.",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "This route MUST apply the naming rules on **creation only** — the structural ones core states, and `SPS-CTX-012` here.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-015",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "`PUT {pod}/_system/contexts/{path}` MUST create the context at that IRI.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-016",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "`PUT` MUST be idempotent.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-017",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context, and MUST also remove the state that rested on it: grants naming it, refresh tokens scoped to it, and the context's statements.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-018",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "Deletion MUST NOT cascade into sub-contexts.",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-019",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
-      "summary": "`PUT` and `DELETE` MUST require the pod owner, or a `#manage` grant covering the target context under the slash-delimited rule of [`SPS-GRANT-007`](grants.md#SPS-GRANT-007).",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "`PUT` and `DELETE` MUST require the pod owner, or a `#manage` grant covering the target context under the slash-delimited rule of [`SPS-GRANT-007`](../core/grants.md#SPS-GRANT-007).",
       "withdrawn": false
     },
     {
       "id": "SPS-CTX-020",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
       "summary": "On `DELETE`, an implementation MUST check authorization **before** existence, so that a caller outside their sandbox receives `403` and not a `404` that would confirm the context exists.",
       "withdrawn": false
     },
@@ -1116,9 +1131,30 @@
     },
     {
       "id": "SPS-CTX-027",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "Where the `public` flag is absent — including on a request with no body at all — the context MUST be created **private**.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-028",
       "part": "core",
       "chapter": "spec/core/contexts.md",
-      "summary": "Where the `public` flag is absent — including on a request with no body at all — the context MUST be created **private**.",
+      "summary": "A pod MUST have at least one registered context.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-029",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "`DELETE` MUST refuse to remove the only context **visible to the caller**, with `409`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-030",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "A context MUST be private unless it was made public by an explicit choice.",
       "withdrawn": false
     },
     {
