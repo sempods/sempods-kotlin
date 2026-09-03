@@ -429,6 +429,35 @@ class RefreshTokenStoreTest {
   }
 
   @Test
+  fun `a family id keeps selecting, a token hash does not`() {
+    // The two reaches, measured rather than argued about. `issueInFamily` keeps the family id, so a
+    // list of families revokes successors rotated into them afterwards — right for a caller
+    // replacing a whole connection, wrong for one revoking on an observation a later rotation
+    // disproves. A list of hashes names rows that exist and nothing that comes after.
+    val first = store.issueNewFamily(owner(), scopes = emptySet())
+    val families = store.familiesWhere(Filters.eq("podId", PROBE_POD))
+    val hashes = store.liveTokensWhere(Filters.eq("podId", PROBE_POD))
+
+    store.markRotated(first.token.tokenHash)
+    val successor = store.issueInFamily(first.token, scopes = emptySet())
+    assertEquals(first.token.familyId, successor.token.familyId, "a rotation stays in its family")
+
+    clock = REVOKED_AT
+    store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, hashes))
+    assertNull(
+      store.lookup(successor.plaintext).token?.revokedAt,
+      "a hash measured beforehand cannot name a row rotated in afterwards",
+    )
+
+    store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, families))
+    assertEquals(
+      REVOKED_AT,
+      store.lookup(successor.plaintext).token?.revokedAt,
+      "the family it joined was named, and the name still selects it",
+    )
+  }
+
+  @Test
   fun `deleteWhere removes exactly the matching rows, and repeating it is a no-op`() {
     val mine = store.issueNewFamily(owner(), scopes = emptySet())
     store.issueInFamily(mine.token, scopes = emptySet())

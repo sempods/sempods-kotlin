@@ -358,13 +358,15 @@ class PodGrantsFacade @Inject constructor(
    * one grant and kept others is left alone. Idempotent — a second run finds the same pairs
    * holding the same nothing and re-revokes rows that are already revoked, which is a no-op.
    *
-   * **Named before the emptiness is asked, and revoked by name.** Reading grants and then revoking
-   * *everything* the pair holds is two moments with a gap, and a re-consent for one of these very
-   * pairs can complete inside it: its exchange mints a family and may already have handed the
-   * client the token. Revoking the families this pass saw standing — the same read-first shape the
-   * code exchange uses — leaves that successor alone, because it did not exist when the list was
-   * made. What is left is narrow and benign: a re-consent that restores grants after the check
-   * loses the families it was replacing anyway, which is what its own exchange would have done.
+   * **Named before the emptiness is asked, and revoked by name — one row at a time.** Reading
+   * grants and then revoking *everything* the pair holds is two moments with a gap, and a
+   * re-consent for one of these very pairs can complete inside it. Naming the rows first closes it,
+   * and the rows are named rather than their families because a family id keeps selecting: a
+   * refresh that succeeds in the gap rotates a successor into a family this pass listed, and that
+   * success is itself the proof that the grants came back — the observation this revocation rests
+   * on has been overtaken, so its successor has to outlive the sweep. What is left is narrow and
+   * benign: a re-consent restoring grants without any rotation loses the rows it was replacing,
+   * which is what its own exchange would have done.
    *
    * What it revokes was functionally dead already: the refresh exchange refuses a token whose app
    * has no grants, so nothing could have been minted from it. This is about the two cascades
@@ -377,10 +379,10 @@ class PodGrantsFacade @Inject constructor(
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
     candidates.forEach { (appId, webId) ->
-      val standing = refreshTokenStore.liveFamilies(podId, appId, listOf(webId))
+      val standing = refreshTokenStore.liveTokens(podId, appId, listOf(webId))
       if (standing.isEmpty()) return@forEach
       if (podGrantsDao.fetchGrantStrings(podId, appId, listOf(webId)).isNotEmpty()) return@forEach
-      revokedRefreshTokens += refreshTokenStore.revokeFamilies(standing)
+      revokedRefreshTokens += refreshTokenStore.revokeTokens(standing)
       affectedApps += appId
     }
     if (revokedRefreshTokens > 0) {

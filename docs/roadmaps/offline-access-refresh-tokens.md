@@ -177,9 +177,16 @@ starting before it builds it.
   to be used twice for the same reason it was needed once. The pass names the families it finds
   standing, asks the emptiness question, and revokes by name — so a re-consent for one of those very
   pairs, completing inside that gap, keeps the family its own exchange just minted and may already
-  have handed to the client. `RefreshTokenStoreTest` pins the property both sites rest on. What
-  remains is benign: a re-consent restoring grants after the check loses the families it was
-  replacing, which is what its own exchange would have done to them.
+  have handed to the client.
+
+  It names the **rows**, not their families, and that is where the two sweeps part company. A family
+  id keeps selecting — `issueInFamily` preserves it — so a refresh succeeding inside the gap would
+  have its successor revoked by a list of families, and that success is precisely the proof that the
+  grants came back: the observation this sweep rests on has been overtaken, so the successor has to
+  outlive it. The retirement above has the opposite reason and keeps the family-wide reach.
+  `RefreshTokenStoreTest` pins both properties — the ordering both sites rest on, and the difference
+  between the two reaches. What remains is benign: a re-consent restoring grants without any
+  rotation loses the rows it was replacing, which is what its own exchange would have done.
 
   **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
   answer to the lifetime question governs what stands after it. Withholding retires outright at
@@ -212,9 +219,11 @@ starting before it builds it.
   credential for a connection the person did just grant is the smaller one, and the next answer
   collapses it.
 
-  One race is still open on purpose and is the mirror of the one item 5 closed: a rotation whose
-  insert lands after the sweep survives it. There the survivor was a credential nobody granted,
-  which is why that insert is re-checked; here it is a duplicate of one the person just granted.
+  The retirement revokes by family id, so a rotation of a family it is retiring is caught even when
+  its insert lands after the measurement — `issueInFamily` keeps the family, and the name goes on
+  selecting. That reach is wanted here and only here: a reconnect replaces the whole connection, so
+  a token rotated out of the one being replaced belongs to it. The deletion cascade's own sweep
+  wants the opposite and names rows instead — see the last paragraph of item 6's third pass.
 
   The audit found one more disagreement of the same shape and fixed it: the MCP surface's explicit
   re-authorize revoked for a single `webId`, so a family recorded under an alias kept rotating

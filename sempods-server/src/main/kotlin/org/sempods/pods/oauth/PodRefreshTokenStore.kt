@@ -122,10 +122,33 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   internal fun liveFamilies(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
     ownerFilter(podId, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
 
-  /** Revokes each of [familyIds] — the sweep [liveFamilies] measured. */
+  /**
+   * Revokes each of [familyIds] — the sweep [liveFamilies] measured, successors included.
+   *
+   * The reach past what was measured is wanted here: a reconnect replaces the whole connection, so
+   * a rotation of a family it is retiring belongs to the connection being replaced. Where the reason
+   * to revoke is an observation that a later rotation would falsify, use [liveTokens] instead.
+   */
   internal fun revokeFamilies(familyIds: Collection<String>): Long =
     if (familyIds.isEmpty()) 0
     else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, familyIds))
+
+  /**
+   * The live rows this app holds for this person, named one by one — the snapshot for a caller
+   * whose reason to revoke is an observation rather than a decision.
+   *
+   * The grant cascade's case: it revokes because the app was left holding nothing, and a rotation
+   * that succeeded after the measurement is proof that grants came back before the sweep ran. Its
+   * successor must therefore outlive the sweep, which revoking by family id would not allow —
+   * `issueInFamily` keeps the family, so the name selects rows that did not exist when it was read.
+   */
+  internal fun liveTokens(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(podId, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()
+
+  /** Revokes exactly the rows [liveTokens] named, and nothing minted since. */
+  internal fun revokeTokens(tokenHashes: Collection<String>): Long =
+    if (tokenHashes.isEmpty()) 0
+    else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, tokenHashes))
 
   /** What one app holds for one person, or null where no URI names them. */
   private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {

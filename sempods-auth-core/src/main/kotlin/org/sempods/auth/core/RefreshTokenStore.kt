@@ -253,6 +253,22 @@ class RefreshTokenStore<OWNER>(
     ).toSet()
 
   /**
+   * The still-live rows matching [filter], named one by one rather than by family.
+   *
+   * The finer half of [familiesWhere], and the difference is not stylistic. A family id is a
+   * standing name: [issueInFamily] keeps it, so revoking by family also revokes every successor
+   * rotated into it afterwards. Where the caller's reason to revoke is an observation that may go
+   * stale — "this app holds no grant" — that reach is wrong, because a rotation it did not see
+   * proves the observation was overtaken. A hash names one row and nothing that comes later.
+   */
+  fun liveTokensWhere(filter: Bson): Set<String> =
+    tokens.distinct(
+      Field.TOKEN_HASH,
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      String::class.java,
+    ).toSet()
+
+  /**
    * Hard-deletes every row matching [filter].
    *
    * For the cascade where revocation is moot because the thing the tokens name is gone. Deleting
