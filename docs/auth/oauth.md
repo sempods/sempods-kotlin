@@ -236,7 +236,37 @@ it does not host.
 Per RFC 6749 §10.4 / OAuth 2.1 best practice. Refresh tokens belong to
 a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
-tokens are SHA-256 hashed at rest; default TTL is 90 days.
+tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
+rolling — every rotation renews it in full.
+
+**A reconnect replaces, it does not accumulate.** An answer to the
+lifetime question governs what stands after it: a consent granting a
+durable connection retires the families it supersedes once the successor
+exists, one withholding it retires them outright, and both span every URI
+derivable from the person's WebID. So reconnecting replaces the client's
+refresh token rather than leaving a second ninety-day credential beside
+it.
+
+Each exchange retires what it observed before minting its own, which
+bounds it rather than serialising it: two codes redeemed at the same
+instant under one standing consent can each observe only the families
+that predate both, and two then coexist until the next answer. That is
+deliberate. The alternative is a compare-and-set electing one winner,
+and the loser of that election is a client that completed a legitimate
+exchange — it would have to be handed an error, or a token already dead.
+An extra credential of a connection the person did just grant is the
+smaller failure.
+
+Deleting a context revokes no refresh token *for naming it*, which
+`SPS-CTX-017` still describes as it was before token slimming; that text
+has a companion edit pending. A family
+carries feature scopes only and context permissions are resolved per
+request, so the deletion's own cascade — the grant rows — is what ends
+the access. A family goes there on one condition, the same one the
+refresh exchange applies: it belongs to an app whose delegation the
+deletion removed, and that app is left holding no grant at all.
+A connection the deletion never held a grant of is not examined, so a
+consent replacing its grants at that moment cannot be caught mid-write.
 
 Public-read tokens (see below) **do not** receive a refresh token —
 the client re-authorizes when expired.

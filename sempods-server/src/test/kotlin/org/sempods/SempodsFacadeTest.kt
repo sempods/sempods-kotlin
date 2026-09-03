@@ -195,15 +195,19 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
   private fun clientIdFor(podName: String) = "dyn:cascade-client-$podName"
 
   @Test
-  fun `removeContext should cascade across grants, resources, refresh tokens, and the context registry`() {
+  fun `removeContext should cascade across grants, resources, and the context registry`() {
+    // Refresh tokens are not in this cascade: a family carries feature scopes, so it holds no
+    // authority over a context to lose, and what a deleted context takes away is the grant rows
+    // the request path resolves from. Where that leaves an app with nothing at all, the family
+    // does go — `PodGrantsFacadeTest` owns both halves of that rule.
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)
 
     val targetContext = URI("https://contexts.example.org/${pod.name}/target-${randomId()}")
     val siblingContext = URI("https://contexts.example.org/${pod.name}/sibling-${randomId()}")
 
-    val targetToken = seedContext(pod.name, podId, targetContext)
-    val siblingToken = seedContext(pod.name, podId, siblingContext)
+    seedContext(pod.name, podId, targetContext)
+    seedContext(pod.name, podId, siblingContext)
 
     podFacade.removeContext(pod.name, targetContext)
 
@@ -215,10 +219,6 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       targetGrants.any { it.startsWith("$targetContext#") },
       "grants on target context gone, was: $targetGrants"
     )
-    assertNotNull(
-      assertNotNull(refreshTokenStore.lookup(targetToken).token).revokedAt,
-      "target-scoped refresh token must be revoked",
-    )
 
     // Sibling context: untouched.
     assertTrue(podContextsDao.exists(podId, siblingContext.toString()))
@@ -226,10 +226,6 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       podGrantsDao.fetchGrantStrings(podId, "did:web:cascade-test.example", listOf(webIdFor(pod.name)))
     assertTrue(siblingGrants.any { it == "$siblingContext#read" })
     assertTrue(siblingGrants.any { it == "$siblingContext#write" })
-    assertNull(
-      assertNotNull(refreshTokenStore.lookup(siblingToken).token).revokedAt,
-      "sibling-scoped refresh token must not be revoked",
-    )
   }
 
   @Test
@@ -290,7 +286,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
     podName: String,
     podId: ObjectId,
     contextUri: URI,
-  ): String {
+  ) {
     podContextsDao.create(podId, contextUri.toString(), null, null, "test")
     putEventResource(
       podName = podName,
@@ -305,13 +301,6 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       grants = listOf("$contextUri#read", "$contextUri#write"),
       grantedBy = "test",
     )
-    return refreshTokenStore.issueNewFamily(
-      podId = podId,
-      podName = podName,
-      clientId = "dyn:ctx-cascade-${randomId()}",
-      webId = webIdFor(podName),
-      scopes = setOf("$contextUri#read"),
-    ).plaintext
   }
 
   private fun webIdFor(podName: String) = "https://id.example.org/$podName-cascade-user"

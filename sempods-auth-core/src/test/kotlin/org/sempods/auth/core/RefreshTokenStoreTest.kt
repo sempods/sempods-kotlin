@@ -364,8 +364,9 @@ class RefreshTokenStoreTest {
 
   @Test
   fun `revokeWhere carries a filter the store itself could not express`() {
-    // The pod server's two: by person-and-client on consent withdrawal, and by context scope when a
-    // context is deleted. `Filters.in` against an array matches when ANY element is in the list.
+    // A filter over the owner's fields and over `scopes`, neither of which this class knows —
+    // the shape the pod server's revocations are built in. `Filters.in` against an array matches
+    // when ANY element is in the list.
     val readGrant = store.issueNewFamily(owner(), scopes = setOf("public-read", "$EVENTS_ROOT#read"))
     val manageGrant = store.issueNewFamily(owner(clientId = "other-app"), scopes = setOf("$EVENTS_ROOT#manage"))
     val featureOnly = store.issueNewFamily(owner(), scopes = setOf("public-read"))
@@ -398,6 +399,81 @@ class RefreshTokenStoreTest {
         ),
       ),
       "only the one row left unrevoked for this (pod, client, webId)",
+    )
+  }
+
+  @Test
+  fun `familiesWhere cannot name a family minted after it was asked`() {
+    // What a caller who revokes what it supersedes needs, and the reason the read comes before the
+    // insert rather than after it. Two exchanges can run under one standing consent, and a sweep
+    // phrased as "everything but my own family" has each of them revoke the other's — both clients
+    // then walk away with a refresh token that is already dead. A set measured beforehand cannot
+    // reach what appears afterwards.
+    val superseded = store.issueNewFamily(owner(), scopes = emptySet())
+    val measured = store.familiesWhere(
+      Filters.and(Filters.eq("podId", PROBE_POD), Filters.eq("clientId", "notes-app"), Filters.eq("webId", WEB_ID)),
+    )
+    val concurrent = store.issueNewFamily(owner(), scopes = emptySet())
+
+    assertEquals(setOf(superseded.token.familyId), measured, "only what existed when it was asked")
+
+    clock = REVOKED_AT
+    assertEquals(1L, store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, measured)))
+    assertEquals(REVOKED_AT, store.lookup(superseded.plaintext).token?.revokedAt)
+    assertNull(store.lookup(concurrent.plaintext).token?.revokedAt, "the racing exchange's family survives")
+
+    assertTrue(
+      store.familiesWhere(Filters.eq("podId", PROBE_POD)).none { it == superseded.token.familyId },
+      "and a revoked family is no longer something to supersede",
+    )
+  }
+
+  @Test
+  fun `a family id keeps selecting, a token hash does not`() {
+    // The two reaches, measured rather than argued about. `issueInFamily` keeps the family id, so a
+    // list of families revokes successors rotated into them afterwards — right for a caller
+    // replacing a whole connection, wrong for one revoking on an observation a later rotation
+    // disproves. A list of hashes names rows that exist and nothing that comes after.
+    val first = store.issueNewFamily(owner(), scopes = emptySet())
+    val families = store.familiesWhere(Filters.eq("podId", PROBE_POD))
+    val hashes = store.liveTokensWhere(Filters.eq("podId", PROBE_POD))
+
+    store.markRotated(first.token.tokenHash)
+    val successor = store.issueInFamily(first.token, scopes = emptySet())
+    assertEquals(first.token.familyId, successor.token.familyId, "a rotation stays in its family")
+
+    clock = REVOKED_AT
+    store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, hashes))
+    assertNull(
+      store.lookup(successor.plaintext).token?.revokedAt,
+      "a hash measured beforehand cannot name a row rotated in afterwards",
+    )
+
+    store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, families))
+    assertEquals(
+      REVOKED_AT,
+      store.lookup(successor.plaintext).token?.revokedAt,
+      "the family it joined was named, and the name still selects it",
+    )
+  }
+
+  @Test
+  fun `revoking a spent row would cost its family the replay signal`() {
+    // Why a row-granular revocation skips what has been rotated. `lookup` answers REVOKED before
+    // REUSED, so a row that is both reports as merely revoked — and a caller reading that refuses
+    // the request without killing the family, leaving the successor a thief may be holding.
+    val spent = store.issueNewFamily(owner(), scopes = emptySet())
+    store.markRotated(spent.token.tokenHash)
+    store.issueInFamily(spent.token, scopes = emptySet())
+
+    assertEquals(RefreshTokenStore.LookupState.REUSED, store.lookup(spent.plaintext).state, "a replay of a spent row")
+
+    clock = REVOKED_AT
+    store.revokeWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, spent.token.tokenHash))
+    assertEquals(
+      RefreshTokenStore.LookupState.REVOKED,
+      store.lookup(spent.plaintext).state,
+      "revoking it hides the replay behind the revocation, which is why the sweep leaves it alone",
     )
   }
 

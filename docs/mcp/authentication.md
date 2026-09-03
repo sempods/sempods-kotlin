@@ -73,10 +73,13 @@ pod only; the first fresh authenticated token on that pod consumes them.
 Anonymous entries are last-write-wins per pod; concurrent anonymous flows
 against the same pod may need to retry.
 
-Refresh tokens for the affected `(podId, clientId, webId)` are revoked
+Refresh tokens for the affected `(podId, clientId, person)` are revoked
 on the original 401 — explicit reauthorize means *review current
 consent*, so parallel sessions must not silently rotate around the
-consent UI.
+consent UI. The person is every URI derivable from the bearer's `sub`,
+not that one URI: a pod stores whichever WebID authenticated, and a
+family recorded under the twin would keep rotating around the same
+dialog.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent

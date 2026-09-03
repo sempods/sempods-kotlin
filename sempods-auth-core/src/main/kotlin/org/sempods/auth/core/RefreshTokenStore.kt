@@ -229,12 +229,44 @@ class RefreshTokenStore<OWNER>(
   /**
    * Revokes every row matching [filter] — the hook for whatever "belongs to" means to a service.
    *
-   * The pod server revokes by person-and-client when a consent is withdrawn, and by context scope
-   * when a context is deleted; both are its domain and neither is expressible here, so they are
-   * filters it builds over its own owner fields plus [Field.SCOPES].
+   * The pod server revokes by person-and-client when a consent is withdrawn, and everything but
+   * the successor's family when a consent replaces it; both are its domain and neither is
+   * expressible here, so they are filters it builds over its own owner fields plus [Field.FAMILY_ID].
    */
   fun revokeWhere(filter: Bson): Long =
     tokens.updateMany(filter, Updates.set(Field.REVOKED_AT, clock())).modifiedCount
+
+  /**
+   * The families of the still-live rows matching [filter] — the ids, not the rows.
+   *
+   * For a caller that has to decide *what to revoke before it inserts*: a filter evaluated after
+   * the insert would also select what a concurrent caller inserted in the meantime, and two such
+   * callers would then revoke each other. Naming the families first makes the sweep unable to
+   * reach anything minted after it was measured. `revokedAt` is compared to `null` for the reason
+   * [markRotated] states — a live row does not carry the field at all.
+   */
+  fun familiesWhere(filter: Bson): Set<String> =
+    tokens.distinct(
+      Field.FAMILY_ID,
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      String::class.java,
+    ).toSet()
+
+  /**
+   * The still-live rows matching [filter], named one by one rather than by family.
+   *
+   * The finer half of [familiesWhere], and the difference is not stylistic. A family id is a
+   * standing name: [issueInFamily] keeps it, so revoking by family also revokes every successor
+   * rotated into it afterwards. Where the caller's reason to revoke is an observation that may go
+   * stale — "this app holds no grant" — that reach is wrong, because a rotation it did not see
+   * proves the observation was overtaken. A hash names one row and nothing that comes later.
+   */
+  fun liveTokensWhere(filter: Bson): Set<String> =
+    tokens.distinct(
+      Field.TOKEN_HASH,
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      String::class.java,
+    ).toSet()
 
   /**
    * Hard-deletes every row matching [filter].

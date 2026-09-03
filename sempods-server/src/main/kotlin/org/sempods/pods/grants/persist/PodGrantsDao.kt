@@ -82,12 +82,14 @@ class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: Strin
    * otherwise sweep `/tasks-private#read`) is never touched.
    */
   internal fun deleteByContext(podId: ObjectId, contextUri: String): Long =
-    grantRows.deleteMany(
-      Filters.and(
-        Filters.eq(PodGrantDboFields.podId, podId),
-        Filters.`in`(PodGrantDboFields.scope, anchoredScopes(contextUri)),
-      ),
-    ).deletedCount
+    grantRows.deleteMany(contextFilter(podId, contextUri)).deletedCount
+
+  /**
+   * The rows [deleteByContext] would remove, under the same filter — so a caller can see whose
+   * delegations a deletion is about to touch before it touches them.
+   */
+  internal fun fetchByContext(podId: ObjectId, contextUri: String): List<PodGrantDbo> =
+    find(contextFilter(podId, contextUri))
 
   /**
    * Upserts one row per entry of [grants]. Idempotent per grant string (unique index).
@@ -265,6 +267,12 @@ class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: Strin
 
     private fun anchoredScopes(contextUri: String): List<String> =
       CONTEXT_PERMISSIONS.map { "$contextUri#$it" }
+
+    private fun contextFilter(podId: ObjectId, contextUri: String): Bson =
+      Filters.and(
+        Filters.eq(PodGrantDboFields.podId, podId),
+        Filters.`in`(PodGrantDboFields.scope, anchoredScopes(contextUri)),
+      )
 
     /**
      * The upsert's key filter.
