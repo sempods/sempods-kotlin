@@ -85,14 +85,16 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     ).modifiedCount > 0L
 
   /**
-   * Context-deletion cascade — the static-registration counterpart of
-   * `PodRefreshTokenStore.revokeByContextScope`: strips every scope anchored exactly at
+   * Context-deletion cascade — the static-registration counterpart of the user-grant deletion in
+   * `PodGrantsFacade.revokeContextGrants`: strips every scope anchored exactly at
    * [contextUri] from the pod's service clients and deletes registrations left with no
    * scopes (the token endpoint refuses scopes outside the registered set, and a client
    * without any scope could not have been registered in the first place). Without this,
-   * deleting a `#manage` root would revoke user grants and refresh tokens but leave the
+   * deleting a `#manage` root would revoke the user grants but leave the
    * static client able to mint fresh tokens for the deleted root — and with them manage
-   * surviving descendants or recreate the root. Outstanding service tokens ride out
+   * surviving descendants or recreate the root. A registration's context scopes are read by the
+   * resolver on every request, which is what distinguishes them from the feature scopes a refresh
+   * row carries. Outstanding service tokens ride out
    * their ≤600 s TTL, same trade-off as for user access tokens.
    *
    * Returns the number of registrations deleted outright (scope-stripped survivors are
