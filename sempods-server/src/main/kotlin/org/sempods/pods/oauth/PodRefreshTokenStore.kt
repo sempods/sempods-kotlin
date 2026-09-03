@@ -145,10 +145,44 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   internal fun liveTokens(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
     ownerFilter(podId, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()
 
-  /** Revokes exactly the rows [liveTokens] named, and nothing minted since. */
+  /**
+   * Revokes exactly the rows [liveTokens] named, and nothing minted since — **skipping any that
+   * has been rotated in the meantime.**
+   *
+   * A spent row is not worth revoking and revoking it costs the family its reuse detection.
+   * `lookup` answers `REVOKED` before it answers `REUSED`, so a replay of a row that is both would
+   * be reported as merely revoked, and the refresh exchange would refuse it without killing the
+   * family — leaving the successor a thief may hold. Nothing is lost by skipping it: a rotated row
+   * cannot be exchanged either way, and staying merely rotated is what makes replaying it end the
+   * family. The `null` comparison matches a row that never carried the field, for the reason
+   * [RefreshTokenStore.markRotated] states.
+   */
   internal fun revokeTokens(tokenHashes: Collection<String>): Long =
     if (tokenHashes.isEmpty()) 0
-    else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, tokenHashes))
+    else store.revokeWhere(
+      Filters.and(
+        Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, tokenHashes),
+        Filters.eq(RefreshTokenStore.Field.ROTATED_AT, null),
+      ),
+    )
+
+  /**
+   * Whether this row has stopped standing — revoked, or gone — since it was read. The question a
+   * rotation has to ask after inserting its successor.
+   *
+   * `markRotated` refuses a revoked row, so a retirement landing *before* the rotation is already
+   * answered. One landing between the rotation and the insert is not: it revokes the rows it finds,
+   * and the successor appears after it, alive in a family that was meant to be retired. Asking
+   * about the predecessor answers for the family, because retirement is family-wide.
+   *
+   * A row the TTL index reaped answers the same as a revoked one. That is deliberate rather than
+   * imprecise: both mean this rotation no longer has a predecessor standing behind it, and the
+   * caller's response to either is the one a client of a retired family is owed.
+   *
+   * A point lookup on the unique hash index — the cheapest question this collection answers.
+   */
+  internal fun noLongerStands(tokenHash: String): Boolean =
+    store.liveTokensWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash)).isEmpty()
 
   /** What one app holds for one person, or null where no URI names them. */
   private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {

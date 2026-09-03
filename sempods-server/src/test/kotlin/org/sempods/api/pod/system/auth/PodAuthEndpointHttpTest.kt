@@ -926,6 +926,33 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a family the retirement swept cannot be refreshed back to life`() {
+    // The retirement's own revocation path, end to end. It does **not** reach the window the
+    // `noLongerStands` guard exists for — that one needs the sweep to land between `markRotated`
+    // and the insert, two adjacent statements inside one request, which no HTTP test can hit.
+    // What it does hold is that a swept family stays swept, rows included.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    // Exactly what the reconnect's sweep does to the family this token belongs to.
+    refreshTokenStore.revokeFamilies(setOf(held.token.familyId))
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    assertTrue(
+      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
+      "a retired family must not come back to life through a rotation",
+    )
+  }
+
+  @Test
   fun `a reconnect retires a family the pod recorded under an alias`() {
     // I8 on the retirement path. The pod stores whichever URI authenticated, so the connection a
     // reconnect replaces may sit under the twin of the one the code carries — and a survivor there

@@ -1654,6 +1654,19 @@ class PodAuthEndpoint @Inject constructor(
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
 
+    // A retirement landing between the rotation and that insert revoked the rows it found, and this
+    // successor appeared after it — alive, in the family a reconnect had just replaced. `markRotated`
+    // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
+    // one arriving in between, and the two together leave it nowhere to land unseen.
+    if (refreshTokenStore.noLongerStands(token.tokenHash)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] family retired mid-rotation — successor revoked: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+    }
+
     // Asked again, because the check above and this insert are two moments: a withdrawal landing
     // between them revokes what it can see and misses the row about to appear. Whoever arrives
     // second undoes the other's work rather than leaving a live successor behind.

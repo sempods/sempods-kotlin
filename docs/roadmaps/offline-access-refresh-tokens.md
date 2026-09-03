@@ -184,8 +184,13 @@ starting before it builds it.
   have its successor revoked by a list of families, and that success is precisely the proof that the
   grants came back: the observation this sweep rests on has been overtaken, so the successor has to
   outlive it. The retirement above has the opposite reason and keeps the family-wide reach.
-  `RefreshTokenStoreTest` pins both properties — the ordering both sites rest on, and the difference
-  between the two reaches. What remains is benign: a re-consent restoring grants without any
+  It also skips a row that has been rotated since it was named, and that is not tidiness: `lookup`
+  answers `REVOKED` before `REUSED`, so a row that is both reports as merely revoked, and the
+  refresh path would then refuse a replay without ending the family — leaving alive the successor a
+  thief would be holding. A spent row cannot be exchanged either way, so staying merely rotated
+  costs nothing and is what keeps the replay signal.
+  `RefreshTokenStoreTest` pins all three properties — the ordering both sites rest on, the
+  difference between the two reaches, and what revoking a spent row would cost. What remains is benign: a re-consent restoring grants without any
   rotation loses the rows it was replacing, which is what its own exchange would have done.
 
   **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
@@ -221,7 +226,13 @@ starting before it builds it.
 
   The retirement revokes by family id, so a rotation of a family it is retiring is caught even when
   its insert lands after the measurement — `issueInFamily` keeps the family, and the name goes on
-  selecting. That reach is wanted here and only here: a reconnect replaces the whole connection, so
+  selecting. It is caught in one more place besides: a rotation that had already passed
+  `markRotated` inserts its successor *after* the sweep, into a family the sweep had emptied, so the
+  refresh path asks whether its own predecessor still stands before handing that successor over.
+  `markRotated` answers for a retirement arriving earlier, since it refuses a revoked row; the two
+  together leave it nowhere to land unseen. Like the generation re-check, that window is between two
+  statements and has no test — `a family the retirement swept cannot be refreshed back to life`
+  covers the sweep's ordinary path and says so. That reach is wanted here and only here: a reconnect replaces the whole connection, so
   a token rotated out of the one being replaced belongs to it. The deletion cascade's own sweep
   wants the opposite and names rows instead — see the last paragraph of item 6's third pass.
 

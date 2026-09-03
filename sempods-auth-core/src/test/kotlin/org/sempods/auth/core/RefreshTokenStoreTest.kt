@@ -458,6 +458,26 @@ class RefreshTokenStoreTest {
   }
 
   @Test
+  fun `revoking a spent row would cost its family the replay signal`() {
+    // Why a row-granular revocation skips what has been rotated. `lookup` answers REVOKED before
+    // REUSED, so a row that is both reports as merely revoked — and a caller reading that refuses
+    // the request without killing the family, leaving the successor a thief may be holding.
+    val spent = store.issueNewFamily(owner(), scopes = emptySet())
+    store.markRotated(spent.token.tokenHash)
+    store.issueInFamily(spent.token, scopes = emptySet())
+
+    assertEquals(RefreshTokenStore.LookupState.REUSED, store.lookup(spent.plaintext).state, "a replay of a spent row")
+
+    clock = REVOKED_AT
+    store.revokeWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, spent.token.tokenHash))
+    assertEquals(
+      RefreshTokenStore.LookupState.REVOKED,
+      store.lookup(spent.plaintext).state,
+      "revoking it hides the replay behind the revocation, which is why the sweep leaves it alone",
+    )
+  }
+
+  @Test
   fun `deleteWhere removes exactly the matching rows, and repeating it is a no-op`() {
     val mine = store.issueNewFamily(owner(), scopes = emptySet())
     store.issueInFamily(mine.token, scopes = emptySet())
