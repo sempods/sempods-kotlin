@@ -141,143 +141,47 @@ starting before it builds it.
   the resolver rather than with a lifetime control.
   Most of the milestone's weight sits here, and the list is where
   it is checkable. If this item is still one piece of work when it is picked up, split it there.
-- [x] 6 — Align revocation and liveness. Both decisions are taken, and the four paths agree.
+- [x] 6 — Align revocation and liveness. Both decisions taken, and the four paths agree.
 
-  **The refresh-token `revokeByContextScope` is gone**; the identically named service-client path
-  stays, because a registration's context scopes *are* what the resolver reads per request while a
-  refresh row's are not read at all. Rows predating slim tokens do not justify keeping it: such a
-  row's context scope authorizes nothing — the refresh exchange intersects against the feature
-  scopes before issuing — so the sweep would have ended the sessions of the oldest families and
-  only those, for a string. What closes the re-create-with-same-URI window is the grant deletion
-  that runs beside it, which is where permissions are resolved from. `SempodsFacadeTest`'s context
-  cascade lost its refresh-token half accordingly; the rule that a family dies when its app is left
-  holding nothing is `PodGrantsFacadeTest`'s, together with its new counterpart that a deletion
-  leaving other grants does not end the session.
+  **The refresh-token `revokeByContextScope` is gone.** A refresh row carries feature scopes only,
+  so a family holds no authority over a context to lose, and what closes the re-create-with-same-URI
+  window is the grant deletion beside it. The identically named service-client path stays: a
+  registration's context scopes *are* what the resolver reads. What replaces the sweep is the
+  condition the owner-level cascade already applied — an app left holding nothing loses its family —
+  extended to reach the pairs a context deletion empties directly.
 
-  **A requirement still describes the sweep, and item 8 carries the edit.** `SPS-CTX-017` has
-  deletion remove "grants naming it, refresh tokens scoped to it, and the context's statements" —
-  the middle clause is exactly what went. Read in full rather than through the vendored summary, it
-  carries no qualifier, so the disagreement is real. It is not a conformance gap: the specification
-  is pre-`0.1` and says on every chapter that it is descriptive — extracted from this
-  implementation, and where the two disagree `GOVERNANCE.md` makes the code right and the text the
-  bug. What that buys is not permission to ignore it but the obligation to correct it, which is
-  item 8's whole subject.
+  **A reconnect retires the family it supersedes.** One rule from both ends: an answer to the
+  lifetime question governs what stands after it. Withholding retires at consent, granting retires
+  at the code exchange once the successor exists. It bounds accumulation rather than serialising it,
+  and `docs/auth/oauth.md` §"Refresh token rotation" says so — electing a single winner was
+  considered and refused, because the loser of that election is a client holding a legitimate token.
 
-  Two things the vendored index gets wrong, found while checking this and worth a change of their
-  own rather than a line in this one: `SPS-CTX-017` now lives in `spec/modules/context-management.md`
-  and not in `spec/core/contexts.md`, and it is a module requirement rather than a core one — while
-  `gradle/spec/requirements.json` still records the old chapter and lists no such module under
-  `versions`. Refreshing it is the procedure in `gradle/spec/README.md`, and its diff is meant to be
-  reviewed on its own.
+  The audit fixed one more disagreement of the same shape: the MCP surface's explicit re-authorize
+  revoked for a single `webId`, so a family recorded under an alias kept rotating around the very
+  consent screen the 401 exists to force. DCR liveness needed no change, and neither did the hosted
+  service's own refresh layer, which item 1 put on this list — it rotates against its own store with
+  no consent decision in it, and a vault row the pod handed no refresh token is never selected as
+  due.
 
-  Removing the sweep put a question to the condition that replaces it, and the answer needed a
-  third pass. A pair whose *last* grant named the deleted context never reaches
-  `sweepUnbackedAppGrants`' emptiness branch — its rows are gone before that recompute reads the
-  pod — so it kept a family the owner-level cascade would have ended, and had kept one for every
-  non-legacy family since tokens went slim. Keyed on the family's own `webId`, exactly as the
-  refresh exchange keys `currentGrants`, so the proactive answer and the lazy one cannot disagree —
-  which was the point of the item.
+  Why each sweep reaches as far as it does, and which of these windows no test can enter, is stated
+  where the code is: `PodRefreshTokenStore`, `PodGrantsFacade.revokeContextGrants` and the three
+  re-asks in `exchangeRefreshToken`.
 
-  Its candidates are the pairs holding a grant anchored at the deleted context, read **before** the
-  delete removes them, and that narrowing is not an optimisation. The alternative — deriving the
-  work afterwards by scanning the pod's live families — reaches connections this deletion never
-  touched, and `PodGrantsDao.replaceGrants` is a delete followed by inserts, so such a scan would
-  eventually catch an unrelated re-consent mid-replacement and irreversibly revoke the connection it
-  was renewing. The price of narrowing is the one place in `revokeContextGrants` that a retry cannot
-  reconstruct, and it is payable only here: a run dying between the delete and the revocation leaves
-  a family standing, which the refresh exchange then ends at its first use. Three tests hold the
-  shape — the emptied pair loses its family, a pair that kept other grants does not, and a
-  connection the deletion never held a grant of is not examined at all.
+  **Left open by this item:**
 
-  Narrowing alone does not settle the pairs the deletion *did* touch, and the read-before shape has
-  to be used twice for the same reason it was needed once. The pass names the families it finds
-  standing, asks the emptiness question, and revokes by name — so a re-consent for one of those very
-  pairs, completing inside that gap, keeps the family its own exchange just minted and may already
-  have handed to the client.
+  - `SPS-CTX-017` still describes the removed sweep. Not a conformance gap — the specification is
+    pre-`0.1` and descriptive, so its own governance makes the code right and the text the bug — but
+    the text needs correcting, and item 8 carries it.
+  - `gradle/spec/requirements.json` records that requirement under `spec/core/contexts.md` and
+    `part: core`; it has moved to `spec/modules/context-management.md` and is a module requirement.
+    Refreshing the index is the procedure in `gradle/spec/README.md`, whose diff is meant to be
+    reviewed on its own.
+  - Every revocation path holding only a token `sub` reaches the derivable twins and stops there,
+    so an identity merge would leave a family under a non-derivable alias standing. Nothing writes
+    `linkedIdentities` today, so none exists. When something does, the answer is one answer for
+    `revokeWebIdGrants`, the retirement and the MCP path alike, and it is the resolver's — the
+    question item 5 parked, asked from the revoking side.
 
-  It names the **rows**, not their families, and that is where the two sweeps part company. A family
-  id keeps selecting — `issueInFamily` preserves it — so a refresh succeeding inside the gap would
-  have its successor revoked by a list of families, and that successor may already be in a client's
-  hands. Whether it deserves to live is a different question and not this sweep's: the refresh that
-  produced it read its grants before this deletion wrote, so its success proves nothing about them.
-  It is settled where it can be, by the refresh exchange asking the grants a third time after
-  inserting the successor — the same read-write-re-ask shape the durability refusal and the consent
-  generation already use there, and the one condition of the three that was still asked only once.
-  The retirement above has the opposite reason and keeps the family-wide reach.
-  It also skips a row that has been rotated since it was named, and that is not tidiness: `lookup`
-  answers `REVOKED` before `REUSED`, so a row that is both reports as merely revoked, and the
-  refresh path would then refuse a replay without ending the family — leaving alive the successor a
-  thief would be holding. A spent row cannot be exchanged either way, so staying merely rotated
-  costs nothing and is what keeps the replay signal.
-  `RefreshTokenStoreTest` pins all three properties — the ordering both sites rest on, the
-  difference between the two reaches, and what revoking a spent row would cost. What remains is benign: a re-consent restoring grants without any
-  rotation loses the rows it was replacing, which is what its own exchange would have done.
-
-  **A reconnect retires the family it supersedes**, and the two answers agree on one rule: an
-  answer to the lifetime question governs what stands after it. Withholding retires outright at
-  consent; granting retires at the code exchange, once the successor exists, so answering "yes"
-  never leaves the person holding nothing. Across their derivable URIs, because the superseded
-  family may sit under the twin of the URI the code carries. What the sweep revokes is **measured
-  before the successor is minted**, and that ordering is the whole of its concurrency argument: two
-  exchanges can run under one standing consent — auto-grant issues a code without recording a new
-  decision — and a sweep phrased as "everything but my own family" would have each of them revoke
-  the other's, handing both clients a refresh token that is already dead. A set read beforehand
-  cannot name a family minted after it, and each caller reads before it inserts, so at most one of
-  the two can have observed the other. `RefreshTokenStoreTest` pins the property the ordering rests
-  on; `two silent codes under one standing consent leave one live family` pins the path.
-
-  The generation is asked twice for the same reason the refusal is. It was compared before the
-  family existed, and the sweep that follows is destructive: an answer landing in between is a
-  *later* one than this code's, so retiring what its exchange produced would let the older code win
-  — I9 running backwards, through the sweep instead of through the mint. The second ask ends this
-  exchange's own family and sends the client back through consent, which is what a superseded code
-  is owed. Only its sequential counterpart has a test (`a code cannot pick up a consent granted
-  after it`); the interleaving itself sits between two statements and is not reachable from an HTTP
-  test.
-
-  What that ordering buys is a bound, not serialisation: two codes redeemed at the same instant can
-  each observe only the families predating both, so two coexist until the next answer. Electing a
-  single winner was considered and refused. There is no way for the loser of such an election to end
-  up holding the survivor — it never sees that plaintext — so it would have to be answered with an
-  error, or with a token revoked the moment it was returned, and both are the failure this milestone
-  opened by describing: a client told it has a durable connection that does not work. An extra
-  credential for a connection the person did just grant is the smaller one, and the next answer
-  collapses it.
-
-  The retirement revokes by family id, so a rotation of a family it is retiring is caught even when
-  its insert lands after the measurement — `issueInFamily` keeps the family, and the name goes on
-  selecting. It is caught in one more place besides: a rotation that had already passed
-  `markRotated` inserts its successor *after* the sweep, into a family the sweep had emptied, so the
-  refresh path asks whether its own predecessor still stands before handing that successor over.
-  `markRotated` answers for a retirement arriving earlier, since it refuses a revoked row; the two
-  together leave it nowhere to land unseen. Like the generation re-check, that window is between two
-  statements and has no test — `a family the retirement swept cannot be refreshed back to life`
-  covers the sweep's ordinary path and says so. That reach is wanted here and only here: a reconnect replaces the whole connection, so
-  a token rotated out of the one being replaced belongs to it. The deletion cascade's own sweep
-  wants the opposite and names rows instead — see the last paragraph of item 6's third pass.
-
-  The audit found one more disagreement of the same shape and fixed it: the MCP surface's explicit
-  re-authorize revoked for a single `webId`, so a family recorded under an alias kept rotating
-  around the very consent screen the 401 exists to force. I8 is about every path that ends access,
-  and that is one.
-
-  It reaches the derivable twins and stops there, which is the whole of what a path holding a token
-  `sub` can resolve. `LoginService.aliasesFor` also carries a profile's `linkedIdentities`, so an
-  identity merge could name a person by two URIs with different hashes, and a family under the
-  second would survive — as it would survive `revokeWebIdGrants` and the retirement above, both of
-  which resolve the same way. Nothing writes `linkedIdentities` today, so no such family exists;
-  when something does, the answer is one answer for all three, and it is the resolver's, not a
-  lifetime control's. It is the same question item 5 parked, asked from the revoking side. DCR liveness needed no change — all three `touchLastAuthorized` call sites still
-  fire, so a connection the person kept short-lived stays as live as a durable one and merely says
-  so by re-authorizing instead of refreshing; the stale claim that the stamp feeds an orphan sweep
-  is gone, the sweep being the TODO two lines below it. The hosted service's own layer, which item 1
-  put on this list, needed nothing either: its authorization server rotates against its own store
-  with no consent decision and no context scope in it, and a vault row the pod handed no refresh
-  token is never selected as due (`PodTokenProvider.isDue`), so it simply runs out and the person
-  reconnects — which is what withholding durability means. Left alone deliberately: an outstanding
-  code redeemed after a full grant revocation still mints a family, which that family's first
-  refresh then ends on `currentGrants.isEmpty()` — the proactive and the lazy answer differ in
-  timing, not in outcome.
 - [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
   explicit `offline_access` request for a client that wants the durable option preselected, and must
   keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that

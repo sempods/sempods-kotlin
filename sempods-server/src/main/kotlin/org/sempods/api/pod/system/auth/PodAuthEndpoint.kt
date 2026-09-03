@@ -1447,7 +1447,9 @@ class PodAuthEndpoint @Inject constructor(
     // is a *later* one than this code's, so retiring what its exchange produced would let the older
     // code win — the supersession running backwards. Asked once more for the same reason the
     // refusal above is, and answered the same way: this exchange's own family goes and the client
-    // is told to come back through consent.
+    // is told to come back through consent. Only the sequential case has a test (`a code cannot
+    // pick up a consent granted after it`); this window is between two statements, where none can
+    // reach.
     if (issuedRefresh != null &&
       consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
         ?.generation != issuedUnder
@@ -1657,7 +1659,9 @@ class PodAuthEndpoint @Inject constructor(
     // A retirement landing between the rotation and that insert revoked the rows it found, and this
     // successor appeared after it — alive, in the family a reconnect had just replaced. `markRotated`
     // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
-    // one arriving in between, and the two together leave it nowhere to land unseen.
+    // one arriving in between, and the two together leave it nowhere to land unseen. The window is
+    // between two statements and has no test; `a family the retirement swept cannot be refreshed
+    // back to life` covers the ordinary path and says so.
     if (refreshTokenStore.noLongerStands(token.tokenHash)) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId)
       logger.info {
@@ -1671,7 +1675,8 @@ class PodAuthEndpoint @Inject constructor(
     // any of this, and a context deletion writes in between: it removes the app's last grant, names
     // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
     // replaying the spent row still ends the family. What that leaves behind is a successor for an
-    // app holding nothing, and this is the last moment it can be answered for.
+    // app holding nothing, and this is the last moment it can be answered for. Untestable for the
+    // same reason as its two neighbours; the check before the insert covers the ordinary case.
     if (podGrantsDao.fetchGrantStrings(
         podId = checkNotNull(podDbo.id),
         appId = token.owner.clientId,
