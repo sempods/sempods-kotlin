@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.mcp
 
 import com.google.inject.Inject
+import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
@@ -33,6 +34,9 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var refreshTokenStore: PodRefreshTokenStore
+
+  @Inject
+  private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   private val httpClient by lazy { http.followingRedirects }
   private val objectMapper = JsonMappers.default()
@@ -2032,6 +2036,65 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(
       refreshResponse.responseBody.contains("\"invalid_grant\""),
       "Revoked refresh token must force the client into an authorization flow: ${refreshResponse.responseBody}",
+    )
+  }
+
+  @Test
+  fun `tools call authorize with reauthorize=true revokes a family recorded under an alias`() {
+    // Explicit reauthorization ends access, and a person is a set of URIs on every path that does.
+    // The pod stores whichever URI authenticated, so the family that would refresh around the
+    // consent UI is exactly the one sitting under the twin of the bearer's `sub`.
+    val pod = sempodsTestFactory.newPod()
+    val ownerUser = sempodsTestFactory.newOwner()
+    val webId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val alias = webIdUriDeriver.derivableAliases(webId).first { it != webId }
+    val (contextUri, token) = createContextWithToken(pod, "main-${TestUtil.randomId()}", webId = webId)
+    val clientId = "did:web:test.example"
+    // The alias holds grants of its own, or the refresh would fail as a full revocation instead —
+    // which is the answer this test must not be able to mistake for the one it is looking for.
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = clientId,
+      webId = alias,
+      grants = setOf("${contextUri}#read"),
+      grantedBy = alias,
+    )
+    val refreshToken = refreshTokenStore.issueNewFamily(
+      podId = checkNotNull(pod.id),
+      podName = pod.name,
+      clientId = clientId,
+      webId = alias,
+      scopes = emptySet(),
+    ).plaintext
+
+    val request = mapOf(
+      "jsonrpc" to "2.0",
+      "id" to 123,
+      "method" to "tools/call",
+      "params" to mapOf(
+        "name" to "authorize",
+        "arguments" to mapOf("reauthorize" to true),
+      ),
+    )
+
+    val response = httpClient.preparePost(mcpUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody(objectMapper.writeValueAsString(request))
+      .execute()
+
+    assertEquals(401, response.statusCode)
+
+    val refreshResponse = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token" +
+        "&refresh_token=${URLEncoder.encode(refreshToken, "UTF-8")}" +
+        "&client_id=${URLEncoder.encode(clientId, "UTF-8")}",
+    )
+    assertEquals(400, refreshResponse.statusCode, refreshResponse.responseBody)
+    assertTrue(
+      refreshResponse.responseBody.contains("\"invalid_grant\""),
+      "the alias-bound family must not survive an explicit reauthorize: ${refreshResponse.responseBody}",
     )
   }
 

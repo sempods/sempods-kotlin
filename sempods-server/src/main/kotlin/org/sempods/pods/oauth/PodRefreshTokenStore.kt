@@ -101,40 +101,101 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    * calling that a withdrawal leaves the connection the person meant to end running — and the
    * survivor then reads as an authorization with nothing recorded, which is grandfathered.
    */
-  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long {
-    val distinct = webIds.filter { it.isNotBlank() }.distinct()
-    if (distinct.isEmpty()) return 0
-    return store.revokeWhere(
-      Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
-        Filters.eq(FIELD_CLIENT_ID, clientId),
-        Filters.`in`(FIELD_WEB_ID, distinct),
-      ),
-    )
-  }
+  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
+    ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
 
   /**
-   * Revokes every token within [podId] whose `scopes` array holds any of
-   * `<contextUri>#read|write|manage`.
+   * The live families this app holds for this person — what a consent about to mint one supersedes.
    *
-   * The context-cascade delete path, so a token issued before the context was dropped cannot be
-   * exchanged after the fact — critical for the re-create-with-same-URI window, where the live
-   * context-existence check at write time would otherwise let a new context inherit the old token's
-   * authority. Access tokens are self-contained and unaffected; they expire after an hour.
+   * A reconnect answers the lifetime question again, and the answer governs what stands afterwards:
+   * withholding ends the families through [revokeForUser], granting replaces them through this pair.
+   * Without it every reconnect leaves another ninety-day family behind that nobody counted and that
+   * renews its own TTL on each rotation.
    *
-   * `Filters.in` against an array field matches when **any** element is in the supplied list, which
-   * is exactly the semantics wanted here.
+   * **Measured before the successor is minted, and that ordering is the correctness argument.** Two
+   * exchanges can run under one standing consent — auto-grant issues a code without recording a new
+   * decision — and a sweep phrased as "everything but my own family" would have each of them revoke
+   * the other's, handing both clients a refresh token that is already dead. A set read beforehand
+   * cannot name a family minted after it, and each caller reads before it inserts, so at most one of
+   * the two can have observed the other: either one retires the other, or neither does.
    */
-  internal fun revokeByContextScope(podId: ObjectId, contextUri: String): Long =
-    store.revokeWhere(
+  internal fun liveFamilies(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(podId, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
+
+  /**
+   * Revokes each of [familyIds] — the sweep [liveFamilies] measured, successors included.
+   *
+   * The reach past what was measured is wanted here: a reconnect replaces the whole connection, so
+   * a rotation of a family it is retiring belongs to the connection being replaced. Where the reason
+   * to revoke is an observation that a later rotation would falsify, use [liveTokens] instead.
+   */
+  internal fun revokeFamilies(familyIds: Collection<String>): Long =
+    if (familyIds.isEmpty()) 0
+    else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, familyIds))
+
+  /**
+   * The live rows this app holds for this person, named one by one — the snapshot for a caller
+   * whose reason to revoke is an observation rather than a decision.
+   *
+   * The grant cascade's case: it revokes because the app was left holding nothing, and a successor
+   * rotated in after the measurement is one a client may already be holding. Revoking by family id
+   * would reach it — `issueInFamily` keeps the family, so the name selects rows that did not exist
+   * when it was read — and handing back a credential that is already dead is the failure this
+   * milestone exists to remove. Whether that successor may live is settled by the refresh exchange,
+   * which asks the grants again after inserting it.
+   */
+  internal fun liveTokens(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(podId, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()
+
+  /**
+   * Revokes exactly the rows [liveTokens] named, and nothing minted since — **skipping any that
+   * has been rotated in the meantime.**
+   *
+   * A spent row is not worth revoking and revoking it costs the family its reuse detection.
+   * `lookup` answers `REVOKED` before it answers `REUSED`, so a replay of a row that is both would
+   * be reported as merely revoked, and the refresh exchange would refuse it without killing the
+   * family — leaving the successor a thief may hold. Nothing is lost by skipping it: a rotated row
+   * cannot be exchanged either way, and staying merely rotated is what makes replaying it end the
+   * family. The `null` comparison matches a row that never carried the field, for the reason
+   * [RefreshTokenStore.markRotated] states.
+   */
+  internal fun revokeTokens(tokenHashes: Collection<String>): Long =
+    if (tokenHashes.isEmpty()) 0
+    else store.revokeWhere(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
-        Filters.`in`(
-          RefreshTokenStore.Field.SCOPES,
-          listOf("$contextUri#read", "$contextUri#write", "$contextUri#manage"),
-        ),
+        Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, tokenHashes),
+        Filters.eq(RefreshTokenStore.Field.ROTATED_AT, null),
       ),
     )
+
+  /**
+   * Whether this row has stopped standing — revoked, or gone — since it was read. The question a
+   * rotation has to ask after inserting its successor.
+   *
+   * `markRotated` refuses a revoked row, so a retirement landing *before* the rotation is already
+   * answered. One landing between the rotation and the insert is not: it revokes the rows it finds,
+   * and the successor appears after it, alive in a family that was meant to be retired. Asking
+   * about the predecessor answers for the family, because retirement is family-wide.
+   *
+   * A row the TTL index reaped answers the same as a revoked one. That is deliberate rather than
+   * imprecise: both mean this rotation no longer has a predecessor standing behind it, and the
+   * caller's response to either is the one a client of a retired family is owed.
+   *
+   * A point lookup on the unique hash index — the cheapest question this collection answers.
+   */
+  internal fun noLongerStands(tokenHash: String): Boolean =
+    store.liveTokensWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash)).isEmpty()
+
+  /** What one app holds for one person, or null where no URI names them. */
+  private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {
+    val distinct = webIds.filter { it.isNotBlank() }.distinct()
+    if (distinct.isEmpty()) return null
+    return Filters.and(
+      Filters.eq(FIELD_POD_ID, podId),
+      Filters.eq(FIELD_CLIENT_ID, clientId),
+      Filters.`in`(FIELD_WEB_ID, distinct),
+    )
+  }
 
   /**
    * Hard-deletes every refresh token of the pod — the pod-cascade delete path, where family

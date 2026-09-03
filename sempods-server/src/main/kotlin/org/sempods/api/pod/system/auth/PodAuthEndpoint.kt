@@ -12,6 +12,7 @@ import org.sempods.auth.core.Secrets
 import com.google.inject.Inject
 import com.google.inject.name.Named
 import org.sempods.commons.config.Env
+import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.net.UrlUtil
@@ -61,6 +62,7 @@ class PodAuthEndpoint @Inject constructor(
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
   private val consentTransactionStore: ConsentTransactionStore,
+  private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -1432,6 +1434,21 @@ class PodAuthEndpoint @Inject constructor(
     // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
     // which the refresh grant still honours, and mints no new one here.
     val durable = decision?.durable == true
+
+    // What this exchange supersedes, named *before* the successor exists — see
+    // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
+    // person's derivable URIs, because the superseded family may have been minted under the twin
+    // of the URI this code carries.
+    val superseded = if (durable) {
+      refreshTokenStore.liveFamilies(
+        podId = checkNotNull(podDbo.id),
+        clientId = entry.clientId,
+        webIds = webIdUriDeriver.derivableAliases(entry.subject),
+      )
+    } else {
+      emptySet()
+    }
+
     val issuedRefresh = if (durable) {
       refreshTokenStore.issueNewFamily(
         podId = checkNotNull(podDbo.id),
@@ -1456,14 +1473,53 @@ class PodAuthEndpoint @Inject constructor(
       return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
     }
 
+    // I9 again, and this time about the sweep rather than the mint. The generation was compared
+    // before any of this existed, and what follows it is destructive: an answer landing in between
+    // is a *later* one than this code's, so retiring what its exchange produced would let the older
+    // code win — the supersession running backwards. Asked once more for the same reason the
+    // refusal above is, and answered the same way: this exchange's own family goes and the client
+    // is told to come back through consent. Only the sequential case has a test (`a code cannot
+    // pick up a consent granted after it`); this window is between two statements, where none can
+    // reach.
+    if (issuedRefresh != null &&
+      consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+        ?.generation != issuedUnder
+    ) {
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      logger.info {
+        "[oauth/token] consent moved mid-exchange — family revoked before the sweep: " +
+            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
+            "codeGeneration=$issuedUnder, revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
+    }
+
+    // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
+    // the withholding path gives from the other end, so that reconnecting twice does not leave two
+    // ninety-day families behind, each renewing its own TTL on every rotation. Swept only once the
+    // successor exists, so answering "yes" never leaves the person holding nothing.
+    if (superseded.isNotEmpty()) {
+      val retired = refreshTokenStore.revokeFamilies(superseded)
+      if (retired > 0) {
+        logger.info {
+          "[oauth/token] reconnect retired what it supersedes: pod='${podDbo.name}', " +
+              "clientId='${entry.clientId}', webId='${entry.subject}', " +
+              "retiredFamilies=${superseded.size}, retiredRows=$retired"
+        }
+      }
+    }
+
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podDbo.name}', clientId='${entry.clientId}', " +
           "webId='${entry.subject}', scopes=${featureScopes.size}, durable=$durable, " +
           "familyId='${issuedRefresh?.token?.familyId ?: "(none)"}'"
     }
 
-    // Liveness touch on the DCR row — feeds cleanup sweeps and the future Active-Connections
-    // UI. Best-effort: did:web clients have no DCR row and return false here, which is fine.
+    // Liveness touch on the DCR row. Every completed flow reaches one of the three call sites —
+    // this one, the anonymous public-read branch above and the rotation below — so a connection
+    // the person kept short-lived stays as live as a durable one; it just says so by
+    // re-authorizing rather than by refreshing. Best-effort: did:web clients have no DCR row and
+    // return false here, which is fine.
     dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
 
     return buildTokenResponse(
@@ -1630,6 +1686,41 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
+
+    // A retirement landing between the rotation and that insert revoked the rows it found, and this
+    // successor appeared after it — alive, in the family a reconnect had just replaced. `markRotated`
+    // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
+    // one arriving in between, and the two together leave it nowhere to land unseen. The window is
+    // between two statements and has no test; `a family the retirement swept cannot be refreshed
+    // back to life` covers the ordinary path and says so.
+    if (refreshTokenStore.noLongerStands(token.tokenHash)) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] family retired mid-rotation — successor revoked: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+    }
+
+    // The third of the three, and the one the grant cascade needs. `currentGrants` was read before
+    // any of this, and a context deletion writes in between: it removes the app's last grant, names
+    // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
+    // replaying the spent row still ends the family. What that leaves behind is a successor for an
+    // app holding nothing, and this is the last moment it can be answered for. Untestable for the
+    // same reason as its two neighbours; the check before the insert covers the ordinary case.
+    if (podGrantsDao.fetchGrantStrings(
+        podId = checkNotNull(podDbo.id),
+        appId = token.owner.clientId,
+        webIds = listOf(token.owner.webId),
+      ).isEmpty()
+    ) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] grants revoked mid-rotation — successor revoked: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "all previously granted scopes have been revoked")
+    }
 
     // Asked again, because the check above and this insert are two moments: a withdrawal landing
     // between them revokes what it can see and misses the row about to appear. Whoever arrives
