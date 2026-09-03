@@ -195,14 +195,11 @@ seam is visible.
 
 ## What is not selectable (IST)
 
-The seams shape *how* a deployment behaves, never *whether* it conforms. The invariants in
-[`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" hold for every
-configuration:
-
-- Every statement belongs to exactly one context.
-- Reads and writes are sandboxed to contexts the request holds rights for, enforced
-  server-side.
-- Pods are isolated; cross-pod access needs an explicit, spec-defined mechanism.
+The seams shape *how* a deployment behaves, never *whether* it conforms. Every invariant in
+[`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" holds for
+every configuration, and three of them are what a seam presses against first: the single context per
+statement, the sandbox on reads and writes, and pod isolation. Their wording is not repeated here —
+that list is the only copy, and a seam does not get to soften it.
 
 Applied to the authorization seam, the line is sharp: an implementation decides **which**
 contexts a caller sees — it never decides **whether** the sandbox applies. An
