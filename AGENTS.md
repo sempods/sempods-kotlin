@@ -12,8 +12,8 @@ take this file directly — that is the normal case, not a gap to be filled.
 
 **The pod server is [`sempods-server/`](sempods-server/)**, one module among sixteen rather than
 the product. It carries its own [`sempods-server/AGENTS.md`](sempods-server/AGENTS.md), which
-points back here for the mission, terminology and documentation map below, and restates the
-invariants that bind changes to the code. This file remains the authority where the two overlap.
+points back here for the mission, terminology and documentation map below. This file remains the
+authority where the two overlap.
 
 ## Start here
 
@@ -55,16 +55,18 @@ This is not a business idea. Optimize for openness, clarity, and interoperabilit
 
 ## Non-negotiable invariants
 
-1) Every edge/statement always has exactly one Context (named graph).
-2) Read sandbox: a request can only read contexts it has read rights for.
-3) Write sandbox: a request can only write into contexts it has write rights for.
-4) A CRUD write names its target context explicitly — there is no implicit fallback context.
-5) Pods are isolated by default. Do not introduce cross-pod access without explicit, spec-defined sync mechanisms.
-6) Prefer explicit specs + conformance tests over clever query rewriting.
+The list is [`CONTRIBUTING.md`](CONTRIBUTING.md) §"What this project will not change" — the public
+statement of what the model is, and the one every feature request is made to confirm against
+(`.github/ISSUE_TEMPLATE/feature_request.yml`). It is **not** restated here; a second copy is how
+the two came to disagree about what an invariant even was.
+
+It binds code exactly as it binds contributions. A change that breaks one of those properties is
+declined however well it is implemented, and the way to challenge one is an issue against that
+list, not a pull request here.
 
 ## Security stance
 
-- Enforce sandboxing server-side (do not trust client-supplied FROM/FROM NAMED).
+- Enforce the sandbox server-side — concretely, do not trust client-supplied FROM/FROM NAMED.
 - Forbid or strictly gate risky SPARQL features (e.g., SERVICE / federated queries) unless explicitly supported.
 - Always return deterministic HTTP errors (401/403/400/429/500).
 
@@ -145,6 +147,8 @@ IST documentation:
 ## Working rules
 
 - Any behavior change must come with tests (prefer HTTP-level conformance tests).
+- Prefer explicit specs + conformance tests over clever query rewriting. This is a working rule
+  rather than a property of the model, which is why it is here and not in the list above.
 - Keep docs/spec aligned with implementation.
 - Be conservative with backward-incompatible changes.
 - Most modules here are published. An artifact whose types appear in a module's public signatures

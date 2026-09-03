@@ -9,8 +9,11 @@ Start here, then read what this file points at. It is deliberately short.
 
 ## Instruction sources, in order of specificity
 
-1. **Root [`AGENTS.md`](../../AGENTS.md)** — the canonical rules: mission, terminology, the
-   non-negotiable invariants, the security stance, the commands, the commit checklist.
+1. **Root [`AGENTS.md`](../../AGENTS.md)** — the canonical rules: mission, terminology, the security
+   stance, the commands, the commit checklist. The one thing it does not hold is the list of
+   non-negotiable invariants: that is [`CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project
+   will not change", because the same list binds contributors and is what the feature-request
+   template makes them confirm against. `AGENTS.md` links there.
 2. **[`documentation-strategy.md`](documentation-strategy.md)** — the four documentation types and
    the rules for writing them. Read it before touching any `*.md`.
 3. **Scoped `AGENTS.md` files** in subtrees. Six exist today: `docs/`, `sempods-auth/`,
@@ -62,8 +65,10 @@ This is the complete list; nothing else in this repository may duplicate rules.
 |---|---|---|
 | `.github/copilot-instructions.md` | Copilot Chat and the Copilot coding agent | The invariants in short form, the build and test commands, the documentation duty, the naming rule |
 
-The rules for that duplication: the source of truth is always `AGENTS.md`; update it first and sync
-the subset after; keep the subset minimal and let it link out for everything else.
+The rules for that duplication: the source of truth is always the canonical file the subset was
+taken from — `AGENTS.md`, except for the invariants, whose canonical file is `CONTRIBUTING.md`
+§"What this project will not change"; update that file first and sync the subset after; keep the
+subset minimal and let it link out for everything else.
 
 ## Shared principles
 

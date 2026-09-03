@@ -196,7 +196,7 @@ seam is visible.
 ## What is not selectable (IST)
 
 The seams shape *how* a deployment behaves, never *whether* it conforms. The invariants in
-[`../../AGENTS.md`](../../AGENTS.md) §"Non-negotiable invariants" hold for every
+[`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" hold for every
 configuration:
 
 - Every statement belongs to exactly one context.
@@ -373,7 +373,9 @@ repository these modules are extracted from, so it holds by construction rather 
 
 ## Related documents
 
-- [`../../AGENTS.md`](../../AGENTS.md) — mission, terminology, non-negotiable invariants
+- [`../../AGENTS.md`](../../AGENTS.md) — mission, terminology, the security stance
+- [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) — the non-negotiable invariants, §"What this
+  project will not change"
 - `docs/vision.md` — the standard itself
 - `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md` — pod data layer, `PodRepository`
 - [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — the authorization model a seam would abstract
