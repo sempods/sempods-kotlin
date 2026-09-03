@@ -90,13 +90,15 @@ Hand this to any agent as a task:
 > relevant instructions are loaded."*
 
 1. Read the root `AGENTS.md` and note what it references.
-2. Read `docs/agents/documentation-strategy.md`.
-3. For each file you intend to change, load the `AGENTS.md` files on the path from the repository
+2. Read `CONTRIBUTING.md` §"What this project will not change". `AGENTS.md` links to it rather than
+   restating it, so an agent that only follows step 1 has not loaded the invariants.
+3. Read `docs/agents/documentation-strategy.md`.
+4. For each file you intend to change, load the `AGENTS.md` files on the path from the repository
    root down to its directory — not the ones in subtrees you are not touching.
-4. If that path passes a module with its own `docs/`, that is where its documentation lives. Apply
+5. If that path passes a module with its own `docs/`, that is where its documentation lives. Apply
    the most specific of what the path yields.
-5. Confirm the tool's own pointer file, if any, still routes back here.
-6. Before coding, state the rules that apply and confirm no conflict remains.
+6. Confirm the tool's own pointer file, if any, still routes back here.
+7. Before coding, state the rules that apply and confirm no conflict remains.
 
 ## Maintenance
 
