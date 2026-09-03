@@ -190,8 +190,10 @@ session-protected `/_system/ui`
 profile comes out of the state row, and the URI is deliberately constant: a sempods pod dedups DCR
 per pod on (client name, `User-Agent`, redirect URIs), so a re-registration hands back the same
 `client_id` and the pod-side grants — keyed `(pod, client_id, WebID)` — stay anchored to it. The
-price is that one user's profiles arrive at a given pod as one client identity, sharing that pod's
-consent and grants while their tokens stay separate (see [open questions](#open-questions)).
+price is that one user's profiles arrive there as one client identity, sharing that pod's consent
+and grants while their tokens stay separate. A pod that does not dedup answers the same identical
+request its own way, so what the service can promise is the request, not the outcome (see [open
+questions](#open-questions)).
 
 **Re-consent and scope upgrade** run the same leg again, from the dashboard's *Re-authorize*: a
 sempods pod always re-renders consent for a `dyn:` client, with the prior context grants
@@ -293,14 +295,17 @@ The profile path lives on the service's URL, so it directly separates
    **tokens** are isolated: registry and vault rows are keyed
    `(user, profile, pod)`, so `…/private` and `…/cron-agent` hold separate
    bearers and reach separate connection bundles. The **pod-side client
-   identity** is not: a pod dedups DCR on a fingerprint this service keeps
-   constant, so both profiles arrive at that pod as one `client_id` and
-   share the consent and grants held under it — grants are keyed
-   `(pod, client_id, WebID)`, so what separates one *user* from another
-   there is the WebID, not the profile. Why the fingerprint is
-   load-bearing is in [connecting a pod](#connecting-a-pod-oauth);
-   whether a named profile should carry its own pod-side identity is
-   [open](#open-questions).
+   identity** is not, and what it does instead is the pod's choice rather
+   than this service's: the registration request is identical for every
+   profile, so a **sempods pod** dedups it and both profiles arrive as one
+   `client_id`, sharing the consent and grants held under it. Grants are
+   keyed `(pod, client_id, WebID)`, so what separates one *user* from
+   another there is the WebID, not the profile. A pod that mints a fresh
+   `client_id` per RFC 7591 registration separates the profiles by
+   accident, which is not the same as the service having asked for it.
+   Why the identical request is load-bearing is in [connecting a
+   pod](#connecting-a-pod-oauth); whether a named profile should carry a
+   pod-side identity of its own is [open](#open-questions).
 
 ### Identity and keying
 
@@ -426,13 +431,15 @@ would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
   not KMS, and per-vault-key rotation (`v1:<kid>:…`) is deferred — the residual
   open edge on what remains a high-value target.
 - **Profile isolation toward the pod.** The connection registry and the token vault key
-  `(user, profile, pod)`, but the pod-side client identity does not: the DCR fingerprint is stable
-  by design (see [connecting a pod](#connecting-a-pod-oauth)), so one user's profiles arrive at a
-  pod as a single `client_id` and share the consent and grants held under it — the half of the
-  second OAuth layer that is not separated (see [two OAuth
-  layers](#two-oauth-layers--do-not-conflate-them)). Whether a named profile should instead carry
-  its own pod-side identity — which needs a per-profile redirect URI or another fingerprint input,
-  and orphans grants at a pod that does not dedup — is undecided.
+  `(user, profile, pod)`, but the pod-side client identity does not: the service registers
+  identically for every profile (see [connecting a pod](#connecting-a-pod-oauth)), so at a pod
+  that dedups — a sempods pod — one user's profiles arrive as a single `client_id` and share the
+  consent and grants held under it. That is the half of the second OAuth layer that is not
+  separated (see [two OAuth layers](#two-oauth-layers--do-not-conflate-them)), and it is left to
+  the pod either way: elsewhere the same request may or may not come back as one client. Whether a
+  named profile should instead carry a pod-side identity the service asks for — which needs a
+  per-profile redirect URI or another fingerprint input, and orphans grants at a pod that does not
+  dedup — is undecided.
 - **A registration a pod forgot silently.** Re-authorize presents the stored `client_id`, and only
   a connection the pod already refused with `invalid_grant` re-registers. A registration cleared
   while nothing had refreshed against it therefore still dead-ends in the browser on the pod's flat
