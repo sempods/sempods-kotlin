@@ -110,9 +110,11 @@ dialog is the ordinary auto-grant question, not something the reauthorize
 decides: a `dyn:` client — which is how the clients in
 [`clients.md`](clients.md) register — always gets the consent screen,
 while a static `did:web:` client whose grants survive and whose lifetime
-question is already answered is auto-granted and mints a replacement
-family with nobody asked. A static client that wants the review it just
-triggered sends `prompt=consent`;
+question is already answered is auto-granted, and the recorded answer
+stands: a durable one mints a replacement family, a short-lived one leaves
+the client with an access token and nothing else. Neither asks anybody. A
+static client that wants the review it just triggered sends
+`prompt=consent`;
 [`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
 
 ## Bearer challenge format

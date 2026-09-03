@@ -248,6 +248,12 @@ recorded. In neither case is the absent scope the cause, and re-sending it
 grants nothing by itself — what answers the question is a fresh
 authorization the person sees.
 
+Two flows sit outside that diagnosis, because nobody was asked in them at
+all: an anonymous `public-read` exchange and a service client's
+`client_credentials` are short-lived by construction. Authenticated
+`public-read` is not one of them — it takes the ordinary path, and its
+lifetime is the consent answer like anybody else's.
+
 On refresh the scope is accepted rather than refused. `scope=` there is a
 down-scope over feature scopes (see "Token exchange") and `offline_access`
 is not one, so it is taken out before the comparison instead of being
