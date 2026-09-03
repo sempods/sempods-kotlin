@@ -22,10 +22,14 @@ authority where the two overlap.
 - [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) — the four
   documentation types, and the rules for when *not* to document something. Read it before touching
   any `*.md`.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) §"What this project will not change" — the non-negotiable
+  invariants. Canonical there rather than here, because the same list binds contributors; see the
+  section below.
 
 `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/` are compatibility
-pointers back to this file — Codex and opencode read it directly. Everything canonical is here or
-under `docs/agents/`; a pointer that grows rules of its own is a pointer that drifts.
+pointers back to this file — Codex and opencode read it directly. Everything canonical is here,
+under `docs/agents/`, or — for the invariants alone — in `CONTRIBUTING.md`; a pointer that grows
+rules of its own is a pointer that drifts.
 
 ## Project mission
 

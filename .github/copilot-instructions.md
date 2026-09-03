@@ -21,10 +21,12 @@ Apache-2.0.
 
 1. Every statement belongs to exactly one **context** — a named graph, and the permission boundary.
 2. Reads and writes are sandboxed to the contexts a request holds rights for, enforced server-side;
-   client-supplied `FROM` / `FROM NAMED` is never trusted.
+   a client-supplied dataset clause — `FROM` / `FROM NAMED` and the protocol's graph parameters
+   alike — is never trusted.
 3. A CRUD write names its target context explicitly — there is no implicit fallback.
 4. Context-based permissions are the single authorization model. No parallel policy language.
-5. Pods are isolated by default. No cross-pod access without a spec-defined sync mechanism.
+5. Pods are isolated by default. Cross-pod access happens only through an explicit, specified
+   mechanism.
 6. The protocol stays standard Semantic Web — RDF, SPARQL, JSON-LD, SHACL. Convenience belongs in
    client SDKs, not in the protocol.
 7. No false security promises. Revoking access means "no further access", not "forget what you
