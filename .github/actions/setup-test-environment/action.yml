@@ -4,7 +4,7 @@ description: 'Sets up Java, Docker containers, and Gradle for testing'
 runs:
   using: 'composite'
   steps:
-    - uses: actions/setup-java@v5
+    - uses: actions/setup-java@v6
       with:
         java-version: 25
         distribution: 'temurin'
@@ -27,4 +27,4 @@ runs:
     - run: deployments/test/garage/init.sh
       shell: bash
 
-    - uses: gradle/actions/setup-gradle@v5
+    - uses: gradle/actions/setup-gradle@v6
