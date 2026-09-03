@@ -361,12 +361,14 @@ class PodGrantsFacade @Inject constructor(
    * **Named before the emptiness is asked, and revoked by name — one row at a time.** Reading
    * grants and then revoking *everything* the pair holds is two moments with a gap, and a
    * re-consent for one of these very pairs can complete inside it. Naming the rows first closes it,
-   * and the rows are named rather than their families because a family id keeps selecting: a
-   * refresh that succeeds in the gap rotates a successor into a family this pass listed, and that
-   * success is itself the proof that the grants came back — the observation this revocation rests
-   * on has been overtaken, so its successor has to outlive the sweep. What is left is narrow and
-   * benign: a re-consent restoring grants without any rotation loses the rows it was replacing,
-   * which is what its own exchange would have done.
+   * and the rows are named rather than their families because a family id keeps selecting: a refresh
+   * succeeding in the gap rotates a successor into a family this pass listed, and reaching it would
+   * mean revoking a token already handed to a client — the failure this whole shape exists to
+   * avoid. Whether that successor may live is not this pass's question, and it is not answered by
+   * the rotation having succeeded: that refresh read its grants before this deletion wrote. It is
+   * answered where it can be, by the refresh exchange asking the grants once more after inserting
+   * the successor. What is left is narrow and benign: a re-consent restoring grants without any
+   * rotation loses the rows it was replacing, which is what its own exchange would have done.
    *
    * What it revokes was functionally dead already: the refresh exchange refuses a token whose app
    * has no grants, so nothing could have been minted from it. This is about the two cascades

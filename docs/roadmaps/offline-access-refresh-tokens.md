@@ -181,9 +181,13 @@ starting before it builds it.
 
   It names the **rows**, not their families, and that is where the two sweeps part company. A family
   id keeps selecting — `issueInFamily` preserves it — so a refresh succeeding inside the gap would
-  have its successor revoked by a list of families, and that success is precisely the proof that the
-  grants came back: the observation this sweep rests on has been overtaken, so the successor has to
-  outlive it. The retirement above has the opposite reason and keeps the family-wide reach.
+  have its successor revoked by a list of families, and that successor may already be in a client's
+  hands. Whether it deserves to live is a different question and not this sweep's: the refresh that
+  produced it read its grants before this deletion wrote, so its success proves nothing about them.
+  It is settled where it can be, by the refresh exchange asking the grants a third time after
+  inserting the successor — the same read-write-re-ask shape the durability refusal and the consent
+  generation already use there, and the one condition of the three that was still asked only once.
+  The retirement above has the opposite reason and keeps the family-wide reach.
   It also skips a row that has been rotated since it was named, and that is not tidiness: `lookup`
   answers `REVOKED` before `REUSED`, so a row that is both reports as merely revoked, and the
   refresh path would then refuse a replay without ending the family — leaving alive the successor a

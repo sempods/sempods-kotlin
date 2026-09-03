@@ -137,10 +137,12 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    * The live rows this app holds for this person, named one by one — the snapshot for a caller
    * whose reason to revoke is an observation rather than a decision.
    *
-   * The grant cascade's case: it revokes because the app was left holding nothing, and a rotation
-   * that succeeded after the measurement is proof that grants came back before the sweep ran. Its
-   * successor must therefore outlive the sweep, which revoking by family id would not allow —
-   * `issueInFamily` keeps the family, so the name selects rows that did not exist when it was read.
+   * The grant cascade's case: it revokes because the app was left holding nothing, and a successor
+   * rotated in after the measurement is one a client may already be holding. Revoking by family id
+   * would reach it — `issueInFamily` keeps the family, so the name selects rows that did not exist
+   * when it was read — and handing back a credential that is already dead is the failure this
+   * milestone exists to remove. Whether that successor may live is settled by the refresh exchange,
+   * which asks the grants again after inserting it.
    */
   internal fun liveTokens(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
     ownerFilter(podId, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()

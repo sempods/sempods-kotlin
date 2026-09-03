@@ -1667,6 +1667,25 @@ class PodAuthEndpoint @Inject constructor(
       return tokenError(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
     }
 
+    // The third of the three, and the one the grant cascade needs. `currentGrants` was read before
+    // any of this, and a context deletion writes in between: it removes the app's last grant, names
+    // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
+    // replaying the spent row still ends the family. What that leaves behind is a successor for an
+    // app holding nothing, and this is the last moment it can be answered for.
+    if (podGrantsDao.fetchGrantStrings(
+        podId = checkNotNull(podDbo.id),
+        appId = token.owner.clientId,
+        webIds = listOf(token.owner.webId),
+      ).isEmpty()
+    ) {
+      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      logger.info {
+        "[oauth/token] grants revoked mid-rotation — successor revoked: pod='${podDbo.name}', " +
+            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "all previously granted scopes have been revoked")
+    }
+
     // Asked again, because the check above and this insert are two moments: a withdrawal landing
     // between them revokes what it can see and misses the row about to appear. Whoever arrives
     // second undoes the other's work rather than leaving a live successor behind.
