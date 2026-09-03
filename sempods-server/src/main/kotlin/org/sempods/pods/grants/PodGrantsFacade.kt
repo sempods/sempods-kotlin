@@ -267,22 +267,19 @@ class PodGrantsFacade @Inject constructor(
    * Revokes everything anchored at [contextUri] when the context itself is being deleted:
    * app-delegated grants, owner-level WebID grants, and static service-client registrations.
    *
-   * **`SPS-CTX-017` still says otherwise, and the text is what follows.** That requirement has
-   * deletion remove "grants naming it, refresh tokens scoped to it, and the context's statements";
-   * the middle clause was extracted from this code back when a refresh row carried context scopes.
-   * The specification is pre-`0.1` and every chapter says so — descriptive, extracted from this
-   * implementation, and where the two disagree its own governance makes the code right and the text
-   * the bug. So this is not a conformance gap to be lived with but a companion edit to be made, and
-   * it belongs to `docs/roadmaps/offline-access-refresh-tokens.md` item 8 with the rest of them.
-   *
    * **A refresh family is never revoked for naming the context, only for being left with nothing.**
    * A refresh row carries feature scopes only — both insert paths intersect against
    * [PodScopeValidator.featureScopes] — and the refresh exchange intersects again before issuing,
    * so a family holds no authority over a context to lose. What closes the
    * re-create-with-same-URI window is the grant deletion below: permissions are resolved per
    * request from these rows, so a context recreated under the same URI inherits nothing. Sweeping
-   * families by the scope string would instead end the sessions of apps that still hold other
-   * grants, and only those families old enough to carry a context scope at all.
+   * families by the scope string would end the sessions of apps that still hold other grants, and
+   * end them over a string that authorizes none of it.
+   *
+   * `SPS-CTX-017` has deletion remove "grants naming it, refresh tokens scoped to it, and the
+   * context's statements", and no row here can be scoped to a context. The specification is
+   * pre-`0.1` and descriptive, so by its own governance the text is what follows the code; the edit
+   * belongs to `docs/roadmaps/offline-access-refresh-tokens.md` item 8 with the rest of them.
    *
    * What does end a family here is the same condition [sweepUnbackedAppGrants] applies — the app
    * is left holding nothing — and it needs a pass of its own, because a pair whose *last* grant
