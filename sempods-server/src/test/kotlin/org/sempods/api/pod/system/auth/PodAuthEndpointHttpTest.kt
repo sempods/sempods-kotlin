@@ -103,6 +103,97 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals("203.0.113.7", stored.remoteAddr)
   }
 
+  @Test
+  fun `a registration naming a script URL for something a person is shown is refused`() {
+    // Nothing renders `logo_uri` today, which is exactly why this is cheap now: the value is
+    // stored, and the day a consent screen shows it the stranger who registered it chose what
+    // the browser runs. Registration is the one place it can be refused once.
+    val pod = sempodsTestFactory.newPod()
+    for (field in listOf("logo_uri", "client_uri", "tos_uri", "policy_uri")) {
+      for (value in listOf("javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "http://app.example/x")) {
+        val response = http.preparePost(registerUrl(pod.name))
+          .addHeader("Content-Type", "application/json")
+          .setBody("""{"redirect_uris":["http://localhost:5173/callback"],"$field":"$value"}""")
+          .execute()
+        assertEquals(400, response.statusCode, "$field=$value should be refused: ${response.responseBody}")
+
+        @Suppress("UNCHECKED_CAST")
+        val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+        assertEquals("invalid_client_metadata", body["error"], "RFC 7591 §3.2.2 names this code")
+      }
+    }
+  }
+
+  @Test
+  fun `a registration naming ordinary addresses for those fields still succeeds`() {
+    // The check must not cost a legitimate client its registration: `https` anywhere, a query on
+    // a logo, and the loopback address a client under development actually serves from.
+    val pod = sempodsTestFactory.newPod()
+    val response = http.preparePost(registerUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .setBody(
+        """{"redirect_uris":["http://localhost:5173/callback"],""" +
+          """"logo_uri":"http://localhost:5173/logo.png?v=2",""" +
+          """"client_uri":"https://app.example",""" +
+          """"tos_uri":"https://app.example/tos","policy_uri":"https://app.example/privacy"}"""
+      )
+      .execute()
+    assertEquals(201, response.statusCode, response.responseBody)
+
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals("https://app.example", body["client_uri"])
+    assertEquals("http://localhost:5173/logo.png?v=2", body["logo_uri"])
+  }
+
+  @Test
+  fun `a registration stored before the rule existed stops handing its value back`() {
+    // The write-side check alone would not make the guarantee true. A repeat `/register` with the
+    // same fingerprint returns the *stored* row untouched — the submitted metadata is discarded —
+    // so a row written before the rule keeps its value for as long as the client exists. This is
+    // the upgrade path, and it needs no migration to work.
+    val pod = sempodsTestFactory.newPod()
+    val redirectUri = "http://localhost:5173/callback"
+    val clientName = "Legacy Client"
+    val userAgent = "LegacyAgent/1.0"
+    val legacyId = "dyn:" + ObjectId().toHexString()
+    dynamicClientRegistrationDao.create(
+      clientId = legacyId,
+      registeredForPodId = checkNotNull(pod.id),
+      registeredForPodName = pod.name,
+      redirectUris = setOf(redirectUri),
+      clientName = clientName,
+      clientUri = "javascript:alert(1)",
+      logoUri = "data:text/html,<script>alert(1)</script>",
+      softwareId = null,
+      softwareVersion = null,
+      contacts = emptyList(),
+      tosUri = "javascript:alert(2)",
+      policyUri = "https://app.example/privacy",
+      rawRequest = emptyMap(),
+      userAgent = userAgent,
+      fingerprint = org.sempods.auth.core.DynamicClientFingerprint.compute(
+        clientName, userAgent, realm = null, setOf(redirectUri),
+      ),
+    )
+
+    val response = http.preparePost(registerUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("User-Agent", userAgent)
+      .setBody("""{"redirect_uris":["$redirectUri"],"client_name":"$clientName"}""")
+      .execute()
+    assertEquals(201, response.statusCode, response.responseBody)
+
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals(legacyId, body["client_id"], "the fingerprint should have deduplicated to the stored row")
+    assertNull(body["client_uri"], "a stored script URL must not be handed back")
+    assertNull(body["logo_uri"], "a stored data URL must not be handed back")
+    assertNull(body["tos_uri"], "a stored script URL must not be handed back")
+    // The one legal value on the same row survives: this filters, it does not blank the client.
+    assertEquals("https://app.example/privacy", body["policy_uri"])
+  }
+
   private fun authorizeUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/authorize"
 

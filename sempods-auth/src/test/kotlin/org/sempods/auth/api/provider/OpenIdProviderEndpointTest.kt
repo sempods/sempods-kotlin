@@ -281,6 +281,25 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
   }
 
   @Test
+  fun `a padded verifier is not quietly straightened out`() = withProvider(google) { http ->
+    // Every other form value on this endpoint is trimmed, and this one deliberately is not.
+    // RFC 7636 §4.1's alphabet has no whitespace, so trimming would accept a verifier the rule
+    // forbids — and accept it here while the hosted MCP token endpoint, which passes the value as
+    // sent, refused the very same request. One request, one answer, whichever endpoint hears it.
+    val store = injector.getInstance(AuthorizationCodeStore::class.java)
+    val code = store.issue(
+      subject = "${testConfig.idBaseUrl}/e/${uniqueHash()}",
+      realm = testConfig.idBaseUrl,
+      clientId = podClientId,
+      scopes = setOf("openid"),
+      redirectUri = redirect,
+      codeChallenge = challenge,
+      codeChallengeMethod = Pkce.METHOD_S256,
+    )
+    assertTrue("invalid_grant" in postToken(http, code, "%20$verifier%20"))
+  }
+
+  @Test
   fun `a token response is never cached`() = withProvider(google) { http ->
     val store = injector.getInstance(AuthorizationCodeStore::class.java)
     val code = store.issue(

@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
@@ -156,6 +157,29 @@ class PodAuthEndpoint @Inject constructor(
       ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
       ?: emptyList()
 
+    // The four members [ClientMetadataUri] is about.
+    listOf(
+      "client_uri" to clientUri,
+      "logo_uri" to logoUri,
+      "tos_uri" to tosUri,
+      "policy_uri" to policyUri,
+    ).forEach { (field, value) ->
+      if (value != null && !ClientMetadataUri.isValid(value)) {
+        return Response.status(400)
+          .entity(
+            mapOf(
+              // A literal like the `invalid_redirect_uri` above: RFC 7591's registration errors are
+              // their own set, and `OAuthErrorCode` is scoped to authorize and token responses.
+              "error" to "invalid_client_metadata",
+              "error_description" to
+                  "$field must be https, or http on a loopback host: $value",
+            )
+          )
+          .type(MediaType.APPLICATION_JSON)
+          .build()
+      }
+    }
+
     val registration = dynamicClientStore.register(
       registeredForPodId = checkNotNull(podDbo.id),
       registeredForPodName = podDbo.name,
@@ -205,13 +229,15 @@ class PodAuthEndpoint @Inject constructor(
       "response_types" to listOf("code"),
     )
     if (registration.clientName != null) body["client_name"] = registration.clientName
-    if (registration.clientUri != null) body["client_uri"] = registration.clientUri
-    if (registration.logoUri != null) body["logo_uri"] = registration.logoUri
+    // Filtered on the way out as well — see [ClientMetadataUri], which says why the check at
+    // registration does not cover the row this may be reading.
+    registration.clientUri?.takeIf(ClientMetadataUri::isValid)?.let { body["client_uri"] = it }
+    registration.logoUri?.takeIf(ClientMetadataUri::isValid)?.let { body["logo_uri"] = it }
     if (registration.softwareId != null) body["software_id"] = registration.softwareId
     if (registration.softwareVersion != null) body["software_version"] = registration.softwareVersion
     if (registration.contacts.isNotEmpty()) body["contacts"] = registration.contacts
-    if (registration.tosUri != null) body["tos_uri"] = registration.tosUri
-    if (registration.policyUri != null) body["policy_uri"] = registration.policyUri
+    registration.tosUri?.takeIf(ClientMetadataUri::isValid)?.let { body["tos_uri"] = it }
+    registration.policyUri?.takeIf(ClientMetadataUri::isValid)?.let { body["policy_uri"] = it }
 
     return Response.status(201).entity(body).type(MediaType.APPLICATION_JSON).build()
   }
@@ -734,8 +760,10 @@ class PodAuthEndpoint @Inject constructor(
         "consentAction" to consentAction,
         "clientId" to normalizedClientId,
         "clientName" to displayName,
-        "clientUri" to (registration?.clientUri ?: ""),
-        "logoUri" to (registration?.logoUri ?: ""),
+        // The consumer [ClientMetadataUri] exists for: whatever a template does with these, the
+        // value reached it through that check.
+        "clientUri" to (registration?.clientUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
+        "logoUri" to (registration?.logoUri?.takeIf(ClientMetadataUri::isValid) ?: ""),
         "redirectUri" to normalizedRedirectUri,
         "state" to (state?.trim()?.takeIf { it.isNotBlank() } ?: ""),
         "codeChallenge" to (codeChallenge ?: ""),
@@ -1346,7 +1374,10 @@ class PodAuthEndpoint @Inject constructor(
     // module now, where Kotlin will not smart-cast a public property across the boundary.
     val issuedChallenge = entry.codeChallenge
     if (issuedChallenge != null) {
-      val verifier = codeVerifier?.trim()?.takeIf { it.isNotBlank() }
+      // Not trimmed, unlike every other form value here. RFC 7636 §4.1's alphabet has no
+      // whitespace, so trimming would grant a leniency the rule does not — and grant it at two of
+      // this repository's three token endpoints, since the third passes the value as sent.
+      val verifier = codeVerifier?.takeIf { it.isNotBlank() }
         ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code_verifier")
       // `Pkce` rather than a local comparison: it compares in constant time. A byte-by-byte
       // early exit leaks the stored challenge one character per request, and the challenge is
