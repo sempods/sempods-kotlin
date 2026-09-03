@@ -2,7 +2,9 @@
 
 The entry point for every AI agent working in this repository. It defines **how** instructions are
 discovered and applied — not what the rules are. The rules live in the root
-[`AGENTS.md`](../../AGENTS.md); how documentation is written lives in
+[`AGENTS.md`](../../AGENTS.md), except the non-negotiable invariants, which live in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" because they bind
+contributors too; how documentation is written lives in
 [`documentation-strategy.md`](documentation-strategy.md).
 
 Start here, then read what this file points at. It is deliberately short.
