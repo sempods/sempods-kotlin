@@ -89,6 +89,25 @@ conditional `findOneAndDelete`, so exactly one of N concurrent
 confirmations consumes the challenge; a non-matching call leaves it in
 place for the proper replay still to come.
 
+## Durable connections
+
+A client that has to stay connected past the access token's hour asks for
+`scope=offline_access` at the pod's `/authorize`. It is listed in
+`scopes_supported` in the protected-resource metadata the 401 points at,
+which is where a client with no sempods documentation in front of it
+finds the extension.
+
+Sending it is not what makes the connection durable, and not sending it
+is not what prevents it. The consent dialog carries the control and the
+person answers it, so a client that cannot put a scope on the request is
+not thereby short-lived, and one that sends it has still asked rather
+than received. [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns
+that rule and the shape of the answer.
+
+The re-authorize path above ends the families it finds, so after an
+explicit reauthorize the question is put to the person again rather than
+settled by what the client sent the first time.
+
 ## Bearer challenge format
 
 The `WWW-Authenticate` header on every 401 carries:

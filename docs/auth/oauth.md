@@ -238,6 +238,19 @@ nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
 server refuse a scope it does not know, and the service connects to pods
 it does not host.
 
+A response carrying no `refresh_token` is therefore no evidence about the
+request, which is the half a client debugs: either the person left the
+control unticked, or the authorization predates it and has nothing
+recorded. In neither case is the absent scope the cause, and re-sending it
+grants nothing by itself — what answers the question is a fresh
+authorization the person sees.
+
+On refresh the scope is accepted rather than refused. `scope=` there is a
+down-scope over feature scopes (see "Token exchange") and `offline_access`
+is not one, so it is taken out before the comparison instead of being
+reported as a scope this token does not cover: a client may echo back the
+set it was granted.
+
 ### Refresh token rotation
 
 Per RFC 6749 §10.4 / OAuth 2.1 best practice. Refresh tokens belong to

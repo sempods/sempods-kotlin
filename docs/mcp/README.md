@@ -87,7 +87,8 @@ Standards are *named*, not re-explained in these docs.
 - **`authentication.md`** — anonymous vs. bearer behavior,
   `public-read` semantics, the synthetic `authorize` tool and its
   `reauthorize=true` upgrade flow, the WWW-Authenticate replay,
-  per-MCP DCR fingerprinting.
+  per-MCP DCR fingerprinting, and what `offline_access` does and does
+  not settle about a durable connection.
 - **`clients.md`** — setup snippets and observed behavioral clusters
   (proactive vs. defensive) for Claude Desktop / Code / Web, ChatGPT,
   Copilot / VS Code, Open-Code, plus known client-side limits we
