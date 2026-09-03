@@ -471,9 +471,49 @@ class OAuthFlowIntegrationTest {
         append("code", code)
         append("redirect_uri", REDIRECT)
         append("client_id", clientId)
-        append("code_verifier", "the-wrong-verifier")
+        // Well formed and 43 characters, so this fails on the comparison rather than on the
+        // length rule the next test covers.
+        append("code_verifier", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstwabc")
       },
     )
+    assertEquals(HttpStatusCode.BadRequest, resp.status)
+    assertEquals("invalid_grant", mapper.readTree(resp.bodyAsText())["error"].asText())
+  }
+
+  @Test
+  fun `authorization-code exchange with a verifier RFC 7636 forbids is rejected`() = testApplication {
+    // 43 characters is the floor that makes a verifier too expensive to guess for an attacker who
+    // holds an intercepted code and the challenge it was issued under. A shorter one hashes to a
+    // challenge just as well, so nothing but this rule stands between that attacker and a token —
+    // and the client that picked it would never learn its PKCE had become decoration.
+    installAuth()
+    val client = createClient { followRedirects = false }
+    val clientId = mapper.readTree(
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
+      }.bodyAsText(),
+    )["client_id"].asText()
+
+    val (loginState, nonceCookie) = client.startAuthorize(clientId)
+    val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
+    val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
+    val code = Url(
+      client.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
+        .headers[HttpHeaders.Location]!!,
+    ).parameters["code"]!!
+
+    val resp = client.submitForm(
+      url = "/token",
+      formParameters = parameters {
+        append("grant_type", "authorization_code")
+        append("code", code)
+        append("redirect_uri", REDIRECT)
+        append("client_id", clientId)
+        append("code_verifier", "tooShort")
+      },
+    )
+    // The same answer a mismatch gets, deliberately: telling the two apart would be an oracle.
     assertEquals(HttpStatusCode.BadRequest, resp.status)
     assertEquals("invalid_grant", mapper.readTree(resp.bodyAsText())["error"].asText())
   }
