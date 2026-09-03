@@ -317,6 +317,10 @@ data class PutPodContextRequest(
   /**
    * Marks the context anonymously readable on creation. Defaults to `false`
    * (private). Owner-controlled — same gate as [PodContextsEndpoint.put].
+   *
+   * The default is the contract, not a convenience: `SPS-CTX-027` (sempods-spec) requires an
+   * absent flag to create a private context, a request with no body at all included, and the
+   * body is optional. `PodContextsEndpointHttpTest` pins both quiet paths.
    */
   val public: Boolean = false,
 )

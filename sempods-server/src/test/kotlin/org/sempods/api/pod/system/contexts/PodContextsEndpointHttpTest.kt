@@ -14,6 +14,7 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.commons.okhttp.TestHttpResponse
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import java.net.URI
@@ -246,6 +247,59 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("{}")
       .execute()
     assertEquals(200, second.statusCode)
+  }
+
+  /**
+   * `SPS-CTX-027` / `SPS-CTX-030`: a context is private unless somebody chose otherwise, and the
+   * body carrying that choice is optional — so both quiet paths, an empty JSON object and no body
+   * at all, have to land private.
+   *
+   * Asserted through the anonymous listing and not only on the `public` field, because a server
+   * reporting `false` while storing something else would satisfy the field check. An anonymous
+   * caller resolves to `public-read` and nothing further, so what that listing returns *is* the set
+   * of contexts the flag opened up. The explicit `public: true` is the contrast: without a context
+   * that did ask for it, the two assertions above would hold just as well on a server that ignored
+   * the flag entirely.
+   */
+  @Test
+  fun `put creates a private context wherever the public flag is absent`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    // No fixture context, so the anonymous listing below reports what this test created and
+    // nothing else.
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+
+    // `null` is the request that carries no body at all — `TestHttpRequest` then sends
+    // `Content-Length: 0`, which is the case `SPS-CTX-027` names explicitly.
+    fun put(contextPath: String, body: String?): TestHttpResponse {
+      val request = http.preparePut(contextManageUrl(pod.name, contextPath))
+        .addHeader("Content-Type", "application/json")
+        .addHeader("Authorization", "Bearer $ownerToken")
+      body?.let { request.setBody(it) }
+      return request.execute()
+    }
+
+    fun assertCreated(response: TestHttpResponse, public: Boolean, what: String) {
+      assertEquals(201, response.statusCode, "$what; body=${response.responseBody}")
+      assertEquals(
+        public,
+        jsonUtil.read(response.responseBody, PutPodContextResponse::class.java).public,
+        "$what; body=${response.responseBody}",
+      )
+    }
+
+    assertCreated(put("defaults/empty-body", "{}"), public = false, what = "empty JSON body")
+    assertCreated(put("defaults/no-body", null), public = false, what = "no body at all")
+    assertCreated(put("defaults/asked-for", """{"public":true}"""), public = true, what = "explicit public:true")
+
+    val anonymous = http.prepareGet(contextsBaseUrl(pod.name)).execute()
+    assertEquals(200, anonymous.statusCode, "body=${anonymous.responseBody}")
+    assertEquals(
+      listOf(contextUri(pod.name, "defaults/asked-for")),
+      jsonUtil.read(anonymous.responseBody, PodContextsListResponse::class.java).contexts.map { it.contextIri },
+      "only the context whose creation asked for `public` may be anonymously visible",
+    )
   }
 
   @Test
