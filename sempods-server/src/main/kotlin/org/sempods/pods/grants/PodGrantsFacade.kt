@@ -267,6 +267,15 @@ class PodGrantsFacade @Inject constructor(
    * Revokes everything anchored at [contextUri] when the context itself is being deleted:
    * app-delegated grants, owner-level WebID grants, and static service-client registrations.
    *
+   * **This deviates from `SPS-CTX-017`, which is still normative.** That requirement has deletion
+   * remove "grants naming it, refresh tokens scoped to it, and the context's statements", and the
+   * middle clause is the one dropped here. It was written when a refresh row carried context
+   * scopes; since token slimming no row can, so the clause is vacuous for anything issued today and
+   * bites only a family old enough to still carry the string. The companion change belongs to the
+   * milestone's specification item — `docs/roadmaps/offline-access-refresh-tokens.md` item 8 — and
+   * until it lands this implementation is knowingly non-conformant on that clause. Restoring the
+   * sweep is the other way to settle it.
+   *
    * **A refresh family is never revoked for naming the context, only for being left with nothing.**
    * A refresh row carries feature scopes only — both insert paths intersect against
    * [PodScopeValidator.featureScopes] — and the refresh exchange intersects again before issuing,
