@@ -154,14 +154,21 @@ starting before it builds it.
   holding nothing is `PodGrantsFacadeTest`'s, together with its new counterpart that a deletion
   leaving other grants does not end the session.
 
-  **The decision contradicts a live requirement, and that was missed when it was taken.**
-  `SPS-CTX-017` has deletion remove "grants naming it, refresh tokens scoped to it, and the
-  context's statements" — the middle clause is exactly the sweep. It is vacuous for anything issued
-  since token slimming and bites only a family old enough to carry the string, but it is normative
-  and not withdrawn, and `gradle/spec/requirements.json` is vendored here so that this is checkable
-  without a network call. So item 8 carries it, and until that lands this implementation is
-  knowingly non-conformant on that clause. Restoring the sweep is the other way to settle it and
-  costs one commit; which way it goes is not a decision this file can take alone.
+  **A requirement still describes the sweep, and item 8 carries the edit.** `SPS-CTX-017` has
+  deletion remove "grants naming it, refresh tokens scoped to it, and the context's statements" —
+  the middle clause is exactly what went. Read in full rather than through the vendored summary, it
+  carries no qualifier, so the disagreement is real. It is not a conformance gap: the specification
+  is pre-`0.1` and says on every chapter that it is descriptive — extracted from this
+  implementation, and where the two disagree `GOVERNANCE.md` makes the code right and the text the
+  bug. What that buys is not permission to ignore it but the obligation to correct it, which is
+  item 8's whole subject.
+
+  Two things the vendored index gets wrong, found while checking this and worth a change of their
+  own rather than a line in this one: `SPS-CTX-017` now lives in `spec/modules/context-management.md`
+  and not in `spec/core/contexts.md`, and it is a module requirement rather than a core one — while
+  `gradle/spec/requirements.json` still records the old chapter and lists no such module under
+  `versions`. Refreshing it is the procedure in `gradle/spec/README.md`, and its diff is meant to be
+  reviewed on its own.
 
   Removing the sweep put a question to the condition that replaces it, and the answer needed a
   third pass. A pair whose *last* grant named the deleted context never reaches
@@ -280,10 +287,10 @@ starting before it builds it.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
-  It carries item 6's deviation too: `SPS-CTX-017` requires context deletion to remove "refresh
-  tokens scoped to it", which no token issued since slimming can be, so the clause needs to go or to
-  say what it now means. Unless item 6's decision is reversed instead, in which case this half
-  disappears with it.
+  It carries item 6's edit too: `SPS-CTX-017` still has context deletion remove "refresh tokens
+  scoped to it", which no token issued since slimming can be, so the clause needs to go or to say
+  what it now means. That one sits in `spec/modules/context-management.md`, not in the core chapter
+  the vendored index names.
   The companion change says when a refresh token may be issued, that `offline_access` is a sempods
   extension and not an OIDC scope, and what consent must show about lifetime; check whether
   `spec/modules/mcp.md` needs the same for clients that connect to a pod directly. It is a pull

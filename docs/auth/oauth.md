@@ -257,9 +257,9 @@ exchange — it would have to be handed an error, or a token already dead.
 An extra credential of a connection the person did just grant is the
 smaller failure.
 
-Deleting a context revokes no refresh token *for naming it* — a
-deliberate deviation from `SPS-CTX-017`, which still requires it and has
-a companion change pending. A family
+Deleting a context revokes no refresh token *for naming it*, which
+`SPS-CTX-017` still describes as it was before token slimming; that text
+has a companion edit pending. A family
 carries feature scopes only and context permissions are resolved per
 request, so the deletion's own cascade — the grant rows — is what ends
 the access. A family goes there on one condition, the same one the
