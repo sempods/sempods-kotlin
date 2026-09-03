@@ -20,12 +20,31 @@ updates:
   # The workflow and composite-action `uses:` pins. A pinned action is a supply-chain
   # dependency like any other and nothing else bumps it — checkout, setup-java, the
   # Gradle action and the third-party JUnit reporter would otherwise drift and silently
-  # miss security fixes. Scans `.github/workflows/` and `.github/actions/**/action.yml`.
+  # miss security fixes.
+  #
+  # Two directories, because `/` reaches `.github/workflows/` and an `action.yml` in the
+  # repository root — not one in a subdirectory. Without an entry naming it, the composite
+  # action is the one place in this repository where a pin never moves at all.
+  #
+  # Major bumps stay ungrouped, for the reason the Gradle block gives and one more: a major
+  # is where the licence changes, not only the API. `gradle/actions@v6` moved Gradle User
+  # Home caching into `gradle-actions-caching`, a closed-source component under
+  # https://develocity.ai/legal/terms-of-use/, and it reached this repository inside a
+  # two-line group PR. Caching stays enabled: it is free for public repositories, and it
+  # touches nothing this project publishes — the component runs in CI and ends up in no
+  # artifact. `cache-disabled: true` would cost every job a fresh dependency download to
+  # avoid terms that bind nothing. That is written down because the next major raises the
+  # question again, and an ungrouped PR is what puts a reader in front of it.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/setup-test-environment"
     schedule:
       interval: "weekly"
     groups:
       github-actions:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
