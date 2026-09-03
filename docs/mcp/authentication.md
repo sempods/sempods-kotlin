@@ -104,9 +104,16 @@ not thereby short-lived, and one that sends it has still asked rather
 than received. [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns
 that rule and the shape of the answer.
 
-The re-authorize path above ends the families it finds, so after an
-explicit reauthorize the question is put to the person again rather than
-settled by what the client sent the first time.
+The re-authorize path above ends the families it finds, but ending one is
+not the same as asking again. Whether the next `/authorize` renders a
+dialog is the ordinary auto-grant question, not something the reauthorize
+decides: a `dyn:` client — which is how the clients in
+[`clients.md`](clients.md) register — always gets the consent screen,
+while a static `did:web:` client whose grants survive and whose lifetime
+question is already answered is auto-granted and mints a replacement
+family with nobody asked. A static client that wants the review it just
+triggered sends `prompt=consent`;
+[`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
 
 ## Bearer challenge format
 
