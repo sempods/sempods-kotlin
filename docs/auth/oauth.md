@@ -122,9 +122,12 @@ a submission writes the ticked selection as *the* grant set, so a
 replayable form could restore a selection the person has since
 narrowed.
 
-There is no `scope` parameter for the standard delegation flow — the
-user picks contexts in the consent UI. `scope` **is** used for
-`public-read` (below).
+`scope` never carries contexts — the person ticks those in the consent UI.
+What it carries is the two values the discovery documents advertise:
+`public-read` ("Public-read flow" below) and
+[`offline_access`](#offline_access), which preselects the lifetime control
+rather than deciding it. Both are optional, and a delegation flow that
+sends neither is the ordinary case.
 
 ## Token exchange
 
