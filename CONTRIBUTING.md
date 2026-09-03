@@ -110,11 +110,12 @@ the scarce resource on a one-maintainer project; the useful contribution arrives
 already understood by the person sending it.
 
 **The rules an agent needs are in the repository.** `AGENTS.md` at the root is the
-canonical file, and `docs/agents/ai-instructions.md` is the hub every frontend routes
-through — Codex and opencode read `AGENTS.md` natively, while `CLAUDE.md`, `GEMINI.md`,
-`.github/copilot-instructions.md` and `.cursor/rules/` are pointers back to it. Point
-your agent at the hub before it starts; the self-check there is a task you can hand it
-verbatim.
+canonical file — except for the invariants below, which are canonical here because
+they bind you as much as they bind an agent — and `docs/agents/ai-instructions.md` is
+the hub every frontend routes through. Codex and opencode read `AGENTS.md` natively,
+while `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/`
+are pointers back to it. Point your agent at the hub before it starts; the self-check
+there is a task you can hand it verbatim.
 
 ## What this project will not change
 
