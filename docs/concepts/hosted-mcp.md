@@ -439,9 +439,11 @@ would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
   pod-side client identity does not (see [connecting a pod](#connecting-a-pod-oauth)). At a pod
   that dedups, a user's profiles are one client and share its grants; at a sempods pod, as the same
   pod user, they share one refresh-token family too — the second connect retires the first's.
-  Giving a named profile its own identity needs a per-profile redirect URI or another fingerprint
-  input, and costs one re-consent per profile and pod. Undecided — tracked in
-  [#84](https://github.com/sempods/sempods-kotlin/issues/84).
+  **Decided, not built:** a named profile gets its own identity, because a profile's token
+  otherwise inherits whatever the person granted that pod in another profile — the pod resolves
+  context permissions from `(pod, client_id, WebID)`, not from the token. The route is a callback
+  path per named profile, at one re-consent per profile and pod
+  ([#84](https://github.com/sempods/sempods-kotlin/issues/84)).
 - **A registration a pod forgot.** Re-authorize presents the stored `client_id`, and only a
   connection already refused with `invalid_grant` re-registers — so a registration the pod cleared
   silently dead-ends on its 400. Re-registering every time would orphan grants at a pod that does
