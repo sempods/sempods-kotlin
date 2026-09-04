@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.ClientId
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.OAuthErrorCode
@@ -207,20 +208,22 @@ class PodAuthEndpoint @Inject constructor(
     } else {
       "Dynamic client registered"
     }
+    // A fingerprint hit returns the *stored* row and discards the body just validated, so none of
+    // these is the value those checks saw. Same reason [ClientMetadataUri] is asked again on read.
     logger.info {
       "[oauth/register] $action: pod='$pod', clientId='${registration.clientId}', " +
-          "clientName='${registration.clientName ?: "(unset)"}', " +
-          "softwareId='${registration.softwareId ?: "(unset)"}', " +
-          "softwareVersion='${registration.softwareVersion ?: "(unset)"}', " +
-          "clientUri='${registration.clientUri ?: "(unset)"}', " +
-          "logoUri='${registration.logoUri ?: "(unset)"}', " +
-          "tosUri='${registration.tosUri ?: "(unset)"}', " +
-          "policyUri='${registration.policyUri ?: "(unset)"}', " +
-          "redirectUris=${registration.redirectUris.toList()}, " +
-          "contacts=${registration.contacts}, " +
-          "rawRequestKeys=${registration.rawRequest.keys.sorted()}"
+          "clientName='${LogSafeText.of(registration.clientName ?: "(unset)")}', " +
+          "softwareId='${LogSafeText.of(registration.softwareId ?: "(unset)")}', " +
+          "softwareVersion='${LogSafeText.of(registration.softwareVersion ?: "(unset)")}', " +
+          "clientUri='${LogSafeText.of(registration.clientUri ?: "(unset)")}', " +
+          "logoUri='${LogSafeText.of(registration.logoUri ?: "(unset)")}', " +
+          "tosUri='${LogSafeText.of(registration.tosUri ?: "(unset)")}', " +
+          "policyUri='${LogSafeText.of(registration.policyUri ?: "(unset)")}', " +
+          "redirectUris=${LogSafeText.of(registration.redirectUris.toList().toString())}, " +
+          "contacts=${LogSafeText.of(registration.contacts.toString())}, " +
+          "rawRequestKeys=${LogSafeText.of(registration.rawRequest.keys.sorted().toString())}"
     }
-    logger.info { "[oauth/register] full request body: ${registration.rawRequest}" }
+    logger.info { "[oauth/register] full request body: ${LogSafeText.of(registration.rawRequest.toString())}" }
 
     val body = linkedMapOf<String, Any?>(
       "client_id" to registration.clientId,
@@ -300,10 +303,13 @@ class PodAuthEndpoint @Inject constructor(
     // R6: audit-log every authorize entry so cross-client spikes can replay the
     // exact request shape per MCP client. One line per request, kept short — the
     // outcome is logged separately by the matching error/issue path.
+    // Ahead of `readClientId`, which is the point of an audit line: these are raw query parameters.
     logger.info {
       "[oauth/authorize-audit] outcome=start pod='${podDbo.name}' " +
-          "client_id='${clientId ?: "(none)"}' redirect_uri='${redirectUri ?: "(none)"}' " +
-          "prompt='${prompt ?: "(unset)"}' scope='${scope ?: "(unset)"}' " +
+          "client_id='${LogSafeText.of(clientId ?: "(none)")}' " +
+          "redirect_uri='${LogSafeText.of(redirectUri ?: "(none)")}' " +
+          "prompt='${LogSafeText.of(prompt ?: "(unset)")}' " +
+          "scope='${LogSafeText.of(scope ?: "(unset)")}' " +
           "signed_in=${session != null}"
     }
 
@@ -1285,7 +1291,8 @@ class PodAuthEndpoint @Inject constructor(
     val client = podServiceClientStore.authenticate(podId, basic.username, basic.password)
     if (client == null) {
       logger.info {
-        "[oauth/token] client_credentials auth failed: pod='${podDbo.name}', clientId='${basic.username}'"
+        "[oauth/token] client_credentials auth failed: pod='${podDbo.name}', " +
+            "clientId='${LogSafeText.of(basic.username)}'"
       }
       return Response.status(401)
         .header("WWW-Authenticate", "Basic realm=\"${podDbo.name}\"")
@@ -1356,8 +1363,10 @@ class PodAuthEndpoint @Inject constructor(
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code")
     val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing redirect_uri")
-    val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
+    // Held to the same rule `readClientId` holds one to: the token endpoint takes `client_id` as
+    // an unauthenticated form parameter and never goes through that method.
+    val normalizedClientId = clientId?.trim()?.takeIf(ClientId::isValid)
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing or malformed client_id")
 
     // Consume the authorization code (one-time use).
     val entry = authorizationCodeStore.consume(normalizedCode)
@@ -1544,8 +1553,10 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     val normalizedToken = refreshToken?.trim()?.takeIf { it.isNotBlank() }
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing refresh_token")
-    val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
+    // Same rule as the authorization-code branch above, and load-bearing here: the refusals below
+    // name this value before anything has matched it against a stored one.
+    val normalizedClientId = clientId?.trim()?.takeIf(ClientId::isValid)
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing or malformed client_id")
 
     val lookup = refreshTokenStore.lookup(normalizedToken)
     val token = lookup.token
@@ -2117,9 +2128,11 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     // R6: emit a single structured audit-log line per authorize-error so spike runs
     // can grep `[oauth/authorize-audit]` to reconstruct what each MCP client triggered.
+    // `errorDescription` is this endpoint's own and stays plain; `state` is whatever the client sent.
     logger.info {
       "[oauth/authorize-audit] outcome=error error=${error.code} error_description=\"$errorDescription\" " +
-          "state=${state ?: "(none)"} redirect_uri=${redirectUri ?: "(none)"}"
+          "state=${LogSafeText.of(state ?: "(none)")} " +
+          "redirect_uri=${LogSafeText.of(redirectUri ?: "(none)")}"
     }
     if (redirectUri.isNullOrBlank()) {
       return Response.status(400).entity("${error.code}: $errorDescription").type("text/plain").build()
@@ -2216,12 +2229,13 @@ class PodAuthEndpoint @Inject constructor(
     /** Well-formed `dyn:<id>`, with no registration behind it here — cleared, expired, or another pod's. */
     data object Unregistered : ClientIdentity
 
-    /** Absent, blank, or neither a `did:web:` nor a `dyn:` identity. */
+    /** Absent, blank, outside RFC 6749's `*VSCHAR` ([ClientId]), or neither a `did:web:` nor a `dyn:` identity. */
     data object Malformed : ClientIdentity
   }
 
   private fun readClientId(podDbo: PodDbo, appId: String?): ClientIdentity {
     val normalized = appId?.trim()?.takeIf { it.isNotBlank() } ?: return ClientIdentity.Malformed
+    if (!ClientId.isValid(normalized)) return ClientIdentity.Malformed
     return when {
       normalized.startsWith("did:web:") -> ClientIdentity.Known(normalized)
       normalized.startsWith("dyn:") ->

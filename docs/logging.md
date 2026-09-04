@@ -106,6 +106,11 @@ mixing the two is how this tree ended up with four idioms at once.
    keeps it. In application code there is nothing to do, and adding a line there is not a thing to
    review for.
 
+   **Where the value can be held to a character set on the way in, do that instead.** An escape
+   fixes the sink it is written at; a check at the entrance fixes the ones nobody has written yet.
+   `ClientId.isValid` is the case to copy — `client_id` reached over fifty statements in the pod
+   server, and holding it to RFC 6749 Appendix A.1 wherever one arrives retires all of them.
+
    Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
    is what a request path goes through, for its *other* half: it redacts declared secret segments,
    which no encoder can do.

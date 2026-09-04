@@ -151,7 +151,7 @@ fun Application.authEndpoint(
     ).also { dcrClientDao.create(it) }
 
     if (existing != null) logger.info { "DCR dedup hit: reusing client_id=${client.clientId} (profile=$profile)" }
-    else logger.info { "DCR registered new client_id=${client.clientId} name='$clientName' (profile=$profile)" }
+    else logger.info { "DCR registered new client_id=${client.clientId} name='${forLog(clientName)}' (profile=$profile)" }
 
     // Echo the **current request's** redirect_uris, not the stored ones. On a loopback
     // dedup hit the stored row holds the first-seen ephemeral port; a client that treats
@@ -442,7 +442,7 @@ fun Application.authEndpoint(
         val key = PodKey(txn.user, txn.profile, pod)
         tokenVaultDao.delete(key)
         connectionRegistryDao.delete(key)
-        logger.info { "pod disconnected (consent): user='${txn.user}' profile='${txn.profile}' pod='$pod'" }
+        logger.info { "pod disconnected (consent): user='${txn.user}' profile='${txn.profile}' pod='${forLog(pod)}'" }
         auditLog.podDisconnected(txn.user, txn.profile, pod)
       }
       val disc = if (pod.isNotEmpty()) "&disconnected=${enc(pod)}" else ""

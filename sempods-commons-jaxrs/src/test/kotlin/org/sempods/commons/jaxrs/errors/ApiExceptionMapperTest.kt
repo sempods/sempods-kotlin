@@ -152,6 +152,43 @@ class ApiExceptionMapperTest {
   }
 
   @Test
+  fun `a failure message cannot forge a second log line`() {
+    // The path is `RequestPathForLog`'s; this is the other half of the same line. A parser quotes
+    // the body it choked on and `NumberFormatException` quotes the query parameter, so the message
+    // is the request's own text one indirection out — `docs/logging.md` §"Three rules".
+    bindRequest("POST", "v1/pods/alice/events")
+
+    mapper.toResponse(
+      IllegalArgumentException("For input string: \"7\n2026-01-01 21:00:00,000 WARN  [jetty] forged\""),
+    )
+
+    val line = loggedLine("For input string")
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+    assertTrue(line.endsWith(" [POST v1/pods/alice/events]"), "was: $line")
+  }
+
+  @Test
+  fun `an ApiException's errors cannot forge one either`() {
+    // `ApiErrorDto.parameters` is where a rejected value is carried so the response can name it,
+    // which is exactly what makes the rendered error list caller text.
+    bindRequest("POST", "v1/pods/alice/_system/auth/register")
+
+    mapper.toResponse(
+      ApiException(
+        errorId = "invalid_parameter",
+        errorMessage = "unusable {{field}}",
+        errorParameters = mapOf("field" to "name\n2026-01-01 21:00:00,000 WARN  [jetty] forged"),
+        statusCode = 400,
+      ),
+    )
+
+    val line = loggedLine("invalid_parameter")
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+  }
+
+  @Test
   fun `an ApiException a task wrapped still answers its own status`() {
     // A caller joining a task with `Future.get()` hands on whatever it threw wrapped in an
     // `ExecutionException`. The status the failure declared has to survive that.

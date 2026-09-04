@@ -19,6 +19,7 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.commons.logging.LogSafeText
 
 class SempodsFacade @Inject constructor(
   private val podDao: PodDao,
@@ -62,7 +63,9 @@ class SempodsFacade @Inject constructor(
   }
 
   internal fun deletePod(pod: String) {
-    logger.info { "Delete pod $pod" }
+    // Ahead of the lookup, so `pod` is still whatever the admin route was called with. Deleting an
+    // unknown pod is a no-op by contract, and a name that is not a pod name never becomes one.
+    logger.info { "Delete pod ${LogSafeText.of(pod)}" }
     podIdCache.clear()
     getPodId(pod = pod)?.let { podId ->
       // Security-sensitive rows first: tokens, DCR rows and statically-registered

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
@@ -175,6 +176,24 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals("provisioned", response.field("result"))
     assertNotEquals(stale, response.field("registrationId"))
     assertNotNull(response.field("secret"))
+  }
+
+  @Test
+  fun `an expectedRegistrationId cannot forge a log line`() {
+    // A body field, compared against the stored id and named in the re-mint line whether or not it
+    // matched — so it reaches the log exactly as sent. `docs/logging.md` §"Three rules".
+    val pod = sempodsTestFactory.newPod()
+    provision(pod.name)
+    // Escaped for the JSON body, so what the endpoint parses out of it is a real newline.
+    val forged = "6890abc-${randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] pod deleted by admin"
+
+    val lines = CapturedLog.linesFrom(AdminPodsEndpoint::class.java) {
+      assertEquals("provisioned", provision(pod.name, expectedRegistrationId = forged).field("result"))
+    }
+
+    val line = lines.single { forged.substringBefore('\\') in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
   }
 
   @Test

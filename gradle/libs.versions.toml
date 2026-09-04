@@ -78,6 +78,7 @@ jacksonKotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin",
 jakartaWsRsApi = "jakarta.ws.rs:jakarta.ws.rs-api:4.0.0"
 jakartaInjectApi = "jakarta.inject:jakarta.inject-api:2.0.1"
 jerseyHk2 = { module = "org.glassfish.jersey.inject:jersey-hk2", version.ref = "jersey" }
+jerseyCommon = { module = "org.glassfish.jersey.core:jersey-common", version.ref = "jersey" }
 jerseyServer = { module = "org.glassfish.jersey.core:jersey-server", version.ref = "jersey" }
 jerseyJettyHttp = { module = "org.glassfish.jersey.containers:jersey-container-jetty-http", version.ref = "jersey" }
 jerseyJsonJackson = { module = "org.glassfish.jersey.media:jersey-media-json-jackson", version.ref = "jersey" }

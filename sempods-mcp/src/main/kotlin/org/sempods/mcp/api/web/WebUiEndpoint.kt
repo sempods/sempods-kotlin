@@ -430,7 +430,7 @@ fun Application.webUiEndpoint(
         )
         connectionRegistryDao.upsert(connection)
         logger.info {
-          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${subject.webId}' verified=${subject.verified} foreign=${connection.foreignIdentity}"
+          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.foreignIdentity}"
         }
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = true)
         // Carry the pod-local identity into the landing when it differs from the service identity,
@@ -457,7 +457,7 @@ fun Application.webUiEndpoint(
         val key = PodKey(session.user, profile, pod)
         tokenVaultDao.delete(key)
         connectionRegistryDao.delete(key)
-        logger.info { "pod disconnected: user='${session.user}' profile='$profile' pod='$pod'" }
+        logger.info { "pod disconnected: user='${session.user}' profile='$profile' pod='${forLog(pod)}'" }
         auditLog.podDisconnected(session.user, profile, pod)
       }
       call.respondRedirect("$base/_system/ui?profile=${enc(profile)}")

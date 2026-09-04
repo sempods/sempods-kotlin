@@ -1,6 +1,7 @@
 package org.sempods.commons.jaxrs
 
 import org.sempods.commons.jaxrs.errors.ApiErrors
+import org.sempods.commons.logging.LogSafeText
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.EntityTag
@@ -80,8 +81,8 @@ open class BaseEndpoint {
 
       return response.tag(entityTag).build()
     } catch (e: Exception) {
-      // happens if the request sends an invalid If-None-Match header
-      logger.warn { "Failed to evaluate preconditions: $e" }
+      // happens if the request sends an invalid If-None-Match header, which Jersey quotes back
+      logger.warn { "Failed to evaluate preconditions: ${LogSafeText.of(e.toString())}" }
     }
     return null
   }

@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.mcp
 import com.google.inject.Inject
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.oauth.PodRefreshTokenStore
@@ -110,6 +111,36 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(responseBody.contains("sempods-mcp-server"), "TestHttpResponse should contain server name")
     assertTrue(responseBody.contains("protocolVersion"), "TestHttpResponse should contain protocol version")
     assertTrue(responseBody.contains("capabilities"), "TestHttpResponse should contain capabilities")
+  }
+
+  @Test
+  fun `neither the pod segment nor the request body can forge a log line`() {
+    // Three caller-written values reach this endpoint's lines and none has a check behind it: the
+    // `{pod}` path parameter, logged before the pod is resolved; the body, logged whole; and
+    // `method`, which every `[mcp/audit]` line names. `docs/logging.md` §"Three rules".
+    // The pod name is unique to this case, so its lines can be told from a sibling's: the suite
+    // runs its classes concurrently and the appender sees every line logged while the block runs.
+    val forgedPod = "no-such-pod-${TestUtil.randomId()}\u2028ERROR forged"
+    val forgedMethod = "tools/list\n2026-01-01 21:00:00,000 WARN  [jetty] pod deleted by admin"
+    val body = objectMapper.writeValueAsString(
+      mapOf("jsonrpc" to "2.0", "id" to 1, "method" to forgedMethod),
+    )
+
+    val lines = CapturedLog.linesFrom(McpEndpoint::class.java) {
+      httpClient.preparePost(mcpUrl(URLEncoder.encode(forgedPod, Charsets.UTF_8)))
+        .addHeader("Content-Type", "application/json")
+        .setBody(body)
+        .execute()
+    }
+
+    val mine = lines.filter { forgedPod.substringBefore('\u2028') in it }
+    assertTrue(mine.isNotEmpty(), "nothing was logged, so this asserts nothing")
+    mine.forEach {
+      assertFalse('\n' in it, "a line carries a raw newline: $it")
+      assertFalse('\u2028' in it, "a line carries a raw U+2028: $it")
+    }
+    assertTrue(mine.any { "\\u2028" in it }, "the pod segment was never escaped: $mine")
+    assertTrue(mine.any { "\\u000a" in it }, "the method was never escaped: $mine")
   }
 
   @Test

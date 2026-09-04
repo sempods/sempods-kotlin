@@ -8,6 +8,7 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
@@ -582,6 +583,31 @@ class WebUiEndpointTest {
     // The disconnect action landed in the audit trail (M6.4).
     val audit = auditLogDao.listFor("https://id.test/e/web-user5", PodKey.DEFAULT_PROFILE)
     assertEquals(1, audit.count { it.type == AuditEventType.POD_DISCONNECT && it.pod == "https://sempods.org/x" })
+  }
+
+  @Test
+  fun `a pod value on disconnect cannot forge a second log line`() = testApplication {
+    // `pod` is a form field, and disconnect is a no-op for a key that names nothing — so nothing
+    // between the browser and this line has vouched for it. `docs/logging.md` §"Three rules".
+    val tokenIssuer = installWebUi()
+    val cookie = tokenIssuer.issueWebSession("https://id.test/e/web-user9")
+    val client = createClient { followRedirects = false }
+    val dash = client.get("/_system/ui") { header(HttpHeaders.Cookie, "${config.sessionCookieName}=$cookie") }.bodyAsText()
+    val csrf = Regex("name=\"csrf\" value=\"([^\"]+)\"").find(dash)!!.groupValues[1]
+    val forged = "https://sempods.org/x\n2026-01-01 21:00:00,000 WARN  [ktor] pod deleted by admin"
+
+    val lines = CapturedLog.linesFrom("org.sempods.mcp.api.web") {
+      client.submitForm(
+        url = "/_system/ui/pods/disconnect",
+        formParameters = parameters {
+          append("csrf", csrf); append("profile", PodKey.DEFAULT_PROFILE); append("pod", forged)
+        },
+      ) { header(HttpHeaders.Cookie, "${config.sessionCookieName}=$cookie") }
+    }
+
+    val line = lines.single { "pod disconnected" in it }
+    assertFalse('\n' in line, "the line carries a raw newline: $line")
+    assertTrue("\\u000a" in line, line)
   }
 
   @Test
