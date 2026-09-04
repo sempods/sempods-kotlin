@@ -180,7 +180,9 @@ inside its own JSON-RPC stream (see
    connect it belongs to — and it lets a connect started on one replica finish on another.
 4. The callback consumes the row, requires the signed-in user to be the one who started the flow,
    exchanges the code, and stores the tokens under `(user, profile, pod)`. No `nonce`: there is no
-   `id_token` on this leg, and the session cookie binds the browser.
+   `id_token` on this leg. The session cookie binds the callback to the signed-in *identity*, not
+   to the browser that started the flow — a second browser signed in as the same user completes it
+   too; the login legs pin the browser, this one does not.
 
 **One redirect URI for the whole service**, `…/_system/ui/pods/callback` — the profile comes out of
 the state row, not the URL. Constant on purpose: a sempods pod dedups DCR on (client name,
@@ -195,8 +197,7 @@ The cost is that a user's profiles are one client at that pod, and share more th
 > needs reconnecting once its access token expires. Sign in at the pod as a *different* user and
 > only the `client_id` is shared: grants and refresh families are per WebID.
 
-The vault rows are separate; the pod-side authority and lifetime are not. Whether a named profile
-should carry a pod-side identity of its own is [open](#open-questions).
+Whether a named profile should carry a pod-side identity of its own is [open](#open-questions).
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
 client its consent screen, with the prior grants pre-checked, so scopes change there rather than in

@@ -110,10 +110,11 @@ second connect costs the first, in
 is shorter than the paragraph of hedging it replaces, and it is the half a reader remembers. It
 lives in the document that owns the fact; copying it here would be a second copy to keep true.
 
-**9. A document does not grow.** Every edit is also a chance to make it shorter, and a section that
-has doubled since it was written is one to cut rather than extend. Add a paragraph, look for one to
-delete — usually the one the new paragraph made redundant. Length is the failure mode this
-repository actually has: nobody reads the novel, so the novel stops being true.
+**9. Length is a budget, not an entitlement.** Add a paragraph, look for one to delete — usually
+the one the new paragraph made redundant — and treat a section that has doubled since it was
+written as one to cut rather than extend. A document may still grow where it was missing something
+true; what it may not do is drift into a novel, because nobody reads the novel and what nobody
+reads stops being true.
 
 ## Roadmaps
 
