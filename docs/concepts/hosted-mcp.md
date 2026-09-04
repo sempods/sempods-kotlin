@@ -198,7 +198,8 @@ The cost is that a user's profiles are one client at that pod, and share more th
 > needs reconnecting once its access token expires. Sign in at the pod as a *different* user and
 > only the `client_id` is shared: grants and refresh families are per WebID.
 
-Whether a named profile should carry a pod-side identity of its own is [open](#open-questions).
+A named profile is to carry a pod-side identity of its own — decided, not built ([open
+questions](#open-questions)).
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
 client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
@@ -309,8 +310,9 @@ The profile path lives on the service's URL, so it directly separates
    `client_id` per RFC 7591 registration separates the profiles by
    accident, which is not the same as the service having asked for it.
    Why the identical request is load-bearing is in [connecting a
-   pod](#connecting-a-pod-oauth); whether a named profile should carry a
-   pod-side identity of its own is [open](#open-questions).
+   pod](#connecting-a-pod-oauth); that a named profile is to carry a
+   pod-side identity of its own is decided and not built
+   ([open questions](#open-questions)).
 
 ### Identity and keying
 
