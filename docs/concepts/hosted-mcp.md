@@ -67,8 +67,9 @@ directly. This trade is the whole decision — taken deliberately, not by omissi
 
 ## It stays a client
 
-Even as the primary MCP layer, the service is structurally a **client** to each pod: its
-own DCR registration and bearer, keyed `(user, profile, pod)` (see
+Even as the primary MCP layer, the service is structurally a **client** to each pod: its own client
+identity there — a DCR registration, or the static `did:web` client at a pod offering no DCR — and a
+bearer per `(user, profile, pod)` (see
 [identity and keying](#identity-and-keying)); the pod runs its own grants, consent, and
 server-side enforcement. The service adds **no cross-pod identity, grant, or revocation
 primitive** to any pod. "AI agents are clients, structurally identical to any other app"
@@ -83,7 +84,7 @@ still holds — the client is just hosted rather than bundled in a desktop app o
    ├─ tool layer        (targets, SPARQL rewrite, per-(pod,context) envelope)
    ├─ connection registry  (user, profile → [pod URL, OAuth client, scopes])
    └─ token vault          (encrypted, per (user, profile, pod); refresh loop)
-        │  (2) per pod: OAuth client (DCR), bearer per (user, profile, pod)
+        │  (2) per pod: OAuth client (DCR or did:web), bearer per (user, profile, pod)
         ▼
   Pod A (HTTP System layer)  …  Pod B  …  Pod C    ← each enforces its own grants
 ```
@@ -162,27 +163,54 @@ flow.
 
 ## Connecting a pod (OAuth)
 
-The service runs a plain **"connect pod" web flow** — standard server-side OAuth, not the
-per-pod MCP's interactive `authorize` tool (which is built for an AI client driving OAuth
-from inside its own JSON-RPC stream; see
-[`../mcp/authentication.md`](../mcp/authentication.md#the-authorize-tool)):
+A plain server-side OAuth flow in the session-protected `/_system/ui`
+([`WebUiEndpoint`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/api/web/WebUiEndpoint.kt)) —
+not the per-pod MCP's interactive `authorize` tool, which exists for an AI client driving OAuth
+inside its own JSON-RPC stream (see
+[`../mcp/authentication.md`](../mcp/authentication.md#the-authorize-tool)).
 
-1. User enters a pod base URL in the service UI; the service resolves the
-   pod's OAuth metadata and **registers via DCR** at that pod.
-2. Standard **Authorization Code + PKCE**: redirect the user's browser to
-   the pod's `authorize`, with the `state` parameter **bound to the full
-   expected flow context** — `(user, profile, pod_base_url, issuer,
-   client_id)` or equivalent — not just `(user, profile)`. Binding the
-   expected pod / authorization server / DCR registration is what closes
-   the mix-up risk when several connect flows run in parallel. The redirect
-   URI points back to the service.
-3. On callback the service validates `state`, exchanges the code, and
-   stores the resulting tokens in the vault under `(user, profile, pod)`.
+1. The user enters a pod base URL. The service vets it ([SSRF](#security--pod-urls-and-ssrf)) and
+   reads the pod's OAuth metadata. A registration endpoint means DCR; RFC 9728 alone means the
+   service's static `did:web:<mcp-host>` client.
+2. Authorization Code + PKCE at the pod's `authorize`, with `scope=offline_access` where the pod
+   advertises it — the durable connection is the person's to grant, not the client's to take (see
+   [what it buys](#what-it-buys--and-what-it-costs)).
+3. `state` is an opaque handle to a one-time, expiring server-side row
+   ([`PodConnectStateStore`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/pods/PodConnectStateStore.kt)),
+   which holds the flow's context. That is the mix-up defense — the callback resumes the exact
+   connect it belongs to — and it lets a connect started on one replica finish on another.
+4. The callback consumes the row, requires the signed-in user to be the one who started the flow,
+   exchanges the code, and stores the tokens under `(user, profile, pod)`. No `nonce`: there is no
+   `id_token` on this leg. The session cookie binds the callback to the signed-in *identity*, not
+   to the browser that started the flow — a second browser signed in as the same user completes it
+   too; the login legs pin the browser, this one does not.
+
+**One redirect URI for the whole service**, `…/_system/ui/pods/callback` — the profile comes out of
+the state row, not the URL. Constant on purpose: a sempods pod dedups DCR on (client name,
+`User-Agent`, redirect URIs), so a re-registration returns the same `client_id`, and the pod's
+grants — keyed `(pod, client_id, WebID)` — stay with it.
+
+The cost is that a user's profiles are one client at that pod, and share more than a label:
+
+> Connect `pod.example` in `…/private`, then in `…/cron-agent`, signing in at the pod as the same
+> user both times. Both arrive as the same `client_id`, so they share that pod's consent screen and
+> its grants — and the second connect retires the first's refresh-token family, so `…/private`
+> needs reconnecting once its access token expires. Sign in at the pod as a *different* user and
+> only the `client_id` is shared: grants and refresh families are per WebID.
+
+A named profile is to carry a pod-side identity of its own — decided, not built ([open
+questions](#open-questions)).
+
+**Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
+client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
+a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a
+pod free to reuse the prior authorization will, and the button then changes nothing. The stored
+`client_id` is reused — except for a dead (`invalid_grant`) `dyn:` connection at a pod offering
+DCR, which re-registers; a static `did:web` client has no registration to lose and keeps its
+identity. The callback stores the scopes the token response returned, not the ones asked for, and
+clears the reconnect mark.
 
 The pod sees an ordinary OAuth client; consent and grants stay pod-side.
-This needs spelling out concretely — `state`/nonce binding, redirect-URI
-registration per profile, and re-consent / scope-upgrade handling — before
-implementation.
 
 ## Cross-pod reads vs. writes
 
@@ -268,25 +296,37 @@ The profile path lives on the service's URL, so it directly separates
    [`authentication.md#dcr-fingerprint`](../mcp/authentication.md#dcr-fingerprint)
    for the shared digest), forcing distinct OAuth clients on the connector
    side.
-2. **Service → pod.** This separation is **not** automatic from the
-   path. The service must enforce it explicitly: a separate DCR
-   registration, token, and grant set per `(user, profile, pod)` (or a
-   deliberately justified weaker isolation). Without that, `…/private` and
-   `…/cron-agent` would share pod tokens — UI isolation only, not hard
-   token / grant isolation.
+2. **Service → pod.** This separation is **not** automatic from the path,
+   and it is enforced in one half of the flow rather than both. The
+   **tokens** are isolated: registry and vault rows are keyed
+   `(user, profile, pod)`, so `…/private` and `…/cron-agent` hold separate
+   bearers and reach separate connection bundles. The **pod-side client
+   identity** is not, and what it does instead is the pod's choice rather
+   than this service's: the registration request is identical for every
+   profile, so a **sempods pod** dedups it and both profiles arrive as one
+   `client_id`, sharing the consent and grants held under it. Grants are
+   keyed `(pod, client_id, WebID)`, so what separates one *user* from
+   another there is the WebID, not the profile. A pod that mints a fresh
+   `client_id` per RFC 7591 registration separates the profiles by
+   accident, which is not the same as the service having asked for it.
+   Why the identical request is load-bearing is in [connecting a
+   pod](#connecting-a-pod-oauth); that a named profile is to carry a
+   pod-side identity of its own is decided and not built
+   ([open questions](#open-questions)).
 
 ### Identity and keying
 
-The canonical key throughout — connection registry, token vault, pod-side
-DCR client — is **`(user, profile, pod)`**, with the implicit default
-profile filling the slot before any named profiles exist. Keeping the
-profile in the key from day one is what makes profiles a real isolation
-boundary later rather than a relabelling of a shared token pool.
+The canonical key throughout — connection registry, token vault — is
+**`(user, profile, pod)`**, with the implicit default profile filling the
+slot before any named profiles exist. Keeping the profile in the key from
+day one is what makes profiles a real isolation boundary rather than a
+relabelling of a shared token pool. The pod-side client identity is the one
+thing that is not keyed by it (above).
 
-`user` itself is the root of that key and must be a **stable identity from an explicit
-provider**, not a per-session placeholder — recommended default a **sempods WebID via
-`id.sempods.org`** (the `sempods-auth` module), with the service as a pluggable OIDC / JWT
-relying party. Fixing this is M1's job (see the roadmap); everything downstream keys off it.
+`user` is the root of that key and is a **stable identity from an explicit provider**, never a
+per-session placeholder: the service is an OIDC relying party to its configured issuer
+(`SEMPODS_AUTH_ISSUERS`, `id.sempods.org` by default, a local `sempods-auth` on a self-hosted
+deployment), so `user` is a WebID. Everything downstream keys off it.
 
 Keep two separation axes distinct:
 
@@ -397,6 +437,20 @@ would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
   trail all shipped. Key management is still envelope-style (`MCP_SECRET_KEY`),
   not KMS, and per-vault-key rotation (`v1:<kid>:…`) is deferred — the residual
   open edge on what remains a high-value target.
+- **Profile isolation toward the pod.** Registry and vault key `(user, profile, pod)`; the
+  pod-side client identity does not (see [connecting a pod](#connecting-a-pod-oauth)). At a pod
+  that dedups, a user's profiles are one client and share its grants; at a sempods pod, as the same
+  pod user, they share one refresh-token family too — the second connect retires the first's.
+  **Decided, not built:** a named profile gets its own identity, because a profile's token
+  otherwise inherits whatever the person granted that pod in another profile — the pod resolves
+  context permissions from `(pod, client_id, WebID)`, not from the token. The route is a callback
+  path per named profile, at one re-consent per profile and pod
+  ([#84](https://github.com/sempods/sempods-kotlin/issues/84)).
+- **A registration a pod forgot.** Re-authorize presents the stored `client_id`, and only a
+  connection already refused with `invalid_grant` re-registers — so a registration the pod cleared
+  silently dead-ends on its 400. Re-registering every time would orphan grants at a pod that does
+  not dedup, and asking whether a `client_id` is still live needs the RFC 7592 registration token
+  this service does not keep.
 - **Centralization optics.** A sempods-operated `mcp.sempods.org` is a
   chokepoint in a decentralized system. The service must stay self-hostable
   by third parties so it is "one optional instance", not the gateway. (The

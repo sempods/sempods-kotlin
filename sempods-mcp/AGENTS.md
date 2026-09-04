@@ -43,8 +43,12 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
 - **Guice** for DI (services only).
 - **Stays a client.** It never becomes an authority a pod depends on. Token custody is
   the real cost — see the concept doc.
-- **Canonical key** for registry / token vault / pod DCR client is `(user, profile, pod)`,
-  with an implicit default profile from day one.
+- **Canonical key** for registry / token vault is `(user, profile, pod)`, with an implicit
+  default profile from day one. The pod-side DCR client is not keyed by it — the registration
+  request is identical for every profile, so a pod that dedups (a sempods pod does, per pod) hands
+  back one shared `dyn:` client_id for every connection this service holds there (M2). The dedup is
+  a lookup and not a uniqueness constraint — two first connects racing at one pod can each miss and
+  mint their own id, which then hold their own grants.
 
 ## Deployment stance (PoC — no migrations)
 
