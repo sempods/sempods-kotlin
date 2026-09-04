@@ -436,9 +436,10 @@ would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
   open edge on what remains a high-value target.
 - **Profile isolation toward the pod.** Registry and vault key `(user, profile, pod)`; the
   pod-side client identity does not (see [connecting a pod](#connecting-a-pod-oauth)). At a pod
-  that dedups, a user's profiles are one client, sharing its grants and its refresh-token
-  lifetime. Giving a named profile its own identity needs a per-profile redirect URI or another
-  fingerprint input, and costs one re-consent per profile and pod. Undecided — tracked in
+  that dedups, a user's profiles are one client and share its grants; at a sempods pod, as the same
+  pod user, they share one refresh-token family too — the second connect retires the first's.
+  Giving a named profile its own identity needs a per-profile redirect URI or another fingerprint
+  input, and costs one re-consent per profile and pod. Undecided — tracked in
   [#84](https://github.com/sempods/sempods-kotlin/issues/84).
 - **A registration a pod forgot.** Re-authorize presents the stored `client_id`, and only a
   connection already refused with `invalid_grant` re-registers — so a registration the pod cleared
