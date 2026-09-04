@@ -71,10 +71,17 @@ Where a document and the code disagree, the code is right and the document is a 
 `# Logging (IST)`, `# Modular deployment (Concept)`. An aspiration written in the indicative reads
 as a description, and a reader has no way to tell it apart.
 
-**3. Short and plain.** No history, no decision log, no "this used to be X" — that is what the
-commit message is for. The one exception is a rationale a future reader genuinely needs in order not
-to undo it: *why the HTTP client is OkHttp* (its `Dns` hook is where SSRF resolve-and-pin lives; the
-JDK client offers none) belongs in the document. *Which pull request changed it* does not.
+**3. Short, direct, plain.** Take the shortest wording that is still correct.
+
+- **Name a standard, do not re-explain it.** "Authorization Code + PKCE", "RFC 9728 metadata". A
+  reader who needs the mechanism has the RFC; one who does not is skipping the paragraph.
+- **Say what the thing is**, not what it is not, and drop the rhetorical shape. `Correct the
+  pod-connect flow: SOLL → IST` — not `Describe the flow as what it does, not as what it still
+  needs`. Holds for headings, sentences and commit subjects alike.
+- **No history, no decision log**, no "this used to be X" — that is what the commit message is for.
+  The one exception is a rationale a future reader needs in order not to undo it: *why the HTTP
+  client is OkHttp* (its `Dns` hook is where SSRF resolve-and-pin lives; the JDK client offers
+  none) belongs in the document. *Which pull request changed it* does not.
 
 **4. Logic that follows the standard needs no documentation at all.** Document the deviation, not
 the norm. A Guice module bound the ordinary way, a DAO that reads and writes the ordinary document
@@ -95,6 +102,21 @@ what may be null, and what an implementation owes its caller.
 
 **7. This repository is public.** Nothing strategic, commercial or personal goes into it — roadmaps
 included. Technical milestones are public; the business around them is not.
+
+**8. Show the case.** Where a rule has a consequence a reader would have to derive, write the
+consequence out instead of qualifying the rule:
+
+> Connect `pod.example` in `…/private`, then in `…/cron-agent`. Both arrive as the same
+> `client_id`, so they share that pod's grants — and the second connect retires the first's
+> refresh token.
+
+One concrete case is shorter than the paragraph of hedging it replaces, and it is the half a reader
+remembers.
+
+**9. A document does not grow.** Every edit is also a chance to make it shorter, and a section that
+has doubled since it was written is one to cut rather than extend. Add a paragraph, look for one to
+delete — usually the one the new paragraph made redundant. Length is the failure mode this
+repository actually has: nobody reads the novel, so the novel stops being true.
 
 ## Roadmaps
 
