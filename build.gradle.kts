@@ -161,11 +161,10 @@ subprojects {
     // Test classes run side by side; the methods inside one class do not.
     //
     // That combination is what makes it safe here rather than merely faster. The unit of isolation
-    // in this repository is the class: it owns its DAO collection (`test.pod.dao` and friends,
-    // dropped in `@BeforeEach`), its pods carry names from `randomId()`, and the mechanism the
-    // suites are built on — `GuiceAppTestProxy` — keys its state on
-    // `TraceContextHolder.getTraceId()`, a `ThreadLocal`. Methods within a class share all of that,
-    // and `same_thread` is what keeps it true.
+    // in this repository is the class: it owns any stub it starts, its pods carry names from
+    // `randomId()`, and the mechanism the suites are built on — `GuiceAppTestProxy` — keys its
+    // state on `TraceContextHolder.getTraceId()`, a `ThreadLocal`. Methods within a class share all
+    // of that, and `same_thread` is what keeps it true.
     //
     // Sizing is deliberately absent: JUnit's default strategy (`dynamic`, one worker per available
     // processor) is the answer until a measurement says otherwise. Set here rather than in a
