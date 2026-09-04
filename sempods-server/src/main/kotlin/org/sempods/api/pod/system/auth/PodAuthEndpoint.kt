@@ -208,20 +208,20 @@ class PodAuthEndpoint @Inject constructor(
     } else {
       "Dynamic client registered"
     }
-    // Escaped where nothing has vouched for the characters. The four `*Uri` members went through
-    // `ClientMetadataUri.isValid` and the redirect URIs through `RedirectUri.isValid`, both of
-    // which parse a `java.net.URI` — which admits no control character and no U+2028. The free-text
-    // members and the submitted keys have no such check behind them, and the body has none at all.
+    // Everything but the `dyn:` id, because on a fingerprint hit `register` returns the *stored*
+    // row and discards what this request submitted — so the checks that just ran on this body say
+    // nothing about a row written before they existed. Same reason [ClientMetadataUri] is asked
+    // again on the way out.
     logger.info {
       "[oauth/register] $action: pod='$pod', clientId='${registration.clientId}', " +
           "clientName='${LogSafeText.of(registration.clientName ?: "(unset)")}', " +
           "softwareId='${LogSafeText.of(registration.softwareId ?: "(unset)")}', " +
           "softwareVersion='${LogSafeText.of(registration.softwareVersion ?: "(unset)")}', " +
-          "clientUri='${registration.clientUri ?: "(unset)"}', " +
-          "logoUri='${registration.logoUri ?: "(unset)"}', " +
-          "tosUri='${registration.tosUri ?: "(unset)"}', " +
-          "policyUri='${registration.policyUri ?: "(unset)"}', " +
-          "redirectUris=${registration.redirectUris.toList()}, " +
+          "clientUri='${LogSafeText.of(registration.clientUri ?: "(unset)")}', " +
+          "logoUri='${LogSafeText.of(registration.logoUri ?: "(unset)")}', " +
+          "tosUri='${LogSafeText.of(registration.tosUri ?: "(unset)")}', " +
+          "policyUri='${LogSafeText.of(registration.policyUri ?: "(unset)")}', " +
+          "redirectUris=${LogSafeText.of(registration.redirectUris.toList().toString())}, " +
           "contacts=${LogSafeText.of(registration.contacts.toString())}, " +
           "rawRequestKeys=${LogSafeText.of(registration.rawRequest.keys.sorted().toString())}"
     }

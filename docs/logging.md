@@ -112,7 +112,7 @@ mixing the two is how this tree ended up with four idioms at once.
    | | |
    |---|---|
    | Held to a character set: `SempodsUriBuilder.checkPodName`, `ProfilePath.isValidName`, `ClientId.isValid` | nothing to do |
-   | A `java.net.URI`, or past a check that parsed one: `RedirectUri.isValid`, `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase` | nothing to do — that grammar admits no control character and no U+2028 |
+   | A `java.net.URI`, or *this* value past a check that parsed one: `RedirectUri.isValid`, `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase` | nothing to do — that grammar admits no control character and no U+2028. A stored row read back is a different value: DCR dedup returns the row and discards the body that was just checked |
    | A dependency's exception message | look that dependency up: nimbus names the parameter and quotes no value, Jersey's `HeaderValueException` quotes the header, and OkHttp decodes a header line as UTF-8, so a remote U+2028 arrives intact |
    | A request body, a form field, a path or query parameter logged before anything resolved it, a remote response | escape |
 

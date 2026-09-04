@@ -605,6 +605,49 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a stored registration cannot forge a log line either`() {
+    // The submitted metadata is checked, but a fingerprint hit returns the *stored* row and throws
+    // the submitted values away — so a row written before a check existed is what reaches the line.
+    // Same upgrade path the `client_uri` filter above is about.
+    val pod = sempodsTestFactory.newPod()
+    val redirectUri = "http://localhost:5173/callback"
+    val clientName = "Legacy Logger ${TestUtil.randomId()}"
+    val userAgent = "LegacyAgent/1.0"
+    dynamicClientRegistrationDao.create(
+      clientId = "dyn:" + ObjectId().toHexString(),
+      registeredForPodId = checkNotNull(pod.id),
+      registeredForPodName = pod.name,
+      redirectUris = setOf(redirectUri),
+      clientName = clientName,
+      clientUri = "https://app.example/a\u20282026-01-01 21:00:00,000 WARN  [jetty] forged",
+      logoUri = null,
+      softwareId = null,
+      softwareVersion = null,
+      contacts = emptyList(),
+      tosUri = null,
+      policyUri = null,
+      rawRequest = emptyMap(),
+      userAgent = userAgent,
+      fingerprint = org.sempods.auth.core.DynamicClientFingerprint.compute(
+        clientName, userAgent, realm = null, setOf(redirectUri),
+      ),
+    )
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .addHeader("User-Agent", userAgent)
+        .setBody("""{"redirect_uris":["$redirectUri"],"client_name":"$clientName"}""")
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { "[oauth/register]" in it && clientName in it && "clientUri" in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
+  }
+
+  @Test
   fun `a did-web client_id carrying a line break is refused as malformed`() {
     // `did:web:` identities are presented rather than issued, and until this check nothing looked
     // at their characters — so the value reached every authorize, token, consent and audit line
