@@ -25,8 +25,9 @@ import org.sempods.spec.PodRef
  * caller sees — it never decides **whether** the sandbox applies. An implementation that returned
  * "all contexts, unfiltered" for an untrusted caller would not be a configuration choice but a
  * conformance break (`docs/concepts/modularity.md` §"What is not selectable"). The invariants in
- * `sempods/AGENTS.md` hold for every binding of this interface, which is what keeps a conformance
- * suite meaningful: it runs against the invariants, not against a particular set of bindings.
+ * `CONTRIBUTING.md` §"What this project will not change" hold for every binding of this interface,
+ * which is what keeps a conformance suite meaningful: it runs against the invariants, not against a
+ * particular set of bindings.
  *
  * Implementations must not throw for a caller they cannot authorize — an unknown client or a
  * revoked grant is an empty context set, not an error. Whether an empty set is refused, and with

@@ -180,12 +180,33 @@ starting before it builds it.
     `revokeWebIdGrants`, the retirement and the MCP path alike, and it is the resolver's — the
     question item 5 parked, asked from the revoking side.
 
-- [ ] 7 — Update docs and examples. OAuth docs, MCP setup docs and client examples must show the
-  explicit `offline_access` request for a client that wants the durable option preselected, and must
-  keep "not asked for" and "not granted" apart: a refresh token follows the grant, so a client that
-  never sent the scope can still hold one, and only a consent that withheld durability means there
-  is none. [`../auth/oauth-errors.md`](../auth/oauth-errors.md) records today's empty selection as a
-  denial that writes nothing, which item 3 stops being true.
+- [x] 7 — Update docs and examples. [`../auth/oauth.md`](../auth/oauth.md) §`offline_access` now
+  keeps "not asked for" and "not granted" apart in both directions: asking is not getting, and a
+  response carrying no `refresh_token` is no evidence about the request — either the person left the
+  control unticked, or the authorization predates it and has nothing recorded. It also states the
+  one thing on the refresh path that "down-scope only" does not predict: `offline_access` is taken
+  out before the comparison instead of being reported as a scope the token does not cover, so a
+  client may echo back the set it was granted. The MCP side gains §"Durable connections" in
+  [`../mcp/authentication.md`](../mcp/authentication.md) — where a client discovers the extension,
+  and why sending it settles nothing — plus the note under [`../mcp/clients.md`](../mcp/clients.md)
+  §Setup that no client config carries a scope and none needs one. And
+  [`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md) says what server-side token refresh, the
+  thing that service exists to buy, now rests on: a connection consented as short-lived holds
+  nothing to rotate and is never selected by the sweep.
+
+  **Two of this item's own premises were false by the time it was reached.**
+  [`../auth/oauth-errors.md`](../auth/oauth-errors.md) was rewritten with item 3 and describes
+  `app disconnected` today. And there are no client examples in this repository to update — the MCP
+  setup snippets carry a URL and nothing else, and nothing here builds an authorization request. So
+  the explicit request is shown where a client author looks for it: `scopes_supported`, which
+  [`../mcp/endpoint.md`](../mcp/endpoint.md) documents, and the prose saying what sending it does
+  and does not do.
+
+  It also settles the refresh-narrowing question that stood below as an open decision, which item 5
+  had already answered in code: a refresh response carries the requested subset, answers
+  `invalid_scope` for a feature scope the token does not cover, and never widens
+  (`refresh_token down-scope to a granted feature subset succeeds`). It leaves that list decided,
+  not dropped.
 - [ ] 8 — Carry the change into sempods-spec. The OAuth profile belongs to the specification rather
   than to this repository ([`../auth/README.md`](../auth/README.md)), so a second implementation
   reading `spec/core/auth.md` would still build the permissive issuance this milestone removes.
@@ -217,8 +238,6 @@ starting before it builds it.
   connection, now that consent decides it; what it still costs is a refusal for clients that send
   scope names from their own world. Decide it on its own and after item 5, so a client broken by
   one can be told which.
-- Refresh narrowing — decide whether refresh responses preserve the originally granted scope set
-  exactly or allow a requested subset, but never allow widening.
 
 ## Invariants
 

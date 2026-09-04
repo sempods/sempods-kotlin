@@ -26,16 +26,11 @@ project-level material sits beside it is that file's subject, not this one's.
 
 ## Non-negotiable invariants
 
-Restated here because they bind every change to this module; `../sempods/AGENTS.md` is the
-authority if the two ever disagree.
-
-1) Every edge/statement always has exactly one Context (named graph).
-2) Read sandbox: a request can only read contexts it has read rights for.
-3) Write sandbox: a request can only write into contexts it has write rights for.
-4) A CRUD write names its target context explicitly — there is no implicit fallback context.
-5) Pods are isolated by default. Do not introduce cross-pod access without explicit,
-   spec-defined sync mechanisms.
-6) Prefer explicit specs + conformance tests over clever query rewriting.
+They bind every change to this module, and they are not listed here:
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md) §"What this project will not change" is the list, for
+this module as for a contributor. This is the module where most of them are actually enforced — the
+context on every statement, the read and write sandbox, the explicit write context, pod isolation —
+so read it before changing behaviour on those paths.
 
 ## Security stance
 

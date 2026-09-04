@@ -5,8 +5,10 @@ The canonical guidance is the root [`AGENTS.md`](../AGENTS.md), reached through 
 a link.
 
 Copilot Chat loads this file in isolation, so the minimum is repeated below. It is a **subset** —
-`AGENTS.md` is the source of truth, and this file is updated after it, never instead of it. The
-registered duplication is listed in the hub under "Auto-injection constraints".
+the canonical file is the source of truth and this file is updated after it, never instead of it.
+For the invariants that canonical file is [`CONTRIBUTING.md`](../CONTRIBUTING.md) §"What this
+project will not change"; for everything else it is `AGENTS.md`. The registered duplication is
+listed in the hub under "Auto-injection constraints".
 
 ## What sempods is
 
@@ -17,15 +19,22 @@ Apache-2.0.
 
 ## Non-negotiable invariants
 
-1. Every statement belongs to exactly one **context** (named graph).
-2. Read sandbox: a request reads only contexts it has read rights for.
-3. Write sandbox: a request writes only into contexts it has write rights for.
-4. A CRUD write names its target context explicitly — there is no implicit fallback.
-5. Pods are isolated by default. No cross-pod access without a spec-defined sync mechanism.
-6. Prefer explicit specs plus conformance tests over clever query rewriting.
+1. Every statement belongs to exactly one **context** — a named graph, and the permission boundary.
+2. Reads and writes are sandboxed to the contexts a request holds rights for, enforced server-side;
+   a client-supplied dataset clause — `FROM` / `FROM NAMED` and the protocol's graph parameters
+   alike — is never trusted.
+3. A CRUD write names its target context explicitly — there is no implicit fallback.
+4. Context-based permissions are the single authorization model. No parallel policy language.
+5. Pods are isolated by default. Cross-pod access happens only through an explicit, specified
+   mechanism.
+6. The protocol stays standard Semantic Web — RDF, SPARQL, JSON-LD, SHACL. Convenience belongs in
+   client SDKs, not in the protocol.
+7. No false security promises. Revoking access means "no further access", not "forget what you
+   already saw", and the documentation says so.
 
-Sandboxing is enforced server-side; client-supplied `FROM` / `FROM NAMED` is never trusted. Errors
-are deterministic HTTP codes.
+A change that breaks one of these is declined however well it is implemented. Errors are
+deterministic HTTP codes; prefer an explicit spec plus a conformance test over clever query
+rewriting.
 
 A **grant** is durable server-side policy on a context (`<context-iri>#read|write|manage`) and never
 travels in a token. A **scope** is an OAuth scope and does. Parts of the code still say "scope"

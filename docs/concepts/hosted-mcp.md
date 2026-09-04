@@ -134,7 +134,12 @@ What the hosted service buys over a purely client-side (in-browser / in-app) too
   arguments (`targets`), not into N separately-configured servers.
 - **Server-side token refresh** → headless / cron / agentic use without an
   open browser. This is the capability a purely client-side tool layer
-  cannot have.
+  cannot have. It rests on a pod-issued refresh token, so it is the person
+  in the pod's consent dialog who grants it: the service asks with
+  `offline_access` wherever a pod advertises the scope
+  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and a connection
+  consented as short-lived holds nothing to rotate, is never selected by the
+  refresh sweep, and needs reconnecting once its hour is up.
 - **Cross-pod calls in one tool invocation**, with per-`(pod, context)`
   isolation so one unreachable pod does not poison the others.
 
