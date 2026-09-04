@@ -3,12 +3,11 @@ package org.sempods.api.pod.system.auth
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -30,36 +29,27 @@ import kotlin.test.assertTrue
  * existed, which is most of the collection; [rowAt] pins `registeredAt`, which `create` takes from
  * the clock.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*, because the
- * listings have no narrower scope than a pod id. Rung 1 of `docs/testing.md` §"When a test is not
- * safe".
+ * **Isolated by its pod ids, on the ordinary collection.** The listings have no narrower scope
+ * than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is scope
+ * enough. What this suite writes it removes again in [removeOwnRows].
  */
 class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var dcrDao: DynamicClientRegistrationDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
   private val probePodId = ObjectId()
   private val otherPodId = ObjectId()
 
-  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-  private val collection = "test.dynamicClientRegistrations.dao.${randomId()}"
-
-  @BeforeEach
-  fun setUpOwnCollection() {
-    dcrDao = DynamicClientRegistrationDao(db, collection)
-  }
-
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
+  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
   @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
+  fun removeOwnRows() {
+    dcrDao.deleteByPod(probePodId)
+    dcrDao.deleteByPod(otherPodId)
   }
 
   @Test
@@ -159,8 +149,14 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
       rawRequest = emptyMap(),
     )
 
-    val raw = db.getCollection(collection)
-      .find(Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"))
+    val raw = db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS)
+      .find(
+        Filters.and(
+          // Scoped to this test's pod: a client id alone is not unique on the shared collection.
+          Filters.eq(DynamicClientRegistrationDboFields.registeredForPodId, probePodId),
+          Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"),
+        ),
+      )
       .single()
     assertTrue(DynamicClientRegistrationDboFields.rawRequest !in raw.keys, raw.toJson())
     assertEquals(emptyMap(), assertNotNull(dcrDao.findByClientId(probePodId, "dcr-empty")).rawRequest)
@@ -222,12 +218,12 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     if (fingerprint != null) {
       document.append(DynamicClientRegistrationDboFields.fingerprint, fingerprint)
     }
-    db.getCollection(collection).insertOne(document)
+    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(document)
   }
 
   /** A row from before the Stage-2 observation fields, the fingerprint dedup and `schemaVersion`. */
   private fun minimalRow(clientId: String) {
-    db.getCollection(collection).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
+    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
   }
 
   private fun baseRow(clientId: String, podId: ObjectId, registeredAt: Instant) = Document()

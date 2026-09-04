@@ -3,10 +3,8 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -20,12 +18,10 @@ import kotlin.test.assertTrue
 /**
  * What [PodServiceAuditLogDao] records, orders and sweeps.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*, so a sibling
- * method's rows never reach a listing here. Rung 1 of `docs/testing.md` §"When a test is not
- * safe".
- * The server's own audit log is never read and never written here: it holds the real request
- * history, and a test that had to empty it to know what it was looking at would be both destructive
- * and order-dependent.
+ * **Runs on a store of its own** ([SempodsIntegrationTest.ownStore]), which the index assertions
+ * force: this suite builds the TTL index with a retention of its own, and there is one index per
+ * collection. The server's own audit log is never read and never written here — it holds the real
+ * request history.
  */
 class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
 
@@ -51,22 +47,13 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
    */
   private val now: Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 
-  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-  private val collection = "test.podServiceAuditLog.dao.${randomId()}"
+  private val collection = ownStore("podServiceAuditLog")
 
   @BeforeEach
   fun setUpOwnCollection() {
     auditLogDao = PodServiceAuditLogDao(db, collection, RETENTION_DAYS)
   }
 
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
-  @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
-  }
 
   @Test
   fun `findRecent answers this pod's rows, newest first`() {

@@ -2,12 +2,11 @@ package org.sempods.pods.contexts.persist
 
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.Date
@@ -24,16 +23,16 @@ import kotlin.test.assertTrue
  * still on disk, the decoder defaults them to private, and the *query* does not agree with the
  * decoder. [preIsPublicRow] states that shape as a document, because the DAO cannot produce it.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*: the listings
- * have no narrower scope than a pod id, so they mean something only where nothing else writes,
- * and under `-PtestMethodsConcurrent` a sibling method is something else. Rung 1 of
- * `docs/testing.md` §"When a test is not safe".
+ * **Isolated by its pod ids, on the ordinary collection.** Every read here is already scoped to
+ * [probePodId] or [otherPodId], both fresh per test method, so nothing this suite asserts can see
+ * another test's rows. What it writes it removes again in [removeOwnRows].
  */
 class PodContextsDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var contextsDao: PodContextsDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -43,21 +42,11 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
   private val eventsUri = "https://sempods.org/alice/events"
   private val notesUri = "https://sempods.org/alice/notes"
 
-  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-  private val collection = "test.contexts.dao.${randomId()}"
-
-  @BeforeEach
-  fun setUpOwnCollection() {
-    contextsDao = PodContextsDao(db, collection)
-  }
-
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
+  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
   @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
+  fun removeOwnRows() {
+    contextsDao.deleteByPod(probePodId)
+    contextsDao.deleteByPod(otherPodId)
   }
 
   @Test
@@ -180,7 +169,7 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
    * produce it — every row it writes carries the boolean.
    */
   private fun preIsPublicRow(contextUri: String) {
-    db.getCollection(collection).insertOne(
+    db.getCollection(SempodsCollections.CONTEXTS).insertOne(
       Document()
         .append(PodContextDboFields.id, ObjectId())
         .append(PodContextDboFields.podId, probePodId)

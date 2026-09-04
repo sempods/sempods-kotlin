@@ -4,10 +4,8 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -27,11 +25,9 @@ import kotlin.test.assertTrue
  * Where a *legacy* shape matters, the fixture writes the document literally (see [legacyRow])
  * rather than arranging it through the DAO: on-disk shapes are worth stating.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*. Not merely
- * hygiene here: `fetchAll()` has no pod scope to narrow by and the pod names are fixed, so its
- * assertions mean something only on a collection nothing else writes to, and under
- * `-PtestMethodsConcurrent` a sibling method is something else. Rung 1 of `docs/testing.md`
- * §"When a test is not safe".
+ * **Runs on a store of its own** ([SempodsIntegrationTest.ownStore]), because `fetchAll()` has no
+ * pod scope to narrow by and the pod names here are fixed: "exactly alice and bobby" means
+ * something only where nothing else writes.
  */
 class PodDaoTest : SempodsIntegrationTest() {
 
@@ -50,22 +46,13 @@ class PodDaoTest : SempodsIntegrationTest() {
   private val owner by lazy { webIdUriDeriver.deriveFromEmail("alice@example.org") }
   private val otherOwner by lazy { webIdUriDeriver.deriveFromEmail("bob@example.org") }
 
-  /** This test's own collection, outside the `pods.` namespace the server addresses. */
-  private val collection = "test.pod.dao.${randomId()}"
+  private val collection = ownStore("pods")
 
   @BeforeEach
   fun setUpOwnCollection() {
     podDao = PodDao(db, webIdUriDeriver, collection)
   }
 
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
-  @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
-  }
 
   @Test
   fun `a stored row reads back field for field`() {

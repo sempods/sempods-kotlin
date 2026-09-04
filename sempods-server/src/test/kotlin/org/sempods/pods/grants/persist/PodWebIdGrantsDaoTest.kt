@@ -3,10 +3,9 @@ package org.sempods.pods.grants.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -20,19 +19,6 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var db: MongoDatabase
 
-  /**
-   * A collection of this test's own for the wire-shape assertion, one per test *method*: it reads a
-   * whole document back, which means something only where nothing else writes — a sibling method
-   * under `-PtestMethodsConcurrent` included. Rung 1 of `docs/testing.md` §"When a test is not
-   * safe".
-   */
-  private val ownCollection = "test.webIdGrants.wireshape.${randomId()}"
-
-  /** A fresh name per method leaves a collection behind, and the database is never emptied. */
-  @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(ownCollection).drop()
-  }
 
   @Test
   fun `addGrants and fetchGrantStrings store and return app-independent grants`() {
@@ -214,14 +200,17 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
    */
   @Test
   fun `an upserted row carries the same field set, and no grantedBy when none was recorded`() {
-    val collection = db.getCollection(ownCollection)
-    val grantsDao = PodWebIdGrantsDao(db, ownCollection)
+    val podId = ObjectId()
     val webId = "https://id.sempods.org/e/abc"
     val scope = "https://sempods.org/alice/events#read"
 
-    grantsDao.addGrants(ObjectId(), webId, listOf(scope), grantedBy = null)
+    podWebIdGrantsDao.addGrants(podId, webId, listOf(scope), grantedBy = null)
 
-    val raw = collection.find(Filters.eq(PodWebIdGrantDboFields.scope, scope)).single()
+    // Scoped to a pod id of this test's own: that is what makes the single row findable on the
+    // shared collection.
+    val raw = db.getCollection(SempodsCollections.WEB_ID_GRANTS)
+      .find(Filters.eq(PodWebIdGrantDboFields.podId, podId))
+      .single()
     assertEquals(
       setOf(
         PodWebIdGrantDboFields.id,

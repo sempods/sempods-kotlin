@@ -1,12 +1,9 @@
 package org.sempods.pods.oauth.serviceclients.persist
 
 import com.google.inject.Inject
-import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals
@@ -26,15 +23,13 @@ import kotlin.test.assertTrue
  * leaves behind, and `delete` is a compare-and-swap whose failure mode is deleting somebody else's
  * row.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*, because the
- * listings have no narrower scope than a pod id. Rung 1 of `docs/testing.md` §"When a test is not
- * safe".
+ * **Isolated by its pod ids, on the ordinary collection.** The listings have no narrower scope
+ * than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is scope
+ * enough. What this suite writes it removes again in [removeOwnRows].
  */
 class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
   @Inject
-  private lateinit var db: MongoDatabase
-
   private lateinit var serviceClientDao: PodServiceClientDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -44,21 +39,11 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   private val eventsRoot = "https://sempods.org/alice/events"
   private val notesRoot = "https://sempods.org/alice/notes"
 
-  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-  private val collection = "test.podServiceClients.dao.${randomId()}"
-
-  @BeforeEach
-  fun setUpOwnCollection() {
-    serviceClientDao = PodServiceClientDao(db, collection)
-  }
-
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
+  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
   @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
+  fun removeOwnRows() {
+    serviceClientDao.deleteByPod(probePodId)
+    serviceClientDao.deleteByPod(otherPodId)
   }
 
   @Test

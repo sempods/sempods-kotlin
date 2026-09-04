@@ -7,9 +7,7 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.SignedJWT
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.auth.core.SigningKeys
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -32,22 +30,13 @@ class PodTokenIssuerPersistenceTest : SempodsIntegrationTest() {
 
   private lateinit var signingKeyDao: OAuthSigningKeyDao
 
-  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-  private val collection = "test.oauthSigningKeys.issuer.${randomId()}"
+  private val collection = ownStore("oauthSigningKeys.issuer")
 
   @BeforeEach
   fun setUpOwnCollection() {
     signingKeyDao = OAuthSigningKeyDao(db, collection)
   }
 
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
-  @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
-  }
 
   /** A fresh issuer over the same collection — a restarted process, in other words. */
   private fun bootIssuer() = PodTokenIssuer(

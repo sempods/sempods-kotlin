@@ -3,11 +3,10 @@ package org.sempods.pods.mongo.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
-import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.time.Instant
@@ -23,16 +22,16 @@ import kotlin.test.assertTrue
  * The collection this covers is the pod's durable persistence — the MemoryStore is rebuilt from it
  * on every start — so these are not data-quality assertions but whether a pod comes back at all.
  *
- * **Runs on a collection this test owns** — [collection], one per test *method*: the recovery
- * reads have no narrower scope than a pod id, so they mean something only where nothing else
- * writes, and under `-PtestMethodsConcurrent` a sibling method is something else. Rung 1 of
- * `docs/testing.md` §"When a test is not safe".
+ * **Isolated by its pod ids, on the ordinary collection.** The recovery reads have no narrower
+ * scope than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is
+ * scope enough. What this suite writes it removes again in [removeOwnRows].
  */
 class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var backupDao: RdfResourceBackupDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -44,21 +43,11 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
   private val contextA = URI("https://sempods.org/alice/events")
   private val contextB = URI("https://sempods.org/alice/notes")
 
-  /** This test's own collection, outside the namespace the server addresses. */
-  private val collection = "test.resourcesBackup.dao.${randomId()}"
-
-  @BeforeEach
-  fun setUpOwnCollection() {
-    backupDao = RdfResourceBackupDao(db, collection)
-  }
-
-  /**
-   * A fresh name per method leaves a collection behind, and the database is never emptied between
-   * runs. Dropped rather than cleared: it holds nothing but fixtures.
-   */
+  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
   @AfterEach
-  fun dropOwnCollection() {
-    db.getCollection(collection).drop()
+  fun removeOwnRows() {
+    backupDao.deleteByPod(probePodId)
+    backupDao.deleteByPod(otherPodId)
   }
 
   @Test
@@ -158,7 +147,7 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
     val standing = assertNotNull(backupDao.fetch(probePodId, resource, contextA))
 
     // What the DAO would be holding at that moment, with the row gone underneath it.
-    db.getCollection(collection).deleteOne(Filters.eq(RdfResourceBackupDboFields.id, standing.id))
+    db.getCollection(SempodsCollections.RESOURCES).deleteOne(Filters.eq(RdfResourceBackupDboFields.id, standing.id))
 
     assertTrue(
       backupDao.upsert(probePodId, resource, contextA, "<s> <p> \"b\" <g> .\n", UPDATED_AT),

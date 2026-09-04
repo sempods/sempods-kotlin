@@ -50,11 +50,13 @@ import kotlin.test.assertTrue
  * nothing. The committed configuration hides that (`same_thread` within a class);
  * `-PtestMethodsConcurrent` shows it.
  *
- * Rung 1 of `docs/testing.md` §"When a test is not safe" has nothing to key on here. The only
- * dimension a caller owns is the cutoff, and a sweep takes *everything* older than it — so a
- * per-method time band still contains every band below it. `an empty body means the deployment's
- * own grace period` closes the question: its cutoff is the deployment's 30 days, which is the
- * assertion. So rung 2, under a name nothing else holds.
+ * Rung 1 of `docs/testing.md` §"When a test is not safe" has nothing to key on here. The route
+ * takes no pod, so there is no scope to narrow by, and it addresses the media collection itself —
+ * [SempodsIntegrationTest.ownStore] cannot be pointed at from the outside. The one dimension a
+ * caller does own is the cutoff, and a sweep takes *everything* older than it, so a per-method time
+ * band still contains every band below it. `an empty body means the deployment's own grace period`
+ * closes the question: its cutoff is the deployment's 30 days, which is the assertion. So rung 2,
+ * under a name nothing else holds.
  */
 @ResourceLock("sempods-admin-media-sweep")
 class AdminMediaEndpointHttpTest : SempodsIntegrationTest() {

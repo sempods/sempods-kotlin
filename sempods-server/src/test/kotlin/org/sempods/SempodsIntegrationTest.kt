@@ -4,6 +4,7 @@ import com.google.inject.Guice
 import com.google.inject.Inject
 import com.google.inject.Injector
 import com.google.inject.util.Modules
+import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.api.pod.system.auth.PodTokenIssuer
@@ -12,11 +13,13 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.net.UrlUtil
+import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpRequest
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import org.eclipse.jetty.server.Server
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
 import java.net.URI
 import kotlin.test.assertEquals
@@ -54,6 +57,35 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   @Inject
   private lateinit var http: TestHttpClient
+
+  @Inject
+  private lateinit var db: MongoDatabase
+
+  /**
+   * An empty store of this test's own: exclusive to the method that asked for it, and gone when
+   * that method ends.
+   *
+   * **Most suites want a pod id instead.** Isolating on [SempodsTestFactory.newPod] or a fresh
+   * `ObjectId` scopes the reads the way the production code scopes them, costs no setup, and stays
+   * true whatever the rows are stored in. Reach for this only where the subject has no scope to
+   * narrow by — `PodDao.fetchAll()` *is* "every pod", and "no signing key exists yet" *is* the
+   * precondition a bootstrap test needs.
+   *
+   * [of] names what is kept there, for a reader looking at the database after a failed run. What
+   * comes back is what a DAO's second constructor takes: the collection is the only shape a store
+   * has here today, and this is the one place that has to know it.
+   */
+  protected fun ownStore(of: String): String =
+    "test.$of.${randomId()}".also { ownStores += it }
+
+  private val ownStores = mutableListOf<String>()
+
+  @AfterEach
+  fun dropOwnStores() {
+    // The per-module database is not emptied between runs, so a store that outlived its test would
+    // accumulate one collection per method per run.
+    ownStores.forEach { db.getCollection(it).drop() }
+  }
 
   // test factories
 

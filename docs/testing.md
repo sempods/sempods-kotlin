@@ -164,10 +164,11 @@ runs' leftovers.
 
 In this order, and stop at the first that works:
 
-1. **Give the shared thing a key nothing else holds** — the trace, the way the test observer does,
-   or the test method: a suite that owns a Mongo collection names it `test.<x>.dao.${randomId()}`
-   and drops it in `@AfterEach`, so two methods never share one. The only rung that costs no
-   parallelism.
+1. **Give the shared thing a key nothing else holds.** Prefer one the production code already
+   scopes by — a pod id from `SempodsTestFactory.newPod()` or a fresh `ObjectId`, so the test reads
+   the way a caller reads and the isolation survives a change of storage. Where the subject has no
+   such scope, `SempodsIntegrationTest.ownStore` hands out an empty store for that one test method
+   and takes it away afterwards. Either way the only rung that costs no parallelism.
 2. **`@ResourceLock("name")`** — the class serialises against other holders of that name and
    against nothing else. `@ResourceLock(Resources.SYSTEM_PROPERTIES)` for a class that mutates them.
 3. **`@Isolated`** — the whole engine waits. Justify it in a comment.
