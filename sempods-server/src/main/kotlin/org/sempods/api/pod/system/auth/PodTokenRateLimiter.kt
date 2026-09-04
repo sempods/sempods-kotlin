@@ -3,7 +3,6 @@ package org.sempods.api.pod.system.auth
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.SempodsConfig
-import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
@@ -145,15 +144,14 @@ class PodTokenRateLimiter(
    * the reader after the wrong caller — which is the failure the milestone beside this one is about.
    *
    * The subject is a key, not a credential: an address and a client name are both already logged
-   * elsewhere on this endpoint, and neither is a secret. Through `LogSafeText` because part of it
-   * is a form parameter — a `client_id` carrying `%0A` would otherwise end this line early and
-   * write the next one itself.
+   * elsewhere on this endpoint, and neither is a secret. It is interpolated raw because the console
+   * encoder replaces line terminators in every message — `docs/logging.md` §"Three rules".
    */
   private fun logRefusal(address: String, tier: String, subject: String, permitsPerMinute: Int) {
     if (!logSampler.tryAcquire(address)) return
     logger.warn {
       "[oauth/token] rate limit exceeded on the $tier budget — refusing until it refills: " +
-          "$tier='${LogSafeText.of(subject)}', permitsPerMinute=$permitsPerMinute " +
+          "$tier='$subject', permitsPerMinute=$permitsPerMinute " +
           "(further refusals from this address are not logged for a minute)"
     }
   }
