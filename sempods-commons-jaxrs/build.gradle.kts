@@ -38,8 +38,7 @@ dependencies {
   testImplementation(libs.slf4jApi)
   testImplementation(libs.bundles.test)
 
-  // These suites assert what reaches a log line, so they name logback types directly. The binding
-  // itself comes from the root build script.
+  // Not a `checkNoLoggingBinding` violation: test scope, and the binding is the root script's.
   testImplementation(libs.logbackClassic)
   testImplementation(testFixtures(project(":sempods-commons")))
   testImplementation(libs.jerseyCommon)

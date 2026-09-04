@@ -20,13 +20,9 @@ dependencies {
   // to get a URL helper. Anyone extending the base module already has Guice on its own classpath.
   compileOnly(libs.guice)
 
-  // Same reasoning for the test proxy: it needs Guice and MockK to compile, both of which every
-  // consumer of these fixtures already has.
+  // Same reasoning for the test proxy and the log capture: they need Guice, MockK and logback to
+  // compile, all of which every consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
-
-  // `CapturedLog` names `ListAppender` and `LoggerContext`. `compileOnly` because this module is
-  // published and the binding is what `checkNoLoggingBinding` keeps off a library; every test JVM
-  // has it at runtime from the root build script.
   testFixturesCompileOnly(libs.logbackClassic)
   testFixturesImplementation(libs.bundles.logging)
 
