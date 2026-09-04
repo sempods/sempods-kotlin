@@ -103,8 +103,8 @@ mixing the two is how this tree ended up with four idioms at once.
    modules in `publishedModules` (root `build.gradle.kts`) that is somebody else, whose own
    `logback.xml` this repository never sees. Library code that logs caller-supplied text therefore
    escapes it through `LogSafeText` (`:sempods-commons`), and one test at that call site is what
-   keeps it. Two such lines exist today, both in `:sempods-server`. In application code there are
-   none, and adding one is not a thing to review for.
+   keeps it. In application code there is nothing to do, and adding a line there is not a thing to
+   review for.
 
    Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
    is what a request path goes through, for its *other* half: it redacts declared secret segments,
