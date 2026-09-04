@@ -13,6 +13,7 @@ import com.google.inject.Inject
 import com.google.inject.name.Named
 import org.sempods.commons.config.Env
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.net.UrlUtil
@@ -522,7 +523,8 @@ class PodAuthEndpoint @Inject constructor(
 
     logger.info {
       "[oauth/authorize] JWT verified: pod='${podDbo.name}', clientId='$normalizedClientId', " +
-          "webId='${identity.webId}', prompt=${promptValues.sorted().joinToString(" ").ifEmpty { "(unset)" }}"
+          "webId='${identity.webId}', prompt=${promptValues.sorted().joinToString(" ").ifEmpty { "(unset)" }}, " +
+          "scope=${LogSafeText.of(requestedScopes.sorted().joinToString(" ")).ifEmpty { "(unset)" }}"
     }
 
     // ── Resolve user's available contexts and existing grants ────────────
@@ -733,13 +735,14 @@ class PodAuthEndpoint @Inject constructor(
       "[oauth/authorize] Showing consent UI: pod='${podDbo.name}', clientId='$normalizedClientId', " +
           "clientName='${registration?.clientName ?: "(unset)"}', " +
           "webId='${identity.webId}', availableContexts=${contexts.size}, " +
-          "publicContexts=${publicContexts.size}, publicReadPreselected=$publicReadPreselected"
+          "publicContexts=${publicContexts.size}, publicReadPreselected=$publicReadPreselected, " +
+          "durablePreselected=$durableRequested"
     }
     logger.info {
       "[oauth/authorize-audit] outcome=consent_ui pod='${podDbo.name}' " +
           "client_id='$normalizedClientId' web_id='${identity.webId}' " +
           "available_contexts=${contexts.size} existing_grants=${existingGrants.size} " +
-          "public_read_preselected=$publicReadPreselected"
+          "public_read_preselected=$publicReadPreselected durable_preselected=$durableRequested"
     }
 
     // What the person decided last time outranks what the client asked for this time: a request
