@@ -92,13 +92,23 @@ mixing the two is how this tree ended up with four idioms at once.
    credential in a URL still travels through browser history and every proxy on the way, so the
    durable fix is to move it out of the path.
 
-   The other half of the same rule: **what a caller wrote cannot forge a second line** — and a
-   call site owes nothing for that. The console pattern wraps `%msg` in `%replace` over the seven
-   Unicode line terminators, each becoming a visible `\n`, so interpolating a form parameter or a
-   header value straight into a message is fine; `LogbackBaseConfigTest` pins it. `LOG_FORMAT=json`
-   is a JSON string value and cannot be ended by a break either. The one thing to reach for is
-   [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt),
-   and for its *other* half: it redacts declared secret segments, which no encoder can do.
+   The other half of the same rule: **what a caller wrote cannot forge a second line.** The console
+   pattern wraps `%msg` in `%replace` over the seven Unicode line terminators, each becoming a
+   visible `\n`; `LogbackBaseConfigTest` pins it, and `LOG_FORMAT=json` is a JSON string value that
+   a break cannot end either. So in an application, interpolating a form parameter or a header value
+   straight into a message is fine and owes nothing.
+
+   **A published module owes it anyway**, and that is the whole of the exception. `%replace` lives
+   in a *configuration*, and the configuration belongs to whoever owns the `main` — for the fifteen
+   modules in `publishedModules` (root `build.gradle.kts`) that is somebody else, whose own
+   `logback.xml` this repository never sees. Library code that logs caller-supplied text therefore
+   escapes it through `LogSafeText` (`:sempods-commons`), and one test at that call site is what
+   keeps it. Two such lines exist today, both in `:sempods-server`. In application code there are
+   none, and adding one is not a thing to review for.
+
+   Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
+   is what a request path goes through, for its *other* half: it redacts declared secret segments,
+   which no encoder can do.
 
    **What this deliberately does not cover**, so that finding one of these is not a bug report:
    a throwable, which Logback appends after the pattern — an exception message from a caller can

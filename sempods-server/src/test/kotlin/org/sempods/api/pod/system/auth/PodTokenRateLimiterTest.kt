@@ -258,6 +258,21 @@ class PodTokenRateLimiterTest {
     assertEquals(2, loggedLinesFromAddress("203.0.113.7").size)
   }
 
+  @Test fun `a client_id carrying a line break cannot forge a second log line`() {
+    // This module is published, so the console `%replace` that covers this repository's own
+    // applications is not a guarantee here: an embedder brings its own logging configuration.
+    // `docs/logging.md` §"Three rules" — the half that survives the encoder.
+    val limiter = limiter(1)
+    val forged = "dyn:abc\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+
+    assertTrue(limiter.tryAcquire("203.0.113.7", REFRESH, forged, null))
+    assertFalse(limiter.tryAcquire("203.0.113.7", REFRESH, forged, null))
+
+    val line = appender.list.map { it.formattedMessage }.single { "dyn:abc" in it }
+    assertFalse("\n" in line, "the refusal line carries a raw newline: $line")
+    assertTrue("\\u000a" in line, line)
+  }
+
   @Test fun `the address is counted before the client, so varying the client buys nothing`() {
     // `client_id` is a form parameter on an unauthenticated endpoint. Counting it first would let a
     // caller draw a fresh per-client budget on every request simply by renaming itself.
