@@ -106,12 +106,12 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     // The callback address comes out of the request the server just built, so this helper needs to
     // know nothing about where the endpoint lives.
     val callback = checkNotNull(query["redirect_uri"]) { "authorization request carries no redirect_uri" }
-    fakeIdServer.expect(
+    val code = fakeIdServer.expect(
       webId = signAs,
       nonce = nonce ?: checkNotNull(query["nonce"]) { "authorization request carries no nonce" },
       alsoKnownAs = alsoKnownAs,
     )
-    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&code=a-test-authorization-code")
+    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&code=$code")
       .addHeader("Cookie", pin)
       .setFollowRedirect(false).execute()
   }
@@ -120,8 +120,12 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected fun TestHttpResponse.sessionCookie(): String? =
     headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_session=") }?.substringBefore(';')
 
-  /** Arms the in-process id-server for a callback a test drives itself. */
-  protected fun fakeIdServerExpect(webId: String?, nonce: String, alsoKnownAs: List<String> = emptyList()) =
+  /**
+   * Arms the in-process id-server for a callback a test drives itself, and hands back the
+   * authorization code that callback has to carry. Two sign-ins get two codes, which is what keeps
+   * them apart when methods run concurrently.
+   */
+  protected fun fakeIdServerExpect(webId: String?, nonce: String, alsoKnownAs: List<String> = emptyList()): String =
     fakeIdServer.expect(webId = webId, nonce = nonce, alsoKnownAs = alsoKnownAs)
 
   /**

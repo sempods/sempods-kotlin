@@ -609,7 +609,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
-    fun startAndCallback(clientState: String, callbackQuery: (String) -> String): TestHttpResponse {
+    fun startAndCallback(clientState: String, callbackQuery: (state: String, code: String) -> String): TestHttpResponse {
       val started = http.prepareGet(authorizeUrl(pod.name))
         .addQueryParam("response_type", "code")
         .addQueryParam("client_id", testClientId)
@@ -622,8 +622,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       val pin = checkNotNull(
         started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") },
       ).substringBefore(';')
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
-      return http.prepareGet("${checkNotNull(query["redirect_uri"])}?${callbackQuery(checkNotNull(query["state"]))}")
+      val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+      return http.prepareGet("${checkNotNull(query["redirect_uri"])}?${callbackQuery(checkNotNull(query["state"]), code)}")
         .addHeader("Cookie", pin).setFollowRedirect(false).execute()
     }
 
@@ -632,15 +632,15 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
         .filter { it.startsWith("sempods_pod_login_") && ("Max-Age=0" in it || "max-age=0" in it) }
 
     // The provider declined.
-    val declined = startAndCallback("cancelled") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}&error=user_cancelled_authorize" }
+    val declined = startAndCallback("cancelled") { state, _ -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}&error=user_cancelled_authorize" }
     assertTrue(withdrawnPins(declined).isNotEmpty(), "a declined login must withdraw its pin: ${declined.headers.getAll("Set-Cookie")}")
 
     // The provider came back with neither a code nor an error.
-    val noCode = startAndCallback("no-code") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}" }
+    val noCode = startAndCallback("no-code") { state, _ -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}" }
     assertTrue(withdrawnPins(noCode).isNotEmpty(), "a codeless callback must withdraw its pin")
 
     // And the successful one, which already did.
-    val ok = startAndCallback("fine") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}&code=c" }
+    val ok = startAndCallback("fine") { state, code -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}&code=$code" }
     assertTrue(withdrawnPins(ok).isNotEmpty(), "a completed login must withdraw its pin too")
   }
 
@@ -650,12 +650,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // way — "they said no" — suppressed a retry that a transient outage would have survived. RFC
     // 6749 §4.1.2.1 has two codes for the technical paths, and separating them is a change to what
     // every client receives, which is why it lands before the OAuth surface is published.
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
     var lastDescription: String? = null
+    // Every case below hands the callback an error or nothing at all, so none of them reaches the
+    // id-server's token endpoint — there is no sign-in to arm here.
     fun callbackWith(clientState: String, extraQuery: (String) -> String): String {
       val started = http.prepareGet(authorizeUrl(pod.name))
         .addQueryParam("response_type", "code")
@@ -669,7 +669,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       val pin = checkNotNull(
         started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") },
       ).substringBefore(';')
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       val answer = http.prepareGet(
         "${checkNotNull(query["redirect_uri"])}?${extraQuery(checkNotNull(query["state"]))}",
       ).addHeader("Cookie", pin).setFollowRedirect(false).execute()
@@ -767,11 +766,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("state", "fixation")
       .setFollowRedirect(false).execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-    fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
+    val code = fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
 
     // The victim's browser holds no pin for this flow.
     val victim = http.prepareGet(
-      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c",
+      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code",
     ).setFollowRedirect(false).execute()
 
     assertEquals(400, victim.statusCode, "body=${victim.responseBody}")
@@ -1532,9 +1531,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val bothPins = "$firstPin; $secondPin"
 
     fun complete(query: Map<String, String>): TestHttpResponse {
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+      val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       return http.prepareGet(
-        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c",
+        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code",
       ).addHeader("Cookie", bothPins).setFollowRedirect(false).execute()
     }
 
@@ -1827,8 +1826,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-    fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
-    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c"
+    val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code"
     // The same browser throughout, pin included — the replay being tested is of the *state*, not
     // of a callback opened somewhere else, which the pin refuses for its own reason.
     val pin = checkNotNull(started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
