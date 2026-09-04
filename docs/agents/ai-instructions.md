@@ -2,15 +2,20 @@
 
 The entry point for every AI agent working in this repository. It defines **how** instructions are
 discovered and applied — not what the rules are. The rules live in the root
-[`AGENTS.md`](../../AGENTS.md); how documentation is written lives in
+[`AGENTS.md`](../../AGENTS.md), except the non-negotiable invariants, which live in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" because they bind
+contributors too; how documentation is written lives in
 [`documentation-strategy.md`](documentation-strategy.md).
 
 Start here, then read what this file points at. It is deliberately short.
 
 ## Instruction sources, in order of specificity
 
-1. **Root [`AGENTS.md`](../../AGENTS.md)** — the canonical rules: mission, terminology, the
-   non-negotiable invariants, the security stance, the commands, the commit checklist.
+1. **Root [`AGENTS.md`](../../AGENTS.md)** — the canonical rules: mission, terminology, the security
+   stance, the commands, the commit checklist. The one thing it does not hold is the list of
+   non-negotiable invariants: that is [`CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project
+   will not change", because the same list binds contributors and is what the feature-request
+   template makes them confirm against. `AGENTS.md` links there.
 2. **[`documentation-strategy.md`](documentation-strategy.md)** — the four documentation types and
    the rules for writing them. Read it before touching any `*.md`.
 3. **Scoped `AGENTS.md` files** in subtrees. Six exist today: `docs/`, `sempods-auth/`,
@@ -62,8 +67,10 @@ This is the complete list; nothing else in this repository may duplicate rules.
 |---|---|---|
 | `.github/copilot-instructions.md` | Copilot Chat and the Copilot coding agent | The invariants in short form, the build and test commands, the documentation duty, the naming rule |
 
-The rules for that duplication: the source of truth is always `AGENTS.md`; update it first and sync
-the subset after; keep the subset minimal and let it link out for everything else.
+The rules for that duplication: the source of truth is always the canonical file the subset was
+taken from — `AGENTS.md`, except for the invariants, whose canonical file is `CONTRIBUTING.md`
+§"What this project will not change"; update that file first and sync the subset after; keep the
+subset minimal and let it link out for everything else.
 
 ## Shared principles
 
@@ -83,13 +90,15 @@ Hand this to any agent as a task:
 > relevant instructions are loaded."*
 
 1. Read the root `AGENTS.md` and note what it references.
-2. Read `docs/agents/documentation-strategy.md`.
-3. For each file you intend to change, load the `AGENTS.md` files on the path from the repository
+2. Read `CONTRIBUTING.md` §"What this project will not change". `AGENTS.md` links to it rather than
+   restating it, so an agent that only follows step 1 has not loaded the invariants.
+3. Read `docs/agents/documentation-strategy.md`.
+4. For each file you intend to change, load the `AGENTS.md` files on the path from the repository
    root down to its directory — not the ones in subtrees you are not touching.
-4. If that path passes a module with its own `docs/`, that is where its documentation lives. Apply
+5. If that path passes a module with its own `docs/`, that is where its documentation lives. Apply
    the most specific of what the path yields.
-5. Confirm the tool's own pointer file, if any, still routes back here.
-6. Before coding, state the rules that apply and confirm no conflict remains.
+6. Confirm the tool's own pointer file, if any, still routes back here.
+7. Before coding, state the rules that apply and confirm no conflict remains.
 
 ## Maintenance
 

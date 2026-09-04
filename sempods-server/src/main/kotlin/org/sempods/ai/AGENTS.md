@@ -26,4 +26,4 @@ Main components:
 - `docs/ai/semweb/text2model.md`
 - `docs/ai/semweb/use-cases/tasks.md`
 - the maintainer's internal roadmap
-- `sempods/AGENTS.md`
+- `AGENTS.md` at the repository root

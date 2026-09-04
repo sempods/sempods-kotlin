@@ -110,11 +110,12 @@ the scarce resource on a one-maintainer project; the useful contribution arrives
 already understood by the person sending it.
 
 **The rules an agent needs are in the repository.** `AGENTS.md` at the root is the
-canonical file, and `docs/agents/ai-instructions.md` is the hub every frontend routes
-through — Codex and opencode read `AGENTS.md` natively, while `CLAUDE.md`, `GEMINI.md`,
-`.github/copilot-instructions.md` and `.cursor/rules/` are pointers back to it. Point
-your agent at the hub before it starts; the self-check there is a task you can hand it
-verbatim.
+canonical file — except for the invariants below, which are canonical here because
+they bind you as much as they bind an agent — and `docs/agents/ai-instructions.md` is
+the hub every frontend routes through. Codex and opencode read `AGENTS.md` natively,
+while `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/`
+are pointers back to it. Point your agent at the hub before it starts; the self-check
+there is a task you can hand it verbatim.
 
 ## What this project will not change
 
@@ -122,20 +123,32 @@ Some properties are not trade-offs to be balanced; they are what the model is.
 A change that breaks one of them will be declined regardless of how well it is
 implemented:
 
-1. Every statement belongs to exactly one context.
-2. The read and write sandbox is enforced server-side, always. Client-supplied
-   dataset clauses are never trusted.
-3. Context-based permissions are the single authorization model. No parallel
+1. Every statement belongs to exactly one context — a named graph, and the
+   permission boundary.
+2. Reads and writes are sandboxed to the contexts a request holds rights for,
+   and the sandbox is enforced server-side, always. Client-supplied dataset
+   clauses are never trusted.
+3. A CRUD write names its target context explicitly. There is no implicit
+   fallback context.
+4. Context-based permissions are the single authorization model. No parallel
    policy language.
-4. Pods are isolated by default. Cross-pod access happens only through
+5. Pods are isolated by default. Cross-pod access happens only through
    explicit, specified mechanisms.
-5. The protocol stays standard Semantic Web — RDF, SPARQL, JSON-LD, SHACL.
+6. The protocol stays standard Semantic Web — RDF, SPARQL, JSON-LD, SHACL.
    Convenience belongs in client SDKs, not in the protocol.
-6. No false security promises. Revoking access means "no further access", not
+7. No false security promises. Revoking access means "no further access", not
    "forget what you already saw", and the documentation says so.
 
 If you think one of these is wrong, that is a discussion worth having — open an
 issue rather than a pull request.
+
+**This list is the only copy.** It binds code as much as it binds contributions,
+so the agent instructions point here instead of keeping a second version:
+`AGENTS.md` and `sempods-server/AGENTS.md` link to this section. The one file
+that repeats it inline is `.github/copilot-instructions.md`, which Copilot loads
+in isolation and which cannot follow a link — editing this list means syncing
+that subset too. `docs/agents/ai-instructions.md` §"Auto-injection constraints"
+is the register of such duplications, and it is the complete one.
 
 ## Where a change belongs
 
