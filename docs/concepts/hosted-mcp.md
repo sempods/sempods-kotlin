@@ -67,8 +67,9 @@ directly. This trade is the whole decision — taken deliberately, not by omissi
 
 ## It stays a client
 
-Even as the primary MCP layer, the service is structurally a **client** to each pod: its own
-DCR registration there, and a bearer per `(user, profile, pod)` (see
+Even as the primary MCP layer, the service is structurally a **client** to each pod: its own client
+identity there — a DCR registration, or the static `did:web` client at a pod offering no DCR — and a
+bearer per `(user, profile, pod)` (see
 [identity and keying](#identity-and-keying)); the pod runs its own grants, consent, and
 server-side enforcement. The service adds **no cross-pod identity, grant, or revocation
 primitive** to any pod. "AI agents are clients, structurally identical to any other app"
@@ -83,7 +84,7 @@ still holds — the client is just hosted rather than bundled in a desktop app o
    ├─ tool layer        (targets, SPARQL rewrite, per-(pod,context) envelope)
    ├─ connection registry  (user, profile → [pod URL, OAuth client, scopes])
    └─ token vault          (encrypted, per (user, profile, pod); refresh loop)
-        │  (2) per pod: OAuth client (DCR), bearer per (user, profile, pod)
+        │  (2) per pod: OAuth client (DCR or did:web), bearer per (user, profile, pod)
         ▼
   Pod A (HTTP System layer)  …  Pod B  …  Pod C    ← each enforces its own grants
 ```
@@ -317,7 +318,7 @@ The canonical key throughout — connection registry, token vault — is
 **`(user, profile, pod)`**, with the implicit default profile filling the
 slot before any named profiles exist. Keeping the profile in the key from
 day one is what makes profiles a real isolation boundary rather than a
-relabelling of a shared token pool. The pod-side DCR client is the one
+relabelling of a shared token pool. The pod-side client identity is the one
 thing that is not keyed by it (above).
 
 `user` is the root of that key and is a **stable identity from an explicit provider**, never a
