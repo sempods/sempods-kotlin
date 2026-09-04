@@ -19,20 +19,20 @@ contexts can call it on its own.
 
 ## What a client asks for
 
-No configuration below names a scope — a client builds its authorization request
-from discovery. The MCP specification's selection rule (`2025-11-25`,
-§Authorization) has it use the `scope` from the `WWW-Authenticate` challenge, or,
-where the server sent none, every scope in the protected-resource metadata. This
-pod sends none and advertises two ([`endpoint.md`](endpoint.md#body-shape)), so a
-client following that rule asks for `offline_access` without knowing what it is.
+No configuration below names a scope: a client builds its authorization request
+from discovery, by the scope-selection rule in the MCP specification
+(`2025-11-25`, §Authorization). What follows from that here is this pod's doing —
+its challenge carries no `scope` and its metadata advertises two
+([`endpoint.md`](endpoint.md#body-shape)), so a client applying the rule asks for
+`offline_access` without knowing what it is.
 
-Worth watching rather than relying on, because a client follows whichever
-specification version it implements, and none of the four above is known to send
-the scope. Nothing rests on the answer: a client that never sends it is not
-refused a durable connection — the person decides that in the dialog
+Worth watching rather than relying on: a client follows whichever specification
+version it implements, and none of the four above is known to send the scope.
+Nothing rests on the answer — one that never sends it is not refused a durable
+connection, the person decides that in the dialog
 ([`../auth/oauth.md`](../auth/oauth.md#offline_access)). The `[oauth/authorize]`
-line carries `scope=` for what was asked, and `durablePreselected=` for the box
-the person was actually shown, which is the recorded decision where there is one.
+line carries `scope=` for what was asked and `durablePreselected=` for the box the
+person was shown.
 
 ## Setup
 
