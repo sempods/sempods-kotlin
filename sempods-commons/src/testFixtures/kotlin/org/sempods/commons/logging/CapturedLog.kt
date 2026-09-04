@@ -62,7 +62,13 @@ object CapturedLog {
       lower(logger)
     }
 
-    fun lines(): List<String> = appender.list.map { it.formattedMessage }
+    /**
+     * Read under the appender's own monitor: `AppenderBase.doAppend` is `synchronized`, so appends
+     * cannot corrupt each other — but the list behind them is a plain `ArrayList`, and a request
+     * thread still inside `doAppend` when [stop] detaches would otherwise be writing to it while
+     * this iterates.
+     */
+    fun lines(): List<String> = synchronized(appender) { appender.list.map { it.formattedMessage } }
   }
 
   /** How many captures are currently holding a logger at TRACE, and the level to put back. */

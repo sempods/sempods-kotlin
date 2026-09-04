@@ -20,10 +20,9 @@ dependencies {
   // to get a URL helper. Anyone extending the base module already has Guice on its own classpath.
   compileOnly(libs.guice)
 
-  // Same reasoning for the test proxy and the log capture: they need Guice, MockK and logback to
-  // compile, all of which every consumer of these fixtures already has.
+  // Same reasoning for the test proxy: it needs Guice and MockK to compile, both of which every
+  // consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
-  testFixturesCompileOnly(libs.logbackClassic)
   testFixturesImplementation(libs.bundles.logging)
 
   // `implementation` and not `compileOnly`, unlike Guice above: these fixtures *run* in a
@@ -32,6 +31,10 @@ dependencies {
   // also reach a plain Maven consumer of `org.sempods:commons` is a fact about the POM, and it is
   // handled where the POM is written — see `pom.withXml` in the root build file.
   testFixturesImplementation(libs.bundles.test)
+
+  // `CapturedLog` attaches a `ListAppender` from its own bytecode, so it falls under the rule
+  // above rather than Guice's: a consumer resolving these fixtures has to receive the binding.
+  testFixturesImplementation(libs.logbackClassic)
 
   // `TestUtil` polls for a condition — one of the two source sets here that await anything, which
   // is why this is not in `libs.bundles.test`.
