@@ -117,9 +117,11 @@ mixing the two is how this tree ended up with four idioms at once.
    | Anything else a caller or a remote host wrote | escape |
 
    **Constrain at the entrance where the value allows it.** `client_id` reached over fifty
-   statements in the pod server; one `ClientId.isValid` in `PodAuthEndpoint.readClientId` retires
-   all of them. An escape only fixes its own sink, which is where the two that keep it are —
-   `PodTokenRateLimiter` and the `client_credentials` refusal exist to name what was submitted.
+   statements in the pod server, and `ClientId.isValid` at the three places one enters —
+   `PodAuthEndpoint.readClientId` and the token endpoint's two grant branches, which do not go
+   through it — retires all of them. An escape only fixes its own sink, which is where the two that
+   keep it are: `PodTokenRateLimiter` and the `client_credentials` refusal name what was submitted
+   whether or not it was ever valid.
 
    Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
    is what a request path goes through, for its *other* half: it redacts declared secret segments,

@@ -1363,8 +1363,10 @@ class PodAuthEndpoint @Inject constructor(
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing code")
     val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing redirect_uri")
-    val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
+    // Held to the same rule `readClientId` holds one to: the token endpoint takes `client_id` as
+    // an unauthenticated form parameter and never goes through that method.
+    val normalizedClientId = clientId?.trim()?.takeIf(ClientId::isValid)
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing or malformed client_id")
 
     // Consume the authorization code (one-time use).
     val entry = authorizationCodeStore.consume(normalizedCode)
@@ -1551,8 +1553,10 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     val normalizedToken = refreshToken?.trim()?.takeIf { it.isNotBlank() }
       ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing refresh_token")
-    val normalizedClientId = clientId?.trim()?.takeIf { it.isNotBlank() }
-      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing client_id")
+    // Same rule as the authorization-code branch above, and load-bearing here: the refusals below
+    // name this value before anything has matched it against a stored one.
+    val normalizedClientId = clientId?.trim()?.takeIf(ClientId::isValid)
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing or malformed client_id")
 
     val lookup = refreshTokenStore.lookup(normalizedToken)
     val token = lookup.token

@@ -683,6 +683,30 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a refresh_token client_id carrying a line break is refused before it is logged`() {
+    // The token endpoint never goes through `readClientId`, and the "not recognized" refusal names
+    // the submitted `client_id` before anything has matched it against a stored one.
+    val pod = sempodsTestFactory.newPod()
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody(
+          "grant_type=refresh_token&refresh_token=no-such-token" +
+            "&client_id=${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}",
+        )
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("malformed client_id" in response.responseBody, response.responseBody)
+    }
+
+    assertTrue(lines.none { marker in it }, "the refused value reached the log: $lines")
+  }
+
+  @Test
   fun `a client_credentials username cannot forge a log line`() {
     // The username half of HTTP Basic is a submitted `client_id`, and naming it is what the refusal
     // is for — so this one is escaped rather than narrowed away.
