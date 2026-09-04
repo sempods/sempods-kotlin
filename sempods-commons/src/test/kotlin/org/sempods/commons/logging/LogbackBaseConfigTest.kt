@@ -5,6 +5,9 @@ import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.encoder.JsonEncoder
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder
 import ch.qos.logback.classic.joran.JoranConfigurator
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.LoggingEvent
+import ch.qos.logback.classic.util.LogbackMDCAdapter
 import ch.qos.logback.core.OutputStreamAppender
 import org.slf4j.Logger.ROOT_LOGGER_NAME
 import java.io.ByteArrayInputStream
@@ -33,6 +36,8 @@ class LogbackBaseConfigTest {
 
   private fun configure(vararg properties: Pair<String, String>): LoggerContext {
     val context = LoggerContext()
+    // A throwaway context has no MDC adapter, and `%X` asks every event for one.
+    context.mdcAdapter = LogbackMDCAdapter()
     properties.forEach { (key, value) -> context.putProperty(key, value) }
     JoranConfigurator()
       .apply { this.context = context }
@@ -49,6 +54,45 @@ class LogbackBaseConfigTest {
     assertEquals(Level.INFO, context.getLogger(ROOT_LOGGER_NAME).level)
     assertEquals(listOf("console"), context.rootAppenderNames())
   }
+
+  @Test
+  fun `a caller cannot forge a second console line`() {
+    // The console pattern is the one place this can be settled for every call site at once: a
+    // value somebody else wrote reaches a log line through dozens of them, and a rule that each
+    // has to remember is a rule that one of them will not. `docs/logging.md` §"Three rules".
+    val console = configure("LOG_FORMAT" to "console").getLogger(ROOT_LOGGER_NAME).getAppender("console")
+    val encoder = assertIs<PatternLayoutEncoder>(assertIs<OutputStreamAppender<*>>(console).encoder)
+
+    val forged = "clientId='dyn:abc\n2026-01-01 21:00:00,000 WARN  [jetty] forged'"
+    val rendered = String(encoder.encode(event(encoder.context as LoggerContext, forged)))
+
+    assertEquals(1, rendered.count { it == '\n' }, "the encoder's own line break is the only one: $rendered")
+    assertTrue("dyn:abc" in rendered, rendered)
+    assertTrue("\\n2026-01-01" in rendered, "the break is kept visible rather than dropped: $rendered")
+  }
+
+  @Test
+  fun `the separators that pass every URI check are caught too`() {
+    // U+2028 and U+2029 are neither control characters nor whitespace to `Character`, they survive
+    // a URI check that rejects CR and LF, and plenty of log tooling still breaks a line on them.
+    val console = configure("LOG_FORMAT" to "console").getLogger(ROOT_LOGGER_NAME).getAppender("console")
+    val encoder = assertIs<PatternLayoutEncoder>(assertIs<OutputStreamAppender<*>>(console).encoder)
+
+    val rendered = String(encoder.encode(event(encoder.context as LoggerContext, "a\u2028b\u2029c")))
+
+    assertTrue('\u2028' !in rendered && '\u2029' !in rendered, "a separator reached the line: $rendered")
+    assertTrue("a\\nb\\nc" in rendered, rendered)
+  }
+
+  private fun event(context: LoggerContext, message: String): LoggingEvent =
+    LoggingEvent(
+      Logger::class.java.name,
+      context.getLogger("test"),
+      Level.INFO,
+      message,
+      null,
+      null,
+    )
 
   @Test
   fun `LOG_LEVEL sets the root level`() {

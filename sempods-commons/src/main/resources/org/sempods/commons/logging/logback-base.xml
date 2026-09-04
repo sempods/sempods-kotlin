@@ -33,7 +33,7 @@
   -->
   <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d{ISO8601} %-5level [%thread] [%X] %logger - %msg%n</pattern>
+      <pattern>%d{ISO8601} %-5level [%thread] [%X] %logger - %replace(%msg){'[\r\n\u2028\u2029]', '\\n'}%n</pattern>
     </encoder>
   </appender>
 

@@ -92,14 +92,12 @@ mixing the two is how this tree ended up with four idioms at once.
    credential in a URL still travels through browser history and every proxy on the way, so the
    durable fix is to move it out of the path.
 
-   The other half of the same rule: **what a caller wrote is not a log line.** Such a value is put
-   through `LogSafeText` (`:sempods-commons`), which escapes every control character before it is
-   interpolated — otherwise a request can end the line early and write the next one itself. Jetty
-   answers 400 to an ASCII control character in a URI and so covers most of a *path* today, but
-   `%E2%80%A8` gets through, these are libraries that will not always run behind Jetty, and a form
-   body is not filtered at all. Two callers today: `RequestPathForLog`, which redacts declared
-   secret segments and then escapes, and `PodTokenRateLimiter`, whose refusal line names a
-   submitted `client_id`. Anything else that logs caller-supplied text owes the same treatment.
+   The other half of the same rule: **what a caller wrote cannot forge a second line** — and that
+   is settled once, in the encoder, not at each of the call sites that interpolate such a value.
+   The console pattern wraps `%msg` in `%replace`, which turns CR, LF and the two Unicode
+   separators into a visible `\n`; `LogbackBaseConfigTest` pins both. `LOG_FORMAT=json` needs
+   nothing: the message is a JSON string value, so a break cannot end the record. `LogSafeText`
+   (`:sempods-commons`) does the same at two call sites and is redundant there now.
 2. **English, always.** A log line is read by whoever is on the incident, and that is not
    negotiated per message: English, like every other written artefact in this repository — code,
    comments, documentation and commit messages.
