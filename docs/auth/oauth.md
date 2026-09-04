@@ -122,9 +122,12 @@ a submission writes the ticked selection as *the* grant set, so a
 replayable form could restore a selection the person has since
 narrowed.
 
-There is no `scope` parameter for the standard delegation flow — the
-user picks contexts in the consent UI. `scope` **is** used for
-`public-read` (below).
+`scope` never carries contexts — the person ticks those in the consent UI.
+What it carries is the two values the discovery documents advertise:
+`public-read` ("Public-read flow" below) and
+[`offline_access`](#offline_access), which preselects the lifetime control
+rather than deciding it. Both are optional, and a delegation flow that
+sends neither is the ordinary case.
 
 ## Token exchange
 
@@ -237,6 +240,25 @@ authorization server advertises the scope, and a pod that advertises
 nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
 server refuse a scope it does not know, and the service connects to pods
 it does not host.
+
+A response carrying no `refresh_token` is therefore no evidence about the
+request, which is the half a client debugs: either the person left the
+control unticked, or the authorization predates it and has nothing
+recorded. In neither case is the absent scope the cause, and re-sending it
+grants nothing by itself — what answers the question is a fresh
+authorization the person sees.
+
+Two flows sit outside that diagnosis, because nobody was asked in them at
+all: an anonymous `public-read` exchange and a service client's
+`client_credentials` are short-lived by construction. Authenticated
+`public-read` is not one of them — it takes the ordinary path, and its
+lifetime is the consent answer like anybody else's.
+
+On refresh the scope is accepted rather than refused. `scope=` there is a
+down-scope over feature scopes (see "Token exchange") and `offline_access`
+is not one, so it is taken out before the comparison instead of being
+reported as a scope this token does not cover: a client may echo back the
+set it was granted.
 
 ### Refresh token rotation
 
