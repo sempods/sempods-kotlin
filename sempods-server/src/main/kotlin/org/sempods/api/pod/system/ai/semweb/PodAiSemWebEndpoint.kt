@@ -69,9 +69,7 @@ class PodAiSemWebEndpoint @Inject constructor(
       )
     } catch (error: AiServiceException) {
       logger.warn {
-        // The provider's own response body travels in this message: `OpenAiService` puts a
-        // `compactSnippet` of it there, and that collapses `\s+` — which is `[ \t\n\x0B\f\r]`
-        // and so leaves U+2028 exactly where it was.
+        // `OpenAiService` snippets the provider's response body into this message.
         "text2model failed for pod '$pod', appId='${credentials.oauthClientId}': " +
             LogSafeText.of(error.message.toString())
       }
@@ -140,9 +138,7 @@ class PodAiSemWebEndpoint @Inject constructor(
       )
     } catch (error: AiServiceException) {
       logger.warn {
-        // The provider's own response body travels in this message: `OpenAiService` puts a
-        // `compactSnippet` of it there, and that collapses `\s+` — which is `[ \t\n\x0B\f\r]`
-        // and so leaves U+2028 exactly where it was.
+        // `OpenAiService` snippets the provider's response body into this message.
         "model2model failed for pod '$pod', appId='${credentials.oauthClientId}': " +
             LogSafeText.of(error.message.toString())
       }

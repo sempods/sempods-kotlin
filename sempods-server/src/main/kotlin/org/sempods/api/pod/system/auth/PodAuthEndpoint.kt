@@ -208,10 +208,8 @@ class PodAuthEndpoint @Inject constructor(
     } else {
       "Dynamic client registered"
     }
-    // Everything but the `dyn:` id, because on a fingerprint hit `register` returns the *stored*
-    // row and discards what this request submitted — so the checks that just ran on this body say
-    // nothing about a row written before they existed. Same reason [ClientMetadataUri] is asked
-    // again on the way out.
+    // A fingerprint hit returns the *stored* row and discards the body just validated, so none of
+    // these is the value those checks saw. Same reason [ClientMetadataUri] is asked again on read.
     logger.info {
       "[oauth/register] $action: pod='$pod', clientId='${registration.clientId}', " +
           "clientName='${LogSafeText.of(registration.clientName ?: "(unset)")}', " +
@@ -305,8 +303,7 @@ class PodAuthEndpoint @Inject constructor(
     // R6: audit-log every authorize entry so cross-client spikes can replay the
     // exact request shape per MCP client. One line per request, kept short — the
     // outcome is logged separately by the matching error/issue path.
-    // Ahead of every check below, which is the point of an audit line — and therefore ahead of
-    // `readClientId`, so all four of these are raw query parameters here.
+    // Ahead of `readClientId`, which is the point of an audit line: these are raw query parameters.
     logger.info {
       "[oauth/authorize-audit] outcome=start pod='${podDbo.name}' " +
           "client_id='${LogSafeText.of(clientId ?: "(none)")}' " +
@@ -2127,9 +2124,7 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     // R6: emit a single structured audit-log line per authorize-error so spike runs
     // can grep `[oauth/authorize-audit]` to reconstruct what each MCP client triggered.
-    // `state` is opaque client text by definition and nothing ever looks at it; `redirectUri` is
-    // the proven address on most paths into here but not demonstrably on all of them.
-    // `errorDescription` is this endpoint's own, and stays plain.
+    // `errorDescription` is this endpoint's own and stays plain; `state` is whatever the client sent.
     logger.info {
       "[oauth/authorize-audit] outcome=error error=${error.code} error_description=\"$errorDescription\" " +
           "state=${LogSafeText.of(state ?: "(none)")} " +

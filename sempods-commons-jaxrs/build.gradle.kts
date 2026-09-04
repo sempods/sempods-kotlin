@@ -38,14 +38,9 @@ dependencies {
   testImplementation(libs.slf4jApi)
   testImplementation(libs.bundles.test)
 
-  // These suites assert what reaches a log line, so they attach an appender and name logback types
-  // directly. The binding itself comes from the root build script; `CapturedLog` — which owns the
-  // attaching — comes from the fixtures of the module that owns the rule.
+  // These suites assert what reaches a log line, so they name logback types directly. The binding
+  // itself comes from the root build script.
   testImplementation(libs.logbackClassic)
   testImplementation(testFixtures(project(":sempods-commons")))
-
-  // `BaseEndpointPreconditionTest` builds a real `ContainerRequest`, which needs the properties
-  // delegate from `jersey-common` — the header parsing it asserts on is the whole point, so a mock
-  // request would assert nothing.
   testImplementation(libs.jerseyCommon)
 }

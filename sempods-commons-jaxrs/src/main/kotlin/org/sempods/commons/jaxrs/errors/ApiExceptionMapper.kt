@@ -26,10 +26,7 @@ import org.sempods.commons.logging.LogSafeText
  * declares it ([SecretPathSegment]) because a 405 or a 406 leaves no matched template to log
  * instead, and control characters are escaped so a request cannot forge a second log line.
  *
- * The failure's own text goes through [LogSafeText] for the same reason. It is not this project's
- * to shape: a parser quotes the body it choked on, and `NumberFormatException` quotes the query
- * parameter — so the one line that says a request failed is also the one carrying the most of what
- * the request wrote.
+ * The failure's own text goes through [LogSafeText] too: a parser quotes the body it choked on.
  *
  * @param secretPathSegments empty in every composition but the one that has such a route — the set
  *   binder in `JaxRsApplicationModule` supplies it either way, so there is no default here: a

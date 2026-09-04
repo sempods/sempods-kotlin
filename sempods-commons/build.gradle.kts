@@ -24,10 +24,9 @@ dependencies {
   // consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
 
-  // And for `CapturedLog`, which names `ListAppender` and `LoggerContext`. `compileOnly` for the
-  // same reason as Guice, plus one of its own: this module is published, and the binding is what
-  // `checkNoLoggingBinding` exists to keep off a library. Every test JVM has it at runtime from
-  // the root build script.
+  // `CapturedLog` names `ListAppender` and `LoggerContext`. `compileOnly` because this module is
+  // published and the binding is what `checkNoLoggingBinding` keeps off a library; every test JVM
+  // has it at runtime from the root build script.
   testFixturesCompileOnly(libs.logbackClassic)
   testFixturesImplementation(libs.bundles.logging)
 

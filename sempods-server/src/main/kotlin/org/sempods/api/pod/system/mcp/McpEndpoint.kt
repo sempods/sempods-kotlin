@@ -365,7 +365,6 @@ class McpEndpoint @Inject constructor(
     // the cap because SPARQL-heavy bodies can run into many KB and would spam the log.
     // `params._meta` is redacted first — ChatGPT puts user geolocation, session IDs,
     // and organization IDs in there and we don't want that PII in the log stream.
-    // Ahead of `fetchPodOrThrow`, so `pod` is still the raw path parameter here and below.
     val podForLog = LogSafeText.of(pod)
     logger.info { "MCP request for pod '$podForLog': ${LogSafeText.of(redactMetaForLog(requestBody))}" }
 
