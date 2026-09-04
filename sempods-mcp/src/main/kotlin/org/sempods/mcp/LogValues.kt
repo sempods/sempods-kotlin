@@ -1,5 +1,7 @@
 package org.sempods.mcp
 
+import org.sempods.commons.logging.LogSafeText
+
 /**
  * A value this service did not author, made safe to put in a log line.
  *
@@ -10,22 +12,23 @@ package org.sempods.mcp
  * more to an attacker than it looks: it is what an incident gets reconstructed from. `docs/logging.md`
  * §"Three rules" is where that division sits.
  *
+ * The escaping is [LogSafeText]'s. What this adds is the part that is this service's own: a null
+ * reads as `none`, so a caller never has to choose between a safe log and a complete one, and the
+ * value is capped — a diagnostic value is worth a line, not a screen. Capped before escaping, so
+ * the limit counts what arrived rather than how much of it needed an escape.
+ *
  * Two sources reach the log this way and neither is trustworthy. **Request parameters**: anyone who
  * can register a client can drive `/authorize` and the OIDC callback with values of their choosing.
  * **Pod responses**: a connected pod's metadata, error bodies and the URIs it advertises are all
  * text from another host — and a rejected value often travels inside an exception message, which is
  * the same problem one indirection further out.
  *
- * Control characters become `.` rather than being dropped, so the length still reflects what
- * arrived, and the result is capped: a diagnostic value is worth a line, not a screen. A null
- * reads as `none`, so a caller never has to choose between a safe log and a complete one.
- *
  * `internal` so both surfaces can reach it, and so a test can exercise it directly — driving it
  * through HTTP would only show that the request survived, not what reached the log.
  */
 internal fun forLog(value: String?): String {
   if (value == null) return "none"
-  val capped = value.take(LOG_VALUE_MAX).map { if (it.isISOControl()) '.' else it }.joinToString("")
+  val capped = LogSafeText.of(value.take(LOG_VALUE_MAX))
   return if (value.length > LOG_VALUE_MAX) "$capped…" else capped
 }
 

@@ -1,6 +1,11 @@
 package org.sempods.api.pod.system.auth
 
+import ch.qos.logback.classic.LoggerContext
+import ch.qos.logback.classic.spi.ILoggingEvent
+import java.util.concurrent.CopyOnWriteArrayList
+import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
@@ -20,6 +25,7 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import org.bson.types.ObjectId
+import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
 import java.net.URI
 import kotlin.test.assertEquals
@@ -599,6 +605,159 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a stored registration cannot forge a log line either`() {
+    // The submitted metadata is checked, but a fingerprint hit returns the *stored* row and throws
+    // the submitted values away — so a row written before a check existed is what reaches the line.
+    // Same upgrade path the `client_uri` filter above is about.
+    val pod = sempodsTestFactory.newPod()
+    val redirectUri = "http://localhost:5173/callback"
+    val clientName = "Legacy Logger ${TestUtil.randomId()}"
+    val userAgent = "LegacyAgent/1.0"
+    dynamicClientRegistrationDao.create(
+      clientId = "dyn:" + ObjectId().toHexString(),
+      registeredForPodId = checkNotNull(pod.id),
+      registeredForPodName = pod.name,
+      redirectUris = setOf(redirectUri),
+      clientName = clientName,
+      clientUri = "https://app.example/a\u20282026-01-01 21:00:00,000 WARN  [jetty] forged",
+      logoUri = null,
+      softwareId = null,
+      softwareVersion = null,
+      contacts = emptyList(),
+      tosUri = null,
+      policyUri = null,
+      rawRequest = emptyMap(),
+      userAgent = userAgent,
+      fingerprint = org.sempods.auth.core.DynamicClientFingerprint.compute(
+        clientName, userAgent, realm = null, setOf(redirectUri),
+      ),
+    )
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .addHeader("User-Agent", userAgent)
+        .setBody("""{"redirect_uris":["$redirectUri"],"client_name":"$clientName"}""")
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { "[oauth/register]" in it && clientName in it && "clientUri" in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
+  }
+
+  @Test
+  fun `a did-web client_id carrying a line break is refused as malformed`() {
+    // `did:web:` identities are presented rather than issued, and until this check nothing looked
+    // at their characters — so the value reached every authorize, token, consent and audit line
+    // this endpoint writes. Held to RFC 6749 Appendix A.1 once, at the entrance: `ClientId`, and
+    // `docs/logging.md` §"Three rules" for what that buys.
+    val pod = sempodsTestFactory.newPod()
+    // The marker tells this case's lines from a sibling's: the suite runs its classes concurrently
+    // and the appender sees every line logged while the block runs.
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", forged)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", "test-state")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("must be a did:web or dyn" in response.responseBody, response.responseBody)
+    }
+
+    // The audit line runs ahead of every check, so it still names what was sent — escaped.
+    val line = lines.single { marker in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+    assertTrue(
+      lines.none { "outcome=start" !in it && marker in it },
+      "the refused value reached a line that is not the audit entry: $lines",
+    )
+  }
+
+  @Test
+  fun `a refresh_token client_id carrying a line break is refused before it is logged`() {
+    // The token endpoint never goes through `readClientId`, and the "not recognized" refusal names
+    // the submitted `client_id` before anything has matched it against a stored one.
+    val pod = sempodsTestFactory.newPod()
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody(
+          "grant_type=refresh_token&refresh_token=no-such-token" +
+            "&client_id=${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}",
+        )
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("malformed client_id" in response.responseBody, response.responseBody)
+    }
+
+    assertTrue(lines.none { marker in it }, "the refused value reached the log: $lines")
+  }
+
+  @Test
+  fun `a client_credentials username cannot forge a log line`() {
+    // The username half of HTTP Basic is a submitted `client_id`, and naming it is what the refusal
+    // is for — so this one is escaped rather than narrowed away.
+    val pod = sempodsTestFactory.newPod()
+    val forged = "notes-app-${TestUtil.randomId()}\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+    val header = "Basic " + java.util.Base64.getEncoder()
+      .encodeToString("${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}:secret".toByteArray())
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Authorization", header)
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody("grant_type=client_credentials")
+        .execute()
+
+      assertEquals(401, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { forged.substringBefore('\n') in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+  }
+
+  @Test
+  fun `submitted registration metadata cannot forge a log line`() {
+    // The `/register` body is caller-written text on an unauthenticated endpoint, and both lines
+    // this endpoint writes about it carry it — the second one carries the body whole.
+    val pod = sempodsTestFactory.newPod()
+    val forgedName = "Dyn-${TestUtil.randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody(
+          """{"redirect_uris":["http://localhost:5173/callback"],""" +
+            """"client_name":"$forgedName","software_id":"$forgedName"}""",
+        )
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val name = forgedName.substringBefore('\\')
+    val profile = lines.single { "[oauth/register] Dynamic client registered" in it && name in it }
+    val body = lines.single { "[oauth/register] full request body" in it && name in it }
+    assertFalse('\n' in profile, "was: $profile")
+    assertFalse('\n' in body, "was: $body")
+    assertTrue("\\u000a" in profile, profile)
+    assertTrue("\\u000a" in body, body)
+  }
+
+  @Test
   fun `every callback outcome withdraws the pin it consumed`() {
     // Cookie names carry the flow's `state`, so an abandoned pin is no longer overwritten by the
     // next attempt — it lingers for its full fifteen minutes. Cancelled sign-ins would otherwise
@@ -816,6 +975,66 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
     assertNotNull(ticked["refresh_token"], "a ticked control grants it, whatever the client asked: $ticked")
+  }
+
+  @Test
+  fun `a scope carrying a line separator cannot forge a second log line`() {
+    // `:sempods-server` is published, so the console `%replace` that covers this repository's own
+    // applications is not a guarantee for an embedder — `docs/logging.md` §"Three rules" asks a
+    // library that logs caller-supplied text to escape it and to keep one test at the call site.
+    // U+2028 is the value to use: Jetty answers 400 to an ASCII control character in a URI, and
+    // this one arrives intact.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val appender = CapturingAppender().apply { start() }
+    val logger = logbackContext().getLogger(PodAuthEndpoint::class.java)
+    logger.addAppender(appender)
+    try {
+      http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", "forged")
+        .addQueryParam("prompt", "consent")
+        .addQueryParam("scope", "public-read\u20282026-01-01 21:00:00,000 WARN  [jetty] forged")
+        .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+        .setFollowRedirect(false).execute()
+    } finally {
+      logger.detachAppender(appender)
+      appender.stop()
+    }
+
+    // This logger belongs to every HTTP suite running beside this one, so both halves of
+    // `PodTokenAuthenticatorTest.linesLoggedAt` are owed: collect concurrency-safely, and keep only
+    // the lines naming this test's own pod.
+    val line = appender.events.map { it.formattedMessage }
+      .single { "JWT verified" in it && "pod='${pod.name}'" in it }
+    assertFalse('\u2028' in line, "the separator reached the line raw: $line")
+    assertTrue("\\u2028" in line, "the separator must be escaped where it was interpolated: $line")
+  }
+
+  /** See above: a sibling on another thread may append while this test reads. */
+  private class CapturingAppender : AppenderBase<ILoggingEvent>() {
+    val events = CopyOnWriteArrayList<ILoggingEvent>()
+    override fun append(eventObject: ILoggingEvent) {
+      events += eventObject
+    }
+  }
+
+  /**
+   * SLF4J hands a `SubstituteLoggerFactory` to every thread but the one currently binding the
+   * provider, so a plain cast is flaky in a suite that runs its classes concurrently. The window
+   * `PodTokenRateLimiterTest` waits out, for the same reason.
+   */
+  private fun logbackContext(): LoggerContext {
+    repeat(500) {
+      val factory = LoggerFactory.getILoggerFactory()
+      if (factory is LoggerContext) return factory
+      Thread.sleep(10)
+    }
+    error("logback never became the SLF4J binding of this test JVM")
   }
 
   @Test
