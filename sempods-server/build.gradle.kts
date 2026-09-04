@@ -110,10 +110,12 @@ dependencies {
   // test implementation bundles
   testImplementation(libs.bundles.test)
 
-  // Two tests attach an appender and therefore name logback types directly:
+  // Three tests attach an appender and therefore name logback types directly:
   // `PodTokenAuthenticatorTest` asserts at which *level* this module logs — the success line has
-  // to stay out of a production log — and `PodTokenRateLimiterTest` asserts the *volume*, since
-  // one line per refusal would rebuild what the sampler it pins exists to remove.
+  // to stay out of a production log — `PodTokenRateLimiterTest` asserts the *volume*, since one
+  // line per refusal would rebuild what the sampler it pins exists to remove, and
+  // `PodAuthEndpointHttpTest` asserts that a caller-supplied scope reaches the line escaped, which
+  // a published module owes for itself (`docs/logging.md` §"Three rules").
   // Test-only: `checkNoLoggingBinding` guards the *runtime* classpath, which this does not touch,
   // and the binding itself comes from the root build script. Same reasoning as `:sempods-commons-jaxrs`.
   testImplementation(libs.logbackClassic)

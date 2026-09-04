@@ -1,5 +1,9 @@
 package org.sempods.api.pod.system.auth
 
+import ch.qos.logback.classic.LoggerContext
+import ch.qos.logback.classic.spi.ILoggingEvent
+import java.util.concurrent.CopyOnWriteArrayList
+import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -21,6 +25,7 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import org.bson.types.ObjectId
+import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
 import java.net.URI
 import kotlin.test.assertEquals
@@ -904,6 +909,66 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
     assertNotNull(ticked["refresh_token"], "a ticked control grants it, whatever the client asked: $ticked")
+  }
+
+  @Test
+  fun `a scope carrying a line separator cannot forge a second log line`() {
+    // `:sempods-server` is published, so the console `%replace` that covers this repository's own
+    // applications is not a guarantee for an embedder — `docs/logging.md` §"Three rules" asks a
+    // library that logs caller-supplied text to escape it and to keep one test at the call site.
+    // U+2028 is the value to use: Jetty answers 400 to an ASCII control character in a URI, and
+    // this one arrives intact.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val appender = CapturingAppender().apply { start() }
+    val logger = logbackContext().getLogger(PodAuthEndpoint::class.java)
+    logger.addAppender(appender)
+    try {
+      http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", "forged")
+        .addQueryParam("prompt", "consent")
+        .addQueryParam("scope", "public-read\u20282026-01-01 21:00:00,000 WARN  [jetty] forged")
+        .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+        .setFollowRedirect(false).execute()
+    } finally {
+      logger.detachAppender(appender)
+      appender.stop()
+    }
+
+    // This logger belongs to every HTTP suite running beside this one, so both halves of
+    // `PodTokenAuthenticatorTest.linesLoggedAt` are owed: collect concurrency-safely, and keep only
+    // the lines naming this test's own pod.
+    val line = appender.events.map { it.formattedMessage }
+      .single { "JWT verified" in it && "pod='${pod.name}'" in it }
+    assertFalse('\u2028' in line, "the separator reached the line raw: $line")
+    assertTrue("\\u2028" in line, "the separator must be escaped where it was interpolated: $line")
+  }
+
+  /** See above: a sibling on another thread may append while this test reads. */
+  private class CapturingAppender : AppenderBase<ILoggingEvent>() {
+    val events = CopyOnWriteArrayList<ILoggingEvent>()
+    override fun append(eventObject: ILoggingEvent) {
+      events += eventObject
+    }
+  }
+
+  /**
+   * SLF4J hands a `SubstituteLoggerFactory` to every thread but the one currently binding the
+   * provider, so a plain cast is flaky in a suite that runs its classes concurrently. The window
+   * `PodTokenRateLimiterTest` waits out, for the same reason.
+   */
+  private fun logbackContext(): LoggerContext {
+    repeat(500) {
+      val factory = LoggerFactory.getILoggerFactory()
+      if (factory is LoggerContext) return factory
+      Thread.sleep(10)
+    }
+    error("logback never became the SLF4J binding of this test JVM")
   }
 
   @Test
