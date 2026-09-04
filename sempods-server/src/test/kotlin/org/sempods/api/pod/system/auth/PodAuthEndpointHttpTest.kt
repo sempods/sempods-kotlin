@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
@@ -596,6 +597,92 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(400, response.statusCode, response.responseBody)
     assertTrue("must be a did:web or dyn" in response.responseBody, response.responseBody)
     assertFalse("invalid_client" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `a did-web client_id carrying a line break is refused as malformed`() {
+    // `did:web:` identities are presented rather than issued, and until this check nothing looked
+    // at their characters — so the value reached every authorize, token, consent and audit line
+    // this endpoint writes. Held to RFC 6749 Appendix A.1 once, at the entrance: `ClientId`, and
+    // `docs/logging.md` §"Three rules" for what that buys.
+    val pod = sempodsTestFactory.newPod()
+    // The marker tells this case's lines from a sibling's: the suite runs its classes concurrently
+    // and the appender sees every line logged while the block runs.
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", forged)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", "test-state")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("must be a did:web or dyn" in response.responseBody, response.responseBody)
+    }
+
+    // The audit line runs ahead of every check, so it still names what was sent — escaped.
+    val line = lines.single { marker in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+    assertTrue(
+      lines.none { "outcome=start" !in it && marker in it },
+      "the refused value reached a line that is not the audit entry: $lines",
+    )
+  }
+
+  @Test
+  fun `a client_credentials username cannot forge a log line`() {
+    // The username half of HTTP Basic is a submitted `client_id`, and naming it is what the refusal
+    // is for — so this one is escaped rather than narrowed away.
+    val pod = sempodsTestFactory.newPod()
+    val forged = "notes-app-${TestUtil.randomId()}\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+    val header = "Basic " + java.util.Base64.getEncoder()
+      .encodeToString("${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}:secret".toByteArray())
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Authorization", header)
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody("grant_type=client_credentials")
+        .execute()
+
+      assertEquals(401, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { forged.substringBefore('\n') in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+  }
+
+  @Test
+  fun `submitted registration metadata cannot forge a log line`() {
+    // The `/register` body is caller-written text on an unauthenticated endpoint, and both lines
+    // this endpoint writes about it carry it — the second one carries the body whole.
+    val pod = sempodsTestFactory.newPod()
+    val forgedName = "Dyn-${TestUtil.randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody(
+          """{"redirect_uris":["http://localhost:5173/callback"],""" +
+            """"client_name":"$forgedName","software_id":"$forgedName"}""",
+        )
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val name = forgedName.substringBefore('\\')
+    val profile = lines.single { "[oauth/register] Dynamic client registered" in it && name in it }
+    val body = lines.single { "[oauth/register] full request body" in it && name in it }
+    assertFalse('\n' in profile, "was: $profile")
+    assertFalse('\n' in body, "was: $body")
+    assertTrue("\\u000a" in profile, profile)
+    assertTrue("\\u000a" in body, body)
   }
 
   @Test

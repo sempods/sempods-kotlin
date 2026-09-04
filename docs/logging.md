@@ -97,9 +97,33 @@ mixing the two is how this tree ended up with four idioms at once.
    interpolated — otherwise a request can end the line early and write the next one itself. Jetty
    answers 400 to an ASCII control character in a URI and so covers most of a *path* today, but
    `%E2%80%A8` gets through, these are libraries that will not always run behind Jetty, and a form
-   body is not filtered at all. Two callers today: `RequestPathForLog`, which redacts declared
-   secret segments and then escapes, and `PodTokenRateLimiter`, whose refusal line names a
-   submitted `client_id`. Anything else that logs caller-supplied text owes the same treatment.
+   body is not filtered at all. Three wrappers carry it: `RequestPathForLog`, which redacts declared
+   secret segments and then escapes; `forLog` in `:sempods-mcp`, which also caps the value and reads
+   a null as `none`; and `LogSafeText` itself at the call site.
+
+   **The question is who wrote the characters, not how recently.** A `client_name` accepted verbatim
+   at registration is still caller text when it is read back out of MongoDB a month later; a pod name
+   is not, because the write path held it to `[a-z0-9-]`. So the way to answer it for one value is to
+   walk back to where it entered and ask what looked at it on the way:
+
+   - **A check on the character set makes the value safe** — `SempodsUriBuilder.checkPodName`,
+     `ProfilePath.isValidName`, `ClientId.isValid` (RFC 6749 Appendix A.1). Escaping afterwards is
+     noise, and noise is what makes a rule stop being read.
+   - **So does a `java.net.URI`** — its grammar admits no control character and no U+2028, so a value
+     of that type, or one that has passed a check which parsed one (`RedirectUri.isValid`,
+     `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase`), needs nothing.
+   - **A third party's own message is not automatically caller text.** The OAuth SDK names the
+     parameter it rejected and never quotes the value; OkHttp replaces every non-ASCII header byte
+     with U+FFFD. Jersey is the counter-case — `HeaderValueException` quotes the header verbatim —
+     which is why the question is asked per sink rather than answered once for exceptions.
+   - **Everything else is caller text**: a request body, a form field, a path or query parameter
+     logged before anything resolved it, and a remote host's response body.
+
+   **Where a value can be constrained at the entrance instead, constrain it.** `client_id` reached
+   over fifty log statements in the pod server alone; one check in `readClientId` retires all of
+   them, including the ones written next year. An escape at the sink only fixes the sink — which is
+   why the two that remain there are the ones that cannot be narrowed away, `PodTokenRateLimiter`
+   and the `client_credentials` refusal, whose whole job is to name what was submitted.
 2. **English, always.** A log line is read by whoever is on the incident, and that is not
    negotiated per message: English, like every other written artefact in this repository — code,
    comments, documentation and commit messages.

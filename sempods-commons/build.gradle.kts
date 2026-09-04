@@ -23,6 +23,12 @@ dependencies {
   // Same reasoning for the test proxy: it needs Guice and MockK to compile, both of which every
   // consumer of these fixtures already has.
   testFixturesCompileOnly(libs.guice)
+
+  // And for `CapturedLog`, which names `ListAppender` and `LoggerContext`. `compileOnly` for the
+  // same reason as Guice, plus one of its own: this module is published, and the binding is what
+  // `checkNoLoggingBinding` exists to keep off a library. Every test JVM has it at runtime from
+  // the root build script.
+  testFixturesCompileOnly(libs.logbackClassic)
   testFixturesImplementation(libs.bundles.logging)
 
   // `implementation` and not `compileOnly`, unlike Guice above: these fixtures *run* in a

@@ -8,6 +8,7 @@ import com.mongodb.MongoWriteException
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.mongo.isDuplicateKey
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.SempodsFacade
 import org.sempods.SempodsUriBuilder
 import org.sempods.admin.AdminAuthorizer
@@ -144,7 +145,9 @@ class AdminPodsEndpoint @Inject constructor(
     podRepositoryCache.invalidate(pod)
     sempodsFacade.deletePod(pod)
 
-    logger.info { "Admin '$adminClientId' deleted pod '$pod'" }
+    // Unlike the create above, this route never resolves the name: deleting an unknown pod is a
+    // no-op that still answers 204, so nothing has vouched for `pod` by the time it is logged.
+    logger.info { "Admin '$adminClientId' deleted pod '${LogSafeText.of(pod)}'" }
     return Response.noContent().build()
   }
 
@@ -261,7 +264,8 @@ class AdminPodsEndpoint @Inject constructor(
     if (existing != null) {
       logger.warn {
         "Pod '$pod': re-minting service client '$clientId' (expectedRegistrationId=" +
-            "${request.expectedRegistrationId}, current=$existingId, scopes=${existing.scopes})"
+            "${LogSafeText.of(request.expectedRegistrationId.toString())}, current=$existingId, " +
+            "scopes=${existing.scopes})"
       }
       // Conditional on the row we just read, not on `(pod, clientId)`: two concurrent replacements
       // would otherwise interleave as delete/insert/delete/insert, the second one removing the

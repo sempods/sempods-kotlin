@@ -9,6 +9,7 @@ import jakarta.inject.Inject
 import org.sempods.commons.jaxrs.ContainerRequestHolder
 import org.sempods.commons.jaxrs.RequestPathForLog
 import org.sempods.commons.jaxrs.SecretPathSegment
+import org.sempods.commons.logging.LogSafeText
 
 /**
  * The one place a failed request is logged, and therefore the one place that has to say which
@@ -24,6 +25,11 @@ import org.sempods.commons.jaxrs.SecretPathSegment
  * and decoded, so it goes through [RequestPathForLog] first: a route with a secret in its URL
  * declares it ([SecretPathSegment]) because a 405 or a 406 leaves no matched template to log
  * instead, and control characters are escaped so a request cannot forge a second log line.
+ *
+ * The failure's own text goes through [LogSafeText] for the same reason. It is not this project's
+ * to shape: a parser quotes the body it choked on, and `NumberFormatException` quotes the query
+ * parameter — so the one line that says a request failed is also the one carrying the most of what
+ * the request wrote.
  *
  * @param secretPathSegments empty in every composition but the one that has such a route — the set
  *   binder in `JaxRsApplicationModule` supplies it either way, so there is no default here: a
@@ -45,7 +51,7 @@ class ApiExceptionMapper @Inject constructor(
 
     // The project's own API exceptions
     if (failure is ApiException) {
-      val logMsg = "${failure.errors}$request"
+      val logMsg = "${LogSafeText.of(failure.errors.toString())}$request"
       if (failure.logAsError) {
         logger.error(failure.cause) { logMsg }
       } else {
@@ -61,17 +67,17 @@ class ApiExceptionMapper @Inject constructor(
     // jax-rs exceptions
     if (failure is WebApplicationException) {
       if (failure.response?.status == 404) {
-        logger.info { "Got 404 (not found): ${failure.message}$request" }
+        logger.info { "Got 404 (not found): ${LogSafeText.of(failure.message.toString())}$request" }
       } else if (failure.response?.status == 405) {
-        logger.info { "Got 405 (method not allowed): ${failure.message}$request" }
+        logger.info { "Got 405 (method not allowed): ${LogSafeText.of(failure.message.toString())}$request" }
       } else {
-        logger.error(failure) { "${failure.message}$request" }
+        logger.error(failure) { "${LogSafeText.of(failure.message.toString())}$request" }
       }
       return failure.response
     }
 
     // unknown exception, log as fatal
-    logger.error(failure) { "${failure.message}$request" }
+    logger.error(failure) { "${LogSafeText.of(failure.message.toString())}$request" }
     return Response.status(500).entity(failure.message).type("text/plain").build()
   }
 

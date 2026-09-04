@@ -33,6 +33,7 @@ import com.google.inject.Inject
 import org.sempods.client.SempodsClientException
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.api.InvalidBearerException
 import org.sempods.api.OAuthUpgradeRequiredException
 import org.sempods.api.SempodsBaseEndpoint
@@ -364,7 +365,10 @@ class McpEndpoint @Inject constructor(
     // the cap because SPARQL-heavy bodies can run into many KB and would spam the log.
     // `params._meta` is redacted first — ChatGPT puts user geolocation, session IDs,
     // and organization IDs in there and we don't want that PII in the log stream.
-    logger.info { "MCP request for pod '$pod': ${redactMetaForLog(requestBody)}" }
+    // Escaped, and everything below it too: this line runs before the pod is resolved, so `pod` is
+    // a raw path parameter, and the body is whatever was posted.
+    val podForLog = LogSafeText.of(pod)
+    logger.info { "MCP request for pod '$podForLog': ${LogSafeText.of(redactMetaForLog(requestBody))}" }
 
     var requestId: Any? = null
     var auditMethod: String? = null
@@ -373,8 +377,10 @@ class McpEndpoint @Inject constructor(
 
       val request = objectMapper.readValue<JsonRpcRequest>(requestBody)
       requestId = request.id
-      auditMethod = request.method
-      auditToolName = (request.params?.get("name") as? String)?.takeIf { it.isNotBlank() }
+      // Both are read off the request and used for the audit lines alone, so they are escaped here
+      // rather than at each of the eight.
+      auditMethod = LogSafeText.of(request.method)
+      auditToolName = (request.params?.get("name") as? String)?.takeIf { it.isNotBlank() }?.let(LogSafeText::of)
 
       if (isNotification(request.id)) {
         // Notification (no response expected) — separate audit outcome so it does
@@ -388,7 +394,7 @@ class McpEndpoint @Inject constructor(
         // carrying no id — what MCP's Streamable HTTP transport prescribes for a
         // notification POST the server cannot accept.
         fetchPodOrThrow(pod)
-        logger.info { "[mcp/audit] outcome=notification pod='$pod' method='$auditMethod'" }
+        logger.info { "[mcp/audit] outcome=notification pod='$podForLog' method='$auditMethod'" }
         return Response.status(Response.Status.ACCEPTED).build()
       }
 
@@ -404,7 +410,7 @@ class McpEndpoint @Inject constructor(
       val result = handleMethod(pod, credentials, request)
       if (result == null) {
         logger.info {
-          "[mcp/audit] outcome=accepted pod='$pod' method='$auditMethod' " +
+          "[mcp/audit] outcome=accepted pod='$podForLog' method='$auditMethod' " +
               "authenticated=$authenticated scopes=$scopesCount"
         }
         return Response.status(Response.Status.ACCEPTED).build()
@@ -425,7 +431,7 @@ class McpEndpoint @Inject constructor(
         else -> "method_$auditMethod"
       }
       logger.info {
-        "[mcp/audit] outcome=$outcome pod='$pod' method='$auditMethod' " +
+        "[mcp/audit] outcome=$outcome pod='$podForLog' method='$auditMethod' " +
             "tool='${auditToolName ?: "(n/a)"}' authenticated=$authenticated scopes=$scopesCount " +
             "client_id='${credentials.oauthClientId ?: "(anon)"}'"
       }
@@ -449,12 +455,12 @@ class McpEndpoint @Inject constructor(
       //   bad bearer at request entry, not by an upgrade request.
       val isUpgrade = e is OAuthUpgradeRequiredException
       val auditLine = if (isUpgrade) {
-        logger.info { "[mcp] OAuth upgrade requested via `authorize` tool for pod '${e.podName}'" }
-        "[mcp/audit] outcome=auth_trigger pod='$pod' method='${auditMethod ?: "(unparsed)"}' " +
+        logger.info { "[mcp] OAuth upgrade requested via `authorize` tool for pod '${LogSafeText.of(e.podName)}'" }
+        "[mcp/audit] outcome=auth_trigger pod='$podForLog' method='${auditMethod ?: "(unparsed)"}' " +
             "tool='authorize' http_status=401"
       } else {
-        logger.info { "[mcp] Invalid bearer for pod '${e.podName}' — returning 401 with WWW-Authenticate" }
-        "[mcp/audit] outcome=error pod='$pod' method='${auditMethod ?: "(unparsed)"}' " +
+        logger.info { "[mcp] Invalid bearer for pod '${LogSafeText.of(e.podName)}' — returning 401 with WWW-Authenticate" }
+        "[mcp/audit] outcome=error pod='$podForLog' method='${auditMethod ?: "(unparsed)"}' " +
             "tool='${auditToolName ?: "(n/a)"}' error=invalid_bearer http_status=401"
       }
       logger.info { auditLine }
@@ -481,7 +487,7 @@ class McpEndpoint @Inject constructor(
         .build()
     } catch (e: JsonRpcException) {
       logger.info {
-        "[mcp/audit] outcome=error pod='$pod' method='${auditMethod ?: "(unparsed)"}' " +
+        "[mcp/audit] outcome=error pod='$podForLog' method='${auditMethod ?: "(unparsed)"}' " +
             "tool='${auditToolName ?: "(n/a)"}' error=jsonrpc_${e.code}"
       }
       val errorResponse = JsonRpcErrorResponse(
@@ -505,7 +511,7 @@ class McpEndpoint @Inject constructor(
       val podUnknown = status == 404
       val auditError = if (podUnknown) "pod_not_found" else "http_" + status
       logger.info {
-        "[mcp/audit] outcome=error pod='$pod' method='${auditMethod ?: "(unparsed)"}' " +
+        "[mcp/audit] outcome=error pod='$podForLog' method='${auditMethod ?: "(unparsed)"}' " +
             "tool='${auditToolName ?: "(n/a)"}' error=$auditError http_status=$status"
       }
       val errorResponse = JsonRpcErrorResponse(
@@ -527,9 +533,9 @@ class McpEndpoint @Inject constructor(
         .type(MediaType.APPLICATION_JSON)
         .build()
     } catch (e: Exception) {
-      logger.error(e) { "Error handling MCP request for pod '$pod'" }
+      logger.error(e) { "Error handling MCP request for pod '$podForLog'" }
       logger.info {
-        "[mcp/audit] outcome=error pod='$pod' method='${auditMethod ?: "(unparsed)"}' " +
+        "[mcp/audit] outcome=error pod='$podForLog' method='${auditMethod ?: "(unparsed)"}' " +
             "tool='${auditToolName ?: "(n/a)"}' error=internal http_status=500"
       }
       val errorResponse = JsonRpcErrorResponse(
@@ -783,12 +789,15 @@ class McpEndpoint @Inject constructor(
       val payload = plan.execute(URI("${config.apiBaseUrl}$pod"), bearerToken())
       ToolCallResult(content = listOf(ContentItem(type = "text", text = objectMapper.writeValueAsString(payload))))
     } catch (e: SempodsClientException) {
-      logger.info { "[mcp] tool '$toolName' on pod '$pod' refused (${e.statusCode ?: "no status"}): ${e.message}" }
+      logger.info {
+        "[mcp] tool '${LogSafeText.of(toolName)}' on pod '$pod' refused " +
+            "(${e.statusCode ?: "no status"}): ${LogSafeText.of(e.message.toString())}"
+      }
       // The pod's own body, not the exception message: the message carries the URL that was dialled,
       // and this text goes to a model.
       toolError(PodToolFailure.describe(toolName, e.statusCode, e.responseBody ?: e.message.orEmpty()))
     } catch (e: Exception) {
-      logger.error(e) { "[mcp] tool '$toolName' on pod '$pod' failed" }
+      logger.error(e) { "[mcp] tool '${LogSafeText.of(toolName)}' on pod '$pod' failed" }
       toolError("Error: ${e.message ?: e.javaClass.simpleName}")
     }
 

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.JsonNode
 import com.google.inject.Inject
 import org.sempods.commons.jaxrs.errors.ApiException
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.ai.AiSemValidationException
 import org.sempods.ai.AiServiceException
 import org.sempods.ai.sem.AiSemFacade
@@ -67,7 +68,13 @@ class PodAiSemWebEndpoint @Inject constructor(
         message = error.message ?: "invalid model output",
       )
     } catch (error: AiServiceException) {
-      logger.warn { "text2model failed for pod '$pod', appId='${credentials.oauthClientId}': ${error.message}" }
+      logger.warn {
+        // The provider's own response body travels in this message: `OpenAiService` puts a
+        // `compactSnippet` of it there, and that collapses `\s+` — which is `[ \t\n\x0B\f\r]`
+        // and so leaves U+2028 exactly where it was.
+        "text2model failed for pod '$pod', appId='${credentials.oauthClientId}': " +
+            LogSafeText.of(error.message.toString())
+      }
       throw webError(
         status = 500,
         code = "ai_provider_error",
@@ -132,7 +139,13 @@ class PodAiSemWebEndpoint @Inject constructor(
         message = error.message ?: "invalid model output",
       )
     } catch (error: AiServiceException) {
-      logger.warn { "model2model failed for pod '$pod', appId='${credentials.oauthClientId}': ${error.message}" }
+      logger.warn {
+        // The provider's own response body travels in this message: `OpenAiService` puts a
+        // `compactSnippet` of it there, and that collapses `\s+` — which is `[ \t\n\x0B\f\r]`
+        // and so leaves U+2028 exactly where it was.
+        "model2model failed for pod '$pod', appId='${credentials.oauthClientId}': " +
+            LogSafeText.of(error.message.toString())
+      }
       throw webError(
         status = 500,
         code = "ai_provider_error",

@@ -38,7 +38,14 @@ dependencies {
   testImplementation(libs.slf4jApi)
   testImplementation(libs.bundles.test)
 
-  // `ApiExceptionMapperTest` asserts what reaches a log line, so it attaches an appender and names
-  // logback types directly. The binding itself comes from the root build script.
+  // These suites assert what reaches a log line, so they attach an appender and name logback types
+  // directly. The binding itself comes from the root build script; `CapturedLog` — which owns the
+  // attaching — comes from the fixtures of the module that owns the rule.
   testImplementation(libs.logbackClassic)
+  testImplementation(testFixtures(project(":sempods-commons")))
+
+  // `BaseEndpointPreconditionTest` builds a real `ContainerRequest`, which needs the properties
+  // delegate from `jersey-common` — the header parsing it asserts on is the whole point, so a mock
+  // request would assert nothing.
+  testImplementation(libs.jerseyCommon)
 }

@@ -19,6 +19,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.sempods.auth.api.login.LoginPage
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.ClientId
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.OidcPrompt
@@ -94,6 +95,11 @@ fun Application.openIdProviderEndpoint(
       }
       val clientId = q["client_id"]?.trim()?.takeIf { it.isNotBlank() }
         ?: return@get call.respondText("missing client_id", status = HttpStatusCode.BadRequest)
+      // Direct, like the two above it and for the same reason: the address is not yet proven to
+      // belong to this client, so nothing may travel by redirect.
+      if (!ClientId.isValid(clientId)) {
+        return@get call.respondText("client_id is not a usable identifier", status = HttpStatusCode.BadRequest)
+      }
       if (!clientRedirectPolicy.permits(clientId, redirectUri)) {
         logger.info { "[authorize] refused: client='$clientId' may not be answered at '$redirectUri'" }
         return@get call.respondText(

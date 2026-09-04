@@ -14,6 +14,7 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.Temporal
 import java.util.*
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.commons.logging.LogSafeText
 
 object DateTimeUtil {
 
@@ -78,7 +79,9 @@ object DateTimeUtil {
     } catch (e: NumberFormatException) {
     }
 
-    logger.warn { "Could not parse date time: '$value'" }
+    // `value` is whatever the caller passed, and this module is published: see `docs/logging.md`
+    // §"Three rules".
+    logger.warn { "Could not parse date time: '${LogSafeText.of(value.toString())}'" }
 
     // parse with some iso8601 date formats
     // TODO: still needed?
