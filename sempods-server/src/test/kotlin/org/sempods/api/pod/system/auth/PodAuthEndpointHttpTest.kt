@@ -2,7 +2,8 @@ package org.sempods.api.pod.system.auth
 
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
+import java.util.concurrent.CopyOnWriteArrayList
+import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
@@ -834,7 +835,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
-    val appender = ListAppender<ILoggingEvent>().apply { start() }
+    val appender = CapturingAppender().apply { start() }
     val logger = logbackContext().getLogger(PodAuthEndpoint::class.java)
     logger.addAppender(appender)
     try {
@@ -852,9 +853,21 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       appender.stop()
     }
 
-    val line = appender.list.map { it.formattedMessage }.single { "JWT verified" in it }
+    // This logger belongs to every HTTP suite running beside this one, so both halves of
+    // `PodTokenAuthenticatorTest.linesLoggedAt` are owed: collect concurrency-safely, and keep only
+    // the lines naming this test's own pod.
+    val line = appender.events.map { it.formattedMessage }
+      .single { "JWT verified" in it && "pod='${pod.name}'" in it }
     assertFalse('\u2028' in line, "the separator reached the line raw: $line")
     assertTrue("\\u2028" in line, "the separator must be escaped where it was interpolated: $line")
+  }
+
+  /** See above: a sibling on another thread may append while this test reads. */
+  private class CapturingAppender : AppenderBase<ILoggingEvent>() {
+    val events = CopyOnWriteArrayList<ILoggingEvent>()
+    override fun append(eventObject: ILoggingEvent) {
+      events += eventObject
+    }
   }
 
   /**
