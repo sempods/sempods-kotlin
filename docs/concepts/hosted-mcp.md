@@ -189,10 +189,11 @@ grants — keyed `(pod, client_id, WebID)` — stay with it.
 
 The cost is that a user's profiles are one client at that pod, and share more than a label:
 
-> Connect `pod.example` in `…/private`, then in `…/cron-agent`. Both arrive as the same
-> `client_id`, so they share that pod's consent screen and its grants — and the second connect
-> retires the first's refresh-token family, so `…/private` needs reconnecting once its access
-> token expires.
+> Connect `pod.example` in `…/private`, then in `…/cron-agent`, signing in at the pod as the same
+> user both times. Both arrive as the same `client_id`, so they share that pod's consent screen and
+> its grants — and the second connect retires the first's refresh-token family, so `…/private`
+> needs reconnecting once its access token expires. Sign in at the pod as a *different* user and
+> only the `client_id` is shared: grants and refresh families are per WebID.
 
 The vault rows are separate; the pod-side authority and lifetime are not. Whether a named profile
 should carry a pod-side identity of its own is [open](#open-questions).
@@ -201,9 +202,10 @@ should carry a pod-side identity of its own is [open](#open-questions).
 client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
 a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a
 pod free to reuse the prior authorization will, and the button then changes nothing. The stored
-`client_id` is reused — except for a connection the pod has declared dead (`invalid_grant`), which
-re-registers. The callback stores the scopes the token response returned,
-not the ones asked for, and clears the reconnect mark.
+`client_id` is reused — except for a dead (`invalid_grant`) `dyn:` connection at a pod offering
+DCR, which re-registers; a static `did:web` client has no registration to lose and keeps its
+identity. The callback stores the scopes the token response returned, not the ones asked for, and
+clears the reconnect mark.
 
 The pod sees an ordinary OAuth client; consent and grants stay pod-side.
 

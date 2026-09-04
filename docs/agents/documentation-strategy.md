@@ -106,9 +106,9 @@ included. Technical milestones are public; the business around them is not.
 **8. Show the case.** Where a rule has a consequence a reader would have to derive, write the
 consequence out instead of qualifying the rule:
 
-> Connect `pod.example` in `…/private`, then in `…/cron-agent`. Both arrive as the same
-> `client_id`, so they share that pod's grants — and the second connect retires the first's
-> refresh token.
+> Connect `pod.example` in `…/private`, then in `…/cron-agent`, as the same pod user. Both arrive
+> as the same `client_id`, so they share that pod's grants — and the second connect retires the
+> first's refresh token.
 
 One concrete case is shorter than the paragraph of hedging it replaces, and it is the half a reader
 remembers.
