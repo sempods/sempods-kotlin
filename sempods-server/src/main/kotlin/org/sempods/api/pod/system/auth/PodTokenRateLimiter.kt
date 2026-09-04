@@ -145,9 +145,11 @@ class PodTokenRateLimiter(
    * the reader after the wrong caller — which is the failure the milestone beside this one is about.
    *
    * The subject is a key, not a credential: an address and a client name are both already logged
-   * elsewhere on this endpoint, and neither is a secret. Through `LogSafeText` because part of it
-   * is a form parameter — a `client_id` carrying `%0A` would otherwise end this line early and
-   * write the next one itself.
+   * elsewhere on this endpoint, and neither is a secret. Escaped here rather than left to the
+   * encoder, because `:sempods-server` is published: the `%replace` that covers this repository's
+   * own applications lives in a configuration an embedder supplies for itself, and a `client_id`
+   * carrying `%0A` would forge a record under an ordinary `%msg` pattern. `docs/logging.md`
+   * §"Three rules" is the rule and its two halves.
    */
   private fun logRefusal(address: String, tier: String, subject: String, permitsPerMinute: Int) {
     if (!logSampler.tryAcquire(address)) return

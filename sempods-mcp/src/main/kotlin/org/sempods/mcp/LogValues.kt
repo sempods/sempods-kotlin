@@ -5,11 +5,17 @@ import org.sempods.commons.logging.LogSafeText
 /**
  * A value this service did not author, made safe to put in a log line.
  *
- * The escaping is [LogSafeText]'s, which is where the rule and its reasoning live. What this adds
- * is the part that is this service's own: a null reads as `none`, so a caller never has to choose
- * between a safe log and a complete one, and the value is capped — a diagnostic value is worth a
- * line, not a screen. Capped before escaping, so the limit counts what arrived rather than how
- * much of it needed an escape.
+ * The shared console pattern replaces line terminators in every message, but this module is
+ * published: an embedder brings its own logging configuration, and under an ordinary `%msg`
+ * pattern a newline inside an interpolated value produces what reads as a second log entry — with
+ * a timestamp, a level and a message the value's author chose. Forged operational history is worth
+ * more to an attacker than it looks: it is what an incident gets reconstructed from. `docs/logging.md`
+ * §"Three rules" is where that division sits.
+ *
+ * The escaping is [LogSafeText]'s. What this adds is the part that is this service's own: a null
+ * reads as `none`, so a caller never has to choose between a safe log and a complete one, and the
+ * value is capped — a diagnostic value is worth a line, not a screen. Capped before escaping, so
+ * the limit counts what arrived rather than how much of it needed an escape.
  *
  * Two sources reach the log this way and neither is trustworthy. **Request parameters**: anyone who
  * can register a client can drive `/authorize` and the OIDC callback with values of their choosing.

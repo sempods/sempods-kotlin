@@ -6,6 +6,7 @@ import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * What a block of code wrote to the log, as the lines an incident would be read from.
@@ -21,6 +22,13 @@ import org.slf4j.LoggerFactory
  * These suites run their classes concurrently, so a case that picks its line with `single { }` on a
  * marker its siblings also write passes alone and fails in a full run. Put something unique in the
  * value under test and select on that.
+ *
+ * The level is raised for the duration, because `gradle/logback-test.xml` runs every test JVM at
+ * INFO and a DEBUG line would otherwise be absent rather than wrong — a case asserting on lines it
+ * never receives passes. A logger is process-wide, so two concurrent captures of the same one share
+ * that level: they are counted, and the first in and last out are what save and restore it.
+ * Without the count the second block restores what the first had already replaced, and the level
+ * is left at TRACE for the rest of the run.
  */
 object CapturedLog {
 
@@ -42,29 +50,55 @@ object CapturedLog {
   internal fun start(name: String): Capture {
     val logger = logbackContext().getLogger(name)
     val appender = ListAppender<ILoggingEvent>()
-    // `gradle/logback-test.xml` runs every test JVM at INFO, so a DEBUG line would otherwise be
-    // absent rather than wrong — and a test asserting on lines it never receives passes.
-    val capture = Capture(logger, appender, logger.level)
-    logger.level = Level.TRACE
+    raise(logger)
     appender.start()
     logger.addAppender(appender)
-    return capture
+    return Capture(logger, appender)
   }
 
   @PublishedApi
   internal class Capture(
     private val logger: Logger,
     private val appender: ListAppender<ILoggingEvent>,
-    private val restore: Level?,
   ) {
 
     fun stop() {
       logger.detachAppender(appender)
       appender.stop()
-      logger.level = restore
+      lower(logger)
     }
 
     fun lines(): List<String> = appender.list.map { it.formattedMessage }
+  }
+
+  /** How many captures are currently holding a logger at TRACE, and the level to put back. */
+  private class Raised(val original: Level?, val holders: Int)
+
+  private val raised = ConcurrentHashMap<String, Raised>()
+
+  private fun raise(logger: Logger) {
+    raised.compute(logger.name) { _, current ->
+      if (current == null) {
+        val original = logger.level
+        logger.level = Level.TRACE
+        Raised(original, holders = 1)
+      } else {
+        Raised(current.original, current.holders + 1)
+      }
+    }
+  }
+
+  private fun lower(logger: Logger) {
+    raised.compute(logger.name) { _, current ->
+      // `null` only if a caller stopped a capture twice; leaving the level alone is the safe read.
+      if (current == null) return@compute null
+      if (current.holders > 1) {
+        Raised(current.original, current.holders - 1)
+      } else {
+        logger.level = current.original
+        null
+      }
+    }
   }
 
   /**
