@@ -3,8 +3,10 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -18,7 +20,9 @@ import kotlin.test.assertTrue
 /**
  * What [PodServiceAuditLogDao] records, orders and sweeps.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
+ * **Runs on a collection this test owns** — [collection], one per test *method*, so a sibling
+ * method's rows never reach a listing here. Rung 1 of `docs/testing.md` §"When a test is not
+ * safe".
  * The server's own audit log is never read and never written here: it holds the real request
  * history, and a test that had to empty it to know what it was looking at would be both destructive
  * and order-dependent.
@@ -47,14 +51,21 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
    */
   private val now: Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates all three indexes in its constructor.
-   */
+  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
+  private val collection = "test.podServiceAuditLog.dao.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    auditLogDao = PodServiceAuditLogDao(db, TEST_COLLECTION, RETENTION_DAYS)
+    auditLogDao = PodServiceAuditLogDao(db, collection, RETENTION_DAYS)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -130,7 +141,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
     // field, so these are kept until an operator backfills them — see
     // `docs/auth/service-clients.md`. Written past the DAO on purpose: nothing in the
     // codebase can produce this row any more, which is exactly why the read path has to.
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(collection).insertOne(
       Document()
         .append(PodServiceAuditLogDboFields.ts, Date.from(Instant.parse("2026-06-11T08:00:00Z")))
         .append(PodServiceAuditLogDboFields.podId, probePodId)
@@ -144,7 +155,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
 
   @Test
   fun `the TTL index is on expiresAt, with the stored instant as the deadline itself`() {
-    val ttlIndex = db.getCollection(TEST_COLLECTION).listIndexes()
+    val ttlIndex = db.getCollection(collection).listIndexes()
       .firstOrNull { (it["key"] as Document).containsKey(PodServiceAuditLogDboFields.expiresAt) }
     assertNotNull(ttlIndex, "expected a TTL index on expiresAt")
     // Zero, not the retention: the offset lives in the row, so a retention change never touches
@@ -152,7 +163,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
     assertEquals(0L, (ttlIndex["expireAfterSeconds"] as Number).toLong())
 
     // And the two the collection has always carried are still plain, still unnamed by us.
-    val names = db.getCollection(TEST_COLLECTION).listIndexes().map { it.getString("name") }.toSet()
+    val names = db.getCollection(collection).listIndexes().map { it.getString("name") }.toSet()
     assertTrue("podId_1_ts_1" in names && "podId_1_clientId_1_ts_1" in names, "indexes: $names")
   }
 
@@ -186,9 +197,6 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
   )
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.podServiceAuditLog.dao"
 
     /**
      * Deliberately not the shipped 90: an expiry two days past `ts` can only come from the

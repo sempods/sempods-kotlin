@@ -4,7 +4,9 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +19,20 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
+
+  /**
+   * A collection of this test's own for the wire-shape assertion, one per test *method*: it reads a
+   * whole document back, which means something only where nothing else writes — a sibling method
+   * under `-PtestMethodsConcurrent` included. Rung 1 of `docs/testing.md` §"When a test is not
+   * safe".
+   */
+  private val ownCollection = "test.webIdGrants.wireshape.${randomId()}"
+
+  /** A fresh name per method leaves a collection behind, and the database is never emptied. */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(ownCollection).drop()
+  }
 
   @Test
   fun `addGrants and fetchGrantStrings store and return app-independent grants`() {
@@ -198,9 +214,8 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
    */
   @Test
   fun `an upserted row carries the same field set, and no grantedBy when none was recorded`() {
-    val collection = db.getCollection(OWN_COLLECTION)
-    collection.drop()
-    val grantsDao = PodWebIdGrantsDao(db, OWN_COLLECTION)
+    val collection = db.getCollection(ownCollection)
+    val grantsDao = PodWebIdGrantsDao(db, ownCollection)
     val webId = "https://id.sempods.org/e/abc"
     val scope = "https://sempods.org/alice/events#read"
 
@@ -219,14 +234,5 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
       raw.toJson(),
     )
     assertFalse(raw.containsKey(PodWebIdGrantDboFields.grantedBy), raw.toJson())
-  }
-
-  private companion object {
-
-    /**
-     * A collection of this test's own for the wire-shape assertion: it reads a whole document back,
-     * which means something only where nothing else writes.
-     */
-    const val OWN_COLLECTION = "test.webIdGrants.wireshape"
   }
 }

@@ -2,10 +2,12 @@ package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
 import org.sempods.auth.core.SigningKeys
+import org.sempods.commons.tests.TestUtil.randomId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -23,9 +25,10 @@ import kotlin.test.assertTrue
  * in either process's log. `PodTokenIssuerPersistenceTest` covers the sequential half (one key on
  * first boot, the same key after a restart); this covers the concurrent one.
  *
- * **On a collection this test owns**, dropped before each test: "no signing key exists yet" is the
- * whole precondition, and arranging it on the shared collection would mean deleting the
- * developer's own keys.
+ * **On a collection this test owns** — [collection], one per test *method*: "no signing key
+ * exists yet" is the whole precondition, a sibling method's bootstrap would satisfy it away, and
+ * arranging it on the shared collection would mean deleting the developer's own keys. Rung 1 of
+ * `docs/testing.md` §"When a test is not safe".
  */
 class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
 
@@ -34,10 +37,21 @@ class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
 
   private lateinit var signingKeyDao: OAuthSigningKeyDao
 
+  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
+  private val collection = "test.oauthSigningKeys.bootstrap.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    signingKeyDao = OAuthSigningKeyDao(db, TEST_COLLECTION)
+    signingKeyDao = OAuthSigningKeyDao(db, collection)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -74,23 +88,17 @@ class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
         pool.submit<SigningKeys> {
           ready.countDown()
           go.await()
-          SigningKeys(PodSigningKeyStore(OAuthSigningKeyDao(db, TEST_COLLECTION)))
+          SigningKeys(PodSigningKeyStore(OAuthSigningKeyDao(db, collection)))
         }
       }
       ready.await()
       go.countDown()
       val kids = replicas.map { it.get(30, TimeUnit.SECONDS).keyId }
 
-      assertEquals(1, db.getCollection(TEST_COLLECTION).countDocuments(), "exactly one key row after the race")
+      assertEquals(1, db.getCollection(collection).countDocuments(), "exactly one key row after the race")
       assertEquals(kids[0], kids[1], "both replicas must sign with the same kid")
     } finally {
       pool.shutdownNow()
     }
-  }
-
-  private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.oauthSigningKeys.bootstrap"
   }
 }

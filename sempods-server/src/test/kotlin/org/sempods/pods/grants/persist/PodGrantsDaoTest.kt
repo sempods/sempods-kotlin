@@ -4,8 +4,10 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +19,20 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
+
+  /**
+   * A collection of this test's own for the two wire-shape assertions, one per test *method*: they
+   * read whole documents back, which means something only where nothing else writes — a sibling
+   * method under `-PtestMethodsConcurrent` included. Rung 1 of `docs/testing.md` §"When a test is
+   * not safe".
+   */
+  private val ownCollection = "test.grants.wireshape.${randomId()}"
+
+  /** A fresh name per method leaves a collection behind, and the database is never emptied. */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(ownCollection).drop()
+  }
 
   @Test
   fun `delete-by-pod should remove only grants from given pod`() {
@@ -230,8 +246,8 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
    */
   @Test
   fun `an upserted row carries the same field set however the server orders it`() {
-    val collection = db.getCollection(OWN_COLLECTION)
-    val grantsDao = PodGrantsDao(db, OWN_COLLECTION)
+    val collection = db.getCollection(ownCollection)
+    val grantsDao = PodGrantsDao(db, ownCollection)
 
     val fieldSets = (1..8).map {
       collection.drop()
@@ -258,9 +274,9 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
   fun `an upsert without an alias set writes no subjectUris field at all`() {
     // `putNotNull`, on the write path where getting it wrong is cheapest to miss: an empty list
     // stored as `[]` would make `fetchGrantsForSubject`'s alias branch match rows it must not.
-    val collection = db.getCollection(OWN_COLLECTION)
+    val collection = db.getCollection(ownCollection)
     collection.drop()
-    val grantsDao = PodGrantsDao(db, OWN_COLLECTION)
+    val grantsDao = PodGrantsDao(db, ownCollection)
 
     grantsDao.addGrants(
       podId = ObjectId(),
@@ -278,13 +294,4 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
 
   private fun rawRow(collection: com.mongodb.client.MongoCollection<Document>): Document =
     collection.find(Filters.eq(PodGrantDboFields.scope, "https://sempods.org/alice/events#read")).single()
-
-  private companion object {
-
-    /**
-     * A collection of this test's own for the two wire-shape assertions: they read whole documents
-     * back, which means something only where nothing else writes.
-     */
-    const val OWN_COLLECTION = "test.grants.wireshape"
-  }
 }

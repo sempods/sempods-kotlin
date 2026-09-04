@@ -3,7 +3,9 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -24,7 +26,9 @@ import kotlin.test.assertTrue
  * leaves behind, and `delete` is a compare-and-swap whose failure mode is deleting somebody else's
  * row.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
+ * **Runs on a collection this test owns** — [collection], one per test *method*, because the
+ * listings have no narrower scope than a pod id. Rung 1 of `docs/testing.md` §"When a test is not
+ * safe".
  */
 class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
@@ -40,14 +44,21 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   private val eventsRoot = "https://sempods.org/alice/events"
   private val notesRoot = "https://sempods.org/alice/notes"
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates the unique index in its constructor.
-   */
+  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
+  private val collection = "test.podServiceClients.dao.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    serviceClientDao = PodServiceClientDao(db, TEST_COLLECTION)
+    serviceClientDao = PodServiceClientDao(db, collection)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -164,9 +175,6 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   )
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.podServiceClients.dao"
 
     /** A real bcrypt hash shape — the field is a credential, so it is not a placeholder string. */
     const val SECRET_HASH = "\$2a\$10\$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"

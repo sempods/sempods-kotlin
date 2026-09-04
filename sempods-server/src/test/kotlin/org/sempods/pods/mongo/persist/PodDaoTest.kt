@@ -4,8 +4,10 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -25,9 +27,11 @@ import kotlin.test.assertTrue
  * Where a *legacy* shape matters, the fixture writes the document literally (see [legacyRow])
  * rather than arranging it through the DAO: on-disk shapes are worth stating.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
- * Not merely hygiene here: `fetchAll()` has no pod scope to narrow by, so its assertions mean
- * something only on a collection nothing else writes to.
+ * **Runs on a collection this test owns** — [collection], one per test *method*. Not merely
+ * hygiene here: `fetchAll()` has no pod scope to narrow by and the pod names are fixed, so its
+ * assertions mean something only on a collection nothing else writes to, and under
+ * `-PtestMethodsConcurrent` a sibling method is something else. Rung 1 of `docs/testing.md`
+ * §"When a test is not safe".
  */
 class PodDaoTest : SempodsIntegrationTest() {
 
@@ -46,14 +50,21 @@ class PodDaoTest : SempodsIntegrationTest() {
   private val owner by lazy { webIdUriDeriver.deriveFromEmail("alice@example.org") }
   private val otherOwner by lazy { webIdUriDeriver.deriveFromEmail("bob@example.org") }
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates the unique index in its constructor.
-   */
+  /** This test's own collection, outside the `pods.` namespace the server addresses. */
+  private val collection = "test.pod.dao.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    podDao = PodDao(db, webIdUriDeriver, TEST_COLLECTION)
+    podDao = PodDao(db, webIdUriDeriver, collection)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -226,7 +237,7 @@ class PodDaoTest : SempodsIntegrationTest() {
    */
   private fun legacyRow(name: String): ObjectId {
     val id = ObjectId()
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(collection).insertOne(
       Document()
         .append(PodDboFields.id, id)
         .append(PodDboFields.name, name)
@@ -237,9 +248,6 @@ class PodDaoTest : SempodsIntegrationTest() {
   }
 
   private companion object {
-
-    /** This test's own collection, outside the `pods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.pod.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val LAST_MODIFIED: Instant = Instant.parse("2026-08-16T00:00:00Z")

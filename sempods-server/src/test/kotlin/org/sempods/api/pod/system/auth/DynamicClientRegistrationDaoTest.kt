@@ -4,8 +4,10 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -28,7 +30,9 @@ import kotlin.test.assertTrue
  * existed, which is most of the collection; [rowAt] pins `registeredAt`, which `create` takes from
  * the clock.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
+ * **Runs on a collection this test owns** — [collection], one per test *method*, because the
+ * listings have no narrower scope than a pod id. Rung 1 of `docs/testing.md` §"When a test is not
+ * safe".
  */
 class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
 
@@ -41,14 +45,21 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
   private val probePodId = ObjectId()
   private val otherPodId = ObjectId()
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates all five indexes in its constructor.
-   */
+  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
+  private val collection = "test.dynamicClientRegistrations.dao.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    dcrDao = DynamicClientRegistrationDao(db, TEST_COLLECTION)
+    dcrDao = DynamicClientRegistrationDao(db, collection)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -148,7 +159,7 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
       rawRequest = emptyMap(),
     )
 
-    val raw = db.getCollection(TEST_COLLECTION)
+    val raw = db.getCollection(collection)
       .find(Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"))
       .single()
     assertTrue(DynamicClientRegistrationDboFields.rawRequest !in raw.keys, raw.toJson())
@@ -211,12 +222,12 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     if (fingerprint != null) {
       document.append(DynamicClientRegistrationDboFields.fingerprint, fingerprint)
     }
-    db.getCollection(TEST_COLLECTION).insertOne(document)
+    db.getCollection(collection).insertOne(document)
   }
 
   /** A row from before the Stage-2 observation fields, the fingerprint dedup and `schemaVersion`. */
   private fun minimalRow(clientId: String) {
-    db.getCollection(TEST_COLLECTION).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
+    db.getCollection(collection).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
   }
 
   private fun baseRow(clientId: String, podId: ObjectId, registeredAt: Instant) = Document()
@@ -229,9 +240,6 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     .append(DynamicClientRegistrationDboFields.rawRequest, Document(RAW_REQUEST))
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.dynamicClientRegistrations.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val REGISTERED_AT: Instant = Instant.parse("2026-08-16T10:15:30.123Z")

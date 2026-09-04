@@ -3,8 +3,10 @@ package org.sempods.pods.contexts.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
+import org.sempods.commons.tests.TestUtil.randomId
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -22,9 +24,10 @@ import kotlin.test.assertTrue
  * still on disk, the decoder defaults them to private, and the *query* does not agree with the
  * decoder. [preIsPublicRow] states that shape as a document, because the DAO cannot produce it.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test:
- * the listings have no narrower scope than a pod id, so they mean something only where nothing else
- * writes.
+ * **Runs on a collection this test owns** — [collection], one per test *method*: the listings
+ * have no narrower scope than a pod id, so they mean something only where nothing else writes,
+ * and under `-PtestMethodsConcurrent` a sibling method is something else. Rung 1 of
+ * `docs/testing.md` §"When a test is not safe".
  */
 class PodContextsDaoTest : SempodsIntegrationTest() {
 
@@ -40,14 +43,21 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
   private val eventsUri = "https://sempods.org/alice/events"
   private val notesUri = "https://sempods.org/alice/notes"
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates both indexes in its constructor.
-   */
+  /** This test's own collection, outside the `sempods.` namespace the server addresses. */
+  private val collection = "test.contexts.dao.${randomId()}"
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    contextsDao = PodContextsDao(db, TEST_COLLECTION)
+    contextsDao = PodContextsDao(db, collection)
+  }
+
+  /**
+   * A fresh name per method leaves a collection behind, and the database is never emptied between
+   * runs. Dropped rather than cleared: it holds nothing but fixtures.
+   */
+  @AfterEach
+  fun dropOwnCollection() {
+    db.getCollection(collection).drop()
   }
 
   @Test
@@ -170,7 +180,7 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
    * produce it — every row it writes carries the boolean.
    */
   private fun preIsPublicRow(contextUri: String) {
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(collection).insertOne(
       Document()
         .append(PodContextDboFields.id, ObjectId())
         .append(PodContextDboFields.podId, probePodId)
@@ -180,9 +190,6 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
   }
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.contexts.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val CREATED_AT: Instant = Instant.parse("2026-08-16T10:15:30.123Z")
