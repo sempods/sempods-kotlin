@@ -31,9 +31,18 @@
     disagree. Dropping `%X` from a pattern makes the whole tracing chain invisible without breaking
     anything loudly; see `docs/request-tracing.md`.
   -->
+  <!--
+    `%replace` around `%msg` is where a forged log line is stopped, for every call site at once: the
+    class is the seven Unicode line terminators, and each becomes a visible `\n`. Two limits worth
+    knowing rather than discovering. It covers the message and **not** the throwable Logback appends
+    after the pattern, so an exception message from a caller can still put a line of its own in the
+    stack trace — including it here would flatten every stack trace to one line, which is the worse
+    trade. And it is not a general control-character filter: a tab or an ANSI escape passes, neither
+    of which can forge a line. `docs/logging.md` §"Three rules".
+  -->
   <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d{ISO8601} %-5level [%thread] [%X] %logger - %replace(%msg){'[\r\n\u2028\u2029]', '\\n'}%n</pattern>
+      <pattern>%d{ISO8601} %-5level [%thread] [%X] %logger - %replace(%msg){'[\n\u000B\u000C\r\u0085\u2028\u2029]', '\\n'}%n</pattern>
     </encoder>
   </appender>
 

@@ -92,12 +92,19 @@ mixing the two is how this tree ended up with four idioms at once.
    credential in a URL still travels through browser history and every proxy on the way, so the
    durable fix is to move it out of the path.
 
-   The other half of the same rule: **what a caller wrote cannot forge a second line** — and that
-   is settled once, in the encoder, not at each of the call sites that interpolate such a value.
-   The console pattern wraps `%msg` in `%replace`, which turns CR, LF and the two Unicode
-   separators into a visible `\n`; `LogbackBaseConfigTest` pins both. `LOG_FORMAT=json` needs
-   nothing: the message is a JSON string value, so a break cannot end the record. `LogSafeText`
-   (`:sempods-commons`) does the same at two call sites and is redundant there now.
+   The other half of the same rule: **what a caller wrote cannot forge a second line** — settled
+   once, in the encoder, rather than at each call site that interpolates such a value. The console
+   pattern wraps `%msg` in `%replace` over the seven Unicode line terminators, each becoming a
+   visible `\n`; `LogbackBaseConfigTest` pins it. `LOG_FORMAT=json` needs nothing, the message
+   being a JSON string value there.
+
+   **Two limits, and a throwable is the one that bites.** Logback appends it *after* the pattern,
+   so an exception message a caller controls still puts a line of its own into the stack trace;
+   pulling it inside the replacement would flatten every stack trace to one line, which is worse
+   than the thing it prevents. Where an exception message comes from a request and is logged, put
+   it through `LogSafeText` (`:sempods-commons`) as the message. The second limit is narrower: the
+   expression is not a control-character filter, so a tab or an ANSI escape passes — neither can
+   forge a line, and `LogSafeText` escapes them where a call site already uses it.
 2. **English, always.** A log line is read by whoever is on the incident, and that is not
    negotiated per message: English, like every other written artefact in this repository — code,
    comments, documentation and commit messages.

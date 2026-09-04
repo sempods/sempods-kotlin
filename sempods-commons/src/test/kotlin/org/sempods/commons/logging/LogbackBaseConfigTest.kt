@@ -72,16 +72,18 @@ class LogbackBaseConfigTest {
   }
 
   @Test
-  fun `the separators that pass every URI check are caught too`() {
-    // U+2028 and U+2029 are neither control characters nor whitespace to `Character`, they survive
-    // a URI check that rejects CR and LF, and plenty of log tooling still breaks a line on them.
+  fun `every terminator a viewer might break on is caught, not only CR and LF`() {
+    // The seven Unicode line terminators, and the reason the class is not just CR and LF: NEL and
+    // the two separators are not whitespace to `Character`, they survive a URI check that rejects
+    // CR and LF, and log tooling breaks a line on them anyway. VT and FF terminate a line too.
     val console = configure("LOG_FORMAT" to "console").getLogger(ROOT_LOGGER_NAME).getAppender("console")
     val encoder = assertIs<PatternLayoutEncoder>(assertIs<OutputStreamAppender<*>>(console).encoder)
 
-    val rendered = String(encoder.encode(event(encoder.context as LoggerContext, "a\u2028b\u2029c")))
+    val terminators = listOf('\n', '\u000B', '\u000C', '\r', '\u0085', '\u2028', '\u2029')
+    val rendered = String(encoder.encode(event(encoder.context as LoggerContext, terminators.joinToString(""))))
 
-    assertTrue('\u2028' !in rendered && '\u2029' !in rendered, "a separator reached the line: $rendered")
-    assertTrue("a\\nb\\nc" in rendered, rendered)
+    terminators.forEach { assertTrue(it !in rendered.dropLast(1), "U+%04X reached the line: %s".format(it.code, rendered)) }
+    assertEquals("\\n".repeat(terminators.size), rendered.substringAfterLast(" - ").dropLast(1), rendered)
   }
 
   private fun event(context: LoggerContext, message: String): LoggingEvent =
