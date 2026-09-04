@@ -23,6 +23,15 @@ The shape of the client config differs per client; below are the
 canonical entries. All point at the pod's MCP URL — the rest is
 discovery + OAuth.
 
+None of them carries a scope, and none needs one. A client builds its own
+`/authorize` request from the discovery documents, so whether it asks for
+`offline_access` is the client's business — and asking is not what decides
+the outcome: staying connected past the access token's hour is a control on
+the pod's consent dialog, which the person answers
+([`authentication.md`](authentication.md#durable-connections)). So a
+connection that drops back to a sign-in every hour is a consent worth
+revisiting, not a config line missing here.
+
 ### Claude Desktop / Code / Web
 
 ```json
