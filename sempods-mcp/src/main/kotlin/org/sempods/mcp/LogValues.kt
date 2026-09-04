@@ -3,11 +3,12 @@ package org.sempods.mcp
 /**
  * A value this service did not author, made safe to put in a log line.
  *
- * The console pattern ends each event with `%msg%n` and writes the message through unchanged
- * (`commons/src/main/resources/org/sempods/commons/logging/logback-base.xml`), so a newline inside
- * an interpolated value produces what reads as a second log entry — with a timestamp, a level and
- * a message the value's author chose. Forged operational history is worth more to an attacker than
- * it looks: it is what an incident gets reconstructed from.
+ * The shared console pattern replaces line terminators in every message, but this module is
+ * published: an embedder brings its own logging configuration, and under an ordinary `%msg`
+ * pattern a newline inside an interpolated value produces what reads as a second log entry — with
+ * a timestamp, a level and a message the value's author chose. Forged operational history is worth
+ * more to an attacker than it looks: it is what an incident gets reconstructed from. `docs/logging.md`
+ * §"Three rules" is where that division sits.
  *
  * Two sources reach the log this way and neither is trustworthy. **Request parameters**: anyone who
  * can register a client can drive `/authorize` and the OIDC callback with values of their choosing.

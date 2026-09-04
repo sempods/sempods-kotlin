@@ -225,7 +225,11 @@ and no already-applied check. Do not propose a migration framework as a fix for 
    human who signs off who is the author.
 5. Commit messages are **full imperative sentences in plain English**, not Conventional Commits —
    "Take MongoDB's key type out of the seams, and check that it stayed out", not `refactor: …`.
-   The body explains what was wrong and why the fix has the shape it does.
+   The subject names the change directly, in the fewest words that stay correct: "Correct the
+   pod-connect flow: SOLL → IST", not "Describe the flow as what it does, not as what it still
+   needs" (writing rule 3 in
+   [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md)). The body
+   explains what was wrong and why the fix has the shape it does.
 
 ## Naming conventions
 

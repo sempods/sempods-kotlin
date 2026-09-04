@@ -259,9 +259,9 @@ class PodTokenRateLimiterTest {
   }
 
   @Test fun `a client_id carrying a line break cannot forge a second log line`() {
-    // Half the key is a form parameter, so it is caller-written text — and rule 1 in
-    // `docs/logging.md` says such a value is escaped before it is interpolated, or a request ends
-    // the line early and writes the next one itself.
+    // This module is published, so the console `%replace` that covers this repository's own
+    // applications is not a guarantee here: an embedder brings its own logging configuration.
+    // `docs/logging.md` §"Three rules" — the half that survives the encoder.
     val limiter = limiter(1)
     val forged = "dyn:abc\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
 
