@@ -106,22 +106,10 @@ mixing the two is how this tree ended up with four idioms at once.
    keeps it. In application code there is nothing to do, and adding a line there is not a thing to
    review for.
 
-   **A value is caller text if a caller typed its characters** — a `client_name` taken verbatim at
-   registration still is, a month later out of MongoDB.
-
-   | | |
-   |---|---|
-   | Held to a character set, or parsed as a `java.net.URI` — whose grammar admits neither a control character nor U+2028 | nothing to do |
-   | The same, but read back from a store | escape: the check ran on a different value. DCR dedup returns the stored row and discards the body it just validated |
-   | A dependency's exception message | look that dependency up — nimbus names the parameter and quotes no value, Jersey's `HeaderValueException` quotes the header, and OkHttp decodes a header line as UTF-8, so a remote U+2028 arrives intact |
-   | Anything else a caller or a remote host wrote | escape |
-
-   **Constrain at the entrance where the value allows it.** `client_id` reached over fifty
-   statements in the pod server, and `ClientId.isValid` at the three places one enters —
-   `PodAuthEndpoint.readClientId` and the token endpoint's two grant branches, which do not go
-   through it — retires all of them. An escape only fixes its own sink, which is where the two that
-   keep it are: `PodTokenRateLimiter` and the `client_credentials` refusal name what was submitted
-   whether or not it was ever valid.
+   **Where the value can be held to a character set on the way in, do that instead.** An escape
+   fixes the sink it is written at; a check at the entrance fixes the ones nobody has written yet.
+   `ClientId.isValid` is the case to copy — `client_id` reached over fifty statements in the pod
+   server, and holding it to RFC 6749 Appendix A.1 wherever one arrives retires all of them.
 
    Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
    is what a request path goes through, for its *other* half: it redacts declared secret segments,

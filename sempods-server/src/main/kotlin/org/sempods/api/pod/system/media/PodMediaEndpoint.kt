@@ -183,6 +183,8 @@ class PodMediaEndpoint @Inject constructor(
       mediaSourceFetcher.fetch(sourceUrl)
     } catch (e: MediaSourceException) {
       logger.warn {
+        // The reason quotes the source's `Location` header, and OkHttp decodes a header line as
+        // UTF-8 — so a U+2028 from a host the caller named arrives intact.
         "[media/audit] outcome=source_rejected pod='$pod' context='$contextUri' " +
             "client_id='${credentials.oauthClientId ?: "(anon)"}' " +
             "reason='${LogSafeText.of(e.message.toString())}'"
