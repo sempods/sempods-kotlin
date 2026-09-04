@@ -197,10 +197,12 @@ The cost is that a user's profiles are one client at that pod, and share more th
 The vault rows are separate; the pod-side authority and lifetime are not. Whether a named profile
 should carry a pod-side identity of its own is [open](#open-questions).
 
-**Re-authorize** runs the same leg again from the dashboard. A `dyn:` client always gets the pod's
-consent screen with the prior grants pre-checked, so scopes change there rather than in a request
-parameter. The stored `client_id` is reused — except for a connection the pod has declared dead
-(`invalid_grant`), which re-registers. The callback stores the scopes the token response returned,
+**Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
+client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
+a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a
+pod free to reuse the prior authorization will, and the button then changes nothing. The stored
+`client_id` is reused — except for a connection the pod has declared dead (`invalid_grant`), which
+re-registers. The callback stores the scopes the token response returned,
 not the ones asked for, and clears the reconnect mark.
 
 The pod sees an ordinary OAuth client; consent and grants stay pod-side.
@@ -315,10 +317,10 @@ day one is what makes profiles a real isolation boundary rather than a
 relabelling of a shared token pool. The pod-side DCR client is the one
 thing that is not keyed by it (above).
 
-`user` is the root of that key and is a **stable identity from an explicit provider**, never
-a per-session placeholder: the service federates login to `id.sempods.org` (the `sempods-auth`
-module) as an OIDC relying party, so `user` is a **sempods WebID**. Everything downstream keys
-off it.
+`user` is the root of that key and is a **stable identity from an explicit provider**, never a
+per-session placeholder: the service is an OIDC relying party to its configured issuer
+(`SEMPODS_AUTH_ISSUERS`, `id.sempods.org` by default, a local `sempods-auth` on a self-hosted
+deployment), so `user` is a WebID. Everything downstream keys off it.
 
 Keep two separation axes distinct:
 
