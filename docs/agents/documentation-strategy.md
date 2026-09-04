@@ -104,14 +104,11 @@ what may be null, and what an implementation owes its caller.
 included. Technical milestones are public; the business around them is not.
 
 **8. Show the case.** Where a rule has a consequence a reader would have to derive, write the
-consequence out instead of qualifying the rule:
-
-> Connect `pod.example` in `…/private`, then in `…/cron-agent`, as the same pod user. Both arrive
-> as the same `client_id`, so they share that pod's grants — and the second connect retires the
-> first's refresh token.
-
-One concrete case is shorter than the paragraph of hedging it replaces, and it is the half a reader
-remembers.
+consequence out instead of qualifying the rule — two profiles connecting one pod, and what the
+second connect costs the first, in
+[`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md#connecting-a-pod-oauth). One concrete case
+is shorter than the paragraph of hedging it replaces, and it is the half a reader remembers. It
+lives in the document that owns the fact; copying it here would be a second copy to keep true.
 
 **9. A document does not grow.** Every edit is also a chance to make it shorter, and a section that
 has doubled since it was written is one to cut rather than extend. Add a paragraph, look for one to
