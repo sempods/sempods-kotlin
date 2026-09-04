@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.utils.HashUtil
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.SempodsBaseEndpoint
@@ -183,7 +184,8 @@ class PodMediaEndpoint @Inject constructor(
     } catch (e: MediaSourceException) {
       logger.warn {
         "[media/audit] outcome=source_rejected pod='$pod' context='$contextUri' " +
-            "client_id='${credentials.oauthClientId ?: "(anon)"}' reason='${e.message}'"
+            "client_id='${credentials.oauthClientId ?: "(anon)"}' " +
+            "reason='${LogSafeText.of(e.message.toString())}'"
       }
       throw if (e.tooLarge) {
         WebApplicationException(

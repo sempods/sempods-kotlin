@@ -117,10 +117,14 @@ mixing the two is how this tree ended up with four idioms at once.
    - **So does a `java.net.URI`** — its grammar admits no control character and no U+2028, so a
      value of that type, or one past a check that parsed one (`RedirectUri.isValid`,
      `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase`), needs nothing.
-   - **A third party's message is not automatically caller text.** The OAuth SDK names the parameter
-     it rejected and never quotes the value; OkHttp replaces every non-ASCII header byte with
-     U+FFFD. Jersey is the counter-case — `HeaderValueException` quotes the header verbatim — which
-     is why this is asked per sink rather than answered once for exceptions.
+   - **A third party's message is not automatically caller text, and not automatically safe.** The
+     OAuth SDK names the parameter it rejected and never quotes the value, so its `ParseException`
+     carries nothing a caller wrote. Jersey is the opposite: `HeaderValueException` quotes the
+     header verbatim, and OkHttp reads a header line as UTF-8, so a well-formed U+2028 in a remote
+     `Location` reaches `MediaSourceException` intact — only a *malformed* byte becomes U+FFFD, and
+     reading that as "OkHttp sanitizes headers" is the mistake to avoid. Ask it per sink; the answer
+     is a fact about that library, and each one has to be looked up rather than reasoned from the
+     last.
    - **Everything else is caller text**: a request body, a form field, a path or query parameter
      logged before anything resolved it, and a remote host's response body.
 

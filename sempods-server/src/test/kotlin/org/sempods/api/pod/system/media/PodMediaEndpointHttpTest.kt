@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
@@ -24,10 +25,12 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.parallel.ResourceLock
 import java.net.InetAddress
+import java.net.ServerSocket
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import kotlin.concurrent.thread
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -693,6 +696,28 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a Location the source chose cannot forge a log line`() {
+    // The refusal reason is the pod's own sentence with the remote server's `Location` inside it,
+    // and the source is a host the caller named. OkHttp reads a header line as UTF-8, so a
+    // well-formed U+2028 arrives intact — only a malformed byte becomes U+FFFD.
+    // `docs/logging.md` §"Three rules".
+    val pod = sempodsTestFactory.newPod()
+    val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
+
+    val lines = CapturedLog.linesFrom(PodMediaEndpoint::class.java) {
+      val response = uploadFromSource(
+        pod, context, token,
+        """{"source_url": "http://127.0.0.1:${rawSource.localPort}/redirect-forged"}""",
+      )
+      assertEquals(400, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { "outcome=source_rejected" in it && "$FORGED_MARKER" in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
+  }
+
+  @Test
   fun `a source descriptor stores what the pod fetched`() {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
@@ -944,6 +969,17 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
 
     private lateinit var mediaSource: HttpServer
 
+    /**
+     * A second source that writes its response bytes itself.
+     *
+     * `com.sun.net.httpserver` encodes header values as ISO-8859-1, so it cannot emit the UTF-8
+     * sequence this one case is about — the thing being tested would be destroyed on the way out.
+     */
+    private lateinit var rawSource: ServerSocket
+
+    /** Tells this case's log line from a sibling's; the suite runs its classes concurrently. */
+    private const val FORGED_MARKER = "forged-location-marker"
+
     /** What the `/while-fetching` source does before answering. See its handler. */
     @Volatile
     private var whileFetching: (() -> Unit)? = null
@@ -973,12 +1009,31 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
       }
 
       mediaSource.start()
+
+      rawSource = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
+      thread(isDaemon = true, name = "raw-media-source") {
+        while (!rawSource.isClosed) {
+          val socket = try { rawSource.accept() } catch (e: Exception) { return@thread }
+          socket.use {
+            it.getInputStream().readNBytes(1)
+            val out = it.getOutputStream()
+            // Not a URI, so `resolveLocation` refuses it and quotes it into the message — and the
+            // three bytes below are a well-formed U+2028, which OkHttp hands back intact.
+            out.write("HTTP/1.1 302 Found\r\nLocation: ht tp://x".toByteArray(StandardCharsets.UTF_8))
+            out.write(byteArrayOf(0xE2.toByte(), 0x80.toByte(), 0xA8.toByte()))
+            out.write(FORGED_MARKER.toByteArray(StandardCharsets.UTF_8))
+            out.write("\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+            out.flush()
+          }
+        }
+      }
     }
 
     @AfterAll
     @JvmStatic
     fun stopMediaSource() {
       mediaSource.stop(0)
+      rawSource.close()
     }
 
     private fun respond(exchange: HttpExchange, body: ByteArray, contentType: String = "image/png") {
