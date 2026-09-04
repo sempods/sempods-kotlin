@@ -9,26 +9,20 @@ import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * What a block of code wrote to the log, as the lines an incident would be read from.
+ * The lines [block] wrote to the log, for a test that asserts on a formatted message —
+ * `docs/logging.md` §"Three rules" is only checkable there and not in the code.
  *
- * The rule this serves is `docs/logging.md` §"Three rules": a value someone else wrote may appear
- * in a log line, but it may not *end* one. That is only checkable against the formatted message, so
- * a test for it has to read the log rather than the code — and reading the log means an appender.
+ * Two traps, both of them the logger being process-wide while these suites run their classes
+ * concurrently:
  *
- * `inline`, so the block may suspend: several of these cases drive a Ktor test application, where
- * the call that produces the line is a suspending one.
+ * - **The appender sees every line that logger wrote, not only this thread's.** Put something
+ *   unique in the value under test and select on that; a `single { }` on a marker a sibling also
+ *   writes passes alone and fails in a full run.
+ * - **The level is raised to TRACE**, because `gradle/logback-test.xml` runs at INFO and a DEBUG
+ *   line would otherwise be absent rather than wrong. Concurrent captures of one logger are
+ *   counted, so the last one out restores the level the first one found.
  *
- * **The appender sees every line that logger wrote while the block ran, not only this thread's.**
- * These suites run their classes concurrently, so a case that picks its line with `single { }` on a
- * marker its siblings also write passes alone and fails in a full run. Put something unique in the
- * value under test and select on that.
- *
- * The level is raised for the duration, because `gradle/logback-test.xml` runs every test JVM at
- * INFO and a DEBUG line would otherwise be absent rather than wrong — a case asserting on lines it
- * never receives passes. A logger is process-wide, so two concurrent captures of the same one share
- * that level: they are counted, and the first in and last out are what save and restore it.
- * Without the count the second block restores what the first had already replaced, and the level
- * is left at TRACE for the rest of the run.
+ * `inline`, so the block may suspend — several cases drive a Ktor test application.
  */
 object CapturedLog {
 

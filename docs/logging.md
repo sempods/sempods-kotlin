@@ -106,34 +106,20 @@ mixing the two is how this tree ended up with four idioms at once.
    keeps it. In application code there is nothing to do, and adding a line there is not a thing to
    review for.
 
-   **Which values those are is a question about who wrote the characters, not about how recently.**
-   A `client_name` accepted verbatim at registration is still caller text when it is read back out
-   of MongoDB a month later; a pod name is not, because the write path held it to `[a-z0-9-]`. Walk
-   back to where the value entered and ask what looked at it on the way:
+   **A value is caller text if a caller typed its characters** — a `client_name` taken verbatim at
+   registration still is, a month later out of MongoDB.
 
-   - **A check on the character set makes it safe** — `SempodsUriBuilder.checkPodName`,
-     `ProfilePath.isValidName`, `ClientId.isValid` (RFC 6749 Appendix A.1). Escaping afterwards is
-     noise, and noise is what makes a rule stop being read.
-   - **So does a `java.net.URI`** — its grammar admits no control character and no U+2028, so a
-     value of that type, or one past a check that parsed one (`RedirectUri.isValid`,
-     `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase`), needs nothing.
-   - **A third party's message is not automatically caller text, and not automatically safe.** The
-     OAuth SDK names the parameter it rejected and never quotes the value, so its `ParseException`
-     carries nothing a caller wrote. Jersey is the opposite: `HeaderValueException` quotes the
-     header verbatim, and OkHttp reads a header line as UTF-8, so a well-formed U+2028 in a remote
-     `Location` reaches `MediaSourceException` intact — only a *malformed* byte becomes U+FFFD, and
-     reading that as "OkHttp sanitizes headers" is the mistake to avoid. Ask it per sink; the answer
-     is a fact about that library, and each one has to be looked up rather than reasoned from the
-     last.
-   - **Everything else is caller text**: a request body, a form field, a path or query parameter
-     logged before anything resolved it, and a remote host's response body.
+   | | |
+   |---|---|
+   | Held to a character set: `SempodsUriBuilder.checkPodName`, `ProfilePath.isValidName`, `ClientId.isValid` | nothing to do |
+   | A `java.net.URI`, or past a check that parsed one: `RedirectUri.isValid`, `ClientMetadataUri.isValid`, `SempodsUrlPolicy.rejectPodBase` | nothing to do — that grammar admits no control character and no U+2028 |
+   | A dependency's exception message | look that dependency up: nimbus names the parameter and quotes no value, Jersey's `HeaderValueException` quotes the header, and OkHttp decodes a header line as UTF-8, so a remote U+2028 arrives intact |
+   | A request body, a form field, a path or query parameter logged before anything resolved it, a remote response | escape |
 
-   **Where the value can be constrained at the entrance instead, constrain it.** `client_id` reached
-   over fifty log statements in the pod server alone; one check in `PodAuthEndpoint.readClientId`
-   retires all of them, including the ones written next year. An escape at the sink only fixes that
-   sink — which is why the ones that keep it are the ones that cannot be narrowed away:
-   `PodTokenRateLimiter` and the `client_credentials` refusal, whose whole job is to name what was
-   submitted.
+   **Constrain at the entrance where the value allows it.** `client_id` reached over fifty
+   statements in the pod server; one `ClientId.isValid` in `PodAuthEndpoint.readClientId` retires
+   all of them. An escape only fixes its own sink, which is where the two that keep it are —
+   `PodTokenRateLimiter` and the `client_credentials` refusal exist to name what was submitted.
 
    Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
    is what a request path goes through, for its *other* half: it redacts declared secret segments,

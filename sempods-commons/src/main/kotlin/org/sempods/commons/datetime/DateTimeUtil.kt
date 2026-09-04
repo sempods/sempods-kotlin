@@ -79,8 +79,6 @@ object DateTimeUtil {
     } catch (e: NumberFormatException) {
     }
 
-    // `value` is whatever the caller passed, and this module is published: see `docs/logging.md`
-    // §"Three rules".
     logger.warn { "Could not parse date time: '${LogSafeText.of(value.toString())}'" }
 
     // parse with some iso8601 date formats

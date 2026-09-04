@@ -81,8 +81,7 @@ open class BaseEndpoint {
 
       return response.tag(entityTag).build()
     } catch (e: Exception) {
-      // happens if the request sends an invalid If-None-Match header — so the message quotes what
-      // the request sent, and this module is published (`docs/logging.md` §"Three rules")
+      // happens if the request sends an invalid If-None-Match header, which Jersey quotes back
       logger.warn { "Failed to evaluate preconditions: ${LogSafeText.of(e.toString())}" }
     }
     return null

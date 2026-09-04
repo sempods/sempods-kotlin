@@ -1293,8 +1293,6 @@ class PodAuthEndpoint @Inject constructor(
     val podId = checkNotNull(podDbo.id)
     val client = podServiceClientStore.authenticate(podId, basic.username, basic.password)
     if (client == null) {
-      // The submitted username, escaped — the same case `PodTokenRateLimiter` has one endpoint
-      // over: naming what was sent is the whole point of the line, so it cannot be narrowed away.
       logger.info {
         "[oauth/token] client_credentials auth failed: pod='${podDbo.name}', " +
             "clientId='${LogSafeText.of(basic.username)}'"
