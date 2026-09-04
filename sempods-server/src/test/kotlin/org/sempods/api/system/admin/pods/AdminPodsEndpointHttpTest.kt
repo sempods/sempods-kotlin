@@ -4,13 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
+import org.sempods.SempodsFacade
 import org.sempods.SempodsModule
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.junit.jupiter.api.Test
+import java.net.URLEncoder
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -140,6 +143,37 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     // deleting again — and deleting a pod that never existed — stays a no-op
     assertEquals(204, delete(pod.name).statusCode)
     assertEquals(204, delete("pod-${randomId()}").statusCode)
+  }
+
+  @Test
+  fun `a pod name on DELETE cannot forge a log line`() {
+    // Unlike create, delete never resolves the name — deleting an unknown pod is a no-op that
+    // still answers 204 — so nothing has vouched for it by the time two layers log it.
+    // `docs/logging.md` §"Three rules".
+    val forged = "no-such-pod-${randomId()}\u2028ERROR forged"
+
+    val endpointLines = CapturedLog.linesFrom(AdminPodsEndpoint::class.java) {
+      assertEquals(204, delete(URLEncoder.encode(forged, Charsets.UTF_8)).statusCode)
+    }
+
+    val line = endpointLines.single { forged.substringBefore('\u2028') in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
+  }
+
+  @Test
+  fun `the facade names the same value, and escapes it too`() {
+    // `SempodsFacade.deletePod` logs ahead of its own lookup, so it sees the path parameter exactly
+    // as the route was called with it.
+    val forged = "no-such-pod-${randomId()}\u2028ERROR forged"
+
+    val facadeLines = CapturedLog.linesFrom(SempodsFacade::class.java) {
+      assertEquals(204, delete(URLEncoder.encode(forged, Charsets.UTF_8)).statusCode)
+    }
+
+    val line = facadeLines.single { forged.substringBefore('\u2028') in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
   }
 
   @Test

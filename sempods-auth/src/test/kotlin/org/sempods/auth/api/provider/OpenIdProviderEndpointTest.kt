@@ -26,6 +26,7 @@ import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
 import org.sempods.auth.oidc.OidcClaims
 import org.sempods.auth.oidc.OidcProviderClient
+import org.sempods.commons.logging.CapturedLog
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -141,6 +142,24 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     assertEquals(HttpStatusCode.BadRequest, response.status)
     assertNull(response.headers["Location"])
   }
+
+  @Test
+  fun `a client_id carrying a line break is refused, so no log line can be forged`() =
+    withProvider(google) { http ->
+      // `client_id` is a query parameter, and it names the subject of every line this endpoint
+      // writes. Held to RFC 6749 Appendix A.1 at the entrance rather than escaped at each of them
+      // — `ClientId`, and `docs/logging.md` §"Three rules" for what that buys.
+      val forged = "did:web:pod.example.invalid\n2026-01-01 21:00:00,000 WARN  [ktor] forged"
+
+      val lines = CapturedLog.linesFrom("org.sempods.auth.provider") {
+        val response = http.get(authorizeUrl(clientId = forged))
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertNull(response.headers["Location"], "an unproven address must never appear in Location")
+      }
+
+      assertTrue(lines.none { "forged" in it }, "the refused value reached the log: $lines")
+    }
 
   @Test
   fun `once the address is proven, errors travel to it`() = withProvider(google) { http ->

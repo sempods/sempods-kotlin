@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import java.util.concurrent.CopyOnWriteArrayList
 import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
@@ -604,6 +605,159 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a stored registration cannot forge a log line either`() {
+    // The submitted metadata is checked, but a fingerprint hit returns the *stored* row and throws
+    // the submitted values away — so a row written before a check existed is what reaches the line.
+    // Same upgrade path the `client_uri` filter above is about.
+    val pod = sempodsTestFactory.newPod()
+    val redirectUri = "http://localhost:5173/callback"
+    val clientName = "Legacy Logger ${TestUtil.randomId()}"
+    val userAgent = "LegacyAgent/1.0"
+    dynamicClientRegistrationDao.create(
+      clientId = "dyn:" + ObjectId().toHexString(),
+      registeredForPodId = checkNotNull(pod.id),
+      registeredForPodName = pod.name,
+      redirectUris = setOf(redirectUri),
+      clientName = clientName,
+      clientUri = "https://app.example/a\u20282026-01-01 21:00:00,000 WARN  [jetty] forged",
+      logoUri = null,
+      softwareId = null,
+      softwareVersion = null,
+      contacts = emptyList(),
+      tosUri = null,
+      policyUri = null,
+      rawRequest = emptyMap(),
+      userAgent = userAgent,
+      fingerprint = org.sempods.auth.core.DynamicClientFingerprint.compute(
+        clientName, userAgent, realm = null, setOf(redirectUri),
+      ),
+    )
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .addHeader("User-Agent", userAgent)
+        .setBody("""{"redirect_uris":["$redirectUri"],"client_name":"$clientName"}""")
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { "[oauth/register]" in it && clientName in it && "clientUri" in it }
+    assertFalse('\u2028' in line, "the line carries a raw U+2028: $line")
+    assertTrue("\\u2028" in line, line)
+  }
+
+  @Test
+  fun `a did-web client_id carrying a line break is refused as malformed`() {
+    // `did:web:` identities are presented rather than issued, and until this check nothing looked
+    // at their characters — so the value reached every authorize, token, consent and audit line
+    // this endpoint writes. Held to RFC 6749 Appendix A.1 once, at the entrance: `ClientId`, and
+    // `docs/logging.md` §"Three rules" for what that buys.
+    val pod = sempodsTestFactory.newPod()
+    // The marker tells this case's lines from a sibling's: the suite runs its classes concurrently
+    // and the appender sees every line logged while the block runs.
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", forged)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", "test-state")
+        .setFollowRedirect(false)
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("must be a did:web or dyn" in response.responseBody, response.responseBody)
+    }
+
+    // The audit line runs ahead of every check, so it still names what was sent — escaped.
+    val line = lines.single { marker in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+    assertTrue(
+      lines.none { "outcome=start" !in it && marker in it },
+      "the refused value reached a line that is not the audit entry: $lines",
+    )
+  }
+
+  @Test
+  fun `a refresh_token client_id carrying a line break is refused before it is logged`() {
+    // The token endpoint never goes through `readClientId`, and the "not recognized" refusal names
+    // the submitted `client_id` before anything has matched it against a stored one.
+    val pod = sempodsTestFactory.newPod()
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody(
+          "grant_type=refresh_token&refresh_token=no-such-token" +
+            "&client_id=${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}",
+        )
+        .execute()
+
+      assertEquals(400, response.statusCode, response.responseBody)
+      assertTrue("malformed client_id" in response.responseBody, response.responseBody)
+    }
+
+    assertTrue(lines.none { marker in it }, "the refused value reached the log: $lines")
+  }
+
+  @Test
+  fun `a client_credentials username cannot forge a log line`() {
+    // The username half of HTTP Basic is a submitted `client_id`, and naming it is what the refusal
+    // is for — so this one is escaped rather than narrowed away.
+    val pod = sempodsTestFactory.newPod()
+    val forged = "notes-app-${TestUtil.randomId()}\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+    val header = "Basic " + java.util.Base64.getEncoder()
+      .encodeToString("${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}:secret".toByteArray())
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
+        .addHeader("Authorization", header)
+        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+        .setBody("grant_type=client_credentials")
+        .execute()
+
+      assertEquals(401, response.statusCode, response.responseBody)
+    }
+
+    val line = lines.single { forged.substringBefore('\n') in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+  }
+
+  @Test
+  fun `submitted registration metadata cannot forge a log line`() {
+    // The `/register` body is caller-written text on an unauthenticated endpoint, and both lines
+    // this endpoint writes about it carry it — the second one carries the body whole.
+    val pod = sempodsTestFactory.newPod()
+    val forgedName = "Dyn-${TestUtil.randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
+
+    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+      val response = http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody(
+          """{"redirect_uris":["http://localhost:5173/callback"],""" +
+            """"client_name":"$forgedName","software_id":"$forgedName"}""",
+        )
+        .execute()
+      assertEquals(201, response.statusCode, response.responseBody)
+    }
+
+    val name = forgedName.substringBefore('\\')
+    val profile = lines.single { "[oauth/register] Dynamic client registered" in it && name in it }
+    val body = lines.single { "[oauth/register] full request body" in it && name in it }
+    assertFalse('\n' in profile, "was: $profile")
+    assertFalse('\n' in body, "was: $body")
+    assertTrue("\\u000a" in profile, profile)
+    assertTrue("\\u000a" in body, body)
+  }
+
+  @Test
   fun `every callback outcome withdraws the pin it consumed`() {
     // Cookie names carry the flow's `state`, so an abandoned pin is no longer overwritten by the
     // next attempt — it lingers for its full fifteen minutes. Cancelled sign-ins would otherwise
@@ -614,7 +768,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
-    fun startAndCallback(clientState: String, callbackQuery: (String) -> String): TestHttpResponse {
+    fun startAndCallback(clientState: String, callbackQuery: (state: String, code: String) -> String): TestHttpResponse {
       val started = http.prepareGet(authorizeUrl(pod.name))
         .addQueryParam("response_type", "code")
         .addQueryParam("client_id", testClientId)
@@ -627,8 +781,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       val pin = checkNotNull(
         started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") },
       ).substringBefore(';')
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
-      return http.prepareGet("${checkNotNull(query["redirect_uri"])}?${callbackQuery(checkNotNull(query["state"]))}")
+      val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+      return http.prepareGet("${checkNotNull(query["redirect_uri"])}?${callbackQuery(checkNotNull(query["state"]), code)}")
         .addHeader("Cookie", pin).setFollowRedirect(false).execute()
     }
 
@@ -637,15 +791,15 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
         .filter { it.startsWith("sempods_pod_login_") && ("Max-Age=0" in it || "max-age=0" in it) }
 
     // The provider declined.
-    val declined = startAndCallback("cancelled") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}&error=user_cancelled_authorize" }
+    val declined = startAndCallback("cancelled") { state, _ -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}&error=user_cancelled_authorize" }
     assertTrue(withdrawnPins(declined).isNotEmpty(), "a declined login must withdraw its pin: ${declined.headers.getAll("Set-Cookie")}")
 
     // The provider came back with neither a code nor an error.
-    val noCode = startAndCallback("no-code") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}" }
+    val noCode = startAndCallback("no-code") { state, _ -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}" }
     assertTrue(withdrawnPins(noCode).isNotEmpty(), "a codeless callback must withdraw its pin")
 
     // And the successful one, which already did.
-    val ok = startAndCallback("fine") { "state=${java.net.URLEncoder.encode(it, "UTF-8")}&code=c" }
+    val ok = startAndCallback("fine") { state, code -> "state=${java.net.URLEncoder.encode(state, "UTF-8")}&code=$code" }
     assertTrue(withdrawnPins(ok).isNotEmpty(), "a completed login must withdraw its pin too")
   }
 
@@ -655,12 +809,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // way — "they said no" — suppressed a retry that a transient outage would have survived. RFC
     // 6749 §4.1.2.1 has two codes for the technical paths, and separating them is a change to what
     // every client receives, which is why it lands before the OAuth surface is published.
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
 
     var lastDescription: String? = null
+    // Every case below hands the callback an error or nothing at all, so none of them reaches the
+    // id-server's token endpoint — there is no sign-in to arm here.
     fun callbackWith(clientState: String, extraQuery: (String) -> String): String {
       val started = http.prepareGet(authorizeUrl(pod.name))
         .addQueryParam("response_type", "code")
@@ -674,7 +828,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       val pin = checkNotNull(
         started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") },
       ).substringBefore(';')
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       val answer = http.prepareGet(
         "${checkNotNull(query["redirect_uri"])}?${extraQuery(checkNotNull(query["state"]))}",
       ).addHeader("Cookie", pin).setFollowRedirect(false).execute()
@@ -772,11 +925,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("state", "fixation")
       .setFollowRedirect(false).execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-    fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
+    val code = fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
 
     // The victim's browser holds no pin for this flow.
     val victim = http.prepareGet(
-      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c",
+      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code",
     ).setFollowRedirect(false).execute()
 
     assertEquals(400, victim.statusCode, "body=${victim.responseBody}")
@@ -1597,9 +1750,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val bothPins = "$firstPin; $secondPin"
 
     fun complete(query: Map<String, String>): TestHttpResponse {
-      fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+      val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       return http.prepareGet(
-        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c",
+        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code",
       ).addHeader("Cookie", bothPins).setFollowRedirect(false).execute()
     }
 
@@ -1892,8 +2045,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-    fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
-    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=c"
+    val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
+    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&code=$code"
     // The same browser throughout, pin included — the replay being tested is of the *state*, not
     // of a callback opened somewhere else, which the pin refuses for its own reason.
     val pin = checkNotNull(started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')

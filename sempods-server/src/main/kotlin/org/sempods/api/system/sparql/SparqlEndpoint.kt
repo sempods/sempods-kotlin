@@ -13,6 +13,7 @@ import jakarta.ws.rs.core.*
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
 import java.net.URI
+import org.sempods.commons.logging.LogSafeText
 
 @Path("{pod}/_system/sparql")
 class SparqlEndpoint @Inject constructor(
@@ -43,7 +44,7 @@ class SparqlEndpoint @Inject constructor(
 
     val sparqlQuery = body.bufferedReader(Charsets.UTF_8).readText()
 
-    logger.debug { "SPARQL (first 200): ${sparqlQuery.take(200).replace("\n", "\\n")}" }
+    logger.debug { "SPARQL (first 200): ${LogSafeText.of(sparqlQuery.take(200))}" }
 
     if (sparqlQuery.isEmpty()) {
       return Response.status(Response.Status.BAD_REQUEST).entity("Missing SPARQL query").build()

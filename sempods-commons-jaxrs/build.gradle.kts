@@ -38,7 +38,8 @@ dependencies {
   testImplementation(libs.slf4jApi)
   testImplementation(libs.bundles.test)
 
-  // `ApiExceptionMapperTest` asserts what reaches a log line, so it attaches an appender and names
-  // logback types directly. The binding itself comes from the root build script.
+  // Not a `checkNoLoggingBinding` violation: test scope, and the binding is the root script's.
   testImplementation(libs.logbackClassic)
+  testImplementation(testFixtures(project(":sempods-commons")))
+  testImplementation(libs.jerseyCommon)
 }

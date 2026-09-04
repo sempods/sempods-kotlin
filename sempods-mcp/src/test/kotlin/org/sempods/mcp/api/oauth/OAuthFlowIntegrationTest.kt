@@ -6,6 +6,7 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.audit.AuditLog
@@ -58,6 +59,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -343,6 +345,49 @@ class OAuthFlowIntegrationTest {
     val allow = client.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
     assertEquals(HttpStatusCode.Found, allow.status)
     assertNotNull(Url(allow.headers[HttpHeaders.Location]!!).parameters["code"], "Allow after a disconnect must still mint a code")
+  }
+
+  @Test
+  fun `a registered client_name and a disconnect pod cannot forge a log line`() = testApplication {
+    // Both are caller-written and neither has a check behind it: `client_name` is a DCR body field
+    // stored verbatim, and consent disconnect is a no-op for a pod that names nothing. See
+    // `docs/logging.md` §"Three rules".
+    installAuth()
+    val client = createClient { followRedirects = false }
+    val forgedName = "Test\\n2026-01-01 21:00:00,000 WARN  [ktor] forged"
+    // A real newline here; the one inside the JSON body above is escaped so the body stays JSON.
+    val forgedPod = "https://sempods.org/alice\n2026-01-01 21:00:00,000 WARN  [ktor] forged"
+
+    val registerLines = CapturedLog.linesFrom("org.sempods.mcp.api.oauth") {
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"$forgedName"}""")
+      }
+    }
+    val registerLine = registerLines.single { "DCR registered" in it }
+    assertFalse('\n' in registerLine, "was: $registerLine")
+    assertTrue("\\u000a" in registerLine, registerLine)
+
+    val disconnectLines = CapturedLog.linesFrom("org.sempods.mcp.api.oauth") {
+      // A txn is required, so this reuses the flow the case above establishes; an unknown pod is
+      // still logged as a disconnect, which is the point.
+      val clientId = mapper.readTree(
+        client.post("/register") {
+          contentType(ContentType.Application.Json)
+          setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Plain"}""")
+        }.bodyAsText(),
+      )["client_id"].asText()
+      val (loginState, nonceCookie) = client.startAuthorize(clientId)
+      val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
+      val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
+      client.submitForm(
+        url = "/authorize/consent/disconnect",
+        formParameters = parameters { append("txn", txn); append("pod", forgedPod) },
+      )
+    }
+    val disconnectLine = disconnectLines.single { "pod disconnected (consent)" in it }
+    assertFalse('\n' in disconnectLine, "was: $disconnectLine")
+    assertTrue("\\u000a" in disconnectLine, disconnectLine)
   }
 
   @Test

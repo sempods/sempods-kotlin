@@ -7,6 +7,7 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.eclipse.rdf4j.model.Model
@@ -283,6 +284,31 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
       response.responseBody.contains("SERVICE"),
       "TestHttpResponse should mention SERVICE rejection, was: ${response.responseBody}"
     )
+  }
+
+  @Test
+  fun `a query cannot forge a second log line`() {
+    // The query is the request body, logged before anything has looked at it — and the hand-rolled
+    // newline replacement this replaced covered `\n` and nothing else. `docs/logging.md`
+    // §"Three rules".
+    val pod = sempodsTestFactory.newPod()
+    // The marker is what tells this case's line from a sibling's: the suite runs its classes
+    // concurrently and the appender sees every line logged while the block runs.
+    val marker = "forged-${TestUtil.randomId()}"
+    val forged = "SELECT ?s WHERE { ?s ?p ?o } # $marker\r\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(SparqlEndpoint::class.java) {
+      http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/sparql/query")
+        .addHeader("Content-Type", "application/sparql-query")
+        .addHeader("Accept", "application/sparql-results+json")
+        .setBody(forged)
+        .execute()
+    }
+
+    val line = lines.single { marker in it }
+    assertFalse('\n' in line, "the line carries a raw newline: $line")
+    assertFalse('\r' in line, "the line carries a raw carriage return: $line")
+    assertTrue("\\u000d\\u000a" in line, line)
   }
 
   @Test

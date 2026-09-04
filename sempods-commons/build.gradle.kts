@@ -32,6 +32,10 @@ dependencies {
   // handled where the POM is written — see `pom.withXml` in the root build file.
   testFixturesImplementation(libs.bundles.test)
 
+  // `CapturedLog` attaches a `ListAppender` from its own bytecode, so it falls under the rule
+  // above rather than Guice's: a consumer resolving these fixtures has to receive the binding.
+  testFixturesImplementation(libs.logbackClassic)
+
   // `TestUtil` polls for a condition — one of the two source sets here that await anything, which
   // is why this is not in `libs.bundles.test`.
   testFixturesImplementation(libs.awaitility)
