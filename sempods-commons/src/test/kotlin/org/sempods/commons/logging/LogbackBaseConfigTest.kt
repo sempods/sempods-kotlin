@@ -82,8 +82,10 @@ class LogbackBaseConfigTest {
     val terminators = listOf('\n', '\u000B', '\u000C', '\r', '\u0085', '\u2028', '\u2029')
     val rendered = String(encoder.encode(event(encoder.context as LoggerContext, terminators.joinToString(""))))
 
-    terminators.forEach { assertTrue(it !in rendered.dropLast(1), "U+%04X reached the line: %s".format(it.code, rendered)) }
-    assertEquals("\\n".repeat(terminators.size), rendered.substringAfterLast(" - ").dropLast(1), rendered)
+    // `%n` is the platform separator, so what is stripped is that and not one character.
+    val body = rendered.removeSuffix(System.lineSeparator())
+    terminators.forEach { assertTrue(it !in body, "U+%04X reached the line: %s".format(it.code, rendered)) }
+    assertEquals("\\n".repeat(terminators.size), body.substringAfterLast(" - "), rendered)
   }
 
   private fun event(context: LoggerContext, message: String): LoggingEvent =

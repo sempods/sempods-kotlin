@@ -6,9 +6,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * [forLog] is what keeps a value this service did not author from writing its own log entry. The
- * console pattern ends with `%msg%n` and passes the message through unchanged, so a newline inside
- * an interpolated value reads as a second event — with a timestamp and a level its author chose.
+ * [forLog] is what keeps a value this service did not author from writing its own log entry. This
+ * module is published, so the shared pattern's replacement of line terminators is not a guarantee
+ * here — under an embedder's own `%msg` pattern a newline inside an interpolated value reads as a
+ * second event, with a timestamp and a level its author chose.
  *
  * Both sources are covered: request parameters at the OAuth surface, and pod-authored text on the
  * client side — where nimbus quotes a rejected URI back inside its own exception message.
