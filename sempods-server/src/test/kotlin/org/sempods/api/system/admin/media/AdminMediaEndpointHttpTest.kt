@@ -15,6 +15,7 @@ import org.sempods.commons.okhttp.TestHttpResponse
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.api.parallel.ResourceLock
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,9 +40,23 @@ import kotlin.test.assertTrue
  * That split is forced by what these routes are: they are host-level and take no pod, so every call
  * here reaches the whole database — which one lazily built injector shares with every other sempods
  * test in this JVM. So the rows seeded here are stamped **decades in the past** and swept with a
- * correspondingly long grace period: the cutoff lands between them and everything any other test
- * wrote, and a route that is deliberately global stays harmless in a shared fixture.
+ * correspondingly long grace period: the cutoff lands between them and everything any other *class*
+ * wrote, and a route that is deliberately global stays harmless in a shared fixture. Between this
+ * class's own methods that stamping separates nothing, which is what the `@ResourceLock` is for.
  */
+/**
+ * Serialised against itself. A sweep is host-level and takes no pod, so the one a method runs
+ * reaches the candidates every other method seeded: it deletes them, and their assertions then find
+ * nothing. The committed configuration hides that (`same_thread` within a class);
+ * `-PtestMethodsConcurrent` shows it.
+ *
+ * Rung 1 of `docs/testing.md` §"When a test is not safe" has nothing to key on here. The only
+ * dimension a caller owns is the cutoff, and a sweep takes *everything* older than it — so a
+ * per-method time band still contains every band below it. `an empty body means the deployment's
+ * own grace period` closes the question: its cutoff is the deployment's 30 days, which is the
+ * assertion. So rung 2, under a name nothing else holds.
+ */
+@ResourceLock("sempods-admin-media-sweep")
 class AdminMediaEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
