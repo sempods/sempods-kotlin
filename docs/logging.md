@@ -92,14 +92,31 @@ mixing the two is how this tree ended up with four idioms at once.
    credential in a URL still travels through browser history and every proxy on the way, so the
    durable fix is to move it out of the path.
 
-   The other half of the same rule: **what a caller wrote is not a log line.** Such a value is put
-   through `LogSafeText` (`:sempods-commons`), which escapes every control character before it is
-   interpolated — otherwise a request can end the line early and write the next one itself. Jetty
-   answers 400 to an ASCII control character in a URI and so covers most of a *path* today, but
-   `%E2%80%A8` gets through, these are libraries that will not always run behind Jetty, and a form
-   body is not filtered at all. Two callers today: `RequestPathForLog`, which redacts declared
-   secret segments and then escapes, and `PodTokenRateLimiter`, whose refusal line names a
-   submitted `client_id`. Anything else that logs caller-supplied text owes the same treatment.
+   The other half of the same rule: **what a caller wrote cannot forge a second line.** The console
+   pattern wraps `%msg` in `%replace` over the seven Unicode line terminators, each becoming a
+   visible `\n`; `LogbackBaseConfigTest` pins it, and `LOG_FORMAT=json` is a JSON string value that
+   a break cannot end either. So in an application, interpolating a form parameter or a header value
+   straight into a message is fine and owes nothing.
+
+   **A published module owes it anyway**, and that is the whole of the exception. `%replace` lives
+   in a *configuration*, and the configuration belongs to whoever owns the `main` — for the fifteen
+   modules in `publishedModules` (root `build.gradle.kts`) that is somebody else, whose own
+   `logback.xml` this repository never sees. Library code that logs caller-supplied text therefore
+   escapes it through `LogSafeText` (`:sempods-commons`), and one test at that call site is what
+   keeps it. In application code there is nothing to do, and adding a line there is not a thing to
+   review for.
+
+   Either way [`RequestPathForLog`](../sempods-commons-jaxrs/src/main/kotlin/org/sempods/commons/jaxrs/RequestPathForLog.kt)
+   is what a request path goes through, for its *other* half: it redacts declared secret segments,
+   which no encoder can do.
+
+   **What this deliberately does not cover**, so that finding one of these is not a bug report:
+   a throwable, which Logback appends after the pattern — an exception message from a caller can
+   put a line into the stack trace, and pulling `%ex` into the replacement would flatten every
+   stack trace to one line; terminal control sequences, which move a cursor rather than forge a
+   record and matter only to somebody `cat`-ing a file; and NEL or the Unicode separators inside a
+   JSON record, which every real parser reads back intact. The line that a log parser would take
+   for a genuine entry is the threat; these are not it.
 2. **English, always.** A log line is read by whoever is on the incident, and that is not
    negotiated per message: English, like every other written artefact in this repository — code,
    comments, documentation and commit messages.
