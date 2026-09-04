@@ -19,22 +19,19 @@ contexts can call it on its own.
 
 ## What a client asks for
 
-None of the configurations below names a scope, and the MCP protocol has no
-field for one — a client builds its own authorization request from discovery.
-Which scopes it puts there follows the MCP specification's selection rule: the
-`scope` from the `WWW-Authenticate` challenge if the server sent one, and
-otherwise every scope in the protected-resource metadata. This pod's challenge
-carries none, and its metadata lists `public-read` and `offline_access`
-([`endpoint.md`](endpoint.md#body-shape)) — so a client following that rule asks
-for both without knowing what either means.
+No configuration below names a scope — a client builds its authorization request
+from discovery. The MCP specification has it use the `scope` from the
+`WWW-Authenticate` challenge, or, where the server sent none, every scope in the
+protected-resource metadata. This pod sends none and advertises two
+([`endpoint.md`](endpoint.md#body-shape)), so a client following that rule asks
+for `offline_access` without knowing what it is.
 
-That is a reason to watch rather than a thing to rely on: the rule is recent,
-the four clients above predate parts of it, and a client that never sends
-`offline_access` is not thereby refused a durable connection — the person
-decides that in the dialog either way
-([`../auth/oauth.md`](../auth/oauth.md#offline_access)). What each client
-actually sends is in the `[oauth/authorize]` log line, as `scope=`, beside
-whether the request preselected the lifetime control.
+Worth watching, not relying on: the rule is recent and a client that never sends
+the scope is not refused a durable connection anyway — the person decides that in
+the dialog ([`../auth/oauth.md`](../auth/oauth.md#offline_access)). The
+`[oauth/authorize]` line carries `scope=` for what was asked, and
+`durablePreselected=` for the box the person was actually shown, which is the
+recorded decision where there is one.
 
 ## Setup
 

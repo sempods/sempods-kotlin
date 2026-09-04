@@ -88,8 +88,8 @@ starting before it builds it.
 
   Which of the clients in [`../mcp/clients.md`](../mcp/clients.md) send the scope now that a pod
   advertises it is worth knowing for how the control is presented, but nothing waits on the answer.
-  The `[oauth/authorize]` line carries the requested scope and whether the control was preselected,
-  so the answer accumulates in a running deployment rather than needing an experiment.
+  The `[oauth/authorize]` line carries the requested scope and the box the person was shown, so the
+  answer accumulates in a running deployment rather than needing an experiment.
 
   **Items 3 to 5 reach a user together.** They are three pieces of work and one release: a control
   that renders before the exchange honours it tells a person they chose a short-lived connection

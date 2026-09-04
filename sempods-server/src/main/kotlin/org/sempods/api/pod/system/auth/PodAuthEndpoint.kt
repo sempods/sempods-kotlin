@@ -731,26 +731,27 @@ class PodAuthEndpoint @Inject constructor(
     val displayName = registration?.clientName?.takeIf { it.isNotBlank() } ?: normalizedClientId
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
 
-    logger.info {
-      "[oauth/authorize] Showing consent UI: pod='${podDbo.name}', clientId='$normalizedClientId', " +
-          "clientName='${registration?.clientName ?: "(unset)"}', " +
-          "webId='${identity.webId}', availableContexts=${contexts.size}, " +
-          "publicContexts=${publicContexts.size}, publicReadPreselected=$publicReadPreselected, " +
-          "durablePreselected=$durableRequested"
-    }
-    logger.info {
-      "[oauth/authorize-audit] outcome=consent_ui pod='${podDbo.name}' " +
-          "client_id='$normalizedClientId' web_id='${identity.webId}' " +
-          "available_contexts=${contexts.size} existing_grants=${existingGrants.size} " +
-          "public_read_preselected=$publicReadPreselected durable_preselected=$durableRequested"
-    }
-
     // What the person decided last time outranks what the client asked for this time: a request
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
     // which is all `offline_access` does — it preselects, it does not grant.
     val recordedDurable = consentDecisionStore
       .find(checkNotNull(podDbo.id), normalizedClientId, identity.allUris)
       ?.durable
+    val durablePreselected = recordedDurable ?: durableRequested
+
+    logger.info {
+      "[oauth/authorize] Showing consent UI: pod='${podDbo.name}', clientId='$normalizedClientId', " +
+          "clientName='${registration?.clientName ?: "(unset)"}', " +
+          "webId='${identity.webId}', availableContexts=${contexts.size}, " +
+          "publicContexts=${publicContexts.size}, publicReadPreselected=$publicReadPreselected, " +
+          "durablePreselected=$durablePreselected"
+    }
+    logger.info {
+      "[oauth/authorize-audit] outcome=consent_ui pod='${podDbo.name}' " +
+          "client_id='$normalizedClientId' web_id='${identity.webId}' " +
+          "available_contexts=${contexts.size} existing_grants=${existingGrants.size} " +
+          "public_read_preselected=$publicReadPreselected durable_preselected=$durablePreselected"
+    }
     // Removing an app's access is only on offer where there is something to remove. Saying it
     // happened on a first authorization would be the same lie as saying nothing happened on a
     // later one. Asked over the person rather than over this URI, because that is what the action
@@ -799,7 +800,7 @@ class PodAuthEndpoint @Inject constructor(
         "publicReadAvailable" to publicContexts.isNotEmpty(),
         "publicReadPreselected" to publicReadPreselected,
         "publicReadScope" to PUBLIC_READ_SCOPE,
-        "durablePreselected" to (recordedDurable ?: durableRequested),
+        "durablePreselected" to durablePreselected,
         "disconnectAvailable" to disconnectAvailable,
       ))
     return Response.ok(html, MediaType.TEXT_HTML).build()
