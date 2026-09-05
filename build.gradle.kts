@@ -136,9 +136,8 @@ subprojects {
     // One fork per module, deliberately, and `forkEvery` stays unset for the same reason. Each
     // module's suite shares one lazily built injector and one Jetty server
     // (`SempodsIntegrationTest.sempodsInjector` and its siblings), so a second fork would pay for a
-    // second boot and then collide with the first on the connector — and the per-class DAO
-    // collections (`test.pod.dao` and friends, dropped in `@BeforeEach`) are only distinct *within*
-    // a JVM. Concurrency inside a module comes from JUnit, across modules from `org.gradle.parallel`.
+    // second boot and then collide with the first on the connector. Concurrency inside a module
+    // comes from JUnit, across modules from `org.gradle.parallel`.
     maxParallelForks = 1
 
     // The test JVM's heap, not the daemon's. Gradle defaults to 512m, which is not much for a JVM
