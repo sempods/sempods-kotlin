@@ -2,10 +2,10 @@ package org.sempods.pods.contexts.persist
 
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.Date
@@ -21,16 +21,13 @@ import kotlin.test.assertTrue
  * **Two of these are about the collection's history**: rows written before `isPublic` existed are
  * still on disk, the decoder defaults them to private, and the *query* does not agree with the
  * decoder. [preIsPublicRow] states that shape as a document, because the DAO cannot produce it.
- *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test:
- * the listings have no narrower scope than a pod id, so they mean something only where nothing else
- * writes.
  */
 class PodContextsDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var contextsDao: PodContextsDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -39,16 +36,6 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
 
   private val eventsUri = "https://sempods.org/alice/events"
   private val notesUri = "https://sempods.org/alice/notes"
-
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates both indexes in its constructor.
-   */
-  @BeforeEach
-  fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    contextsDao = PodContextsDao(db, TEST_COLLECTION)
-  }
 
   @Test
   fun `a stored context reads back field for field, and the lookups are pod-scoped`() {
@@ -170,7 +157,7 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
    * produce it — every row it writes carries the boolean.
    */
   private fun preIsPublicRow(contextUri: String) {
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(SempodsCollections.CONTEXTS).insertOne(
       Document()
         .append(PodContextDboFields.id, ObjectId())
         .append(PodContextDboFields.podId, probePodId)
@@ -180,9 +167,6 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
   }
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.contexts.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val CREATED_AT: Instant = Instant.parse("2026-08-16T10:15:30.123Z")

@@ -1,10 +1,8 @@
 package org.sempods.pods.oauth.serviceclients.persist
 
 import com.google.inject.Inject
-import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsIntegrationTest
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals
@@ -23,14 +21,10 @@ import kotlin.test.assertTrue
  * **Two assertions here carry more than the rest**: the context cascade rests on what `$pullAll`
  * leaves behind, and `delete` is a compare-and-swap whose failure mode is deleting somebody else's
  * row.
- *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
  */
 class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
   @Inject
-  private lateinit var db: MongoDatabase
-
   private lateinit var serviceClientDao: PodServiceClientDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -39,16 +33,6 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
   private val eventsRoot = "https://sempods.org/alice/events"
   private val notesRoot = "https://sempods.org/alice/notes"
-
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates the unique index in its constructor.
-   */
-  @BeforeEach
-  fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    serviceClientDao = PodServiceClientDao(db, TEST_COLLECTION)
-  }
 
   @Test
   fun `a stored client reads back field for field, and clientIds are pod-scoped`() {
@@ -164,9 +148,6 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   )
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.podServiceClients.dao"
 
     /** A real bcrypt hash shape — the field is a credential, so it is not a placeholder string. */
     const val SECRET_HASH = "\$2a\$10\$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"

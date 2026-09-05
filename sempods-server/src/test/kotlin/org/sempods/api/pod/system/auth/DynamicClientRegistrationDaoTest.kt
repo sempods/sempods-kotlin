@@ -3,10 +3,10 @@ package org.sempods.api.pod.system.auth
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -27,29 +27,18 @@ import kotlin.test.assertTrue
  * shape the DAO cannot produce. [minimalRow] is a registration from before the Stage-2 fields
  * existed, which is most of the collection; [rowAt] pins `registeredAt`, which `create` takes from
  * the clock.
- *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
  */
 class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var dcrDao: DynamicClientRegistrationDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
   private val probePodId = ObjectId()
   private val otherPodId = ObjectId()
-
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates all five indexes in its constructor.
-   */
-  @BeforeEach
-  fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    dcrDao = DynamicClientRegistrationDao(db, TEST_COLLECTION)
-  }
 
   @Test
   fun `a stored registration reads back field for field, and is pod-scoped`() {
@@ -148,8 +137,13 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
       rawRequest = emptyMap(),
     )
 
-    val raw = db.getCollection(TEST_COLLECTION)
-      .find(Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"))
+    val raw = db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS)
+      .find(
+        Filters.and(
+          Filters.eq(DynamicClientRegistrationDboFields.registeredForPodId, probePodId),
+          Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"),
+        ),
+      )
       .single()
     assertTrue(DynamicClientRegistrationDboFields.rawRequest !in raw.keys, raw.toJson())
     assertEquals(emptyMap(), assertNotNull(dcrDao.findByClientId(probePodId, "dcr-empty")).rawRequest)
@@ -211,12 +205,12 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     if (fingerprint != null) {
       document.append(DynamicClientRegistrationDboFields.fingerprint, fingerprint)
     }
-    db.getCollection(TEST_COLLECTION).insertOne(document)
+    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(document)
   }
 
   /** A row from before the Stage-2 observation fields, the fingerprint dedup and `schemaVersion`. */
   private fun minimalRow(clientId: String) {
-    db.getCollection(TEST_COLLECTION).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
+    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(baseRow(clientId, probePodId, REGISTERED_AT))
   }
 
   private fun baseRow(clientId: String, podId: ObjectId, registeredAt: Instant) = Document()
@@ -229,9 +223,6 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     .append(DynamicClientRegistrationDboFields.rawRequest, Document(RAW_REQUEST))
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.dynamicClientRegistrations.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val REGISTERED_AT: Instant = Instant.parse("2026-08-16T10:15:30.123Z")

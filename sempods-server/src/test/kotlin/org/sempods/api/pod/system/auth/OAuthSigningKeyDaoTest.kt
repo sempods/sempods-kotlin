@@ -23,10 +23,8 @@ import kotlin.test.assertNull
  * matches both, which is why the filter is spelled that way and must not be tidied into
  * `exists(false)`.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
- * That is what lets it say anything about the *whole* collection: `findAll()` returning exactly two
- * keys means something only when nothing else can have put one there, and arranging that on the
- * shared collection would have meant deleting the developer's own keys.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): a signing key has no scope to narrow
+ * by, and `findAll()` returning exactly two keys says something only where nothing else writes.
  */
 class OAuthSigningKeyDaoTest : SempodsIntegrationTest() {
 
@@ -35,16 +33,13 @@ class OAuthSigningKeyDaoTest : SempodsIntegrationTest() {
 
   private lateinit var signingKeyDao: OAuthSigningKeyDao
 
-  /**
-   * A collection of this test's own, dropped rather than cleared: it holds nothing but fixtures, so
-   * there is nothing to preserve — and the DAO built right after it recreates both indexes in its
-   * constructor, which is the other half of what makes the test repeatable.
-   */
+  private val collection = ownStore("oauthSigningKeys")
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    signingKeyDao = OAuthSigningKeyDao(db, TEST_COLLECTION)
+    signingKeyDao = OAuthSigningKeyDao(db, collection)
   }
+
 
   @Test
   fun `create returns the id it stored under, and the row reads back field for field`() {
@@ -106,17 +101,10 @@ class OAuthSigningKeyDaoTest : SempodsIntegrationTest() {
     if (writeRetiredAt) {
       document.append(OAuthSigningKeyDboFields.retiredAt, retiredAt?.let(Date::from))
     }
-    db.getCollection(TEST_COLLECTION).insertOne(document)
+    db.getCollection(collection).insertOne(document)
   }
 
   private companion object {
-
-    /**
-     * Outside the `sempods.` namespace on purpose: nothing in the server addresses it, so a row
-     * left here after a run reaches no production code path — in particular not `PodTokenIssuer`,
-     * which parses every stored `jwk` when it is constructed and would choke on these fixtures.
-     */
-    const val TEST_COLLECTION = "test.oauthSigningKeys.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val CREATED_AT: Instant = Instant.parse("2026-08-09T10:15:30.123Z")

@@ -23,9 +23,8 @@ import kotlin.test.assertTrue
  * in either process's log. `PodTokenIssuerPersistenceTest` covers the sequential half (one key on
  * first boot, the same key after a restart); this covers the concurrent one.
  *
- * **On a collection this test owns**, dropped before each test: "no signing key exists yet" is the
- * whole precondition, and arranging it on the shared collection would mean deleting the
- * developer's own keys.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): "no signing key exists yet" is the
+ * whole precondition.
  */
 class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
 
@@ -34,11 +33,13 @@ class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
 
   private lateinit var signingKeyDao: OAuthSigningKeyDao
 
+  private val collection = ownStore("oauthSigningKeys.bootstrap")
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    signingKeyDao = OAuthSigningKeyDao(db, TEST_COLLECTION)
+    signingKeyDao = OAuthSigningKeyDao(db, collection)
   }
+
 
   @Test
   fun `createInitial admits exactly one bootstrap key`() {
@@ -74,23 +75,17 @@ class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
         pool.submit<SigningKeys> {
           ready.countDown()
           go.await()
-          SigningKeys(PodSigningKeyStore(OAuthSigningKeyDao(db, TEST_COLLECTION)))
+          SigningKeys(PodSigningKeyStore(OAuthSigningKeyDao(db, collection)))
         }
       }
       ready.await()
       go.countDown()
       val kids = replicas.map { it.get(30, TimeUnit.SECONDS).keyId }
 
-      assertEquals(1, db.getCollection(TEST_COLLECTION).countDocuments(), "exactly one key row after the race")
+      assertEquals(1, db.getCollection(collection).countDocuments(), "exactly one key row after the race")
       assertEquals(kids[0], kids[1], "both replicas must sign with the same kid")
     } finally {
       pool.shutdownNow()
     }
-  }
-
-  private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.oauthSigningKeys.bootstrap"
   }
 }

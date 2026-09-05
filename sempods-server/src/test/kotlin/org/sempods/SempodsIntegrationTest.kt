@@ -4,6 +4,7 @@ import com.google.inject.Guice
 import com.google.inject.Inject
 import com.google.inject.Injector
 import com.google.inject.util.Modules
+import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.api.pod.system.auth.PodTokenIssuer
@@ -12,11 +13,13 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.net.UrlUtil
+import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpRequest
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import org.eclipse.jetty.server.Server
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
 import java.net.URI
 import kotlin.test.assertEquals
@@ -54,6 +57,30 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   @Inject
   private lateinit var http: TestHttpClient
+
+  @Inject
+  private lateinit var db: MongoDatabase
+
+  /**
+   * An empty store for one test method, dropped when that method ends.
+   *
+   * For a subject with no scope to narrow by — `PodDao.fetchAll()` *is* "every pod". Anything that
+   * can isolate on a pod id does that instead; `docs/testing.md` §"When a test is not safe" has the
+   * order.
+   *
+   * [of] names what is kept there, for a reader looking at the database after a failed run. What
+   * comes back is what a DAO's second constructor takes: this is the one place that knows a store
+   * is a collection today.
+   */
+  protected fun ownStore(of: String): String =
+    "test.$of.${randomId()}".also { ownStores += it }
+
+  private val ownStores = mutableListOf<String>()
+
+  @AfterEach
+  fun dropOwnStores() {
+    ownStores.forEach { db.getCollection(it).drop() }
+  }
 
   // test factories
 

@@ -3,9 +3,9 @@ package org.sempods.pods.mongo.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.time.Instant
@@ -20,16 +20,13 @@ import kotlin.test.assertTrue
  *
  * The collection this covers is the pod's durable persistence — the MemoryStore is rebuilt from it
  * on every start — so these are not data-quality assertions but whether a pod comes back at all.
- *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test:
- * the recovery reads have no narrower scope than a pod id, so they mean something only where nothing
- * else writes.
  */
 class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var db: MongoDatabase
 
+  @Inject
   private lateinit var backupDao: RdfResourceBackupDao
 
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
@@ -40,16 +37,6 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
   private val otherResource = URI("https://sempods.org/alice/events/winter-party")
   private val contextA = URI("https://sempods.org/alice/events")
   private val contextB = URI("https://sempods.org/alice/notes")
-
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates both indexes in its constructor.
-   */
-  @BeforeEach
-  fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    backupDao = RdfResourceBackupDao(db, TEST_COLLECTION)
-  }
 
   @Test
   fun `a stored row reads back field for field`() {
@@ -148,7 +135,7 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
     val standing = assertNotNull(backupDao.fetch(probePodId, resource, contextA))
 
     // What the DAO would be holding at that moment, with the row gone underneath it.
-    db.getCollection(TEST_COLLECTION).deleteOne(Filters.eq(RdfResourceBackupDboFields.id, standing.id))
+    db.getCollection(SempodsCollections.RESOURCES).deleteOne(Filters.eq(RdfResourceBackupDboFields.id, standing.id))
 
     assertTrue(
       backupDao.upsert(probePodId, resource, contextA, "<s> <p> \"b\" <g> .\n", UPDATED_AT),
@@ -172,9 +159,6 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
   }
 
   private companion object {
-
-    /** This test's own collection, outside the `pods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.resourcesBackup.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val UPDATED_AT: Instant = Instant.parse("2026-08-16T10:15:30.123Z")

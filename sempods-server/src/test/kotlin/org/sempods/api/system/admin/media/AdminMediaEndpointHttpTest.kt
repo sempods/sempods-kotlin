@@ -15,6 +15,7 @@ import org.sempods.commons.okhttp.TestHttpResponse
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.api.parallel.ResourceLock
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
@@ -36,12 +37,20 @@ import kotlin.test.assertTrue
  * lives in `PodMediaFacadeTest`, where the calls can be scoped to one pod and the assertions are
  * therefore exact.
  *
- * That split is forced by what these routes are: they are host-level and take no pod, so every call
- * here reaches the whole database — which one lazily built injector shares with every other sempods
- * test in this JVM. So the rows seeded here are stamped **decades in the past** and swept with a
- * correspondingly long grace period: the cutoff lands between them and everything any other test
- * wrote, and a route that is deliberately global stays harmless in a shared fixture.
+ * Both routes are host-level and take no pod, so every call here reaches the whole database. Rows
+ * are therefore stamped **decades in the past** and swept with a matching grace period: the cutoff
+ * lands between them and anything another class wrote.
  */
+/**
+ * Serialised against itself: that stamping separates nothing between this class's own methods, and
+ * a sweep one of them runs deletes the candidates the others are about to assert on.
+ *
+ * Rung 1 of `docs/testing.md` §"When a test is not safe" cannot reach it. There is no pod to scope
+ * by, the route addresses the media collection itself so [SempodsIntegrationTest.ownStore] cannot
+ * be pointed at it, and the cutoff is no key either: a sweep takes everything older than it, and
+ * `an empty body means the deployment's own grace period` does not even own its cutoff.
+ */
+@ResourceLock("sempods-admin-media-sweep")
 class AdminMediaEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject

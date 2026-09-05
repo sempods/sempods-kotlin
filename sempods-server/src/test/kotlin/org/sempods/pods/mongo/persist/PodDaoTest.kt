@@ -25,9 +25,8 @@ import kotlin.test.assertTrue
  * Where a *legacy* shape matters, the fixture writes the document literally (see [legacyRow])
  * rather than arranging it through the DAO: on-disk shapes are worth stating.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
- * Not merely hygiene here: `fetchAll()` has no pod scope to narrow by, so its assertions mean
- * something only on a collection nothing else writes to.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): `fetchAll()` has no pod scope to
+ * narrow by, and the pod names here are fixed.
  */
 class PodDaoTest : SempodsIntegrationTest() {
 
@@ -46,15 +45,13 @@ class PodDaoTest : SempodsIntegrationTest() {
   private val owner by lazy { webIdUriDeriver.deriveFromEmail("alice@example.org") }
   private val otherOwner by lazy { webIdUriDeriver.deriveFromEmail("bob@example.org") }
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates the unique index in its constructor.
-   */
+  private val collection = ownStore("pods")
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    podDao = PodDao(db, webIdUriDeriver, TEST_COLLECTION)
+    podDao = PodDao(db, webIdUriDeriver, collection)
   }
+
 
   @Test
   fun `a stored row reads back field for field`() {
@@ -226,7 +223,7 @@ class PodDaoTest : SempodsIntegrationTest() {
    */
   private fun legacyRow(name: String): ObjectId {
     val id = ObjectId()
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(collection).insertOne(
       Document()
         .append(PodDboFields.id, id)
         .append(PodDboFields.name, name)
@@ -237,9 +234,6 @@ class PodDaoTest : SempodsIntegrationTest() {
   }
 
   private companion object {
-
-    /** This test's own collection, outside the `pods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.pod.dao"
 
     /** Millisecond-precise on purpose: BSON has nowhere to put the nanoseconds. */
     val LAST_MODIFIED: Instant = Instant.parse("2026-08-16T00:00:00Z")

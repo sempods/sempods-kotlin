@@ -18,10 +18,8 @@ import kotlin.test.assertTrue
 /**
  * What [PodServiceAuditLogDao] records, orders and sweeps.
  *
- * **Runs on a collection this test owns**, named by [TEST_COLLECTION] and dropped before each test.
- * The server's own audit log is never read and never written here: it holds the real request
- * history, and a test that had to empty it to know what it was looking at would be both destructive
- * and order-dependent.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): this suite builds the TTL index with
+ * a retention of its own, and there is one index per collection.
  */
 class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
 
@@ -47,15 +45,13 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
    */
   private val now: Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 
-  /**
-   * Dropped rather than cleared: the collection holds nothing but fixtures, and the DAO built right
-   * after it recreates all three indexes in its constructor.
-   */
+  private val collection = ownStore("podServiceAuditLog")
+
   @BeforeEach
   fun setUpOwnCollection() {
-    db.getCollection(TEST_COLLECTION).drop()
-    auditLogDao = PodServiceAuditLogDao(db, TEST_COLLECTION, RETENTION_DAYS)
+    auditLogDao = PodServiceAuditLogDao(db, collection, RETENTION_DAYS)
   }
+
 
   @Test
   fun `findRecent answers this pod's rows, newest first`() {
@@ -130,7 +126,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
     // field, so these are kept until an operator backfills them — see
     // `docs/auth/service-clients.md`. Written past the DAO on purpose: nothing in the
     // codebase can produce this row any more, which is exactly why the read path has to.
-    db.getCollection(TEST_COLLECTION).insertOne(
+    db.getCollection(collection).insertOne(
       Document()
         .append(PodServiceAuditLogDboFields.ts, Date.from(Instant.parse("2026-06-11T08:00:00Z")))
         .append(PodServiceAuditLogDboFields.podId, probePodId)
@@ -144,7 +140,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
 
   @Test
   fun `the TTL index is on expiresAt, with the stored instant as the deadline itself`() {
-    val ttlIndex = db.getCollection(TEST_COLLECTION).listIndexes()
+    val ttlIndex = db.getCollection(collection).listIndexes()
       .firstOrNull { (it["key"] as Document).containsKey(PodServiceAuditLogDboFields.expiresAt) }
     assertNotNull(ttlIndex, "expected a TTL index on expiresAt")
     // Zero, not the retention: the offset lives in the row, so a retention change never touches
@@ -152,7 +148,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
     assertEquals(0L, (ttlIndex["expireAfterSeconds"] as Number).toLong())
 
     // And the two the collection has always carried are still plain, still unnamed by us.
-    val names = db.getCollection(TEST_COLLECTION).listIndexes().map { it.getString("name") }.toSet()
+    val names = db.getCollection(collection).listIndexes().map { it.getString("name") }.toSet()
     assertTrue("podId_1_ts_1" in names && "podId_1_clientId_1_ts_1" in names, "indexes: $names")
   }
 
@@ -186,9 +182,6 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
   )
 
   private companion object {
-
-    /** This test's own collection, outside the `sempods.` namespace the server addresses. */
-    const val TEST_COLLECTION = "test.podServiceAuditLog.dao"
 
     /**
      * Deliberately not the shipped 90: an expiry two days past `ts` can only come from the
