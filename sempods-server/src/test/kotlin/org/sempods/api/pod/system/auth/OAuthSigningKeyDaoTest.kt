@@ -23,10 +23,8 @@ import kotlin.test.assertNull
  * matches both, which is why the filter is spelled that way and must not be tidied into
  * `exists(false)`.
  *
- * **Runs on a store of its own** ([SempodsIntegrationTest.ownStore]). That is what lets it say
- * anything about the *whole* collection: `findAll()` returning exactly two keys means something
- * only when nothing else can have put one there — and a signing key has no scope to narrow by, so
- * arranging it on the shared one would have meant deleting the developer's own keys.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): a signing key has no scope to narrow
+ * by, and `findAll()` returning exactly two keys says something only where nothing else writes.
  */
 class OAuthSigningKeyDaoTest : SempodsIntegrationTest() {
 

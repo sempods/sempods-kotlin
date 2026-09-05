@@ -7,7 +7,6 @@ import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -28,10 +27,6 @@ import kotlin.test.assertTrue
  * shape the DAO cannot produce. [minimalRow] is a registration from before the Stage-2 fields
  * existed, which is most of the collection; [rowAt] pins `registeredAt`, which `create` takes from
  * the clock.
- *
- * **Isolated by its pod ids, on the ordinary collection.** The listings have no narrower scope
- * than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is scope
- * enough. What this suite writes it removes again in [removeOwnRows].
  */
 class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
 
@@ -44,13 +39,6 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
   private val probePodId = ObjectId()
   private val otherPodId = ObjectId()
-
-  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
-  @AfterEach
-  fun removeOwnRows() {
-    dcrDao.deleteByPod(probePodId)
-    dcrDao.deleteByPod(otherPodId)
-  }
 
   @Test
   fun `a stored registration reads back field for field, and is pod-scoped`() {
@@ -152,7 +140,6 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     val raw = db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS)
       .find(
         Filters.and(
-          // Scoped to this test's pod: a client id alone is not unique on the shared collection.
           Filters.eq(DynamicClientRegistrationDboFields.registeredForPodId, probePodId),
           Filters.eq(DynamicClientRegistrationDboFields.clientId, "dcr-empty"),
         ),

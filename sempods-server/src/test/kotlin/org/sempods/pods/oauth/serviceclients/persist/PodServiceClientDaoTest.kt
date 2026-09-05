@@ -3,7 +3,6 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals
@@ -22,10 +21,6 @@ import kotlin.test.assertTrue
  * **Two assertions here carry more than the rest**: the context cascade rests on what `$pullAll`
  * leaves behind, and `delete` is a compare-and-swap whose failure mode is deleting somebody else's
  * row.
- *
- * **Isolated by its pod ids, on the ordinary collection.** The listings have no narrower scope
- * than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is scope
- * enough. What this suite writes it removes again in [removeOwnRows].
  */
 class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
@@ -38,13 +33,6 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
   private val eventsRoot = "https://sempods.org/alice/events"
   private val notesRoot = "https://sempods.org/alice/notes"
-
-  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
-  @AfterEach
-  fun removeOwnRows() {
-    serviceClientDao.deleteByPod(probePodId)
-    serviceClientDao.deleteByPod(otherPodId)
-  }
 
   @Test
   fun `a stored client reads back field for field, and clientIds are pod-scoped`() {

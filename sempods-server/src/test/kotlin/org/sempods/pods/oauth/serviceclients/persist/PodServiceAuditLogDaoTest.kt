@@ -18,10 +18,8 @@ import kotlin.test.assertTrue
 /**
  * What [PodServiceAuditLogDao] records, orders and sweeps.
  *
- * **Runs on a store of its own** ([SempodsIntegrationTest.ownStore]), which the index assertions
- * force: this suite builds the TTL index with a retention of its own, and there is one index per
- * collection. The server's own audit log is never read and never written here — it holds the real
- * request history.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): this suite builds the TTL index with
+ * a retention of its own, and there is one index per collection.
  */
 class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
 

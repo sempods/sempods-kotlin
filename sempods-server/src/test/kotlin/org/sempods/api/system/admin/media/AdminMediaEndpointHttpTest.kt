@@ -37,26 +37,18 @@ import kotlin.test.assertTrue
  * lives in `PodMediaFacadeTest`, where the calls can be scoped to one pod and the assertions are
  * therefore exact.
  *
- * That split is forced by what these routes are: they are host-level and take no pod, so every call
- * here reaches the whole database — which one lazily built injector shares with every other sempods
- * test in this JVM. So the rows seeded here are stamped **decades in the past** and swept with a
- * correspondingly long grace period: the cutoff lands between them and everything any other *class*
- * wrote, and a route that is deliberately global stays harmless in a shared fixture. Between this
- * class's own methods that stamping separates nothing, which is what the `@ResourceLock` is for.
+ * Both routes are host-level and take no pod, so every call here reaches the whole database. Rows
+ * are therefore stamped **decades in the past** and swept with a matching grace period: the cutoff
+ * lands between them and anything another class wrote.
  */
 /**
- * Serialised against itself. A sweep is host-level and takes no pod, so the one a method runs
- * reaches the candidates every other method seeded: it deletes them, and their assertions then find
- * nothing. The committed configuration hides that (`same_thread` within a class);
- * `-PtestMethodsConcurrent` shows it.
+ * Serialised against itself: that stamping separates nothing between this class's own methods, and
+ * a sweep one of them runs deletes the candidates the others are about to assert on.
  *
- * Rung 1 of `docs/testing.md` §"When a test is not safe" has nothing to key on here. The route
- * takes no pod, so there is no scope to narrow by, and it addresses the media collection itself —
- * [SempodsIntegrationTest.ownStore] cannot be pointed at from the outside. The one dimension a
- * caller does own is the cutoff, and a sweep takes *everything* older than it, so a per-method time
- * band still contains every band below it. `an empty body means the deployment's own grace period`
- * closes the question: its cutoff is the deployment's 30 days, which is the assertion. So rung 2,
- * under a name nothing else holds.
+ * Rung 1 of `docs/testing.md` §"When a test is not safe" cannot reach it. There is no pod to scope
+ * by, the route addresses the media collection itself so [SempodsIntegrationTest.ownStore] cannot
+ * be pointed at it, and the cutoff is no key either: a sweep takes everything older than it, and
+ * `an empty body means the deployment's own grace period` does not even own its cutoff.
  */
 @ResourceLock("sempods-admin-media-sweep")
 class AdminMediaEndpointHttpTest : SempodsIntegrationTest() {

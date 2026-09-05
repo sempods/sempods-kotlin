@@ -206,8 +206,6 @@ class PodWebIdGrantsDaoTest : SempodsIntegrationTest() {
 
     podWebIdGrantsDao.addGrants(podId, webId, listOf(scope), grantedBy = null)
 
-    // Scoped to a pod id of this test's own: that is what makes the single row findable on the
-    // shared collection.
     val raw = db.getCollection(SempodsCollections.WEB_ID_GRANTS)
       .find(Filters.eq(PodWebIdGrantDboFields.podId, podId))
       .single()

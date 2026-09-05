@@ -233,8 +233,7 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
   @Test
   fun `an upserted row carries the same field set however the server orders it`() {
     val fieldSets = (1..8).map {
-      // A fresh pod id per round is the only thing that varies — the shape of the command does not,
-      // and the id is what makes each round's row findable on the shared collection.
+      // A fresh pod id per round is the only thing that varies — the shape of the command does not.
       val podId = ObjectId()
       podGrantsDao.addGrants(
         podId = podId,
@@ -274,7 +273,7 @@ class PodGrantsDaoTest : SempodsIntegrationTest() {
     assertFalse(raw.containsKey(PodGrantDboFields.grantedBy), raw.toJson())
   }
 
-  /** The one row [podId] has, read as it sits on disk. The pod id is what keeps it this test's. */
+  /** The one row [podId] has, read as it sits on disk. */
   private fun rawRow(podId: ObjectId): Document =
     db.getCollection(SempodsCollections.GRANTS).find(Filters.eq(PodGrantDboFields.podId, podId)).single()
 }

@@ -6,7 +6,6 @@ import com.mongodb.client.model.Filters
 import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.time.Instant
@@ -21,10 +20,6 @@ import kotlin.test.assertTrue
  *
  * The collection this covers is the pod's durable persistence — the MemoryStore is rebuilt from it
  * on every start — so these are not data-quality assertions but whether a pod comes back at all.
- *
- * **Isolated by its pod ids, on the ordinary collection.** The recovery reads have no narrower
- * scope than a pod id, and [probePodId] and [otherPodId] are fresh per test method, so that is
- * scope enough. What this suite writes it removes again in [removeOwnRows].
  */
 class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
 
@@ -42,13 +37,6 @@ class RdfResourceBackupDaoTest : SempodsIntegrationTest() {
   private val otherResource = URI("https://sempods.org/alice/events/winter-party")
   private val contextA = URI("https://sempods.org/alice/events")
   private val contextB = URI("https://sempods.org/alice/notes")
-
-  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
-  @AfterEach
-  fun removeOwnRows() {
-    backupDao.deleteByPod(probePodId)
-    backupDao.deleteByPod(otherPodId)
-  }
 
   @Test
   fun `a stored row reads back field for field`() {

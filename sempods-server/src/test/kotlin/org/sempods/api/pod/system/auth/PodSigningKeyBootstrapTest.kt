@@ -23,9 +23,8 @@ import kotlin.test.assertTrue
  * in either process's log. `PodTokenIssuerPersistenceTest` covers the sequential half (one key on
  * first boot, the same key after a restart); this covers the concurrent one.
  *
- * **On a store of its own** ([SempodsIntegrationTest.ownStore]): "no signing key exists yet" is
- * the whole precondition, and arranging it on the shared collection would mean deleting the
- * developer's own keys.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): "no signing key exists yet" is the
+ * whole precondition.
  */
 class PodSigningKeyBootstrapTest : SempodsIntegrationTest() {
 

@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.parallel.ResourceLock
 import org.sempods.SempodsConfig
 import org.sempods.commons.ratelimit.FakeClock
 import org.slf4j.LoggerFactory
@@ -16,6 +17,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Pure unit — the budget, the key it is spent against, and the sampled log line. */
+/**
+ * Serialised against itself: the appender hangs on a process-wide logger, so a sibling method's
+ * refusal lands in this one's list and the cases share the addresses they assert on. Rung 2 of
+ * `docs/testing.md` §"When a test is not safe" — rung 1 would mean a distinct address and client id
+ * in every case here.
+ */
+@ResourceLock("sempods-pod-token-rate-limiter-log")
 class PodTokenRateLimiterTest {
 
   private val appender = ListAppender<ILoggingEvent>()

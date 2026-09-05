@@ -25,9 +25,8 @@ import kotlin.test.assertTrue
  * Where a *legacy* shape matters, the fixture writes the document literally (see [legacyRow])
  * rather than arranging it through the DAO: on-disk shapes are worth stating.
  *
- * **Runs on a store of its own** ([SempodsIntegrationTest.ownStore]), because `fetchAll()` has no
- * pod scope to narrow by and the pod names here are fixed: "exactly alice and bobby" means
- * something only where nothing else writes.
+ * **A store of its own** ([SempodsIntegrationTest.ownStore]): `fetchAll()` has no pod scope to
+ * narrow by, and the pod names here are fixed.
  */
 class PodDaoTest : SempodsIntegrationTest() {
 

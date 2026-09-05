@@ -17,11 +17,8 @@ import kotlin.test.assertTrue
 /**
  * That the issuer generates a signing key once and reads the same one back after a restart.
  *
- * **Both assertions are about how many keys exist**, which is why this test runs against a
- * collection of its own rather than the server's. "First boot" means an empty collection, and on
- * the shared one the only way to arrange that is to delete the keys that are there — which makes
- * the test destructive towards the developer's own database and dependent on no other test having
- * run first. Its own collection makes the precondition free, and the test repeatable.
+ * **Both assertions are about how many keys exist**, so it runs on a store of its own
+ * ([SempodsIntegrationTest.ownStore]): "first boot" means an empty one.
  */
 class PodTokenIssuerPersistenceTest : SempodsIntegrationTest() {
 

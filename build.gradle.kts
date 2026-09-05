@@ -158,31 +158,13 @@ subprojects {
     // Enable experimental ByteBuddy support for Java 25 (required for MockK)
     jvmArgs("-Dnet.bytebuddy.experimental=true")
 
-    // Test classes run side by side; the methods inside one class do not.
-    //
-    // That combination is what makes it safe here rather than merely faster. The unit of isolation
-    // in this repository is the class: it owns any stub it starts, its pods carry names from
-    // `randomId()`, and the mechanism the suites are built on — `GuiceAppTestProxy` — keys its
-    // state on `TraceContextHolder.getTraceId()`, a `ThreadLocal`. Methods within a class share all
-    // of that, and `same_thread` is what keeps it true.
-    //
-    // Sizing is deliberately absent: JUnit's default strategy (`dynamic`, one worker per available
-    // processor) is the answer until a measurement says otherwise. Set here rather than in a
-    // `junit-platform.properties` because this repository has no `buildSrc` and already keeps its
-    // shared test configuration in this one block — and because a module that is not ready opts out
-    // where a reader looks for it, in its own build file:
-    //
-    //     tasks.test { systemProperty("junit.jupiter.execution.parallel.enabled", "false") }
-    //
-    // See `docs/testing.md` §"Running in parallel" for what to do when a test is not safe.
+    // Classes run side by side, the methods inside one class do not, and no worker count is set.
+    // Why, and what to do when a test is not safe: `docs/testing.md` §"Running in parallel".
     systemProperty("junit.jupiter.execution.parallel.enabled", "true")
     systemProperty("junit.jupiter.execution.parallel.mode.classes.default", "concurrent")
 
-    // Methods stay on one thread, unless `-PtestMethodsConcurrent` asks for the harsher setting —
-    // that is how a coupling *inside* a class is forced into the open, and it has to be a project
-    // property rather than a `-D` on the command line: `-D` lands on the Gradle daemon, while what
-    // the forked test JVM sees is this map. The same distinction the `environment(..)` call below
-    // turns on, from the other side.
+    // A project property rather than a `-D`, which would land on the Gradle daemon while the forked
+    // test JVM reads this map.
     systemProperty(
       "junit.jupiter.execution.parallel.mode.default",
       if (project.hasProperty("testMethodsConcurrent")) "concurrent" else "same_thread",

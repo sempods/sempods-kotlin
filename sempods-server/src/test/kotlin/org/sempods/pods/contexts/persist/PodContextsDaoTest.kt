@@ -6,7 +6,6 @@ import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.Date
@@ -22,10 +21,6 @@ import kotlin.test.assertTrue
  * **Two of these are about the collection's history**: rows written before `isPublic` existed are
  * still on disk, the decoder defaults them to private, and the *query* does not agree with the
  * decoder. [preIsPublicRow] states that shape as a document, because the DAO cannot produce it.
- *
- * **Isolated by its pod ids, on the ordinary collection.** Every read here is already scoped to
- * [probePodId] or [otherPodId], both fresh per test method, so nothing this suite asserts can see
- * another test's rows. What it writes it removes again in [removeOwnRows].
  */
 class PodContextsDaoTest : SempodsIntegrationTest() {
 
@@ -41,13 +36,6 @@ class PodContextsDaoTest : SempodsIntegrationTest() {
 
   private val eventsUri = "https://sempods.org/alice/events"
   private val notesUri = "https://sempods.org/alice/notes"
-
-  /** The pod-deletion cascade, used here as the cleanup it is: this suite's rows and no others. */
-  @AfterEach
-  fun removeOwnRows() {
-    contextsDao.deleteByPod(probePodId)
-    contextsDao.deleteByPod(otherPodId)
-  }
 
   @Test
   fun `a stored context reads back field for field, and the lookups are pod-scoped`() {
