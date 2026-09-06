@@ -573,6 +573,36 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `connecting a pod this profile already holds keeps its identity`() = testApplication {
+    // The Connect form is also how a person reconnects a pod they already have — after seeing
+    // "reconnect needed", say. Typing the URL again must not be the thing that takes the
+    // connection's identity away: before profiles had one this was harmless, because the pod
+    // deduped straight back to the same client. Separate identity is where that decision is made,
+    // and it is the only path that drops an existing identity.
+    val user = "https://id.test/e/web-user-reconnect"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:profile-own") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals("dyn:shared", authorize.parameters["client_id"], "$authorize")
+      assertEquals("$BASE/_system/ui/pods/callback", authorize.parameters["redirect_uri"], "$authorize")
+      pod.verify(
+        request().withMethod("POST").withPath("/p/_system/auth/register"),
+        VerificationTimes.never(),
+      )
+    }
+  }
+
+  @Test
   fun `re-authorizing a dead legacy connection keeps the shared identity it was registered under`() = testApplication {
     // The connection most likely to be here, and the one this must not separate. While two
     // profiles share a client at a pod, a sibling's connect retires this one's refresh-token
@@ -667,7 +697,7 @@ class WebUiEndpointTest {
       )
 
       // What the button submits.
-      val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+      val authorize = Url(separate(tokenIssuer, user, podBase, profile = "cron-agent"))
       assertEquals("dyn:separated", authorize.parameters["client_id"], "$authorize")
 
       // What the pod redirects back to, with the code.
@@ -952,6 +982,14 @@ class WebUiEndpointTest {
     pod: String,
     profile: String = PodKey.DEFAULT_PROFILE,
   ): String = submitPodForm(tokenIssuer, user, profile, "reauthorize") { append("pod", pod) }
+
+  /** Submits the dashboard's Separate identity form for [pod] and returns the redirect. */
+  private suspend fun ApplicationTestBuilder.separate(
+    tokenIssuer: TokenIssuer,
+    user: String,
+    pod: String,
+    profile: String = PodKey.DEFAULT_PROFILE,
+  ): String = submitPodForm(tokenIssuer, user, profile, "separate") { append("pod", pod) }
 
   /** Submits the dashboard's Connect form for [pod] and returns the redirect it answers with. */
   private suspend fun ApplicationTestBuilder.connect(

@@ -50,8 +50,10 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   to `/_system/ui` and a browser sends it nowhere else), its own client name and its own `did:web`
   identifier scoped to that callback, so a pod that dedups by fingerprint arrives at a different
   `client_id` and holds separate grants under it. The default profile keeps what it registered
-  before, and a named-profile connection made before the fork keeps its shared `client_id` and its
-  callback until the dashboard's *Separate identity* re-registers it.
+  before, and an existing connection presents the identity it was registered under on every path —
+  connect and re-authorize included, re-registration of a dead grant included, since the fingerprint
+  is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
+  it, because doing so costs a consent at the pod.
 
 ## Deployment stance (PoC — no migrations)
 

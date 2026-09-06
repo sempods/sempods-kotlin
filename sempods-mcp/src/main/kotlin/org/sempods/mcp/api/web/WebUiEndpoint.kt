@@ -345,11 +345,19 @@ fun Application.webUiEndpoint(
       }
 
       val redirect = runCatching {
-        // First connect: no pinned client_id yet — DCR when the pod offers it (full sempods pod),
-        // otherwise our static did:web client_id (did:web:<mcp-host>). Whether the pod resolves the
-        // did.json we serve or just matches the origin is its own choice — the method permits both,
-        // and this branch is for pods we did not write. A sempods pod fetches nothing (`DidWeb`).
-        buildPodAuthorizeRedirect(session.user, profile, podBaseUrl, returnTo, existing = null)
+        // DCR when the pod offers it (full sempods pod), otherwise our static did:web client_id.
+        // Whether the pod resolves the did.json we serve or just matches the origin is its own
+        // choice — the method permits both, and this branch is for pods we did not write. A sempods
+        // pod fetches nothing (`DidWeb`).
+        //
+        // The existing row is looked up rather than assumed absent: this form is also how a person
+        // reconnects a pod they already have, and typing its URL again must not be the thing that
+        // takes its identity away. `/pods/separate` is where that decision is made, and it is the
+        // only caller that passes `existing = null` for a pod already connected.
+        buildPodAuthorizeRedirect(
+          session.user, profile, podBaseUrl, returnTo,
+          existing = connectionRegistryDao.find(PodKey(session.user, profile, podBaseUrl)),
+        )
       }.getOrElse { e ->
         logger.warn(e) { "pod connect failed for '$podBaseUrl'" }
         errorBack("could not reach pod")
@@ -389,6 +397,37 @@ fun Application.webUiEndpoint(
         buildPodAuthorizeRedirect(session.user, profile, connection.pod, returnTo = null, existing = connection)
       }.getOrElse { e ->
         logger.warn(e) { "pod reauthorize failed for '$pod'" }
+        errorBack("could not reach pod")
+      }
+      call.respondRedirect(redirect)
+    }
+
+    // --- Give a connection this profile's own identity at the pod (an explicit re-consent) ---
+    //
+    // The one action that deliberately drops a connection's identity, which is why it is its own
+    // route rather than a flag on the connect form. What it costs is a consent: the profile's own
+    // client starts with no grants at the pod, so the person is asked again what it may read. Every
+    // other path — connect, re-authorize — keeps the identity the connection was registered under.
+    //
+    // Idempotent where the connection already has its own: the fingerprint is then the one it is
+    // registered under, so the pod dedups straight back to it.
+    post("/_system/ui/pods/separate") {
+      val session = webSession.read(call)
+        ?: return@post call.respondRedirect("$base/_system/ui/login")
+      val form = call.receiveParameters()
+      if (!csrfOk(form["csrf"], session)) return@post call.respondRedirect("$base/_system/ui?error=${enc("invalid request token")}")
+      val profile = ownedProfile(form["profile"], session.user)
+        ?: return@post call.respondRedirect("$base/_system/ui?error=${enc("unknown profile")}")
+      fun errorBack(msg: String): String = "$base/_system/ui?profile=${enc(profile)}&error=${enc(msg)}"
+      val pod = form["pod"]?.trim()?.trimEnd('/').orEmpty()
+      if (pod.isEmpty()) return@post call.respondRedirect(errorBack("missing pod URL"))
+      val connection = connectionRegistryDao.find(PodKey(session.user, profile, pod))
+        ?: return@post call.respondRedirect(errorBack("unknown connection"))
+
+      val redirect = runCatching {
+        buildPodAuthorizeRedirect(session.user, profile, connection.pod, returnTo = null, existing = null)
+      }.getOrElse { e ->
+        logger.warn(e) { "pod identity separation failed for '${forLog(pod)}'" }
         errorBack("could not reach pod")
       }
       call.respondRedirect(redirect)
@@ -653,10 +692,8 @@ private fun dashboardHtml(
       append("<input type=\"hidden\" name=\"csrf\" value=\"").appendEscapedHtml(csrfToken).append("\">")
       append("<button type=\"submit\" class=\"reauth\">Re-authorize</button></form>")
       if (sharesDefaultClient) {
-        // The ordinary connect route: `existing = null` there, which is exactly what registers a
-        // fresh client under this profile's name and callback.
-        append("<form method=\"post\" action=\"").append(base).append("/_system/ui/pods/connect\">")
-        append("<input type=\"hidden\" name=\"pod_base_url\" value=\"").appendEscapedHtml(c.pod).append("\">")
+        append("<form method=\"post\" action=\"").append(base).append("/_system/ui/pods/separate\">")
+        append("<input type=\"hidden\" name=\"pod\" value=\"").appendEscapedHtml(c.pod).append("\">")
         append("<input type=\"hidden\" name=\"profile\" value=\"").appendEscapedHtml(selectedProfile).append("\">")
         append("<input type=\"hidden\" name=\"csrf\" value=\"").appendEscapedHtml(csrfToken).append("\">")
         append("<button type=\"submit\" class=\"reauth\">Separate identity</button></form>")

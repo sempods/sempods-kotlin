@@ -209,9 +209,11 @@ It has to fork, because permissions are the pod's and not this service's:
 
 The default profile keeps the identity it has, so nothing existing re-consents. A named-profile
 connection made before the fork also keeps its shared `client_id` and the callback that
-registration is pinned to; the dashboard marks it *shared client* and offers to separate it, which
-registers the profile's own and costs one consent at the pod, because the new identity starts with
-no grants. What it buys is the paragraph above, and one thing more:
+registration is pinned to — on every path, connect and re-authorize alike, because an identity is a
+property of the connection rather than of the profile it sits in. The dashboard marks it *shared
+client* and offers to separate it, which is its own action for the reason it exists: it registers
+the profile's own client and costs one consent at the pod, because the new identity starts with no
+grants. What it buys is the paragraph above, and one thing more:
 
 > While two profiles share a `client_id`, connecting `pod.example` in `…/cron-agent` retires the
 > refresh-token family `…/private` holds there, so `…/private` reports "reconnect required" once
