@@ -69,6 +69,11 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
       assertNotNull(registrations.fingerprintIndex()).getBoolean("unique"),
       "the update leaves the unique index, not merely room for one",
     )
+    assertEquals(
+      listOf(DcrFingerprintIndex.UNIQUE_NAME),
+      registrations.fingerprintIndexNames(),
+      "and clears the predecessor away rather than leaving a second index over the same fields",
+    )
     DcrFingerprintIndex.createOn(registrations)
   }
 
@@ -185,11 +190,13 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a drop the other replica got to first is not a failed migration`() {
-    // Both replicas are refused by the old index, both go to drop it, and the other one lands
-    // first. This one's drop then finds nothing — and IndexNotFound left unhandled would leave
-    // `SempodsUpdater` logging a failed migration at SEVERE on a boot where the constraint was
-    // established, which is the one signal `collections.md` tells an operator to read.
+  fun `a replica that finished first keeps its index, and this one does not report a failure`() {
+    // The interleaving being refused does not rule out: both replicas are told 85 before either
+    // drops, so the second one acts on a refusal that is already stale. Dropping by key pattern
+    // would take the unique index the first replica built — MongoDB derives both names from the
+    // same key pattern, so by that handle they are one thing — and the gap that opens is not
+    // self-correcting: two `/register` calls landing in it both insert and both return an id, and
+    // the sweep unsets one row's fingerprint while the id it handed out keeps its own grants.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.createIndex(
@@ -199,9 +206,9 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
     registrations.row("dyn:only", fingerprint = "fp-1")
 
     val racing = spyk(registrations)
-    every { racing.dropIndex(any<Bson>()) } answers {
-      // The other replica's drop, landing between this one's refusal and its own drop.
-      registrations.dropIndex(DcrFingerprintIndex.keys)
+    every { racing.dropIndex(any<String>()) } answers {
+      // The other replica, finishing the whole replacement between this one's read and its drop.
+      DcrFingerprintIndex.replaceOn(registrations)
       callOriginal()
     }
     val database = spyk(db)
@@ -209,10 +216,9 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
     runUpdate(collectionName, database)
 
-    assertEquals(
-      true,
-      assertNotNull(registrations.fingerprintIndex(), "the constraint must be established").getBoolean("unique"),
-    )
+    val index = assertNotNull(registrations.fingerprintIndex(), "the constraint must still be there")
+    assertEquals(true, index.getBoolean("unique"))
+    assertEquals(DcrFingerprintIndex.UNIQUE_NAME, index.getString("name"))
   }
 
   private fun MongoCollection<Document>.clientIdsHoldingFingerprint(): Set<String> =
@@ -251,10 +257,16 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
       "row '$clientId' must survive the update",
     ).getString(FINGERPRINT_FIELD)
 
+  /** The constraint, by the name it is built under — not by key pattern, which the predecessor shares. */
   private fun MongoCollection<Document>.fingerprintIndex(): Document? =
-    listIndexes().firstOrNull {
-      it.get("key", Document::class.java)?.keys?.toList() == listOf(POD_FIELD, FINGERPRINT_FIELD)
-    }
+    listIndexes().firstOrNull { it.getString("name") == DcrFingerprintIndex.UNIQUE_NAME }
+
+  /** Every index over the key pattern, so a test can say the predecessor is gone rather than assume it. */
+  private fun MongoCollection<Document>.fingerprintIndexNames(): List<String> =
+    listIndexes()
+      .filter { it.get("key", Document::class.java)?.keys?.toList() == listOf(POD_FIELD, FINGERPRINT_FIELD) }
+      .map { it.getString("name") }
+      .toList()
 
   private companion object {
     const val POD_FIELD = "registeredForPodId"

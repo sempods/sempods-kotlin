@@ -106,7 +106,9 @@ before costs one command instead of a scan. Up to three passes, because a replic
 build can write another duplicate in between. It works that collection directly rather than through
 `DynamicClientRegistrationDao` — the DAO builds the same index in its constructor, so injecting it
 would build it while the duplicates are still there. The index definition lives in one place
-(`DcrFingerprintIndex`) for the same reason: two spellings of it would conflict at every boot.
+(`DcrFingerprintIndex`) for the same reason: two spellings of it would conflict at every boot. It is
+also the one index here carrying an explicit name, which is what lets two replicas boot at once
+without either dropping the constraint the other just built — the reasoning is at `replaceOn`.
 
 **Two execution modes, and the split is the part that works.** Each update declares `blocking`. A
 blocking one runs synchronously there, so it is finished before the first request is accepted; the
