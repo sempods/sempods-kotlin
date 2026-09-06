@@ -309,14 +309,25 @@ class PodOAuthClient(
     JwtVerifier.remoteJwks(jwksUri, SempodsClientHttpTransport(transport))
   }.getOrNull()
 
-  /** RFC 7591 DCR at the pod. The pod dedups by fingerprint, so this is idempotent per pod. */
-  suspend fun registerClient(metadata: PodOAuthMetadata, redirectUri: String, softwareVersion: String): String {
+  /**
+   * RFC 7591 DCR at the pod. A pod dedups by fingerprint, so this is idempotent per pod — and
+   * [clientName] together with [redirectUri] is what decides which registration it dedups *to*:
+   * one profile's client, not the service's (see [PodClientIdentity]). The `software_id` and the
+   * `User-Agent` stay [CLIENT_NAME], because those say which software is calling, not which of its
+   * identities.
+   */
+  suspend fun registerClient(
+    metadata: PodOAuthMetadata,
+    redirectUri: String,
+    softwareVersion: String,
+    clientName: String = CLIENT_NAME,
+  ): String {
     val registrationEndpoint = metadata.registrationEndpoint
       ?: throw PodOAuthException("pod publishes no registration endpoint (use the static did:web client)")
     requireAllowed(registrationEndpoint)
     val body = ClientMetadata().apply {
       setRedirectionURI(URI(redirectUri))
-      name = CLIENT_NAME
+      name = clientName
       softwareID = SoftwareID(CLIENT_NAME)
       setSoftwareVersion(SoftwareVersion(softwareVersion))
     }.toJSONObject().toJSONString()

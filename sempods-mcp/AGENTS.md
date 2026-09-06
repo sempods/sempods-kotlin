@@ -44,11 +44,13 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
 - **Stays a client.** It never becomes an authority a pod depends on. Token custody is
   the real cost — see the concept doc.
 - **Canonical key** for registry / token vault is `(user, profile, pod)`, with an implicit
-  default profile from day one. The pod-side DCR client is not keyed by it — the registration
-  request is identical for every profile, so a pod that dedups (a sempods pod does, per pod) hands
-  back one shared `dyn:` client_id for every connection this service holds there (M2). The dedup is
-  a lookup and not a uniqueness constraint — two first connects racing at one pod can each miss and
-  mint their own id, which then hold their own grants.
+  default profile from day one. The pod-side client identity is not in that key but follows the
+  profile all the same: `pods/PodClientIdentity` gives a named profile its own callback
+  (`…/<profile>/_system/ui/pods/callback`), its own client name and its own
+  `did:web:<mcp-host>:<profile>`, so a pod that dedups by fingerprint arrives at a different
+  `client_id` and holds separate grants under it. The default profile keeps what it registered
+  before, and a named-profile connection made before the fork keeps its shared `client_id` and its
+  callback until the dashboard's *Separate identity* re-registers it.
 
 ## Deployment stance (PoC — no migrations)
 
@@ -131,7 +133,7 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   passes while the scan reads everything. Against the pod server's own `/token` budget (`../docs/auth/oauth.md` §"Rate
   limit": 20 a minute per `<address>|<client identity>`) this stays clear by a wide margin, and the
   cadence widens it: only one of a refresh's four requests is the token POST, and the pod's DCR
-  dedup is per pod, so every connection this service holds *there* spends one shared `dyn:` key. A
+  dedup is per pod and profile, so every connection one profile holds *there* spends one `dyn:` key. A
   connection under active warm-keeping spends 0.02 of that 20 — about 1,100 simultaneously-used
   connections at one pod to meet it — while an idle one, touched once per preservation cadence,
   spends 0.00002. What the *warm* tier drops needs no such marker — it is only ever pre-warming, and the
@@ -142,10 +144,12 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   only. **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
   minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
   — the AS endpoints are derived from the issuer (`…/authorize`, `…/token`), the service presents a
-  **static `did:web:<mcp-host>` client** instead of registering. What the pod makes of that
-  identifier is the pod's own business, and this fallback is for pods we did not write: a sempods
-  pod matches the origin and fetches nothing, while a third party following the did:web method may
-  resolve `/.well-known/did.json` — which is why the service serves one. No JWKS means the pod
+  **static `did:web` client** instead of registering: `did:web:<mcp-host>` for the default profile
+  and `did:web:<mcp-host>:<profile>` for a named one, which is how a profile is a separate client
+  on the path that has no registration to vary. What the pod makes of that identifier is the pod's
+  own business, and this fallback is for pods we did not write: a sempods pod matches the origin
+  and fetches nothing, while a third party following the did:web method may resolve
+  `…/.well-known/did.json` — which is why the service serves one per profile. No JWKS means the pod
   token's subject is trusted via the direct TLS token (`subject_verified: false`). The convention is
   taken **only on a genuine 404** for the AS metadata — a transient failure propagates rather than
   silently downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system

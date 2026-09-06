@@ -48,11 +48,24 @@ object DidWeb {
   }
 
   /**
-   * The `did:web:` identifier for a service reachable at [baseUrl].
+   * The `did:web:` identifier for a service reachable at [baseUrl], optionally narrowed to a
+   * subtree of it by [pathSegments]: `clientId("https://mcp.example.org", listOf("cron-agent"))` is
+   * `did:web:mcp.example.org:cron-agent`, which covers `https://mcp.example.org/cron-agent/…` and
+   * nothing else on that host. That is how one service holds more than one identity — the hosted
+   * MCP service gives each named profile its own, so a pod tells them apart.
    *
-   * @throws IllegalArgumentException if [baseUrl] is not an absolute http(s) URL.
+   * **The caller owes the DID document under that prefix**, at
+   * `<baseUrl>/<segments…>/.well-known/did.json`. Which is why the prefix is stated here rather
+   * than read off [baseUrl]: a base URL that carries a path is still refused, because a caller
+   * passing one has said nothing about where it serves anything, and an identifier whose document
+   * is not where the identifier says it is fails every party that dereferences it. A sempods pod
+   * does not (the origin match is the whole check), but `did:web` permits it.
+   *
+   * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
+   *   segment is blank or carries `/`, `:` or `%` — the three characters that would not survive
+   *   the round trip through [targetOf].
    */
-  fun clientId(baseUrl: String): String {
+  fun clientId(baseUrl: String, pathSegments: List<String> = emptyList()): String {
     val uri = runCatching { URI(baseUrl.trimEnd('/')) }.getOrNull()
       ?: throw IllegalArgumentException("service base URL is not a URL: $baseUrl")
     val scheme = uri.scheme?.lowercase()
@@ -60,22 +73,21 @@ object DidWeb {
     require(uri.rawQuery == null && uri.rawFragment == null) { "service base URL must not carry a query or fragment: $baseUrl" }
     val host = uri.host?.lowercase() ?: throw IllegalArgumentException("service base URL has no host: $baseUrl")
 
-    // TODO: a service served under a path prefix would need the path encoded as DID segments AND
-    //  its `did.json` served under that prefix — `/mcp/.well-known/did.json`, not the root one.
-    //  Minting an identifier whose document is not where the identifier says it is would be worse
-    //  than refusing, so this refuses until both halves exist. Note the asymmetry with
-    //  [targetOf], which parses path-scoped identifiers on purpose: a third party may legitimately
-    //  use one, and the validating side has to understand what it is being shown.
     val rawPath = uri.rawPath.orEmpty()
     require(rawPath.isEmpty() || rawPath == "/") {
       "service base URL must be host-root for a did:web static client (path prefix '$rawPath' is not supported): $baseUrl"
+    }
+    pathSegments.forEach { segment ->
+      require(segment.isNotBlank() && segment.none { it == '/' || it == ':' || it == '%' }) {
+        "did:web path segment must be non-blank and free of '/', ':' and '%': '$segment'"
+      }
     }
 
     val authority = when (val port = uri.port) {
       -1, defaultPort(scheme) -> host
       else -> host + URLEncoder.encode(":", Charsets.UTF_8) + port
     }
-    return PREFIX + authority
+    return PREFIX + authority + pathSegments.joinToString("") { ":$it" }
   }
 
   /** `null` when [clientId] is not a `did:web` identifier, or is malformed. */

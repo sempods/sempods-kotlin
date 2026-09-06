@@ -49,6 +49,24 @@ class OAuthMetadataEndpointTest {
   }
 
   @Test
+  fun `a named profile's did-web document names the profile's own identifier`() = testApplication {
+    // `DidWeb.clientId` mints a path-scoped identifier only against the promise that its document
+    // is served under that path. This route is that promise — and the identifier is what makes a
+    // named profile a different client at a pod that offers no DCR.
+    application { oauthMetadataEndpoint(config, mapper) }
+
+    val resp = client.get("/cron-agent/.well-known/did.json")
+    assertEquals(HttpStatusCode.OK, resp.status)
+    assertEquals("did:web:mcp.test:cron-agent", mapper.readTree(resp.bodyAsText())["id"].asText())
+
+    assertEquals(
+      HttpStatusCode.NotFound,
+      client.get("/_system/.well-known/did.json").status,
+      "a reserved segment is not a profile here either",
+    )
+  }
+
+  @Test
   fun `named-profile host-rooted discovery (RFC 9728 path-insertion) is profile-scoped`() = testApplication {
     application { oauthMetadataEndpoint(config, mapper) }
     val prm = mapper.readTree(client.get("/.well-known/oauth-protected-resource/private").bodyAsText())

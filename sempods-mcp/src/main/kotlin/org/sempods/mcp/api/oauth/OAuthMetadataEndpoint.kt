@@ -6,6 +6,7 @@ import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfilePath
 import org.sempods.auth.core.DidWeb
+import org.sempods.mcp.pods.PodClientIdentity
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -68,16 +69,26 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
   }
 
   // The service's own did:web document — a pod using the did:web static-client model may resolve
-  // the service's `client_id` (did:web:<host>) to this and check `id` matches before accepting the
-  // connect. Offered because the method permits it, not because sempods needs it: a sempods pod
-  // accepts the identifier on the origin match alone (`DidWeb`) and fetches nothing, which is
-  // where its lack of an SSRF surface comes from. Service-wide (host identity), not per-profile.
-  val didDocument = objectMapper.writeValueAsString(DidWeb.document(DidWeb.clientId(base)))
+  // the service's `client_id` to this and check `id` matches before accepting the connect. Offered
+  // because the method permits it, not because sempods needs it: a sempods pod accepts the
+  // identifier on the origin match alone (`DidWeb`) and fetches nothing, which is where its lack of
+  // an SSRF surface comes from.
+  //
+  // One per profile, because the identifier is: `did:web:<host>` for the default profile and
+  // `did:web:<host>:<profile>` for a named one, which is what makes them different clients at a
+  // pod that offers no DCR (`PodClientIdentity`). `DidWeb.clientId` mints a path-scoped identifier
+  // only against the promise that its document is served under that path — this route is that
+  // promise, and the two would be a mismatch a dereferencing pod is entitled to refuse.
+  fun didDocument(profile: String): String =
+    objectMapper.writeValueAsString(DidWeb.document(PodClientIdentity.didWebClientId(base, profile)))
 
   routing {
-    // --- did:web client document (service identity toward pods that skip DCR) ---
+    // --- did:web client document (the profile's identity toward pods that skip DCR) ---
     get("/.well-known/did.json") {
-      call.respondText(didDocument, ContentType.Application.Json)
+      call.respondText(didDocument(PodKey.DEFAULT_PROFILE), ContentType.Application.Json)
+    }
+    get("/{profile}/.well-known/did.json") {
+      call.respondForProfile { didDocument(it) }
     }
 
     // --- Default profile (service root) ---
