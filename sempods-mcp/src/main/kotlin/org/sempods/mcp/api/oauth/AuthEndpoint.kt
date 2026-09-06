@@ -137,8 +137,7 @@ fun Application.authEndpoint(
     val userAgent = call.request.userAgent()
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, profile, redirectUris)
 
-    val existing = dcrClientDao.findByFingerprint(profile, fingerprint)
-    val client = existing ?: DcrClient(
+    val fresh = DcrClient(
       clientId = "dyn:" + newOpaqueId(),
       profile = profile,
       redirectUris = redirectUris,
@@ -148,10 +147,16 @@ fun Application.authEndpoint(
       fingerprint = fingerprint,
       userAgent = userAgent,
       registeredAt = Date(),
-    ).also { dcrClientDao.create(it) }
+    )
+    // One logical client is one `client_id`, which is what this service's consent and its tokens
+    // are held under — [DcrClientDao.findOrCreate] is where that is held, lookup and index both.
+    val client = dcrClientDao.findOrCreate(fresh)
 
-    if (existing != null) logger.info { "DCR dedup hit: reusing client_id=${client.clientId} (profile=$profile)" }
-    else logger.info { "DCR registered new client_id=${client.clientId} name='${forLog(clientName)}' (profile=$profile)" }
+    if (client.clientId == fresh.clientId) {
+      logger.info { "DCR registered new client_id=${client.clientId} name='${forLog(clientName)}' (profile=$profile)" }
+    } else {
+      logger.info { "DCR dedup hit: reusing client_id=${client.clientId} (profile=$profile)" }
+    }
 
     // Echo the **current request's** redirect_uris, not the stored ones. On a loopback
     // dedup hit the stored row holds the first-seen ephemeral port; a client that treats

@@ -56,8 +56,12 @@ The deployment is a **PoC used only by the maintainer**: a breaking schema / cry
 assumes a **fresh setup** (drop the DB, re-connect pods and AI clients) instead of carrying
 migration logic. The code deliberately holds **no legacy-tolerant reads and no startup
 migration passes** — it always reflects the current state (this is *why* e.g. M6.1
-encryption-at-rest expects ciphertext with no plaintext fallback). Once the service carries
-**real user state**, migrations become a hard requirement — a requirement *then*, not now.
+encryption-at-rest expects ciphertext with no plaintext fallback), an index whose options change
+included. Once the service carries **real user state**, migrations become a hard requirement — a
+requirement *then*, not now.
+
+Where that leaves an operator a step to run, the step is in the failure that asks for it, not here:
+the operator reading a stack trace is not reading this file.
 
 ## Documentation
 

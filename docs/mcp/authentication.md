@@ -156,6 +156,12 @@ cloud connectors that otherwise collapse several UI entries onto one; the
 hosted MCP service fills the same slot with its profile. What the pod
 gives up with it is in [`clients.md`](clients.md#chatgpt).
 
+**One row per digest at the hosted service, by constraint.** There
+`(profile, fingerprint)` is a unique index. The lookup and the insert are
+two statements, so two registrations of one AI client arriving together
+both miss the lookup; the index refuses the second, and the loser re-reads
+and answers the winner's `client_id`.
+
 ## Setup for clients
 
 For per-client setup snippets and observed quirks (Claude Desktop /

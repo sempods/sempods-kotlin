@@ -6,6 +6,9 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Indexes
+import io.mockk.every
+import io.mockk.spyk
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.SempodsMcpConfig
@@ -26,6 +29,7 @@ import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.persist.oauth.DcrClient
 import org.sempods.mcp.persist.oauth.DcrClientDao
 import org.sempods.auth.core.SigningKeys
 import org.sempods.mcp.persist.oauth.McpSigningKeyStore
@@ -59,6 +63,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -126,7 +131,7 @@ class OAuthFlowIntegrationTest {
     Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
   }
 
-  private fun ApplicationTestBuilder.installAuth() {
+  private fun ApplicationTestBuilder.installAuth(dcrClientDao: DcrClientDao = DcrClientDao(db!!)) {
     val database = db!!
     val config = SempodsMcpConfig(0, MONGO_URL, dbName, BASE, listOf(ISSUER))
     auditLogDao = AuditLogDao(database)
@@ -141,7 +146,7 @@ class OAuthFlowIntegrationTest {
     application {
       authEndpoint(
         config = config,
-        dcrClientDao = DcrClientDao(database),
+        dcrClientDao = dcrClientDao,
         authorizationCodeStore = AuthorizationCodeStore(database, SempodsMcpCollections.OAUTH_AUTH_CODES),
         loginStateStore = LoginStateStore(database),
         identityProvider = idServer.identityProvider(BASE),
@@ -578,6 +583,70 @@ class OAuthFlowIntegrationTest {
     // The response must echo the CURRENT request's port, not the stored first one.
     assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asText())
   }
+
+  @Test
+  fun `a second registration under one fingerprint is refused`() {
+    val dao = DcrClientDao(db!!, "test.dcr." + UUID.randomUUID().toString().take(8))
+
+    assertTrue(dao.create(dcrClient("dyn:first")), "the first registration under a digest is the one that lands")
+    assertFalse(
+      dao.create(dcrClient("dyn:second")),
+      "the index must refuse the second rather than mint a second id for one logical client",
+    )
+    assertEquals("dyn:first", dao.findByFingerprint(PodKey.DEFAULT_PROFILE, "one-digest")?.clientId)
+  }
+
+  /**
+   * The spy is what puts the competing registration in the gap, rather than two threads: the race
+   * is a property of the mechanism — a lookup and an insert that are not one statement — and
+   * asserting it through timing would only ever assert the timing. What refuses this caller's
+   * insert is still the index itself; only the competitor's arrival is arranged.
+   */
+  @Test
+  fun `a registration that loses the insert answers the winner's client id`() = testApplication {
+    val winnerId = "dyn:winner"
+    val dao = DcrClientDao(db!!)
+    val racing = spyk(dao)
+    every { racing.create(any()) } answers {
+      dao.create(firstArg<DcrClient>().copy(clientId = winnerId))
+      callOriginal()
+    }
+    installAuth(racing)
+
+    val body = mapper.readTree(
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Racing Client"}""")
+      }.bodyAsText(),
+    )
+
+    assertEquals(winnerId, body["client_id"].asText(), "the loser must hand back the id the winner minted")
+  }
+
+  @Test
+  fun `a collection carrying the old non-unique index names the step that clears it`() {
+    val collection = "test.dcr." + UUID.randomUUID().toString().take(8)
+    db!!.getCollection(collection).createIndex(Indexes.ascending("profile", "fingerprint"))
+
+    val refused = assertFailsWith<IllegalStateException> { DcrClientDao(db!!, collection) }
+    assertTrue(
+      refused.message!!.contains("dropIndex('profile_1_fingerprint_1')"),
+      "an operator reading the boot failure must be told what to run: ${refused.message}",
+    )
+  }
+
+  /** A registration under one shared digest; only the `client_id` differs between calls. */
+  private fun dcrClient(clientId: String) = DcrClient(
+    clientId = clientId,
+    profile = PodKey.DEFAULT_PROFILE,
+    redirectUris = setOf(REDIRECT),
+    clientName = "Twice",
+    softwareId = null,
+    softwareVersion = null,
+    fingerprint = "one-digest",
+    userAgent = null,
+    registeredAt = Date(),
+  )
 
   @Test
   fun `register rejects a non-loopback http redirect uri`() = testApplication {
