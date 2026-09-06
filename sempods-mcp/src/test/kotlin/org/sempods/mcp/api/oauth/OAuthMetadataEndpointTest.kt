@@ -50,18 +50,20 @@ class OAuthMetadataEndpointTest {
 
   @Test
   fun `a named profile's did-web document names the profile's own identifier`() = testApplication {
-    // `DidWeb.clientId` mints a path-scoped identifier only against the promise that its document
-    // is served under that path. This route is that promise — and the identifier is what makes a
-    // named profile a different client at a pod that offers no DCR.
+    // At the address the did:web read algorithm derives, which is not the one the host-only
+    // identifier uses: the colons become slashes, `/.well-known` is inserted only where that leaves
+    // no path, and `/did.json` is appended. A resolver that follows the method finds nothing under
+    // `/<profile>/.well-known/`, and the profile then cannot connect to exactly the non-sempods
+    // pods this document exists for.
     application { oauthMetadataEndpoint(config, mapper) }
 
-    val resp = client.get("/cron-agent/.well-known/did.json")
+    val resp = client.get("/cron-agent/did.json")
     assertEquals(HttpStatusCode.OK, resp.status)
     assertEquals("did:web:mcp.test:cron-agent", mapper.readTree(resp.bodyAsText())["id"].asText())
 
     assertEquals(
       HttpStatusCode.NotFound,
-      client.get("/_system/.well-known/did.json").status,
+      client.get("/_system/did.json").status,
       "a reserved segment is not a profile here either",
     )
   }

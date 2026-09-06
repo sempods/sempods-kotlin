@@ -148,8 +148,9 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   and `did:web:<mcp-host>:<profile>` for a named one, which is how a profile is a separate client
   on the path that has no registration to vary. What the pod makes of that identifier is the pod's
   own business, and this fallback is for pods we did not write: a sempods pod matches the origin
-  and fetches nothing, while a third party following the did:web method may resolve
-  `…/.well-known/did.json` — which is why the service serves one per profile. No JWKS means the pod
+  and fetches nothing, while a third party following the did:web method may resolve the document —
+  at `/.well-known/did.json` for the host-only identifier and `/<profile>/did.json` for a named
+  profile's, which is where the method's read algorithm looks. The service serves both. No JWKS means the pod
   token's subject is trusted via the direct TLS token (`subject_verified: false`). The convention is
   taken **only on a genuine 404** for the AS metadata — a transient failure propagates rather than
   silently downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system

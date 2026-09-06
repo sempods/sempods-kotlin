@@ -90,23 +90,9 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
     // Unique, so that the dedup in [DynamicClientStore.register] holds under concurrency: the
     // lookup and the insert are two statements, and two registrations of one client arriving
     // together both miss the lookup. The index is what refuses the second insert; [create] turns
-    // that refusal into a `null` the caller re-reads by fingerprint.
-    //
-    // Partial because most rows predate the dedup change and carry no fingerprint at all; indexing
-    // them would say nothing and the lookup never asks for them. The filter is also what
-    // `DcrFingerprintUniqueness` writes into: a row it unsets drops out of the index, keeping its
-    // id and the grants held under it.
-    registrations.createIndex(
-      Indexes.ascending(
-        DynamicClientRegistrationDboFields.registeredForPodId,
-        DynamicClientRegistrationDboFields.fingerprint,
-      ),
-      IndexOptions()
-        .unique(true)
-        .partialFilterExpression(
-          Filters.exists(DynamicClientRegistrationDboFields.fingerprint, true),
-        ),
-    )
+    // that refusal into a `null` the caller re-reads by fingerprint. Defined in
+    // [DcrFingerprintIndex], because `DcrFingerprintUniqueness` builds the same one.
+    DcrFingerprintIndex.createOn(registrations)
   }
 
   /**

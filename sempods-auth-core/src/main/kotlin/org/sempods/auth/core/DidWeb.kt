@@ -54,12 +54,14 @@ object DidWeb {
    * nothing else on that host. That is how one service holds more than one identity — the hosted
    * MCP service gives each named profile its own, so a pod tells them apart.
    *
-   * **The caller owes the DID document under that prefix**, at
-   * `<baseUrl>/<segments…>/.well-known/did.json`. Which is why the prefix is stated here rather
-   * than read off [baseUrl]: a base URL that carries a path is still refused, because a caller
-   * passing one has said nothing about where it serves anything, and an identifier whose document
-   * is not where the identifier says it is fails every party that dereferences it. A sempods pod
-   * does not (the origin match is the whole check), but `did:web` permits it.
+   * **The caller owes the DID document where the method's read algorithm looks**, which is
+   * `<baseUrl>/<segments…>/did.json` — `/.well-known` is inserted only where the identifier leaves
+   * no path, so the host-only form is the one served at `<baseUrl>/.well-known/did.json`. Which is
+   * why the prefix is stated here rather than read off [baseUrl]: a base URL that carries a path is
+   * still refused, because a caller passing one has said nothing about where it serves anything,
+   * and an identifier whose document is not where the identifier says it is fails every party that
+   * dereferences it. A sempods pod does not (the origin match is the whole check), but `did:web`
+   * permits it.
    *
    * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
    *   segment is blank or carries `/`, `:` or `%` — the three characters that would not survive
@@ -107,7 +109,10 @@ object DidWeb {
     )
   }
 
-  /** The minimal DID document a `did:web` client serves at `/.well-known/did.json`. */
+  /**
+   * The minimal DID document a `did:web` client serves — at `/.well-known/did.json` for a
+   * host-only identifier, and at `/<path…>/did.json` for a path-scoped one.
+   */
   fun document(clientId: String): Map<String, Any> = linkedMapOf(
     "@context" to listOf("https://www.w3.org/ns/did/v1"),
     "id" to clientId,

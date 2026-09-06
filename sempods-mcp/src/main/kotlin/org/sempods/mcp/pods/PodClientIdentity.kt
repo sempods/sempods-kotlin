@@ -47,8 +47,10 @@ object PodClientIdentity {
    * `DidWeb.Target.covers` matches on path segments, so `did:web:<host>:cron-agent` may receive a
    * code at `…/cron-agent/…` and nowhere else on the host.
    *
-   * The DID document for it is served at `<serviceBaseUrl>/<profile>/.well-known/did.json` by
-   * `oauthMetadataEndpoint`, which is what [DidWeb.clientId] requires of a caller passing a prefix.
+   * The DID document for it is served at `<serviceBaseUrl>/<profile>/did.json` by
+   * `oauthMetadataEndpoint` — where the did:web read algorithm looks for a path-scoped identifier,
+   * `/.well-known` being inserted only where there is no path. That is what [DidWeb.clientId]
+   * requires of a caller passing a prefix.
    */
   fun didWebClientId(serviceBaseUrl: String, profile: String): String =
     DidWeb.clientId(serviceBaseUrl, if (isDefault(profile)) emptyList() else listOf(profile))

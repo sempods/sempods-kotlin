@@ -77,8 +77,13 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
   // One per profile, because the identifier is: `did:web:<host>` for the default profile and
   // `did:web:<host>:<profile>` for a named one, which is what makes them different clients at a
   // pod that offers no DCR (`PodClientIdentity`). `DidWeb.clientId` mints a path-scoped identifier
-  // only against the promise that its document is served under that path — this route is that
-  // promise, and the two would be a mismatch a dereferencing pod is entitled to refuse.
+  // only against the promise that its document is served where the method says it is — these two
+  // routes are that promise, and a mismatch is something a dereferencing pod may refuse.
+  //
+  // The two locations differ, and the split is the did:web read algorithm's: the colons become
+  // slashes, `/.well-known` is inserted **only** when that leaves no path, and `/did.json` is
+  // appended. So the host-only identifier resolves to `/.well-known/did.json` and a path-scoped
+  // one to `/<profile>/did.json`.
   fun didDocument(profile: String): String =
     objectMapper.writeValueAsString(DidWeb.document(PodClientIdentity.didWebClientId(base, profile)))
 
@@ -87,7 +92,7 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
     get("/.well-known/did.json") {
       call.respondText(didDocument(PodKey.DEFAULT_PROFILE), ContentType.Application.Json)
     }
-    get("/{profile}/.well-known/did.json") {
+    get("/{profile}/did.json") {
       call.respondForProfile { didDocument(it) }
     }
 

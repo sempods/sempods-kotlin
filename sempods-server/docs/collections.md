@@ -98,10 +98,12 @@ already says whose they are.
 Nothing here versions the stored data or records that a change was applied. What exists is
 `SempodsUpdater`, an eager singleton whose `runUpdates` is called while Guice builds the injector —
 before `SempodsServerStarter` obtains the Jetty server from it. The list of updates it submits is
-**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`, which clears duplicates and the old
-non-unique index out of `oauth.clientRegistrations` so `DynamicClientRegistrationDao` can build the
-unique one. It works that collection directly rather than through the DAO — the DAO builds that
-index in its constructor, so injecting it would build it before the way is clear.
+**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`, which retires the duplicate
+fingerprints in `oauth.clientRegistrations` and then builds the unique index over them. It works
+that collection directly rather than through `DynamicClientRegistrationDao` — the DAO builds the
+same index in its constructor, so injecting it would build it while the duplicates are still there.
+The index definition lives in one place (`DcrFingerprintIndex`) for the same reason: two spellings
+of it would conflict at every boot.
 
 **Two execution modes, and the split is the part that works.** Each update declares `blocking`. A
 blocking one runs synchronously there, so it is finished before the first request is accepted; the

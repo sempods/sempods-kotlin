@@ -10,6 +10,7 @@ import org.bson.Document
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
+import org.sempods.api.pod.system.auth.DcrFingerprintIndex
 import java.time.Instant
 import java.util.Date
 import kotlin.test.assertEquals
@@ -17,12 +18,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * What the update leaves behind for `DynamicClientRegistrationDao` to build its unique index on.
+ * What the update leaves behind: the unique fingerprint index, on a collection that can take it.
  *
- * The two things it removes are the two that would otherwise make `createIndex` throw: rows sharing
- * a fingerprint, and the non-unique index the old build created. What it must **not** remove is a
- * row — a `client_id` is what the pod's grants hang off, so a duplicate is retired by dropping out
- * of the lookup rather than by being deleted.
+ * The two things in its way are rows sharing a fingerprint and the non-unique index the old build
+ * created. What it must **not** remove is a row — a `client_id` is what the pod's grants hang off,
+ * so a duplicate is retired by dropping out of the lookup rather than by being deleted — and it
+ * must not remove a unique index either, which is what a second boot would do if the drop were
+ * decided by a read taken before it.
  */
 class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
@@ -56,38 +58,61 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
     assertNull(registrations.fingerprintOf("dyn:older"))
     assertNull(registrations.fingerprintOf("dyn:middle"))
     assertEquals("fp-1", registrations.fingerprintOf("dyn:elsewhere"), "another pod's client is no duplicate")
-    assertNull(registrations.fingerprintIndex(), "the non-unique index has to go before the unique one exists")
 
-    // The whole point of the update: the collection now takes the index the DAO asks for.
-    registrations.createIndex(
-      Indexes.ascending(POD_FIELD, FINGERPRINT_FIELD),
-      IndexOptions().unique(true).partialFilterExpression(Filters.exists(FINGERPRINT_FIELD, true)),
+    // The whole point of the update: the constraint is in place when it returns, and the DAO's own
+    // `createIndex` — same definition — is then a no-op rather than a boot failure.
+    assertEquals(
+      true,
+      assertNotNull(registrations.fingerprintIndex()).getBoolean("unique"),
+      "the update leaves the unique index, not merely room for one",
     )
+    DcrFingerprintIndex.createOn(registrations)
   }
 
   @Test
-  fun `a second run leaves the unique index it found in place`() {
+  fun `a second run leaves the unique index it built in place`() {
     // Nothing records that an update ran, so every entry runs on every boot — including the boot
-    // after the one that finished the work. The second run must not undo the first: dropping the
-    // index by key spec would take the unique one with it.
+    // after the one that finished the work, and including a boot running beside a replica that is
+    // already serving. The drop is therefore driven by the conflict `createIndex` raises and never
+    // by a name read earlier: a second run that dropped what the first built would leave the other
+    // replica accepting the duplicate registrations this exists to refuse.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.row("dyn:older", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
     registrations.row("dyn:newest", fingerprint = "fp-1", registeredAt = REGISTERED_AT.plusSeconds(3600))
 
     runUpdate(collectionName)
-    registrations.createIndex(
-      Indexes.ascending(POD_FIELD, FINGERPRINT_FIELD),
-      IndexOptions().unique(true).partialFilterExpression(Filters.exists(FINGERPRINT_FIELD, true)),
-    )
+    val built = assertNotNull(registrations.fingerprintIndex()).getString("name")
     runUpdate(collectionName)
 
     assertEquals("fp-1", registrations.fingerprintOf("dyn:newest"))
     assertNull(registrations.fingerprintOf("dyn:older"))
+    val after = assertNotNull(registrations.fingerprintIndex(), "the second run must not leave the index dropped")
+    assertEquals(true, after.getBoolean("unique"))
+    assertEquals(built, after.getString("name"))
+  }
+
+  @Test
+  fun `an index built while this update was already running is kept, not dropped`() {
+    // The concurrent boot, played out: this replica reads a collection whose index is the old
+    // non-unique one, another replica replaces it, and only then does this one get to its own
+    // create. `DcrFingerprintIndex.replaceOn` asks MongoDB rather than a remembered name, so the
+    // create simply succeeds against the index that is now there.
+    val collectionName = ownStore("dcr")
+    val registrations = db.getCollection(collectionName)
+    registrations.createIndex(
+      Indexes.ascending(POD_FIELD, FINGERPRINT_FIELD),
+      IndexOptions().partialFilterExpression(Filters.exists(FINGERPRINT_FIELD, true)),
+    )
+    registrations.row("dyn:only", fingerprint = "fp-1")
+    // The other replica, finishing first.
+    DcrFingerprintIndex.replaceOn(registrations)
+
+    runUpdate(collectionName)
+
     assertEquals(
       true,
-      assertNotNull(registrations.fingerprintIndex()).getBoolean("unique"),
-      "the index the DAO created must survive the next boot's update",
+      assertNotNull(registrations.fingerprintIndex(), "the constraint must still be there").getBoolean("unique"),
     )
   }
 
