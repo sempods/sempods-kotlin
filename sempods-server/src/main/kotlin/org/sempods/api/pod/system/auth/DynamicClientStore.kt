@@ -92,7 +92,17 @@ class DynamicClientStore @Inject constructor(
       userAgent = userAgent,
       fingerprint = fingerprint,
     )
-    return dbo.toRegistration()
+    if (dbo != null) return dbo.toRegistration()
+
+    // The lookup above found nothing and the insert was refused, so a second registration of this
+    // client landed in between — two people clicking "Connect" for one pod in the same second is
+    // all it takes, since the fingerprint carries nothing that tells them apart. The winner's row
+    // is the answer, and the caller cannot tell it from an ordinary dedup hit: one logical client
+    // is one `client_id` here, which is what the pod's grants are keyed by.
+    val winner = checkNotNull(dao.findByFingerprint(registeredForPodId, fingerprint)) {
+      "registration refused as a duplicate fingerprint, but no row holds it: pod=$registeredForPodId"
+    }
+    return winner.toRegistration(deduplicatedFromRegisteredAt = winner.registeredAt)
   }
 
   internal fun lookup(podId: ObjectId, clientId: String): Registration? =

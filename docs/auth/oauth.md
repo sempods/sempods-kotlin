@@ -80,7 +80,10 @@ at registration and omitted where it is read.
   with a deterministic fingerprint (SHA-256 over `clientName`,
   `userAgent`, and the redirect-URI set with loopback ports stripped)
   for dedup. A repeat registration with the same fingerprint reuses the
-  existing `dyn:` client id.
+  existing `dyn:` client id, and a pod holds at most one registration per
+  fingerprint — a unique index, so two registrations arriving together
+  still come out as one client id
+  ([`../mcp/authentication.md`](../mcp/authentication.md#dcr-fingerprint)).
 - Loopback redirect URIs are matched with port-stripping (RFC 8252
   §7.3); non-loopback redirect URIs stay port-strict.
 - **Always render the consent UI** on `/authorize`, regardless of

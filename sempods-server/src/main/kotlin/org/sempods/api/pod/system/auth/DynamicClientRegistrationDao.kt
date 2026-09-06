@@ -1,6 +1,8 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
+import com.mongodb.ErrorCategory
+import com.mongodb.MongoWriteException
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
@@ -21,12 +23,13 @@ import java.time.Instant
 
 /**
  * Persistence for RFC 7591 Dynamic Client Registrations. The DAO itself is
- * insert-only at the row level — `create()` always inserts and never updates —
- * but [DynamicClientStore.register] runs a fingerprint dedup via
- * [findByFingerprint] before calling here, so re-registration of the same
- * logical client returns the existing row's `clientId` instead of producing a
- * duplicate. The one mutating operation is [touchLastAuthorized] — the sweep it
- * was written for is the TODO below.
+ * insert-only at the row level — `create()` never updates — but a pod holds at
+ * most one registration per fingerprint: [DynamicClientStore.register] looks the
+ * client up through [findByFingerprint] first, and the unique index catches the
+ * pair that looked at the same moment. So re-registration of the same logical
+ * client returns the existing row's `clientId` instead of producing a duplicate.
+ * The one mutating operation is [touchLastAuthorized] — the sweep it was written
+ * for is the TODO below.
  *
  * `findByClientId()` serves the hot-path `/authorize` lookup. Richer analysis
  * queries belong to Stage 2 and are not added pre-emptively.
@@ -84,19 +87,37 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
       ),
     )
     registrations.createIndex(Indexes.ascending(DynamicClientRegistrationDboFields.registeredAt))
+    // Unique, so that the dedup in [DynamicClientStore.register] holds under concurrency: the
+    // lookup and the insert are two statements, and two registrations of one client arriving
+    // together both miss the lookup. The index is what refuses the second insert; [create] turns
+    // that refusal into a `null` the caller re-reads by fingerprint.
+    //
     // Partial because most rows predate the dedup change and carry no fingerprint at all; indexing
-    // them would say nothing and the lookup never asks for them.
+    // them would say nothing and the lookup never asks for them. The filter is also what
+    // `DcrFingerprintUniqueness` writes into: a row it unsets drops out of the index, keeping its
+    // id and the grants held under it.
     registrations.createIndex(
       Indexes.ascending(
         DynamicClientRegistrationDboFields.registeredForPodId,
         DynamicClientRegistrationDboFields.fingerprint,
       ),
-      IndexOptions().partialFilterExpression(
-        Filters.exists(DynamicClientRegistrationDboFields.fingerprint, true),
-      ),
+      IndexOptions()
+        .unique(true)
+        .partialFilterExpression(
+          Filters.exists(DynamicClientRegistrationDboFields.fingerprint, true),
+        ),
     )
   }
 
+  /**
+   * Inserts a registration, or answers `null` when this pod already holds one under the same
+   * [fingerprint].
+   *
+   * The `null` is the unique index speaking, and it is the second half of the dedup: the lookup in
+   * [DynamicClientStore.register] runs before this call, so two registrations of one client
+   * arriving together both find nothing and both come here. Whoever loses re-reads by fingerprint
+   * and returns the winner's id.
+   */
   internal fun create(
     clientId: String,
     registeredForPodId: ObjectId,
@@ -114,7 +135,7 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
     remoteAddr: String? = null,
     userAgent: String? = null,
     fingerprint: String? = null,
-  ): DynamicClientRegistrationDbo {
+  ): DynamicClientRegistrationDbo? {
     // The id is minted here rather than read off the write: `datastore.save()` wrote the generated
     // `_id` back into the instance it was handed and `insertOne` does not, so a caller reading it
     // off the returned row would get `null`.
@@ -138,8 +159,15 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
       userAgent = userAgent,
       fingerprint = fingerprint,
     )
-    registrations.insertOne(dbo.toDocument())
-    return dbo
+    return try {
+      registrations.insertOne(dbo.toDocument())
+      dbo
+    } catch (e: MongoWriteException) {
+      // `clientId` is 18 random bytes, so the only unique index a duplicate can be hitting is the
+      // fingerprint one — the same reasoning `OAuthSigningKeyDao.createInitial` states for `_id`.
+      if (ErrorCategory.fromErrorCode(e.error.code) != ErrorCategory.DUPLICATE_KEY) throw e
+      null
+    }
   }
 
   /**
@@ -161,8 +189,8 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
     ).modifiedCount > 0L
 
   /**
-   * Pod-scoped fingerprint lookup. Returns the most recent matching row so callers can
-   * reuse a previously-issued clientId on re-registration.
+   * Pod-scoped fingerprint lookup, so callers can reuse a previously-issued clientId on
+   * re-registration.
    */
   internal fun findByFingerprint(podId: ObjectId, fingerprint: String): DynamicClientRegistrationDbo? =
     findNewest(
@@ -196,9 +224,10 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
   /**
    * The newest row matching [filter].
    *
-   * Both lookups sort by `registeredAt` descending and take one, as they did under Morphia. For
-   * `findByClientId` the unique index means there is only ever one row — the sort is what makes
-   * the two read paths answer the same way, and it costs nothing the index does not already give.
+   * Both lookups sort by `registeredAt` descending and take one, as they did under Morphia. Both
+   * filters are unique indexes now, so there is only ever one row to find — the sort is what still
+   * answers deterministically on a pod whose duplicates `DcrFingerprintUniqueness` failed to
+   * clear, and it costs nothing the index does not already give.
    */
   private fun findNewest(filter: Bson): DynamicClientRegistrationDbo? =
     registrations.find(filter)
