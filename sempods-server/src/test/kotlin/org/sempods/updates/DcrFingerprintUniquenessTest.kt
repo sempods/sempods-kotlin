@@ -41,7 +41,8 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
   fun `a duplicate group keeps every row, and only the newest keeps the fingerprint`() {
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
-    // The index the old build created. Non-unique, so it is the one the new options conflict with.
+    // The index the old build created, under MongoDB's default name — the predecessor the update
+    // has to clear away once its own, differently-named one stands.
     registrations.createIndex(
       Indexes.ascending(POD_FIELD, FINGERPRINT_FIELD),
       IndexOptions().partialFilterExpression(Filters.exists(FINGERPRINT_FIELD, true)),
@@ -80,10 +81,10 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
   @Test
   fun `a second run leaves the unique index it built in place`() {
     // Nothing records that an update ran, so every entry runs on every boot — including the boot
-    // after the one that finished the work, and including a boot running beside a replica that is
-    // already serving. The drop is therefore driven by the conflict `createIndex` raises and never
-    // by a name read earlier: a second run that dropped what the first built would leave the other
-    // replica accepting the duplicate registrations this exists to refuse.
+    // after the one that finished the work. The second run finds its own index already standing and
+    // no predecessor left to clear, and must leave both facts alone: dropping what the first run
+    // built would leave a replica already serving accepting the duplicate registrations this
+    // exists to refuse.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.row("dyn:older", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
@@ -102,10 +103,9 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `an index built while this update was already running is kept, not dropped`() {
-    // The concurrent boot, played out: this replica reads a collection whose index is the old
-    // non-unique one, another replica replaces it, and only then does this one get to its own
-    // create. `DcrFingerprintIndex.replaceOn` asks MongoDB rather than a remembered name, so the
-    // create simply succeeds against the index that is now there.
+    // The concurrent boot, played out: another replica finishes the whole replacement before this
+    // one starts. `createOn` then asks for exactly the index that is already standing — same name,
+    // same options — which MongoDB answers as a no-op, and there is no predecessor left to clear.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.createIndex(
@@ -191,12 +191,12 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `a replica that finished first keeps its index, and this one does not report a failure`() {
-    // The interleaving being refused does not rule out: both replicas are told 85 before either
-    // drops, so the second one acts on a refusal that is already stale. Dropping by key pattern
-    // would take the unique index the first replica built — MongoDB derives both names from the
-    // same key pattern, so by that handle they are one thing — and the gap that opens is not
-    // self-correcting: two `/register` calls landing in it both insert and both return an id, and
-    // the sweep unsets one row's fingerprint while the id it handed out keeps its own grants.
+    // The interleaving a name is what closes: this replica reads the predecessor, the other one
+    // finishes the whole replacement, and only then does this one drop. By key pattern the old
+    // index and the new one are one handle, so that drop would take the constraint the other
+    // replica just built — and the gap it opens is not self-correcting: two `/register` calls
+    // landing in it both insert and both return an id, and the sweep unsets one row's fingerprint
+    // while the id it handed out keeps its own grants. By name the drop finds nothing instead.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.createIndex(

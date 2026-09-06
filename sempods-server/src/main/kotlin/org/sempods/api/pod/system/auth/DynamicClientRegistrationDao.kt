@@ -60,13 +60,13 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
   private val registrations = db.getCollection(collectionName)
 
   init {
-    // The five indexes `@Indexes` declared, with the same options — measured against the running
-    // database, which carries `registeredForPodId_1_clientId_1` (unique),
-    // `softwareId_1_registeredAt_1`, `registeredForPodId_1_registeredAt_1`, `registeredAt_1` and
-    // `registeredForPodId_1_fingerprint_1` (partial on `fingerprint` existing). `createIndex`
-    // throws `IndexOptionsConflict` against an existing index whose options differ, and that
-    // failure lands at boot rather than at the first query, so the partial filter is reproduced
-    // exactly rather than equivalently.
+    // Four of the five indexes `@Indexes` declared, with the same options — measured against the
+    // running database, which carries `registeredForPodId_1_clientId_1` (unique),
+    // `softwareId_1_registeredAt_1`, `registeredForPodId_1_registeredAt_1` and `registeredAt_1`.
+    // `createIndex` throws `IndexOptionsConflict` against an existing index whose options differ,
+    // and that failure lands at boot rather than at the first query, so each is reproduced exactly
+    // rather than equivalently. The fifth is the fingerprint one below, which is the one this
+    // build changed.
     registrations.createIndex(
       Indexes.ascending(
         DynamicClientRegistrationDboFields.registeredForPodId,

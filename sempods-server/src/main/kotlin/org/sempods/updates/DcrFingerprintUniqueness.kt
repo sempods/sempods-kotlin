@@ -22,10 +22,10 @@ import java.time.Instant
  *
  * Two things to do, and the first one asks whether the second is needed:
  *
- * 1. **Build the index**, through [DcrFingerprintIndex.replaceOn], which drops the predecessor
- *    holding the key pattern only when `createIndex` has just refused to sit beside it. That
- *    method's KDoc carries why the drop is driven by the conflict rather than by a prior read, and
- *    what a concurrent boot is still exposed to.
+ * 1. **Build the index**, through [DcrFingerprintIndex.replaceOn], which builds it beside the
+ *    predecessor and clears that away afterwards. The order is the point and its KDoc carries why:
+ *    the index has a name of its own, so the constraint is in place before anything is dropped and
+ *    a second replica cannot drop what the first has just built.
  * 2. **Retire the rows sharing a fingerprint**, where the build says there are some. They exist
  *    because the dedup was a lookup and not a constraint: two registrations of one client arriving
  *    together both missed and both inserted. All but the newest of each group lose their
