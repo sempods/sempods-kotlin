@@ -77,11 +77,18 @@ as a description, and a reader has no way to tell it apart.
   reader who needs the mechanism has the RFC; one who does not is skipping the paragraph.
 - **Say what the thing is**, not what it is not, and drop the rhetorical shape. `Correct the
   pod-connect flow: SOLL → IST` — not `Describe the flow as what it does, not as what it still
-  needs`. Holds for headings, sentences and commit subjects alike.
+  needs`. Holds for headings, sentences and commit subjects alike. What it targets is negation used
+  as rhetoric; a real prohibition stays as it is, because the `never` in an invariant and the
+  `MUST NOT` it enforces are already the shortest correct wording.
 - **No history, no decision log**, no "this used to be X" — that is what the commit message is for.
   The one exception is a rationale a future reader needs in order not to undo it: *why the HTTP
   client is OkHttp* (its `Dns` hook is where SSRF resolve-and-pin lives; the JDK client offers
   none) belongs in the document. *Which pull request changed it* does not.
+- **A change rewrites the paragraph, it does not append to it.** Where a statement stops being
+  true, replace the prose that carried it — and the comment, which rules 4 and 5 bind the same way.
+  Writing the correction after it — `X. And since Y, also Z.` — leaves the stale half as the first
+  thing a reader meets and the current rule as something they assemble. This is the one a review
+  catches late, because each added clause is correct on its own.
 
 **4. Logic that follows the standard needs no documentation at all.** Document the deviation, not
 the norm. A Guice module bound the ordinary way, a DAO that reads and writes the ordinary document
