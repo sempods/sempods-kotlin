@@ -35,6 +35,10 @@ object DidWeb {
    * segment, so an encoded one would come back as something other than what was minted, and the
    * identifier would cover a subtree nobody named. A caller needing a character outside this set
    * needs a different segment, not an escape.
+   *
+   * `.` and `..` match this set and are refused separately, in every one of the three places a
+   * segment is read: they are instructions about a path rather than parts of one, so a prefix built
+   * from them names no location and covers addresses that arrive outside it.
    */
   val SEGMENT_CHARS = Regex("^[A-Za-z0-9._-]+$")
 
@@ -56,8 +60,13 @@ object DidWeb {
     fun covers(uri: URI): Boolean {
       val uriHost = uri.host?.trim()?.lowercase() ?: return false
       if (uriHost != host || normalizedPort(uri) != port) return false
-      if (pathPrefix == "/") return true
       val path = uri.path.orEmpty()
+      // A `.` or `..` is not a path segment, it is an instruction about one, and matching on it
+      // would answer for a destination that is not the one asked about: `/mcp/../evil` starts with
+      // `/mcp/` and arrives at `/evil`, outside the subtree the identifier names. Refused rather
+      // than normalised, because what a client registers is an address and no address needs one.
+      if (path.split('/').any { it == "." || it == ".." }) return false
+      if (pathPrefix == "/") return true
       return path == pathPrefix || path.startsWith("$pathPrefix/")
     }
   }
@@ -99,8 +108,8 @@ object DidWeb {
       "service base URL must be host-root for a did:web static client (path prefix '$rawPath' is not supported): $baseUrl"
     }
     pathSegments.forEach { segment ->
-      require(SEGMENT_CHARS.matches(segment)) {
-        "did:web path segment must be one or more of A-Z a-z 0-9 . - _ : '$segment'"
+      require(SEGMENT_CHARS.matches(segment) && segment != "." && segment != "..") {
+        "did:web path segment must be one or more of A-Z a-z 0-9 . - _, and not '.' or '..': '$segment'"
       }
     }
 
@@ -121,6 +130,11 @@ object DidWeb {
     val hostUri = runCatching { URI("https://$hostRaw") }.getOrNull() ?: return null
     val host = hostUri.host?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
     val pathSegments = segments.drop(1).map { decode(it).trim().trim('/') }.filter { it.isNotBlank() }
+    // Malformed rather than tolerated: `did:web:example.org:..` names a prefix whose document sits
+    // at `https://example.org/../did.json`, which is not a location — an HTTP client resolves it
+    // somewhere else — and the prefix it claims would cover URIs that arrive outside it. This is
+    // the side a stranger's `client_id` reaches, so it refuses rather than repairs.
+    if (pathSegments.any { it == "." || it == ".." }) return null
     return Target(
       host = host,
       port = normalizedPort(hostUri),

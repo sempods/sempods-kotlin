@@ -70,6 +70,11 @@ at registration and omitted where it is read.
   Comparing host and port alone would let two services sharing a host
   receive each other's codes. `DidWeb.Target.covers()` is the one place
   that answers this, for both the pod and the id-server.
+- **A `.` or `..` is refused, not matched** — in the identifier and in
+  the redirect alike. It is an instruction about a path rather than a
+  segment of one, so `/mcp/../evil` starts with the prefix and arrives
+  outside it, and `did:web:example.org:..` names a prefix whose document
+  is at no location an HTTP client would fetch.
 - No DCR; the app is its own identity.
 - Consent behaves per the `prompt` parameter — see the table under
   §"The `prompt` parameter", which is where that rule lives.

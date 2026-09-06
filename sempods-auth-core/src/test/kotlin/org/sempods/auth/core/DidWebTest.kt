@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DidWebTest {
@@ -64,6 +65,31 @@ class DidWebTest {
     assertEquals("did:web:mcp.sempods.org:a-b_c.d:9", clientId)
     assertTrue(ClientId.isValid(clientId))
     assertEquals("/a-b_c.d/9", assertNotNull(DidWeb.targetOf(clientId)).pathPrefix)
+  }
+
+  @Test
+  fun `a dot segment is refused wherever a segment is read`() {
+    // `.` and `..` pass the character set and are still not path segments — they are instructions
+    // about one. A prefix built from them names no location (`https://example.org/../did.json` is
+    // resolved somewhere else by every HTTP client) and would cover addresses that arrive outside
+    // it, which is the half that matters: `targetOf` reads a `client_id` a stranger presented.
+    listOf(".", "..").forEach { dots ->
+      assertFailsWith<IllegalArgumentException>("segment '$dots'") {
+        DidWeb.clientId("https://mcp.sempods.org", listOf(dots))
+      }
+      assertNull(DidWeb.targetOf("did:web:mcp.sempods.org:$dots"), "identifier with '$dots'")
+      assertNull(DidWeb.targetOf("did:web:mcp.sempods.org:mcp:$dots"))
+    }
+
+    // And the redirect side, which a well-formed identifier does not protect on its own: the path
+    // starts with the prefix and arrives somewhere else.
+    val target = assertNotNull(DidWeb.targetOf("did:web:mcp.sempods.org:mcp"))
+    assertTrue(target.covers(URI("https://mcp.sempods.org/mcp/cb")))
+    assertFalse(
+      target.covers(URI("https://mcp.sempods.org/mcp/../evil")),
+      "starts with the prefix, arrives at /evil",
+    )
+    assertFalse(target.covers(URI("https://mcp.sempods.org/mcp/./cb")))
   }
 
   @Test
