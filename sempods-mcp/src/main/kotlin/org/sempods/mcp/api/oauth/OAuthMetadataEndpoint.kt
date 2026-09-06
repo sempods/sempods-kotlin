@@ -82,8 +82,8 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
   //
   // The two locations differ, and the split is the did:web read algorithm's: the colons become
   // slashes, `/.well-known` is inserted **only** when that leaves no path, and `/did.json` is
-  // appended. So the host-only identifier resolves to `/.well-known/did.json` and a path-scoped
-  // one to `/<profile>/did.json`.
+  // appended. So the host-only identifier resolves to `/.well-known/did.json`, and a named
+  // profile's — scoped to its callback — to that callback plus `/did.json`.
   fun didDocument(profile: String): String =
     objectMapper.writeValueAsString(DidWeb.document(PodClientIdentity.didWebClientId(base, profile)))
 
@@ -92,7 +92,7 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
     get("/.well-known/did.json") {
       call.respondText(didDocument(PodKey.DEFAULT_PROFILE), ContentType.Application.Json)
     }
-    get("/{profile}/did.json") {
+    get("${PodClientIdentity.CALLBACK_PATH}/{profile}/did.json") {
       call.respondForProfile { didDocument(it) }
     }
 

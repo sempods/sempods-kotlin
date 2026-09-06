@@ -57,13 +57,16 @@ class OAuthMetadataEndpointTest {
     // pods this document exists for.
     application { oauthMetadataEndpoint(config, mapper) }
 
-    val resp = client.get("/cron-agent/did.json")
+    val resp = client.get("/_system/ui/pods/callback/cron-agent/did.json")
     assertEquals(HttpStatusCode.OK, resp.status)
-    assertEquals("did:web:mcp.test:cron-agent", mapper.readTree(resp.bodyAsText())["id"].asText())
+    assertEquals(
+      "did:web:mcp.test:_system:ui:pods:callback:cron-agent",
+      mapper.readTree(resp.bodyAsText())["id"].asText(),
+    )
 
     assertEquals(
       HttpStatusCode.NotFound,
-      client.get("/_system/did.json").status,
+      client.get("/_system/ui/pods/callback/mcp/did.json").status,
       "a reserved segment is not a profile here either",
     )
   }

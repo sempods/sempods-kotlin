@@ -46,8 +46,9 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
 - **Canonical key** for registry / token vault is `(user, profile, pod)`, with an implicit
   default profile from day one. The pod-side client identity is not in that key but follows the
   profile all the same: `pods/PodClientIdentity` gives a named profile its own callback
-  (`…/<profile>/_system/ui/pods/callback`), its own client name and its own
-  `did:web:<mcp-host>:<profile>`, so a pod that dedups by fingerprint arrives at a different
+  (`…/_system/ui/pods/callback/<profile>` — below the parent, because the session cookie is scoped
+  to `/_system/ui` and a browser sends it nowhere else), its own client name and its own `did:web`
+  identifier scoped to that callback, so a pod that dedups by fingerprint arrives at a different
   `client_id` and holds separate grants under it. The default profile keeps what it registered
   before, and a named-profile connection made before the fork keeps its shared `client_id` and its
   callback until the dashboard's *Separate identity* re-registers it.
@@ -145,12 +146,13 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
   — the AS endpoints are derived from the issuer (`…/authorize`, `…/token`), the service presents a
   **static `did:web` client** instead of registering: `did:web:<mcp-host>` for the default profile
-  and `did:web:<mcp-host>:<profile>` for a named one, which is how a profile is a separate client
-  on the path that has no registration to vary. What the pod makes of that identifier is the pod's
+  and, for a named one, an identifier scoped to that profile's callback, which is how a profile is a
+  separate client on the path that has no registration to vary. What the pod makes of that identifier is the pod's
   own business, and this fallback is for pods we did not write: a sempods pod matches the origin
   and fetches nothing, while a third party following the did:web method may resolve the document —
-  at `/.well-known/did.json` for the host-only identifier and `/<profile>/did.json` for a named
-  profile's, which is where the method's read algorithm looks. The service serves both. No JWKS means the pod
+  at `/.well-known/did.json` for the host-only identifier and at the profile's own callback plus
+  `/did.json` for a named one, which is where the method's read algorithm looks. The service serves
+  both. No JWKS means the pod
   token's subject is trusted via the direct TLS token (`subject_verified: false`). The convention is
   taken **only on a genuine 404** for the AS metadata — a transient failure propagates rather than
   silently downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system

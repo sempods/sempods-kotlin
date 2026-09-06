@@ -187,12 +187,17 @@ inside its own JSON-RPC stream (see
 
 **One redirect URI per profile**
 ([`PodClientIdentity`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/pods/PodClientIdentity.kt)):
-the default profile keeps `…/_system/ui/pods/callback` and a named one is
-`…/<profile>/_system/ui/pods/callback`. That is what gives a profile a client identity of its own at
-the pod, on both registration paths at once — a sempods pod dedups DCR on (client name,
-`User-Agent`, redirect URIs), and a `did:web` identifier covers a path prefix, so a named profile
-presents `did:web:<mcp-host>:<profile>` where a pod offers no DCR. The profile also goes into the
-client name, or the pod's consent screen lists two entries that look alike.
+the default profile keeps `…/_system/ui/pods/callback` and a named one is that address plus its own
+segment. That is what gives a profile a client identity of its own at the pod, on both registration
+paths at once — a sempods pod dedups DCR on (client name, `User-Agent`, redirect URIs), and a
+`did:web` identifier covers a path prefix, so a named profile presents an identifier scoped to its
+callback where a pod offers no DCR. The profile also goes into the client name, or the pod's consent
+screen lists two entries that look alike.
+
+The segment sits *below* the callback rather than at the service root, and that is forced: the web
+session is a cookie scoped to `/_system/ui`, and RFC 6265 sends it nowhere else — a callback outside
+that path arrives with no session, and the connect ends at the sign-in screen instead of at the
+token exchange.
 
 It has to fork, because permissions are the pod's and not this service's:
 
@@ -313,9 +318,9 @@ service sends the profile's own callback:
    hold separate bearers and reach separate connection bundles. The
    **pod-side client identity** is isolated by the redirect URI, which is
    the fingerprint input this service can give meaning to — a named profile
-   registers under `…/<profile>/_system/ui/pods/callback`, so a pod that
-   dedups arrives at a different `client_id`, and a pod offering no DCR is
-   shown `did:web:<mcp-host>:<profile>`. Grants are keyed
+   registers under its own callback segment, so a pod that dedups arrives at
+   a different `client_id`, and a pod offering no DCR is shown a `did:web`
+   identifier scoped to that callback. Grants are keyed
    `(pod, client_id, WebID)`, so the profile and the WebID now separate
    different things there: which client, and which person. See [connecting a
    pod](#connecting-a-pod-oauth) for what a connection made before the fork

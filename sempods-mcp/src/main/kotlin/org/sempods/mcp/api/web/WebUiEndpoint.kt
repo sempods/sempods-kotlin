@@ -384,10 +384,10 @@ fun Application.webUiEndpoint(
     // --- Pod redirects here with the authorization code ---
     //
     // Two routes, one handler: a connect started in a named profile is registered at
-    // `…/<profile>/_system/ui/pods/callback` and comes back there, while a connection made before
-    // profiles had their own identity is still pinned to the service-wide address and comes back
-    // here. Which one a flow belongs to is not read off the path — [PodConnectStateStore.Pending]
-    // holds it, and `arrivedAt` is only checked against it.
+    // `…/_system/ui/pods/callback/<profile>` and comes back there, while a connection made before
+    // profiles had their own identity is still pinned to the parent address and comes back here.
+    // Which one a flow belongs to is not read off the path — [PodConnectStateStore.Pending] holds
+    // it, and `arrivedAt` is only checked against it.
     suspend fun ApplicationCall.completePodConnect(arrivedAt: String) {
       val session = webSession.read(this)
         ?: return respondRedirect("$base/_system/ui/login")
@@ -480,9 +480,11 @@ fun Application.webUiEndpoint(
     }
 
     // A named profile's own callback — the fork that gives it a client identity of its own at the
-    // pod. Reserved segments answer 404 here as everywhere else, so nothing can register a
-    // redirect URI under a name that is really a route.
-    get("/{profile}${PodClientIdentity.CALLBACK_PATH}") {
+    // pod. Below the parent path rather than at the service root, because the session cookie is
+    // scoped to `/_system/ui` and a browser sends it nowhere else ([PodClientIdentity]). Reserved
+    // segments answer 404 here as everywhere else, so nothing can register a redirect URI under a
+    // name that is really a route.
+    get("${PodClientIdentity.CALLBACK_PATH}/{profile}") {
       val profile = call.resolveProfileOr404() ?: return@get
       call.completePodConnect(PodClientIdentity.callbackUri(base, profile))
     }

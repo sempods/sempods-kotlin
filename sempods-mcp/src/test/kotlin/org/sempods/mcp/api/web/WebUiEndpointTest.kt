@@ -497,13 +497,13 @@ class WebUiEndpointTest {
 
       assertEquals("dyn:cron", authorize.parameters["client_id"])
       assertEquals(
-        "$BASE/cron-agent/_system/ui/pods/callback",
+        "$BASE/_system/ui/pods/callback/cron-agent",
         authorize.parameters["redirect_uri"],
         "the profile's own callback is what forks the pod's dedup: $authorize",
       )
       val registration = pod.registrationRequest()
       assertTrue("\"sempods-mcp (cron-agent)\"" in registration, "the profile belongs in the client name: $registration")
-      assertTrue("$BASE/cron-agent/_system/ui/pods/callback" in registration, registration)
+      assertTrue("$BASE/_system/ui/pods/callback/cron-agent" in registration, registration)
     }
   }
 
@@ -535,7 +535,7 @@ class WebUiEndpointTest {
     ProfileDao(db!!).create(user, "cron-agent")
     withSimulatedPod(registersAs = "unused", publishesAsMetadata = false) { _, podBase, _ ->
       val named = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
-      assertEquals("did:web:mcp.test:cron-agent", named.parameters["client_id"], "$named")
+      assertEquals("did:web:mcp.test:_system:ui:pods:callback:cron-agent", named.parameters["client_id"], "$named")
 
       val default = Url(connect(tokenIssuer, user, podBase))
       assertEquals("did:web:mcp.test", default.parameters["client_id"], "$default")
@@ -618,7 +618,7 @@ class WebUiEndpointTest {
           tokenEndpoint = "https://sempods.org/t", registrationEndpoint = null, jwksUri = null,
         ),
         podClientId = "c", codeVerifier = "v",
-        redirectUri = "$BASE/cron-agent/_system/ui/pods/callback",
+        redirectUri = "$BASE/_system/ui/pods/callback/cron-agent",
         expiresAt = expiresAt, returnTo = null,
       )
     }

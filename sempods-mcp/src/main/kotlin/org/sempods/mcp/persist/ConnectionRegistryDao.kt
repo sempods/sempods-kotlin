@@ -32,9 +32,9 @@ data class PodConnection(
    * presenting this address again.
    *
    * Stored rather than derived from [profile], because the two can differ: a named profile
-   * registers under `…/<profile>/_system/ui/pods/callback`, while a connection made while every
-   * profile shared one client is pinned to the service-wide `…/_system/ui/pods/callback`, which is
-   * what null means. Such a connection keeps the identity it has until the person separates it —
+   * registers under `…/_system/ui/pods/callback/<profile>`, while a connection made while every
+   * profile shared one client is pinned to the parent `…/_system/ui/pods/callback`, which is what
+   * null means. Such a connection keeps the identity it has until the person separates it —
    * the dashboard offers that, and it costs one consent at the pod.
    */
   val podRedirectUri: String? = null,
