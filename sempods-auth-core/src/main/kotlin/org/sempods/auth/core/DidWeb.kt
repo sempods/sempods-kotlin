@@ -23,6 +23,21 @@ object DidWeb {
 
   const val PREFIX = "did:web:"
 
+  /**
+   * What a path segment handed to [clientId] may contain: the DID syntax's `idchar` less
+   * `pct-encoded`, which is `ALPHA / DIGIT / "." / "-" / "_"`.
+   *
+   * Narrow because both wider readings are wrong. Anything outside plain ASCII — an accent, a
+   * newline — is not a DID at all, and this repository would go on to refuse it as a `client_id`
+   * (`ClientId.isValid` is RFC 6749's `*VSCHAR`), so minting it produces an identity that cannot
+   * authorize anywhere: a caller learns that at `/authorize` instead of here. And `pct-encoded`,
+   * which the DID grammar does allow, is left out on purpose: [targetOf] percent-decodes every
+   * segment, so an encoded one would come back as something other than what was minted, and the
+   * identifier would cover a subtree nobody named. A caller needing a character outside this set
+   * needs a different segment, not an escape.
+   */
+  val SEGMENT_CHARS = Regex("^[A-Za-z0-9._-]+$")
+
   /** What a `did:web` identifier permits: an origin, and optionally a path prefix below it. */
   data class Target(val host: String, val port: Int, val pathPrefix: String) {
 
@@ -64,8 +79,7 @@ object DidWeb {
    * permits it.
    *
    * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
-   *   segment is blank or carries `/`, `:` or `%` — the three characters that would not survive
-   *   the round trip through [targetOf].
+   *   segment is not [SEGMENT_CHARS].
    */
   fun clientId(baseUrl: String, pathSegments: List<String> = emptyList()): String {
     val uri = runCatching { URI(baseUrl.trimEnd('/')) }.getOrNull()
@@ -80,8 +94,8 @@ object DidWeb {
       "service base URL must be host-root for a did:web static client (path prefix '$rawPath' is not supported): $baseUrl"
     }
     pathSegments.forEach { segment ->
-      require(segment.isNotBlank() && segment.none { it == '/' || it == ':' || it == '%' }) {
-        "did:web path segment must be non-blank and free of '/', ':' and '%': '$segment'"
+      require(SEGMENT_CHARS.matches(segment)) {
+        "did:web path segment must be one or more of A-Z a-z 0-9 . - _ : '$segment'"
       }
     }
 
