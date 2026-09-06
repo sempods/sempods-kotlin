@@ -3,10 +3,13 @@ package org.sempods.updates
 import com.google.inject.Inject
 import com.mongodb.client.MongoCollection
 import com.mongodb.client.MongoDatabase
+import io.mockk.every
+import io.mockk.spyk
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import org.bson.Document
+import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
@@ -116,9 +119,49 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
     )
   }
 
-  private fun runUpdate(collectionName: String) {
+  @Test
+  fun `a duplicate written while the sweep was running is swept too`() {
+    // The rolling upgrade: the replica still on the old build serves `/register` without the
+    // constraint the whole time this runs, so it can land a duplicate after the sweep has passed
+    // that group and before the index is built. MongoDB refuses the build with E11000, and
+    // `SempodsUpdater` would log that and carry on — leaving the deployment with no constraint at
+    // all. The spy writes the row exactly where the other replica would.
+    val collectionName = ownStore("dcr")
+    val registrations = db.getCollection(collectionName)
+    registrations.row("dyn:first", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
+
+    var wrote = false
+    val racing = spyk(registrations)
+    every { racing.createIndex(any<Bson>(), any<IndexOptions>()) } answers {
+      if (!wrote) {
+        wrote = true
+        // Later than the row the sweep saw, because it is written later — which is what makes it
+        // the one the next sweep keeps.
+        registrations.row("dyn:written-mid-sweep", fingerprint = "fp-1", registeredAt = REGISTERED_AT.plusSeconds(60))
+      }
+      callOriginal()
+    }
+    val database = spyk(db)
+    every { database.getCollection(collectionName) } returns racing
+
+    runUpdate(collectionName, database)
+
+    assertEquals(
+      true,
+      assertNotNull(registrations.fingerprintIndex(), "the constraint must be established").getBoolean("unique"),
+    )
+    assertEquals(2, registrations.countDocuments(), "and the late row keeps its client_id")
+    assertNull(registrations.fingerprintOf("dyn:first"), "the newer of the two is the one that keeps it")
+    assertEquals("fp-1", registrations.fingerprintOf("dyn:written-mid-sweep"))
+  }
+
+  private fun runUpdate(collectionName: String, database: MongoDatabase = db) {
     val update = DcrFingerprintUniqueness(collectionName)
-    injector.injectMembers(update)
+    // Reflection rather than `injectMembers`, so a test can hand it a database of its own —
+    // `SempodsUpdaterTest` reaches the updater's own list the same way.
+    DcrFingerprintUniqueness::class.java.getDeclaredField("db")
+      .apply { isAccessible = true }
+      .set(update, database)
     update.run()
   }
 

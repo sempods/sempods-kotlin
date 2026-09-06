@@ -1,6 +1,8 @@
 package org.sempods.updates
 
 import com.google.inject.Inject
+import com.mongodb.DuplicateKeyException
+import com.mongodb.client.MongoCollection
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Accumulators
 import com.mongodb.client.model.Aggregates
@@ -59,9 +61,45 @@ class DcrFingerprintUniqueness(
    */
   override val blocking = true
 
+  /**
+   * Sweeps and builds, and sweeps again where a registration written in between shares a
+   * fingerprint.
+   *
+   * The two steps are not one statement, and during a rolling upgrade the replica still on the old
+   * build is serving `/register` without the constraint the whole time — so a client can land a
+   * duplicate after the sweep has passed its group and before the index is built. MongoDB then
+   * refuses the build with `E11000`, and `SempodsUpdater` logs that and carries on: the deployment
+   * would come up with no constraint at all and nothing to say so but one line.
+   *
+   * Bounded rather than open-ended, because the writer is another process and no number of passes
+   * can promise it stops. Three is enough to make losing all of them a coincidence, and the last
+   * failure is raised rather than swallowed — a boot that could not establish the constraint says
+   * so, and the next one sweeps again.
+   */
   override fun run() {
     val registrations = db.getCollection(collectionName)
+    repeat(ATTEMPTS) { attempt ->
+      retireDuplicateFingerprints(registrations)
+      try {
+        if (DcrFingerprintIndex.replaceOn(registrations)) {
+          logger.info { "[sempods/updates] $name: replaced the non-unique fingerprint index" }
+        }
+        return
+      } catch (e: DuplicateKeyException) {
+        // The shape a failed *index build* takes. An `insertOne` that hits the same constraint
+        // arrives as `MongoWriteException` instead, which is what the DAO reads — one collection,
+        // two exception types, because they come from two commands.
+        if (attempt == ATTEMPTS - 1) throw e
+        logger.info {
+          "[sempods/updates] $name: a registration written since the sweep shares a fingerprint " +
+            "— sweeping again (attempt ${attempt + 2} of $ATTEMPTS)"
+        }
+      }
+    }
+  }
 
+  /** Takes every duplicate but the newest of each group out of the fingerprint lookup. */
+  private fun retireDuplicateFingerprints(registrations: MongoCollection<Document>) {
     val groups = registrations.aggregate(
       listOf(
         Aggregates.match(Filters.exists(DynamicClientRegistrationDboFields.fingerprint, true)),
@@ -103,15 +141,14 @@ class DcrFingerprintUniqueness(
           "kept their client_id and dropped out of the fingerprint lookup"
       }
     }
-
-    if (DcrFingerprintIndex.replaceOn(registrations)) {
-      logger.info { "[sempods/updates] $name: replaced the non-unique fingerprint index" }
-    }
   }
 
   private companion object {
 
     private val logger = KotlinLogging.logger {}
+
+    /** Sweep-and-build passes before a duplicate written by another process is somebody's problem. */
+    const val ATTEMPTS = 3
 
     /** Field names inside this update's own aggregation output — not part of the stored shape. */
     const val POD = "pod"

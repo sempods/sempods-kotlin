@@ -81,6 +81,11 @@ object DidWeb {
    * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
    *   segment is not [SEGMENT_CHARS].
    */
+  // `@JvmOverloads` for the one-argument form, which this module has published. A Kotlin default
+  // keeps callers compiling and does not keep them running: it replaces the `clientId(String)`
+  // descriptor with `clientId(String, List)`, so a consumer compiled against the released artifact
+  // meets `NoSuchMethodError` on upgrading. The annotation puts the old descriptor back.
+  @JvmOverloads
   fun clientId(baseUrl: String, pathSegments: List<String> = emptyList()): String {
     val uri = runCatching { URI(baseUrl.trimEnd('/')) }.getOrNull()
       ?: throw IllegalArgumentException("service base URL is not a URL: $baseUrl")
