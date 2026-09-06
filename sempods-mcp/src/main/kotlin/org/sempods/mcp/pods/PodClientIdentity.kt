@@ -2,6 +2,7 @@ package org.sempods.mcp.pods
 
 import org.sempods.auth.core.DidWeb
 import org.sempods.mcp.persist.PodKey
+import org.sempods.mcp.persist.ProfilePath
 
 /**
  * What one profile presents to a pod: the address a pod redirects to, the name its consent screen
@@ -52,6 +53,23 @@ object PodClientIdentity {
   /** Where the pod sends the authorization code for a connect started in [profile]. */
   fun callbackUri(serviceBaseUrl: String, profile: String): String =
     serviceBaseUrl + CALLBACK_PATH + if (isDefault(profile)) "" else "/$profile"
+
+  /**
+   * Which identity a stored callback address is — the inverse of [callbackUri], and the reason
+   * both live here: a connection's identity at a pod is the address its registration is pinned to,
+   * so the name that goes with it has to be read off the same value or the pod's fingerprint
+   * dedups a re-registration to a different client.
+   *
+   * The default profile for the parent address, and for `null` — a connection made while every
+   * profile shared one client. Also for an address this service would not mint today, which a
+   * changed `MCP_BASE_URL` produces: guessing a profile out of it would be worse than treating it
+   * as the shared identity it behaves like.
+   */
+  fun profileOf(serviceBaseUrl: String, callbackUri: String?): String {
+    val named = "${callbackUri(serviceBaseUrl, PodKey.DEFAULT_PROFILE)}/"
+    val segment = callbackUri?.takeIf { it.startsWith(named) }?.removePrefix(named)
+    return segment?.takeIf(ProfilePath::isValidName) ?: PodKey.DEFAULT_PROFILE
+  }
 
   /**
    * What the pod's consent screen calls this client. A named profile carries its own name, or the

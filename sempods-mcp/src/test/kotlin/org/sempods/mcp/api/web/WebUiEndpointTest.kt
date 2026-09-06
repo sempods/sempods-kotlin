@@ -573,6 +573,42 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `re-authorizing a dead legacy connection keeps the shared identity it was registered under`() = testApplication {
+    // The connection most likely to be here, and the one this must not separate. While two
+    // profiles share a client at a pod, a sibling's connect retires this one's refresh-token
+    // family — so it is flagged dead with its registration perfectly alive, and Re-authorize is
+    // the button the dashboard tells the person to press. `reusableClientId` re-registers a dead
+    // `dyn:` connection on purpose, and that costs nothing only while the fingerprint is the one
+    // the live registration holds: presenting the profile's own callback and name instead would
+    // mint a second client_id, drop the pre-checked grants, and do silently what Separate identity
+    // exists to ask about.
+    val user = "https://id.test/e/web-user-dead-legacy"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:shared") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          deadGrantSince = Date(), createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals(
+        "$BASE/_system/ui/pods/callback",
+        authorize.parameters["redirect_uri"],
+        "the address the live registration is pinned to, not this profile's: $authorize",
+      )
+      val registration = pod.registrationRequest()
+      assertTrue("\"sempods-mcp\"" in registration, registration)
+      assertFalse("(cron-agent)" in registration, "the name is half the fingerprint: $registration")
+      assertEquals("dyn:shared", authorize.parameters["client_id"], "so the pod dedups back to it: $authorize")
+    }
+  }
+
+  @Test
   fun `the dashboard offers to separate a profile still sharing the default client`() = testApplication {
     val user = "https://id.test/e/web-user-separate-offer"
     val tokenIssuer = installWebUi()

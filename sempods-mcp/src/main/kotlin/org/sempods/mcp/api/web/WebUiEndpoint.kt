@@ -140,24 +140,33 @@ fun Application.webUiEndpoint(
   ): String {
     val metadata = podOAuthClient.discoverMetadata(podBaseUrl)
     val reused = reusableClientId(existing, metadata)
-    // The address travels with the identity: a `dyn:` registration lists its redirect URI and a
-    // `did:web` identifier covers the subtree the URI lies in, so a client_id presented again has
-    // to be presented at the callback it was registered with — which for a connection still on the
-    // shared client is the service-wide one, not this profile's.
-    val redirectUri = when {
-      reused == null -> PodClientIdentity.callbackUri(base, profile)
-      else -> existing?.podRedirectUri ?: PodClientIdentity.callbackUri(base, PodKey.DEFAULT_PROFILE)
-    }
+    // Which identity this connect presents, and it follows the **connection** rather than the
+    // profile wherever there is one. A first connect presents the profile's own — and the
+    // dashboard's Separate identity is a first connect, which is what makes it the deliberate step
+    // it was meant to be.
+    //
+    // An existing connection presents the identity it was registered under **even where it has to
+    // re-register**. That is what [reusableClientId] promises above: a fresh DCR costs nothing when
+    // the registration is alive, because the fingerprint is stable and the pod hands the same id
+    // back. Reaching for the profile's own here would break that promise on exactly the connection
+    // most likely to need it — while two profiles share a client, a sibling's connect retires this
+    // one's refresh-token family, so it is flagged dead with its registration perfectly alive — and
+    // it would separate the connection silently on the one button a person in that state is told to
+    // press.
+    val identity = existing?.let { PodClientIdentity.profileOf(base, it.podRedirectUri) } ?: profile
+    // The address the identity is pinned to: a `dyn:` registration lists it and a `did:web`
+    // identifier covers the subtree it lies in.
+    val redirectUri = PodClientIdentity.callbackUri(base, identity)
     val podClientId = reused
       ?: metadata.registrationEndpoint?.let {
         podOAuthClient.registerClient(
           metadata,
           redirectUri,
           softwareVersion = SERVICE_VERSION,
-          clientName = PodClientIdentity.clientName(profile),
+          clientName = PodClientIdentity.clientName(identity),
         )
       }
-      ?: PodClientIdentity.didWebClientId(base, profile)
+      ?: PodClientIdentity.didWebClientId(base, identity)
     if (existing != null && existing.podClientId != podClientId) {
       logger.info {
         "pod '${forLog(podBaseUrl)}' no longer knows client_id '${forLog(existing.podClientId)}' " +
@@ -610,7 +619,7 @@ private fun dashboardHtml(
       // one, so the pod holds a single `client_id` for it and the default profile, and one grant
       // set under it. The dashboard says "cron-agent"; the pod does not know the word.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&
-        c.podRedirectUri != PodClientIdentity.callbackUri(base, selectedProfile)
+        PodClientIdentity.profileOf(base, c.podRedirectUri) != selectedProfile
       if (c.scopes.isNotEmpty() || showUnverified || needsReconnect || sharesDefaultClient) {
         append("<div class=\"badges\">")
         for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")
