@@ -44,9 +44,13 @@ import org.sempods.commons.utils.appendEscapedHtml
 
 /**
  * The session-protected management web-UI, bundled under the `/_system/ui` sub-tree (reserved
- * system namespace; everything here requires the web-session cookie). It lets a user connect
- * pods (service → pod OAuth) and see/disconnect their connections — filling the M1 persistence
- * spine (`connections` + `podTokens`). Machine MCP/AS endpoints stay at the root.
+ * system namespace; every route here requires the web-session cookie, which is why the cookie is
+ * scoped to exactly this path). It lets a user connect pods (service → pod OAuth) and
+ * see/disconnect their connections — filling the M1 persistence spine (`connections` +
+ * `podTokens`). Machine MCP/AS endpoints stay at the root, with one exception that has to sit
+ * inside this tree: a named profile's DID document, at its callback plus `/did.json`, is public
+ * and unauthenticated, because the did:web read algorithm derives that address from an identifier
+ * whose subtree the session cookie also decides (`PodClientIdentity`).
  */
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.web")
 

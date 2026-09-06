@@ -26,18 +26,6 @@ data class PodConnection(
   val issuer: String,
   /** The client_id the service registered at the pod via DCR. */
   val podClientId: String,
-  /**
-   * The redirect URI [podClientId] is pinned to at the pod — a `dyn:` registration lists it, and a
-   * `did:web` identifier covers the subtree it lies in, so presenting that id again means
-   * presenting this address again.
-   *
-   * Stored rather than derived from [profile], because the two can differ: a named profile
-   * registers under `…/_system/ui/pods/callback/<profile>`, while a connection made while every
-   * profile shared one client is pinned to the parent `…/_system/ui/pods/callback`, which is what
-   * null means. Such a connection keeps the identity it has until the person separates it —
-   * the dashboard offers that, and it costs one consent at the pod.
-   */
-  val podRedirectUri: String? = null,
   /** Feature scopes granted to the service by the pod (e.g. "public-read"). */
   val scopes: Set<String>,
   /**
@@ -66,6 +54,23 @@ data class PodConnection(
   val deadGrantSince: Date? = null,
   val createdAt: Date,
   val updatedAt: Date,
+  /**
+   * The redirect URI [podClientId] is pinned to at the pod — a `dyn:` registration lists it, and a
+   * `did:web` identifier covers the subtree it lies in, so presenting that id again means
+   * presenting this address again.
+   *
+   * Stored rather than derived from [profile], because the two can differ: a named profile
+   * registers under `…/_system/ui/pods/callback/<profile>`, while a connection made while every
+   * profile shared one client is pinned to the parent `…/_system/ui/pods/callback`, which is what
+   * null means. Such a connection keeps the identity it has until the person separates it —
+   * the dashboard offers that, and it costs one consent at the pod.
+   *
+   * Last in the list, after the two non-nullable dates, because this module is published: a
+   * parameter added in the middle of a data class shifts every `componentN()` below it, so a
+   * consumer compiled against the released artifact would destructure the wrong field rather than
+   * fail to link.
+   */
+  val podRedirectUri: String? = null,
 ) {
   /** True when the pod authorized a different WebID than the service identity ([user]). */
   val foreignIdentity: Boolean get() = podSubject != null && podSubject != user

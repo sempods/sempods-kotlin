@@ -50,7 +50,7 @@ internal object DcrFingerprintIndex {
    * already serving has no unique index. Closing that needs a lock across boots, which this
    * repository has no mechanism for and does not want one invented for a data change
    * (`AGENTS.md` §"What this repository deliberately does not have"). The residual is self-healing
-   * — a duplicate written in that window is what the next boot's unset pass removes.
+   * — a duplicate written in that window is what the next boot's sweep removes.
    */
   fun replaceOn(registrations: MongoCollection<Document>): Boolean = try {
     createOn(registrations)
@@ -60,7 +60,15 @@ internal object DcrFingerprintIndex {
     // options that are not these. Nothing else here builds one, so it is the non-unique
     // predecessor. Anything else is a real failure and propagates.
     if (e.errorCode != INDEX_OPTIONS_CONFLICT && e.errorCode != INDEX_KEY_SPECS_CONFLICT) throw e
-    registrations.dropIndex(keys)
+    try {
+      registrations.dropIndex(keys)
+    } catch (alreadyGone: MongoCommandException) {
+      // 27 = IndexNotFound: the other replica dropped it between this one's refusal and its drop.
+      // Not a failure — the create below is the point, and it is what both replicas are here for.
+      // Left unhandled it would leave `SempodsUpdater` logging a failed migration at SEVERE on a
+      // boot where the constraint was established, which is the one signal an operator has.
+      if (alreadyGone.errorCode != INDEX_NOT_FOUND) throw alreadyGone
+    }
     createOn(registrations)
     true
   }
@@ -74,4 +82,5 @@ internal object DcrFingerprintIndex {
 
   private const val INDEX_OPTIONS_CONFLICT = 85
   private const val INDEX_KEY_SPECS_CONFLICT = 86
+  private const val INDEX_NOT_FOUND = 27
 }

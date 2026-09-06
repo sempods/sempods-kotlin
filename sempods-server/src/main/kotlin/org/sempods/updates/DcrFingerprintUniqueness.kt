@@ -20,20 +20,21 @@ import java.time.Instant
  * Puts the unique `(registeredForPodId, fingerprint)` index in place on a database that ran the
  * non-unique version.
  *
- * Two things to do, in this order:
+ * Two things to do, and the first one asks whether the second is needed:
  *
- * 1. **Retire the rows sharing a fingerprint.** They exist because the dedup was a lookup and not a
- *    constraint: two registrations of one client arriving together both missed and both inserted.
- *    All but the newest of each group lose their `fingerprint` — not the row, and not the
- *    `client_id`, because the pod's grants are keyed `(pod, client_id, WebID)` and deleting the row
- *    would drop what a person allowed under it. Unsetting the field takes the row out of the
- *    partial index and out of every future lookup, which is what the partial filter was built for.
- * 2. **Build the index**, through [DcrFingerprintIndex.replaceOn], which drops the predecessor
+ * 1. **Build the index**, through [DcrFingerprintIndex.replaceOn], which drops the predecessor
  *    holding the key pattern only when `createIndex` has just refused to sit beside it. That
  *    method's KDoc carries why the drop is driven by the conflict rather than by a prior read, and
  *    what a concurrent boot is still exposed to.
+ * 2. **Retire the rows sharing a fingerprint**, where the build says there are some. They exist
+ *    because the dedup was a lookup and not a constraint: two registrations of one client arriving
+ *    together both missed and both inserted. All but the newest of each group lose their
+ *    `fingerprint` — not the row, and not the `client_id`, because the pod's grants are keyed
+ *    `(pod, client_id, WebID)` and deleting the row would drop what a person allowed under it.
+ *    Unsetting the field takes the row out of the partial index and out of every future lookup,
+ *    which is what the partial filter was built for.
  *
- * Idempotent in both halves: a second run finds no groups and an index that needs no replacing.
+ * Idempotent, and cheap once it has run: a build that succeeds proves there is nothing to sweep.
  *
  * **It must not reach for `DynamicClientRegistrationDao`**, and works the collection directly
  * instead. The DAO builds this same index in its constructor — injecting it here would build it
@@ -62,24 +63,26 @@ class DcrFingerprintUniqueness(
   override val blocking = true
 
   /**
-   * Sweeps and builds, and sweeps again where a registration written in between shares a
-   * fingerprint.
+   * Builds the index, and sweeps only when the build says there is something to sweep.
    *
-   * The two steps are not one statement, and during a rolling upgrade the replica still on the old
-   * build is serving `/register` without the constraint the whole time — so a client can land a
-   * duplicate after the sweep has passed its group and before the index is built. MongoDB then
-   * refuses the build with `E11000`, and `SempodsUpdater` logs that and carries on: the deployment
-   * would come up with no constraint at all and nothing to say so but one line.
+   * **The build is the question, not the sweep.** MongoDB refuses to build a unique index over
+   * duplicate data, so a `createIndex` that succeeds has proved the collection has no duplicates —
+   * and once the index stands, none can be written. Asking that way costs one command on a
+   * database that has already run this, where scanning first would group the whole of the pod
+   * server's second unbounded collection on every boot, before Jetty accepts a request, forever.
+   *
+   * The refusal is also what a rolling upgrade produces: the replica still on the old build serves
+   * `/register` without the constraint the whole time this runs, so it can land a duplicate
+   * between a sweep and the next build. Each refusal sweeps and asks again.
    *
    * Bounded rather than open-ended, because the writer is another process and no number of passes
    * can promise it stops. Three is enough to make losing all of them a coincidence, and the last
    * failure is raised rather than swallowed — a boot that could not establish the constraint says
-   * so, and the next one sweeps again.
+   * so, and the next one tries again.
    */
   override fun run() {
     val registrations = db.getCollection(collectionName)
     repeat(ATTEMPTS) { attempt ->
-      retireDuplicateFingerprints(registrations)
       try {
         if (DcrFingerprintIndex.replaceOn(registrations)) {
           logger.info { "[sempods/updates] $name: replaced the non-unique fingerprint index" }
@@ -90,10 +93,7 @@ class DcrFingerprintUniqueness(
         // arrives as `MongoWriteException` instead, which is what the DAO reads — one collection,
         // two exception types, because they come from two commands.
         if (attempt == ATTEMPTS - 1) throw e
-        logger.info {
-          "[sempods/updates] $name: a registration written since the sweep shares a fingerprint " +
-            "— sweeping again (attempt ${attempt + 2} of $ATTEMPTS)"
-        }
+        retireDuplicateFingerprints(registrations)
       }
     }
   }
@@ -123,10 +123,18 @@ class DcrFingerprintUniqueness(
     var unsetRows = 0L
     var groupCount = 0
     for (group in groups) {
-      // Newest first, which is the row the lookup answered before this index existed — so a client
-      // that re-registers after the update keeps the id it was last handed.
-      val rows = group.getList(ROWS, Document::class.java)
-        .sortedByDescending { it.getInstant(DynamicClientRegistrationDboFields.registeredAt) ?: Instant.EPOCH }
+      // Newest first, so a client that re-registers after the update keeps the id it was last
+      // handed. `_id` breaks the tie, and it is not a formality: these duplicates come from two
+      // inserts racing inside one millisecond, and BSON stores milliseconds — so equal timestamps
+      // are the ordinary case here, not the exotic one. Without a second key the winner is
+      // whatever order the aggregation happened to return, which two replicas sweeping at once
+      // can answer differently, each unsetting the row the other kept and leaving the group with
+      // no fingerprint at all. An ObjectId is monotonic and reads the same everywhere.
+      val rows = group.getList(ROWS, Document::class.java).sortedWith(
+        compareByDescending<Document> {
+          it.getInstant(DynamicClientRegistrationDboFields.registeredAt) ?: Instant.EPOCH
+        }.thenByDescending { it.getObjectId(DynamicClientRegistrationDboFields.id) },
+      )
       val losers = rows.drop(1).map { it.getObjectId(DynamicClientRegistrationDboFields.id) }
       if (losers.isEmpty()) continue
       groupCount++

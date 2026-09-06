@@ -155,6 +155,69 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
     assertEquals("fp-1", registrations.fingerprintOf("dyn:written-mid-sweep"))
   }
 
+  @Test
+  fun `two rows written in the same millisecond retire the same way twice`() {
+    // The ordinary case here, not an exotic one: these duplicates come from two inserts racing
+    // inside one millisecond, and BSON stores milliseconds. Ordering on `registeredAt` alone leaves
+    // the winner to whatever the aggregation returned first, so two replicas sweeping at once can
+    // each unset the row the other kept — and the group ends with no fingerprint at all, which
+    // sends the client off to register a third `client_id` and orphans both grant sets.
+    val first = ownStore("dcr")
+    val second = ownStore("dcr")
+    val tied = listOf(ObjectId(), ObjectId(), ObjectId())
+
+    // Two collections holding the same group, seeded in opposite orders — which is all a second
+    // replica's aggregation has to do differently.
+    tied.forEach { db.getCollection(first).row("dyn:$it", id = it, fingerprint = "fp-1") }
+    tied.reversed().forEach { db.getCollection(second).row("dyn:$it", id = it, fingerprint = "fp-1") }
+
+    runUpdate(first)
+    runUpdate(second)
+
+    val keptFirst = db.getCollection(first).clientIdsHoldingFingerprint()
+    assertEquals(1, keptFirst.size, "exactly one row keeps the fingerprint")
+    assertEquals(
+      keptFirst,
+      db.getCollection(second).clientIdsHoldingFingerprint(),
+      "and it is the same row whatever order the rows came back in",
+    )
+    assertEquals("dyn:${tied.maxOrNull()}", keptFirst.single(), "the tie goes to the highest _id")
+  }
+
+  @Test
+  fun `a drop the other replica got to first is not a failed migration`() {
+    // Both replicas are refused by the old index, both go to drop it, and the other one lands
+    // first. This one's drop then finds nothing — and IndexNotFound left unhandled would leave
+    // `SempodsUpdater` logging a failed migration at SEVERE on a boot where the constraint was
+    // established, which is the one signal `collections.md` tells an operator to read.
+    val collectionName = ownStore("dcr")
+    val registrations = db.getCollection(collectionName)
+    registrations.createIndex(
+      Indexes.ascending(POD_FIELD, FINGERPRINT_FIELD),
+      IndexOptions().partialFilterExpression(Filters.exists(FINGERPRINT_FIELD, true)),
+    )
+    registrations.row("dyn:only", fingerprint = "fp-1")
+
+    val racing = spyk(registrations)
+    every { racing.dropIndex(any<Bson>()) } answers {
+      // The other replica's drop, landing between this one's refusal and its own drop.
+      registrations.dropIndex(DcrFingerprintIndex.keys)
+      callOriginal()
+    }
+    val database = spyk(db)
+    every { database.getCollection(collectionName) } returns racing
+
+    runUpdate(collectionName, database)
+
+    assertEquals(
+      true,
+      assertNotNull(registrations.fingerprintIndex(), "the constraint must be established").getBoolean("unique"),
+    )
+  }
+
+  private fun MongoCollection<Document>.clientIdsHoldingFingerprint(): Set<String> =
+    find(Filters.exists(FINGERPRINT_FIELD, true)).map { it.getString("clientId") }.toSet()
+
   private fun runUpdate(collectionName: String, database: MongoDatabase = db) {
     val update = DcrFingerprintUniqueness(collectionName)
     // Reflection rather than `injectMembers`, so a test can hand it a database of its own —
@@ -170,8 +233,9 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
     podId: ObjectId = this@DcrFingerprintUniquenessTest.podId,
     fingerprint: String? = null,
     registeredAt: Instant = REGISTERED_AT,
+    id: ObjectId = ObjectId(),
   ) {
-    val document = Document("_id", ObjectId())
+    val document = Document("_id", id)
       .append("clientId", clientId)
       .append(POD_FIELD, podId)
       .append("registeredForPodName", "alice")

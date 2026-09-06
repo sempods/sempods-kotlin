@@ -98,13 +98,15 @@ already says whose they are.
 Nothing here versions the stored data or records that a change was applied. What exists is
 `SempodsUpdater`, an eager singleton whose `runUpdates` is called while Guice builds the injector —
 before `SempodsServerStarter` obtains the Jetty server from it. The list of updates it submits is
-**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`, which retires the duplicate
-fingerprints in `oauth.clientRegistrations` and then builds the unique index over them — sweeping
-again, up to three times, where a replica still on the old build wrote another duplicate in
-between. It works that collection directly rather than through `DynamicClientRegistrationDao` — the
-DAO builds the same index in its constructor, so injecting it would build it while the duplicates
-are still there. The index definition lives in one place (`DcrFingerprintIndex`) for the same
-reason: two spellings of it would conflict at every boot.
+**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`. It builds the unique fingerprint
+index on `oauth.clientRegistrations`, and sweeps the duplicate rows out of the way only where the
+build says there are some — MongoDB refuses a unique index over duplicate data, so a build that
+succeeds has already proved there is nothing to sweep, and a boot on a database that has run this
+before costs one command instead of a scan. Up to three passes, because a replica still on the old
+build can write another duplicate in between. It works that collection directly rather than through
+`DynamicClientRegistrationDao` — the DAO builds the same index in its constructor, so injecting it
+would build it while the duplicates are still there. The index definition lives in one place
+(`DcrFingerprintIndex`) for the same reason: two spellings of it would conflict at every boot.
 
 **Two execution modes, and the split is the part that works.** Each update declares `blocking`. A
 blocking one runs synchronously there, so it is finished before the first request is accepted; the
