@@ -65,10 +65,19 @@ data class PodConnection(
    * null means. Such a connection keeps the identity it has until the person separates it —
    * the dashboard offers that, and it costs one consent at the pod.
    *
-   * Last in the list, after the two non-nullable dates, because this module is published: a
-   * parameter added in the middle of a data class shifts every `componentN()` below it, so a
-   * consumer compiled against the released artifact would destructure the wrong field rather than
-   * fail to link.
+   * Last in the list, after the two non-nullable dates. That buys one thing and it is worth being
+   * precise about which: every existing `componentN()` keeps its meaning, so a consumer compiled
+   * against an older artifact fails to link rather than silently destructuring this field where it
+   * asked for the scopes. The primary constructor and `copy` change their descriptors either way —
+   * a data class cannot gain a field without that, and there is no placement that avoids it.
+   *
+   * Which is allowed here, and the reason is not that nobody would notice. This module's promise is
+   * the **embedding contract** — the config and the Guice module, compiled by
+   * `:consumer-probe:mcp` — and `org.sempods.probe.auth.embedSempodsAuth` states the limit for both
+   * services: the wider public surface "was [not] designed as API", and naming it would "turn an
+   * accident into a promise". A persistence row reached through a DAO the module wires itself is
+   * that wider surface, and `../../AGENTS.md` §"Deployment stance" has this module assuming a fresh
+   * setup for a breaking schema change rather than carrying compatibility for one.
    */
   val podRedirectUri: String? = null,
 ) {
