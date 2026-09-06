@@ -87,10 +87,16 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
   fun didDocument(profile: String): String =
     objectMapper.writeValueAsString(DidWeb.document(PodClientIdentity.didWebClientId(base, profile)))
 
+  // The default profile's is a constant, and this is the route a pod fetches on every connect —
+  // built once, as it was before the fork. A named profile's is built per request rather than
+  // memoised: the segment comes from the URL, so a map keyed by it would grow with whatever a
+  // stranger asks for, and the document is two fields.
+  val defaultDidDocument = didDocument(PodKey.DEFAULT_PROFILE)
+
   routing {
     // --- did:web client document (the profile's identity toward pods that skip DCR) ---
     get("/.well-known/did.json") {
-      call.respondText(didDocument(PodKey.DEFAULT_PROFILE), ContentType.Application.Json)
+      call.respondText(defaultDidDocument, ContentType.Application.Json)
     }
     get("${PodClientIdentity.CALLBACK_PATH}/{profile}/did.json") {
       call.respondForProfile { didDocument(it) }

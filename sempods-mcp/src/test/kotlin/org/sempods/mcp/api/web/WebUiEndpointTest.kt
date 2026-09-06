@@ -14,6 +14,7 @@ import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
 import org.sempods.mcp.auth.WebSession
+import org.sempods.mcp.auth.JwtTestSupport
 import org.sempods.mcp.oauth.FakeIdentityProvider
 import org.sempods.mcp.oauth.TokenIssuer
 import org.sempods.mcp.crypto.testSecretCipher
@@ -603,6 +604,60 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `separating a shared connection stores the profile's own client and clears the badge`() = testApplication {
+    // The one flow in this change that costs a person a re-consent at the pod, driven end to end:
+    // the dashboard's button posts an ordinary connect, the pod registers the profile's own client,
+    // and the callback has to write both the new id and the callback it is pinned to. If it kept
+    // either, the badge would come back and the person would pay the consent again on the next
+    // press — with nothing failing.
+    val user = "https://id.test/e/web-user-separated"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:separated", tokenSubject = user) { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      assertTrue(
+        "Separate identity" in client.get("/_system/ui?profile=cron-agent") {
+          header(HttpHeaders.Cookie, cookie)
+        }.bodyAsText(),
+      )
+
+      // What the button submits.
+      val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+      assertEquals("dyn:separated", authorize.parameters["client_id"], "$authorize")
+
+      // What the pod redirects back to, with the code.
+      val callback = client.get(
+        "/_system/ui/pods/callback/cron-agent?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertEquals(HttpStatusCode.Found, callback.status)
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+
+      val stored = assertNotNull(ConnectionRegistryDao(db!!).find(PodKey(user, "cron-agent", podBase)))
+      assertEquals("dyn:separated", stored.podClientId, "the profile's own client replaces the shared one")
+      assertEquals(
+        "$BASE/_system/ui/pods/callback/cron-agent",
+        stored.podRedirectUri,
+        "and the address it is pinned to, or the next re-authorize sends the wrong one",
+      )
+      assertFalse(
+        "Separate identity" in client.get("/_system/ui?profile=cron-agent") {
+          header(HttpHeaders.Cookie, cookie)
+        }.bodyAsText(),
+        "the offer has to go once it has been taken",
+      )
+    }
+  }
+
+  @Test
   fun `a callback arriving at the wrong profile's address is refused`() = testApplication {
     // The code was issued for one address and is redeemed at that one. A flow that comes back
     // somewhere else is not this flow, whatever `state` it carries.
@@ -803,6 +858,8 @@ class WebUiEndpointTest {
     registersAs: String,
     advertisedScopes: List<String> = emptyList(),
     publishesAsMetadata: Boolean = true,
+    /** When set, the pod's `/token` answers a signed access token carrying this `sub`. */
+    tokenSubject: String? = null,
     body: suspend (pod: ClientAndServer, podBase: String, authBase: String) -> Unit,
   ) {
     val pod = ClientAndServer.startClientAndServer(0)
@@ -831,6 +888,21 @@ class WebUiEndpointTest {
         )
       pod.`when`(request().withMethod("POST").withPath("/p/_system/auth/register"))
         .respond(response().withStatusCode(201).withBody("""{"client_id":"$registersAs"}"""))
+      if (tokenSubject != null) {
+        // Signed, because `verifyAccessTokenSubject` parses the token to read `sub` and a connect
+        // whose subject it cannot read fails. This pod advertises no `jwks_uri`, so the signature
+        // is trusted by the transport and never checked — any key will do.
+        val token = JwtTestSupport.sign(
+          JwtTestSupport.generateKey("pod-key"),
+          JwtTestSupport.webIdClaims(authBase, tokenSubject),
+        )
+        pod.`when`(request().withMethod("POST").withPath("/p/_system/auth/token"))
+          .respond(
+            response().withStatusCode(200).withBody(
+              """{"access_token":"$token","token_type":"Bearer","expires_in":3600,"scope":"public-read"}""",
+            ),
+          )
+      }
       body(pod, podBase, authBase)
     } finally {
       pod.stop()

@@ -33,8 +33,18 @@ object PodClientIdentity {
   /** The address a pod redirects to for the default profile, and the parent of every named one. */
   const val CALLBACK_PATH = "/_system/ui/pods/callback"
 
-  /** [CALLBACK_PATH] as `did:web` components — the prefix a named profile's identifier scopes to. */
+  /**
+   * [CALLBACK_PATH] as `did:web` components — the prefix a named profile's identifier scopes to.
+   *
+   * Checked here rather than left to [DidWeb.clientId], which only sees these when a named profile
+   * connects to a pod that publishes no registration endpoint. A [CALLBACK_PATH] carrying a
+   * character the DID grammar has no room for would otherwise compile, boot, and serve every
+   * default-profile flow before failing that one connect as "could not reach pod".
+   */
   private val CALLBACK_SEGMENTS = CALLBACK_PATH.split("/").filter { it.isNotEmpty() }
+    .onEach {
+      require(DidWeb.SEGMENT_CHARS.matches(it)) { "CALLBACK_PATH segment is not a did:web segment: '$it'" }
+    }
 
   /** The name a pod knows this service by, and the `software_id` of every registration it makes. */
   const val SERVICE_NAME = "sempods-mcp"

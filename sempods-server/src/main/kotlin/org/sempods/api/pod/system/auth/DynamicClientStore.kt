@@ -69,40 +69,45 @@ class DynamicClientStore @Inject constructor(
     // an orphan per reconnect. The realm slot the fingerprint offers stays empty here — a
     // pod has one MCP surface, so there is nothing to fork registrations by.
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, realm = null, redirectUris)
-    dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
-      return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
-    }
 
-    val clientId = "dyn:" + newOpaqueId()
-    val dbo = dao.create(
-      clientId = clientId,
-      registeredForPodId = registeredForPodId,
-      registeredForPodName = registeredForPodName,
-      redirectUris = redirectUris,
-      clientName = clientName,
-      clientUri = clientUri,
-      logoUri = logoUri,
-      softwareId = softwareId,
-      softwareVersion = softwareVersion,
-      contacts = contacts,
-      tosUri = tosUri,
-      policyUri = policyUri,
-      rawRequest = rawRequest,
-      remoteAddr = remoteAddr,
-      userAgent = userAgent,
-      fingerprint = fingerprint,
-    )
-    if (dbo != null) return dbo.toRegistration()
-
-    // The lookup above found nothing and the insert was refused, so a second registration of this
-    // client landed in between — two people clicking "Connect" for one pod in the same second is
-    // all it takes, since the fingerprint carries nothing that tells them apart. The winner's row
-    // is the answer, and the caller cannot tell it from an ordinary dedup hit: one logical client
-    // is one `client_id` here, which is what the pod's grants are keyed by.
-    val winner = checkNotNull(dao.findByFingerprint(registeredForPodId, fingerprint)) {
-      "registration refused as a duplicate fingerprint, but no row holds it: pod=$registeredForPodId"
+    // Look, then insert, and let the loop settle whichever of the two the other party won. A
+    // second registration of this client landing in the gap is all it takes to make the lookup
+    // miss and the insert be refused — two people clicking "Connect" for one pod in the same
+    // second, since the fingerprint carries nothing that tells them apart — and the next pass's
+    // lookup then answers the winner's row, which the caller cannot tell from an ordinary dedup
+    // hit because it is one: one logical client is one `client_id`, and that is what the pod's
+    // grants are keyed by.
+    //
+    // Looping rather than re-reading once, because the other direction happens too: the winner's
+    // row can be gone by the time the loser reads it (the pod-deletion cascade clears every
+    // registration), and a single re-read would answer nothing and turn an unauthenticated
+    // `/register` into a 500. The next pass just inserts.
+    repeat(ATTEMPTS) {
+      dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
+        return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
+      }
+      val dbo = dao.create(
+        clientId = "dyn:" + newOpaqueId(),
+        registeredForPodId = registeredForPodId,
+        registeredForPodName = registeredForPodName,
+        redirectUris = redirectUris,
+        clientName = clientName,
+        clientUri = clientUri,
+        logoUri = logoUri,
+        softwareId = softwareId,
+        softwareVersion = softwareVersion,
+        contacts = contacts,
+        tosUri = tosUri,
+        policyUri = policyUri,
+        rawRequest = rawRequest,
+        remoteAddr = remoteAddr,
+        userAgent = userAgent,
+        fingerprint = fingerprint,
+      )
+      if (dbo != null) return dbo.toRegistration()
     }
-    return winner.toRegistration(deduplicatedFromRegisteredAt = winner.registeredAt)
+    // Losing every pass means the two are alternating in step, which is not a race any more.
+    error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPodId")
   }
 
   internal fun lookup(podId: ObjectId, clientId: String): Registration? =
@@ -137,5 +142,10 @@ class DynamicClientStore @Inject constructor(
     val bytes = ByteArray(18)
     random.nextBytes(bytes)
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+  }
+
+  private companion object {
+    /** Lookup-then-insert passes before a client racing itself is somebody's problem. */
+    const val ATTEMPTS = 3
   }
 }
