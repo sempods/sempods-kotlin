@@ -219,6 +219,14 @@ grants. What it buys is the paragraph above, and one thing more:
 > refresh-token family `…/private` holds there, so `…/private` reports "reconnect required" once
 > its access token expires. Separated, the second connect costs the first nothing.
 
+**The fork is per profile and not per service user**, and the line runs where the pod draws it. Two
+people who sign in at a pod as the same WebID are one person to that pod — it holds one grant set
+and one refresh-token family for that identity, and nothing this service sends can make it hold
+two. So two service accounts that both name a profile `cron-agent` and both authenticate at
+`pod.example` as the same pod user arrive as one client and collide there exactly as two profiles
+of one account used to. What separates *people* at a pod is the WebID they sign in as, which is why
+the fork above is about profiles and stops there.
+
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
 client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
 a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a

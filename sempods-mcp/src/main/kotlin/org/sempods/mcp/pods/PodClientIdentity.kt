@@ -21,6 +21,13 @@ import org.sempods.mcp.persist.ProfilePath
  * `did:web:<host>`. Its identity at every pod it is already connected to is the one it was
  * registered under, so nothing existing re-consents.
  *
+ * **Per profile, and not per service user**, which is the pod's line rather than a shortcut here.
+ * Two service accounts that both name a profile `cron-agent` and both sign in at one pod as the
+ * same WebID arrive as one client — and to that pod they are one person, holding one grant set and
+ * one refresh-token family for that identity. Nothing this service sends can make it hold two;
+ * what separates people there is the WebID they sign in as. See `docs/concepts/hosted-mcp.md`
+ * §"Connecting a pod (OAuth)".
+ *
  * **The profile segment sits below [CALLBACK_PATH], not at the service root**, and that is a
  * requirement rather than a taste: the web session is an httpOnly cookie scoped to
  * `WebSession.COOKIE_PATH`, and RFC 6265 §5.1.4 sends it only to paths below that one. A callback
