@@ -1440,10 +1440,10 @@ class PodAuthEndpoint @Inject constructor(
     // makes it stale, and its scopes are stale with it.
     //
     // **A code carrying no generation at all is refused outright**, which is what makes the
-    // generation the only thing this path has to reason about. Consent records the answer before
-    // it writes the grants, and auto-grant needs grants, so every code minted for a person comes
-    // from an authorization that has been answered — the anonymous `public-read` exchange, which
-    // has no person and no answer, returned above. A code without one is therefore either older
+    // generation the only thing this path has to reason about. Every code minted for a person
+    // comes from an authorization that has been answered: consent records an answer, and
+    // auto-grant reaches its code only where one is already on record. The anonymous
+    // `public-read` exchange, which has no person and no answer, returned above. A code without one is therefore either older
     // than the consent control or the debris of a half-written consent, and neither is something
     // to hand a token for. Deployments that predate this cross it once, by emptying the delegation
     // rows — the documents and not the collections, since the indexes are built at boot:
