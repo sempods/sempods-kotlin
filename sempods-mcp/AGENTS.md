@@ -55,6 +55,17 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
   it, because doing so costs a consent at the pod.
 
+  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — and both are
+  read off one row** (`WebUiEndpoint.podRegistrationOf`): the token row, where a connect records
+  them, or the registry for a row written before that. The pod refuses an id offered under an
+  address it was not registered with, so a mixed pair is a flow that cannot complete. Both live on
+  the token row for the reason `PodTokens.podClientId` gives — the callback writes the two rows
+  separately, and only the copy beside the token can be relied on. The registry keeps its copies as
+  that fallback, and the dashboard reads the same rows a re-authorize does so the badge and the
+  button cannot disagree. What still keys on the **registry** row is whether a connection exists at
+  all: `/pods/separate` passes no connection for a pod that is connected, which is what makes it the
+  deliberate step.
+
 ## Deployment stance (PoC — no migrations)
 
 The deployment is a **PoC used only by the maintainer**: a breaking schema / crypto change

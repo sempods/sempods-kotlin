@@ -74,6 +74,15 @@ data class PodTokens(
    * beside a mark nothing can lift.
    */
   val deadGrantSince: Date? = null,
+  /**
+   * The redirect URI [podClientId] is pinned to at the pod — the same fact
+   * `PodConnection.podRedirectUri` records, kept beside the id because the two are one
+   * registration: presenting the id means presenting this address, and an id offered under an
+   * address it was never registered with is refused.
+   *
+   * Null wherever [podClientId] is, and read only together with it.
+   */
+  val podRedirectUri: String? = null,
 )
 
 /**
@@ -379,6 +388,7 @@ class TokenVaultDao(
     putNotNull("lastUsedAt", lastUsedAt)
     put("podClientId", podClientId)
     put("deadGrantSince", deadGrantSince)
+    put("podRedirectUri", podRedirectUri)
   }
 
   /** Map a row, or null if it is unreadable (undecryptable ciphertext / corrupt) — logged, not thrown. */
@@ -400,6 +410,7 @@ class TokenVaultDao(
     lastUsedAt = getDate("lastUsedAt"),
     podClientId = getString("podClientId"),
     deadGrantSince = getDate("deadGrantSince"),
+    podRedirectUri = getString("podRedirectUri"),
   )
 
   companion object {
