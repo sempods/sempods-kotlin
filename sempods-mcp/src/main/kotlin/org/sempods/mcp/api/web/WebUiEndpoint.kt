@@ -12,6 +12,7 @@ import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.PodTokenFacts
+import org.sempods.mcp.persist.needsReconnect
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
@@ -493,7 +494,8 @@ fun Application.webUiEndpoint(
         // previous connection is intact and the failure the browser is told about is the one that
         // happened. Disconnect is the mirror: the token row goes first, so a half-landed one
         // strands no custody. The order rests on [PodTokens.issuer] being required and never read
-        // off the row written here.
+        // off the row written here, and on a registry row that outlives an uncommitted connect
+        // saying so — `PodTokenFacts.needsReconnect`.
         connectionRegistryDao.upsert(connection)
         tokenVaultDao.upsert(
           PodTokens(
@@ -654,7 +656,7 @@ private fun dashboardHtml(
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val showUnverified = c.foreignIdentity && !c.subjectVerified
       val tokens = tokensByPod[c.pod]
-      val needsReconnect = tokens?.isDeadGrant == true
+      val needsReconnect = tokensByPod.needsReconnect(c.pod)
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&

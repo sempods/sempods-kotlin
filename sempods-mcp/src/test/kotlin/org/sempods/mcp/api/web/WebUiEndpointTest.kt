@@ -340,8 +340,8 @@ class WebUiEndpointTest {
   @Test
   fun `a healthy pod carries no reconnect marker`() = testApplication {
     // The counter-case, so the badge cannot become decoration that is always on. Its own user, as
-    // the other pod cases have: the mark sits on the token row, which this test never writes, so
-    // sharing a key with the dead-grant case above would let that row answer for this one.
+    // the other pod cases have: what the badge reads sits on the token row, which a shared key
+    // would let another case answer for.
     val user = "https://id.test/e/web-user-healthy"
     val tokenIssuer = installWebUi()
     ConnectionRegistryDao(db!!).upsert(
@@ -351,12 +351,38 @@ class WebUiEndpointTest {
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
+    seedTokens(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p")
 
     val body = createClient { followRedirects = false }.get("/_system/ui") {
       header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
     }.bodyAsText()
 
     assertFalse("reconnect needed" in body, body)
+  }
+
+  @Test
+  fun `a connect whose token write never landed is shown as needing a reconnect`() = testApplication {
+    // The registry row is written first, so it can outlive a connect that never committed — and a
+    // disconnect deletes the token row first, so it can outlive one half-way out. Either way the
+    // connection has nothing to call the pod with, and saying nothing would show a healthy pod that
+    // fails every call with no route back.
+    val user = "https://id.test/e/web-user-uncommitted"
+    val tokenIssuer = installWebUi()
+    ConnectionRegistryDao(db!!).upsert(
+      PodConnection(
+        user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
+        issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
+        scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    // No token row at all.
+
+    val body = createClient { followRedirects = false }.get("/_system/ui") {
+      header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
+    }.bodyAsText()
+
+    assertTrue("reconnect needed" in body, "the badge must name the state: $body")
+    assertTrue("Re-authorize" in body, "and the action that fixes it must be on the same row")
   }
 
   @Test

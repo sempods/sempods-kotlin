@@ -16,6 +16,7 @@ import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.persist.needsReconnect
 import org.sempods.client.SempodsClientException
 import org.sempods.mcp.pods.PodTokenProvider
 import org.sempods.mcp.pods.isRetryablePodFailure
@@ -103,10 +104,9 @@ class ReadTools(
         "foreign_identity" to it.foreignIdentity,
         "subject_verified" to it.subjectVerified,
         "similar_to" to if (it.foreignIdentity) it.user else null,
-        // The pod declared this connection's grant finished, so every call to it will fail until
-        // the person reconnects. The dashboard says so to them; this says it to the agent, which
-        // would otherwise retry the pod on every turn.
-        "reconnect_required" to (tokensByPod[it.pod]?.isDeadGrant == true),
+        // Nothing here can reach the pod until the person reconnects. The dashboard says so to
+        // them; this says it to the agent, which would otherwise retry the pod on every turn.
+        "reconnect_required" to tokensByPod.needsReconnect(it.pod),
       )
     }
     val body = linkedMapOf<String, Any?>("pods" to pods)

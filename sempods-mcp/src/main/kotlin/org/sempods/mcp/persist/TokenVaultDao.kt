@@ -130,9 +130,26 @@ data class PodTokenFacts(
   override val podClientId: String?,
   override val podRedirectUri: String?,
   val deadGrantSince: Date?,
+  /** Null on a row predating [PodTokens.issuer], which is one no refresh can decide — see [needsReconnect]. */
+  val issuer: String?,
 ) : PodRegistrationRow {
   val isDeadGrant: Boolean get() = deadGrantSince != null
+
+  /**
+   * Whether a refresh can no longer hold this connection open, so the person has to reconnect: the
+   * pod declared the grant finished, or the row carries no pin and does not map ([PodTokens.issuer]).
+   */
+  val needsReconnect: Boolean get() = isDeadGrant || issuer == null
 }
+
+/**
+ * Whether [pod] needs a reconnect, for the surfaces that report a connection they read from the
+ * registry while its credentials live here. A missing entry counts: a connect writes the registry
+ * row first, so no token row is a connect whose commit never landed — and a disconnect deletes this
+ * row first, so it is also one half-way out. Both are a connection with nothing to call the pod
+ * with, which is what the badge and `list_pods` exist to say.
+ */
+fun Map<String, PodTokenFacts>.needsReconnect(pod: String): Boolean = this[pod]?.needsReconnect != false
 
 /**
  * One read of the preservation queue: the rows the sweep can act on, and the keys of the rows it
@@ -411,6 +428,7 @@ class TokenVaultDao(
     podClientId = getString("podClientId"),
     podRedirectUri = getString("podRedirectUri"),
     deadGrantSince = getDate("deadGrantSince"),
+    issuer = getString("issuer"),
   )
 
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
@@ -487,6 +505,6 @@ class TokenVaultDao(
      */
     private const val REFRESH_TOKEN_TYPE = "string"
 
-    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince")
+    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer")
   }
 }
