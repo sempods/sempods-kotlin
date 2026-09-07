@@ -482,6 +482,7 @@ fun Application.webUiEndpoint(
           ?: error("pod access token carried no usable subject")
         val now = Date()
         val scopes = OAuthSyntax.parseScope(tokens.scope)
+        val key = PodKey(pending.user, pending.profile, pending.pod)
         val connection = PodConnection(
           user = pending.user, profile = pending.profile, pod = pending.pod,
           issuer = pending.metadata.issuer, podClientId = pending.podClientId,
@@ -512,6 +513,21 @@ fun Application.webUiEndpoint(
             podSubject = subject.webId,
           ),
         )
+        // A disconnect that ran between the two writes above deleted both rows, and the second one
+        // just put a token back: an encrypted refresh token held for a connection the person ended,
+        // which nothing lists and no route can reach. Only a disconnect removes the registry row —
+        // this callback writes it first, and nothing else deletes it — so its absence here is
+        // exactly that, and the token goes the same way. The commit point can be raced; it cannot
+        // be allowed to outlive what it commits to.
+        if (connectionRegistryDao.find(key) == null) {
+          tokenVaultDao.delete(key)
+          logger.info {
+            "pod '${pending.pod}' was disconnected while its connect completed for user='${pending.user}' " +
+              "profile='${pending.profile}' — the new token was dropped with it"
+          }
+          auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "disconnected_meanwhile")
+          return@runCatching landing("error=${enc("pod was disconnected while connecting")}")
+        }
         logger.info {
           "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.actsForeign(null)}"
         }

@@ -866,6 +866,31 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `a completed connect leaves both rows or neither`() = testApplication {
+    // The guard against the compensating branch firing on the ordinary path: a connect that nobody
+    // raced must leave the registry row it wrote *and* the token it committed. The branch itself —
+    // a disconnect deleting both between the two writes, and the token being dropped after it —
+    // sits between two statements of one request and is verified by construction; this pins that it
+    // costs the normal case nothing.
+    val user = "https://id.test/e/web-user-both-rows"
+    val tokenIssuer = installWebUi()
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = user) { _, podBase, _ ->
+      val authorize = Url(connect(tokenIssuer, user, podBase))
+      val callback = client.get(
+        "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+
+      val key = PodKey(user, PodKey.DEFAULT_PROFILE, podBase)
+      assertNotNull(ConnectionRegistryDao(db!!).find(key), "the description the connect wrote")
+      assertNotNull(TokenVaultDao(db!!, testSecretCipher()).find(key), "and the token it committed")
+    }
+  }
+
+  @Test
   fun `a callback arriving at the wrong profile's address is refused`() = testApplication {
     // The code was issued for one address and is redeemed at that one. A flow that comes back
     // somewhere else is not this flow, whatever `state` it carries.
