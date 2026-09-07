@@ -116,7 +116,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    *
    * **A consent form is not.** `submitConsent` lets a mismatched generation through wherever the
    * app still holds something, which a forced reauthorization does not change, so a page rendered
-   * just before one stays submittable. That is the coexistence rule I13 keeps on purpose — several
+   * just before one stays submittable. That is the coexistence rule kept on purpose — several
    * consent screens may be open at once — and the person submitting such a page ticked what it
    * shows. What the mismatch does refuse is a page whose app now holds nothing, which is the
    * disconnect it was rendered before.

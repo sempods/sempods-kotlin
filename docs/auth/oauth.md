@@ -277,12 +277,17 @@ previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
 rolling — every rotation renews it in full.
 
-**A pod carrying delegations older than the consent control clears them
-once.** Those authorizations hold grants with no answer beside them, which
-is the one state that can produce a code the exchange has nothing to
-compare — so their codes are refused, and their families are refused with
-them at the next rotation. Emptying two collections in the pod's database
-resolves it, `grants` and `oauth.refreshTokens`:
+**A deployment carrying delegations older than the consent control clears
+them once, and it is a server-wide step.** Those authorizations hold
+grants with no answer beside them, which is the one state that can produce
+a code the exchange has nothing to compare — so their codes are refused,
+and their families are refused with them at the next rotation. Predating
+the control is a property of the deployment rather than of a tenant, so
+every pod in the database is in it and the commands below carry no
+`podId` filter: they empty `grants` and `oauth.refreshTokens` for **every
+pod on the server**. Add `{ podId: ObjectId("…") }` to both to reset one
+pod instead — the others then meet the refusal at their next exchange and
+re-consent there.
 
 ```js
 db.grants.deleteMany({})

@@ -1519,7 +1519,7 @@ class PodAuthEndpoint @Inject constructor(
     // revoked`. The sibling can ask because it re-reads a set it already holds for another
     // purpose, and because a rotation is not the moment a consent writes.
 
-    // I9 again, and this time about the sweep rather than the mint. The generation was compared
+    // `SPS-AUTH-062` again, and this time about the sweep rather than the mint. The generation was compared
     // before any of this existed, and what follows it is destructive: an answer landing in between
     // is a *later* one than this code's, so retiring what its exchange produced would let the older
     // code win — the supersession running backwards. Asked once more for the same reason the
@@ -1528,7 +1528,7 @@ class PodAuthEndpoint @Inject constructor(
     // pick up a consent granted after it`); this window is between two statements, where none can
     // reach.
     //
-    // **Ungated, because I10 is about what the exchange hands back and not only about what it
+    // **Ungated, because `SPS-AUTH-063` is about what the exchange hands back and not only what it
     // stores.** A short-lived exchange mints no family and would have skipped this — and then
     // returns a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore`, so the
     // client's replay of `authorize(reauthorize=true)` is answered "already authorized" and the
