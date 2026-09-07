@@ -80,6 +80,9 @@ as a description, and a reader has no way to tell it apart.
   needs`. Holds for headings, sentences and commit subjects alike. What it targets is negation used
   as rhetoric; a real prohibition stays as it is, because the `never` in an invariant and the
   `MUST NOT` it enforces are already the shortest correct wording.
+- **One owner per fact.** Where the same reason is wanted in a second place, point at the first.
+  Every copy is correct the day it is written, which is how six of them accumulate — and how the
+  reason gets corrected in one place and left wrong in five.
 - **No history, no decision log**, no "this used to be X" — that is what the commit message is for.
   The one exception is a rationale a future reader needs in order not to undo it: *why the HTTP
   client is OkHttp* (its `Dns` hook is where SSRF resolve-and-pin lives; the JDK client offers
@@ -115,7 +118,7 @@ consequence out instead of qualifying the rule — two profiles connecting one p
 second connect costs the first, in
 [`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md#connecting-a-pod-oauth). One concrete case
 is shorter than the paragraph of hedging it replaces, and it is the half a reader remembers. It
-lives in the document that owns the fact; copying it here would be a second copy to keep true.
+lives in the document that owns the fact (rule 3).
 
 **9. Length is a budget, not an entitlement.** Add a paragraph, look for one to delete — usually
 the one the new paragraph made redundant — and treat a section that has doubled since it was
@@ -169,7 +172,10 @@ A behaviour change is not finished until, **in the same change**:
   here. A change that contradicts a requirement is not finished until the companion change is open
   in that repository. It is the one item on this list that cannot land in the same commit, which is
   exactly why it is the one that gets forgotten;
-- the `AGENTS.md` pointers still resolve, and any new document is reachable from one.
+- the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
+- nothing you wrote gives a fact a second owner, and what the change made redundant is gone
+  (rules 3 and 9). This is the one that fails quietly, because every copy reads correctly on its
+  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught.
 
 [`documentation-sync.md`](documentation-sync.md) is the procedure that walks this list.
 
