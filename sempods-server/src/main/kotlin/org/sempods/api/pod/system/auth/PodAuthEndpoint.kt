@@ -1058,14 +1058,6 @@ class PodAuthEndpoint @Inject constructor(
       }
     }
 
-    // **The answer is written before the grants it authorizes, and that order is load-bearing.**
-    // A code is refused unless it carries the generation standing for its authorization, so a run
-    // dying between these two writes must not leave grants behind with no answer beside them —
-    // that pair is what would let a code be issued that nothing can supersede. The other order is
-    // harmless: an answer with no grants authorizes nothing and falls through to this dialog again.
-    val durableGranted = durable != null
-    val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
-
     // Persist the user's grant selection for this app (replace — the checkbox submission is the
     // authoritative new state, so any previously granted scope the user unchecked must be revoked).
     // The facade re-derives after writing, so an owner-level revocation that landed between
@@ -1092,6 +1084,19 @@ class PodAuthEndpoint @Inject constructor(
         "granted access changed while consenting; please re-authorize", state,
       )
     }
+
+    // **The answer is written after the grants, and a run dying between them leaves the safe
+    // half.** What survives is the selection the person just made, under the answer that stood
+    // before it — so a narrowing takes effect, and the durability question keeps its previous
+    // answer rather than acquiring one nobody gave. Writing the answer first inverts exactly that:
+    // the old, wider grants would stand under a *new* generation, the narrowing silently lost and
+    // the credentials it was meant to end still rotating.
+    //
+    // The pair this order can leave — grants with no answer beside them, on a first consent — is
+    // harmless since a code carrying no generation is refused at the exchange: nothing redeems,
+    // auto-grant needs a decision it does not have, and the next visit renders this dialog again.
+    val durableGranted = durable != null
+    val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
     if (!durableGranted) {
       // Withholding is not merely declining to extend: the families this authorization already has
       // would otherwise keep rotating, and the person would have changed nothing they can observe.
