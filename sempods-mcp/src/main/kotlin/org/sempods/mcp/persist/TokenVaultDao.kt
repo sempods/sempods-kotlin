@@ -54,16 +54,12 @@ data class PodTokens(
    * The pod-side `client_id` [refreshToken] was issued to. Presenting another one is answered
    * `invalid_grant`, which marks the connection dead until somebody reconnects — so the pairing is
    * kept here rather than read off `PodConnection.podClientId`, which a separate upsert writes. A
-   * disagreement then costs a stale id in the dashboard instead of the connection.
+   * disagreement then costs the next re-authorize a stale id instead of costing the connection.
    *
    * Null on a row written before this field. Such a row refreshes with `PodConnection.podClientId`,
    * as it always did, and the first refresh the pod accepts records the id it used.
    *
-   * Last in the list, so every existing `componentN()` keeps its meaning and a stale consumer fails
-   * to link rather than destructuring this field where it asked for [lastUsedAt]. The constructor
-   * and `copy` descriptors move either way; what this module promises is the embedding contract, and
-   * `org.sempods.probe.auth.embedSempodsAuth` states the limit — a persistence row is the wider
-   * surface it says was never designed as API.
+   * Last in the list, for the reason `PodConnection.podRedirectUri` states.
    */
   val podClientId: String? = null,
 )

@@ -59,6 +59,17 @@ data class PodConnection(
   val deadGrantSince: Date? = null,
   val createdAt: Date,
   val updatedAt: Date,
+  /**
+   * The redirect URI [podClientId] is pinned to at the pod, so presenting that id again means
+   * presenting this address. Null is a connection made while every profile shared one client, and
+   * means the parent `…/_system/ui/pods/callback`; `PodClientIdentity.profileOf` reads it back.
+   *
+   * Last in the list so every existing `componentN()` keeps its meaning — a consumer compiled
+   * against an older artifact then fails to link rather than destructuring this where it asked for
+   * the scopes. The constructor and `copy` change either way, which this module's promise does not
+   * cover: that is the embedding contract, per `org.sempods.probe.auth.embedSempodsAuth`.
+   */
+  val podRedirectUri: String? = null,
 ) {
   /** True when the pod authorized a different WebID than the service identity ([user]). */
   val foreignIdentity: Boolean get() = podSubject != null && podSubject != user
@@ -151,6 +162,7 @@ class ConnectionRegistryDao(
     put("pod", pod)
     put("issuer", issuer)
     put("podClientId", podClientId)
+    putNotNull("podRedirectUri", podRedirectUri)
     put("scopes", scopes.toList())
     put("podSubject", podSubject)
     put("subjectVerified", subjectVerified)
@@ -167,6 +179,7 @@ class ConnectionRegistryDao(
     pod = getString("pod"),
     issuer = getString("issuer"),
     podClientId = getString("podClientId"),
+    podRedirectUri = getString("podRedirectUri"),
     scopes = (getList("scopes", String::class.java) ?: emptyList()).toSet(),
     podSubject = getString("podSubject"),
     subjectVerified = getBoolean("subjectVerified", false),
