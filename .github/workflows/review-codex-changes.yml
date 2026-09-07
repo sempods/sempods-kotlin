@@ -1,105 +1,56 @@
 name: Review Codex changes
 
-# A second automated reviewer is only worth its noise if it did not write the code. Codex already
-# reviews every pull request in this repository, and a Claude review running beside it on the same
-# diff would answer a question that has been answered — same rules from `AGENTS.md`, same diff,
-# largely the same findings, and a human left to arbitrate the difference.
+# Claude reviews branches Codex opened and no others: elsewhere it would repeat what Codex already
+# reports from the same `AGENTS.md`.
 #
-# So the reviewer is chosen by who wrote the change: Claude reviews what Codex wrote, and nothing
-# else. The reverse direction is not configured here and cannot be — Codex' automatic review is a
-# setting in the ChatGPT cloud console, outside this repository.
-#
-# **The branch prefix is what identifies the author.** The obvious condition —
-# `github.event.pull_request.user.login` — does not work here: a bot in this repository pushes with
-# a human's credentials, so the author of a pull request is the person whose credentials it used
-# and never the agent that wrote it. The head branch is the one thing that differs: Claude Code
-# opens `claude/…`, Codex opens `codex/…`. It is a convention rather than a guarantee, which is the right
-# strength for the decision it makes — the cost of a wrong answer is one review too many or too
-# few, not a broken build.
-#
-# No `synchronize`. Codex comments on every push already — six times on #85, five on #87 and #88 —
-# and doubling that is how review comments stop being read. This asks once each time the change is
-# declared ready, which is the rate at which "did the author get this right" is a new question.
-#
-# Once per readiness rather than once per pull request, and the difference is deliberate. A draft
-# opened as a draft fires `opened` too, so `draft` is excluded explicitly: without it a change that
-# starts as a draft is reviewed before it was ready to be. Taking a ready pull request back to
-# draft and marking it ready again then does earn a second review — which is the author saying the
-# change is no longer the one that was reviewed, and the one occasion where asking again is worth
-# what it costs. So nothing here remembers that a review has happened, and nothing needs to.
+# The head branch is what identifies the author. `pull_request.user.login` cannot — a bot here
+# pushes with a human's credentials, so the author is the person and never the agent.
 on:
   pull_request:
     types: [opened, ready_for_review]
 
-# Deliberately without `contents: write`. Codex can push to the branch it opened — `@codex address
-# that feedback` — and a second agent with the same permission is the one genuine conflict between
-# them: two force-pushes onto one branch. This job comments and does nothing else.
-#
-# `id-token: write` is not about that, and it is not about the Anthropic side either — the token
-# below covers that. It lets the job mint a GitHub OIDC token, which the action exchanges for the
-# Claude app's installation token; that is the identity the review is posted under, and the action
-# exits before posting without it (`docs/setup.md` in `anthropics/claude-code-action`: "The default
-# GitHub App authentication path already requires this permission"). Passing
-# `github_token: ${{ secrets.GITHUB_TOKEN }}` instead would also work and would post the review as
-# `github-actions[bot]` — the wrong trade in a repository where the whole point of this workflow is
-# that a reader can tell which agent said what. Minting an OIDC token grants nothing in this
-# repository on its own.
 permissions:
   contents: read
   pull-requests: write
+  # The action exchanges a GitHub OIDC token for the Claude app's installation token, and exits
+  # before posting the review without this.
   id-token: write
 
 jobs:
   review:
+    # `!draft` because a draft opened as a draft fires `opened` as well.
     if: startsWith(github.head_ref, 'codex/') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
 
-    # On the job rather than on the step that reads it: `secrets` is not a context a step's `if`
-    # can see, and a step's own `env` block is not reliably in scope for its own condition. This is
-    # the placement where `env.CLAUDE_CODE_OAUTH_TOKEN != ''` means what it says.
+    # On the job: a step's own `env` is not in scope for that step's `if`.
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
     steps:
-      # Full history: the review reasons about the change as a whole, and a shallow clone leaves
-      # `git diff` against the base without a base to diff against.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      # The token is absent in forks, where `pull_request` hands out neither secrets nor a writable
-      # token. That is not a broken build — it is a fork, and the review simply does not run.
-      #
-      # `CLAUDE_CODE_OAUTH_TOKEN` bills against a Claude subscription (`claude setup-token`
-      # generates it). Swap in `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` to bill the
-      # API instead; nothing else in this file changes.
+      # The token is absent in forks, where `pull_request` hands out no secrets.
       - name: Review the change
         if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: --model claude-opus-5
-          # The prompt names the rule files and does not repeat what is in them. The action reads
-          # `CLAUDE.md`, which routes to `AGENTS.md`, so the pointer resolves — this is not one of
-          # the isolated loads that `docs/agents/ai-instructions.md` §"Auto-injection constraints"
-          # registers as the only place allowed to duplicate a rule.
           prompt: |
             You are reviewing a change you did not write.
 
-            Read AGENTS.md first, then docs/agents/ai-instructions.md — the hub it routes through —
-            and docs/agents/documentation-strategy.md, which the hub will point you at. Those files
-            carry the rules. This prompt deliberately does not restate them: a second copy is what
-            goes stale.
+            Read AGENTS.md, then the files it points at — docs/agents/ai-instructions.md and
+            docs/agents/documentation-strategy.md. Those carry the rules; this prompt does not
+            repeat them.
 
-            Review the diff of this pull request on two axes. Whether it is correct: what breaks,
-            what the tests do not cover, what the change assumes without checking, what a caller
-            outside this repository would now get wrong. And whether it keeps the rules you have
-            just read — the documentation duty among them, which this repository treats as part of
-            the change rather than as follow-up work.
+            Review the diff on two axes: whether it is correct — what breaks, what the tests do not
+            cover, what it assumes without checking — and whether it keeps the rules you have just
+            read, the documentation duty among them.
 
-            Do not report what the build already answers: the checks in AGENTS.md §"Before you
-            commit" run on this pull request.
+            Do not report what the build answers: the checks in AGENTS.md §"Before you commit" run
+            on this pull request.
 
-            Do not summarise the change; the author knows what they wrote. Say what is wrong, where,
-            and why it matters. Rank by severity and stop at the point where you would be inventing
-            work. If nothing is wrong, say so in one line — that is a complete review.
+            Say what is wrong, where, and why it matters, most severe first. Do not summarise the
+            change. If nothing is wrong, say so in one line.
