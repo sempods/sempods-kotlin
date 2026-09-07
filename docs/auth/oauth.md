@@ -231,9 +231,11 @@ documents list it under `scopes_supported`, which is where a client that
 has read no sempods documentation finds it.
 
 Asking is not getting. The scope preselects the consent page's
-"keep this app connected" control; what grants a refresh token is the
-person ticking it, so a client that cannot send the scope is not thereby
-denied a durable connection. The exchange reads that decision from the
+"Background access" control — which asks whether the app may act while
+the person is not using it, because that is the decision a refresh token
+actually makes and the one a person can answer. What grants the token is
+the tick, so a client that cannot send the scope is not thereby denied a
+durable connection. The exchange reads that decision from the
 store rather than from the authorization code, so a code carries the
 request and never the authority.
 
