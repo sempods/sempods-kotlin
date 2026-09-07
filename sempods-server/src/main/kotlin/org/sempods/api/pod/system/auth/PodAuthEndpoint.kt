@@ -2037,7 +2037,9 @@ class PodAuthEndpoint @Inject constructor(
     // describe the same sign-in, and two `Instant.now()` calls would date it twice.
     val authTime = Instant.now()
     val sessionToken =
-      podTokenIssuer.issueSession(podDbo.name, verified.webId, verified.alsoKnownAs, authTime = authTime)
+      podTokenIssuer.issueSession(
+        podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
+      )
     val answer = runAuthorize(
       pod = podDbo.name,
       responseType = "code",

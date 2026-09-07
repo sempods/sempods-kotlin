@@ -112,16 +112,30 @@ class PodTokenIssuer(
    * two independent reasons, because the two are signed by the same key and a shape that drifted
    * into being redeemable would be silent.
    *
-   * @param authTime when the person authenticated at the id-server. Defaults to now, which is
-   *   right for a sign-in and wrong for a renewal — [renewSession] passes the original forward,
-   *   because the absolute limit is measured from it and a renewal that reset it would lift it.
    */
-  fun issueSession(
+  fun issueSession(pod: String, webId: String, alsoKnownAs: List<String> = emptyList()): String =
+    issueSession(pod, webId, alsoKnownAs, Instant.now(), SESSION_TTL_SECONDS)
+
+  /**
+   * The form [renewSession] needs, kept beside the one a sign-in calls rather than folded into it.
+   *
+   * Two defaulted parameters on the public function would read the same in Kotlin source and
+   * replace its JVM method with a five-argument one — a `NoSuchMethodError` for anything already
+   * compiled against this module, which is published. The overload costs a line and keeps the
+   * descriptor a sign-in has always had.
+   *
+   * @param authTime when the person authenticated at the id-server. A sign-in passes now; a
+   *   renewal passes the original forward, because the absolute limit is measured from it and a
+   *   renewal that reset it would lift it.
+   * @param ttlSeconds how long the cookie is good for. [SESSION_TTL_SECONDS] except near the
+   *   absolute deadline, where what is left of it is shorter.
+   */
+  internal fun issueSession(
     pod: String,
     webId: String,
-    alsoKnownAs: List<String> = emptyList(),
-    authTime: Instant = Instant.now(),
-    ttlSeconds: Long = SESSION_TTL_SECONDS,
+    alsoKnownAs: List<String>,
+    authTime: Instant,
+    ttlSeconds: Long,
   ): String {
     val now = Instant.now()
     val claims = JWTClaimsSet.Builder()
