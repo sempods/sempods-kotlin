@@ -107,34 +107,18 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   }
 
   /**
-   * Raises the generation without answering anything, for an event that ends what this
+   * Raises the generation without answering anything — for an event that ends what this
    * authorization stood at while asking the person nothing. Returns how many documents moved.
    *
-   * An explicit `authorize(reauthorize=true)` is such an event: it forces the person back through
-   * consent, and every authorization code bound to the generation before it is spent — that is
-   * what the token endpoint's own re-checks compare against.
+   * An explicit `authorize(reauthorize=true)` is one: every code bound to the generation before it
+   * is spent, which is what the token endpoint compares against. A consent *form* is not — a
+   * mismatched generation still submits wherever the app holds something, which is the coexistence
+   * of screens `ConsentTransactionStore` allows on purpose.
    *
-   * **A consent form is not.** `submitConsent` lets a mismatched generation through wherever the
-   * app still holds something, which a forced reauthorization does not change, so a page rendered
-   * just before one stays submittable. That is the coexistence rule kept on purpose — several
-   * consent screens may be open at once — and the person submitting such a page ticked what it
-   * shows. What the mismatch does refuse is a page whose app now holds nothing, which is the
-   * disconnect it was rendered before.
-   *
-   * **No upsert.** An
-   * authorization with nothing recorded has no generation to raise and needs none: the durable
-   * connection is read from the decision, so without one no family is minted and there is nothing
-   * for a racing exchange to walk away with.
-   *
-   * This is the ordering half of the same rule the exchange keeps. The caller raises the
-   * generation *before* it sweeps what the client holds, so whichever of the two lands second sees
-   * the first: a family minted before the sweep is revoked by it, and one minted after is given up
-   * by the exchange, whose re-read then finds a generation its code does not carry. `$inc` in the
-   * database rather than a timestamp comparison, so the answer does not depend on two replicas
-   * agreeing about the time.
-   *
-   * [webIds] is the person's URI set, and every document among them moves: the authorization is
-   * one thing however many URIs the pod recorded it under.
+   * **No upsert.** An absent document is a state of its own, and writing one here would turn a
+   * forced review into an answer nobody gave. The caller raises before it sweeps, so whichever of
+   * the two lands second sees the first (`SPS-AUTH-063`) — a database `$inc` rather than a
+   * timestamp, because the two calls can be served by different replicas.
    */
   internal fun bumpGeneration(podId: ObjectId, appId: String, webIds: Collection<String>): Long {
     if (webIds.isEmpty()) return 0

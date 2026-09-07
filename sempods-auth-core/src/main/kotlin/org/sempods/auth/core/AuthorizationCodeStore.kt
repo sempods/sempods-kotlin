@@ -116,5 +116,4 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
    * into a 500 on a request that can only ever fail anyway.
    */
   fun consume(code: String): Entry? = codes.consume(code)
-
 }

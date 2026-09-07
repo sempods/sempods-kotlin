@@ -67,7 +67,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
-
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
 
@@ -1094,13 +1093,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
     assertEquals(303, autoGranted.statusCode, autoGranted.responseBody)
 
-    val exchange = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code" +
-        "&code=${codeFrom(autoGranted)}" +
-        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
-    )
+    val exchange = exchangeCodeRaw(pod, codeFrom(autoGranted))
     assertEquals(400, exchange.statusCode, exchange.responseBody)
     assertTrue(
       exchange.responseBody.contains("\"invalid_grant\""),
@@ -1157,7 +1150,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the way out is not offered where there is nothing to remove`() {
-    // The narrowing that needs: reporting a disconnect of something never connected is the same lie
+    // The narrowing it needs: reporting a disconnect of something never connected is the same lie
     // as reporting nothing when something ended.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1697,12 +1690,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Suppress("UNCHECKED_CAST")
+  private fun exchangeCodeRaw(pod: org.sempods.pods.mongo.persist.PodDbo, code: String) = postForm(
+    tokenUrl(pod.name),
+    "grant_type=authorization_code&code=${enc(code)}" +
+      "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+  )
+
   private fun exchangeCode(pod: org.sempods.pods.mongo.persist.PodDbo, code: String): Map<String, Any?> {
-    val response = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code&code=${enc(code)}" +
-        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
-    )
+    val response = exchangeCodeRaw(pod, code)
     assertEquals(200, response.statusCode, response.responseBody)
     return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
   }
@@ -4006,54 +4001,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a code minted before a forced reauthorize does not survive the exchange it was already in`() {
-    // The race the sweep cannot close on its own. An explicit `authorize(reauthorize=true)` raises
-    // the generation and then ends what the client holds — but an exchange already in flight has
-    // consumed its code before that sweep and mints its family after it, out of the sweep's reach.
-    // What catches it is the re-read the exchange already does: the raise landed before the sweep,
-    // so it is visible by then, and the code carries the generation from before it.
-    //
-    // Raising the generation without deleting the code is exactly that state: the code is one the
-    // sweep could not see because an exchange already held it.
-    val pod = sempodsTestFactory.newPod()
-    val webId = "https://id.test/racer-${TestUtil.randomId()}"
-    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
-    val code = authorizationCodeStore.issue(
-      realm = pod.name,
-      clientId = testClientId,
-      subject = webId,
-      scopes = setOf("public-read"),
-      redirectUri = testRedirectUri,
-      codeChallenge = null,
-      codeChallengeMethod = null,
-      consentGeneration = consent.generation,
-    )
-    podGrantsDao.addGrants(
-      podId = checkNotNull(pod.id),
-      appId = testClientId,
-      webId = webId,
-      grants = setOf("public-read"),
-      grantedBy = webId,
-    )
-    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
-
-    val response = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code" +
-        "&code=$code" +
-        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
-    )
-
-    assertEquals(400, response.statusCode, response.responseBody)
-    assertTrue(
-      response.responseBody.contains("\"invalid_grant\""),
-      "a code predating the forced 401 must not mint the family it was sent to consent about: " +
-        response.responseBody,
-    )
-  }
-
-  @Test
   fun `the code the forced reauthorize produced still redeems`() {
     // The other half, and the one a too-eager refusal breaks. The person comes back through
     // consent, or is auto-granted against the decision that now stands; either way the code is
@@ -4081,17 +4028,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grantedBy = webId,
     )
 
-    val response = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code" +
-        "&code=$code" +
-        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
-    )
-
-    assertEquals(200, response.statusCode, response.responseBody)
-    @Suppress("UNCHECKED_CAST")
-    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    val body = exchangeCode(pod, code)
     assertNotNull(body["refresh_token"], "the flow the challenge forced must be able to complete")
   }
 

@@ -730,14 +730,18 @@ class McpEndpoint @Inject constructor(
     // because authenticate(pod) up-stream already rejected it).
     // `authorize` is this surface's own tool and deliberately not in the shared catalog, so its
     // schema check is here rather than in the executor — otherwise it would be the one tool whose
-    // advertised `additionalProperties: false` is not enforced.
-    //
-    // **Before the branch below, not after it.** A `reauthorize=true` call ends what the caller
-    // holds, and none of that can be given back: a refused request must not first revoke somebody's
-    // refresh families and raise their consent generation and only then answer that the arguments
-    // were malformed.
+    // advertised `additionalProperties: false` is not enforced. It runs first: a `reauthorize=true`
+    // call ends what the caller holds, and a request that is going to be refused must not revoke
+    // anything on its way to being told so.
     if (name == "authorize") {
       unknownArgumentsRefusal(AUTHORIZE_INPUT_SCHEMA, arguments)?.let { return toolError(it) }
+      val decision = decideAuthorizeToolCall(credentials, arguments.path("reauthorize").asBoolean(false))
+      if (decision.startOAuthFlow) {
+        if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
+        if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
+        throw upgradeRequired(credentials.pod.name)
+      }
+      return executeAuthorize(credentials)
     }
 
     when (name) {
@@ -746,18 +750,7 @@ class McpEndpoint @Inject constructor(
       "remove_property_value", "clear_property_values" -> {
         requireAuthenticatedOrThrow(credentials)
       }
-      "authorize" -> {
-        val reauthorize = arguments.path("reauthorize").asBoolean(false)
-        val decision = decideAuthorizeToolCall(credentials, reauthorize)
-        if (decision.startOAuthFlow) {
-          if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
-          if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
-          throw upgradeRequired(credentials.pod.name)
-        }
-      }
     }
-
-    if (name == "authorize") return executeAuthorize(credentials)
 
     // Everything else is the shared executor's: it validates against the same catalog this surface
     // advertised, applies the argument rules, and returns a call that has not touched a socket yet.
@@ -904,25 +897,14 @@ class McpEndpoint @Inject constructor(
    *
    * A **refresh token** rotates without a browser, so parallel sessions sharing a dynamic
    * `client_id` would refresh straight around the consent UI. An **authorization code** the client
-   * still holds would mint the bearer and seed the family the challenge exists to make it ask for
-   * again — that one needs nothing here: raising the generation is what spends it, since a code
-   * carries the generation it was issued under and one carrying none is refused outright
-   * (`PodAuthEndpoint.exchangeAuthorizationCode`).
+   * still holds needs nothing here: raising the generation spends it, since a code carries the one
+   * it was issued under and a code carrying none is refused outright.
    *
-   * Both go broad over the person rather than over the one URI this bearer happens to carry: a
-   * family or a decision under the twin is the same person's, and leaving it is leaving the way
-   * round open. The reach is the derivable set, which is every equivalent URI a pod can hold
-   * today — see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops being
-   * true.
-   *
-   * **The generation rises first, and everything else follows it.** An exchange already in flight
-   * can have consumed its code before this runs and mint its family after, where the sweep can no
-   * longer reach it — so the exchange has to be able to notice. It already re-reads the generation
-   * after minting and gives the family up where its code does not carry it
-   * (`PodAuthEndpoint.exchangeAuthorizationCode`), which makes the raise the marker and the order
-   * the whole argument: whichever of the two lands second sees the first. A database `$inc` rather
-   * than a timestamp, because the code and this call can be served by different replicas and their
-   * clocks are not the same clock.
+   * Both go broad over the person rather than the one URI this bearer carries — see
+   * [WebIdUriDeriver.derivableAliases] for the limit of that reach. The raise comes first so an
+   * exchange already in flight gives up its family at the re-read (`SPS-AUTH-063`), and the sweep
+   * names its families before ending them so a consent completing beside this call keeps the one
+   * it just produced.
    */
   private fun endWhatTheClientHoldsForExplicitReauthorize(credentials: SempodsCredentials) {
     val podId = podFacade.getPodId(credentials.pod.name) ?: return
@@ -930,26 +912,7 @@ class McpEndpoint @Inject constructor(
     val webId = credentials.tokenSub ?: return
     val subjects = webIdUriDeriver.derivableAliases(webId)
     val reset = consentDecisionStore.bumpGeneration(podId = podId, appId = clientId, webIds = subjects)
-    // Named first, then revoked by id, so the sweep cannot reach a family minted after it looked —
-    // the argument `PodRefreshTokenStore.liveFamilies` makes for the reconnect path, and the same
-    // one here. A consent completing beside this call is the person answering, and its family
-    // carries the generation this raise just wrote; taking it would hand them a refresh token that
-    // is dead on arrival. Nothing escapes by being late: a family is minted only where a decision
-    // stands, so the raise above covers every one of them, and an exchange whose code predates it
-    // gives up its own family at the re-read.
-    //
-    // **The look happens after the raise, and one family can still be caught by being early.** One
-    // minted between the two carries the new generation, is legitimate, and is in this set anyway;
-    // its exchange passes its own re-check and returns a refresh token this call has already
-    // killed. Looking before the raise instead only moves the window: a family minted between the
-    // look and the raise would then survive both the sweep and a re-check that reads the old
-    // generation, which leaves a live credential the call meant to end — the worse of the two,
-    // here. Closing it needs the family to carry the generation it was minted under, so the sweep
-    // can ask rather than guess from ordering. That is a field on the refresh row, and it belongs
-    // with the identity-and-generation work the milestone parked, not with a third reordering.
-    val revoked = refreshTokenStore.revokeFamilies(
-      refreshTokenStore.liveFamilies(podId = podId, clientId = clientId, webIds = subjects),
-    )
+    val revoked = refreshTokenStore.revokeLiveFamiliesFor(podId = podId, clientId = clientId, webIds = subjects)
     if (reset > 0 || revoked > 0) {
       logger.info {
         "[mcp] Ended what the client held for explicit reauthorize: pod='${credentials.pod.name}', " +

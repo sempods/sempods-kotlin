@@ -1435,22 +1435,17 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
 
-    // A code is a request, not an authority: it must not pick up a consent given after it. The
-    // generation it carries is the one that produced it, so a disconnect — or any later answer —
-    // makes it stale, and its scopes are stale with it.
+    // A code is a request, not an authority: it must not pick up a consent given after it, so the
+    // generation it carries is compared against the one standing now.
     //
-    // **A code carrying no generation at all is refused outright**, which is what makes the
-    // generation the only thing this path has to reason about. Every code minted for a person
-    // comes from an authorization that has been answered: consent records an answer, and
-    // auto-grant reaches its code only where one is already on record. The anonymous
-    // `public-read` exchange, which has no person and no answer, returned above. A code without one is therefore either older
-    // than the consent control or the debris of a half-written consent, and neither is something
-    // to hand a token for. Deployments that predate this cross it once, by emptying the delegation
-    // rows — the documents and not the collections, since the indexes are built at boot:
-    // `docs/auth/oauth.md` §"Refresh token rotation".
+    // **A code carrying none is refused outright.** Every code minted for a person comes from an
+    // authorization that has been answered — consent records an answer, and auto-grant reaches its
+    // code only where one is on record — so a code without a generation is the debris of a
+    // half-written consent or older than the control itself. The anonymous `public-read` exchange
+    // has no person and no answer, and returned above.
     val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
-    if (issuedUnder == null || decision?.generation != issuedUnder) {
+    if (decision == null || issuedUnder == null || decision.generation != issuedUnder) {
       logger.info {
         "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
             "clientId='${entry.clientId}', webId='${entry.subject}', " +
@@ -1465,9 +1460,8 @@ class PodAuthEndpoint @Inject constructor(
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
     // Read from the stored consent, not from the code: a code carries what was asked for, never
-    // the authority. The absent case does not reach this line — a code with no generation was
-    // refused above — so what is read here is always an answer somebody gave.
-    val durable = decision?.durable == true
+    // the authority.
+    val durable = decision.durable
 
     // What this exchange supersedes, named *before* the successor exists — see
     // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
@@ -1495,74 +1489,37 @@ class PodAuthEndpoint @Inject constructor(
       null
     }
 
-    // The same two moments on this path: the decision was read above and the family is inserted
-    // here, so a withdrawal in between would revoke what it saw and leave this one standing.
-    if (issuedRefresh != null && refusedDurability(podDbo, entry.clientId, entry.subject)) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
-      logger.info {
-        "[oauth/token] durable connection withdrawn mid-exchange — family revoked: " +
-            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "revokedRows=$revoked"
-      }
-      return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
-    }
-
-    // **No grant re-check here, and that is the considered answer rather than an omission.** A
-    // revocation that empties the app can land between this insert and the sweep that follows it,
-    // leaving a family for an app holding nothing — `exchangeRefreshToken` asks about exactly that
-    // after its own insert. Asking here cannot work: `replaceGrants` is a delete followed by
-    // inserts, so a re-read that finds no rows is as likely to be a concurrent consent submission
-    // mid-replacement as a withdrawal, and refusing a legitimate exchange is the worse of the two
-    // failures. `PodGrantsFacade.revokeContextGrants` refuses a live scan for the same reason.
-    // What the missing check costs is bounded: the family is real but backed by nothing, and the
-    // first rotation refuses it — `refresh_token is rejected when all granted scopes have been
-    // revoked`. The sibling can ask because it re-reads a set it already holds for another
-    // purpose, and because a rotation is not the moment a consent writes.
-
-    // `SPS-AUTH-062` again, and this time about the sweep rather than the mint. The generation was compared
-    // before any of this existed, and what follows it is destructive: an answer landing in between
-    // is a *later* one than this code's, so retiring what its exchange produced would let the older
-    // code win — the supersession running backwards. Asked once more for the same reason the
-    // refusal above is, and answered the same way: this exchange's own family goes and the client
-    // is told to come back through consent. Only the sequential case has a test (`a code cannot
-    // pick up a consent granted after it`); this window is between two statements, where none can
-    // reach.
+    // The decision is read once more, after the insert, and it is the only gate this path needs.
+    // Every write to it raises the generation, so a withdrawal landing mid-exchange has already
+    // moved what this code carries — asking about `durable` separately beforehand could not fire on
+    // anything the comparison misses. The message still tells the two apart, because a person who
+    // withheld the durable connection is owed a different sentence than one whose consent moved.
     //
-    // **Ungated, because `SPS-AUTH-063` is about what the exchange hands back and not only what it
-    // stores.** A short-lived exchange mints no family and would have skipped this — and then
-    // returns a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore`, so the
-    // client's replay of `authorize(reauthorize=true)` is answered "already authorized" and the
-    // forced consent screen is never rendered. An access token is no row and cannot be recalled
-    // once returned, so the only moment to refuse it is before it goes out.
+    // **Ungated on purpose.** A short-lived exchange mints no family and would skip this, then
+    // return a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore` — so the
+    // client's replay reads "already authorized" and the forced consent screen is never rendered.
+    // An access token is no row and cannot be recalled, so the only moment to refuse it is before
+    // it goes out (`SPS-AUTH-062`, `SPS-AUTH-063`).
     //
-    // **The window this leaves, and the two ways into it.** Every check-then-act has a gap, and
-    // the act here — minting the bearer in [buildTokenResponse] — comes after this read. A
-    // reauthorize landing inside it is answered with a token whose fresh `jti` and `iat` satisfy
-    // `ReauthorizeChallengeStore`, so the client's replay reads "already authorized" and the
-    // screen is not rendered. Two routes reach that outcome, and neither hands the client
-    // authority it did not already hold:
-    //
-    // - This read and the mint are two moments; nothing landing between them can be refused.
-    // - The raise is one `updateMany` over the person's alias documents, atomic per document, so
-    //   an exchange whose code names the row updated last reads it unchanged twice.
-    //
-    // Closing them needs a generation that spans a person rather than a URI, and an issuance
-    // bound to it instead of compared against it beforehand. `recordDecision` keeps one answer per
-    // URI on purpose, so a code issued under an alias can go stale on its own.
-    //
-    // No test reaches any of them, and one asserting otherwise would be lying: the check before
-    // the exchange refuses a code whose generation has already moved, so anything a test can set
-    // up is answered there instead.
-    if (consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
-        ?.generation != issuedUnder
-    ) {
+    // Two gaps remain and neither grants authority the client did not hold: this read and the mint
+    // are two moments, and the raise is one `updateMany` over the person's alias documents, atomic
+    // per document. Closing them needs a generation spanning a person rather than a URI, bound to
+    // issuance rather than compared before it; `recordDecision` keeps one answer per URI so a code
+    // issued under an alias can go stale on its own. No test reaches either — the check before the
+    // exchange answers anything a test can set up.
+    val standing = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    if (standing?.generation != issuedUnder) {
       val revoked = issuedRefresh?.let { refreshTokenStore.revokeFamily(it.token.familyId) } ?: 0
+      val withdrawn = standing?.durable == false
       logger.info {
         "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
             "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "codeGeneration=$issuedUnder, revokedRows=$revoked"
+            "codeGeneration=$issuedUnder, durableWithheld=$withdrawn, revokedRows=$revoked"
       }
-      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
+      return tokenError(
+        OAuthErrorCode.INVALID_GRANT,
+        if (withdrawn) "the durable connection was withdrawn" else "authorization code superseded by a later consent",
+      )
     }
 
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer

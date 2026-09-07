@@ -6,6 +6,8 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -40,10 +42,10 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   @Inject
-  private lateinit var authorizationCodeStore: org.sempods.auth.core.AuthorizationCodeStore
+  private lateinit var authorizationCodeStore: AuthorizationCodeStore
 
   @Inject
-  private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
+  private lateinit var consentDecisionStore: PodConsentDecisionStore
 
   private val httpClient by lazy { http.followingRedirects }
   private val objectMapper = JsonMappers.default()
@@ -2157,27 +2159,9 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       scopes = scopes,
     ).plaintext
 
-    val request = mapOf(
-      "jsonrpc" to "2.0",
-      "id" to 123,
-      "method" to "tools/call",
-      "params" to mapOf(
-        "name" to "authorize",
-        "arguments" to mapOf("reauthorize" to true, "nosuchargument" to "x"),
-      ),
-    )
-
-    val response = httpClient.preparePost(mcpUrl(pod.name))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(objectMapper.writeValueAsString(request))
-      .execute()
-
-    assertEquals(200, response.statusCode, "a malformed tool call is a tool error, not a 401")
-    assertTrue(
-      response.responseBody.contains("nosuchargument"),
-      "the refusal must name the argument it refused: ${response.responseBody}",
-    )
+    // `toolCall` asserts the 200 for us — a malformed tool call is a tool error, not a 401.
+    val body = toolCall(pod.name, token, "authorize", mapOf("reauthorize" to true, "nosuchargument" to "x"))
+    assertTrue(body.contains("nosuchargument"), "the refusal must name the argument it refused: $body")
 
     // Nothing was ended: the family still rotates and the generation did not move.
     val refreshResponse = postForm(

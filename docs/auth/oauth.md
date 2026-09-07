@@ -277,17 +277,11 @@ previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
 rolling — every rotation renews it in full.
 
-**A deployment carrying delegations older than the consent control clears
-them once, and it is a server-wide step.** Those authorizations hold
-grants with no answer beside them, which is the one state that can produce
-a code the exchange has nothing to compare — so their codes are refused,
-and their families are refused with them at the next rotation. Predating
-the control is a property of the deployment rather than of a tenant, so
-every pod in the database is in it and the commands below carry no
-`podId` filter: they empty `grants` and `oauth.refreshTokens` for **every
-pod on the server**. Add `{ podId: ObjectId("…") }` to both to reset one
-pod instead — the others then meet the refusal at their next exchange and
-re-consent there.
+**A deployment older than the consent control clears its delegations
+once.** Those authorizations hold grants with no answer beside them, so
+their codes are refused and their families die at the next rotation.
+Predating the control is a property of the deployment rather than of a
+tenant, so this empties three collections for **every pod on the server**:
 
 ```js
 db.grants.deleteMany({})
@@ -295,24 +289,12 @@ db["oauth.refreshTokens"].deleteMany({})
 db["oauth.authCodes"].deleteMany({})
 ```
 
-The third is in flight rather than durable, and it is here because the
-decisions are deliberately kept: a code minted in the five minutes before
-the reset still matches the generation standing for its authorization, so
-it would redeem afterwards and hand its client a bearer whose grants no
-longer exist and a family that dies at its first rotation. Emptying it
-costs an authorization in progress a retry.
-
-**The documents, not the collections.** Both stores build their indexes in
-their constructors and nowhere else, so a `drop()` against a running
-server returns an unindexed collection: grant lookups scan, and refresh
-rows stop being reaped because the TTL index is gone. Neither comes back
-before the next boot. Dropping is only safe while the server is stopped.
-
-The contexts and resources these point at are untouched, and the cost is
-that every person re-consents each app once and every pod connected to a
-hosted MCP service is reconnected. Do **not** empty
-`oauth.consentDecisions`: that is where the answers live, and clearing it
-puts every authorization into exactly the state being removed.
+The documents, not the collections — both stores build their indexes in
+their constructors, so a `drop()` against a running server leaves them
+unindexed until the next boot. The codes are in flight rather than
+durable and are here because the decisions are kept: one minted just
+before the reset still matches its generation and would redeem against
+grants that are gone.
 
 **A reconnect replaces, it does not accumulate.** An answer to the
 lifetime question governs what stands after it: a consent granting a
