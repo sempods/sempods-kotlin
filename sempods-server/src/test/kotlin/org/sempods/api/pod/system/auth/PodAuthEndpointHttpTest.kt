@@ -4083,6 +4083,49 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the sweep leaves a code minted after the reset, which the generation already covers`() {
+    // The raise happens before the sweep, so a consent completing in between mints a code carrying
+    // the *new* generation — one that legitimately postdates the event. Sweeping by subject alone
+    // would delete it and hand that flow a redirect that fails at the exchange. It needs no
+    // sweeping: a code the generation covers is refused by the comparison when it is stale, so
+    // deleting it as well only buys the race.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/concurrent-${TestUtil.randomId()}"
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
+    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)))
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = testClientId,
+      subject = webId,
+      scopes = setOf("public-read"),
+      redirectUri = testRedirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = standing.generation,
+    )
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = testClientId,
+      webId = webId,
+      grants = setOf("public-read"),
+      grantedBy = webId,
+    )
+    // The sweep, running after that code was minted.
+    authorizationCodeStore.revokeFor(realm = pod.name, clientId = testClientId, subjects = listOf(webId))
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=$code" +
+        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
+        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+  }
+
+  @Test
   fun `a forced reauthorize raises nothing where the authorization has no decision`() {
     // No upsert, and the reason is I3/I4: an absent decision is the third state, not a refusal.
     // Creating one here would turn a forced review into an answer nobody gave — and there is

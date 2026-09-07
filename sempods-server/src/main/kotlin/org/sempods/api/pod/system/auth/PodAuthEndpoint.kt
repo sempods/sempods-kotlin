@@ -1550,10 +1550,17 @@ class PodAuthEndpoint @Inject constructor(
     // forced consent screen is never rendered. An access token is no row and cannot be recalled
     // once returned, so the only moment to refuse it is before it goes out.
     //
-    // An authorization with nothing recorded has no generation to move and is not covered here.
-    // It mints no family either, so what survives is one short-lived bearer of the feature scopes
-    // it already had — I12's narrowing, not a new hole — and I15 gives such an authorization a
-    // decision the first time it reaches the dialog.
+    // **An authorization with nothing recorded is not covered, and that is a gap rather than a
+    // narrowing.** It has no generation to move, so a code consumed just before an explicit
+    // reauthorize still mints its bearer here — and that bearer's fresh `jti` and `iat` satisfy
+    // `ReauthorizeChallengeStore`, so the client's replay is answered "already authorized" and the
+    // forced consent screen is skipped. Not I12, which is about a bearer issued *before* the
+    // event; this one is issued after it. What bounds it is that such an authorization mints no
+    // family, so a lost race costs one short-lived token of the feature scopes it already had, and
+    // that I15 gives it a decision the first time it reaches the dialog — after which this check
+    // covers it. Closing it needs a counter that exists without an answer being recorded, which
+    // `PodConsentDecisionStore` deliberately does not have: an absent document *is* the third
+    // state (I3, I4), and a row carrying a generation and no answer would read as a refusal.
     //
     // No test reaches the ungated half, and a test asserting it would be lying: the check before
     // the exchange refuses a code whose generation has already moved, so anything a test can set

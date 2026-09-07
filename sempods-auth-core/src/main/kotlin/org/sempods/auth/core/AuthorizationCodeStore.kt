@@ -126,9 +126,15 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
    * spending what it was already holding.
    *
    * [Entry.consentGeneration] covers this wherever the server has a generation to move, and where
-   * it does that is the better mechanism: it needs no query and it binds a code that is already in
-   * flight. This is for the rest — an authorization the server has recorded nothing about has no
-   * generation to move, and a code under it would otherwise survive every such event.
+   * it does that is the better mechanism: it needs no query, and it binds a code that has already
+   * been consumed and is beyond the reach of any delete. **So a code carrying one is left alone
+   * here** — the comparison at the exchange refuses it either way, and deleting it as well only
+   * buys a race. The caller raises the generation before it calls this, so a code minted in
+   * between carries the *new* one and legitimately postdates the event; a filter that swept by
+   * subject alone would delete that code and hand its flow a redirect that fails.
+   *
+   * What is left is the code the generation cannot reach: an authorization the server has recorded
+   * nothing about has none to move, and a code under it would otherwise survive every such event.
    *
    * [subjects] rather than one URI, because a person is a set of equivalent URIs on every path
    * that ends access.
@@ -140,6 +146,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         Filters.eq("realm", realm),
         Filters.eq("clientId", clientId),
         Filters.`in`("subject", subjects),
+        Filters.exists("consentGeneration", false),
       ),
     )
   }
