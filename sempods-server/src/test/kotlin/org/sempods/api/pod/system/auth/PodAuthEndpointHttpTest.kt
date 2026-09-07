@@ -68,7 +68,18 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   @Inject
-  private lateinit var reauthorizeChallengeStore: org.sempods.mcp.core.ReauthorizeChallengeStore
+  private lateinit var mongoDatabase: com.mongodb.client.MongoDatabase
+
+  /**
+   * The production collection, with a clock this test moves — the code's own stamp comes from
+   * `Instant.now()` inside the store, so the challenge is the side that has to be placed relative
+   * to it.
+   */
+  private fun challengeStoreAt(at: java.time.Instant) = org.sempods.mcp.core.ReauthorizeChallengeStore(
+    mongoDatabase,
+    org.sempods.SempodsCollections.OAUTH_REAUTH_CHALLENGES,
+    clock = { at },
+  )
 
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
@@ -4013,7 +4024,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       codeChallenge = null,
       codeChallengeMethod = null,
       consentGeneration = consent.generation,
-      issuedAt = java.time.Instant.now().minusSeconds(10),
     )
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
@@ -4022,7 +4032,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = setOf("public-read"),
       grantedBy = webId,
     )
-    reauthorizeChallengeStore.record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
+    challengeStoreAt(java.time.Instant.now().plusSeconds(10))
+      .record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
 
     val response = postForm(
       tokenUrl(pod.name),
@@ -4047,7 +4058,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // So a live challenge is not by itself a reason to refuse — only one recorded after the code.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/replayer-${TestUtil.randomId()}"
-    reauthorizeChallengeStore.record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
+    challengeStoreAt(java.time.Instant.now().minusSeconds(10))
+      .record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
     val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
@@ -4058,7 +4070,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       codeChallenge = null,
       codeChallengeMethod = null,
       consentGeneration = consent.generation,
-      issuedAt = java.time.Instant.now().plusSeconds(10),
     )
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),

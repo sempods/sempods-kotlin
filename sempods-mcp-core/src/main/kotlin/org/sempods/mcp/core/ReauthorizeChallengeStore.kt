@@ -77,6 +77,7 @@ class ReauthorizeChallengeStore(
       put("_id", id)
       putNotNull(FIELD_JTI, jti)
       put(FIELD_CHALLENGED_AT, now.epochSecond)
+      putInstant(FIELD_CHALLENGED_INSTANT, now)
       putInstant(FIELD_EXPIRES_AT, now.plus(ttl))
     }
     try {
@@ -122,9 +123,15 @@ class ReauthorizeChallengeStore(
    * the exchange can ask whether one landed since its code was minted and give the family up. A
    * code minted *after* the challenge is the one the forced flow produced and must go through.
    *
-   * Compared at second granularity, and a challenge in the same second as the code counts as
-   * older — the same boundary [consume] draws on `iat`, for the same reason: `challengedAt` is
-   * stored in whole seconds and a legitimate flow completing inside one must not be refused.
+   * Compared at the full precision both timestamps are written with. [consume] rounds to seconds
+   * because it is matched against a JWT `iat`, which carries nothing finer; here both sides are
+   * this server's own instants, and a second-wide bucket would let a code minted and consumed
+   * earlier in the same second as the challenge read as newer than it — which is the whole window
+   * this predicate exists to close.
+   *
+   * The fallback is for a row an older replica wrote during a rolling deploy, which carries only
+   * the seconds field. Such a row keeps the coarser comparison for the few minutes it lives rather
+   * than being read as no challenge at all.
    *
    * [subs] rather than one URI, because the challenge is keyed by whichever URI the bearer
    * carried and the code may name its twin.
@@ -135,7 +142,13 @@ class ReauthorizeChallengeStore(
       Filters.and(
         Filters.`in`("_id", subs.map { key(realm, clientId, it) }),
         Filters.gt(FIELD_EXPIRES_AT, Date.from(clock())),
-        Filters.gt(FIELD_CHALLENGED_AT, issuedAt.epochSecond),
+        Filters.or(
+          Filters.gt(FIELD_CHALLENGED_INSTANT, Date.from(issuedAt)),
+          Filters.and(
+            Filters.exists(FIELD_CHALLENGED_INSTANT, false),
+            Filters.gt(FIELD_CHALLENGED_AT, issuedAt.epochSecond),
+          ),
+        ),
       ),
     ).limit(1).firstOrNull() != null
   }
@@ -177,6 +190,14 @@ class ReauthorizeChallengeStore(
 
     private const val FIELD_JTI = "challengeTokenJti"
     private const val FIELD_CHALLENGED_AT = "challengedAtEpochSecond"
+
+    /**
+     * The same moment at the precision the document contract stores an `Instant` with. Beside the
+     * seconds field rather than replacing it: [consume] compares against a JWT `iat` and must keep
+     * its second-wide boundary, while [challengedAfter] compares two of this server's own stamps
+     * and must not.
+     */
+    private const val FIELD_CHALLENGED_INSTANT = "challengedAt"
     private const val FIELD_EXPIRES_AT = "expiresAt"
   }
 }

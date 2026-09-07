@@ -49,9 +49,10 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
      */
     val consentGeneration: Long? = null,
     /**
-     * When the code was minted, for a server that has to tell a code issued *before* some later
-     * event from the one that event's own flow produced. Null on a code minted before this field
-     * existed — a caller comparing against it must treat that as "older than anything".
+     * When the code was minted, stamped by the store rather than passed in — every caller wants
+     * the moment of issue, and a code claiming another one is not a thing to make expressible.
+     * Null on a code minted before this field existed; a caller comparing against it must treat
+     * that as "older than anything".
      */
     val issuedAt: Instant? = null,
   )
@@ -105,7 +106,6 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     codeChallengeMethod: String?,
     nonce: String? = null,
     consentGeneration: Long? = null,
-    issuedAt: Instant = Instant.now(),
   ): String = codes.issue(
     Entry(
       subject = subject,
@@ -117,7 +117,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       codeChallengeMethod = codeChallengeMethod,
       nonce = nonce,
       consentGeneration = consentGeneration,
-      issuedAt = issuedAt,
+      issuedAt = Instant.now(),
     ),
   )
 

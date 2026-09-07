@@ -79,6 +79,61 @@ class ReauthorizeChallengeStoreTest {
     raw.find(Filters.eq("_id", "$realm|${clientId.orEmpty()}|${sub.orEmpty()}")).firstOrNull()
 
   @Test
+  fun `challengedAfter separates a code minted a millisecond before the challenge from one after`() {
+    // The window the second-wide comparison left open: a code minted and consumed earlier in the
+    // same wall-clock second as the challenge. Both stamps are this server's own, so nothing here
+    // is rounded to seconds the way the `iat` comparison has to be.
+    now = baseTime.plusMillis(500)
+    store.record(realm, "client1", sub = "user1", jti = "jti-A")
+    val challengedAt = now
+
+    assertTrue(
+      store.challengedAfter(realm, "client1", listOf("user1"), issuedAt = challengedAt.minusMillis(1)),
+      "a code one millisecond older than the challenge predates it, same second or not",
+    )
+    assertFalse(
+      store.challengedAfter(realm, "client1", listOf("user1"), issuedAt = challengedAt.plusMillis(1)),
+      "a code minted after the challenge is what the forced flow produced and must go through",
+    )
+  }
+
+  @Test
+  fun `challengedAfter finds a challenge recorded under the twin of the code's subject`() {
+    now = baseTime
+    store.record(realm, "client1", sub = "urn:sempods:e:abc", jti = "jti-A")
+    assertTrue(
+      store.challengedAfter(
+        realm,
+        "client1",
+        listOf("https://id.test/e/abc", "urn:sempods:e:abc"),
+        issuedAt = baseTime.minusSeconds(5),
+      ),
+      "the challenge is keyed by whichever URI the bearer carried, and the code may name its twin",
+    )
+  }
+
+  @Test
+  fun `challengedAfter ignores a challenge for another realm or client`() {
+    now = baseTime
+    store.record(realm, "client1", sub = "user1", jti = "jti-A")
+    val before = baseTime.minusSeconds(5)
+    assertFalse(store.challengedAfter(otherRealm, "client1", listOf("user1"), issuedAt = before))
+    assertFalse(store.challengedAfter(realm, "client2", listOf("user1"), issuedAt = before))
+    assertFalse(store.challengedAfter(realm, "client1", listOf("user2"), issuedAt = before))
+  }
+
+  @Test
+  fun `challengedAfter does not consume the challenge it reports`() {
+    now = baseTime
+    store.record(realm, "client1", sub = "user1", jti = "jti-A")
+    assertTrue(store.challengedAfter(realm, "client1", listOf("user1"), issuedAt = baseTime.minusSeconds(5)))
+    assertNotNull(
+      stored(realm, "client1", "user1"),
+      "the replay still has to be able to consume it — the token exchange only reads",
+    )
+  }
+
+  @Test
   fun `consumeIfReplay returns false when no challenge recorded`() {
     assertFalse(store.consumeIfReplay(realm, "client1", sub = "user1", currentJti = "jti-A", currentIssuedAt = futureIat))
   }

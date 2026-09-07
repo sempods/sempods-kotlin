@@ -97,7 +97,10 @@ second sees the first: the sweep revokes a family minted before it, and
 the exchange gives up one whose code predates the challenge. A code
 minted *after* the challenge is what the forced flow produced and
 redeems normally, which is why the comparison is against the code's own
-issuance rather than against the challenge merely existing.
+issuance rather than against the challenge merely existing. Both stamps
+are this server's own and are compared at full precision; the second-wide
+boundary elsewhere on this page belongs to the `iat` comparison, which
+has a JWT claim on one side and nothing finer to work with.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent
