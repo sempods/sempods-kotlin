@@ -44,6 +44,29 @@ val publishedModules = listOf(
 )
 extra["publishedModules"] = publishedModules
 
+// The commit the container images are built from, published as the OCI `revision` label and as an
+// image tag beside `latest`. It exists because `latest` is the only tag those images carried, so
+// the one question an operator has during a deployment — is this the build I think it is — could
+// only be answered by comparing registry digests by hand.
+//
+// `providers.exec` rather than a bare `ProcessBuilder` so the value stays a build input rather than
+// something read behind Gradle's back, and every failure answers `unknown` rather than breaking the
+// build: these images are also built from trees that have no `.git` at all. A dirty tree is marked,
+// because an unmarked SHA on an image built from uncommitted work is the one answer worse than no
+// answer.
+val gitRevision: String = run {
+  fun git(vararg args: String): String? = runCatching {
+    providers.exec {
+      commandLine("git", *args)
+      isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim().ifEmpty { null }
+  }.getOrNull()
+
+  val head = git("rev-parse", "--short", "HEAD") ?: return@run "unknown"
+  if (git("status", "--porcelain").isNullOrEmpty()) head else "$head-dirty"
+}
+extra["gitRevision"] = gitRevision
+
 subprojects {
 
   // `sempods-bom` is a `java-platform`, and a platform is a POM and nothing else: it has no source

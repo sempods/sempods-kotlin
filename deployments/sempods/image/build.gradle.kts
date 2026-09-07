@@ -58,7 +58,9 @@ jib {
   }
   to {
     image = "ghcr.io/haed/sempods"
-    tags = setOf("latest")
+    // `latest` is what the deployment pulls; the revision tag is what makes a build addressable
+    // afterwards, since `latest` moves and cannot say which one it is now.
+    tags = setOf("latest", rootProject.extra["gitRevision"] as String)
   }
   container {
     val additionalJvmFlags = application.applicationDefaultJvmArgs.toMutableList()
@@ -75,6 +77,10 @@ jib {
     // SEMPODS_HTTP_PORT. The image used to declare 8888 — a second connector, which never ran
     // here alone; compose covered the mismatch with an explicit `expose`.
     ports = listOf("8090")
+    labels = mapOf(
+      "org.opencontainers.image.revision" to rootProject.extra["gitRevision"] as String,
+      "org.opencontainers.image.version" to project.version.toString(),
+    )
     environment = buildMap {
       put("PRODUCTION", "true")
     }

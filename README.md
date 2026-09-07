@@ -208,6 +208,19 @@ or all three.
 | **identity** (`sempods-auth`) | WebID registry and OIDC bridge — gives *people* an identity a pod can grant to | you want person identities rather than only app credentials |
 | **hosted MCP** (`sempods-mcp`) | One MCP connection fronting many pods, including pods run by others | you want an AI client to reach several pods at once |
 
+Each ships as a container image — `ghcr.io/haed/sempods`, `…/sempods-auth`, `…/sempods-mcp` — under
+two tags: `latest`, which a deployment pulls and which moves, and the short commit the build came
+from, which does not. That commit is also the OCI `revision` label, so a running container answers
+what it is without anything being pulled:
+
+```bash
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <container>
+```
+
+A revision ending in `-dirty` was built from a tree with uncommitted changes, and `unknown` from one
+with no git history at all. The images are pushed by hand — each service's `jib` task, no workflow —
+so that label is the only record of which commit reached the registry.
+
 ## Repository layout
 
 ```
