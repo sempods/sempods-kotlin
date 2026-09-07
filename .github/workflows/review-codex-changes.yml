@@ -75,26 +75,28 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: --model claude-opus-5
-          # The action reads `CLAUDE.md`, which routes to `AGENTS.md` — naming the hub anyway,
-          # because a reviewer that has not read the documentation rules is the reviewer this
-          # repository least needs.
+          # The prompt names the rule files and does not repeat what is in them. The action reads
+          # `CLAUDE.md`, which routes to `AGENTS.md`, so the pointer resolves — this is not one of
+          # the isolated loads that `docs/agents/ai-instructions.md` §"Auto-injection constraints"
+          # registers as the only place allowed to duplicate a rule. An earlier version listed the
+          # definition of done inline and had four of its six items, which is the drift that rule
+          # is about, arriving before the file was even merged.
           prompt: |
-            You are reviewing a change you did not write. Read AGENTS.md first; it is the canonical
-            guidance, and docs/agents/ai-instructions.md is the hub it routes through.
+            You are reviewing a change you did not write.
 
-            Review the diff of this pull request on two axes:
+            Read AGENTS.md first, then docs/agents/ai-instructions.md — the hub it routes through —
+            and docs/agents/documentation-strategy.md, which the hub will point you at. Those files
+            carry the rules. This prompt deliberately does not restate them: a second copy is what
+            goes stale.
 
-            - Correctness. What breaks, what the tests do not cover, what the change assumes without
-              checking, what a caller outside this repository would now get wrong.
-            - This repository's own rules. The documentation duty in
-              docs/agents/documentation-strategy.md §"Definition of done" — IST documentation, KDoc
-              on changed signatures, the roadmap tick, context7.json. One fact, one owner: a rule
-              restated in a second file is a finding. The naming conventions in docs/naming.md.
+            Review the diff of this pull request on two axes. Whether it is correct: what breaks,
+            what the tests do not cover, what the change assumes without checking, what a caller
+            outside this repository would now get wrong. And whether it keeps the rules you have
+            just read — the documentation duty among them, which this repository treats as part of
+            the change rather than as follow-up work.
 
-            Do not report what CI already answers. `./gradlew test checkNoLoggingBinding
-            checkNoTestLibrariesInPom checkDocLinks` and `./gradlew buildHealth` run on this pull
-            request and cover the tests, dead markdown links, logging bindings and the
-            api/implementation boundary.
+            Do not report what the build already answers: the checks in AGENTS.md §"Before you
+            commit" run on this pull request.
 
             Do not summarise the change; the author knows what they wrote. Say what is wrong, where,
             and why it matters. Rank by severity and stop at the point where you would be inventing
