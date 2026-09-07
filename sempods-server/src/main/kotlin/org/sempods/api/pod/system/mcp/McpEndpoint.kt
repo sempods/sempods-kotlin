@@ -925,7 +925,16 @@ class McpEndpoint @Inject constructor(
     val webId = credentials.tokenSub ?: return
     val subjects = webIdUriDeriver.derivableAliases(webId)
     val reset = consentDecisionStore.bumpGeneration(podId = podId, appId = clientId, webIds = subjects)
-    val revoked = refreshTokenStore.revokeForUser(podId = podId, clientId = clientId, webIds = subjects)
+    // Named first, then revoked by id, so the sweep cannot reach a family minted after it looked —
+    // the argument `PodRefreshTokenStore.liveFamilies` makes for the reconnect path, and the same
+    // one here. A consent completing beside this call is the person answering, and its family
+    // carries the generation this raise just wrote; taking it would hand them a refresh token that
+    // is dead on arrival. Nothing escapes by being late: a family is minted only where a decision
+    // stands, so the raise above covers every one of them, and an exchange whose code predates it
+    // gives up its own family at the re-read.
+    val revoked = refreshTokenStore.revokeFamilies(
+      refreshTokenStore.liveFamilies(podId = podId, clientId = clientId, webIds = subjects),
+    )
     val spent = authorizationCodeStore.revokeFor(
       realm = credentials.pod.name,
       clientId = clientId,

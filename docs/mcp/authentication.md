@@ -91,6 +91,11 @@ The person is every URI derivable from the bearer's `sub`, not that one
 URI: a pod stores whichever WebID authenticated, and a family recorded
 under the twin would keep rotating around the same dialog.
 
+The family sweep names what it will end before it ends it, so a consent
+completing beside the call keeps the family it just produced — that one
+carries the generation this raise wrote, and taking it would hand the
+person a refresh token that is dead on arrival.
+
 **The generation rises before that sweep, and that ordering is the whole
 argument.** An exchange already in flight can consume its code before the
 sweep runs and mint its family after it, out of the sweep's reach. What
