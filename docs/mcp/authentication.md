@@ -101,10 +101,22 @@ the first. It is a database `$inc` rather than a timestamp comparison,
 because the code and the reauthorize call can be served by different
 replicas and their clocks are not the same clock.
 
-Nothing is raised where the authorization has no decision recorded, and
-nothing needs to be: the durable connection is read from the decision, so
-without one no family is minted. Creating a decision here would turn a
-forced review into an answer nobody gave.
+Nothing is raised where the authorization has no decision recorded —
+creating one here would turn a forced review into an answer nobody gave,
+and an absent document is the third state. Such an authorization mints no
+family either, so the sweep and the deleted codes cover it in the ordinary
+case.
+
+**What it does not cover is one bearer, and that is the known limit.** A
+code consumed in the instant before the sweep is beyond the delete's
+reach, and with no generation on either side the exchange has nothing to
+compare — so it returns an access token, whose fresh `jti` and `iat`
+satisfy the challenge above. The client's replay is then answered "already
+authorized" and the consent screen is not rendered. It is one short-lived
+token of the feature scopes the client already held, and context access is
+resolved per request as always; closing it needs an ordering that exists
+without an answer recorded, which the consent store deliberately has not
+got.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent

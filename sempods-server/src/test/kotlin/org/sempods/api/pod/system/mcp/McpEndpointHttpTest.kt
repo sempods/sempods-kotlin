@@ -2136,6 +2136,61 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `tools call authorize with reauthorize=true deletes a code that carries no generation`() {
+    // The half the sweep alone covers. Where a decision stands, the raise that precedes the sweep
+    // is what refuses an outstanding code, and the test above passes with the deletion removed.
+    // An authorization with nothing recorded has no generation to raise — a `prompt=none`
+    // auto-grant still mints codes for it — so deleting the row is the only thing that reaches it.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/undecided-${TestUtil.randomId()}"
+    val clientId = "did:web:test.example"
+    val redirectUri = "http://localhost:5173/callback"
+    val (contextUri, token) = createContextWithToken(pod, "main-${TestUtil.randomId()}", webId = webId)
+    // No consent decision is recorded: that absence is the third state this case is about.
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = clientId,
+      subject = webId,
+      scopes = setOf("${contextUri}#read"),
+      redirectUri = redirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = null,
+    )
+
+    val request = mapOf(
+      "jsonrpc" to "2.0",
+      "id" to 123,
+      "method" to "tools/call",
+      "params" to mapOf(
+        "name" to "authorize",
+        "arguments" to mapOf("reauthorize" to true),
+      ),
+    )
+
+    val response = httpClient.preparePost(mcpUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody(objectMapper.writeValueAsString(request))
+      .execute()
+
+    assertEquals(401, response.statusCode)
+
+    val exchange = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=$code" +
+        "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
+        "&client_id=${URLEncoder.encode(clientId, "UTF-8")}",
+    )
+    assertEquals(400, exchange.statusCode, exchange.responseBody)
+    assertTrue(
+      exchange.responseBody.contains("\"invalid_grant\""),
+      "a code with no generation is reached by the sweep or by nothing at all: ${exchange.responseBody}",
+    )
+  }
+
+  @Test
   fun `tools call authorize with reauthorize=true revokes a family recorded under an alias`() {
     // Explicit reauthorization ends access, and a person is a set of URIs on every path that does.
     // The pod stores whichever URI authenticated, so the family that would refresh around the
