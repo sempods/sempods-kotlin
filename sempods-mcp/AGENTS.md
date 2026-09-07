@@ -55,16 +55,12 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
   it, because doing so costs a consent at the pod.
 
-  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — and both are
-  read off one row** (`WebUiEndpoint.podRegistrationOf`): the token row, where a connect records
-  them, or the registry for a row written before that. The pod refuses an id offered under an
-  address it was not registered with, so a mixed pair is a flow that cannot complete. Both live on
-  the token row for the reason `PodTokens.podClientId` gives — the callback writes the two rows
-  separately, and only the copy beside the token can be relied on. The registry keeps its copies as
-  that fallback, and the dashboard reads the same rows a re-authorize does so the badge and the
-  button cannot disagree. What still keys on the **registry** row is whether a connection exists at
-  all: `/pods/separate` passes no connection for a pod that is connected, which is what makes it the
-  deliberate step.
+  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — read off one
+  row** (`WebUiEndpoint.podRegistrationOf`), because the pod refuses an id offered under an address
+  it was not registered with. It lives on the **token** row, with the registry's copies as the
+  fallback for older rows; `PodTokens` states why. What still keys on the registry row is whether a
+  connection exists at all, which is what makes `/pods/separate` — it passes none for a pod that is
+  connected — the deliberate step.
 
 ## Deployment stance (PoC — no migrations)
 
@@ -278,14 +274,10 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   Both refresh entries short-circuit **ahead of** that claim on `PodTokens.deadGrantSince`: a
   connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect, so it
   costs a field on a row already in hand instead of a claim, a metadata discovery, a token POST and a
-  release — and `deadGrantSince` records when the grant died rather than when it was last retried.
-  The mark sits on the **vault** row rather than the registry one, because the vault write is the
-  first of the connect callback's two and replaces the row wholesale: a reconnect therefore lifts the
-  mark in the same write that installs the family it applies to. On the registry the mark was cleared
-  only by the *second* write, and a reconnect is exactly what somebody does once it is set — so that
-  write failing left a healthy token beside a mark nothing could lift. It is written under the same
-  claim `replaceIfClaimedBy` persists a rotation under (`TokenVaultDao.markDeadGrantIfClaimedBy`),
-  which is what makes a reconnect landing mid-refresh win.
+  release — and it records when the grant died rather than when it was last retried. On the vault
+  row, so a reconnect lifts it in the same write that installs the new family, and written under the
+  claim a rotation persists under (`TokenVaultDao.markDeadGrantIfClaimedBy`) so a reconnect landing
+  mid-refresh wins.
   A claim-*losing* caller re-checks the mark before its optimistic fallback too: the winner persists
   nothing when it finds the grant dead, so the polled row never moves and the fallback would
   otherwise hand back a still-unexpired token for the rest of the skew window. The answer does not

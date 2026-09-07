@@ -25,6 +25,14 @@ import java.util.Date
  * **unreadable** rather than fatal: [find] returns null and the refresh sweep skips it, so the
  * caller surfaces "reconnect this pod" instead of the read or the whole sweep crashing.
  *
+ * **Everything a refresh must present alongside the token lives here**, and this is why: the connect
+ * callback writes this row and the `PodConnection` registry row one after the other, and nothing
+ * makes that pair atomic. So the client id the token was issued to, the address that id is pinned
+ * to, and whether the pod has declared the grant finished are all recorded on the row they are
+ * about — [PodTokens.podClientId], [PodTokens.podRedirectUri], [PodTokens.deadGrantSince]. The
+ * registry keeps its own copies of the first two, which answer for a row written before they were
+ * recorded here; a half-landed connect then costs a stale id rather than a dead connection.
+ *
  * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
  */
 data class PodTokens(
@@ -51,10 +59,8 @@ data class PodTokens(
    */
   val lastUsedAt: Date? = null,
   /**
-   * The pod-side `client_id` [refreshToken] was issued to. Presenting another one is answered
-   * `invalid_grant`, which marks the connection dead until somebody reconnects — so the pairing is
-   * kept here rather than read off `PodConnection.podClientId`, which a separate upsert writes. A
-   * disagreement then costs the next re-authorize a stale id instead of costing the connection.
+   * The pod-side `client_id` [refreshToken] was issued to. The pod pairs the two: presenting any
+   * other id is answered `invalid_grant`, which marks the connection dead until somebody reconnects.
    *
    * Null on a row written before this field. Such a row refreshes with `PodConnection.podClientId`,
    * as it always did, and the first refresh the pod accepts records the id it used.
@@ -67,20 +73,15 @@ data class PodTokens(
    * that means the grant is finished (RFC 6749 §5.2) rather than that the attempt failed. Every
    * further refresh earns the same refusal, so both refresh entries stop here.
    *
-   * On the row it is about, because a reconnect clears it by installing a new family:
-   * [TokenVaultDao.upsert] replaces the row and this defaults back to null, in the same write. A
-   * mark kept anywhere else would have to be cleared by a second one, and a reconnect is exactly
-   * what somebody does when this is set — so that second write failing would leave a healthy token
-   * beside a mark nothing can lift.
+   * A reconnect lifts it for free: [TokenVaultDao.upsert] replaces the row, so the mark defaults
+   * back to null in the same write that installs the family it applies to. A mark anywhere else
+   * needs a second write to clear it — and a reconnect is exactly what somebody does once it is
+   * set, so that write failing would strand a healthy token behind it.
    */
   val deadGrantSince: Date? = null,
   /**
-   * The redirect URI [podClientId] is pinned to at the pod — the same fact
-   * `PodConnection.podRedirectUri` records, kept beside the id because the two are one
-   * registration: presenting the id means presenting this address, and an id offered under an
-   * address it was never registered with is refused.
-   *
-   * Null wherever [podClientId] is, and read only together with it.
+   * The redirect URI [podClientId] is pinned to at the pod. Null wherever [podClientId] is, and
+   * read only with it: the two are one registration (`WebUiEndpoint.podRegistrationOf`).
    */
   val podRedirectUri: String? = null,
 )

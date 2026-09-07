@@ -24,12 +24,8 @@ data class PodConnection(
   /** The pod's OAuth authorization-server issuer, discovered via the pod's metadata. */
   val issuer: String,
   /**
-   * The client_id the service registered at the pod via DCR.
-   *
-   * The **fallback** copy. A connect records the registration on the token row, and that is what a
-   * refresh and a re-authorize both present ([PodTokens.podClientId]); this one answers for a row
-   * written before they were recorded there. The two rows are written separately and can disagree,
-   * so whichever is read, [podRedirectUri] is read from the same one.
+   * The client_id the service registered at the pod via DCR — the fallback copy, read with
+   * [podRedirectUri] and never apart from it. [PodTokens] says which row answers and why.
    */
   val podClientId: String,
   /** Feature scopes granted to the service by the pod (e.g. "public-read"). */
@@ -54,8 +50,6 @@ data class PodConnection(
    * The redirect URI [podClientId] is pinned to at the pod, so presenting that id again means
    * presenting this address. Null is a connection made while every profile shared one client, and
    * means the parent `…/_system/ui/pods/callback`; `PodClientIdentity.profileOf` reads it back.
-   *
-   * The fallback copy, like [podClientId] and read with it — never one of the two from each row.
    *
    * Last in the list so every existing `componentN()` keeps its meaning — a consumer compiled
    * against an older artifact then fails to link rather than destructuring this where it asked for

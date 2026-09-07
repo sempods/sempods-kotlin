@@ -552,12 +552,11 @@ fun Application.webUiEndpoint(
 private data class PodRegistration(val clientId: String, val redirectUri: String?)
 
 /**
- * The registration [existing] holds, read off **one** row. A connect records both onto the token
- * row; a row written before that carries neither, and both then come off the registry.
+ * The registration [existing] holds: the token row where a connect records it, or the registry for
+ * a row written before that ([PodTokens]).
  *
- * Never one from each. The two rows are written separately and can disagree (see
- * [PodTokens.podClientId]), and an id offered under an address it was not registered with is
- * refused by the pod — so a mixed pair would turn a stale id into a flow that cannot complete.
+ * Off **one** row, never one field from each — the pod refuses an id offered under an address it
+ * was not registered with, so a mixed pair is a flow that cannot complete.
  */
 private fun podRegistrationOf(existing: PodConnection, tokens: PodTokens?): PodRegistration =
   if (tokens?.podClientId != null) PodRegistration(tokens.podClientId, tokens.podRedirectUri)
