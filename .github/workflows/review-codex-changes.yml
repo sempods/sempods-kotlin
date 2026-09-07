@@ -7,6 +7,8 @@ name: Review Codex changes
 # pushes with a human's credentials, so the author is the person and never the agent.
 on:
   pull_request:
+    # No `synchronize`: Codex comments on every push already, and a second reviewer at that rate is
+    # noise. Once each time the change is declared ready.
     types: [opened, ready_for_review]
 
 permissions:
