@@ -17,27 +17,6 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.Date
 
 /**
- * The token vault: the service's custody of **pod** OAuth tokens, keyed `(user, profile, pod)`.
- * This is the "token custody" cost the concept doc calls out — the main liability hardened
- * in M6 (encryption-at-rest + key management). [accessToken]/[refreshToken] are stored as
- * ciphertext under the [SecretCipher] envelope.
- *
- * A row whose ciphertext cannot be decrypted (a lost / changed [SecretCipher] key) is treated as
- * **unreadable** rather than fatal: [find] returns null and the refresh sweep skips it, so the
- * caller surfaces "reconnect this pod" instead of the read or the whole sweep crashing.
- *
- * **Everything a refresh must present alongside the token lives here**, and this is why: the connect
- * callback writes this row and the `PodConnection` registry row one after the other, and nothing
- * makes that pair atomic. So the client id the token was issued to, the address that id is pinned
- * to, and whether the pod has declared the grant finished are all recorded on the row they are
- * about — [PodTokens.podClientId], [PodTokens.podRedirectUri], [PodTokens.deadGrantSince]. The
- * registry keeps its own copies of the first two, which answer for a row written before they were
- * recorded here; a half-landed connect then costs a stale id rather than a dead connection. The
- * registration is a pair and is read as one (`PodClientIdentity.registrationOf`).
- *
- * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
- */
-/**
  * The registration a row records: the pod-side `client_id` and the redirect URI it is pinned to.
  * Read as a pair (`PodClientIdentity.registrationOf`) — the pod refuses an id offered under an
  * address it was not registered with, so one field from each row is a flow that cannot complete.
@@ -47,6 +26,29 @@ interface PodRegistrationRow {
   val podRedirectUri: String?
 }
 
+/**
+ * The token vault: the service's custody of **pod** OAuth tokens, keyed `(user, profile, pod)`.
+ * This is the "token custody" cost the concept doc calls out — the main liability hardened
+ * in M6 (encryption-at-rest + key management). [accessToken]/[refreshToken] are stored as
+ * ciphertext under the [SecretCipher] envelope.
+ *
+ * A row whose ciphertext cannot be decrypted (a lost / changed [SecretCipher] key) is treated as
+ * **unreadable** rather than fatal: [TokenVaultDao.find] returns null and the refresh sweep skips
+ * it, so the caller surfaces "reconnect this pod" instead of the read or the whole sweep crashing.
+ *
+ * **Everything a refresh presents, and everything it checks the answer against, lives here** —
+ * [podClientId], [podRedirectUri], [issuer], [podSubject], [deadGrantSince] — because the connect
+ * callback writes this row and the `PodConnection` registry row one after the other and nothing
+ * makes that pair atomic. Each is a fact about *this* token family, which is the value a refresh
+ * has to agree with. Three fall back to the registry's copy for a row carrying none; [issuer] is
+ * required and says why it may not. The registration is a pair and is read as one
+ * (`PodClientIdentity.registrationOf`).
+ *
+ * `PodConnection.scopes` and `PodConnection.subjectVerified` stay on the registry: no refusal reads
+ * either.
+ *
+ * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
+ */
 data class PodTokens(
   val user: String,
   val profile: String,
@@ -91,6 +93,28 @@ data class PodTokens(
    * set, so that write failing would strand a healthy token behind it.
    */
   val deadGrantSince: Date? = null,
+  /**
+   * The pod's OAuth authorization server as it stood when [refreshToken] was minted, and what a
+   * refresh pins the freshly discovered metadata against: a pod whose metadata now names a different
+   * one (DNS/domain takeover, misconfig) never receives this token.
+   *
+   * Required, and the one fact here with no fallback to the registry. The connect callback writes
+   * the registry row first, so a connect whose token write did not land leaves the new server's
+   * name beside the previous server's family, and a refresh reading it would post that family's
+   * token to a server that never issued it. `PodOAuthClient.discoverMetadata` refuses a pod naming
+   * no authorization server, so every row this service writes carries one; a row that predates the
+   * field does not map, and reads as unreadable.
+   */
+  val issuer: String,
+  /**
+   * The pod-local WebID the pod minted this family for — what a refresh checks the refreshed
+   * token's subject against, so a pod that starts answering as somebody else is refused.
+   *
+   * `PodConnection.podSubject` answers for a row carrying none, and may: a subject that has moved
+   * on refuses the refresh, where a moved-on [issuer] would admit it. Only a subject a refresh read
+   * is recorded here. A connect always writes one; it fails on a token whose subject it cannot read.
+   */
+  val podSubject: String? = null,
 ) : PodRegistrationRow {
   /** True when the pod has declared this row's grant finished — see [deadGrantSince]. */
   val isDeadGrant: Boolean get() = deadGrantSince != null
@@ -423,9 +447,11 @@ class TokenVaultDao(
     putNotNull("podClientId", podClientId)
     putNotNull("podRedirectUri", podRedirectUri)
     putNotNull("deadGrantSince", deadGrantSince)
+    put("issuer", issuer)
+    putNotNull("podSubject", podSubject)
   }
 
-  /** Map a row, or null if it is unreadable (undecryptable ciphertext / corrupt) — logged, not thrown. */
+  /** Map a row, or null if unreadable — undecryptable, corrupt, or missing [PodTokens.issuer]. Logged, not thrown. */
   private fun Document.toTokensOrNull(): PodTokens? = try {
     toTokens()
   } catch (e: Exception) {
@@ -445,6 +471,8 @@ class TokenVaultDao(
     podClientId = getString("podClientId"),
     podRedirectUri = getString("podRedirectUri"),
     deadGrantSince = getDate("deadGrantSince"),
+    issuer = getString("issuer"),
+    podSubject = getString("podSubject"),
   )
 
   companion object {

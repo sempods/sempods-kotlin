@@ -136,7 +136,7 @@ class WriteToolsIntegrationTest {
       .respond(response().withStatusCode(204).withHeader("ETag", "\"v2\""))
 
     registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date()))
+    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = "$pod/_system/auth"))
   }
 
   @AfterEach

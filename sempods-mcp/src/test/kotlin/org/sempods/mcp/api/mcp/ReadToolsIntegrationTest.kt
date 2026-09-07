@@ -125,7 +125,7 @@ class ReadToolsIntegrationTest {
     val soon = Date(System.currentTimeMillis() + 3_600_000)
     for (pod in listOf(podA, podB)) {
       registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date()))
+      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth"))
     }
   }
 
@@ -152,6 +152,8 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "stale", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(),
+        // The pin a refresh reads; without it the row is unrotatable and nothing reaches the pod.
+        issuer = authBase,
       ),
     )
     server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-protected-resource"))

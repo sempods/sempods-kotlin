@@ -125,6 +125,7 @@ class WebUiEndpointTest {
       user, profile, pod, accessToken = "at", refreshToken = "rt",
       accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
       podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
+      issuer = "$pod/_system/auth",
     ),
   )
 
@@ -527,6 +528,7 @@ class WebUiEndpointTest {
         PodTokens(
           user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
           accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
+          issuer = "$podBase/_system/auth",
         ),
       )
       assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))
@@ -806,6 +808,33 @@ class WebUiEndpointTest {
         }.bodyAsText(),
         "the offer has to go once it has been taken",
       )
+    }
+  }
+
+  @Test
+  fun `a connect records on the token row everything a refresh presents and checks against`() = testApplication {
+    // Written last, the token row is the connect's commit point — so it has to be complete when it
+    // lands. A row that left the issuer or the identity to the registry would send the refresh back
+    // to a row this write may have superseded, which is the whole reason those two moved here.
+    val user = "https://id.test/e/web-user-self-sufficient"
+    val tokenIssuer = installWebUi()
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = "https://pod.example/u/on-the-pod") { _, podBase, authBase ->
+      val authorize = Url(connect(tokenIssuer, user, podBase))
+
+      val callback = client.get(
+        "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+
+      val stored = assertNotNull(
+        TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)),
+      )
+      assertEquals(authBase, stored.issuer, "the authorization server that minted this family")
+      assertEquals("https://pod.example/u/on-the-pod", stored.podSubject, "and the identity it minted it for")
+      assertEquals("dyn:fresh", stored.podClientId, "beside the registration it was issued to")
     }
   }
 

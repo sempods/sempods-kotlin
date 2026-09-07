@@ -62,10 +62,26 @@ class TokenVaultDaoTest {
 
   private fun newKey() = PodKey("https://id.test/e/" + UUID.randomUUID(), PodKey.DEFAULT_PROFILE, "https://pod.test/p")
 
+  /**
+   * A row for [key]. [PodTokens.issuer] is required and no case in this file turns on its value —
+   * what a refresh does with the pin is `PodTokenProviderTest`'s — so it is supplied once here.
+   */
+  private fun tokens(
+    key: PodKey,
+    accessToken: String = "a",
+    refreshToken: String? = "r",
+    accessTokenExpiresAt: Date? = Date(),
+    updatedAt: Date = Date(),
+    lastUsedAt: Date? = null,
+  ) = PodTokens(
+    key.user, key.profile, key.pod, accessToken, refreshToken, accessTokenExpiresAt, updatedAt,
+    lastUsedAt, issuer = "https://pod.test/p/_system/auth",
+  )
+
   @Test
   fun `upsert stores access and refresh tokens as ciphertext at rest`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "access-secret", "refresh-secret", Date(), Date()))
+    dao.upsert(tokens(key, "access-secret", "refresh-secret", Date(), Date()))
 
     val stored = raw.find(keyFilter(key)).first()!!
     assertTrue(stored.getString("accessToken").startsWith("v1:"), "access token should be ciphertext")
@@ -80,7 +96,7 @@ class TokenVaultDaoTest {
   @Test
   fun `null refresh token stays absent`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", null, Date(), Date()))
+    dao.upsert(tokens(key, "a", null, Date(), Date()))
     assertNull(raw.find(keyFilter(key)).first()!!.getString("refreshToken"))
     assertNull(dao.find(key)!!.refreshToken)
   }
@@ -88,7 +104,7 @@ class TokenVaultDaoTest {
   @Test
   fun `refresh claim wins exactly once across two holders and expires`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), Date()))
+    dao.upsert(tokens(key, "a", "r", Date(), Date()))
 
     val until = Date(System.currentTimeMillis() + 60_000)
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
@@ -103,7 +119,7 @@ class TokenVaultDaoTest {
   @Test
   fun `release only works for the actual holder, upsert clears the claim implicitly`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), Date()))
+    dao.upsert(tokens(key, "a", "r", Date(), Date()))
     val until = Date(System.currentTimeMillis() + 60_000)
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
 
@@ -115,7 +131,7 @@ class TokenVaultDaoTest {
 
     // Persisting a refreshed row (full-document replace) drops the claim fields — the success
     // path's implicit release.
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a2", "r2", Date(), Date()))
+    dao.upsert(tokens(key, "a2", "r2", Date(), Date()))
     assertNull(raw.find(keyFilter(key)).first()!!.getString("refreshClaimedBy"))
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
   }
@@ -128,33 +144,33 @@ class TokenVaultDaoTest {
   @Test
   fun `replaceIfClaimedBy persists only while the claim is still ours`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), Date()))
+    dao.upsert(tokens(key, "a", "r", Date(), Date()))
     val until = Date(System.currentTimeMillis() + 60_000)
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
 
     // Claim held → the refreshed row lands, and the replace drops the claim fields (the release).
-    assertTrue(dao.replaceIfClaimedBy(PodTokens(key.user, key.profile, key.pod, "a2", "r2", Date(), Date()), "replica-a"))
+    assertTrue(dao.replaceIfClaimedBy(tokens(key, "a2", "r2", Date(), Date()), "replica-a"))
     assertEquals("a2", dao.find(key)!!.accessToken)
     assertNull(raw.find(keyFilter(key)).first()!!.getString("refreshClaimedBy"))
 
     // A re-connect replaced the row (upsert clears any claim) while a refresh was in flight — the
     // stale rotation must lose and the re-connect's tokens must survive.
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "reconnect-access", "reconnect-refresh", Date(), Date()))
-    assertTrue(!dao.replaceIfClaimedBy(PodTokens(key.user, key.profile, key.pod, "stale", "stale", Date(), Date()), "replica-a"))
+    dao.upsert(tokens(key, "reconnect-access", "reconnect-refresh", Date(), Date()))
+    assertTrue(!dao.replaceIfClaimedBy(tokens(key, "stale", "stale", Date(), Date()), "replica-a"))
     assertEquals("reconnect-access", dao.find(key)!!.accessToken)
 
     // A disconnect deleted the row — the late refresh must not resurrect it.
     assertTrue(dao.tryClaimRefresh(key, "replica-a", until))
     dao.delete(key)
-    assertTrue(!dao.replaceIfClaimedBy(PodTokens(key.user, key.profile, key.pod, "zombie", "zombie", Date(), Date()), "replica-a"))
+    assertTrue(!dao.replaceIfClaimedBy(tokens(key, "zombie", "zombie", Date(), Date()), "replica-a"))
     assertNull(dao.find(key))
   }
 
   @Test
   fun `an undecryptable row is treated as absent, not a crash`() {
     val key = newKey()
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "access-secret", "refresh-secret", Date(), Date()))
+    dao.upsert(tokens(key, "access-secret", "refresh-secret", Date(), Date()))
 
     // A DAO with a different key cannot decrypt the row — find returns null (→ "reconnect this pod").
     val wrongKeyDao = TokenVaultDao(db!!, SecretCipher(ByteArray(32) { (it + 9).toByte() }))
@@ -174,13 +190,13 @@ class TokenVaultDaoTest {
     val justNow = Date()
     val longAgo = Date(System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L)
 
-    val warm = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", soon, justNow, justNow)) }
-    val idle = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", soon, justNow, longAgo)) }
-    val neverUsed = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", soon, justNow, null)) }
-    val notExpiring = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", far, justNow, justNow)) }
+    val warm = newKey().also { dao.upsert(tokens(it, "a", "r", soon, justNow, justNow)) }
+    val idle = newKey().also { dao.upsert(tokens(it, "a", "r", soon, justNow, longAgo)) }
+    val neverUsed = newKey().also { dao.upsert(tokens(it, "a", "r", soon, justNow, null)) }
+    val notExpiring = newKey().also { dao.upsert(tokens(it, "a", "r", far, justNow, justNow)) }
     // The row the old selection handed back on every tick only for the provider to skip it.
-    val unknownExpiry = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", null, justNow, justNow)) }
-    val unrefreshable = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", null, soon, justNow, justNow)) }
+    val unknownExpiry = newKey().also { dao.upsert(tokens(it, "a", "r", null, justNow, justNow)) }
+    val unrefreshable = newKey().also { dao.upsert(tokens(it, "a", null, soon, justNow, justNow)) }
 
     val pods = dao.findExpiringBefore(
       cutoff = Date(System.currentTimeMillis() + 300_000),
@@ -202,10 +218,10 @@ class TokenVaultDaoTest {
 
     // Never used, access token nowhere near expiry — invisible to the warm tier, and exactly what
     // this one exists for.
-    val stale = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", far, longAgo, null)) }
-    val unknownExpiry = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", null, longAgo, null)) }
-    val freshlyRotated = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", far, justNow, null)) }
-    val unrefreshable = newKey().also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", null, far, longAgo, null)) }
+    val stale = newKey().also { dao.upsert(tokens(it, "a", "r", far, longAgo, null)) }
+    val unknownExpiry = newKey().also { dao.upsert(tokens(it, "a", "r", null, longAgo, null)) }
+    val freshlyRotated = newKey().also { dao.upsert(tokens(it, "a", "r", far, justNow, null)) }
+    val unrefreshable = newKey().also { dao.upsert(tokens(it, "a", null, far, longAgo, null)) }
 
     val pods = dao.findNotRotatedSince(
       Date(System.currentTimeMillis() - 30 * 24 * 60 * 60 * 1000L),
@@ -222,7 +238,7 @@ class TokenVaultDaoTest {
   fun `touchLastUsed moves the marker only past the throttle, and disturbs nothing else`() {
     val key = newKey()
     val rotatedAt = Date(System.currentTimeMillis() - 10_000)
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), rotatedAt, null))
+    dao.upsert(tokens(key, "a", "r", Date(), rotatedAt, null))
     val claimUntil = Date(System.currentTimeMillis() + 60_000)
     assertTrue(dao.tryClaimRefresh(key, "replica-a", claimUntil))
 
@@ -253,12 +269,12 @@ class TokenVaultDaoTest {
     val collection = "podTokensExplain" + UUID.randomUUID().toString().take(8)
     val explained = TokenVaultDao(db!!, testSecretCipher(), collection)
     val key = newKey()
-    explained.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), Date(), Date()))
+    explained.upsert(tokens(key, "a", "r", Date(), Date(), Date()))
     // Rows nothing can ever rotate, old enough to sort ahead of everything: in a plain index they
     // would be examined on every tick and discarded, so the batch bound would stop bounding reads.
     repeat(5) {
       val dead = newKey()
-      explained.upsert(PodTokens(dead.user, dead.profile, dead.pod, "a", null, Date(), Date(0), Date(0)))
+      explained.upsert(tokens(dead, "a", null, Date(), Date(0), Date(0)))
     }
 
     listOf(
@@ -285,7 +301,7 @@ class TokenVaultDaoTest {
   fun `the preservation selection is round-robin - an attempted row goes to the back`() {
     val stale = Date(System.currentTimeMillis() - 30 * 24 * 60 * 60 * 1000L)
     fun seed(pod: String, rotatedAt: Date) = PodKey("u-" + UUID.randomUUID(), PodKey.DEFAULT_PROFILE, pod)
-      .also { dao.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", Date(), rotatedAt, null)) }
+      .also { dao.upsert(tokens(it, "a", "r", Date(), rotatedAt, null)) }
 
     // Oldest rotation first among never-attempted rows: closest to its deadline goes first.
     val oldest = seed("https://pod.test/oldest", Date(System.currentTimeMillis() - 50 * 24 * 60 * 60 * 1000L))
@@ -313,9 +329,9 @@ class TokenVaultDaoTest {
     // Written under a different key, so this DAO cannot decrypt it — and it sorts first, being the
     // oldest rotation with no attempt mark.
     val blind = TokenVaultDao(db!!, SecretCipher(ByteArray(32) { (it + 9).toByte() }), collection)
-    val opaque = newKey().also { blind.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", Date(), longAgo, null)) }
+    val opaque = newKey().also { blind.upsert(tokens(it, "a", "r", Date(), longAgo, null)) }
     val behind = newKey().also {
-      readable.upsert(PodTokens(it.user, it.profile, it.pod, "a", "r", Date(), Date(System.currentTimeMillis() - 40 * 24 * 60 * 60 * 1000L), null))
+      readable.upsert(tokens(it, "a", "r", Date(), Date(System.currentTimeMillis() - 40 * 24 * 60 * 60 * 1000L), null))
     }
 
     // A batch of one: the head is full, so the tail must not be consulted — and the row behind the
@@ -333,7 +349,7 @@ class TokenVaultDaoTest {
   fun `a claimed replace carries the use marker forward`() {
     val key = newKey()
     val usedAt = Date(System.currentTimeMillis() - 5_000)
-    dao.upsert(PodTokens(key.user, key.profile, key.pod, "a", "r", Date(), Date(), usedAt))
+    dao.upsert(tokens(key, "a", "r", Date(), Date(), usedAt))
     assertTrue(dao.tryClaimRefresh(key, "replica-a", Date(System.currentTimeMillis() + 60_000)))
 
     val rotated = dao.find(key)!!.copy(accessToken = "a2", refreshToken = "r2", updatedAt = Date())

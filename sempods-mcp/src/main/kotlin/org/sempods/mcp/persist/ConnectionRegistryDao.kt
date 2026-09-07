@@ -21,7 +21,11 @@ data class PodConnection(
   val user: String,
   val profile: String,
   val pod: String,
-  /** The pod's OAuth authorization-server issuer, discovered via the pod's metadata. */
+  /**
+   * The pod's OAuth authorization-server issuer, discovered via the pod's metadata — what
+   * `list_pods` reports. [PodTokens.issuer] is what a refresh pins against, and says why this copy
+   * is not.
+   */
   val issuer: String,
   /**
    * The client_id the service registered at the pod via DCR — the fallback copy, read with
@@ -32,10 +36,12 @@ data class PodConnection(
   val scopes: Set<String>,
   /**
    * The WebID the pod itself minted as the token's `sub` — the pod-local identity of the person
-   * this connection acts as. May differ from [user] (the id.sempods.org identity the caller signed
-   * into the service as) when the pod runs its own identity provider: the connection stays keyed
-   * under [user], but every use acts on the pod as [podSubject]. Null only for legacy rows written
-   * before this was captured.
+   * this connection acts as, and what the dashboard and `list_pods` show. May differ from [user]
+   * (the id.sempods.org identity the caller signed into the service as) when the pod runs its own
+   * identity provider: the connection stays keyed under [user], but every use acts on the pod as
+   * [podSubject]. Null only for rows written before this was captured, which is also what makes it
+   * the fallback copy for a token row that predates recording it there — [PodTokens] says which row
+   * a refresh decides identity drift against and why.
    */
   val podSubject: String? = null,
   /**

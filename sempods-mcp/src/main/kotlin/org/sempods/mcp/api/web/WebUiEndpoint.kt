@@ -488,6 +488,13 @@ fun Application.webUiEndpoint(
           podSubject = subject.webId, subjectVerified = subject.verified,
           createdAt = now, updatedAt = now,
         )
+        // Two writes, no transaction, so the second is the commit point — and the token row is it,
+        // because that row is self-sufficient for a refresh ([PodTokens]). Until it lands the
+        // previous connection is intact and the failure the browser is told about is the one that
+        // happened. Disconnect is the mirror: the token row goes first, so a half-landed one
+        // strands no custody. The order rests on [PodTokens.issuer] being required and never read
+        // off the row written here.
+        connectionRegistryDao.upsert(connection)
         tokenVaultDao.upsert(
           PodTokens(
             user = pending.user, profile = pending.profile, pod = pending.pod,
@@ -499,9 +506,10 @@ fun Application.webUiEndpoint(
             lastUsedAt = now,
             podClientId = pending.podClientId,
             podRedirectUri = pending.redirectUri,
+            issuer = pending.metadata.issuer,
+            podSubject = subject.webId,
           ),
         )
-        connectionRegistryDao.upsert(connection)
         logger.info {
           "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.foreignIdentity}"
         }

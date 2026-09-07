@@ -278,13 +278,16 @@ class PodTokenProvider(
     }
     return runCatching {
       val metadata = podOAuthClient.discoverMetadata(tokens.pod)
-      // Pin to the issuer chosen at connect time: if the pod's metadata now points at a different
-      // authorization server (DNS/domain takeover, misconfig), refuse to post the stored refresh
-      // token to that new token endpoint — otherwise a metadata change could exfiltrate and rotate
-      // the user's pod refresh token.
-      if (metadata.issuer != connection.issuer) {
+      // The precedence [PodTokens] states, and the one `PodClientIdentity.registrationOf` applies
+      // to the registration.
+      val recordedSubject = tokens.podSubject ?: connection.podSubject
+      // Pin to the authorization server that minted this refresh token: if the pod's metadata now
+      // points at a different one (DNS/domain takeover, misconfig), refuse to post the stored
+      // refresh token to that new token endpoint — otherwise a metadata change could exfiltrate and
+      // rotate the user's pod refresh token.
+      if (metadata.issuer != tokens.issuer) {
         logger.warn {
-          "issuer mismatch for $key (connected='${connection.issuer}', discovered='${metadata.issuer}') — skipping refresh"
+          "issuer mismatch for $key (pinned='${tokens.issuer}', discovered='${metadata.issuer}') — skipping refresh"
         }
         auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch")
         return@runCatching null
@@ -304,7 +307,7 @@ class PodTokenProvider(
       //    would discard the freshly rotated refresh token and brick a healthy connection over a
       //    non-identity hiccup. Keep the token (no worse than the pre-identity behaviour, which stored
       //    refreshes unconditionally) and leave the recorded identity untouched.
-      // A legacy row with no recorded podSubject has nothing to protect and is backfilled below.
+      // A row with no recorded subject on either row has nothing to protect and is backfilled below.
       val outcome = podOAuthClient.verifyAccessTokenSubject(metadata, refreshed.accessToken)
       if (outcome is PodOAuthClient.SubjectOutcome.VerificationFailed) {
         logger.warn { "refreshed pod token for $key failed JWKS signature verification — refusing" }
@@ -312,9 +315,9 @@ class PodTokenProvider(
         return@runCatching null
       }
       val subject = (outcome as? PodOAuthClient.SubjectOutcome.Readable)?.subject
-      if (subject != null && connection.podSubject != null && subject.webId != connection.podSubject) {
+      if (subject != null && recordedSubject != null && subject.webId != recordedSubject) {
         logger.warn {
-          "identity drift on refresh for $key (recorded='${connection.podSubject}', refreshed='${subject.webId}') — refusing"
+          "identity drift on refresh for $key (recorded='$recordedSubject', refreshed='${subject.webId}') — refusing"
         }
         auditLog.podTokenRefreshed(key, ok = false, detail = "identity_drift")
         return@runCatching null
@@ -326,10 +329,13 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
-        // Both halves. Draining only the id would leave a row whose id says "read me" beside a null
-        // address — the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
+        // Draining only the id would leave a row whose id says "read me" beside a null address —
+        // the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
         podClientId = registration.clientId,
         podRedirectUri = registration.redirectUri,
+        // Only a subject this refresh read: the registry's answer can come from a reconnect that
+        // rewrote that row, and would install a reference this family never matches.
+        podSubject = subject?.webId ?: tokens.podSubject,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {
         // A concurrent re-connect replaced the row (clearing our claim) — or a disconnect deleted
