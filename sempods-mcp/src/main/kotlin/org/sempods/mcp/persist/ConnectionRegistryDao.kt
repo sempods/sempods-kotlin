@@ -24,7 +24,12 @@ data class PodConnection(
   val pod: String,
   /** The pod's OAuth authorization-server issuer, discovered via the pod's metadata. */
   val issuer: String,
-  /** The client_id the service registered at the pod via DCR. */
+  /**
+   * The client_id the service registered at the pod via DCR. It seeds the next re-authorize, which
+   * presents it again so the pod pre-checks the grants held under it; a refresh presents
+   * [PodTokens.podClientId] instead, because that row and this one are written separately and can
+   * disagree.
+   */
   val podClientId: String,
   /** Feature scopes granted to the service by the pod (e.g. "public-read"). */
   val scopes: Set<String>,

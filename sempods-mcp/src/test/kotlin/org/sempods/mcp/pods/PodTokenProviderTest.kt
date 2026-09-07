@@ -128,10 +128,20 @@ class PodTokenProviderTest {
   private fun seedConnection(issuer: String = authBase) =
     registry.upsert(PodConnection(user, profile, pod, issuer = issuer, podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
 
-  private fun seedToken(expiresAt: Date?, refreshToken: String? = "rt-1") =
-    vault.upsert(PodTokens(user, profile, pod, accessToken = "at-1", refreshToken = refreshToken, accessTokenExpiresAt = expiresAt, updatedAt = Date()))
+  private fun seedToken(expiresAt: Date?, refreshToken: String? = "rt-1", podClientId: String? = null) =
+    vault.upsert(
+      PodTokens(
+        user, profile, pod, accessToken = "at-1", refreshToken = refreshToken,
+        accessTokenExpiresAt = expiresAt, updatedAt = Date(), podClientId = podClientId,
+      ),
+    )
 
   private val key get() = PodKey(user, profile, pod)
+
+  /** The form the refresh posted, from the one token request the pod recorded. */
+  private fun tokenRequestBody(): String =
+    server.retrieveRecordedRequests(request().withMethod("POST").withPath("/pod/_system/auth/token"))
+      .single().bodyAsString
 
   private fun fortyDaysAgo() = Date(System.currentTimeMillis() - 40L * 24 * 60 * 60 * 1000)
   private fun thirtyDaysAgo() = Date(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000)
@@ -152,6 +162,35 @@ class PodTokenProviderTest {
     assertEquals("at-2", stored.accessToken)
     assertEquals("rt-2", stored.refreshToken, "the pod rotates the refresh token")
     verify(exactly = 1) { auditLog.podTokenRefreshed(key, ok = true) }
+  }
+
+  @Test
+  fun `a refresh presents the client id the token was issued to, not the registry's`() = runBlocking {
+    // The two rows are written one after the other and nothing makes the pair atomic, so they can
+    // disagree — a registry write that failed, or two callbacks for one key completing at once.
+    // Presenting the registry's id for a token issued to another is the RFC 6749 §5.2
+    // `invalid_grant` that marks the connection dead, so the pairing is read off the token row.
+    seedConnection() // the registry says `dyn:x`
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), podClientId = "dyn:issued-to")
+
+    assertEquals("at-2", provider.validAccessToken(key))
+
+    val posted = tokenRequestBody()
+    assertTrue(posted.contains("client_id=dyn%3Aissued-to"), "the refresh must present the token's own id: $posted")
+    assertEquals("dyn:issued-to", vault.find(key)!!.podClientId, "and the rotation keeps the pairing")
+  }
+
+  @Test
+  fun `a token row that predates the client id refreshes with the registry's, and records it`() = runBlocking {
+    seedConnection() // the registry says `dyn:x`
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
+    assertNull(vault.find(key)!!.podClientId, "the legacy row this case is about")
+
+    assertEquals("at-2", provider.validAccessToken(key))
+
+    val posted = tokenRequestBody()
+    assertTrue(posted.contains("client_id=dyn%3Ax"), "a row with nothing recorded refreshes as it always did: $posted")
+    assertEquals("dyn:x", vault.find(key)!!.podClientId, "the pod accepted it, so the row now carries what it refreshes with")
   }
 
   @Test

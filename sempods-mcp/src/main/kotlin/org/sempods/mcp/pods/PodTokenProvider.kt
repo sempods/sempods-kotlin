@@ -310,7 +310,8 @@ class PodTokenProvider(
         auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch")
         return@runCatching null
       }
-      val refreshed = podOAuthClient.refresh(metadata, refreshToken, connection.podClientId)
+      val podClientId = tokens.podClientId ?: connection.podClientId
+      val refreshed = podOAuthClient.refresh(metadata, refreshToken, podClientId)
 
       // Re-verify the identity on refresh. Three outcomes, three responses:
       //  - VerificationFailed: the refreshed token IS a JWT but its signature did not verify against
@@ -346,6 +347,7 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
+        podClientId = podClientId,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {
         // A concurrent re-connect replaced the row (clearing our claim) — or a disconnect deleted

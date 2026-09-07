@@ -426,6 +426,7 @@ fun Application.webUiEndpoint(
             // A connect IS a use: the person is right here, and whatever they do next should not
             // pay for a cold connection the sweep has not been given a reason to keep warm yet.
             lastUsedAt = now,
+            podClientId = pending.podClientId,
           ),
         )
         connectionRegistryDao.upsert(connection)
