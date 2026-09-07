@@ -569,11 +569,12 @@ class PodAuthEndpoint @Inject constructor(
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith("dyn:")
     // An authorization that predates the lifetime control has no decision recorded, and this branch
-    // renders nothing — so it could never acquire one: it would keep working, short-lived, for ever,
-    // without anybody being asked. Once, therefore, it falls through to the dialog instead. Only
-    // where there is a dialog to fall through to: `prompt=none` has none, and answering it with
-    // `consent_required` would retire a silent re-authorization that works today, so it keeps its
-    // code and receives what an absent decision means anyway — an access token and nothing else.
+    // renders nothing — so it could never acquire one. Once, therefore, it falls through to the
+    // dialog instead, which is where it picks one up. Only where there is a dialog to fall through
+    // to: `prompt=none` has none, so it keeps its silent code and the redirect looks unchanged.
+    // What that code buys is nothing — carrying no generation, it is refused at the exchange — and
+    // answering `consent_required` here instead is not worth changing a live contract for a state
+    // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
     val decisionRecorded =
       consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
@@ -1463,9 +1464,9 @@ class PodAuthEndpoint @Inject constructor(
     // from the grant store, never echoed into the token. This also bounds the refresh row.
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
-    // Read from the stored consent, not from the code: a code carries what was asked for, never the
-    // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
-    // which the refresh grant still honours, and mints no new one here.
+    // Read from the stored consent, not from the code: a code carries what was asked for, never
+    // the authority. The absent case does not reach this line — a code with no generation was
+    // refused above — so what is read here is always an answer somebody gave.
     val durable = decision?.durable == true
 
     // What this exchange supersedes, named *before* the successor exists — see
