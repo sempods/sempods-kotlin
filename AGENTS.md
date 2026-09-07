@@ -167,7 +167,7 @@ IST documentation:
 |---|---|
 | Infrastructure for tests | `docker compose -f deployments/local/compose.yaml -f deployments/test/compose.test.yaml up -d` then `deployments/test/garage/init.sh` |
 | Full suite | `./gradlew test` |
-| Everything CI runs | `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks` |
+| Everything CI runs | `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata` |
 | Dependency boundary | `./gradlew buildHealth` → `build/reports/dependency-analysis/build-health-report.txt` |
 | Run the pod server | `./gradlew :deployments:sempods:image:run` → `http://localhost:8090` |
 | Publish a snapshot | `./gradlew publishAllPublicationsToCentralSnapshotsRepository` |
@@ -210,7 +210,7 @@ and no already-applied check. Do not propose a migration framework as a fix for 
 
 ## Before you commit
 
-1. `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks` — after the
+1. `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata` — after the
    infrastructure step above.
 2. `./gradlew buildHealth` — the `api`/`implementation` boundary. A dependency in the wrong
    configuration fails a separate CI job, not this one.
