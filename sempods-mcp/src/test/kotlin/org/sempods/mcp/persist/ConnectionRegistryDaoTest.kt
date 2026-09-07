@@ -14,6 +14,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Mongo-backed; skipped when Mongo is unreachable so the build stays green where it is absent. */
@@ -50,6 +51,34 @@ class ConnectionRegistryDaoTest {
 
   private fun newKey() = PodKey("https://id.test/e/" + UUID.randomUUID(), PodKey.DEFAULT_PROFILE, "https://pod.test/p")
 
+  private fun seed(key: PodKey, podSubject: String, verified: Boolean) = dao.upsert(
+    PodConnection(
+      key.user, key.profile, key.pod, issuer = "https://pod.test/p/_system/auth",
+      podClientId = "dyn:reconnected", scopes = setOf("public-read", "offline_access"),
+      podSubject = podSubject, subjectVerified = verified,
+      createdAt = Date(0), updatedAt = Date(0), podRedirectUri = "https://mcp.test/cb/agent",
+    ),
+  )
+
+  @Test
+  fun `a repair loses to a reconnect that rewrote the row it read`() {
+    // The refresh read this row before a network round trip, and what it learned describes the
+    // family that was current then. Landing it on a row a reconnect has moved on would pair the new
+    // family's subject with the old one's verification — an unverified identity shown as verified,
+    // which is the warning badge not appearing.
+    val key = newKey()
+    seed(key, podSubject = "https://pod.test/u/before", verified = false)
+    val read = checkNotNull(dao.find(key))
+    seed(key, podSubject = "https://pod.test/u/reconnected", verified = false)
+
+    val landed = dao.recordSubjectIfUnchanged(read, "https://pod.test/u/confirmed", subjectVerified = true, at = Date(1_000))
+
+    assertFalse(landed, "the row moved on; this repair must not land")
+    val stored = checkNotNull(dao.find(key))
+    assertEquals("https://pod.test/u/reconnected", stored.podSubject, "the reconnect holds the newer truth")
+    assertFalse(stored.subjectVerified, "and its verification state, not the older family's")
+  }
+
   @Test
   fun `recordSubject writes the identity it learned and leaves the rest of the row alone`() {
     // The caller read this row before a network round trip, and a reconnect writes it *before* the
@@ -57,16 +86,10 @@ class ConnectionRegistryDaoTest {
     // than the one that was read. Replacing the whole row would put the previous connection's
     // scopes, registration and issuer over a live one.
     val key = newKey()
-    dao.upsert(
-      PodConnection(
-        key.user, key.profile, key.pod, issuer = "https://pod.test/p/_system/auth",
-        podClientId = "dyn:reconnected", scopes = setOf("public-read", "offline_access"),
-        podSubject = "https://pod.test/u/before", subjectVerified = false,
-        createdAt = Date(0), updatedAt = Date(0), podRedirectUri = "https://mcp.test/cb/agent",
-      ),
-    )
+    seed(key, podSubject = "https://pod.test/u/before", verified = false)
+    val read = checkNotNull(dao.find(key))
 
-    dao.recordSubject(key, "https://pod.test/u/confirmed", subjectVerified = true, at = Date(1_000))
+    assertTrue(dao.recordSubjectIfUnchanged(read, "https://pod.test/u/confirmed", subjectVerified = true, at = Date(1_000)))
 
     val stored = checkNotNull(dao.find(key))
     assertEquals("https://pod.test/u/confirmed", stored.podSubject)

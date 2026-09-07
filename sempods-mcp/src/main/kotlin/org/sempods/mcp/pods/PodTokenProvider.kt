@@ -359,7 +359,9 @@ class PodTokenProvider(
       // has since added a JWKS (unverified → verified). No write when the subject is unreadable or
       // nothing changed.
       if (subject != null && (connection.podSubject != subject.webId || connection.subjectVerified != subject.verified)) {
-        connectionRegistryDao.recordSubject(key, subject.webId, subject.verified, now)
+        if (!connectionRegistryDao.recordSubjectIfUnchanged(connection, subject.webId, subject.verified, now)) {
+          logger.debug { "connection row for $key moved on mid-refresh — leaving its identity to whoever wrote it" }
+        }
       }
       logger.info { "refreshed pod token for $key" }
       auditLog.podTokenRefreshed(key, ok = true)

@@ -137,25 +137,34 @@ class ConnectionRegistryDao(
   }
 
   /**
-   * Record the identity a refresh just confirmed at the pod, and whether its signature verified.
+   * Record the identity a refresh just confirmed at the pod, and whether its signature verified —
+   * only while [read] is still what this row holds.
    *
-   * A targeted `$set`, not [upsert]: the caller read this row before a network round trip, so a
-   * reconnect can have rewritten it since — and the connect callback writes this row *before* the
-   * token row it commits on, so that reconnect's own description would be the thing replaced.
-   * Writing back the whole row it read would put the previous connection's scopes, registration and
-   * issuer over a live one. It writes the two fields it actually learned, as
-   * [TokenVaultDao.markDeadGrantIfClaimedBy] does on the other row and for the same reason.
+   * Both halves matter, because the caller read [read] before a network round trip and a reconnect
+   * writes this row *before* the token row it commits on. A whole-row [upsert] would put that
+   * reconnect's scopes, registration and issuer back to the previous connection's, so this sets the
+   * two fields it actually learned. And those two are themselves about the family that was current
+   * when [read] was taken: landing them on a row a reconnect has moved on would pair the new
+   * family's subject with the old one's verification, and an unverified identity shown as verified
+   * is the "unverified" badge not appearing. So the write is conditional on what it saw, as
+   * [TokenVaultDao.replaceIfClaimedBy] is on the other row. Losing means a reconnect holds newer
+   * truth, and there is nothing to repair.
+   *
+   * @return whether the repair landed.
    */
-  fun recordSubject(key: PodKey, podSubject: String, subjectVerified: Boolean, at: Date) {
+  fun recordSubjectIfUnchanged(read: PodConnection, podSubject: String, subjectVerified: Boolean, at: Date): Boolean =
     connections.updateOne(
-      keyFilter(key),
+      Filters.and(
+        keyFilter(PodKey(read.user, read.profile, read.pod)),
+        Filters.eq("podSubject", read.podSubject),
+        Filters.eq("subjectVerified", read.subjectVerified),
+      ),
       Updates.combine(
         Updates.set("podSubject", podSubject),
         Updates.set("subjectVerified", subjectVerified),
         Updates.set("updatedAt", at),
       ),
-    )
-  }
+    ).matchedCount > 0
 
   fun delete(key: PodKey) {
     connections.deleteOne(keyFilter(key))
