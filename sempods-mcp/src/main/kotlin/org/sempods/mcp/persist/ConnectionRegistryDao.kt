@@ -150,14 +150,18 @@ class ConnectionRegistryDao(
    * [TokenVaultDao.replaceIfClaimedBy] is on the other row. Losing means a reconnect holds newer
    * truth, and there is nothing to repair.
    *
+   * The condition is [PodConnection.updatedAt] and not the two fields alone, because a reconnect
+   * can mint a new family for the same identity and the same verification state — the values would
+   * still match while the row they sit on is another connection's. Only this method and the connect
+   * callback write the stamp, so it versions the row.
+   *
    * @return whether the repair landed.
    */
   fun recordSubjectIfUnchanged(read: PodConnection, podSubject: String, subjectVerified: Boolean, at: Date): Boolean =
     connections.updateOne(
       Filters.and(
         keyFilter(PodKey(read.user, read.profile, read.pod)),
-        Filters.eq("podSubject", read.podSubject),
-        Filters.eq("subjectVerified", read.subjectVerified),
+        Filters.eq("updatedAt", read.updatedAt),
       ),
       Updates.combine(
         Updates.set("podSubject", podSubject),

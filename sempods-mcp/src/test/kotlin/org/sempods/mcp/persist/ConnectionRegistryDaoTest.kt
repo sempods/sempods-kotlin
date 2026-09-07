@@ -51,12 +51,12 @@ class ConnectionRegistryDaoTest {
 
   private fun newKey() = PodKey("https://id.test/e/" + UUID.randomUUID(), PodKey.DEFAULT_PROFILE, "https://pod.test/p")
 
-  private fun seed(key: PodKey, podSubject: String, verified: Boolean) = dao.upsert(
+  private fun seed(key: PodKey, podSubject: String, verified: Boolean, updatedAt: Date = Date(0)) = dao.upsert(
     PodConnection(
       key.user, key.profile, key.pod, issuer = "https://pod.test/p/_system/auth",
       podClientId = "dyn:reconnected", scopes = setOf("public-read", "offline_access"),
       podSubject = podSubject, subjectVerified = verified,
-      createdAt = Date(0), updatedAt = Date(0), podRedirectUri = "https://mcp.test/cb/agent",
+      createdAt = Date(0), updatedAt = updatedAt, podRedirectUri = "https://mcp.test/cb/agent",
     ),
   )
 
@@ -69,14 +69,17 @@ class ConnectionRegistryDaoTest {
     val key = newKey()
     seed(key, podSubject = "https://pod.test/u/before", verified = false)
     val read = checkNotNull(dao.find(key))
-    seed(key, podSubject = "https://pod.test/u/reconnected", verified = false)
+    // The same identity and the same verification state, on a row that is nonetheless another
+    // connection's: only the stamp tells them apart.
+    seed(key, podSubject = "https://pod.test/u/before", verified = false, updatedAt = Date(500))
 
     val landed = dao.recordSubjectIfUnchanged(read, "https://pod.test/u/confirmed", subjectVerified = true, at = Date(1_000))
 
     assertFalse(landed, "the row moved on; this repair must not land")
     val stored = checkNotNull(dao.find(key))
-    assertEquals("https://pod.test/u/reconnected", stored.podSubject, "the reconnect holds the newer truth")
-    assertFalse(stored.subjectVerified, "and its verification state, not the older family's")
+    assertEquals("https://pod.test/u/before", stored.podSubject, "the reconnect holds the newer truth")
+    assertFalse(stored.subjectVerified, "and its verification state — the older family's must not land")
+    assertEquals(Date(500), stored.updatedAt, "the row is untouched")
   }
 
   @Test
