@@ -113,6 +113,34 @@ class ReauthorizeChallengeStore(
   }
 
   /**
+   * Whether a live challenge for any of [subs] was recorded *after* [issuedAt] — read only, and
+   * deliberately not consuming.
+   *
+   * For the other side of an explicit reauthorization: the 401 revokes what the client holds, but
+   * an exchange already in flight can consume its authorization code before that sweep runs and
+   * seed a fresh family afterwards. The challenge is the marker the sweep leaves behind first, so
+   * the exchange can ask whether one landed since its code was minted and give the family up. A
+   * code minted *after* the challenge is the one the forced flow produced and must go through.
+   *
+   * Compared at second granularity, and a challenge in the same second as the code counts as
+   * older — the same boundary [consume] draws on `iat`, for the same reason: `challengedAt` is
+   * stored in whole seconds and a legitimate flow completing inside one must not be refused.
+   *
+   * [subs] rather than one URI, because the challenge is keyed by whichever URI the bearer
+   * carried and the code may name its twin.
+   */
+  fun challengedAfter(realm: String, clientId: String?, subs: Collection<String>, issuedAt: Instant): Boolean {
+    if (subs.isEmpty()) return false
+    return challenges.find(
+      Filters.and(
+        Filters.`in`("_id", subs.map { key(realm, clientId, it) }),
+        Filters.gt(FIELD_EXPIRES_AT, Date.from(clock())),
+        Filters.gt(FIELD_CHALLENGED_AT, issuedAt.epochSecond),
+      ),
+    ).limit(1).firstOrNull() != null
+  }
+
+  /**
    * The whole replay predicate as one conditional `findOneAndDelete`, so exactly one of N
    * concurrent confirmation calls consumes the challenge and a non-matching one leaves it in place
    * for the proper replay still to come (or for the TTL reaper).

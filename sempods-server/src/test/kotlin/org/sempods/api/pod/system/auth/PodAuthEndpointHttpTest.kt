@@ -67,6 +67,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var reauthorizeChallengeStore: org.sempods.mcp.core.ReauthorizeChallengeStore
+
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
 
@@ -3989,6 +3992,94 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
     )
+  }
+
+  @Test
+  fun `a code minted before a forced reauthorize does not survive the exchange it was already in`() {
+    // The race the sweep cannot close on its own. An explicit `authorize(reauthorize=true)` records
+    // its challenge and then ends what the client holds — but an exchange already in flight has
+    // consumed its code before that sweep and mints its family afterwards, where neither the
+    // decision nor the grant re-check can see it: a forced reauthorization writes no decision and
+    // removes no grant. Recording the challenge without deleting the code is exactly that state.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/racer-${TestUtil.randomId()}"
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = testClientId,
+      subject = webId,
+      scopes = setOf("public-read"),
+      redirectUri = testRedirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = consent.generation,
+      issuedAt = java.time.Instant.now().minusSeconds(10),
+    )
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = testClientId,
+      webId = webId,
+      grants = setOf("public-read"),
+      grantedBy = webId,
+    )
+    reauthorizeChallengeStore.record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=$code" +
+        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
+        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+    )
+
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue(
+      response.responseBody.contains("\"invalid_grant\""),
+      "a code predating the forced 401 must not mint the family it was sent to consent about: " +
+        response.responseBody,
+    )
+  }
+
+  @Test
+  fun `the code the forced reauthorize produced still redeems`() {
+    // The other half, and the one a too-eager refusal breaks: the challenge stays on record until
+    // the client replays the tool call, which it can only do with the token this exchange returns.
+    // So a live challenge is not by itself a reason to refuse — only one recorded after the code.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/replayer-${TestUtil.randomId()}"
+    reauthorizeChallengeStore.record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = testClientId,
+      subject = webId,
+      scopes = setOf("public-read"),
+      redirectUri = testRedirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = consent.generation,
+      issuedAt = java.time.Instant.now().plusSeconds(10),
+    )
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = testClientId,
+      webId = webId,
+      grants = setOf("public-read"),
+      grantedBy = webId,
+    )
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=$code" +
+        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
+        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+    )
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertNotNull(body["refresh_token"], "the flow the challenge forced must be able to complete")
   }
 
   @Test

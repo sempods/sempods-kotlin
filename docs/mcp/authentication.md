@@ -88,6 +88,17 @@ The person is every URI derivable from the bearer's `sub`, not that one
 URI: a pod stores whichever WebID authenticated, and a family recorded
 under the twin would keep rotating around the same dialog.
 
+**The challenge is recorded before that sweep, and the token endpoint
+re-reads it after it mints.** An exchange already in flight can consume
+its code before the sweep runs and seed a family after it, where nothing
+the exchange re-checks can see it — a forced reauthorization writes no
+consent decision and removes no grant. So whichever of the two lands
+second sees the first: the sweep revokes a family minted before it, and
+the exchange gives up one whose code predates the challenge. A code
+minted *after* the challenge is what the forced flow produced and
+redeems normally, which is why the comparison is against the code's own
+issuance rather than against the challenge merely existing.
+
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent
 roundtrip, and the confirmation call may land on a different replica

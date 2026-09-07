@@ -2,10 +2,13 @@ package org.sempods.auth.core
 
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.getStringSet
+import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.mongo.putNotNull
 import org.sempods.commons.mongo.putStrings
 import java.time.Duration
+import java.time.Instant
 
 /**
  * Authorization codes: one-time, short-lived, and bound to everything the exchange must re-check.
@@ -45,6 +48,12 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
      * answered again — a code is a request, and it must not pick up an authority granted after it.
      */
     val consentGeneration: Long? = null,
+    /**
+     * When the code was minted, for a server that has to tell a code issued *before* some later
+     * event from the one that event's own flow produced. Null on a code minted before this field
+     * existed — a caller comparing against it must treat that as "older than anything".
+     */
+    val issuedAt: Instant? = null,
   )
 
   /**
@@ -68,6 +77,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       putNotNull("codeChallengeMethod", it.codeChallengeMethod)
       putNotNull("nonce", it.nonce)
       putNotNull("consentGeneration", it.consentGeneration)
+      it.issuedAt?.let { at -> putInstant("issuedAt", at) }
     },
     read = {
       Entry(
@@ -80,6 +90,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         codeChallengeMethod = getString("codeChallengeMethod"),
         nonce = getString("nonce"),
         consentGeneration = get("consentGeneration", Number::class.java)?.toLong(),
+        issuedAt = getInstant("issuedAt"),
       )
     },
   )
@@ -94,6 +105,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     codeChallengeMethod: String?,
     nonce: String? = null,
     consentGeneration: Long? = null,
+    issuedAt: Instant = Instant.now(),
   ): String = codes.issue(
     Entry(
       subject = subject,
@@ -105,6 +117,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       codeChallengeMethod = codeChallengeMethod,
       nonce = nonce,
       consentGeneration = consentGeneration,
+      issuedAt = issuedAt,
     ),
   )
 

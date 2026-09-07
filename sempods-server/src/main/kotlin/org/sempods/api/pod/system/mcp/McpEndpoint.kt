@@ -738,8 +738,12 @@ class McpEndpoint @Inject constructor(
         val reauthorize = arguments.path("reauthorize").asBoolean(false)
         val decision = decideAuthorizeToolCall(credentials, reauthorize)
         if (decision.startOAuthFlow) {
-          if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
+          // Recorded before the sweep, never after: the challenge is the marker an exchange
+          // already in flight re-reads after it mints, so it has to be there by the time the
+          // sweep starts. Whichever of the two lands second then sees the first — the sweep
+          // revokes a family minted before it, and the exchange gives up one minted after.
           if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
+          if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
           throw upgradeRequired(credentials.pod.name)
         }
       }
