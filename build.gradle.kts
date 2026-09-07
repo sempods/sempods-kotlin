@@ -69,7 +69,10 @@ val gitRevision: String = run {
   if (File(toplevel).canonicalFile != rootDir.canonicalFile) return@run "unknown"
 
   val head = git("rev-parse", "--short", "HEAD")?.ifEmpty { null } ?: return@run "unknown"
-  val status = git("status", "--porcelain") ?: return@run "unknown"
+  // `--untracked-files=all` because `status.showUntrackedFiles=no` in a developer's config makes
+  // `--porcelain` answer empty for a tree that has new files in it, and a build reading that as
+  // clean publishes a bare SHA for source that is not.
+  val status = git("status", "--porcelain", "--untracked-files=all") ?: return@run "unknown"
   if (status.isEmpty()) head else "$head-dirty"
 }
 extra["gitRevision"] = gitRevision
