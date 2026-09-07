@@ -58,11 +58,12 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   **Everything a refresh presents or checks against is read off the token row**: the registration —
   a pair, `PodClientIdentity.registrationOf`, because the pod refuses an id offered under an address
   it was not registered with — the issuer it pins against, the identity it checks drift against, and
-  the dead-grant mark. The registry's copies are the fallback for older rows; the issuer is required
-  and takes none. That self-sufficiency makes the token row the connect callback's **commit point**,
-  written last. `PodTokens` and that write carry the reasoning. What still keys on the registry row
-  is whether a connection exists at all, which is what makes `/pods/separate` — it passes none for a
-  pod that is connected — the deliberate step.
+  the dead-grant mark. The registry's copy is the fallback for a registration an older row carries
+  none of; the issuer and the identity are required and take none, because a fallback there would
+  defeat the check it feeds. That self-sufficiency makes the token row the connect callback's
+  **commit point**, written last. `PodTokens` and that write carry the reasoning. What still keys on
+  the registry row is whether a connection exists at all, which is what makes `/pods/separate` — it
+  passes none for a pod that is connected — the deliberate step.
 
 ## Deployment stance (PoC — no migrations)
 
@@ -71,9 +72,10 @@ assumes a **fresh setup** (drop the DB, re-connect pods and AI clients) instead 
 migration logic. The code deliberately holds **no startup migration passes** and no
 legacy-tolerant reads, with one bounded exception: a **draining** read, where a fact that moved from
 the connection registry onto the token row falls back to the registry copy until the first accepted
-refresh records it (`PodTokens.podClientId`, `podRedirectUri`, `podSubject`). It empties itself. A
-read still needed once every row has been rewritten is what the rule refuses, which is why
-`PodTokens.issuer` is required and a row predating it reads as unreadable. Otherwise the code
+refresh records it (`PodTokens.podClientId` and `podRedirectUri`, read as one pair). It empties
+itself. A read still needed once every row has been rewritten is what the rule refuses, which is why
+`PodTokens.issuer` and `PodTokens.podSubject` are required and a row predating either reads as
+unreadable. Otherwise the code
 always reflects the current state (this is *why* e.g. M6.1 encryption-at-rest expects ciphertext
 with no plaintext fallback). Once the service carries **real user state**, migrations become a hard
 requirement — a requirement *then*, not now.

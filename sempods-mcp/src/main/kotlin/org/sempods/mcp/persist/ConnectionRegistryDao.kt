@@ -5,6 +5,7 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.ReplaceOptions
+import com.mongodb.client.model.Updates
 import org.bson.Document
 import org.sempods.commons.mongo.putNotNull
 import java.util.Date
@@ -39,9 +40,9 @@ data class PodConnection(
    * this connection acts as, and what the dashboard and `list_pods` show. May differ from [user]
    * (the id.sempods.org identity the caller signed into the service as) when the pod runs its own
    * identity provider: the connection stays keyed under [user], but every use acts on the pod as
-   * [podSubject]. Null only for rows written before this was captured, which is also what makes it
-   * the fallback copy for a token row that predates recording it there — [PodTokens] says which row
-   * a refresh decides identity drift against and why.
+   * [podSubject]. Null only for rows written before this was captured. Nothing a refresh decides
+   * reads this copy — [PodTokens.podSubject] says why — and [actingSubject] falls back to it only
+   * for a surface describing a connection, where a stale answer costs a line on a screen.
    */
   val podSubject: String? = null,
   /**
@@ -132,6 +133,27 @@ class ConnectionRegistryDao(
       keyFilter(PodKey(connection.user, connection.profile, connection.pod)),
       connection.toDocument(),
       ReplaceOptions().upsert(true),
+    )
+  }
+
+  /**
+   * Record the identity a refresh just confirmed at the pod, and whether its signature verified.
+   *
+   * A targeted `$set`, not [upsert]: the caller read this row before a network round trip, so a
+   * reconnect can have rewritten it since — and the connect callback writes this row *before* the
+   * token row it commits on, so that reconnect's own description would be the thing replaced.
+   * Writing back the whole row it read would put the previous connection's scopes, registration and
+   * issuer over a live one. It writes the two fields it actually learned, as
+   * [TokenVaultDao.markDeadGrantIfClaimedBy] does on the other row and for the same reason.
+   */
+  fun recordSubject(key: PodKey, podSubject: String, subjectVerified: Boolean, at: Date) {
+    connections.updateOne(
+      keyFilter(key),
+      Updates.combine(
+        Updates.set("podSubject", podSubject),
+        Updates.set("subjectVerified", subjectVerified),
+        Updates.set("updatedAt", at),
+      ),
     )
   }
 

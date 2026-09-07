@@ -40,9 +40,9 @@ interface PodRegistrationRow {
  * [podClientId], [podRedirectUri], [issuer], [podSubject], [deadGrantSince] — because the connect
  * callback writes this row and the `PodConnection` registry row one after the other and nothing
  * makes that pair atomic. Each is a fact about *this* token family, which is the value a refresh
- * has to agree with. Three fall back to the registry's copy for a row carrying none; [issuer] is
- * required and says why it may not. The registration is a pair and is read as one
- * (`PodClientIdentity.registrationOf`).
+ * has to agree with. The registration falls back to the registry's copy for a row carrying none,
+ * and is a pair read as one (`PodClientIdentity.registrationOf`); [issuer] and [podSubject] are
+ * required and take no fallback, and say why.
  *
  * `PodConnection.scopes` and `PodConnection.subjectVerified` stay on the registry: no refusal reads
  * either.
