@@ -79,7 +79,9 @@ subset minimal and let it link out for everything else.
 - **Code contracts are the source of truth.** Field-level detail belongs in KDoc; markdown stays
   high-level and links to the code.
 - Add a rule at the **narrowest** scope where it holds. Repository-wide rules go in the root
-  `AGENTS.md`, module rules in that module's `AGENTS.md`.
+  `AGENTS.md`, module rules in that module's `AGENTS.md`. A *rule* — what is true of the code is
+  not one, and an `AGENTS.md` links to it rather than holding it:
+  [`documentation-strategy.md`](documentation-strategy.md#agentsmd-is-none-of-the-four).
 - A document is reachable from at least one `AGENTS.md` pointer, or it will not be read.
 
 ## Self-check

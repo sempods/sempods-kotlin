@@ -62,6 +62,17 @@ Rules for choosing the level:
   in one of the two, not a local override.
 - Every document is reachable through at least one `AGENTS.md` pointer.
 
+### AGENTS.md is none of the four
+
+An `AGENTS.md` is a **map**: the scope it governs, the rules an agent would otherwise break, and
+links to the documents. What is true of the code goes in a document or in KDoc and the map links to
+it. A fact written into the map is a second copy of that fact, and it is the copy nobody updates —
+a runbook, a stored shape, a field contract, a phase history all belong somewhere a reader of that
+subject would look, which is never a file about how to work here.
+
+The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
+has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
+
 ## The writing rules
 
 **1. Everything except roadmaps and SOLL sections is IST.** It describes what the code does today.
