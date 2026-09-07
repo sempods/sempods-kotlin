@@ -248,20 +248,6 @@
       "withdrawn": false
     },
     {
-      "id": "SPS-AUTH-035",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "A token issued for `public-read` MUST NOT carry a refresh token.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-AUTH-036",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "A service token MUST NOT carry a refresh token.",
-      "withdrawn": false
-    },
-    {
       "id": "SPS-AUTH-037",
       "part": "core",
       "chapter": "spec/core/auth.md",
@@ -406,6 +392,48 @@
       "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "A query parameter counts as one of `SPS-AUTH-056`'s prohibited names when its name, percent-decoded and matched case-sensitively, equals that name — whether or not the parameter carries a value.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-058",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation MUST NOT seed a refresh-token family unless the person authorizing the request granted a durable connection at consent time.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-059",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation MUST NOT make `offline_access` in the authorization request a condition of issuing a refresh token.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-060",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "A consent decision that withholds a durable connection MUST revoke the refresh-token families the application already holds for that person.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-061",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation that revokes a person's refresh-token families MUST reach every equivalent identity URI it holds for them, not only the URI the request carries.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-062",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation MUST refuse an authorization code whose consent decision has changed since the code was issued, counting an answer given under any URI equivalent to the one the code carries ([`SPS-AUTH-052`](#SPS-AUTH-052)) as such a change.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-063",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "A code exchange that seeds a refresh-token family, and anything that revokes one, MUST each write before they check, so that whichever lands second sees the first: the exchange seeds and then re-reads, giving up the family where the consent behind the code no longer stands or a revocation has landed since; the revoking side persists and then sweeps.",
       "withdrawn": false
     },
     {
@@ -1063,7 +1091,7 @@
       "id": "SPS-CTX-017",
       "part": "context-management",
       "chapter": "spec/modules/context-management.md",
-      "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context, and MUST also remove the state that rested on it: grants naming it, refresh tokens scoped to it, and the context's statements.",
+      "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context, and MUST also remove the state that rested on it: the grants naming it, and the context's statements.",
       "withdrawn": false
     },
     {
@@ -1637,7 +1665,7 @@
       "id": "SPS-MCP-012",
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
-      "summary": "Where `reauthorize` is true, the implementation MUST issue the challenge even for a bearer that would otherwise suffice, and MUST revoke the refresh tokens of the affected `(pod, client, subject)`.",
+      "summary": "Where `reauthorize` is true, the implementation MUST issue the challenge even for a bearer that would otherwise suffice, and, where that bearer names a person, MUST end what the affected `(pod, client)` holds for them — the refresh tokens and any authorization code not yet exchanged — across every equivalent identity URI ([`SPS-AUTH-061`](../core/auth.md#SPS-AUTH-061)) rather than the one the bearer carries.",
       "withdrawn": false
     },
     {

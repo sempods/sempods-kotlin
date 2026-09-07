@@ -26,13 +26,10 @@ its challenge carries no `scope` and its metadata advertises two
 ([`endpoint.md`](endpoint.md#body-shape)), so a client applying the rule asks for
 `offline_access` without knowing what it is.
 
-Worth watching rather than relying on: a client follows whichever specification
-version it implements, and none of the four above is known to send the scope.
-Nothing rests on the answer — one that never sends it is not refused a durable
-connection, the person decides that in the dialog
-([`../auth/oauth.md`](../auth/oauth.md#offline_access)). The `[oauth/authorize]`
-line carries `scope=` for what was asked and `durablePreselected=` for the box the
-person was shown.
+Nothing rests on the answer: the person decides durability in the dialog
+([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and none of the four
+above is known to send the scope. The `[oauth/authorize]` line carries `scope=`
+for what was asked and `durablePreselected=` for the box the person was shown.
 
 ## Setup
 
@@ -40,14 +37,9 @@ The shape of the client config differs per client; below are the
 canonical entries. All point at the pod's MCP URL — the rest is
 discovery + OAuth.
 
-None of them carries a scope, and none needs one. A client builds its own
-`/authorize` request from the discovery documents, so whether it asks for
-`offline_access` is the client's business — and asking is not what decides
-the outcome: staying connected past the access token's hour is a control on
-the pod's consent dialog, which the person answers
-([`authentication.md`](authentication.md#durable-connections)). So a
-connection that drops back to a sign-in every hour is a consent worth
-revisiting, not a config line missing here.
+None of them carries a scope, and none needs one (§"What a client asks for"
+above). A connection that drops back to a sign-in every hour is a consent
+worth revisiting rather than a config line missing here.
 
 ### Claude Desktop / Code / Web
 

@@ -45,8 +45,7 @@ import java.net.URI
  * They apply on `PUT` only: an existing context of any shape stays readable and deletable.
  *
  * Cascade on DELETE lives in [org.sempods.pods.PodFacade.removeContext]:
- * revokes refresh tokens scoped to the context, drops the matching grants,
- * strips the context from RDF resources, removes the
+ * drops the matching grants, strips the context from RDF resources, removes the
  * [org.sempods.pods.contexts.persist.PodContextDbo] row.
  */
 @Path("{pod}/_system/contexts")

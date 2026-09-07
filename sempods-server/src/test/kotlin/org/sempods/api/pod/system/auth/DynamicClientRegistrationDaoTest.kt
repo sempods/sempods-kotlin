@@ -60,6 +60,7 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
       userAgent = "Example/1.2.3",
       fingerprint = "fp-1",
     )
+    assertNotNull(created, "a fingerprint nothing else holds must insert")
     assertNotNull(created.id, "create must return the id it stored under, not the null it took")
     rowAt("dcr-other", podId = otherPodId)
 
@@ -167,14 +168,25 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the fingerprint lookup answers the most recent row`() {
-    // Two registrations sharing a fingerprint is what the dedup index allows and the sort resolves:
-    // re-registration reuses the newest clientId rather than an arbitrary one. The timestamps are
-    // written directly because `create` takes `registeredAt` from the clock.
-    rowAt("dcr-older", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
-    rowAt("dcr-newer", fingerprint = "fp-1", registeredAt = REGISTERED_AT.plusSeconds(3600))
+  fun `a second registration with the same fingerprint is refused`() {
+    // What keeps one logical client on one `client_id`. The dedup in `DynamicClientStore.register`
+    // is a lookup followed by an insert, and two registrations arriving together both miss the
+    // lookup — so the constraint has to be the index, not the read.
+    assertNotNull(create("dcr-first", fingerprint = "fp-1"))
 
-    assertEquals("dcr-newer", assertNotNull(dcrDao.findByFingerprint(probePodId, "fp-1")).clientId)
+    assertNull(
+      create("dcr-second", fingerprint = "fp-1"),
+      "the unique index must refuse the second row rather than mint a second client_id",
+    )
+    assertEquals("dcr-first", assertNotNull(dcrDao.findByFingerprint(probePodId, "fp-1")).clientId)
+
+    // The index is pod-scoped and partial, exactly like the lookup it constrains: another pod's
+    // client may carry the same digest, and a row with no fingerprint at all is outside it — which
+    // is what lets `DcrFingerprintUniqueness` retire a duplicate by unsetting the field.
+    assertNotNull(create("dcr-elsewhere", podId = otherPodId, fingerprint = "fp-1"))
+    assertNotNull(create("dcr-unfingerprinted-1"))
+    assertNotNull(create("dcr-unfingerprinted-2"))
+
     assertNull(dcrDao.findByFingerprint(probePodId, "fp-absent"))
   }
 
@@ -192,20 +204,39 @@ class DynamicClientRegistrationDaoTest : SempodsIntegrationTest() {
     assertEquals(0L, dcrDao.deleteByPod(probePodId), "a repeated cascade is a no-op, not an error")
   }
 
+  /** The DAO's own insert, with only what a fingerprint test varies spelled out. */
+  private fun create(
+    clientId: String,
+    podId: ObjectId = probePodId,
+    fingerprint: String? = null,
+  ) = dcrDao.create(
+    clientId = clientId,
+    registeredForPodId = podId,
+    registeredForPodName = "alice",
+    redirectUris = setOf("https://app.example.org/cb"),
+    clientName = "Example",
+    clientUri = null,
+    logoUri = null,
+    softwareId = null,
+    softwareVersion = null,
+    contacts = emptyList(),
+    tosUri = null,
+    policyUri = null,
+    rawRequest = emptyMap(),
+    fingerprint = fingerprint,
+  )
+
   /** A full row with a stated `registeredAt`, which [DynamicClientRegistrationDao.create] does not take. */
   private fun rowAt(
     clientId: String,
     podId: ObjectId = probePodId,
-    fingerprint: String? = null,
     registeredAt: Instant = REGISTERED_AT,
   ) {
-    val document = baseRow(clientId, podId, registeredAt)
-      .append(DynamicClientRegistrationDboFields.contacts, emptyList<String>())
-      .append(DynamicClientRegistrationDboFields.schemaVersion, 1)
-    if (fingerprint != null) {
-      document.append(DynamicClientRegistrationDboFields.fingerprint, fingerprint)
-    }
-    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(document)
+    db.getCollection(SempodsCollections.OAUTH_CLIENT_REGISTRATIONS).insertOne(
+      baseRow(clientId, podId, registeredAt)
+        .append(DynamicClientRegistrationDboFields.contacts, emptyList<String>())
+        .append(DynamicClientRegistrationDboFields.schemaVersion, 1),
+    )
   }
 
   /** A row from before the Stage-2 observation fields, the fingerprint dedup and `schemaVersion`. */

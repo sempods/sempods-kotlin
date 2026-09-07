@@ -23,6 +23,12 @@ object DidWeb {
 
   const val PREFIX = "did:web:"
 
+  /**
+   * What a path segment handed to [clientId] may contain: the DID syntax's `idchar` less
+   * `pct-encoded`, which [targetOf] would decode into something other than what was minted.
+   */
+  val SEGMENT_CHARS = Regex("^[A-Za-z0-9._-]+$")
+
   /** What a `did:web` identifier permits: an origin, and optionally a path prefix below it. */
   data class Target(val host: String, val port: Int, val pathPrefix: String) {
 
@@ -41,18 +47,34 @@ object DidWeb {
     fun covers(uri: URI): Boolean {
       val uriHost = uri.host?.trim()?.lowercase() ?: return false
       if (uriHost != host || normalizedPort(uri) != port) return false
-      if (pathPrefix == "/") return true
       val path = uri.path.orEmpty()
+      if (!isPlainPath(path)) return false
+      if (pathPrefix == "/") return true
       return path == pathPrefix || path.startsWith("$pathPrefix/")
     }
   }
 
   /**
-   * The `did:web:` identifier for a service reachable at [baseUrl].
+   * The `did:web:` identifier for a service reachable at [baseUrl], optionally narrowed to a
+   * subtree of it by [pathSegments]: `clientId("https://mcp.example.org", listOf("cron-agent"))` is
+   * `did:web:mcp.example.org:cron-agent`, which covers `https://mcp.example.org/cron-agent/…` and
+   * nothing else on that host. That is how one service holds more than one identity — the hosted
+   * MCP service gives each named profile its own, so a pod tells them apart.
    *
-   * @throws IllegalArgumentException if [baseUrl] is not an absolute http(s) URL.
+   * **The caller owes the DID document where the method's read algorithm looks**, which is
+   * `<baseUrl>/<segments…>/did.json` — `/.well-known` is inserted only where the identifier leaves
+   * no path, so the host-only form is the one served at `<baseUrl>/.well-known/did.json`. Which is
+   * why the prefix is stated here rather than read off [baseUrl]: a base URL that carries a path is
+   * still refused, because a caller passing one has said nothing about where it serves anything,
+   * and an identifier whose document is not where the identifier says it is fails every party that
+   * dereferences it. A sempods pod does not (the origin match is the whole check), but `did:web`
+   * permits it.
+   *
+   * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
+   *   segment is not [SEGMENT_CHARS] or is a dot segment.
    */
-  fun clientId(baseUrl: String): String {
+  @JvmOverloads
+  fun clientId(baseUrl: String, pathSegments: List<String> = emptyList()): String {
     val uri = runCatching { URI(baseUrl.trimEnd('/')) }.getOrNull()
       ?: throw IllegalArgumentException("service base URL is not a URL: $baseUrl")
     val scheme = uri.scheme?.lowercase()
@@ -60,22 +82,21 @@ object DidWeb {
     require(uri.rawQuery == null && uri.rawFragment == null) { "service base URL must not carry a query or fragment: $baseUrl" }
     val host = uri.host?.lowercase() ?: throw IllegalArgumentException("service base URL has no host: $baseUrl")
 
-    // TODO: a service served under a path prefix would need the path encoded as DID segments AND
-    //  its `did.json` served under that prefix — `/mcp/.well-known/did.json`, not the root one.
-    //  Minting an identifier whose document is not where the identifier says it is would be worse
-    //  than refusing, so this refuses until both halves exist. Note the asymmetry with
-    //  [targetOf], which parses path-scoped identifiers on purpose: a third party may legitimately
-    //  use one, and the validating side has to understand what it is being shown.
     val rawPath = uri.rawPath.orEmpty()
     require(rawPath.isEmpty() || rawPath == "/") {
       "service base URL must be host-root for a did:web static client (path prefix '$rawPath' is not supported): $baseUrl"
+    }
+    pathSegments.forEach { segment ->
+      require(SEGMENT_CHARS.matches(segment) && isPlainPath(segment)) {
+        "did:web path segment must be one or more of A-Z a-z 0-9 . - _, and not '.' or '..': '$segment'"
+      }
     }
 
     val authority = when (val port = uri.port) {
       -1, defaultPort(scheme) -> host
       else -> host + URLEncoder.encode(":", Charsets.UTF_8) + port
     }
-    return PREFIX + authority
+    return PREFIX + authority + pathSegments.joinToString("") { ":$it" }
   }
 
   /** `null` when [clientId] is not a `did:web` identifier, or is malformed. */
@@ -88,6 +109,7 @@ object DidWeb {
     val hostUri = runCatching { URI("https://$hostRaw") }.getOrNull() ?: return null
     val host = hostUri.host?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
     val pathSegments = segments.drop(1).map { decode(it).trim().trim('/') }.filter { it.isNotBlank() }
+    if (pathSegments.any { !isPlainPath(it) }) return null
     return Target(
       host = host,
       port = normalizedPort(hostUri),
@@ -95,11 +117,25 @@ object DidWeb {
     )
   }
 
-  /** The minimal DID document a `did:web` client serves at `/.well-known/did.json`. */
+  /**
+   * The minimal DID document a `did:web` client serves — at `/.well-known/did.json` for a
+   * host-only identifier, and at `/<path…>/did.json` for a path-scoped one.
+   */
   fun document(clientId: String): Map<String, Any> = linkedMapOf(
     "@context" to listOf("https://www.w3.org/ns/did/v1"),
     "id" to clientId,
   )
+
+  /**
+   * Whether [path] is only path, with no `.` or `..` in it.
+   *
+   * They are instructions about a path rather than parts of one, and every side of this reads a
+   * path: a redirect that starts with the prefix and arrives outside it (`/mcp/../evil` is `/evil`),
+   * and an identifier claiming a prefix whose DID document sits at no address anything fetches.
+   * Refused rather than normalised, because `URI.normalize` works on the raw path and a `%2F`
+   * hides a segment from it that [URI.getPath] then decodes back.
+   */
+  private fun isPlainPath(path: String): Boolean = path.split('/').none { it == "." || it == ".." }
 
   /** The port a URI addresses, with the scheme default filled in — so `:443` and absent compare equal. */
   fun normalizedPort(uri: URI): Int = if (uri.port != -1) uri.port else defaultPort(uri.scheme?.lowercase())
