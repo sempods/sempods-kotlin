@@ -223,16 +223,6 @@ class PodTokenProvider(
     tokenVaultDao.tryClaimRefresh(key, instanceId, Date(System.currentTimeMillis() + claimTtlMs))
 
   /**
-   * True when the pod has already declared this row's grant finished. Read at both entries **ahead
-   * of** [claimRefresh]: the refusal needs no coordination, so a connection that is dead on every
-   * replica must not be serialised across them.
-   *
-   * A missing **registry** row is deliberately not this: that is the other fault — a vault row
-   * whose connection row was lost — and [refreshLocked] names it in its own warning.
-   */
-  private val PodTokens.isDeadGrant: Boolean get() = deadGrantSince != null
-
-  /**
    * Must be called holding the claim (and [lockFor]). Re-reads and re-checks dueness UNDER the
    * claim: a competing replica's refresh only releases its claim by persisting (the replace drops
    * the claim fields), so a refresh that completed between our due-check and our claim is visible
@@ -299,8 +289,8 @@ class PodTokenProvider(
         auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch")
         return@runCatching null
       }
-      val podClientId = tokens.podClientId ?: connection.podClientId
-      val refreshed = podOAuthClient.refresh(metadata, refreshToken, podClientId)
+      val registration = PodClientIdentity.registrationOf(tokens, connection)
+      val refreshed = podOAuthClient.refresh(metadata, refreshToken, registration.clientId)
 
       // Re-verify the identity on refresh. Three outcomes, three responses:
       //  - VerificationFailed: the refreshed token IS a JWT but its signature did not verify against
@@ -336,7 +326,10 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
-        podClientId = podClientId,
+        // Both halves. Draining only the id would leave a row whose id says "read me" beside a null
+        // address — the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
+        podClientId = registration.clientId,
+        podRedirectUri = registration.redirectUri,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {
         // A concurrent re-connect replaced the row (clearing our claim) — or a disconnect deleted

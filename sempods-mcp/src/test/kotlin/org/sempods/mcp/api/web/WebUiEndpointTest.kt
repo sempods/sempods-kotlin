@@ -111,10 +111,7 @@ class WebUiEndpointTest {
   /** The id-server under test, so a test can read back the nonce it must answer with. */
   private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
 
-  /**
-   * A token row. These tests write only the connection otherwise, and the registration a connect
-   * presents — plus the dead-grant mark — lives here.
-   */
+  /** A token row: these tests write only the connection otherwise. */
   private fun seedTokens(
     user: String,
     profile: String,
@@ -129,9 +126,6 @@ class WebUiEndpointTest {
       podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
     ),
   )
-
-  private fun seedDeadGrant(user: String, profile: String, pod: String) =
-    seedTokens(user, profile, pod, deadGrantSince = Date())
 
   private fun ApplicationTestBuilder.installWebUi(): TokenIssuer {
     val database = db!!
@@ -331,7 +325,7 @@ class WebUiEndpointTest {
         createdAt = Date(), updatedAt = Date(),
       ),
     )
-    seedDeadGrant(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p")
+    seedTokens(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p", deadGrantSince = Date())
 
     val body = createClient { followRedirects = false }.get("/_system/ui") {
       header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
@@ -473,7 +467,7 @@ class WebUiEndpointTest {
           createdAt = Date(), updatedAt = Date(),
         ),
       )
-      seedDeadGrant(user, PodKey.DEFAULT_PROFILE, podBase)
+      seedTokens(user, PodKey.DEFAULT_PROFILE, podBase, deadGrantSince = Date())
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase))
 
@@ -676,7 +670,7 @@ class WebUiEndpointTest {
           createdAt = Date(), updatedAt = Date(),
         ),
       )
-      seedDeadGrant(user, "cron-agent", podBase)
+      seedTokens(user, "cron-agent", podBase, deadGrantSince = Date())
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
 

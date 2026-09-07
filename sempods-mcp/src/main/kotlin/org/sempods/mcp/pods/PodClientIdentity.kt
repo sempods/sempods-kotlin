@@ -1,7 +1,10 @@
 package org.sempods.mcp.pods
 
 import org.sempods.auth.core.DidWeb
+import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
+import org.sempods.mcp.persist.PodRegistrationRow
+import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfilePath
 
 /**
@@ -54,6 +57,16 @@ object PodClientIdentity {
     return segment?.takeIf(ProfilePath::isValidName) ?: PodKey.DEFAULT_PROFILE
   }
 
+  /**
+   * The registration [connection] presents: the row that recorded it, or the registry copy for a
+   * row written before it was recorded there ([PodTokens]).
+   *
+   * Off **one** row, never one field from each.
+   */
+  fun registrationOf(row: PodRegistrationRow?, fallback: PodConnection): PodRegistration =
+    if (row?.podClientId != null) PodRegistration(row.podClientId!!, row.podRedirectUri)
+    else PodRegistration(fallback.podClientId, fallback.podRedirectUri)
+
   /** What the pod's consent screen calls this client, or two profiles list as identical entries. */
   fun clientName(profile: String): String =
     if (isDefault(profile)) SERVICE_NAME else "$SERVICE_NAME ($profile)"
@@ -74,3 +87,6 @@ object PodClientIdentity {
 
   private fun isDefault(profile: String) = profile.isBlank() || profile == PodKey.DEFAULT_PROFILE
 }
+
+/** What a connection presents at the pod: a `client_id` and the address that id is pinned to. */
+data class PodRegistration(val clientId: String, val redirectUri: String?)

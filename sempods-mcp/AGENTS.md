@@ -56,7 +56,7 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   it, because doing so costs a consent at the pod.
 
   **A registration is a pair — the `client_id` and the redirect URI it is pinned to — read off one
-  row** (`WebUiEndpoint.podRegistrationOf`), because the pod refuses an id offered under an address
+  row** (`PodClientIdentity.registrationOf`), because the pod refuses an id offered under an address
   it was not registered with. It lives on the **token** row, with the registry's copies as the
   fallback for older rows; `PodTokens` states why. What still keys on the registry row is whether a
   connection exists at all, which is what makes `/pods/separate` — it passes none for a pod that is

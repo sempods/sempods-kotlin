@@ -58,9 +58,8 @@ pod-connect PKCE verifier encrypted at rest — so in-flight logins survive a re
 replicas. Double-refresh of pod tokens is closed by a per-token claim on the vault row
 (`TokenVaultDao.tryClaimRefresh`, dueness re-checked under the claim) plus a singleton sweep
 lease (`LeaseDao`, `leases`) so only one replica runs the refresh sweep; a connection the pod has
-already declared dead (`PodTokens.deadGrantSince`, on the vault row the mark is about, so a
-reconnect lifts it in the same write that installs the new family) is short-circuited out **ahead
-of** that claim, so it is not re-refreshed on every tick until someone reconnects it. M6.1 encryption-at-rest assumes a fresh setup (no legacy-plaintext tolerance or startup migration).
+already declared dead (`PodTokens.deadGrantSince`) is short-circuited out **ahead of** that claim,
+so it is not re-refreshed on every tick until someone reconnects it. M6.1 encryption-at-rest assumes a fresh setup (no legacy-plaintext tolerance or startup migration).
 
 **M6.2 (SSRF resolve-and-pin) — done (build green).** The outbound fetch path is hardened for
 untrusted pod URLs: the single transport (`:sempods-client`'s `SempodsOutboundGuard`, OkHttp

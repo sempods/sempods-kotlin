@@ -83,13 +83,11 @@ class ReadTools(
     return toolError(message)
   }
 
-  // --- list_pods: pure registry read, no pod call ---
+  // --- list_pods: local state only, no pod call ---
 
   private fun listPods(profile: ProfileKey): ToolCallResult {
     val connections = connectionRegistryDao.listForProfile(profile).sortedBy { it.pod }
-    // One query rather than one per pod: the mark sits on the token row (`PodTokens.deadGrantSince`).
-    val needsReconnect = tokenVaultDao.listForProfile(profile)
-      .filter { it.deadGrantSince != null }.map { it.pod }.toSet()
+    val tokensByPod = tokenVaultDao.listForProfile(profile).associateBy { it.pod }
     val pods = connections.map {
       linkedMapOf<String, Any?>(
         "pod" to it.pod,
@@ -108,7 +106,7 @@ class ReadTools(
         // The pod declared this connection's grant finished, so every call to it will fail until
         // the person reconnects. The dashboard says so to them; this says it to the agent, which
         // would otherwise retry the pod on every turn.
-        "reconnect_required" to (it.pod in needsReconnect),
+        "reconnect_required" to (tokensByPod[it.pod]?.isDeadGrant == true),
       )
     }
     val body = linkedMapOf<String, Any?>("pods" to pods)
