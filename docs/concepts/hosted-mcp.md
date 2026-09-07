@@ -135,10 +135,9 @@ What the hosted service buys over a purely client-side (in-browser / in-app) too
   arguments (`targets`), not into N separately-configured servers.
 - **Server-side token refresh** → headless / cron / agentic use without an
   open browser. This is the capability a purely client-side tool layer
-  cannot have. It rests on a pod-issued refresh token, so it is the person
-  in the pod's consent dialog who grants it: the service asks with
-  `offline_access` wherever a pod advertises the scope
-  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and a connection
+  cannot have. It rests on a pod-issued refresh token, which the person
+  grants in the pod's consent dialog
+  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)): a connection
   consented as short-lived holds nothing to rotate, is never selected by the
   refresh sweep, and needs reconnecting once its hour is up.
 - **Cross-pod calls in one tool invocation**, with per-`(pod, context)`
@@ -173,8 +172,7 @@ inside its own JSON-RPC stream (see
    reads the pod's OAuth metadata. A registration endpoint means DCR; RFC 9728 alone means the
    service's static `did:web:<mcp-host>` client.
 2. Authorization Code + PKCE at the pod's `authorize`, with `scope=offline_access` where the pod
-   advertises it — the durable connection is the person's to grant, not the client's to take (see
-   [what it buys](#what-it-buys--and-what-it-costs)).
+   advertises it (see [what it buys](#what-it-buys--and-what-it-costs)).
 3. `state` is an opaque handle to a one-time, expiring server-side row
    ([`PodConnectStateStore`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/pods/PodConnectStateStore.kt)),
    which holds the flow's context. That is the mix-up defense — the callback resumes the exact

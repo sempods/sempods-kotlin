@@ -399,6 +399,11 @@ class PodAuthEndpoint @Inject constructor(
     // way `scope=public-read` cannot mask a manipulated token, and a
     // malformed `scope` on an unauthenticated request still yields
     // `invalid_scope` instead of `login_required`.
+    // TODO: an unknown scope is dropped in silence, so a typo (`offline-access`) is answered with
+    // a working token and no explanation. RFC 6749 §4.1.2.1 would have this be `invalid_scope`;
+    // what it costs is a refusal for clients that send scope names from their own world, and which
+    // of the clients in `docs/mcp/clients.md` those are is what the `[oauth/authorize]` log line
+    // accumulates.
     val requestedScopes = OAuthSyntax.parseScope(scope)
 
     // ── R1: forced re-authentication ──────────────────────────────────────

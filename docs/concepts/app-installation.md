@@ -53,10 +53,8 @@ The standard-shaped pieces stay standard-shaped:
 - Dynamic Client Registration creates the service client's OAuth client record, with the
   authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
-- A client signals that it needs a durable connection with `offline_access`, a sempods OAuth
-  extension on this route: the scope name is OpenID Connect's, requested bare. The standard-shaped
-  `openid offline_access` belongs to a pod's optional OIDC route, with its own issuer and its own
-  `id_token`. The signal is not the grant — see §"Token lifetime is part of consent".
+- `offline_access` signals that the client needs a durable connection; the person answers it in
+  consent (§"The durable connection is the person's" below).
 
 Server-assigned client IDs are a security property, not just a naming preference. The caller must not
 choose the service client's `client_id` or a registration root. The escalation class in the old
@@ -79,47 +77,50 @@ concrete grants after the server-assigned service-client ID exists. The second t
 policy, not OAuth client registration metadata. Installation may also finish with no grants and let
 the owner assign them later through service-client management.
 
-## Token lifetime is part of consent (SOLL)
+## The durable connection is the person's (IST)
 
-Consent must show not only what the installer can do, but how long the credential shape lasts:
+Consent carries a control for keeping the app connected, beside the context grants, and it names the
+lifetime class rather than a scope. `offline_access` in the request preselects that control and
+settles nothing else; [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and what
+the token response says about it.
 
-- an installer access token is short-lived and used during installation; if the installer feature
-  scope is one-shot, the protected registration call consumes that authority so the same bearer
-  cannot install again, the underlying authorization is not auto-granted on the next login, and if it
-  is durable the UI says so;
-- a durable connection means a refresh token can keep an interactive session alive until it is
-  revoked or left unused beyond its rolling lifetime; and
-- a service client secret lives until it is rotated or the registration is removed, while its access
-  tokens stay short-lived.
+Two classes, short-lived and durable. A menu of durations would need a clock the pod does not keep:
+a family's TTL is rolling and every rotation renews it in full, so an offered "one month" would mean
+"after this much disuse" where a reader hears a deadline.
 
-This is not just UI polish. Without the lifetime, a user cannot tell the difference between "let
-this UI install one service client now" and "let this remote installer keep coming back".
+The request cannot be the decision. OAuth defines refresh tokens but no way to ask for one, and
+`offline_access` is an OpenID Connect scope borrowed for an OAuth surface — a resource server may
+advertise it in `scopes_supported`, while the MCP authorization specification defines no scope of its
+own and requires none, so whether a client asks is that client's choice. Making the request decide
+would hand the lifetime of a person's credential to whichever clients happen to implement the lever,
+while the person who should be deciding is standing in front of the dialog. So the decision is
+resolved from the stored consent whenever a token is issued, the way context permissions already
+are, and nothing a client still holds — an authorization code from an earlier and more generous
+consent — outlives it.
 
-**The durable connection is granted in consent, not requested by the client.** OAuth defines refresh
-tokens but no way to ask for one, so today every client receives one whether or not it needs it;
-`offline_access` is an OpenID Connect scope borrowed for an OAuth surface. A resource server can
-advertise it — `scopes_supported` is the field an MCP client would read — but the MCP authorization
-specification defines no scope of its own and requires none, so whether a client asks is that
-client's choice rather than something the protocol secures. Making the request the decision would
-therefore hand the lifetime of a person's credential to whichever clients happen to implement the
-lever, while the person who should be deciding is standing in front of the dialog. So the request
-preselects the control and the consent decides it, and withdrawing the choice ends the connection's
-durability rather than only declining to extend it. The decision is resolved from the stored consent
-whenever a token is issued, the way context permissions already are, so nothing a client is still
-holding — an authorization code from an earlier and more generous consent — outlives the choice.
+Ending an app's access is an action of its own: named, and confirmed before it takes effect. It
+removes the grants and the durability at once, and what the app can read stops with them, because
+that is decided per request. An access token already in its hands is the exception: it is
+self-contained, nothing recalls it, and it keeps its feature scopes until it expires. Nobody should
+disconnect an app by accident while dismissing a dialog, be told they disconnected when nothing
+happened, or be promised an instant the mechanism cannot deliver.
 
-Ending an app's access altogether is an action of its own: named, and confirmed before it takes
-effect. It removes the grants and the durability at once, and what the app can read stops with them,
-because that is decided per request. An access token already in its hands is the exception: such a
-token is self-contained, nothing recalls it, and it keeps the feature scopes it carries until it
-expires. Nobody should disconnect an app by accident while trying to dismiss a dialog, nobody should
-be told they disconnected when nothing happened, and nobody should be promised an instant that the
-mechanism cannot deliver.
+An anonymous public-read token has no person to grant anything, so it stays short-lived and
+refresh-token-free.
 
-Two limits are the server's and not the dialog's. An authorization that carries the installer
-feature scope never becomes durable, whatever is ticked, because a checkbox cannot make that
-escalation visible — a durable installer is a thing to design, not to tick. And an anonymous
-public-read token has no person to grant anything, so it stays short-lived and refresh-token-free.
+## Installer lifetime (SOLL)
+
+Consent for the installer shows the same lifetime classes. An installer access token is short-lived
+and used during installation; if the installer feature scope is one-shot, the protected registration
+call consumes that authority so the same bearer cannot install again and the underlying
+authorization is not auto-granted on the next login, and if it is durable the UI says so. A service
+client secret lives until it is rotated or the registration is removed, while its access tokens stay
+short-lived. Without the lifetime, a user cannot tell "let this UI install one service client now"
+from "let this remote installer keep coming back".
+
+An authorization carrying the installer feature scope never becomes durable, whatever is ticked: a
+checkbox cannot make that escalation visible, and a durable installer is something to design. The
+control is therefore absent there, or shown unavailable with the reason.
 
 ## Related
 
@@ -129,6 +130,4 @@ public-read token has no person to grant anything, so it stays short-lived and r
 - [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — scope versus grant and context
   permissions.
 - [`../roadmaps/owner-app-installation.md`](../roadmaps/owner-app-installation.md) — the milestone
-  that implements this target state.
-- [`../roadmaps/offline-access-refresh-tokens.md`](../roadmaps/offline-access-refresh-tokens.md) —
-  the separate milestone for `offline_access`, refresh-token hardening and MCP migration.
+  that implements the target state above.

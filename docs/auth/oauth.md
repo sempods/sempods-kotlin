@@ -232,31 +232,26 @@ has read no sempods documentation finds it.
 
 Asking is not getting. The scope preselects the consent page's
 "keep this app connected" control; what grants a refresh token is the
-person ticking it, which is why a client that cannot send the scope is
-not thereby denied a durable connection. The exchange reads that decision
-from the store rather than from the authorization code, so a code carries
-the request and never the authority.
+person ticking it, so a client that cannot send the scope is not thereby
+denied a durable connection. The exchange reads that decision from the
+store rather than from the authorization code, so a code carries the
+request and never the authority.
 
 An authorization that predates the control has no decision recorded, and
 that is not a grant either: it mints no new family, while the one it
-already rotates is left alone. The hosted MCP service asks a pod whose
-authorization server advertises the scope, and a pod that advertises
-nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
-server refuse a scope it does not know, and the service connects to pods
-it does not host.
+already rotates is left alone.
 
 A response carrying no `refresh_token` is therefore no evidence about the
 request, which is the half a client debugs: either the person left the
-control unticked, or the authorization predates it and has nothing
-recorded. In neither case is the absent scope the cause, and re-sending it
+control unticked, or the authorization predates it. Re-sending the scope
 grants nothing by itself — what answers the question is a fresh
 authorization the person sees.
 
 Two flows sit outside that diagnosis, because nobody was asked in them at
 all: an anonymous `public-read` exchange and a service client's
 `client_credentials` are short-lived by construction. Authenticated
-`public-read` is not one of them — it takes the ordinary path, and its
-lifetime is the consent answer like anybody else's.
+`public-read` takes the ordinary path, and its lifetime is the consent
+answer like anybody else's.
 
 On refresh the scope is accepted rather than refused. `scope=` there is a
 down-scope over feature scopes (see "Token exchange") and `offline_access`
@@ -290,9 +285,7 @@ exchange — it would have to be handed an error, or a token already dead.
 An extra credential of a connection the person did just grant is the
 smaller failure.
 
-Deleting a context revokes no refresh token *for naming it*, which
-`SPS-CTX-017` still describes as it was before token slimming; that text
-has a companion edit pending. A family
+Deleting a context revokes no refresh token *for naming it*: a family
 carries feature scopes only and context permissions are resolved per
 request, so the deletion's own cascade — the grant rows — is what ends
 the access. A family goes there on one condition, the same one the

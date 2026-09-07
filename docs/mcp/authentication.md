@@ -95,26 +95,19 @@ A client that has to stay connected past the access token's hour asks for
 `scope=offline_access` at the pod's `/authorize`. It is listed in
 `scopes_supported` in the protected-resource metadata the 401 points at,
 which is where a client with no sempods documentation in front of it
-finds the extension.
+finds the extension. Asking is not what decides the outcome: the person
+answers a control in the consent dialog, and
+[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns that rule.
 
-Sending it is not what makes the connection durable, and not sending it
-is not what prevents it. The consent dialog carries the control and the
-person answers it, so a client that cannot put a scope on the request is
-not thereby short-lived, and one that sends it has still asked rather
-than received. [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns
-that rule and the shape of the answer.
-
-The re-authorize path above ends the families it finds, but ending one is
-not the same as asking again. Whether the next `/authorize` renders a
-dialog is the ordinary auto-grant question, not something the reauthorize
-decides: a `dyn:` client — which is how the clients in
-[`clients.md`](clients.md) register — always gets the consent screen,
-while a static `did:web:` client whose grants survive and whose lifetime
-question is already answered is auto-granted, and the recorded answer
-stands: a durable one mints a replacement family, a short-lived one leaves
-the client with an access token and nothing else. Neither asks anybody. A
-static client that wants the review it just triggered sends
-`prompt=consent`;
+The re-authorize path above ends the families it finds, which is not the
+same as asking again. Whether the next `/authorize` renders a dialog is
+the ordinary auto-grant question: a `dyn:` client — which is how the
+clients in [`clients.md`](clients.md) register — always gets the consent
+screen, while a static `did:web:` client whose grants survive is
+auto-granted and the recorded answer stands, a durable one minting a
+replacement family and a short-lived one leaving the client with an
+access token and nothing else. A static client that wants the review it
+just triggered sends `prompt=consent`;
 [`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
 
 ## Bearer challenge format
