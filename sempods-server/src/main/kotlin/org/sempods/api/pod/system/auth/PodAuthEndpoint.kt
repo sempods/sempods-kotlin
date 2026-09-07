@@ -1525,11 +1525,21 @@ class PodAuthEndpoint @Inject constructor(
     // `ReauthorizeChallengeStore`, so the client's replay is answered "already authorized" and the
     // forced consent screen is skipped. Not I12, which is about a bearer issued *before* the
     // event; this one is issued after it. What bounds it is that such an authorization mints no
-    // family, so a lost race costs one short-lived token of the feature scopes it already had, and
-    // that I15 gives it a decision the first time it reaches the dialog — after which this check
-    // covers it. Closing it needs a counter that exists without an answer being recorded, which
-    // `PodConsentDecisionStore` deliberately does not have: an absent document *is* the third
-    // state (I3, I4), and a row carrying a generation and no answer would read as a refusal.
+    // family, so a lost race costs one short-lived token of the feature scopes it already had.
+    // I15 gives such an authorization a decision at its first dialog, after which this check covers
+    // it — but a client that only ever sends `prompt=none` never reaches one, so for that client
+    // the state persists. Closing it needs a counter that exists without an answer being recorded,
+    // which `PodConsentDecisionStore` deliberately does not have: an absent document *is* the
+    // third state (I3, I4), and a row carrying a generation and no answer would read as a refusal.
+    //
+    // **A second route reaches the same window, and stops in the same place.** The raise is one
+    // `updateMany` over the person's alias documents and Mongo makes that atomic per document, so
+    // an exchange whose code names the row updated last can read it unchanged for both checks.
+    // What escapes is again only the bearer: the raise precedes the family sweep, so a family
+    // minted in that window is still caught by it. Making the two agree would mean one generation
+    // per person rather than per URI, which `recordDecision` weighs and rejects — a code issued
+    // while an alias was the session identity carries that alias's generation, and only a document
+    // of its own can move when the person answers again under another URI.
     //
     // No test reaches the ungated half, and a test asserting it would be lying: the check before
     // the exchange refuses a code whose generation has already moved, so anything a test can set
