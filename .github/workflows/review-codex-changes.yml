@@ -10,10 +10,10 @@ name: Review Codex changes
 # setting in the ChatGPT cloud console, outside this repository.
 #
 # **The branch prefix is what identifies the author.** The obvious condition —
-# `github.event.pull_request.user.login` — does not work here: every bot in this repository pushes
-# with a human's credentials, so all twelve of the most recent pull requests, Claude's included,
-# have `haed` as their author. The head branch is the one thing that differs: Claude Code opens
-# `claude/…`, Codex opens `codex/…`. It is a convention rather than a guarantee, which is the right
+# `github.event.pull_request.user.login` — does not work here: a bot in this repository pushes with
+# a human's credentials, so the author of a pull request is the person whose credentials it used
+# and never the agent that wrote it. The head branch is the one thing that differs: Claude Code
+# opens `claude/…`, Codex opens `codex/…`. It is a convention rather than a guarantee, which is the right
 # strength for the decision it makes — the cost of a wrong answer is one review too many or too
 # few, not a broken build.
 #
