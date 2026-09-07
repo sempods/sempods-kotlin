@@ -239,10 +239,16 @@ request and never the authority.
 
 An authorization that predates the control has no decision recorded, and
 its codes are refused: a code carries the generation of the consent that
-produced it, and one carrying none is not exchangeable. Consent writes the
-answer before the grants it authorizes and auto-grant needs grants, so
-every code minted for a person comes from an authorization that has been
-answered.
+produced it, and one carrying none is not exchangeable. Every code minted
+for a person comes from an authorization that has been answered — consent
+records the answer, and auto-grant reaches its code only where one is
+already on record.
+
+That refusal is also what makes the consent write order safe. Grants are
+written first and the answer second, so a run dying between them keeps the
+selection the person just made under the answer that stood before it; the
+pair it can leave on a first consent, grants with no answer beside them,
+redeems nothing.
 
 A response carrying no `refresh_token` is therefore no evidence about the
 request, which is the half a client debugs: either the person left the
