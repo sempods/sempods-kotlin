@@ -1919,6 +1919,48 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a renewal in the final hours ends at the absolute deadline, not twelve hours past it`() {
+    // The renewal an actively used session gets last. Handing it the full idle window would put
+    // the absolute limit most of a day out of date — on a credential nothing can recall.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val signedInAt = Instant.now().minus(30, ChronoUnit.DAYS).plus(2, ChronoUnit.HOURS)
+    val deadline = signedInAt.plus(30, ChronoUnit.DAYS)
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "near-deadline")
+      .addHeader("Cookie", sessionCookieSignedInAt(pod.name, ownerWebId, signedInAt))
+      .setFollowRedirect(false).execute()
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    val renewed = checkNotNull(response.sessionCookie()) { "two hours of absolute lifetime is still some" }
+    val expiry = checkNotNull(SignedJWT.parse(renewed.substringAfter('=')).jwtClaimsSet.expirationTime).toInstant()
+    assertFalse(
+      expiry.isAfter(deadline),
+      "a renewal must not outlive the sign-in's thirtieth day: expiry=$expiry deadline=$deadline",
+    )
+
+    // And the browser is told the same thing, so it stops presenting the cookie when the pod stops
+    // accepting it rather than being refused with one in hand.
+    val maxAge = checkNotNull(
+      response.headers.getAll("Set-Cookie")
+        .first { it.startsWith("sempods_pod_session=") }
+        .split(';').map { it.trim() }
+        .firstOrNull { it.startsWith("Max-Age=", ignoreCase = true) },
+    ) { "the renewed cookie must carry a Max-Age" }
+    assertTrue(
+      maxAge.substringAfter('=').toLong() <= 2 * 3600,
+      "Max-Age must follow the shortened lifetime, not the idle window: $maxAge",
+    )
+  }
+
+  @Test
   fun `prompt=none succeeds once the pod remembers the sign-in`() {
     // The item this closes: silent re-authorization was impossible while the pod kept nothing
     // between requests, and it only ever appeared to work when the identity sat in the URL.

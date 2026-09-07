@@ -121,6 +121,7 @@ class PodTokenIssuer(
     webId: String,
     alsoKnownAs: List<String> = emptyList(),
     authTime: Instant = Instant.now(),
+    ttlSeconds: Long = SESSION_TTL_SECONDS,
   ): String {
     val now = Instant.now()
     val claims = JWTClaimsSet.Builder()
@@ -137,7 +138,7 @@ class PodTokenIssuer(
       // consent actually covers.
       .apply { if (alsoKnownAs.isNotEmpty()) claim(CLAIM_ALSO_KNOWN_AS, alsoKnownAs) }
       .issueTime(Date.from(now))
-      .expirationTime(Date.from(now.plusSeconds(SESSION_TTL_SECONDS)))
+      .expirationTime(Date.from(now.plusSeconds(ttlSeconds)))
       .jwtID(UUID.randomUUID().toString())
       .build()
     val jwt = SignedJWT(JWSHeader.Builder(JWSAlgorithm.RS256).keyID(signingKey.keyID).build(), claims)
@@ -191,11 +192,30 @@ class PodTokenIssuer(
    *
    * `null` is not an error: the caller leaves the cookie it has, which expires on its own and
    * sends the person through the id-server once.
+   *
+   * @return the cookie and the lifetime to set on it — never longer than what is left of
+   *   [SESSION_ABSOLUTE_TTL_SECONDS] — or `null` once that is spent.
    */
-  fun renewSession(pod: String, session: SessionPrincipal): String? {
-    if (Instant.now() >= session.authTime.plusSeconds(SESSION_ABSOLUTE_TTL_SECONDS)) return null
-    return issueSession(pod, session.webId, session.alsoKnownAs, authTime = session.authTime)
+  fun renewSession(pod: String, session: SessionPrincipal): RenewedSession? {
+    val remaining = session.authTime.plusSeconds(SESSION_ABSOLUTE_TTL_SECONDS).epochSecond - Instant.now().epochSecond
+    if (remaining <= 0) return null
+    // The shorter of the two windows, so a renewal in the final hours ends *at* the deadline
+    // instead of twelve hours past it. Handing out the full idle window there would put the whole
+    // absolute limit a day out of date on a credential nothing can recall — and the last renewal
+    // before the deadline is exactly the one an actively used session gets.
+    val ttlSeconds = minOf(SESSION_TTL_SECONDS, remaining)
+    return RenewedSession(
+      token = issueSession(pod, session.webId, session.alsoKnownAs, session.authTime, ttlSeconds),
+      ttlSeconds = ttlSeconds,
+    )
   }
+
+  /**
+   * @param ttlSeconds how long [token] is good for. The caller sets the cookie's `Max-Age` from it
+   *   rather than from [SESSION_TTL_SECONDS], so the browser stops presenting the value at the
+   *   moment this server stops accepting it.
+   */
+  data class RenewedSession(val token: String, val ttlSeconds: Long)
 
   /**
    * @param authTime when the person signed in at the id-server, which a renewal carries forward

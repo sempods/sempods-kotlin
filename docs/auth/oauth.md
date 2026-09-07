@@ -417,8 +417,12 @@ Renewal carries `auth_time` — the original sign-in — forward unchanged, and
 stops thirty days after it. The cookie is a signature rather than a row, so
 nothing can recall it once issued; without that ceiling, "renew on use"
 would be a credential that lives as long as whoever holds it keeps asking.
-Past the limit the cookie is still honoured until it expires, it is simply
-no longer extended.
+
+Because nothing can recall it, the deadline is also where a renewal's own
+lifetime ends: one issued in the final hours gets what is left rather than
+a fresh twelve, and the `Max-Age` says the same, so a browser stops
+presenting the cookie when the pod stops accepting it. Nothing outlives the
+thirtieth day.
 
 `prompt=login` is never satisfied by that session: the person asked to
 prove themselves again, and the cookie is exactly what they are asking

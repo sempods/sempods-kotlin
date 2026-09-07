@@ -305,8 +305,11 @@ class PodAuthEndpoint @Inject constructor(
     answer: Response,
   ): Response {
     val renewed = session?.let { podTokenIssuer.renewSession(pod, it) } ?: return answer
+    // `Max-Age` from the renewal rather than from the idle window: near the absolute deadline the
+    // two differ, and a browser holding the cookie past what this server accepts would present it
+    // to be refused.
     return Response.fromResponse(answer)
-      .cookie(cookies.session(pod, renewed, PodTokenIssuer.SESSION_TTL_SECONDS.toInt()))
+      .cookie(cookies.session(pod, renewed.token, renewed.ttlSeconds.toInt()))
       .build()
   }
 
