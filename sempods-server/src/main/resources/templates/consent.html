@@ -385,6 +385,12 @@
          anyone who uses the app a lot, whatever the app's shape — and the pod cannot tell them
          apart, since every interactive client here is a public one.
 
+         The unticked half says what it says for two reasons. It names the hour, because an access
+         token already issued is not recalled and the app can use it after the person leaves; and
+         it says "through your browser" rather than promising a quiet renewal, because a `dyn:`
+         client is refused auto-grant and meets this page again every time. Both are the same
+         mistake in miniature — a dialog that promises more than the mechanism delivers.
+
          Ticked when the client asked for it, or when this person granted it here before; what the
          client asks only preselects, the tick is what grants. -->
     <div class="public-read-section">
@@ -400,8 +406,8 @@
           <span class="description">
             Ticked, it can renew its access on its own — what an app needs to sync or run on
             a schedule. That lasts until you disconnect it, or until it goes a long time
-            unused. Unticked, it renews quietly while you are using it, and stops when you
-            are done.
+            unused. Unticked, it cannot renew on its own: whatever access it holds runs out
+            within the hour, and getting more brings it back through your browser.
           </span>
         </span>
       </label>
