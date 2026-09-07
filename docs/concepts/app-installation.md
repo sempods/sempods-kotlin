@@ -95,8 +95,17 @@ own and requires none, so whether a client asks is that client's choice. Making 
 would hand the lifetime of a person's credential to whichever clients happen to implement the lever,
 while the person who should be deciding is standing in front of the dialog. So the decision is
 resolved from the stored consent whenever a token is issued, the way context permissions already
-are, and nothing a client still holds — an authorization code from an earlier and more generous
-consent — outlives it.
+are, so an authorization code from an earlier and more generous consent does not outlive it: the
+code carries the consent it was issued under, and the exchange compares that before it hands
+anything back.
+
+The comparison is per identity URI, and that is where the guarantee stops. A person is a set of
+equivalent URIs, each with a stored answer of its own, and an answer given under one is written to
+the others one document at a time — so a code naming the URI written last can be exchanged in the
+gap and be answered. Keeping one answer per URI is deliberate, because a code issued while an alias
+was the session identity has to be able to go stale on its own; a single answer for the person
+would need the identity resolver the `sub` question is parked with. `PodAuthEndpoint` marks the
+window where the exchange reads.
 
 Ending an app's access is an action of its own: named, and confirmed before it takes effect. It
 removes the grants and the durability at once, and what the app can read stops with them, because
