@@ -6,7 +6,6 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.bson.Document
-import org.bson.conversions.Bson
 import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.utils.HashUtil.sha256Hex
@@ -55,17 +54,6 @@ class OneTimeStore<T>(
 
   init {
     rows.createIndex(Indexes.ascending(FIELD_EXPIRES_AT), IndexOptions().expireAfter(0, TimeUnit.SECONDS))
-  }
-
-  /**
-   * Declares a secondary index over payload fields — for a store whose rows are also looked up or
-   * deleted by something other than their key.
-   *
-   * Idempotent, and called from the owning store's constructor: what the fields *mean* is the
-   * caller's, since [write] is the only thing that knows the payload.
-   */
-  fun index(keys: Bson) {
-    rows.createIndex(keys)
   }
 
   /**
@@ -118,21 +106,6 @@ class OneTimeStore<T>(
     rows.updateOne(Filters.eq("_id", hashed), Updates.set(FIELD_EXPIRES_AT, Date.from(Instant.now().plus(ttl))))
     return payload
   }
-
-  /**
-   * Deletes every row matching [filter], live or expired, and returns how many went.
-   *
-   * The one bulk path into a store whose whole point is one key at a time: something outside the
-   * flow has ended what the parked rows were for, and they must not be redeemable afterwards. What
-   * "belongs to" means is the caller's — the payload fields are written by [write] and this store
-   * cannot name them — so the filter is built where the payload is known.
-   *
-   * Index the fields a caller filters on with [index]. The TTL keeps the collection to what is in
-   * flight rather than to a history, but "small" is not "bounded": one collection holds every
-   * tenant's rows, and a caller that can repeat the operation this backs turns each repeat into a
-   * scan of all of them.
-   */
-  fun deleteWhere(filter: Bson): Long = rows.deleteMany(filter).deletedCount
 
   private fun Document.readIfLive(): T? {
     val expiresAt = getInstant(FIELD_EXPIRES_AT) ?: return null

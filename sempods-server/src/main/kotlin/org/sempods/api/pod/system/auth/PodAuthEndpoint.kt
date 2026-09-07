@@ -1431,13 +1431,19 @@ class PodAuthEndpoint @Inject constructor(
 
     // A code is a request, not an authority: it must not pick up a consent given after it. The
     // generation it carries is the one that produced it, so a disconnect — or any later answer —
-    // makes it stale, and its scopes are stale with it. Compared in both directions, because the
-    // first answer an authorization ever gets supersedes the codes issued before it just as surely
-    // as the second: a code from an authorization that had none carries none, and matches only for
-    // as long as none is recorded.
+    // makes it stale, and its scopes are stale with it.
+    //
+    // **A code carrying no generation at all is refused outright**, which is what makes the
+    // generation the only thing this path has to reason about. Consent records the answer before
+    // it writes the grants, and auto-grant needs grants, so every code minted for a person comes
+    // from an authorization that has been answered — the anonymous `public-read` exchange, which
+    // has no person and no answer, returned above. A code without one is therefore either older
+    // than the consent control or the debris of a half-written consent, and neither is something
+    // to hand a token for. Deployments that predate this cross it once, by clearing the delegation
+    // rows: `docs/auth/oauth.md` §"Refresh token rotation".
     val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
-    if (decision?.generation != issuedUnder) {
+    if (issuedUnder == null || decision?.generation != issuedUnder) {
       logger.info {
         "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
             "clientId='${entry.clientId}', webId='${entry.subject}', " +
@@ -1522,26 +1528,20 @@ class PodAuthEndpoint @Inject constructor(
     // forced consent screen is never rendered. An access token is no row and cannot be recalled
     // once returned, so the only moment to refuse it is before it goes out.
     //
-    // **The window this leaves, and the three ways into it.** Every check-then-act has a gap, and
+    // **The window this leaves, and the two ways into it.** Every check-then-act has a gap, and
     // the act here — minting the bearer in [buildTokenResponse] — comes after this read. A
     // reauthorize landing inside it is answered with a token whose fresh `jti` and `iat` satisfy
     // `ReauthorizeChallengeStore`, so the client's replay reads "already authorized" and the
-    // screen is not rendered. Three routes reach that outcome, and none of them hands the client
+    // screen is not rendered. Two routes reach that outcome, and neither hands the client
     // authority it did not already hold:
     //
     // - This read and the mint are two moments; nothing landing between them can be refused.
-    // - An authorization with **nothing recorded** has no generation to move, so both reads are
-    //   null and the comparison is vacuous. It mints no family either, so the cost is one
-    //   short-lived token of scopes already held. I15 gives it a decision at its first dialog —
-    //   but a client that only ever sends `prompt=none` never reaches one.
-    // - The raise is one `updateMany` over the person's **alias documents**, atomic per document,
-    //   so an exchange whose code names the row updated last reads it unchanged twice.
+    // - The raise is one `updateMany` over the person's alias documents, atomic per document, so
+    //   an exchange whose code names the row updated last reads it unchanged twice.
     //
-    // Closing them needs one thing in three parts: a generation that exists without an answer
-    // recorded, one that spans a person rather than a URI, and an issuance bound to it instead of
-    // compared against it beforehand. The store has none of the three on purpose — an absent
-    // document *is* the third state (I3, I4), and `recordDecision` keeps one answer per URI so a
-    // code issued under an alias can go stale on its own.
+    // Closing them needs a generation that spans a person rather than a URI, and an issuance
+    // bound to it instead of compared against it beforehand. `recordDecision` keeps one answer per
+    // URI on purpose, so a code issued under an alias can go stale on its own.
     //
     // No test reaches any of them, and one asserting otherwise would be lying: the check before
     // the exchange refuses a code whose generation has already moved, so anything a test can set

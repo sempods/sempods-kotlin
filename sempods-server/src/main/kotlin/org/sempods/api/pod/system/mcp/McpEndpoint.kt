@@ -30,7 +30,6 @@ import org.sempods.mcp.core.ToolsCapability
 import org.sempods.mcp.core.ToolsListResult
 import org.sempods.mcp.core.isNotification
 import com.google.inject.Inject
-import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.client.SempodsClientException
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
@@ -85,7 +84,6 @@ class McpEndpoint @Inject constructor(
   private val podToolExecutor: PodToolExecutor,
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val refreshTokenStore: PodRefreshTokenStore,
-  private val authorizationCodeStore: AuthorizationCodeStore,
   private val consentDecisionStore: PodConsentDecisionStore,
   private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
@@ -898,17 +896,18 @@ class McpEndpoint @Inject constructor(
   /**
    * Ends what this app holds for this person, so the forced 401 cannot be answered from stock.
    *
-   * Two things outlive the challenge and both would defeat it. A **refresh token** rotates
-   * without a browser, so parallel sessions sharing a dynamic `client_id` would refresh straight
-   * around the consent UI. An **authorization code** stays redeemable for five minutes and the
-   * client holds its verifier, so one issued just before the call would still mint the bearer and
-   * seed the family the challenge exists to make it ask for again.
+   * A **refresh token** rotates without a browser, so parallel sessions sharing a dynamic
+   * `client_id` would refresh straight around the consent UI. An **authorization code** the client
+   * still holds would mint the bearer and seed the family the challenge exists to make it ask for
+   * again — that one needs nothing here: raising the generation is what spends it, since a code
+   * carries the generation it was issued under and one carrying none is refused outright
+   * (`PodAuthEndpoint.exchangeAuthorizationCode`).
    *
-   * All three go broad over the person rather than over the one URI this bearer happens to carry:
-   * a family, a code or a decision under the twin is the same person's, and leaving it is leaving
-   * the way round open. The reach is the derivable set, which is every equivalent URI a pod can
-   * hold today — see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops
-   * being true.
+   * Both go broad over the person rather than over the one URI this bearer happens to carry: a
+   * family or a decision under the twin is the same person's, and leaving it is leaving the way
+   * round open. The reach is the derivable set, which is every equivalent URI a pod can hold
+   * today — see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops being
+   * true.
    *
    * **The generation rises first, and everything else follows it.** An exchange already in flight
    * can have consumed its code before this runs and mint its family after, where the sweep can no
@@ -945,15 +944,10 @@ class McpEndpoint @Inject constructor(
     val revoked = refreshTokenStore.revokeFamilies(
       refreshTokenStore.liveFamilies(podId = podId, clientId = clientId, webIds = subjects),
     )
-    val spent = authorizationCodeStore.revokeFor(
-      realm = credentials.pod.name,
-      clientId = clientId,
-      subjects = subjects,
-    )
-    if (reset > 0 || revoked > 0 || spent > 0) {
+    if (reset > 0 || revoked > 0) {
       logger.info {
         "[mcp] Ended what the client held for explicit reauthorize: pod='${credentials.pod.name}', " +
-            "client_id='$clientId', web_id='$webId', revoked=$revoked, codes=$spent, reset=$reset"
+            "client_id='$clientId', web_id='$webId', revoked=$revoked, reset=$reset"
       }
     }
   }

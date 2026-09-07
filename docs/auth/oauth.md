@@ -238,12 +238,16 @@ store rather than from the authorization code, so a code carries the
 request and never the authority.
 
 An authorization that predates the control has no decision recorded, and
-that is not a grant either: it mints no new family, while the one it
-already rotates is left alone.
+its codes are refused: a code carries the generation of the consent that
+produced it, and one carrying none is not exchangeable. Consent writes the
+answer before the grants it authorizes and auto-grant needs grants, so
+every code minted for a person comes from an authorization that has been
+answered.
 
 A response carrying no `refresh_token` is therefore no evidence about the
 request, which is the half a client debugs: either the person left the
-control unticked, or the authorization predates it. Re-sending the scope
+control unticked, or the authorization predates the control and its codes
+no longer redeem at all. Re-sending the scope
 grants nothing by itself — what answers the question is a fresh
 authorization the person sees.
 

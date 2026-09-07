@@ -1069,10 +1069,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an authorization made before the control mints no new refresh token`() {
-    // I3: an absent decision is not a grant. A static client whose grants predate the dialog takes
-    // the auto-grant branch, which renders nothing — so reading the silence as consent would let it
-    // mint ninety-day credentials for ever, with nobody ever seeing the lifetime.
+  fun `an authorization made before the control cannot spend its silent code`() {
+    // I3, and now enforced rather than worked around: an absent decision is not a grant. Such an
+    // authorization takes the auto-grant branch, which renders nothing, so reading the silence as
+    // consent would let it mint credentials nobody ever saw the lifetime of. The code it yields
+    // carries no generation, and a code with no generation buys nothing — the deployment step that
+    // clears the delegation rows is what a pod crosses this once with.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1092,8 +1094,18 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
     assertEquals(303, autoGranted.statusCode, autoGranted.responseBody)
 
-    val body = exchangeCode(pod, codeFrom(autoGranted))
-    assertNull(body["refresh_token"], "nothing recorded is not a grant: $body")
+    val exchange = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=${codeFrom(autoGranted)}" +
+        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
+        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+    )
+    assertEquals(400, exchange.statusCode, exchange.responseBody)
+    assertTrue(
+      exchange.responseBody.contains("\"invalid_grant\""),
+      "nothing recorded is not a grant, and now not a token either: ${exchange.responseBody}",
+    )
   }
 
   @Test
@@ -4083,53 +4095,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the sweep leaves a code minted after the reset, which the generation already covers`() {
-    // The raise happens before the sweep, so a consent completing in between mints a code carrying
-    // the *new* generation — one that legitimately postdates the event. Sweeping by subject alone
-    // would delete it and hand that flow a redirect that fails at the exchange. It needs no
-    // sweeping: a code the generation covers is refused by the comparison when it is stale, so
-    // deleting it as well only buys the race.
-    val pod = sempodsTestFactory.newPod()
-    val webId = "https://id.test/concurrent-${TestUtil.randomId()}"
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
-    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
-    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)))
-    val code = authorizationCodeStore.issue(
-      realm = pod.name,
-      clientId = testClientId,
-      subject = webId,
-      scopes = setOf("public-read"),
-      redirectUri = testRedirectUri,
-      codeChallenge = null,
-      codeChallengeMethod = null,
-      consentGeneration = standing.generation,
-    )
-    podGrantsDao.addGrants(
-      podId = checkNotNull(pod.id),
-      appId = testClientId,
-      webId = webId,
-      grants = setOf("public-read"),
-      grantedBy = webId,
-    )
-    // The sweep, running after that code was minted.
-    authorizationCodeStore.revokeFor(realm = pod.name, clientId = testClientId, subjects = listOf(webId))
-
-    val response = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code" +
-        "&code=$code" +
-        "&redirect_uri=${java.net.URLEncoder.encode(testRedirectUri, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
-    )
-
-    assertEquals(200, response.statusCode, response.responseBody)
-  }
-
-  @Test
   fun `a forced reauthorize raises nothing where the authorization has no decision`() {
-    // No upsert, and the reason is I3/I4: an absent decision is the third state, not a refusal.
-    // Creating one here would turn a forced review into an answer nobody gave — and there is
-    // nothing to catch anyway, since without a decision no family is minted.
+    // No upsert, and the reason is I3/I4: an absent decision is a state of its own, and writing
+    // one here would turn a forced review into an answer nobody gave. Nothing needs catching
+    // either — a code from such an authorization is refused at the exchange for carrying no
+    // generation, so there is neither a family nor a token to end.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/undecided-${TestUtil.randomId()}"
 
