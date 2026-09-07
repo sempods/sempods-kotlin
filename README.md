@@ -209,19 +209,17 @@ or all three.
 | **hosted MCP** (`sempods-mcp`) | One MCP connection fronting many pods, including pods run by others | you want an AI client to reach several pods at once |
 
 Each ships as a container image — `ghcr.io/haed/sempods`, `…/sempods-auth`, `…/sempods-mcp` — under
-two tags: `latest`, which a deployment pulls and which moves, and — for a build from a clean
-checkout — the short commit it came from, which does not. That commit is always the OCI `revision`
-label, so a running container answers what it is without anything being pulled:
+`latest`, which a deployment pulls and which moves, plus the short commit for a build from a clean
+checkout. That commit is always the OCI `revision` label, so a running container answers what it is
+without anything being pulled:
 
 ```bash
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <container>
 ```
 
-A revision ending in `-dirty` was built from a tree with uncommitted changes, and `unknown` from one
-with no git history — or from a tree sitting inside somebody else's checkout, where the commit git
-would report belongs to that repository. Neither gets a tag of its own, since neither names one
-build. The images are pushed by hand — each service's `jib` task, no workflow — so that label is the
-only record of which commit reached the registry.
+`<sha>-dirty` means uncommitted changes, `unknown` that the build could not identify its commit;
+neither gets a tag, since neither names one build. The images are pushed by hand — each service's
+`jib` task, no workflow — so that label is the only record of which commit reached the registry.
 
 ## Repository layout
 

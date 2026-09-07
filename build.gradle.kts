@@ -44,21 +44,15 @@ val publishedModules = listOf(
 )
 extra["publishedModules"] = publishedModules
 
-// The commit the container images are built from, published as the OCI `revision` label. It exists
-// because `latest` is the only tag those images carried, so the one question an operator has during
-// a deployment — is this the build I think it is — could only be answered by comparing registry
-// digests by hand.
+// The commit the container images are built from, for the OCI `revision` label — README §"The three
+// services" says what it buys. `providers.exec` rather than a bare `ProcessBuilder`, so the value
+// stays a build input rather than something read behind Gradle's back, and every failure answers
+// `unknown` rather than breaking a build over something informational.
 //
-// `providers.exec` rather than a bare `ProcessBuilder` so the value stays a build input rather than
-// something read behind Gradle's back, and every failure answers `unknown` rather than breaking the
-// build: these images are also built from trees that have no `.git` at all.
-//
-// **Two ways to be wrong, and both answer `unknown` rather than guessing.** A tree without its own
-// `.git` built inside another checkout gets that checkout's HEAD from git's parent-directory
-// search, so the toplevel is compared against this build's root before the SHA is believed — an
-// image labelled with an unrelated repository's commit is worse than one labelled with nothing.
-// A dirty tree is marked for the same reason: an unmarked SHA on an image built from uncommitted
-// work is the answer that misleads.
+// **Two answers that would mislead, refused.** Git's parent-directory search hands a tree without
+// its own `.git` the surrounding checkout's HEAD, so the toplevel is compared against this build's
+// root first — a foreign commit on the label is worse than none. A dirty tree is marked for the
+// same reason.
 val gitRevision: String = run {
   fun git(vararg args: String): String? = runCatching {
     providers.exec {
@@ -75,28 +69,24 @@ val gitRevision: String = run {
 }
 extra["gitRevision"] = gitRevision
 
-// Only a revision that names one commit is worth a tag of its own. `unknown` and `<sha>-dirty` can
-// each describe any number of different builds, so tagging with them would move a tag the README
-// offers for pinning — the label still carries them, where saying "this build was not clean" is the
-// whole point.
+// Only a revision naming one commit is worth a tag: `unknown` and `<sha>-dirty` each describe any
+// number of builds, and tagging with them would move a tag the README offers for pinning. The label
+// carries them either way, which is where they belong.
 extra["revisionTags"] = if (gitRevision == "unknown" || gitRevision.endsWith("-dirty")) {
   emptySet<String>()
 } else {
   setOf(gitRevision)
 }
 
-// The three images carry that revision as a label, and a label nobody looks at is a label that can
-// be dropped without anyone noticing until the next deployment asks what is running. This fails the
-// build instead.
+// A label nobody looks at can be dropped unnoticed, until a deployment asks what is running.
 //
 // Reflection because the jib plugin is applied in the three image projects and not here, so its
-// types are not on this script's classpath — and `plugins { … apply false }` at the root would put
-// the plugin's version in a second place for the sake of one property read.
+// types are off this script's classpath — and `apply false` at the root would put the plugin's
+// version in a second place for one property read.
 subprojects {
   plugins.withId("com.google.cloud.tools.jib") {
-    // Resolved out here on the `Project` receiver: inside `doLast` the receiver is the task, whose
-    // extension container has no `jib` — the same trap `checkNoLoggingBinding` above names. The
-    // extension is captured now and read later, because the `jib { }` block has not run yet.
+    // On the `Project` receiver, not inside `doLast` where it is the task's — the trap
+    // `checkNoLoggingBinding` names above. Captured now, read later: `jib { }` has not run yet.
     val jib = extensions.findByName("jib")
       ?: throw GradleException("${project.path} applies the jib plugin but exposes no `jib` extension.")
 
