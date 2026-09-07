@@ -110,11 +110,13 @@ data class PodTokens(
    * The pod-local WebID the pod minted this family for — what a refresh checks the refreshed
    * token's subject against, so a pod that starts answering as somebody else is refused.
    *
-   * `PodConnection.podSubject` answers for a row carrying none, and may: a subject that has moved
-   * on refuses the refresh, where a moved-on [issuer] would admit it. Only a subject a refresh read
-   * is recorded here. A connect always writes one; it fails on a token whose subject it cannot read.
+   * Required, and read off this row alone, for [issuer]'s reason: the registry's copy can describe
+   * a reconnect whose token write never landed, and a drift check against it would refuse this
+   * family every time the pod answered with its own correct subject. A connect fails on a token
+   * whose subject it cannot read, and a refresh only ever records one it read, so every row this
+   * service writes carries one; a row that predates the field does not map.
    */
-  val podSubject: String? = null,
+  val podSubject: String,
 ) : PodRegistrationRow {
   /** True when the pod has declared this row's grant finished — see [deadGrantSince]. */
   val isDeadGrant: Boolean get() = deadGrantSince != null
@@ -139,9 +141,10 @@ data class PodTokenFacts(
 
   /**
    * Whether a refresh can no longer hold this connection open, so the person has to reconnect: the
-   * pod declared the grant finished, or the row carries no pin and does not map ([PodTokens.issuer]).
+   * pod declared the grant finished, or the row is missing something [PodTokens] requires and so
+   * does not map at all.
    */
-  val needsReconnect: Boolean get() = isDeadGrant || issuer == null
+  val needsReconnect: Boolean get() = isDeadGrant || issuer == null || podSubject == null
 }
 
 /**
@@ -469,10 +472,10 @@ class TokenVaultDao(
     putNotNull("podRedirectUri", podRedirectUri)
     putNotNull("deadGrantSince", deadGrantSince)
     put("issuer", issuer)
-    putNotNull("podSubject", podSubject)
+    put("podSubject", podSubject)
   }
 
-  /** Map a row, or null if unreadable — undecryptable, corrupt, or missing [PodTokens.issuer]. Logged, not thrown. */
+  /** Map a row, or null if unreadable — undecryptable, corrupt, or missing a required field. Logged, not thrown. */
   private fun Document.toTokensOrNull(): PodTokens? = try {
     toTokens()
   } catch (e: Exception) {

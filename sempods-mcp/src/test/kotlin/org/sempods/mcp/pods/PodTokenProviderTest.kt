@@ -140,15 +140,15 @@ class PodTokenProviderTest {
     )
 
   /**
-   * A refreshable row pinned to this pod's own issuer, with the registration and the identity left
-   * to the registry — the shape most cases here want.
+   * A refreshable row pinned to this pod's own issuer and acting as the service identity, with the
+   * registration left to the registry — the shape most cases here want.
    */
   private fun seedToken(
     expiresAt: Date?,
     refreshToken: String? = "rt-1",
     podClientId: String? = null,
     issuer: String = authBase,
-    podSubject: String? = null,
+    podSubject: String = user,
   ) =
     vault.upsert(
       PodTokens(
@@ -332,7 +332,7 @@ class PodTokenProviderTest {
 
     // What a re-connect leaves behind: a fresh row, and no claim on it.
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
     )
     val marked = vault.markDeadGrantIfClaimedBy(key, at = Date(), holder = "replica-a")
 
@@ -601,59 +601,49 @@ class PodTokenProviderTest {
   }
 
   @Test
-  fun `a refresh hands the identity it just recorded back with the token`() = runBlocking {
-    // The case a caller cannot answer for itself: neither row records a subject, and the refresh
-    // this very call performs is what discovers one. Anything the caller read beforehand still says
-    // null, so the identity travels back with the token it belongs to.
-    seedConnection()
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
-    stubRefreshReturningSubject("https://pod.example/u/discovered")
-    assertNull(vault.find(key)!!.podSubject, "nothing is recorded before the call")
+  fun `the identity comes back from the row the token came from`() = runBlocking {
+    // A caller cannot resolve this for itself: which row answers is decided inside the call, and a
+    // reconnect landing mid-call replaces the row wholesale. So the two travel together, and the
+    // registry — which a reconnect writes first, and which can therefore describe another family —
+    // is not consulted.
+    seedConnection(podSubject = "https://pod.example/u/from-a-later-connect")
+    seedToken(
+      expiresAt = Date(System.currentTimeMillis() + 3_600_000),
+      podSubject = "https://pod.example/u/whose-token-this-is",
+    )
 
     val access = assertNotNull(provider.validAccessToken(key))
 
-    assertEquals("https://pod.example/u/discovered", access.podSubject, "the identity this token was minted for")
-    assertEquals("https://pod.example/u/discovered", vault.find(key)!!.podSubject, "and the row now carries it")
+    assertEquals("at-1", access.token)
+    assertEquals("https://pod.example/u/whose-token-this-is", access.podSubject, "the identity this token was minted for")
   }
 
   @Test
-  fun `an unreadable refreshed subject records nothing, rather than the registry's answer`() = runBlocking {
-    // The registry answers the drift *check* for a row carrying no subject of its own, but its
-    // answer must not become the row's reference: a reconnect rewrites that row, so recording it
-    // here would install an identity this family can never match, and every later refresh would
-    // refuse it as drift — permanently, since the repair sits after the check.
+  fun `an unreadable refreshed subject leaves the recorded identity where it is`() = runBlocking {
+    // Only a subject a refresh actually read may move the reference. An opaque token says nothing
+    // about identity, so the row keeps what it had — and a reconnect that rewrote the registry
+    // cannot slip its answer in here.
     seedConnection(podSubject = "https://pod.example/u/from-another-connect")
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
-    // @BeforeEach's stub answers the opaque "at-2": a usable token, not a readable identity.
+    seedToken(
+      expiresAt = Date(System.currentTimeMillis() - 60_000),
+      podSubject = "https://pod.example/u/whose-token-this-is",
+    )
+    // @BeforeEach's stub answers the opaque "at-2": a usable token, no readable identity.
 
     assertEquals("at-2", provider.validAccessToken(key)?.token, "an unreadable subject must not brick the connection")
-    assertNull(vault.find(key)!!.podSubject, "nothing was read, so nothing is recorded")
-  }
-
-  @Test
-  fun `a token row that predates the subject records it, beside the registration, on one refresh`() = runBlocking {
-    // The fallback drains rather than staying: once a row carries what it checked against, no later
-    // write to the registry can pair this family with a description of another one. In the same
-    // write as the registration, because a row that records one and leaves the other is the split
-    // the resolver exists to prevent, one field further out.
-    val callback = "https://mcp.test/_system/ui/pods/callback/cron-agent"
-    seedConnection(podRedirectUri = callback, podSubject = "https://pod.example/u/captured")
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
-    stubRefreshReturningSubject("https://pod.example/u/captured")
-    assertNull(vault.find(key)!!.podSubject, "the row this case is about")
-
-    assertNotNull(provider.validAccessToken(key), "a row leaning on the registry still refreshes")
-
-    val stored = vault.find(key)!!
-    assertEquals("https://pod.example/u/captured", stored.podSubject, "the identity it checked against")
-    assertEquals("dyn:x", stored.podClientId, "beside the registration it presented")
-    assertEquals(callback, stored.podRedirectUri, "and the address that id is pinned to")
+    assertEquals(
+      "https://pod.example/u/whose-token-this-is", vault.find(key)!!.podSubject,
+      "nothing was read, so nothing moved",
+    )
   }
 
   @Test
   fun `refresh backfills a legacy connection's missing pod subject`() = runBlocking {
-    seedConnection() // legacy row: podSubject == null
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
+    seedConnection() // legacy registry row: podSubject == null
+    seedToken(
+      expiresAt = Date(System.currentTimeMillis() - 60_000),
+      podSubject = "https://pod.example/u/captured",
+    )
     stubRefreshReturningSubject("https://pod.example/u/captured")
     assertNotNull(provider.validAccessToken(key), "a legacy connection still refreshes")
     val conn = registry.find(key)!!
@@ -717,7 +707,7 @@ class PodTokenProviderTest {
     // The user re-connects the pod via /_system/ui: a brand-new token family lands in the vault
     // (the upsert clears the refresh claim).
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
     )
 
     assertEquals("at-new", pending.await()?.token, "the caller must get the re-connect's token, not the stale rotation")
@@ -761,7 +751,7 @@ class PodTokenProviderTest {
     // Simulate A finishing: persist the refreshed row (the upsert drops A's claim).
     delay(500)
     vault.upsert(
-      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase),
+      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
     )
 
     assertEquals("at-2", pending.await()?.token, "the claim-loser must pick up the winner's token")
@@ -776,7 +766,7 @@ class PodTokenProviderTest {
     vault.upsert(
       PodTokens(
         user, profile, pod, "at-1", "rt-1", Date(System.currentTimeMillis() + 3_600_000), fortyDaysAgo(),
-        issuer = authBase,
+        issuer = authBase, podSubject = user,
       ),
     )
     val tokens = vault.find(key)!!

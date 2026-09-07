@@ -75,7 +75,7 @@ class TokenVaultDaoTest {
     lastUsedAt: Date? = null,
   ) = PodTokens(
     key.user, key.profile, key.pod, accessToken, refreshToken, accessTokenExpiresAt, updatedAt,
-    lastUsedAt, issuer = "https://pod.test/p/_system/auth",
+    lastUsedAt, issuer = "https://pod.test/p/_system/auth", podSubject = key.user,
   )
 
   @Test

@@ -125,7 +125,7 @@ class ReadToolsIntegrationTest {
     val soon = Date(System.currentTimeMillis() + 3_600_000)
     for (pod in listOf(podA, podB)) {
       registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth"))
+      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user))
     }
   }
 
@@ -152,8 +152,9 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "stale", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(),
-        // The pin a refresh reads; without it the row is unrotatable and nothing reaches the pod.
-        issuer = authBase,
+        // The two facts a refresh decides on; without them the row does not map and nothing
+        // reaches the pod.
+        issuer = authBase, podSubject = user,
       ),
     )
     server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-protected-resource"))
@@ -218,6 +219,13 @@ class ReadToolsIntegrationTest {
         user = user, profile = profile, pod = "$podA", issuer = "$podA/_system/auth",
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
         podSubject = foreignWebId, subjectVerified = false, createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    TokenVaultDao(db!!, testSecretCipher()).upsert(
+      PodTokens(
+        user, profile, podA, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$podA/_system/auth", podSubject = foreignWebId,
       ),
     )
     val body = call("list_pods", null)

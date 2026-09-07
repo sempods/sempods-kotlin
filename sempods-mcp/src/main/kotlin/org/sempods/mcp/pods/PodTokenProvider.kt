@@ -45,10 +45,8 @@ sealed interface RefreshTrigger {
  * [PodTokenProvider.validAccessToken], including by a refresh it performs on the way, so a caller
  * that wants to say what the call acted as cannot read it off any snapshot of its own.
  *
- * [podSubject] is null on a row that records none; `PodConnection.actingSubject` says what answers
- * then.
  */
-data class PodAccess(val token: String, val podSubject: String?)
+data class PodAccess(val token: String, val podSubject: String)
 
 /**
  * Single source of truth for *"give me a usable pod access token for `(user, profile, pod)`"*.
@@ -319,7 +317,7 @@ class PodTokenProvider(
       //    would discard the freshly rotated refresh token and brick a healthy connection over a
       //    non-identity hiccup. Keep the token (no worse than the pre-identity behaviour, which stored
       //    refreshes unconditionally) and leave the recorded identity untouched.
-      // A row with no recorded subject on either row has nothing to protect and is backfilled below.
+      // The recorded subject is this row's own — the registry's could describe another family.
       val outcome = podOAuthClient.verifyAccessTokenSubject(metadata, refreshed.accessToken)
       if (outcome is PodOAuthClient.SubjectOutcome.VerificationFailed) {
         logger.warn { "refreshed pod token for $key failed JWKS signature verification — refusing" }
@@ -327,9 +325,9 @@ class PodTokenProvider(
         return@runCatching null
       }
       val subject = (outcome as? PodOAuthClient.SubjectOutcome.Readable)?.subject
-      if (subject != null && recordedSubject != null && subject.webId != recordedSubject) {
+      if (subject != null && subject.webId != tokens.podSubject) {
         logger.warn {
-          "identity drift on refresh for $key (recorded='$recordedSubject', refreshed='${subject.webId}') — refusing"
+          "identity drift on refresh for $key (recorded='${tokens.podSubject}', refreshed='${subject.webId}') — refusing"
         }
         auditLog.podTokenRefreshed(key, ok = false, detail = "identity_drift")
         return@runCatching null
@@ -345,8 +343,6 @@ class PodTokenProvider(
         // the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
         podClientId = registration.clientId,
         podRedirectUri = registration.redirectUri,
-        // Only a subject this refresh read: the registry's answer can come from a reconnect that
-        // rewrote that row, and would install a reference this family never matches.
         podSubject = subject?.webId ?: tokens.podSubject,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {

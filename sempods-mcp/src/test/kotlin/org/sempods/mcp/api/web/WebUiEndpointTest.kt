@@ -125,7 +125,7 @@ class WebUiEndpointTest {
       user, profile, pod, accessToken = "at", refreshToken = "rt",
       accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
       podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
-      issuer = "$pod/_system/auth",
+      issuer = "$pod/_system/auth", podSubject = user,
     ),
   )
 
@@ -554,7 +554,7 @@ class WebUiEndpointTest {
         PodTokens(
           user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
           accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
-          issuer = "$podBase/_system/auth",
+          issuer = "$podBase/_system/auth", podSubject = user,
         ),
       )
       assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))
