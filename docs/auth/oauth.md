@@ -292,7 +292,15 @@ re-consent there.
 ```js
 db.grants.deleteMany({})
 db["oauth.refreshTokens"].deleteMany({})
+db["oauth.authCodes"].deleteMany({})
 ```
+
+The third is in flight rather than durable, and it is here because the
+decisions are deliberately kept: a code minted in the five minutes before
+the reset still matches the generation standing for its authorization, so
+it would redeem afterwards and hand its client a bearer whose grants no
+longer exist and a family that dies at its first rotation. Emptying it
+costs an authorization in progress a retry.
 
 **The documents, not the collections.** Both stores build their indexes in
 their constructors and nowhere else, so a `drop()` against a running
