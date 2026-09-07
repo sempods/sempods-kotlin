@@ -1519,31 +1519,30 @@ class PodAuthEndpoint @Inject constructor(
     // forced consent screen is never rendered. An access token is no row and cannot be recalled
     // once returned, so the only moment to refuse it is before it goes out.
     //
-    // **An authorization with nothing recorded is not covered, and that is a gap rather than a
-    // narrowing.** It has no generation to move, so a code consumed just before an explicit
-    // reauthorize still mints its bearer here — and that bearer's fresh `jti` and `iat` satisfy
-    // `ReauthorizeChallengeStore`, so the client's replay is answered "already authorized" and the
-    // forced consent screen is skipped. Not I12, which is about a bearer issued *before* the
-    // event; this one is issued after it. What bounds it is that such an authorization mints no
-    // family, so a lost race costs one short-lived token of the feature scopes it already had.
-    // I15 gives such an authorization a decision at its first dialog, after which this check covers
-    // it — but a client that only ever sends `prompt=none` never reaches one, so for that client
-    // the state persists. Closing it needs a counter that exists without an answer being recorded,
-    // which `PodConsentDecisionStore` deliberately does not have: an absent document *is* the
-    // third state (I3, I4), and a row carrying a generation and no answer would read as a refusal.
+    // **The window this leaves, and the three ways into it.** Every check-then-act has a gap, and
+    // the act here — minting the bearer in [buildTokenResponse] — comes after this read. A
+    // reauthorize landing inside it is answered with a token whose fresh `jti` and `iat` satisfy
+    // `ReauthorizeChallengeStore`, so the client's replay reads "already authorized" and the
+    // screen is not rendered. Three routes reach that outcome, and none of them hands the client
+    // authority it did not already hold:
     //
-    // **A second route reaches the same window, and stops in the same place.** The raise is one
-    // `updateMany` over the person's alias documents and Mongo makes that atomic per document, so
-    // an exchange whose code names the row updated last can read it unchanged for both checks.
-    // What escapes is again only the bearer: the raise precedes the family sweep, so a family
-    // minted in that window is still caught by it. Making the two agree would mean one generation
-    // per person rather than per URI, which `recordDecision` weighs and rejects — a code issued
-    // while an alias was the session identity carries that alias's generation, and only a document
-    // of its own can move when the person answers again under another URI.
+    // - This read and the mint are two moments; nothing landing between them can be refused.
+    // - An authorization with **nothing recorded** has no generation to move, so both reads are
+    //   null and the comparison is vacuous. It mints no family either, so the cost is one
+    //   short-lived token of scopes already held. I15 gives it a decision at its first dialog —
+    //   but a client that only ever sends `prompt=none` never reaches one.
+    // - The raise is one `updateMany` over the person's **alias documents**, atomic per document,
+    //   so an exchange whose code names the row updated last reads it unchanged twice.
     //
-    // No test reaches the ungated half, and a test asserting it would be lying: the check before
+    // Closing them needs one thing in three parts: a generation that exists without an answer
+    // recorded, one that spans a person rather than a URI, and an issuance bound to it instead of
+    // compared against it beforehand. The store has none of the three on purpose — an absent
+    // document *is* the third state (I3, I4), and `recordDecision` keeps one answer per URI so a
+    // code issued under an alias can go stale on its own.
+    //
+    // No test reaches any of them, and one asserting otherwise would be lying: the check before
     // the exchange refuses a code whose generation has already moved, so anything a test can set
-    // up is answered there instead. What is left is the window between that check and this one.
+    // up is answered there instead.
     if (consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
         ?.generation != issuedUnder
     ) {
