@@ -136,6 +136,16 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
    * What is left is the code the generation cannot reach: an authorization the server has recorded
    * nothing about has none to move, and a code under it would otherwise survive every such event.
    *
+   * **Those codes carry no ordering either, and this deletes them all.** One issued in the same
+   * window — a `prompt=none` auto-grant, the one path that still mints a code for an authorization
+   * with nothing recorded — postdates the event and is deleted with the rest, because nothing
+   * distinguishes the two. The caller's flow gets one `invalid_grant` and its next silent refresh
+   * succeeds, the reset having finished by then. That is the better half of the trade: sparing
+   * them means a client whose authorization predates the consent control keeps a code across the
+   * very event meant to end it, which is what this method exists for. Telling them apart needs an
+   * ordering that exists without an answer recorded — the same counter `PodAuthEndpoint` names
+   * where it documents the window it leaves open, and the same reason there is none.
+   *
    * [subjects] rather than one URI, because a person is a set of equivalent URIs on every path
    * that ends access.
    */
