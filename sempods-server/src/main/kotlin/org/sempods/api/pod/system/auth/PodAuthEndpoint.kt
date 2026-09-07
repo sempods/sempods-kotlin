@@ -1542,13 +1542,28 @@ class PodAuthEndpoint @Inject constructor(
     // is told to come back through consent. Only the sequential case has a test (`a code cannot
     // pick up a consent granted after it`); this window is between two statements, where none can
     // reach.
-    if (issuedRefresh != null &&
-      consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    //
+    // **Ungated, because I10 is about what the exchange hands back and not only about what it
+    // stores.** A short-lived exchange mints no family and would have skipped this — and then
+    // returns a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore`, so the
+    // client's replay of `authorize(reauthorize=true)` is answered "already authorized" and the
+    // forced consent screen is never rendered. An access token is no row and cannot be recalled
+    // once returned, so the only moment to refuse it is before it goes out.
+    //
+    // An authorization with nothing recorded has no generation to move and is not covered here.
+    // It mints no family either, so what survives is one short-lived bearer of the feature scopes
+    // it already had — I12's narrowing, not a new hole — and I15 gives such an authorization a
+    // decision the first time it reaches the dialog.
+    //
+    // No test reaches the ungated half, and a test asserting it would be lying: the check before
+    // the exchange refuses a code whose generation has already moved, so anything a test can set
+    // up is answered there instead. What is left is the window between that check and this one.
+    if (consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
         ?.generation != issuedUnder
     ) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      val revoked = issuedRefresh?.let { refreshTokenStore.revokeFamily(it.token.familyId) } ?: 0
       logger.info {
-        "[oauth/token] consent moved mid-exchange — family revoked before the sweep: " +
+        "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
             "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
             "codeGeneration=$issuedUnder, revokedRows=$revoked"
       }
