@@ -78,9 +78,7 @@ jobs:
           # The prompt names the rule files and does not repeat what is in them. The action reads
           # `CLAUDE.md`, which routes to `AGENTS.md`, so the pointer resolves — this is not one of
           # the isolated loads that `docs/agents/ai-instructions.md` §"Auto-injection constraints"
-          # registers as the only place allowed to duplicate a rule. An earlier version listed the
-          # definition of done inline and had four of its six items, which is the drift that rule
-          # is about, arriving before the file was even merged.
+          # registers as the only place allowed to duplicate a rule.
           prompt: |
             You are reviewing a change you did not write.
 
