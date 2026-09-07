@@ -30,9 +30,20 @@ on:
 # Deliberately without `contents: write`. Codex can push to the branch it opened — `@codex address
 # that feedback` — and a second agent with the same permission is the one genuine conflict between
 # them: two force-pushes onto one branch. This job comments and does nothing else.
+#
+# `id-token: write` is not about that, and it is not about the Anthropic side either — the token
+# below covers that. It lets the job mint a GitHub OIDC token, which the action exchanges for the
+# Claude app's installation token; that is the identity the review is posted under, and the action
+# exits before posting without it (`docs/setup.md` in `anthropics/claude-code-action`: "The default
+# GitHub App authentication path already requires this permission"). Passing
+# `github_token: ${{ secrets.GITHUB_TOKEN }}` instead would also work and would post the review as
+# `github-actions[bot]` — the wrong trade in a repository where the whole point of this workflow is
+# that a reader can tell which agent said what. Minting an OIDC token grants nothing in this
+# repository on its own.
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 jobs:
   review:
