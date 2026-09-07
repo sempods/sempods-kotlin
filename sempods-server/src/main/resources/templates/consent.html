@@ -378,18 +378,16 @@
       </ul>
     </div>
 
-    <!-- Asked as "may it act without you", not as a duration and not as a scope name. A refresh
-         token is what lets a client work while nobody is there, and that is the decision a person
-         can actually make: for an app they only ever have open the answer is no, for one that syncs
-         on a schedule it is yes. Framing it as trust ("keep this app connected") got a yes from
-         anyone who uses the app a lot, whatever the app's shape — and the pod cannot tell them
-         apart, since every interactive client here is a public one.
+    <!-- Asked as "may it act without you", not as a duration and not as a scope name: a refresh
+         token is what lets a client work while nobody is there, and that is a question a person can
+         answer without knowing what a token is. The pod cannot answer it for them — every
+         interactive client here is public, and a `did:web:` identifier belongs to a browser-only
+         app and a server-backed one alike.
 
-         The unticked half says what it says for two reasons. It names the hour, because an access
-         token already issued is not recalled and the app can use it after the person leaves; and
-         it says "through your browser" rather than promising a quiet renewal, because a `dyn:`
-         client is refused auto-grant and meets this page again every time. Both are the same
-         mistake in miniature — a dialog that promises more than the mechanism delivers.
+         The unticked half names the hour, because an access token already issued is not recalled
+         and the app can use it after the person leaves. It says "through your browser" rather than
+         promising a quiet renewal, because a `dyn:` client is refused auto-grant and meets this
+         page again every time.
 
          Ticked when the client asked for it, or when this person granted it here before; what the
          client asks only preselects, the tick is what grants. -->
