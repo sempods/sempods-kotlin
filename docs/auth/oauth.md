@@ -294,8 +294,10 @@ deletion removed, and that app is left holding no grant at all.
 A connection the deletion never held a grant of is not examined, so a
 consent replacing its grants at that moment cannot be caught mid-write.
 
-Public-read tokens (see below) **do not** receive a refresh token —
-the client re-authorizes when expired.
+**Anonymous** public-read tokens (see below) do not receive a refresh
+token — there is nobody to grant one, so the client re-authorizes when it
+expires. Authenticated public-read is not that case: it takes the ordinary
+path, and its lifetime is the consent answer like anybody else's.
 
 **A miss names the token it missed, by prefix.** `RefreshTokenStore.lookup` carries a
 12-character prefix of the presented token's SHA-256 out on its result, so the warning a
