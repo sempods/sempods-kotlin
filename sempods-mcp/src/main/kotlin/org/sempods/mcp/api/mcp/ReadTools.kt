@@ -14,6 +14,7 @@ import org.sempods.mcp.core.toolText
 import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
+import org.sempods.mcp.persist.PodTokenFacts
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.needsReconnect
@@ -100,10 +101,10 @@ class ReadTools(
         // when the pod exposes no JWKS (the sub is trusted via the direct TLS token, not a signature).
         // `similar_to` is your sempods WebID that `pod_subject` *likely* denotes the same person as —
         // a weak hint (like `rdfs:seeAlso`), not an asserted `owl:sameAs` (null when not foreign).
-        "pod_subject" to it.podSubject,
-        "foreign_identity" to it.foreignIdentity,
+        "pod_subject" to it.actingSubject(tokensByPod[it.pod]),
+        "foreign_identity" to it.actsForeign(tokensByPod[it.pod]),
         "subject_verified" to it.subjectVerified,
-        "similar_to" to if (it.foreignIdentity) it.user else null,
+        "similar_to" to if (it.actsForeign(tokensByPod[it.pod])) it.user else null,
         // Nothing here can reach the pod until the person reconnects. The dashboard says so to
         // them; this says it to the agent, which would otherwise retry the pod on every turn.
         "reconnect_required" to tokensByPod.needsReconnect(it.pod),
@@ -118,7 +119,8 @@ class ReadTools(
       // grants that can change over time, so it is not cached here. Point the caller at the
       // authoritative live view instead of letting a bare `scopes: [public-read]` read as "no access".
       // When any pod runs its own identity provider, also warn that you act there as a foreign WebID.
-      body["note"] = if (connections.any { it.foreignIdentity }) "$SCOPES_NOTE $FOREIGN_IDENTITY_NOTE" else SCOPES_NOTE
+      body["note"] =
+        if (connections.any { it.actsForeign(tokensByPod[it.pod]) }) "$SCOPES_NOTE $FOREIGN_IDENTITY_NOTE" else SCOPES_NOTE
     }
     auditLog.toolCall(profile.user, profile.profile, "list_pods", targets = emptyList(), outcome = "ok")
     return textResult(body)
@@ -138,6 +140,9 @@ class ReadTools(
     plan: PodToolPlan.Call,
   ): ToolCallResult {
     val connected = connectionRegistryDao.listForProfile(profile).associateBy { it.pod }
+    // Who each call will act as is recorded with the token family it uses, so the envelope reads it
+    // there. One query for the fan-out, and it decrypts nothing.
+    val tokensByPod = tokenVaultDao.listForProfile(profile).associateBy { it.pod }
     // Tri-state `targets`: absent → fan out to all connected pods; an explicit `[]` → select none;
     // a non-empty list → exactly that subset. (Validation already guarantees a string array here.)
     val targetsArg = arguments?.get("targets")?.takeIf { it.isArray }
@@ -158,7 +163,7 @@ class ReadTools(
     val sortedTargets = targets.sorted()
     val entries = coroutineScope {
       sortedTargets.map { pod ->
-        async { queryOnePod(profile, toolName, pod, connected[pod], plan) }
+        async { queryOnePod(profile, toolName, pod, connected[pod], tokensByPod[pod], plan) }
       }.awaitAll()
     }
     // Partial-error surfacing (M4): if any pod failed, flag the whole result as incomplete and list
@@ -184,6 +189,7 @@ class ReadTools(
     toolName: String,
     pod: String,
     connection: PodConnection?,
+    tokens: PodTokenFacts?,
     plan: PodToolPlan.Call,
   ): Map<String, Any?> {
     if (connection == null) return podError(pod, "not_connected", "pod not connected for this profile")
@@ -207,13 +213,7 @@ class ReadTools(
       val entry = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to podIo { plan.execute(URI(pod), token) })
       // When this pod runs its own identity provider, mark that the result was produced acting as a
       // foreign WebID — so a caller reading e.g. list_contexts knows whose access it is looking at.
-      // validAccessToken() above may have refreshed and BACKFILLED a legacy null podSubject; re-read
-      // the row for the annotation in that one case so the first post-backfill read is not stale
-      // (steady-state rows already carry podSubject → no extra read).
-      val fresh = if (connection.podSubject == null)
-        connectionRegistryDao.find(PodKey(profile.user, profile.profile, pod)) ?: connection
-      else connection
-      fresh.annotateForeignIdentity(entry)
+      connection.annotateForeignIdentity(entry, tokens)
       entry
     } catch (e: CancellationException) {
       throw e

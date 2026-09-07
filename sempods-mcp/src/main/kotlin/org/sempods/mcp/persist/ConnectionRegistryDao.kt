@@ -64,22 +64,34 @@ data class PodConnection(
    */
   val podRedirectUri: String? = null,
 ) {
+  /**
+   * The pod-local identity a call on this connection acts as: the one recorded with the token
+   * family that call uses ([tokens]), and this row's own copy for a family that carries none or
+   * where there is no row to consult (`null` — at connect, where this row *is* the family).
+   *
+   * A reconnect writes this row before the token row, so [podSubject] can describe a family the
+   * vault does not hold. Every surface that says "acts as" resolves it here, so none can disagree
+   * with another or with the call.
+   */
+  fun actingSubject(tokens: PodTokenFacts?): String? = tokens?.podSubject ?: podSubject
+
   /** True when the pod authorized a different WebID than the service identity ([user]). */
-  val foreignIdentity: Boolean get() = podSubject != null && podSubject != user
+  fun actsForeign(tokens: PodTokenFacts?): Boolean = actingSubject(tokens).let { it != null && it != user }
 
   /**
    * Stamp a per-pod tool envelope (read fan-out entry or write result) with the foreign-identity
-   * markers when this connection acts on the pod as its own [podSubject]. One place so the read and
-   * write surfaces cannot drift. No-op for a same-identity connection.
+   * markers when the call acted on the pod as another identity. One place so the read and write
+   * surfaces cannot drift. No-op for a same-identity connection.
    *
-   * `similar_to` names the caller's sempods WebID ([user]) that [podSubject] *likely* denotes the
-   * same person as — a **weak** hint (think `rdfs:seeAlso` / "similar"), deliberately NOT an asserted
-   * `owl:sameAs`. It lets a client correlate the two WebIDs in a graph without collapsing them.
+   * `similar_to` names the caller's sempods WebID ([user]) that the acting subject *likely* denotes
+   * the same person as — a **weak** hint (think `rdfs:seeAlso` / "similar"), deliberately NOT an
+   * asserted `owl:sameAs`. It lets a client correlate the two WebIDs in a graph without collapsing
+   * them.
    */
-  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>) {
-    if (foreignIdentity) {
+  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>, tokens: PodTokenFacts?) {
+    if (actsForeign(tokens)) {
       envelope["foreign_identity"] = true
-      envelope["pod_subject"] = podSubject
+      envelope["pod_subject"] = actingSubject(tokens)
       envelope["similar_to"] = user
     }
   }

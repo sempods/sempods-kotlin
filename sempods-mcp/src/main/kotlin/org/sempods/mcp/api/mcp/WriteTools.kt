@@ -12,6 +12,7 @@ import org.sempods.mcp.core.ToolCallResult
 import org.sempods.mcp.core.toolError
 import org.sempods.mcp.core.toolText
 import org.sempods.mcp.persist.ConnectionRegistryDao
+import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
@@ -42,6 +43,7 @@ import java.net.URI
  */
 class WriteTools(
   private val connectionRegistryDao: ConnectionRegistryDao,
+  private val tokenVaultDao: TokenVaultDao,
   private val podTokenProvider: PodTokenProvider,
   private val executor: PodToolExecutor,
   private val objectMapper: ObjectMapper,
@@ -118,11 +120,8 @@ class WriteTools(
       val result = podIo { plan.execute(URI(pod), token) }
       val ok = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to result)
       // Mirror the read fan-out: when the write happened as a foreign WebID, say so on the envelope
-      // — the write landed on the pod as `pod_subject`, not the caller's sempods identity.
-      // validAccessToken() may have refreshed and BACKFILLED a legacy null podSubject; re-read the row
-      // for the annotation in that one case (steady-state rows already carry podSubject → no extra read).
-      val fresh = if (connection.podSubject == null) connectionRegistryDao.find(key) ?: connection else connection
-      fresh.annotateForeignIdentity(ok)
+      // — the pod recorded the write under that identity.
+      connection.annotateForeignIdentity(ok, tokenVaultDao.findFacts(key))
       ok
     } catch (e: CancellationException) {
       throw e

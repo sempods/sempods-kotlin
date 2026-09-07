@@ -132,6 +132,8 @@ data class PodTokenFacts(
   val deadGrantSince: Date?,
   /** Null on a row predating [PodTokens.issuer], which is one no refresh can decide — see [needsReconnect]. */
   val issuer: String?,
+  /** The identity this family was minted for; `PodConnection.actingSubject` says who reads it. */
+  val podSubject: String?,
 ) : PodRegistrationRow {
   val isDeadGrant: Boolean get() = deadGrantSince != null
 
@@ -429,6 +431,7 @@ class TokenVaultDao(
     podRedirectUri = getString("podRedirectUri"),
     deadGrantSince = getDate("deadGrantSince"),
     issuer = getString("issuer"),
+    podSubject = getString("podSubject"),
   )
 
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
@@ -505,6 +508,6 @@ class TokenVaultDao(
      */
     private const val REFRESH_TOKEN_TYPE = "string"
 
-    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer")
+    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer", "podSubject")
   }
 }

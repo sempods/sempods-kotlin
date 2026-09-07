@@ -95,6 +95,7 @@ class WriteToolsIntegrationTest {
   private lateinit var httpClient: HttpClient
   private lateinit var writeTools: WriteTools
   private lateinit var registry: ConnectionRegistryDao
+  private lateinit var vault: TokenVaultDao
   private val auditLog = mockk<AuditLog>(relaxed = true)
 
   @BeforeEach
@@ -102,7 +103,7 @@ class WriteToolsIntegrationTest {
     val database = db!!
     database.getCollection(SempodsMcpCollections.POD_TOKENS).drop()
     database.getCollection(SempodsMcpCollections.CONNECTIONS).drop()
-    val vault = TokenVaultDao(database, testSecretCipher())
+    vault = TokenVaultDao(database, testSecretCipher())
     registry = ConnectionRegistryDao(database)
     httpClient = HttpClient(CIO)
     val provider = PodTokenProvider(vault, registry, PodOAuthClient(
@@ -115,7 +116,7 @@ class WriteToolsIntegrationTest {
         SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
       ),
     )
-    writeTools = WriteTools(registry, provider, executor, mapper, "https://mcp.test", auditLog)
+    writeTools = WriteTools(registry, vault, provider, executor, mapper, "https://mcp.test", auditLog)
 
     server = ClientAndServer.startClientAndServer(0)
     pod = "http://localhost:${server.port}/p"
@@ -178,6 +179,34 @@ class WriteToolsIntegrationTest {
     assertTrue(env["foreign_identity"].asBoolean(), "write envelope must flag a foreign pod identity: $env")
     assertEquals(foreignWebId, env["pod_subject"].asText())
     assertEquals(user, env["similar_to"].asText(), "write envelope must carry the weak similar_to link")
+  }
+
+  @Test
+  fun `a write reports the identity its own token belongs to, not the registry's`() = runBlocking {
+    // What a reconnect leaves when its registry write lands and its token write does not: the
+    // registry names the identity the new grant was for, while the call goes out on the family the
+    // vault still holds. Reporting the registry's would tell the caller it acted as somebody it did
+    // not act as — and the pod saw the other one.
+    val acting = "https://pod.example/u/whose-token-this-is"
+    registry.upsert(
+      PodConnection(
+        user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
+        scopes = setOf("public-read"), podSubject = "https://pod.example/u/from-a-later-connect",
+        subjectVerified = false, createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    vault.upsert(
+      PodTokens(
+        user, profile, pod, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$pod/_system/auth", podSubject = acting,
+      ),
+    )
+
+    val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
+
+    assertTrue(env["ok"].asBoolean(), env.toString())
+    assertEquals(acting, env["pod_subject"].asText(), "the envelope names the identity the call went out as: $env")
   }
 
   @Test

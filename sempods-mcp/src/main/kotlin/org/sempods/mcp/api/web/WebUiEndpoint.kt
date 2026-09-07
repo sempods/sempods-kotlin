@@ -513,13 +513,13 @@ fun Application.webUiEndpoint(
           ),
         )
         logger.info {
-          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.foreignIdentity}"
+          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.actsForeign(null)}"
         }
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = true)
         // Carry the pod-local identity into the landing when it differs from the service identity,
         // so the connect-time screen can tell the user this connection acts as a different WebID.
         val connected = "connected=${enc(pending.pod)}"
-        landing(if (connection.foreignIdentity) "$connected&connected_as=${enc(subject.webId)}" else connected)
+        landing(if (connection.actsForeign(null)) "$connected&connected_as=${enc(subject.webId)}" else connected)
       }.getOrElse { e ->
         logger.warn(e) { "pod token exchange failed for '${pending.pod}'" }
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "connect_failed")
@@ -654,8 +654,9 @@ private fun dashboardHtml(
       // Feature scopes (e.g. `public-read`) as pills, plus an "unverified" flag when the pod exposes
       // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
-      val showUnverified = c.foreignIdentity && !c.subjectVerified
       val tokens = tokensByPod[c.pod]
+      val actsForeign = c.actsForeign(tokens)
+      val showUnverified = actsForeign && !c.subjectVerified
       val needsReconnect = tokensByPod.needsReconnect(c.pod)
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.
@@ -681,8 +682,8 @@ private fun dashboardHtml(
       }
       // Surface the pod-local identity when it differs from the service identity — this connection
       // acts on the pod as that WebID.
-      if (c.foreignIdentity) {
-        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.podSubject.orEmpty()).append("</code></div>")
+      if (actsForeign) {
+        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokens).orEmpty()).append("</code></div>")
       }
       append("</div>")
       // Per-pod actions: Re-authorize (re-open the pod consent to change contexts) + Disconnect.

@@ -182,6 +182,34 @@ class ReadToolsIntegrationTest {
   }
 
   @Test
+  fun `list_pods names the identity each pod's own token belongs to`() = runBlocking {
+    // A reconnect writes the registry row first, so it can name the identity a grant that never
+    // committed was for, while every call still goes out on the family the vault holds. The two
+    // must not disagree about who the caller is acting as.
+    val acting = "https://pod.example/u/whose-token-this-is"
+    registry.upsert(
+      PodConnection(
+        user = user, profile = profile, pod = podA, issuer = "$podA/_system/auth",
+        podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
+        podSubject = "https://pod.example/u/from-a-later-connect", subjectVerified = false,
+        createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    TokenVaultDao(db!!, testSecretCipher()).upsert(
+      PodTokens(
+        user, profile, podA, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$podA/_system/auth", podSubject = acting,
+      ),
+    )
+
+    val a = podEntry(call("list_pods", null), podA)
+
+    assertEquals(acting, a["pod_subject"].asText(), "the row whose token a call uses is the one that answers: $a")
+    assertTrue(a["foreign_identity"].asBoolean())
+  }
+
+  @Test
   fun `list_pods surfaces a foreign pod identity and warns about it`() = runBlocking {
     // A pod that authorized us as a WebID different from the service user (its own identity provider).
     val foreignWebId = "https://voicesappdev.example/api/pod/u/42"
