@@ -140,13 +140,14 @@ class PodTokenProviderTest {
     )
 
   /**
-   * A refreshable row pinned to this pod's own issuer and acting as the service identity, with the
-   * registration left to the registry — the shape most cases here want.
+   * A refreshable row: pinned to this pod's own issuer, acting as the service identity, presenting
+   * its own registration — the shape most cases here want.
    */
   private fun seedToken(
     expiresAt: Date?,
     refreshToken: String? = "rt-1",
-    podClientId: String? = null,
+    podClientId: String = "dyn:issued-to",
+    podRedirectUri: String = "https://mcp.test/_system/ui/pods/callback",
     issuer: String = authBase,
     podSubject: String = user,
   ) =
@@ -154,7 +155,7 @@ class PodTokenProviderTest {
       PodTokens(
         user, profile, pod, accessToken = "at-1", refreshToken = refreshToken,
         accessTokenExpiresAt = expiresAt, updatedAt = Date(), podClientId = podClientId,
-        issuer = issuer, podSubject = podSubject,
+        podRedirectUri = podRedirectUri, issuer = issuer, podSubject = podSubject,
       ),
     )
 
@@ -203,9 +204,10 @@ class PodTokenProviderTest {
   @Test
   fun `a refresh presents the client id the token was issued to, not the registry's`() = runBlocking {
     // The two rows are written one after the other and nothing makes the pair atomic, so they can
-    // disagree — a registry write that failed, or two callbacks for one key completing at once.
-    // Presenting the registry's id for a token issued to another is the RFC 6749 §5.2
-    // `invalid_grant` that marks the connection dead, so the pairing is read off the token row.
+    // disagree — and under this write order the registry is the one that moved, since a connect
+    // writes it first. Presenting its id for a token issued to another is the RFC 6749 §5.2
+    // `invalid_grant` that marks the connection dead, so the pairing is read off the token row and
+    // required there.
     seedConnection() // the registry says `dyn:x`
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), podClientId = "dyn:issued-to")
 
@@ -213,26 +215,6 @@ class PodTokenProviderTest {
 
     val posted = tokenRequestBody()
     assertTrue(posted.contains("client_id=dyn%3Aissued-to"), "the refresh must present the token's own id: $posted")
-  }
-
-  @Test
-  fun `a token row that predates the client id refreshes with the registry's, and records it`() = runBlocking {
-    // Both halves are recorded, not just the id. Draining one would leave a row whose id reads as
-    // "use me" beside a null address, which is the mixed pair `registrationOf` exists to prevent —
-    // and `profileOf` reads a null address as the default profile, so a named connection would
-    // then offer its own `dyn:` id at the parent callback and the pod would refuse the flow.
-    val callback = "https://mcp.test/_system/ui/pods/callback/cron-agent"
-    seedConnection(podRedirectUri = callback)
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
-    assertNull(vault.find(key)!!.podClientId, "the legacy row this case is about")
-
-    assertEquals("at-2", provider.validAccessToken(key)?.token)
-
-    val posted = tokenRequestBody()
-    assertTrue(posted.contains("client_id=dyn%3Ax"), "a row with nothing recorded refreshes as it always did: $posted")
-    val stored = vault.find(key)!!
-    assertEquals("dyn:x", stored.podClientId, "the pod accepted it, so the row now carries what it refreshes with")
-    assertEquals(callback, stored.podRedirectUri, "and the address that id is pinned to, or the pair is split")
   }
 
   @Test
@@ -332,7 +314,7 @@ class PodTokenProviderTest {
 
     // What a re-connect leaves behind: a fresh row, and no claim on it.
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
     val marked = vault.markDeadGrantIfClaimedBy(key, at = Date(), holder = "replica-a")
 
@@ -728,7 +710,7 @@ class PodTokenProviderTest {
     // The user re-connects the pod via /_system/ui: a brand-new token family lands in the vault
     // (the upsert clears the refresh claim).
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
 
     assertEquals("at-new", pending.await()?.token, "the caller must get the re-connect's token, not the stale rotation")
@@ -772,7 +754,7 @@ class PodTokenProviderTest {
     // Simulate A finishing: persist the refreshed row (the upsert drops A's claim).
     delay(500)
     vault.upsert(
-      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user),
+      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
 
     assertEquals("at-2", pending.await()?.token, "the claim-loser must pick up the winner's token")
@@ -787,7 +769,7 @@ class PodTokenProviderTest {
     vault.upsert(
       PodTokens(
         user, profile, pod, "at-1", "rt-1", Date(System.currentTimeMillis() + 3_600_000), fortyDaysAgo(),
-        issuer = authBase, podSubject = user,
+        issuer = authBase, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val tokens = vault.find(key)!!

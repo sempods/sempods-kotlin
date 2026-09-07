@@ -55,28 +55,27 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
   it, because doing so costs a consent at the pod.
 
-  **Everything a refresh presents or checks against is read off the token row**: the registration —
-  a pair, `PodClientIdentity.registrationOf`, because the pod refuses an id offered under an address
-  it was not registered with — the issuer it pins against, the identity it checks drift against, and
-  the dead-grant mark. The registry's copy is the fallback for a registration an older row carries
-  none of; the issuer and the identity are required and take none, because a fallback there would
-  defeat the check it feeds. That self-sufficiency makes the token row the connect callback's
-  **commit point**, written last. `PodTokens` and that write carry the reasoning. What still keys on
-  the registry row is whether a connection exists at all, which is what makes `/pods/separate` — it
-  passes none for a pod that is connected — the deliberate step.
+  **Everything a refresh presents or checks against is required on the token row**: the `client_id`
+  and the address it is pinned to, the issuer it pins against, the identity it checks drift against,
+  and the dead-grant mark. None of them falls back to the registry, whose copies a connect writes
+  first and which can therefore describe the reconnect replacing this family. That self-sufficiency
+  makes the token row the connect callback's **commit point**, written last; `PodTokens` and that
+  write carry the reasoning. The registry answers two things still: whether a connection exists at
+  all, which is what makes `/pods/separate` — it passes none for a pod that is connected — the
+  deliberate step, and, through `PodClientIdentity.registrationOf`, what a document the refresh path
+  would not read at all presents, for the surfaces that only report a connection.
 
 ## Deployment stance (PoC — no migrations)
 
 The deployment is a **PoC used only by the maintainer**: a breaking schema / crypto change
 assumes a **fresh setup** (drop the DB, re-connect pods and AI clients) instead of carrying
 migration logic. The code deliberately holds **no startup migration passes** and no
-legacy-tolerant reads, with one bounded exception: a **draining** read, where a fact that moved from
-the connection registry onto the token row falls back to the registry copy until the first accepted
-refresh records it (`PodTokens.podClientId` and `podRedirectUri`, read as one pair). It empties
-itself. A read still needed once every row has been rewritten is what the rule refuses, which is why
-`PodTokens.issuer` and `PodTokens.podSubject` are required and a row predating either reads as
-unreadable. Otherwise the code
-always reflects the current state (this is *why* e.g. M6.1 encryption-at-rest expects ciphertext
+legacy-tolerant reads, with one bounded exception: `PodClientIdentity.registrationOf` answers from
+the registry for a token document that records no registration. Every fact a refresh reads is
+required on `PodTokens`, so a row predating any of them is unreadable and never reaches that path;
+what the exception serves is the surfaces that only report a connection, which show such a row.
+Otherwise the code always reflects the current state (this is *why* e.g. M6.1 encryption-at-rest
+expects ciphertext
 with no plaintext fallback). Once the service carries **real user state**, migrations become a hard
 requirement — a requirement *then*, not now.
 

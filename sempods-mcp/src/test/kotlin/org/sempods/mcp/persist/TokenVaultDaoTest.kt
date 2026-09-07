@@ -76,6 +76,7 @@ class TokenVaultDaoTest {
   ) = PodTokens(
     key.user, key.profile, key.pod, accessToken, refreshToken, accessTokenExpiresAt, updatedAt,
     lastUsedAt, issuer = "https://pod.test/p/_system/auth", podSubject = key.user,
+    podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
   )
 
   @Test

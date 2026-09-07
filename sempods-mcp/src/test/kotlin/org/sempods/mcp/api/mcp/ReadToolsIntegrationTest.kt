@@ -125,7 +125,7 @@ class ReadToolsIntegrationTest {
     val soon = Date(System.currentTimeMillis() + 3_600_000)
     for (pod in listOf(podA, podB)) {
       registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user))
+      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
     }
   }
 
@@ -154,7 +154,7 @@ class ReadToolsIntegrationTest {
         accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(),
         // The two facts a refresh decides on; without them the row does not map and nothing
         // reaches the pod.
-        issuer = authBase, podSubject = user,
+        issuer = authBase, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-protected-resource"))
@@ -200,7 +200,7 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$podA/_system/auth", podSubject = acting,
+        issuer = "$podA/_system/auth", podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
 
@@ -225,7 +225,7 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$podA/_system/auth", podSubject = foreignWebId,
+        issuer = "$podA/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val body = call("list_pods", null)

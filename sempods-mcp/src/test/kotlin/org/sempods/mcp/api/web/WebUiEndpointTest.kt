@@ -117,8 +117,8 @@ class WebUiEndpointTest {
     user: String,
     profile: String,
     pod: String,
-    podClientId: String? = null,
-    podRedirectUri: String? = null,
+    podClientId: String = "dyn:x",
+    podRedirectUri: String = "https://mcp.test/_system/ui/pods/callback",
     deadGrantSince: Date? = null,
   ) = TokenVaultDao(db!!, testSecretCipher()).upsert(
     PodTokens(
@@ -555,6 +555,7 @@ class WebUiEndpointTest {
           user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
           accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
           issuer = "$podBase/_system/auth", podSubject = user,
+          podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
         ),
       )
       assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))

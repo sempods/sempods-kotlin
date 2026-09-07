@@ -288,9 +288,6 @@ class PodTokenProvider(
     }
     return runCatching {
       val metadata = podOAuthClient.discoverMetadata(tokens.pod)
-      // The precedence [PodTokens] states, and the one `PodClientIdentity.registrationOf` applies
-      // to the registration.
-      val recordedSubject = tokens.podSubject ?: connection.podSubject
       // Pin to the authorization server that minted this refresh token: if the pod's metadata now
       // points at a different one (DNS/domain takeover, misconfig), refuse to post the stored
       // refresh token to that new token endpoint — otherwise a metadata change could exfiltrate and
@@ -302,8 +299,7 @@ class PodTokenProvider(
         auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch")
         return@runCatching null
       }
-      val registration = PodClientIdentity.registrationOf(tokens, connection)
-      val refreshed = podOAuthClient.refresh(metadata, refreshToken, registration.clientId)
+      val refreshed = podOAuthClient.refresh(metadata, refreshToken, tokens.podClientId)
 
       // Re-verify the identity on refresh. Three outcomes, three responses:
       //  - VerificationFailed: the refreshed token IS a JWT but its signature did not verify against
@@ -339,10 +335,6 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
-        // Draining only the id would leave a row whose id says "read me" beside a null address —
-        // the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
-        podClientId = registration.clientId,
-        podRedirectUri = registration.redirectUri,
         podSubject = subject?.webId ?: tokens.podSubject,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {

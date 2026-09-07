@@ -17,16 +17,6 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.Date
 
 /**
- * The registration a row records: the pod-side `client_id` and the redirect URI it is pinned to.
- * Read as a pair (`PodClientIdentity.registrationOf`) — the pod refuses an id offered under an
- * address it was not registered with, so one field from each row is a flow that cannot complete.
- */
-interface PodRegistrationRow {
-  val podClientId: String?
-  val podRedirectUri: String?
-}
-
-/**
  * The token vault: the service's custody of **pod** OAuth tokens, keyed `(user, profile, pod)`.
  * This is the "token custody" cost the concept doc calls out — the main liability hardened
  * in M6 (encryption-at-rest + key management). [accessToken]/[refreshToken] are stored as
@@ -40,9 +30,11 @@ interface PodRegistrationRow {
  * [podClientId], [podRedirectUri], [issuer], [podSubject], [deadGrantSince] — because the connect
  * callback writes this row and the `PodConnection` registry row one after the other and nothing
  * makes that pair atomic. Each is a fact about *this* token family, which is the value a refresh
- * has to agree with. The registration falls back to the registry's copy for a row carrying none,
- * and is a pair read as one (`PodClientIdentity.registrationOf`); [issuer] and [podSubject] are
- * required and take no fallback, and say why.
+ * has to agree with, and all of them are required: nothing a refresh decides is read off the
+ * registry, whose copies a connect writes first and which can therefore describe the reconnect
+ * replacing this family. [issuer] says it once for all of them. What still reads the registry is
+ * `PodClientIdentity.registrationOf`, for the surfaces that answer from [PodTokenFacts], where a
+ * row that does not map still has a document.
  *
  * `PodConnection.scopes` and `PodConnection.subjectVerified` stay on the registry: no refusal reads
  * either.
@@ -73,15 +65,17 @@ data class PodTokens(
    */
   val lastUsedAt: Date? = null,
   /**
-   * The pod-side `client_id` [refreshToken] was issued to. The pod pairs the two: presenting any
-   * other id is answered `invalid_grant`, which marks the connection dead until somebody reconnects.
+   * The pod-side `client_id` [refreshToken] was issued to, and the address that id is pinned to.
+   * The pod pairs all three: presenting any other id, or the right id at another address, is
+   * answered `invalid_grant`, which marks the connection dead until somebody reconnects.
    *
-   * Null on a row written before this field. Such a row refreshes with `PodConnection.podClientId`,
-   * as it always did, and the first refresh the pod accepts records the id it used.
+   * Required, for [issuer]'s reason. The registry's copies are written first by a connect, so they
+   * can be a reconnect's — `/_system/ui/pods/separate` exists to change exactly this pair — and
+   * presenting them with this family's token is the refusal they would cause. A connect writes both
+   * with the token they belong to; a row predating them does not map.
    */
-  override val podClientId: String? = null,
-  /** Null wherever [podClientId] is, and written with it. */
-  override val podRedirectUri: String? = null,
+  val podClientId: String,
+  val podRedirectUri: String,
   /**
    * When the pod last answered a refresh for [refreshToken] with `invalid_grant` — the one code
    * that means the grant is finished (RFC 6749 §5.2) rather than that the attempt failed. Every
@@ -117,7 +111,7 @@ data class PodTokens(
    * service writes carries one; a row that predates the field does not map.
    */
   val podSubject: String,
-) : PodRegistrationRow {
+) {
   /** True when the pod has declared this row's grant finished — see [deadGrantSince]. */
   val isDeadGrant: Boolean get() = deadGrantSince != null
 }
@@ -129,14 +123,14 @@ data class PodTokens(
  */
 data class PodTokenFacts(
   val pod: String,
-  override val podClientId: String?,
-  override val podRedirectUri: String?,
+  val podClientId: String?,
+  val podRedirectUri: String?,
   val deadGrantSince: Date?,
   /** Null on a row predating [PodTokens.issuer], which is one no refresh can decide — see [needsReconnect]. */
   val issuer: String?,
   /** The identity this family was minted for; `PodConnection.actingSubject` says who reads it. */
   val podSubject: String?,
-) : PodRegistrationRow {
+) {
   val isDeadGrant: Boolean get() = deadGrantSince != null
 
   /**
@@ -472,8 +466,8 @@ class TokenVaultDao(
     // `putNotNull`: an absent field is the contract `sempods-commons-mongo/docs/document-contract.md` states, and a
     // never-used connection is the common case for a row this path writes.
     putNotNull("lastUsedAt", lastUsedAt)
-    putNotNull("podClientId", podClientId)
-    putNotNull("podRedirectUri", podRedirectUri)
+    put("podClientId", podClientId)
+    put("podRedirectUri", podRedirectUri)
     putNotNull("deadGrantSince", deadGrantSince)
     put("issuer", issuer)
     put("podSubject", podSubject)

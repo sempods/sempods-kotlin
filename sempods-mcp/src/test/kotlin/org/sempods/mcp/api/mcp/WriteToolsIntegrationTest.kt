@@ -137,7 +137,7 @@ class WriteToolsIntegrationTest {
       .respond(response().withStatusCode(204).withHeader("ETag", "\"v2\""))
 
     registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user))
+    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
   }
 
   @AfterEach
@@ -178,7 +178,7 @@ class WriteToolsIntegrationTest {
       PodTokens(
         user, profile, pod, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$pod/_system/auth", podSubject = foreignWebId,
+        issuer = "$pod/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
@@ -206,7 +206,7 @@ class WriteToolsIntegrationTest {
       PodTokens(
         user, profile, pod, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$pod/_system/auth", podSubject = acting,
+        issuer = "$pod/_system/auth", podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
 
