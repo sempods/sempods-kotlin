@@ -11,6 +11,7 @@ import org.sempods.mcp.forLog
 import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
+import org.sempods.mcp.persist.PodTokenFacts
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
@@ -101,8 +102,9 @@ fun Application.webUiEndpoint(
   // prior context selection on its consent screen. A fresh DCR against a pod that does not dedup
   // could mint a different id and orphan those grants.
   //
-  // The exception is a connection the pod has already declared finished (`deadGrantSince`). Then
-  // those grants are unreachable through that id anyway, and a cleared `dyn:` registration looks
+  // The exception is a connection the pod has already declared finished
+  // ([PodTokens.deadGrantSince]). Then those grants are unreachable through that id anyway, and a
+  // cleared `dyn:` registration looks
   // exactly like this from here — the pod answers /authorize with a flat 400 that the browser, not
   // this service, is holding, which is why the reconnect used to dead-end and the only way out was
   // to disconnect the pod first. Re-registering is the only way to find out which of the two it is,
@@ -112,9 +114,9 @@ fun Application.webUiEndpoint(
   //
   // Only for `dyn:` — the static did:web client has no registration to lose — and only where the
   // pod publishes somewhere to register.
-  fun reusableClientId(existing: PodConnection?, metadata: PodOAuthMetadata): String? {
-    val stored = existing?.podClientId ?: return null
-    if (existing.deadGrantSince == null) return stored
+  fun reusableClientId(stored: String?, deadGrant: Boolean, metadata: PodOAuthMetadata): String? {
+    if (stored == null) return null
+    if (!deadGrant) return stored
     if (!stored.startsWith("dyn:")) return stored
     if (metadata.registrationEndpoint == null) return stored
     return null
@@ -137,12 +139,21 @@ fun Application.webUiEndpoint(
     existing: PodConnection?,
   ): String {
     val metadata = podOAuthClient.discoverMetadata(podBaseUrl)
-    val reused = reusableClientId(existing, metadata)
+    // Read only where it can be used: `/pods/separate` passes `existing = null` for a pod that IS
+    // connected, because dropping the registration and taking the profile's own is the whole point
+    // of that route — so the registry row, not the token row that outlives it, is the gate.
+    // The facts, not the decrypted row: a connection whose tokens will not decrypt is exactly one
+    // somebody is here to re-authorize, and reading it through `find` would answer null — dropping
+    // the mark the dashboard just showed them, so the flow would reuse a `dyn:` id the pod may have
+    // cleared and dead-end on its 400. Nothing below needs a token.
+    val facts = existing?.let { tokenVaultDao.findFacts(PodKey(user, profile, podBaseUrl)) }
+    val registration = existing?.let { PodClientIdentity.registrationOf(facts, it) }
+    val reused = reusableClientId(registration?.clientId, deadGrant = facts?.isDeadGrant == true, metadata)
     // The identity follows the connection, not the profile. An existing one presents what it was
     // registered under even where it has to re-register — that is what makes [reusableClientId]'s
     // fresh DCR free, since the fingerprint is then the one the live registration holds. Only a
     // first connect takes the profile's own, and `/pods/separate` is a first connect.
-    val identity = existing?.let { PodClientIdentity.profileOf(base, it.podRedirectUri) } ?: profile
+    val identity = registration?.let { PodClientIdentity.profileOf(base, it.redirectUri) } ?: profile
     val redirectUri = PodClientIdentity.callbackUri(base, identity)
     val podClientId = reused
       ?: metadata.registrationEndpoint?.let {
@@ -154,9 +165,9 @@ fun Application.webUiEndpoint(
         )
       }
       ?: PodClientIdentity.didWebClientId(base, identity)
-    if (existing != null && existing.podClientId != podClientId) {
+    if (registration != null && registration.clientId != podClientId) {
       logger.info {
-        "pod '${forLog(podBaseUrl)}' no longer knows client_id '${forLog(existing.podClientId)}' " +
+        "pod '${forLog(podBaseUrl)}' no longer knows client_id '${forLog(registration.clientId)}' " +
           "— re-registered as '${forLog(podClientId)}' for user='${forLog(user)}' profile='$profile'"
       }
     }
@@ -194,7 +205,10 @@ fun Application.webUiEndpoint(
       val profiles = profileDao.listForUser(session.user)
       val profile = ProfilePath.normalize(call.request.queryParameters["profile"])
         ?.takeIf { it in profiles } ?: PodKey.DEFAULT_PROFILE
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(session.user, profile))
+      val profileKey = ProfileKey(session.user, profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
+      // The badges describe what a re-authorize would present, so they are read off the rows it reads.
+      val tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod }
       call.respondText(
         dashboardHtml(
           base = base,
@@ -203,6 +217,7 @@ fun Application.webUiEndpoint(
           selectedProfile = profile,
           allProfiles = profiles,
           connections = connections,
+          tokensByPod = tokensByPod,
           connectedBanner = call.request.queryParameters["connected"],
           connectedAs = call.request.queryParameters["connected_as"],
           errorBanner = call.request.queryParameters["error"],
@@ -482,6 +497,8 @@ fun Application.webUiEndpoint(
             // A connect IS a use: the person is right here, and whatever they do next should not
             // pay for a cold connection the sweep has not been given a reason to keep warm yet.
             lastUsedAt = now,
+            podClientId = pending.podClientId,
+            podRedirectUri = pending.redirectUri,
           ),
         )
         connectionRegistryDao.upsert(connection)
@@ -542,6 +559,7 @@ private fun dashboardHtml(
   selectedProfile: String,
   allProfiles: List<String>,
   connections: List<PodConnection>,
+  tokensByPod: Map<String, PodTokenFacts>,
   connectedBanner: String?,
   connectedAs: String?,
   errorBanner: String?,
@@ -627,11 +645,12 @@ private fun dashboardHtml(
       // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val showUnverified = c.foreignIdentity && !c.subjectVerified
-      val needsReconnect = c.deadGrantSince != null
+      val tokens = tokensByPod[c.pod]
+      val needsReconnect = tokens?.isDeadGrant == true
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&
-        PodClientIdentity.profileOf(base, c.podRedirectUri) != selectedProfile
+        PodClientIdentity.profileOf(base, PodClientIdentity.registrationOf(tokens, c).redirectUri) != selectedProfile
       if (c.scopes.isNotEmpty() || showUnverified || needsReconnect || sharesDefaultClient) {
         append("<div class=\"badges\">")
         for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")

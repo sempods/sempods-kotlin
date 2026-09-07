@@ -55,6 +55,13 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
   it, because doing so costs a consent at the pod.
 
+  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — read off one
+  row** (`PodClientIdentity.registrationOf`), because the pod refuses an id offered under an address
+  it was not registered with. It lives on the **token** row, with the registry's copies as the
+  fallback for older rows; `PodTokens` states why. What still keys on the registry row is whether a
+  connection exists at all, which is what makes `/pods/separate` — it passes none for a pod that is
+  connected — the deliberate step.
+
 ## Deployment stance (PoC — no migrations)
 
 The deployment is a **PoC used only by the maintainer**: a breaking schema / crypto change
@@ -264,11 +271,13 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   (`TokenVaultDao.replaceIfClaimedBy` — only while the claim is still this replica's), so a
   `/_system/ui` re-connect landing mid-refresh wins (its `upsert` clears the claim; the stale
   rotation of the superseded family is discarded) and a disconnect's delete is not resurrected.
-  Both refresh entries short-circuit **ahead of** that claim on `PodConnection.deadGrantSince`: a
-  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect writes
-  a fresh registry row, so it costs two point reads a tick instead of a claim, a metadata discovery,
-  a token POST and a release — and `deadGrantSince` now records when the grant died rather than when
-  it was last retried (the mark's compare-and-set matched the row its own predecessor had written).
+  Both refresh entries short-circuit **ahead of** that claim on `PodTokens.deadGrantSince`: a
+  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect, so it
+  costs a field on a row already in hand instead of a claim, a metadata discovery, a token POST and a
+  release — and it records when the grant died rather than when it was last retried. On the vault
+  row, so a reconnect lifts it in the same write that installs the new family, and written under the
+  claim a rotation persists under (`TokenVaultDao.markDeadGrantIfClaimedBy`) so a reconnect landing
+  mid-refresh wins.
   A claim-*losing* caller re-checks the mark before its optimistic fallback too: the winner persists
   nothing when it finds the grant dead, so the polled row never moves and the fallback would
   otherwise hand back a still-unexpired token for the rest of the skew window. The answer does not

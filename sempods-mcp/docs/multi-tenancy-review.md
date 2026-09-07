@@ -14,7 +14,7 @@ tenant key, and if not, is the exception deliberate and caller-unreachable?*
 
 | Collection | DAO / store | Tenant keying | Review result |
 |---|---|---|---|
-| `podTokens` | `TokenVaultDao` | unique `(user, profile, pod)` | ✓ every query goes through `keyFilter` (full key) — **except** `findExpiringBefore` and `findNotRotatedSince`, the two sweep selections, which are deliberately cross-tenant: they drive the background refresh sweep, are never caller-exposed, and their results only flow into per-key refreshes. The two markers they select on — `lastUsedAt` and `lastRefreshAttemptAt` — are written by `touchLastUsed` and `markRefreshAttempted`, both of which carry the full key. Claim mutations (`tryClaimRefresh` / `replaceIfClaimedBy` / `releaseRefreshClaim`) all carry the full key plus the holder. |
+| `podTokens` | `TokenVaultDao` | unique `(user, profile, pod)` | ✓ every query goes through `keyFilter` (full key) — **except** `findExpiringBefore` and `findNotRotatedSince`, the two sweep selections, which are deliberately cross-tenant: they drive the background refresh sweep, are never caller-exposed, and their results only flow into per-key refreshes. The two markers they select on — `lastUsedAt` and `lastRefreshAttemptAt` — are written by `touchLastUsed` and `markRefreshAttempted`, both of which carry the full key. Claim mutations (`tryClaimRefresh` / `replaceIfClaimedBy` / `releaseRefreshClaim` / `markDeadGrantIfClaimedBy`) all carry the full key plus the holder, and `listForProfile` filters `(user, profile)` like the registry's. |
 | `connections` | `ConnectionRegistryDao` | unique `(user, profile, pod)` | ✓ `find`/`upsert`/`delete` use the full key; `listForProfile` filters `(user, profile)`. |
 | `profiles` | `ProfileDao` | unique `(user, profile)` | ✓ all queries filter `user` (+ `profile`); the default profile is implicit, never stored. |
 | `auditLog` | `AuditLogDao` (new in M6.4) | index `(user, profile, ts)` | ✓ append-only; the only read (`listFor`) requires `user` — there is deliberately no unscoped listing on the DAO. Rows carry no token material, no request bodies, no tool arguments (fixed `detail` labels only). TTL-bounded via `expiresAt`. |
@@ -91,7 +91,7 @@ tenant key, and if not, is the exception deliberate and caller-unreachable?*
   the trail), the mid-refresh discard when a re-connect supersedes an in-flight rotation
   (not a refresh outcome), and the refresh skipped for a connection already marked dead — that
   verdict was audited once, when the pod declared the grant finished; re-auditing it on every sweep
-  tick is what the `deadGrantSince` short-circuit removed.
+  tick is what the `PodTokens.deadGrantSince` short-circuit removed.
 
 ## Related
 
