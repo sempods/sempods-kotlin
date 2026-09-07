@@ -40,6 +40,17 @@ sealed interface RefreshTrigger {
 }
 
 /**
+ * A usable pod access token and the identity the family it came from was minted for, together —
+ * because they are one answer. Which row a call's token came from is decided inside
+ * [PodTokenProvider.validAccessToken], including by a refresh it performs on the way, so a caller
+ * that wants to say what the call acted as cannot read it off any snapshot of its own.
+ *
+ * [podSubject] is null on a row that records none; `PodConnection.actingSubject` says what answers
+ * then.
+ */
+data class PodAccess(val token: String, val podSubject: String?)
+
+/**
  * Single source of truth for *"give me a usable pod access token for `(user, profile, pod)`"*.
  * Shared by the synchronous read tools (M3) and the background [TokenRefreshScheduler] sweep (M2),
  * so the discover → **issuer-pin** → rotate → persist logic lives in exactly one place.
@@ -110,7 +121,7 @@ class PodTokenProvider(
    * connection per [TOUCH_GRANULARITY_MS] and no extra read. Nothing is marked when the caller
    * leaves empty-handed: a null return never reached the pod.
    */
-  private fun String?.alsoMarkUsed(key: PodKey, row: PodTokens): String? = also {
+  private fun PodAccess?.alsoMarkUsed(key: PodKey, row: PodTokens): PodAccess? = also {
     if (it == null) return@also
     val now = System.currentTimeMillis()
     val last = row.lastUsedAt?.time
@@ -132,7 +143,7 @@ class PodTokenProvider(
    * The on-demand path only needs the token valid *now*, so it refreshes within the small
    * [expirySkewSeconds] — not the wider proactive window the background sweep uses ([refreshIfDue]).
    */
-  suspend fun validAccessToken(key: PodKey): String? {
+  suspend fun validAccessToken(key: PodKey): PodAccess? {
     val current = tokenVaultDao.find(key) ?: return null
     if (!isDue(current, onDemand)) return usableOrNull(current).alsoMarkUsed(key, current)
     return lockFor(key).withLock {
@@ -162,7 +173,7 @@ class PodTokenProvider(
    * (or a row deleted by a disconnect mid-poll) returns null and the caller surfaces "reconnect
    * this pod", same as a failed refresh.
    */
-  private suspend fun awaitOtherReplica(key: PodKey): String? {
+  private suspend fun awaitOtherReplica(key: PodKey): PodAccess? {
     logger.debug { "refresh claim for $key held by another replica — awaiting its result" }
     repeat(CLAIM_POLL_ATTEMPTS) {
       delay(CLAIM_POLL_INTERVAL_MS)
@@ -180,13 +191,14 @@ class PodTokenProvider(
   }
 
   /**
-   * A not-due token to hand back, or null. A token with an **unknown** expiry is returned (used
+   * A not-due token to hand back with the identity it was minted for, or null. A token with an **unknown** expiry is returned (used
    * optimistically — the pod 401s if it turns out stale). But a token with a **known, already-past**
    * expiry that landed here can only be the un-refreshable case (a refreshable expired token is
    * [isDue] → refreshed instead): handing it out would just 401 forever, so return null and let the
    * caller surface "reconnect this pod".
    */
-  private fun usableOrNull(tokens: PodTokens): String? = if (isExpired(tokens)) null else tokens.accessToken
+  private fun usableOrNull(tokens: PodTokens): PodAccess? =
+    if (isExpired(tokens)) null else PodAccess(tokens.accessToken, tokens.podSubject)
 
   private fun isExpired(tokens: PodTokens): Boolean {
     val expiresAt = tokens.accessTokenExpiresAt ?: return false

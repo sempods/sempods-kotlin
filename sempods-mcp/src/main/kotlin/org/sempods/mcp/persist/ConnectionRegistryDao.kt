@@ -65,18 +65,19 @@ data class PodConnection(
   val podRedirectUri: String? = null,
 ) {
   /**
-   * The pod-local identity a call on this connection acts as: the one recorded with the token
-   * family that call uses ([tokens]), and this row's own copy for a family that carries none or
-   * where there is no row to consult (`null` — at connect, where this row *is* the family).
+   * The pod-local identity a call on this connection acts as: [recorded], the copy the token family
+   * carries — `PodAccess.podSubject` for a call that has one in hand, the vault row's for a surface
+   * only describing the connection — and this row's own for a family recording none, or where there
+   * is no family to consult (`null`, at connect, where this row *is* the family).
    *
    * A reconnect writes this row before the token row, so [podSubject] can describe a family the
    * vault does not hold. Every surface that says "acts as" resolves it here, so none can disagree
    * with another or with the call.
    */
-  fun actingSubject(tokens: PodTokenFacts?): String? = tokens?.podSubject ?: podSubject
+  fun actingSubject(recorded: String?): String? = recorded ?: podSubject
 
   /** True when the pod authorized a different WebID than the service identity ([user]). */
-  fun actsForeign(tokens: PodTokenFacts?): Boolean = actingSubject(tokens).let { it != null && it != user }
+  fun actsForeign(recorded: String?): Boolean = actingSubject(recorded).let { it != null && it != user }
 
   /**
    * Stamp a per-pod tool envelope (read fan-out entry or write result) with the foreign-identity
@@ -88,10 +89,10 @@ data class PodConnection(
    * asserted `owl:sameAs`. It lets a client correlate the two WebIDs in a graph without collapsing
    * them.
    */
-  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>, tokens: PodTokenFacts?) {
-    if (actsForeign(tokens)) {
+  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>, recorded: String?) {
+    if (actsForeign(recorded)) {
       envelope["foreign_identity"] = true
-      envelope["pod_subject"] = actingSubject(tokens)
+      envelope["pod_subject"] = actingSubject(recorded)
       envelope["similar_to"] = user
     }
   }

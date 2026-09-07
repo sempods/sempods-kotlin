@@ -186,14 +186,14 @@ class PodTokenProviderTest {
   fun `a still-fresh token is returned without contacting the pod`() = runBlocking {
     seedConnection()
     seedToken(expiresAt = Date(System.currentTimeMillis() + 3_600_000))
-    assertEquals("at-1", provider.validAccessToken(key))
+    assertEquals("at-1", provider.validAccessToken(key)?.token)
   }
 
   @Test
   fun `an expiring token is refreshed on demand and the rotation is persisted`() = runBlocking {
     seedConnection()
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000)) // already past
-    assertEquals("at-2", provider.validAccessToken(key))
+    assertEquals("at-2", provider.validAccessToken(key)?.token)
     val stored = vault.find(key)!!
     assertEquals("at-2", stored.accessToken)
     assertEquals("rt-2", stored.refreshToken, "the pod rotates the refresh token")
@@ -209,7 +209,7 @@ class PodTokenProviderTest {
     seedConnection() // the registry says `dyn:x`
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), podClientId = "dyn:issued-to")
 
-    assertEquals("at-2", provider.validAccessToken(key))
+    assertEquals("at-2", provider.validAccessToken(key)?.token)
 
     val posted = tokenRequestBody()
     assertTrue(posted.contains("client_id=dyn%3Aissued-to"), "the refresh must present the token's own id: $posted")
@@ -226,7 +226,7 @@ class PodTokenProviderTest {
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
     assertNull(vault.find(key)!!.podClientId, "the legacy row this case is about")
 
-    assertEquals("at-2", provider.validAccessToken(key))
+    assertEquals("at-2", provider.validAccessToken(key)?.token)
 
     val posted = tokenRequestBody()
     assertTrue(posted.contains("client_id=dyn%3Ax"), "a row with nothing recorded refreshes as it always did: $posted")
@@ -263,7 +263,7 @@ class PodTokenProviderTest {
     seedConnection(issuer = "https://issuer.superseded.example")
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = authBase)
 
-    assertEquals("at-2", provider.validAccessToken(key), "the token's own issuer is what it is pinned to")
+    assertEquals("at-2", provider.validAccessToken(key)?.token, "the token's own issuer is what it is pinned to")
     verify(exactly = 0) { auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch") }
   }
 
@@ -430,7 +430,7 @@ class PodTokenProviderTest {
     // back to unset in the same write that installs the new family.
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
 
-    assertEquals("at-2", provider.validAccessToken(key), "a reconnected pod refreshes normally again")
+    assertEquals("at-2", provider.validAccessToken(key)?.token, "a reconnected pod refreshes normally again")
   }
 
   @Test
@@ -460,7 +460,7 @@ class PodTokenProviderTest {
   fun `a token with unknown expiry is used as-is rather than refresh-churned`() = runBlocking {
     seedConnection()
     seedToken(expiresAt = null)
-    assertEquals("at-1", provider.validAccessToken(key))
+    assertEquals("at-1", provider.validAccessToken(key)?.token)
   }
 
   @Test
@@ -471,7 +471,7 @@ class PodTokenProviderTest {
     val tokens = vault.find(key)!!
 
     // On-demand does NOT refresh it (still good enough for "now").
-    assertEquals("at-1", provider.validAccessToken(key))
+    assertEquals("at-1", provider.validAccessToken(key)?.token)
 
     // The background sweep, using the 300s window, DOES refresh it ahead of expiry.
     provider.refreshIfDue(tokens, RefreshTrigger.Expiring(300))
@@ -573,7 +573,7 @@ class PodTokenProviderTest {
     // @BeforeEach's refresh stub returns the opaque "at-2" (discovery advertises a jwks_uri, but
     // "at-2" is not a parseable JWT → verifyAccessTokenSubject yields SubjectOutcome.Unreadable →
     // tolerated, not drift).
-    assertEquals("at-2", provider.validAccessToken(key), "an unreadable refreshed subject must not brick the connection")
+    assertEquals("at-2", provider.validAccessToken(key)?.token, "an unreadable refreshed subject must not brick the connection")
     assertEquals("rt-2", vault.find(key)!!.refreshToken, "the rotated refresh token is persisted")
     assertEquals("https://pod.example/u/original", registry.find(key)!!.podSubject, "the recorded identity is left untouched")
   }
@@ -601,6 +601,22 @@ class PodTokenProviderTest {
   }
 
   @Test
+  fun `a refresh hands the identity it just recorded back with the token`() = runBlocking {
+    // The case a caller cannot answer for itself: neither row records a subject, and the refresh
+    // this very call performs is what discovers one. Anything the caller read beforehand still says
+    // null, so the identity travels back with the token it belongs to.
+    seedConnection()
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
+    stubRefreshReturningSubject("https://pod.example/u/discovered")
+    assertNull(vault.find(key)!!.podSubject, "nothing is recorded before the call")
+
+    val access = assertNotNull(provider.validAccessToken(key))
+
+    assertEquals("https://pod.example/u/discovered", access.podSubject, "the identity this token was minted for")
+    assertEquals("https://pod.example/u/discovered", vault.find(key)!!.podSubject, "and the row now carries it")
+  }
+
+  @Test
   fun `an unreadable refreshed subject records nothing, rather than the registry's answer`() = runBlocking {
     // The registry answers the drift *check* for a row carrying no subject of its own, but its
     // answer must not become the row's reference: a reconnect rewrites that row, so recording it
@@ -610,7 +626,7 @@ class PodTokenProviderTest {
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
     // @BeforeEach's stub answers the opaque "at-2": a usable token, not a readable identity.
 
-    assertEquals("at-2", provider.validAccessToken(key), "an unreadable subject must not brick the connection")
+    assertEquals("at-2", provider.validAccessToken(key)?.token, "an unreadable subject must not brick the connection")
     assertNull(vault.find(key)!!.podSubject, "nothing was read, so nothing is recorded")
   }
 
@@ -704,7 +720,7 @@ class PodTokenProviderTest {
       PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase),
     )
 
-    assertEquals("at-new", pending.await(), "the caller must get the re-connect's token, not the stale rotation")
+    assertEquals("at-new", pending.await()?.token, "the caller must get the re-connect's token, not the stale rotation")
     val stored = vault.find(key)!!
     assertEquals("at-new", stored.accessToken, "the re-connect's tokens must survive the late refresh write")
     assertEquals("rt-new", stored.refreshToken)
@@ -748,7 +764,7 @@ class PodTokenProviderTest {
       PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase),
     )
 
-    assertEquals("at-2", pending.await(), "the claim-loser must pick up the winner's token")
+    assertEquals("at-2", pending.await()?.token, "the claim-loser must pick up the winner's token")
     val tokenRequests = tokenRequests()
     assertEquals(0, tokenRequests.size, "the claim-loser must never hit the token endpoint")
   }

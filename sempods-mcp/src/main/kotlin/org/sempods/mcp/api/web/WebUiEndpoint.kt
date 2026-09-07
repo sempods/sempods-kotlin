@@ -655,7 +655,7 @@ private fun dashboardHtml(
       // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val tokens = tokensByPod[c.pod]
-      val actsForeign = c.actsForeign(tokens)
+      val actsForeign = c.actsForeign(tokens?.podSubject)
       val showUnverified = actsForeign && !c.subjectVerified
       val needsReconnect = tokensByPod.needsReconnect(c.pod)
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
@@ -683,7 +683,7 @@ private fun dashboardHtml(
       // Surface the pod-local identity when it differs from the service identity — this connection
       // acts on the pod as that WebID.
       if (actsForeign) {
-        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokens).orEmpty()).append("</code></div>")
+        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokens?.podSubject).orEmpty()).append("</code></div>")
       }
       append("</div>")
       // Per-pod actions: Re-authorize (re-open the pod consent to change contexts) + Disconnect.

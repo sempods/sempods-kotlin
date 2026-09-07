@@ -12,7 +12,6 @@ import org.sempods.mcp.core.ToolCallResult
 import org.sempods.mcp.core.toolError
 import org.sempods.mcp.core.toolText
 import org.sempods.mcp.persist.ConnectionRegistryDao
-import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
@@ -43,7 +42,6 @@ import java.net.URI
  */
 class WriteTools(
   private val connectionRegistryDao: ConnectionRegistryDao,
-  private val tokenVaultDao: TokenVaultDao,
   private val podTokenProvider: PodTokenProvider,
   private val executor: PodToolExecutor,
   private val objectMapper: ObjectMapper,
@@ -102,7 +100,7 @@ class WriteTools(
     connection: PodConnection,
     plan: PodToolPlan.Call,
   ): Map<String, Any?> {
-    val token = try {
+    val access = try {
       podTokenProvider.validAccessToken(key)
     } catch (e: CancellationException) {
       throw e
@@ -117,11 +115,11 @@ class WriteTools(
     return try {
       // `podIo` bridges to the blocking executor on a virtual thread; the classification below stays
       // outside it, where a cancelled call still arrives as `CancellationException`.
-      val result = podIo { plan.execute(URI(pod), token) }
+      val result = podIo { plan.execute(URI(pod), access.token) }
       val ok = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to result)
       // Mirror the read fan-out: when the write happened as a foreign WebID, say so on the envelope
       // — the pod recorded the write under that identity.
-      connection.annotateForeignIdentity(ok, tokenVaultDao.findFacts(key))
+      connection.annotateForeignIdentity(ok, access.podSubject)
       ok
     } catch (e: CancellationException) {
       throw e

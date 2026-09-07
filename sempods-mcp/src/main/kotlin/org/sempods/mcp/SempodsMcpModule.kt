@@ -309,10 +309,9 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   @Provides @Singleton
   fun writeTools(
     connectionRegistryDao: ConnectionRegistryDao,
-    tokenVaultDao: TokenVaultDao,
     podTokenProvider: PodTokenProvider,
     executor: PodToolExecutor,
     objectMapper: ObjectMapper,
     auditLog: AuditLog,
-  ): WriteTools = WriteTools(connectionRegistryDao, tokenVaultDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
+  ): WriteTools = WriteTools(connectionRegistryDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
 }

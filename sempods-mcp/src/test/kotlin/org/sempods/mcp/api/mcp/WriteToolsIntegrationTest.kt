@@ -116,7 +116,7 @@ class WriteToolsIntegrationTest {
         SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
       ),
     )
-    writeTools = WriteTools(registry, vault, provider, executor, mapper, "https://mcp.test", auditLog)
+    writeTools = WriteTools(registry, provider, executor, mapper, "https://mcp.test", auditLog)
 
     server = ClientAndServer.startClientAndServer(0)
     pod = "http://localhost:${server.port}/p"

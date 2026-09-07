@@ -470,7 +470,7 @@ fun Application.authEndpoint(
       val profileKey = ProfileKey(txn.user, txn.profile)
       val connections = connectionRegistryDao.listForProfile(profileKey)
       val tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod }
-      if (connections.any { it.actsForeign(tokensByPod[it.pod]) } && form["confirm_foreign"] != "on") {
+      if (connections.any { it.actsForeign(tokensByPod[it.pod]?.podSubject) } && form["confirm_foreign"] != "on") {
         return@post call.respondConsent(
           base, txnId, txn.clientLabel, txn.user, txn.profile,
           csrfToken = null, connections = connections, tokensByPod = tokensByPod,
@@ -773,7 +773,7 @@ private suspend fun ApplicationCall.respondConsent(
       for (c in connections.sortedBy { it.pod }) {
         append("<div class=\"pod\"><div class=\"pod-main\"><code>").appendEscapedHtml(c.pod).append("</code>")
         // Scopes + foreign-identity state as small badges instead of a raw muted line.
-        val actsForeign = c.actsForeign(tokensByPod[c.pod])
+        val actsForeign = c.actsForeign(tokensByPod[c.pod]?.podSubject)
         if (c.scopes.isNotEmpty() || actsForeign) {
           append("<div class=\"badges\">")
           for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")
@@ -783,7 +783,7 @@ private suspend fun ApplicationCall.respondConsent(
         // A pod that runs its own identity provider authorized us as a WebID of its own; the caller
         // acts on it as that WebID. Name it (as the dashboard does) so the acting identity is explicit.
         if (actsForeign) {
-          append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokensByPod[c.pod]).orEmpty()).append("</code></div>")
+          append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokensByPod[c.pod]?.podSubject).orEmpty()).append("</code></div>")
         }
         append("</div>")
         // Remove: authorized by the consent txn (works on first AND resumed render — see the route).
@@ -829,7 +829,7 @@ private suspend fun ApplicationCall.respondConsent(
     // When a connected pod authorized the user under its own identity, require an explicit
     // acknowledgement before Allow — the client will act on that pod as that WebID (also enforced
     // server-side on submit). See the "acts as" lines above.
-    if (connections.any { it.actsForeign(tokensByPod[it.pod]) }) {
+    if (connections.any { it.actsForeign(tokensByPod[it.pod]?.podSubject) }) {
       append("<div class=\"confirm\"><label><input type=\"checkbox\" name=\"confirm_foreign\" required> ")
       append("<span>I understand at least one connected pod authorized me under its own identity, and this client will act on that pod as that identity — not my sempods WebID.</span></label></div>")
     }
