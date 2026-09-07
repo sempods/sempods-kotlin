@@ -111,7 +111,7 @@ class ReadToolsIntegrationTest {
         SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
       ),
     )
-    readTools = ReadTools(registry, provider, executor, mapper, "https://mcp.test", auditLog)
+    readTools = ReadTools(registry, vault, provider, executor, mapper, "https://mcp.test", auditLog)
 
     server = ClientAndServer.startClientAndServer(0)
     podA = "http://localhost:${server.port}/a"

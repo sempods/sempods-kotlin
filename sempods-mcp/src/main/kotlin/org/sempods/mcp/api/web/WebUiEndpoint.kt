@@ -101,7 +101,8 @@ fun Application.webUiEndpoint(
   // prior context selection on its consent screen. A fresh DCR against a pod that does not dedup
   // could mint a different id and orphan those grants.
   //
-  // The exception is a connection the pod has already declared finished (`deadGrantSince`). Then
+  // The exception is a connection the pod has already declared finished ([PodTokens.deadGrantSince],
+  // which is why this takes the mark rather than reading it off `existing`). Then
   // those grants are unreachable through that id anyway, and a cleared `dyn:` registration looks
   // exactly like this from here — the pod answers /authorize with a flat 400 that the browser, not
   // this service, is holding, which is why the reconnect used to dead-end and the only way out was
@@ -112,9 +113,9 @@ fun Application.webUiEndpoint(
   //
   // Only for `dyn:` — the static did:web client has no registration to lose — and only where the
   // pod publishes somewhere to register.
-  fun reusableClientId(existing: PodConnection?, metadata: PodOAuthMetadata): String? {
+  fun reusableClientId(existing: PodConnection?, deadGrant: Boolean, metadata: PodOAuthMetadata): String? {
     val stored = existing?.podClientId ?: return null
-    if (existing.deadGrantSince == null) return stored
+    if (!deadGrant) return stored
     if (!stored.startsWith("dyn:")) return stored
     if (metadata.registrationEndpoint == null) return stored
     return null
@@ -137,7 +138,10 @@ fun Application.webUiEndpoint(
     existing: PodConnection?,
   ): String {
     val metadata = podOAuthClient.discoverMetadata(podBaseUrl)
-    val reused = reusableClientId(existing, metadata)
+    // The mark lives with the tokens it is about, so it is read from there rather than from
+    // `existing` — see [PodTokens.deadGrantSince].
+    val deadGrant = tokenVaultDao.find(PodKey(user, profile, podBaseUrl))?.deadGrantSince != null
+    val reused = reusableClientId(existing, deadGrant, metadata)
     // The identity follows the connection, not the profile. An existing one presents what it was
     // registered under even where it has to re-register — that is what makes [reusableClientId]'s
     // fresh DCR free, since the fingerprint is then the one the live registration holds. Only a
@@ -194,7 +198,12 @@ fun Application.webUiEndpoint(
       val profiles = profileDao.listForUser(session.user)
       val profile = ProfilePath.normalize(call.request.queryParameters["profile"])
         ?.takeIf { it in profiles } ?: PodKey.DEFAULT_PROFILE
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(session.user, profile))
+      val profileKey = ProfileKey(session.user, profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
+      // One query rather than one per pod: the mark sits on the token row now, and the badge is
+      // the only thing this view wants from it.
+      val needsReconnect = tokenVaultDao.listForProfile(profileKey)
+        .filter { it.deadGrantSince != null }.map { it.pod }.toSet()
       call.respondText(
         dashboardHtml(
           base = base,
@@ -203,6 +212,7 @@ fun Application.webUiEndpoint(
           selectedProfile = profile,
           allProfiles = profiles,
           connections = connections,
+          needsReconnectPods = needsReconnect,
           connectedBanner = call.request.queryParameters["connected"],
           connectedAs = call.request.queryParameters["connected_as"],
           errorBanner = call.request.queryParameters["error"],
@@ -543,6 +553,8 @@ private fun dashboardHtml(
   selectedProfile: String,
   allProfiles: List<String>,
   connections: List<PodConnection>,
+  /** The pods of [connections] the pod has declared finished — see [PodTokens.deadGrantSince]. */
+  needsReconnectPods: Set<String>,
   connectedBanner: String?,
   connectedAs: String?,
   errorBanner: String?,
@@ -628,7 +640,7 @@ private fun dashboardHtml(
       // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val showUnverified = c.foreignIdentity && !c.subjectVerified
-      val needsReconnect = c.deadGrantSince != null
+      val needsReconnect = c.pod in needsReconnectPods
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&

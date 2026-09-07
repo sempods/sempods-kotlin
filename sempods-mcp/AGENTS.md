@@ -264,11 +264,17 @@ encryption-at-rest expects ciphertext with no plaintext fallback). Once the serv
   (`TokenVaultDao.replaceIfClaimedBy` — only while the claim is still this replica's), so a
   `/_system/ui` re-connect landing mid-refresh wins (its `upsert` clears the claim; the stale
   rotation of the superseded family is discarded) and a disconnect's delete is not resurrected.
-  Both refresh entries short-circuit **ahead of** that claim on `PodConnection.deadGrantSince`: a
-  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect writes
-  a fresh registry row, so it costs two point reads a tick instead of a claim, a metadata discovery,
-  a token POST and a release — and `deadGrantSince` now records when the grant died rather than when
-  it was last retried (the mark's compare-and-set matched the row its own predecessor had written).
+  Both refresh entries short-circuit **ahead of** that claim on `PodTokens.deadGrantSince`: a
+  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect, so it
+  costs a field on a row already in hand instead of a claim, a metadata discovery, a token POST and a
+  release — and `deadGrantSince` records when the grant died rather than when it was last retried.
+  The mark sits on the **vault** row rather than the registry one, because the vault write is the
+  first of the connect callback's two and replaces the row wholesale: a reconnect therefore lifts the
+  mark in the same write that installs the family it applies to. On the registry the mark was cleared
+  only by the *second* write, and a reconnect is exactly what somebody does once it is set — so that
+  write failing left a healthy token beside a mark nothing could lift. It is written under the same
+  claim `replaceIfClaimedBy` persists a rotation under (`TokenVaultDao.markDeadGrantIfClaimedBy`),
+  which is what makes a reconnect landing mid-refresh win.
   A claim-*losing* caller re-checks the mark before its optimistic fallback too: the winner persists
   nothing when it finds the grant dead, so the polled row never moves and the fallback would
   otherwise hand back a still-unexpired token for the rest of the skew window. The answer does not

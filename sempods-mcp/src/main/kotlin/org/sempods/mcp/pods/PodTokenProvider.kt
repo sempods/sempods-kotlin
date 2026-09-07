@@ -142,11 +142,10 @@ class PodTokenProvider(
       when {
         !isDue(latest, onDemand) -> usableOrNull(latest).alsoMarkUsed(key, latest)
         // Asked inside the lock, for both halves of the wait: a token the holder ahead of us just
-        // rotated is reused by the arm above without ever reading the connection, and a grant that
-        // same holder just found dead is seen by this one. Null is what the doomed refresh returned
-        // anyway — the caller still says "reconnect this pod", it just stops costing a claim and
-        // three HTTP round trips per call.
-        hasDeadGrant(key) -> null
+        // rotated is reused by the arm above, and a grant that same holder just found dead is seen
+        // by this one. Null is what the doomed refresh returned anyway — the caller still says
+        // "reconnect this pod", it just stops costing a claim and three HTTP round trips per call.
+        latest.isDeadGrant -> null
         claimRefresh(key) -> refreshClaimed(key, onDemand)?.let { usableOrNull(it).alsoMarkUsed(key, it) }
         // Another replica holds the claim and is refreshing right now — briefly poll for its
         // result instead of double-refreshing (which would trip refresh-token-family reuse).
@@ -175,8 +174,9 @@ class PodTokenProvider(
     // due. Without this the fallback would hand back a token from a grant the pod has just declared
     // finished, for the rest of the skew window, while the claim-winning path answers null: one
     // read, on the timeout path only, so the answer does not depend on which replica found out.
-    if (hasDeadGrant(key)) return null
-    return tokenVaultDao.find(key)?.let { usableOrNull(it).alsoMarkUsed(key, it) }
+    val row = tokenVaultDao.find(key) ?: return null
+    if (row.isDeadGrant) return null
+    return usableOrNull(row).alsoMarkUsed(key, row)
   }
 
   /**
@@ -208,7 +208,7 @@ class PodTokenProvider(
       if (!isDue(latest, trigger)) return@withLock
       // A connection the pod has declared finished never leaves the sweep's selection: neither its
       // expiry nor its rotation stamp ever moves, so the selection hands it back on every tick.
-      if (hasDeadGrant(key)) return@withLock
+      if (latest.isDeadGrant) return@withLock
       if (!claimRefresh(key)) {
         // Another replica is refreshing this token; the next sweep re-checks (≤ interval later,
         // well inside the refresh window) — nothing to wait for here.
@@ -223,25 +223,14 @@ class PodTokenProvider(
     tokenVaultDao.tryClaimRefresh(key, instanceId, Date(System.currentTimeMillis() + claimTtlMs))
 
   /**
-   * True when the pod has already declared this connection's grant finished — the RFC 6749 §5.2
-   * `invalid_grant` that [refreshLocked] records as `PodConnection.deadGrantSince`. Nothing but a
-   * reconnect clears it (`/_system/ui` writes a fresh registry row), so every further refresh earns
-   * the same refusal: a metadata discovery and a token POST per tick, for as long as the row exists.
+   * True when the pod has already declared this row's grant finished. Read at both entries **ahead
+   * of** [claimRefresh]: the refusal needs no coordination, so a connection that is dead on every
+   * replica must not be serialised across them.
    *
-   * Asked at both entries **ahead of** [claimRefresh], not inside [refreshLocked] where the row is
-   * already loaded: by then the claim has been taken and has to be released again, so a connection
-   * that is dead on every replica would still be serialised across them — two writes a tick to the
-   * collection the sweep is scanning, around a refusal that needs no coordination at all.
-   *
-   * A **missing** registry row is deliberately not "dead": that is the other fault — a vault row
-   * whose connection row was lost — and [refreshLocked] still names it in its own warning. Folding
-   * the two together here would retire that diagnostic silently.
+   * A missing **registry** row is deliberately not this: that is the other fault — a vault row
+   * whose connection row was lost — and [refreshLocked] names it in its own warning.
    */
-  private fun hasDeadGrant(key: PodKey): Boolean {
-    val since = connectionRegistryDao.find(key)?.deadGrantSince ?: return false
-    logger.debug { "connection for $key was declared dead at $since — skipping refresh until a reconnect" }
-    return true
-  }
+  private val PodTokens.isDeadGrant: Boolean get() = deadGrantSince != null
 
   /**
    * Must be called holding the claim (and [lockFor]). Re-reads and re-checks dueness UNDER the
@@ -387,11 +376,11 @@ class PodTokenProvider(
       // same reason, because the engine wraps what it throws. Marking only the RFC 6749 §5.2 code
       // is deliberate — anything else is an attempt that failed, not a grant that ended.
       if (e.isDeadPodGrant()) {
-        // Logged, and the compare-and-set result with it: this is the one line that says a grant
-        // *ended* rather than an attempt failing, and since the short-circuit at both entries it is
-        // written once per death instead of once per tick. `false` means a reconnect landed while
-        // this refresh was in flight and won — that connection is live, not dead.
-        val marked = connectionRegistryDao.markDeadGrant(key, at = Date(), ifUpdatedAt = connection.updatedAt)
+        // Logged, and the write's result with it: this is the one line that says a grant *ended*
+        // rather than an attempt failing, and since the short-circuit at both entries it is written
+        // once per death instead of once per tick. `false` means a reconnect landed while this
+        // refresh was in flight and won — that connection is live, not dead.
+        val marked = tokenVaultDao.markDeadGrantIfClaimedBy(key, at = Date(), holder = instanceId)
         logger.warn {
           if (marked) "pod declared the grant for $key finished — marked dead; no further refresh until a reconnect"
           else "pod declared the grant for $key finished, but the connection moved on mid-refresh — not marked"

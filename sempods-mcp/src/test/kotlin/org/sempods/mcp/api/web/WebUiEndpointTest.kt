@@ -25,6 +25,7 @@ import org.sempods.mcp.persist.PodConnection
 import java.util.Date
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
+import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.auth.core.SigningKeys
 import org.sempods.mcp.persist.oauth.McpSigningKeyStore
@@ -109,6 +110,19 @@ class WebUiEndpointTest {
 
   /** The id-server under test, so a test can read back the nonce it must answer with. */
   private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
+
+  /**
+   * The dead-grant mark, on the row it lives on. A connection is dead because its refresh token is,
+   * so the seed needs a token row: these tests write only the connection otherwise.
+   */
+  private fun seedDeadGrant(user: String, profile: String, pod: String) =
+    TokenVaultDao(db!!, testSecretCipher()).upsert(
+      PodTokens(
+        user, profile, pod, accessToken = "at", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        deadGrantSince = Date(),
+      ),
+    )
 
   private fun ApplicationTestBuilder.installWebUi(): TokenIssuer {
     val database = db!!
@@ -304,10 +318,11 @@ class WebUiEndpointTest {
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
         issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), deadGrantSince = Date(),
+        scopes = setOf("public-read"),
         createdAt = Date(), updatedAt = Date(),
       ),
     )
+    seedDeadGrant(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p")
 
     val body = createClient { followRedirects = false }.get("/_system/ui") {
       header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
@@ -319,8 +334,10 @@ class WebUiEndpointTest {
 
   @Test
   fun `a healthy pod carries no reconnect marker`() = testApplication {
-    // The counter-case, so the badge cannot become decoration that is always on.
-    val user = "https://id.test/e/web-user"
+    // The counter-case, so the badge cannot become decoration that is always on. Its own user, as
+    // the other pod cases have: the mark sits on the token row, which this test never writes, so
+    // sharing a key with the dead-grant case above would let that row answer for this one.
+    val user = "https://id.test/e/web-user-healthy"
     val tokenIssuer = installWebUi()
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
@@ -444,9 +461,10 @@ class WebUiEndpointTest {
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
           issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
-          deadGrantSince = Date(), createdAt = Date(), updatedAt = Date(),
+          createdAt = Date(), updatedAt = Date(),
         ),
       )
+      seedDeadGrant(user, PodKey.DEFAULT_PROFILE, podBase)
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase))
 
@@ -606,9 +624,10 @@ class WebUiEndpointTest {
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
           issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
-          deadGrantSince = Date(), createdAt = Date(), updatedAt = Date(),
+          createdAt = Date(), updatedAt = Date(),
         ),
       )
+      seedDeadGrant(user, "cron-agent", podBase)
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
 

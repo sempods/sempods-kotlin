@@ -15,6 +15,7 @@ import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
+import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.client.SempodsClientException
 import org.sempods.mcp.pods.PodTokenProvider
 import org.sempods.mcp.pods.isRetryablePodFailure
@@ -43,6 +44,7 @@ import java.net.URI
  */
 class ReadTools(
   private val connectionRegistryDao: ConnectionRegistryDao,
+  private val tokenVaultDao: TokenVaultDao,
   private val podTokenProvider: PodTokenProvider,
   private val executor: PodToolExecutor,
   private val objectMapper: ObjectMapper,
@@ -85,6 +87,9 @@ class ReadTools(
 
   private fun listPods(profile: ProfileKey): ToolCallResult {
     val connections = connectionRegistryDao.listForProfile(profile).sortedBy { it.pod }
+    // One query rather than one per pod: the mark sits on the token row (`PodTokens.deadGrantSince`).
+    val needsReconnect = tokenVaultDao.listForProfile(profile)
+      .filter { it.deadGrantSince != null }.map { it.pod }.toSet()
     val pods = connections.map {
       linkedMapOf<String, Any?>(
         "pod" to it.pod,
@@ -103,7 +108,7 @@ class ReadTools(
         // The pod declared this connection's grant finished, so every call to it will fail until
         // the person reconnects. The dashboard says so to them; this says it to the agent, which
         // would otherwise retry the pod on every turn.
-        "reconnect_required" to (it.deadGrantSince != null),
+        "reconnect_required" to (it.pod in needsReconnect),
       )
     }
     val body = linkedMapOf<String, Any?>("pods" to pods)

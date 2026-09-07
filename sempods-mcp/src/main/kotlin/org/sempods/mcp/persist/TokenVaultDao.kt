@@ -62,6 +62,18 @@ data class PodTokens(
    * Last in the list, for the reason `PodConnection.podRedirectUri` states.
    */
   val podClientId: String? = null,
+  /**
+   * When the pod last answered a refresh for [refreshToken] with `invalid_grant` — the one code
+   * that means the grant is finished (RFC 6749 §5.2) rather than that the attempt failed. Every
+   * further refresh earns the same refusal, so both refresh entries stop here.
+   *
+   * On the row it is about, because a reconnect clears it by installing a new family:
+   * [TokenVaultDao.upsert] replaces the row and this defaults back to null, in the same write. A
+   * mark kept anywhere else would have to be cleared by a second one, and a reconnect is exactly
+   * what somebody does when this is set — so that second write failing would leave a healthy token
+   * beside a mark nothing can lift.
+   */
+  val deadGrantSince: Date? = null,
 )
 
 /**
@@ -243,7 +255,7 @@ class TokenVaultDao(
    *
    * Conditional on [ifOlderThan] so a burst of tool calls collapses into one write per connection
    * per interval; the caller already holds the row, so the throttle costs no extra read. [at] is
-   * the caller's clock, as on `ConnectionRegistryDao.markDeadGrant`.
+   * the caller's clock, as on [markDeadGrantIfClaimedBy].
    *
    * @return whether the marker moved (false = already fresh enough, or the row is gone).
    */
@@ -308,6 +320,32 @@ class TokenVaultDao(
       podTokens.toDocument(),
     ).matchedCount > 0
 
+  /**
+   * Record that the pod declared this row's grant finished, while this holder's claim is still on
+   * it — the same condition [replaceIfClaimedBy] persists a rotation under, and for the same
+   * reason: the decision is made after a network round trip, and a re-connect landing in that
+   * window replaced the row (clearing the claim) with a family that was never refused. Without the
+   * condition that connection would be stamped "reconnect needed" permanently, and only another
+   * reconnect clears it. A disconnect's delete makes this a no-op rather than a resurrection.
+   *
+   * Sets the mark alone. `updatedAt` is this row's **rotation** stamp, which the preservation
+   * sweep orders its queue by — moving it here would report a rotation that never happened and
+   * push the row to the back of a queue it no longer belongs in.
+   *
+   * @return whether the claim was still this holder's.
+   */
+  fun markDeadGrantIfClaimedBy(key: PodKey, at: Date, holder: String): Boolean =
+    tokens.updateOne(
+      Filters.and(keyFilter(key), Filters.eq("refreshClaimedBy", holder)),
+      Updates.set("deadGrantSince", at),
+    ).modifiedCount == 1L
+
+  /** Every row of one profile, for the two surfaces that report which connections need reconnecting. */
+  fun listForProfile(profile: ProfileKey): List<PodTokens> =
+    tokens.find(
+      Filters.and(Filters.eq("user", profile.user), Filters.eq("profile", profile.profile)),
+    ).mapNotNull { it.toTokensOrNull() }.toList()
+
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
   fun releaseRefreshClaim(key: PodKey, holder: String) {
     tokens.updateOne(
@@ -340,6 +378,7 @@ class TokenVaultDao(
     // never-used connection is the common case for a row this path writes.
     putNotNull("lastUsedAt", lastUsedAt)
     put("podClientId", podClientId)
+    put("deadGrantSince", deadGrantSince)
   }
 
   /** Map a row, or null if it is unreadable (undecryptable ciphertext / corrupt) — logged, not thrown. */
@@ -360,6 +399,7 @@ class TokenVaultDao(
     updatedAt = getDate("updatedAt") ?: Date(),
     lastUsedAt = getDate("lastUsedAt"),
     podClientId = getString("podClientId"),
+    deadGrantSince = getDate("deadGrantSince"),
   )
 
   companion object {
