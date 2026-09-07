@@ -28,9 +28,10 @@ import java.util.Date
  * a refusal stays distinguishable from a silence. Reading them as the same thing is a bug in both
  * directions — it either ends connections nobody ended, or lets a withdrawal be ignored.
  *
- * [Decision.generation] rises with every answer, a refusal included. It is written from the first
- * row because it cannot be reconstructed afterwards: it is what a later authorization code or
- * consent form is bound to, so that neither can outlive the consent that produced it.
+ * [Decision.generation] rises with every answer, a refusal included, and with every other event
+ * that resets what the authorization stands at — see [bumpGeneration]. It is written from the
+ * first row because it cannot be reconstructed afterwards: it is what a later authorization code
+ * or consent form is bound to, so that neither can outlive the consent that produced it.
  *
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md`
@@ -103,6 +104,39 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
       FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
     )
     return checkNotNull(updated) { "upsert returned no document" }.toDecision()
+  }
+
+  /**
+   * Raises the generation without answering anything, for an event that ends what this
+   * authorization stood at while asking the person nothing. Returns how many documents moved.
+   *
+   * An explicit `authorize(reauthorize=true)` is such an event: it forces the person back through
+   * consent, so every code and every consent form bound to the generation before it is spent —
+   * which is what the token endpoint's own re-checks already compare against. **No upsert.** An
+   * authorization with nothing recorded has no generation to raise and needs none: the durable
+   * connection is read from the decision, so without one no family is minted and there is nothing
+   * for a racing exchange to walk away with.
+   *
+   * This is the ordering half of the same rule the exchange keeps. The caller raises the
+   * generation *before* it sweeps what the client holds, so whichever of the two lands second sees
+   * the first: a family minted before the sweep is revoked by it, and one minted after is given up
+   * by the exchange, whose re-read then finds a generation its code does not carry. `$inc` in the
+   * database rather than a timestamp comparison, so the answer does not depend on two replicas
+   * agreeing about the time.
+   *
+   * [webIds] is the person's URI set, and every document among them moves: the authorization is
+   * one thing however many URIs the pod recorded it under.
+   */
+  internal fun bumpGeneration(podId: ObjectId, appId: String, webIds: Collection<String>): Long {
+    if (webIds.isEmpty()) return 0
+    return decisions.updateMany(
+      Filters.and(
+        Filters.eq(FIELD_POD_ID, podId),
+        Filters.eq(FIELD_APP_ID, appId),
+        Filters.`in`(FIELD_WEB_ID, webIds),
+      ),
+      Updates.inc(FIELD_GENERATION, 1L),
+    ).modifiedCount
   }
 
   /** The pod-cascade delete path, where the authorizations themselves are going away. */

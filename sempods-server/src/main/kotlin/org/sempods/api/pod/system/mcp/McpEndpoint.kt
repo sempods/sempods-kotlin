@@ -40,6 +40,7 @@ import org.sempods.api.OAuthUpgradeRequiredException
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.api.pod.system.auth.buildProtectedResourceMetadata
 import org.sempods.pods.PodFacade
@@ -85,6 +86,7 @@ class McpEndpoint @Inject constructor(
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val authorizationCodeStore: AuthorizationCodeStore,
+  private val consentDecisionStore: PodConsentDecisionStore,
   private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
   podDao: PodDao,
@@ -738,12 +740,8 @@ class McpEndpoint @Inject constructor(
         val reauthorize = arguments.path("reauthorize").asBoolean(false)
         val decision = decideAuthorizeToolCall(credentials, reauthorize)
         if (decision.startOAuthFlow) {
-          // Recorded before the sweep, never after: the challenge is the marker an exchange
-          // already in flight re-reads after it mints, so it has to be there by the time the
-          // sweep starts. Whichever of the two lands second then sees the first — the sweep
-          // revokes a family minted before it, and the exchange gives up one minted after.
-          if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
           if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
+          if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
           throw upgradeRequired(credentials.pod.name)
         }
       }
@@ -908,26 +906,37 @@ class McpEndpoint @Inject constructor(
    * submission, this path records no decision, so the generation a code is bound to never moves
    * (`PodAuthEndpoint`, "A code is a request, not an authority").
    *
-   * Both go broad over the person rather than over the one URI this bearer happens to carry: a
-   * family or a code under the twin is the same person's, and leaving it is leaving the way round
-   * open. The reach is the derivable set, which is every equivalent URI a pod can hold today —
-   * see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops being true.
+   * All three go broad over the person rather than over the one URI this bearer happens to carry:
+   * a family, a code or a decision under the twin is the same person's, and leaving it is leaving
+   * the way round open. The reach is the derivable set, which is every equivalent URI a pod can
+   * hold today — see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops
+   * being true.
+   *
+   * **The generation rises first, and everything else follows it.** An exchange already in flight
+   * can have consumed its code before this runs and mint its family after, where the sweep can no
+   * longer reach it — so the exchange has to be able to notice. It already re-reads the generation
+   * after minting and gives the family up where its code does not carry it
+   * (`PodAuthEndpoint.exchangeAuthorizationCode`), which makes the raise the marker and the order
+   * the whole argument: whichever of the two lands second sees the first. A database `$inc` rather
+   * than a timestamp, because the code and this call can be served by different replicas and their
+   * clocks are not the same clock.
    */
   private fun endWhatTheClientHoldsForExplicitReauthorize(credentials: SempodsCredentials) {
     val podId = podFacade.getPodId(credentials.pod.name) ?: return
     val clientId = credentials.oauthClientId ?: return
     val webId = credentials.tokenSub ?: return
     val subjects = webIdUriDeriver.derivableAliases(webId)
+    val reset = consentDecisionStore.bumpGeneration(podId = podId, appId = clientId, webIds = subjects)
     val revoked = refreshTokenStore.revokeForUser(podId = podId, clientId = clientId, webIds = subjects)
     val spent = authorizationCodeStore.revokeFor(
       realm = credentials.pod.name,
       clientId = clientId,
       subjects = subjects,
     )
-    if (revoked > 0 || spent > 0) {
+    if (reset > 0 || revoked > 0 || spent > 0) {
       logger.info {
         "[mcp] Ended what the client held for explicit reauthorize: pod='${credentials.pod.name}', " +
-            "client_id='$clientId', web_id='$webId', revoked=$revoked, codes=$spent"
+            "client_id='$clientId', web_id='$webId', revoked=$revoked, codes=$spent, reset=$reset"
       }
     }
   }

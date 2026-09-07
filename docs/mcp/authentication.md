@@ -88,19 +88,20 @@ The person is every URI derivable from the bearer's `sub`, not that one
 URI: a pod stores whichever WebID authenticated, and a family recorded
 under the twin would keep rotating around the same dialog.
 
-**The challenge is recorded before that sweep, and the token endpoint
-re-reads it after it mints.** An exchange already in flight can consume
-its code before the sweep runs and seed a family after it, where nothing
-the exchange re-checks can see it — a forced reauthorization writes no
-consent decision and removes no grant. So whichever of the two lands
-second sees the first: the sweep revokes a family minted before it, and
-the exchange gives up one whose code predates the challenge. A code
-minted *after* the challenge is what the forced flow produced and
-redeems normally, which is why the comparison is against the code's own
-issuance rather than against the challenge merely existing. Both stamps
-are this server's own and are compared at full precision; the second-wide
-boundary elsewhere on this page belongs to the `iat` comparison, which
-has a JWT claim on one side and nothing finer to work with.
+**The generation rises before that sweep, and that ordering is the whole
+argument.** An exchange already in flight can consume its code before the
+sweep runs and mint its family after it, out of the sweep's reach. What
+catches it is the re-read the token endpoint already does after minting:
+the raise landed first, so the exchange finds a generation its code does
+not carry and gives the family up. Whichever of the two lands second sees
+the first. It is a database `$inc` rather than a timestamp comparison,
+because the code and the reauthorize call can be served by different
+replicas and their clocks are not the same clock.
+
+Nothing is raised where the authorization has no decision recorded, and
+nothing needs to be: the durable connection is read from the decision, so
+without one no family is minted. Creating a decision here would turn a
+forced review into an answer nobody gave.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent

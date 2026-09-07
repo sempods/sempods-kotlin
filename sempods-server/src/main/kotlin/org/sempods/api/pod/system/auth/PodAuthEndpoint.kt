@@ -33,8 +33,6 @@ import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.mcp.core.ReauthorizeChallengeStore
-import java.time.Instant
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
@@ -60,7 +58,6 @@ class PodAuthEndpoint @Inject constructor(
   private val podTokenIssuer: PodTokenIssuer,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentDecisionStore: PodConsentDecisionStore,
-  private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val tokenRateLimiter: PodTokenRateLimiter,
   private val podContextsDao: PodContextsDao,
   private val podServiceClientStore: PodServiceClientStore,
@@ -1513,31 +1510,6 @@ class PodAuthEndpoint @Inject constructor(
             "codeGeneration=$issuedUnder, revokedRows=$revoked"
       }
       return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
-    }
-
-    // I10 for the event that leaves no consent behind. An explicit `authorize(reauthorize=true)`
-    // ends what this client holds and records its challenge first, but an exchange already in
-    // flight can have consumed its code before that sweep and mint here afterwards — and the two
-    // checks above cannot see it, because a forced reauthorization writes no decision and takes no
-    // grant away. So the marker is asked for directly: a challenge recorded after this code was
-    // minted means the code predates the 401, and the family it just seeded is the one the person
-    // was sent to consent about. A code minted after the challenge is what that flow produced and
-    // goes through untouched.
-    if (issuedRefresh != null &&
-      reauthorizeChallengeStore.challengedAfter(
-        realm = podDbo.name,
-        clientId = entry.clientId,
-        subs = webIdUriDeriver.derivableAliases(entry.subject),
-        issuedAt = entry.issuedAt ?: Instant.EPOCH,
-      )
-    ) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
-      logger.info {
-        "[oauth/token] explicit reauthorization landed mid-exchange — family revoked: " +
-            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "revokedRows=$revoked"
-      }
-      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a forced reauthorization")
     }
 
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer

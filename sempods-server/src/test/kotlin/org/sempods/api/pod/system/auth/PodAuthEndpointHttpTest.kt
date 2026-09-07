@@ -67,19 +67,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
-  @Inject
-  private lateinit var mongoDatabase: com.mongodb.client.MongoDatabase
-
-  /**
-   * The production collection, with a clock this test moves — the code's own stamp comes from
-   * `Instant.now()` inside the store, so the challenge is the side that has to be placed relative
-   * to it.
-   */
-  private fun challengeStoreAt(at: java.time.Instant) = org.sempods.mcp.core.ReauthorizeChallengeStore(
-    mongoDatabase,
-    org.sempods.SempodsCollections.OAUTH_REAUTH_CHALLENGES,
-    clock = { at },
-  )
 
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
@@ -4007,11 +3994,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a code minted before a forced reauthorize does not survive the exchange it was already in`() {
-    // The race the sweep cannot close on its own. An explicit `authorize(reauthorize=true)` records
-    // its challenge and then ends what the client holds — but an exchange already in flight has
-    // consumed its code before that sweep and mints its family afterwards, where neither the
-    // decision nor the grant re-check can see it: a forced reauthorization writes no decision and
-    // removes no grant. Recording the challenge without deleting the code is exactly that state.
+    // The race the sweep cannot close on its own. An explicit `authorize(reauthorize=true)` raises
+    // the generation and then ends what the client holds — but an exchange already in flight has
+    // consumed its code before that sweep and mints its family after it, out of the sweep's reach.
+    // What catches it is the re-read the exchange already does: the raise landed before the sweep,
+    // so it is visible by then, and the code carries the generation from before it.
+    //
+    // Raising the generation without deleting the code is exactly that state: the code is one the
+    // sweep could not see because an exchange already held it.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/racer-${TestUtil.randomId()}"
     val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
@@ -4032,8 +4022,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grants = setOf("public-read"),
       grantedBy = webId,
     )
-    challengeStoreAt(java.time.Instant.now().plusSeconds(10))
-      .record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
+    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
 
     val response = postForm(
       tokenUrl(pod.name),
@@ -4053,14 +4042,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the code the forced reauthorize produced still redeems`() {
-    // The other half, and the one a too-eager refusal breaks: the challenge stays on record until
-    // the client replays the tool call, which it can only do with the token this exchange returns.
-    // So a live challenge is not by itself a reason to refuse — only one recorded after the code.
+    // The other half, and the one a too-eager refusal breaks. The person comes back through
+    // consent, or is auto-granted against the decision that now stands; either way the code is
+    // minted under the raised generation and has to go through.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/replayer-${TestUtil.randomId()}"
-    challengeStoreAt(java.time.Instant.now().minusSeconds(10))
-      .record(realm = pod.name, clientId = testClientId, sub = webId, jti = "some-jti")
-    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
+    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)))
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -4069,7 +4058,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       redirectUri = testRedirectUri,
       codeChallenge = null,
       codeChallengeMethod = null,
-      consentGeneration = consent.generation,
+      consentGeneration = standing.generation,
     )
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
@@ -4091,6 +4080,21 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     @Suppress("UNCHECKED_CAST")
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
     assertNotNull(body["refresh_token"], "the flow the challenge forced must be able to complete")
+  }
+
+  @Test
+  fun `a forced reauthorize raises nothing where the authorization has no decision`() {
+    // No upsert, and the reason is I3/I4: an absent decision is the third state, not a refusal.
+    // Creating one here would turn a forced review into an answer nobody gave — and there is
+    // nothing to catch anyway, since without a decision no family is minted.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/undecided-${TestUtil.randomId()}"
+
+    assertEquals(0, consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId)))
+    assertNull(
+      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)),
+      "raising a generation must not be the thing that records a decision",
+    )
   }
 
   @Test
