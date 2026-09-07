@@ -44,6 +44,81 @@ val publishedModules = listOf(
 )
 extra["publishedModules"] = publishedModules
 
+// The commit the container images are built from, for the OCI `revision` label — README §"The three
+// services" says what it buys. `providers.exec` rather than a bare `ProcessBuilder`, so the value
+// stays a build input rather than something read behind Gradle's back, and every failure answers
+// `unknown` rather than breaking a build over something informational.
+//
+// **Two answers that would mislead, refused.** Git's parent-directory search hands a tree without
+// its own `.git` the surrounding checkout's HEAD, so the toplevel is compared against this build's
+// root first — a foreign commit on the label is worse than none. A dirty tree is marked for the
+// same reason.
+val gitRevision: String = run {
+  // `null` is the command failing, `""` the command succeeding with nothing to say. Collapsing the
+  // two would read a `status` that could not run as a clean tree, and publish a bare SHA for a
+  // build whose cleanliness was never established.
+  fun git(vararg args: String): String? = runCatching {
+    val exec = providers.exec {
+      commandLine("git", *args)
+      isIgnoreExitValue = true
+    }
+    if (exec.result.get().exitValue != 0) null else exec.standardOutput.asText.get().trim()
+  }.getOrNull()
+
+  val toplevel = git("rev-parse", "--show-toplevel")?.ifEmpty { null } ?: return@run "unknown"
+  if (File(toplevel).canonicalFile != rootDir.canonicalFile) return@run "unknown"
+
+  val head = git("rev-parse", "--short", "HEAD")?.ifEmpty { null } ?: return@run "unknown"
+  // `--untracked-files=all` because `status.showUntrackedFiles=no` in a developer's config makes
+  // `--porcelain` answer empty for a tree that has new files in it, and a build reading that as
+  // clean publishes a bare SHA for source that is not.
+  val status = git("status", "--porcelain", "--untracked-files=all") ?: return@run "unknown"
+  if (status.isEmpty()) head else "$head-dirty"
+}
+extra["gitRevision"] = gitRevision
+
+// Only a revision naming one commit is worth a tag: `unknown` and `<sha>-dirty` each describe any
+// number of builds. The label carries them either way, which is where they belong.
+extra["revisionTags"] = if (gitRevision == "unknown" || gitRevision.endsWith("-dirty")) {
+  emptySet<String>()
+} else {
+  setOf(gitRevision)
+}
+
+// A label nobody looks at can be dropped unnoticed, until a deployment asks what is running.
+//
+// Reflection because the jib plugin is applied in the three image projects and not here, so its
+// types are off this script's classpath — and `apply false` at the root would put the plugin's
+// version in a second place for one property read.
+subprojects {
+  plugins.withId("com.google.cloud.tools.jib") {
+    // On the `Project` receiver, not inside `doLast` where it is the task's — the trap
+    // `checkNoLoggingBinding` names above. Captured now, read later: `jib { }` has not run yet.
+    val jib = extensions.findByName("jib")
+      ?: throw GradleException("${project.path} applies the jib plugin but exposes no `jib` extension.")
+
+    val checkImageMetadata = tasks.register("checkImageMetadata") {
+      group = "verification"
+      description = "Fails if a container image would ship without the OCI revision label."
+      doLast {
+        val container = jib.javaClass.getMethod("getContainer").invoke(jib)
+        @Suppress("UNCHECKED_CAST")
+        val labels = (container.javaClass.getMethod("getLabels").invoke(container)
+          as org.gradle.api.provider.MapProperty<String, String>).get()
+        val revision = labels["org.opencontainers.image.revision"]
+        if (revision.isNullOrBlank()) {
+          throw GradleException(
+            "${project.path} publishes a container image without an " +
+              "`org.opencontainers.image.revision` label, so a running container cannot say which " +
+              "commit it is. See the root `build.gradle.kts` and README §\"The three services\".",
+          )
+        }
+      }
+    }
+    tasks.matching { it.name == "check" }.configureEach { dependsOn(checkImageMetadata) }
+  }
+}
+
 subprojects {
 
   // `sempods-bom` is a `java-platform`, and a platform is a POM and nothing else: it has no source

@@ -98,10 +98,17 @@ jib {
   }
   to {
     image = "ghcr.io/haed/sempods-mcp"
-    tags = setOf("latest")
+    // `latest` is what the deployment pulls; the revision tag is what makes a clean build
+    // addressable afterwards, since `latest` moves and cannot say which one it is now.
+    @Suppress("UNCHECKED_CAST")
+    tags = setOf("latest") + (rootProject.extra["revisionTags"] as Set<String>)
   }
   container {
     mainClass = "org.sempods.mcp.SempodsMcpMainKt"
+    labels = mapOf(
+      "org.opencontainers.image.revision" to rootProject.extra["gitRevision"] as String,
+      "org.opencontainers.image.version" to project.version.toString(),
+    )
     jvmFlags = listOf(
       "-server",
       "-XX:+UseG1GC",

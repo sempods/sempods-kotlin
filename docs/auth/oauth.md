@@ -231,32 +231,39 @@ documents list it under `scopes_supported`, which is where a client that
 has read no sempods documentation finds it.
 
 Asking is not getting. The scope preselects the consent page's
-"keep this app connected" control; what grants a refresh token is the
-person ticking it, which is why a client that cannot send the scope is
-not thereby denied a durable connection. The exchange reads that decision
-from the store rather than from the authorization code, so a code carries
-the request and never the authority.
+"Background access" control — which asks whether the app may act while
+the person is not using it, because that is the decision a refresh token
+actually makes and the one a person can answer. What grants the token is
+the tick, so a client that cannot send the scope is not thereby denied a
+durable connection. The exchange reads that decision from the
+store rather than from the authorization code, so a code carries the
+request and never the authority.
 
 An authorization that predates the control has no decision recorded, and
-that is not a grant either: it mints no new family, while the one it
-already rotates is left alone. The hosted MCP service asks a pod whose
-authorization server advertises the scope, and a pod that advertises
-nothing is asked for nothing — RFC 6749 §4.1.2.1 lets an authorization
-server refuse a scope it does not know, and the service connects to pods
-it does not host.
+its codes are refused: a code carries the generation of the consent that
+produced it, and one carrying none is not exchangeable. Every code minted
+for a person comes from an authorization that has been answered — consent
+records the answer, and auto-grant reaches its code only where one is
+already on record.
+
+That refusal is also what makes the consent write order safe. Grants are
+written first and the answer second, so a run dying between them keeps the
+selection the person just made under the answer that stood before it; the
+pair it can leave on a first consent, grants with no answer beside them,
+redeems nothing.
 
 A response carrying no `refresh_token` is therefore no evidence about the
 request, which is the half a client debugs: either the person left the
-control unticked, or the authorization predates it and has nothing
-recorded. In neither case is the absent scope the cause, and re-sending it
+control unticked, or the authorization predates the control and its codes
+no longer redeem at all. Re-sending the scope
 grants nothing by itself — what answers the question is a fresh
 authorization the person sees.
 
 Two flows sit outside that diagnosis, because nobody was asked in them at
 all: an anonymous `public-read` exchange and a service client's
 `client_credentials` are short-lived by construction. Authenticated
-`public-read` is not one of them — it takes the ordinary path, and its
-lifetime is the consent answer like anybody else's.
+`public-read` takes the ordinary path, and its lifetime is the consent
+answer like anybody else's.
 
 On refresh the scope is accepted rather than refused. `scope=` there is a
 down-scope over feature scopes (see "Token exchange") and `offline_access`
@@ -271,6 +278,25 @@ a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
 rolling — every rotation renews it in full.
+
+**A deployment older than the consent control clears its delegations
+once.** Those authorizations hold grants with no answer beside them, so
+their codes are refused and their families die at the next rotation.
+Predating the control is a property of the deployment rather than of a
+tenant, so this empties three collections for **every pod on the server**:
+
+```js
+db.grants.deleteMany({})
+db["oauth.refreshTokens"].deleteMany({})
+db["oauth.authCodes"].deleteMany({})
+```
+
+The documents, not the collections — both stores build their indexes in
+their constructors, so a `drop()` against a running server leaves them
+unindexed until the next boot. The codes are in flight rather than
+durable and are here because the decisions are kept: one minted just
+before the reset still matches its generation and would redeem against
+grants that are gone.
 
 **A reconnect replaces, it does not accumulate.** An answer to the
 lifetime question governs what stands after it: a consent granting a
@@ -290,9 +316,7 @@ exchange — it would have to be handed an error, or a token already dead.
 An extra credential of a connection the person did just grant is the
 smaller failure.
 
-Deleting a context revokes no refresh token *for naming it*, which
-`SPS-CTX-017` still describes as it was before token slimming; that text
-has a companion edit pending. A family
+Deleting a context revokes no refresh token *for naming it*: a family
 carries feature scopes only and context permissions are resolved per
 request, so the deletion's own cascade — the grant rows — is what ends
 the access. A family goes there on one condition, the same one the
@@ -301,8 +325,10 @@ deletion removed, and that app is left holding no grant at all.
 A connection the deletion never held a grant of is not examined, so a
 consent replacing its grants at that moment cannot be caught mid-write.
 
-Public-read tokens (see below) **do not** receive a refresh token —
-the client re-authorizes when expired.
+**Anonymous** public-read tokens (see below) do not receive a refresh
+token — there is nobody to grant one, so the client re-authorizes when it
+expires. Authenticated public-read is not that case: it takes the ordinary
+path, and its lifetime is the consent answer like anybody else's.
 
 **A miss names the token it missed, by prefix.** `RefreshTokenStore.lookup` carries a
 12-character prefix of the presented token's SHA-256 out on its result, so the warning a
@@ -337,7 +363,13 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 An unanswered lifetime question is what sends an authorization older than the
 control to the dialog, once, so it can acquire an answer at all; afterwards the
 auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
-code and receives what an absent answer means — an access token and nothing more.
+code — but that code carries no generation and the token endpoint refuses it
+([`#offline_access`](#offline_access)). The redirect still carries a `code`, and
+spending it answers `invalid_grant`; the flow works again once the person has
+answered once, and does not arise at all on a pod that has run the clearing step
+above. Answering `consent_required` at `/authorize` instead would be tidier and
+is not done, because that is a live contract for every authorization that *has*
+an answer, and this one is transitional.
 
 `prompt=none` succeeds only when **three** things hold together, and it
 is worth being exact because the common case does not qualify:

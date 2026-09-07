@@ -964,7 +964,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the lifetime control grants the refresh token, not the scope in the request`() {
-    // I1 and I2 together, from the two sides that matter. A client can ask — it preselects the
+    // `SPS-AUTH-059` from the two sides that matter. A client can ask — it preselects the
     // control and nothing more — and a client that never asked is still one the person can grant.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1039,7 +1039,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `offline_access in the request only preselects the control`() {
-    // The other half of I1, on the page rather than in the token: what the client asks decides how
+    // The other half of `SPS-AUTH-059`, on the page rather than in the token: what the client asks decides how
     // the box is rendered, and a person can clear it.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1068,10 +1068,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an authorization made before the control mints no new refresh token`() {
-    // I3: an absent decision is not a grant. A static client whose grants predate the dialog takes
-    // the auto-grant branch, which renders nothing — so reading the silence as consent would let it
-    // mint ninety-day credentials for ever, with nobody ever seeing the lifetime.
+  fun `an authorization made before the control cannot spend its silent code`() {
+    // `SPS-AUTH-058`, and now enforced rather than worked around: an absent decision is not a grant. Such an
+    // authorization takes the auto-grant branch, which renders nothing, so reading the silence as
+    // consent would let it mint credentials nobody ever saw the lifetime of. The code it yields
+    // carries no generation, and a code with no generation buys nothing — the deployment step that
+    // clears the delegation rows is what a pod crosses this once with.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1091,13 +1093,17 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
     assertEquals(303, autoGranted.statusCode, autoGranted.responseBody)
 
-    val body = exchangeCode(pod, codeFrom(autoGranted))
-    assertNull(body["refresh_token"], "nothing recorded is not a grant: $body")
+    val exchange = exchangeCodeRaw(pod, codeFrom(autoGranted))
+    assertEquals(400, exchange.statusCode, exchange.responseBody)
+    assertTrue(
+      exchange.responseBody.contains("\"invalid_grant\""),
+      "nothing recorded is not a grant, and now not a token either: ${exchange.responseBody}",
+    )
   }
 
   @Test
   fun `withholding the durable connection revokes what the app already held`() {
-    // I7: the choice has to take effect on what exists, not only on what is minted next. Without
+    // `SPS-AUTH-060`: the choice has to take effect on what exists, not only on what is minted next. Without
     // this, somebody unticks the control, keeps their context grants, and changes nothing they can
     // observe — the family they just declined keeps rotating.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1118,7 +1124,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `removing access leaves neither the grants nor the refresh token`() {
-    // I11. The client is still told `access_denied` — the request really was denied — and what
+    // Removing access leaves neither. The client is still told `access_denied` — the request really
+    // was denied — and what
     // changed is that the denial now has an effect.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1143,7 +1150,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the way out is not offered where there is nothing to remove`() {
-    // The narrowing I11 needs: reporting a disconnect of something never connected is the same lie
+    // The narrowing it needs: reporting a disconnect of something never connected is the same lie
     // as reporting nothing when something ended.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1263,7 +1270,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a reconnect retires a family the pod recorded under an alias`() {
-    // I8 on the retirement path. The pod stores whichever URI authenticated, so the connection a
+    // `SPS-AUTH-061` on the retirement path. The pod stores whichever URI authenticated, so the connection a
     // reconnect replaces may sit under the twin of the one the code carries — and a survivor there
     // is exactly the second credential this rule exists to prevent.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1285,7 +1292,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a code cannot pick up a consent granted after it`() {
-    // I9. The code is a request, not an authority. Disconnect, reconnect with the durable control
+    // `SPS-AUTH-062`. The code is a request, not an authority. Disconnect, reconnect with the durable control
     // ticked, and an outstanding code from the earlier consent would otherwise mint a family — and
     // carry the scopes of a consent that has since been replaced.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1367,7 +1374,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the first consent an authorization receives supersedes the codes issued before it`() {
-    // The other end of I9. An authorization that predates the control mints codes carrying no
+    // The other end of `SPS-AUTH-062`. An authorization that predates the control mints codes carrying no
     // generation; the moment somebody answers, those codes are as stale as any other — otherwise
     // one of them redeems against the answer, with the scopes of the silence that came before.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1428,7 +1435,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a page rendered before a disconnect cannot write its grants back`() {
-    // I13. Several consent screens may coexist by design, and single-use only stops the same page
+    // Several consent screens may coexist by design, and single-use only stops the same page
     // being posted twice. A page opened before the app was disconnected would otherwise submit its
     // own older selection as the authoritative new state.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1451,7 +1458,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a refusal on record ends the family even where the withdrawal missed it`() {
-    // I10, rotation half, at the point the race would leave behind: a family that exists while the
+    // `SPS-AUTH-063`, rotation half, at the point the race would leave behind: a family that exists while the
     // decision says the person refused. The sweep sees the rows of its own moment; rotation inserts
     // one after it, so the refusal has to be asked again rather than assumed to have been applied.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1476,7 +1483,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the response names the durable connection where the client never asked for it`() {
-    // I17. The person can grant what the client did not request, so RFC 6749 §3.3's "say what was
+    // The person can grant what the client did not request, so RFC 6749 §3.3's "say what was
     // granted where it differs" is the client's only way to learn it did get one.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1498,7 +1505,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `an app whose grants sit under an alias can still be disconnected`() {
-    // I8, lookup half. The pod stores whichever WebID authenticated; asking about one leaves an
+    // `SPS-AUTH-061`, lookup half. The pod stores whichever WebID authenticated; asking about one leaves an
     // alias-held authorization reading as a first authorization, which hides the way out exactly
     // where somebody needs it.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1581,7 +1588,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `an authorization older than the control is asked once, then auto-grants again`() {
-    // I15. Auto-grant renders nothing, so an authorization whose grants predate the lifetime
+    // Auto-grant renders nothing, so an authorization whose grants predate the lifetime
     // control could never acquire a decision — it would work for ever, short-lived, without anybody
     // being asked. It falls through to the dialog once; after that the silent path is back.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -1683,12 +1690,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Suppress("UNCHECKED_CAST")
+  private fun exchangeCodeRaw(pod: org.sempods.pods.mongo.persist.PodDbo, code: String) = postForm(
+    tokenUrl(pod.name),
+    "grant_type=authorization_code&code=${enc(code)}" +
+      "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+  )
+
   private fun exchangeCode(pod: org.sempods.pods.mongo.persist.PodDbo, code: String): Map<String, Any?> {
-    val response = postForm(
-      tokenUrl(pod.name),
-      "grant_type=authorization_code&code=${enc(code)}" +
-        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
-    )
+    val response = exchangeCodeRaw(pod, code)
     assertEquals(200, response.statusCode, response.responseBody)
     return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
   }
@@ -3988,6 +3997,54 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(
       "",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+    )
+  }
+
+  @Test
+  fun `the code the forced reauthorize produced still redeems`() {
+    // The other half, and the one a too-eager refusal breaks. The person comes back through
+    // consent, or is auto-granted against the decision that now stands; either way the code is
+    // minted under the raised generation and has to go through.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/replayer-${TestUtil.randomId()}"
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
+    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)))
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = testClientId,
+      subject = webId,
+      scopes = setOf("public-read"),
+      redirectUri = testRedirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = standing.generation,
+    )
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = testClientId,
+      webId = webId,
+      grants = setOf("public-read"),
+      grantedBy = webId,
+    )
+
+    val body = exchangeCode(pod, code)
+    assertNotNull(body["refresh_token"], "the flow the challenge forced must be able to complete")
+  }
+
+  @Test
+  fun `a forced reauthorize raises nothing where the authorization has no decision`() {
+    // No upsert, and the reason is `SPS-AUTH-058`: an absent decision is a state of its own, and writing
+    // one here would turn a forced review into an answer nobody gave. Nothing needs catching
+    // either — a code from such an authorization is refused at the exchange for carrying no
+    // generation, so there is neither a family nor a token to end.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/undecided-${TestUtil.randomId()}"
+
+    assertEquals(0, consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId)))
+    assertNull(
+      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)),
+      "raising a generation must not be the thing that records a decision",
     )
   }
 

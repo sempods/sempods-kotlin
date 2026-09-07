@@ -78,7 +78,7 @@ data class ResourceChange(
  * **Scope — resource *data* only.** This models the RDF statement changes, derived purely from the
  * store's committed delta. It deliberately does NOT model the **context lifecycle as an entity**:
  * creating a context, flipping its public flag, or deleting a context registry row (with the grant
- * and refresh-token revocations that go with it) happen in `PodFacade`/`PodContextsDao` outside the
+ * revocations that go with it) happen in `PodFacade`/`PodContextsDao` outside the
  * dispatch. The data side of a context removal *is* visible here — the stripped statements arrive as
  * `removed` with their graph — but "context ctxA was deleted, 3 grants revoked" is not.
  *
