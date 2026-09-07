@@ -44,9 +44,10 @@ migrated or deliberately broken.
 - [ ] 4 — Make token lifetime visible in the service-client install UI. This milestone owns the
   service-client lifetime wording only: the grant-consent page distinguishes the
   short-lived installer access token from the durable service-client registration and once-returned
-  secret, and describes that secret as valid until rotation or registration removal. `offline_access`
-  and refresh-token lifetime are handled by the related refresh-token milestone, which must reuse
-  this vocabulary rather than redefine the service-client secret text.
+  secret, and describes that secret as valid until rotation or registration removal. The durable
+  connection itself is already a consent control
+  ([`../concepts/app-installation.md`](../concepts/app-installation.md#the-durable-connection-is-the-persons-ist));
+  reuse its wording rather than redefining the service-client secret text.
 - [ ] 5 — Split `/register` into its two profiles without changing the public one. Unauthenticated
   RFC 7591 DCR continues to register public `dyn:` clients for Authorization Code. The protected
   profile is selected by an owner bearer plus `grant_types=["client_credentials"]` and
@@ -123,15 +124,15 @@ migrated or deliberately broken.
   alone must never mean "grant this service client any context authority the owner could have
   granted manually". Generalizing beyond owner-bound consent needs a distinct context-management
   authority rule.
-- Refresh-token prerequisite — before protected DCR is exposed, either the related
-  `offline_access` hardening has landed or this milestone suppresses refresh-token issuance itself.
-  The rule belongs to the concept rather than to this file: an authorization carrying the installer
-  feature scope does not become durable, whatever else it carries and whatever the consent dialog
-  offers — see
-  [`../concepts/app-installation.md`](../concepts/app-installation.md#token-lifetime-is-part-of-consent-soll).
-  That is necessary but not sufficient: if the installer feature scope is persisted like an ordinary
-  static-client grant, the installer can start another authorization-code flow and recover the same
-  authority through auto-grant. Whether a deliberately durable installer is ever wanted is this
+- Refresh-token prerequisite — the rule belongs to the concept rather than to this file: an
+  authorization carrying the installer feature scope does not become durable, whatever else it
+  carries and whatever the consent dialog offers — see
+  [`../concepts/app-installation.md`](../concepts/app-installation.md#installer-lifetime-soll).
+  Consent already decides durability for every other authorization
+  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), so what is left here is the installer's
+  own exception. That is necessary but not sufficient: if the installer feature scope is persisted
+  like an ordinary static-client grant, the installer can start another authorization-code flow and
+  recover the same authority through auto-grant. Whether a deliberately durable installer is ever wanted is this
   milestone's question, and answering it yes means designing that exception here rather than letting
   a tick buy it. For the one-shot path, protect both layers: no silent re-issuance on the next
   authorization flow, and no repeated protected-DCR calls with the already-issued bearer.
@@ -153,7 +154,5 @@ One focused command should cover the milestone once code exists:
 Before each implementation item starts, inspect existing stored rows or code paths named in the item
 and record whether migration, compatibility, or intentional PoC breakage is the chosen path.
 
-Related hardening lives in
-[`offline-access-refresh-tokens.md`](offline-access-refresh-tokens.md). Hosted MCP migration can
-ship independently from owner-installed service clients, but the installer rollout still needs the
-refresh-token boundary for installer-feature-scope authorizations before it is exposed.
+The installer rollout still needs the refresh-token boundary for installer-feature-scope
+authorizations before it is exposed.

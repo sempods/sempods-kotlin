@@ -115,7 +115,7 @@ N-Quads, and `ResourceChange.contexts` surfaces the touched graphs explicitly fo
 consumers (vision V4.1 ChangeStreams are "scoped by context").
 
 This covers context as the **data dimension** of statements. Context as a **lifecycle entity** —
-creating a context, flipping its public flag, deleting a context (with the grant / refresh-token /
+creating a context, flipping its public flag, deleting a context (with the grant and
 service-client revocations that go with it) — is **not** evented today: a context removal's *data*
 side flows through the dispatch (stripped statements arrive as `removed` with their graph), but the
 registry/authorization side does not. The split is deliberate (data changes are delta-derived,

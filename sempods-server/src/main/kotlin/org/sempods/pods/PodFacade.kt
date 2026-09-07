@@ -78,8 +78,9 @@ class PodFacade @Inject constructor(
   }
 
   /**
-   * Cascade-deletes a context: revokes refresh tokens that carry a scope on this context,
-   * drops the matching `<contextUri>#read|write|manage` grants, pulls the context out of every
+   * Cascade-deletes a context: drops the matching `<contextUri>#read|write|manage` grants,
+   * ends the refresh families of the apps that deletion leaves holding nothing, pulls the
+   * context out of every
    * media assignment naming it, strips the context from every RDF resource (resources with no
    * remaining statements are deleted), and removes the [PodContextDbo] registry row.
    *
@@ -90,10 +91,11 @@ class PodFacade @Inject constructor(
    *
    * Order matters for security: tokens and grants are killed *before* the data so a stale
    * session cannot snipe in between (the revocation half lives in
-   * [PodGrantsFacade.revokeContextGrants], which documents that ordering). The refresh-token
-   * revoke covers the re-create-with-same-URI window — access tokens are self-contained and
-   * expire naturally; the live context-existence check at the write endpoint blocks them
-   * meanwhile.
+   * [PodGrantsFacade.revokeContextGrants], which documents that ordering and the reach). What
+   * closes the re-create-with-same-URI window is the grant deletion, not a token sweep: a refresh
+   * row carries feature scopes only and permissions are resolved per request, so no family holds
+   * authority over a context to lose. Access tokens are self-contained and expire naturally; the
+   * live context-existence check at the write endpoint blocks them meanwhile.
    *
    * Does NOT cascade into sub-contexts. `R/sub` is a separate context with its own
    * grants and resources; deleting `R` leaves them intact. Subtree *authority* however cannot
@@ -126,7 +128,7 @@ class PodFacade @Inject constructor(
     }
     // TODO: the data side of this removal is evented via the change dispatch (stripped statements
     //   arrive as `removed` with their graph), but the context lifecycle itself is not: the registry
-    //   delete above plus the grant/refresh-token/service-client revocations, and likewise
+    //   delete above plus the grant/service-client revocations, and likewise
     //   `createContext` / `setContextPublic`, emit no change event. When audit (vision V2.3) or a
     //   context-scoped ChangeStream (V4.1) needs it, emit a `ContextChange` event from here — see the
     //   note on `PodChangeSet`.

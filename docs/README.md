@@ -66,9 +66,7 @@ one section precisely so a reader can tell them apart. **Trust the section marke
 ## Roadmaps — temporary, dissolved when the milestone ships
 
 [`roadmaps/`](roadmaps/) — a breakdown and its status, linking to its concept rather than repeating
-it. Two are open: [offline access and refresh
-tokens](roadmaps/offline-access-refresh-tokens.md) and [owner app
-installation](roadmaps/owner-app-installation.md).
+it. One is open: [owner app installation](roadmaps/owner-app-installation.md).
 
 ## Instructions for contributors, human and AI
 
