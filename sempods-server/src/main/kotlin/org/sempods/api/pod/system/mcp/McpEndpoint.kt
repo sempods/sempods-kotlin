@@ -728,6 +728,18 @@ class McpEndpoint @Inject constructor(
     // All three signal "user wants more than they have" and need the WWW-Authenticate
     // response. Distinct from a manipulated/stale bearer (which never reaches here
     // because authenticate(pod) up-stream already rejected it).
+    // `authorize` is this surface's own tool and deliberately not in the shared catalog, so its
+    // schema check is here rather than in the executor — otherwise it would be the one tool whose
+    // advertised `additionalProperties: false` is not enforced.
+    //
+    // **Before the branch below, not after it.** A `reauthorize=true` call ends what the caller
+    // holds, and none of that can be given back: a refused request must not first revoke somebody's
+    // refresh families and raise their consent generation and only then answer that the arguments
+    // were malformed.
+    if (name == "authorize") {
+      unknownArgumentsRefusal(AUTHORIZE_INPUT_SCHEMA, arguments)?.let { return toolError(it) }
+    }
+
     when (name) {
       "create_resource", "update_resource", "delete_resource",
       "add_property_value", "set_property_values",
@@ -745,13 +757,7 @@ class McpEndpoint @Inject constructor(
       }
     }
 
-    // `authorize` is this surface's own tool and deliberately not in the shared catalog, so its
-    // schema check is here too — otherwise it would be the one tool whose advertised
-    // `additionalProperties: false` is not enforced.
-    if (name == "authorize") {
-      unknownArgumentsRefusal(AUTHORIZE_INPUT_SCHEMA, arguments)?.let { return toolError(it) }
-      return executeAuthorize(credentials)
-    }
+    if (name == "authorize") return executeAuthorize(credentials)
 
     // Everything else is the shared executor's: it validates against the same catalog this surface
     // advertised, applies the argument rules, and returns a call that has not touched a socket yet.

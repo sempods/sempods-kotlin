@@ -2133,6 +2133,68 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a malformed reauthorize is refused before it ends anything`() {
+    // Ending what the caller holds cannot be given back, so a request that is going to be refused
+    // must be refused first. The schema check used to sit after the branch that revokes.
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "main-${TestUtil.randomId()}")
+    val webId = "https://id.test/user"
+    val clientId = "did:web:test.example"
+    val scopes = setOf("${contextUri}#read")
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = clientId,
+      webId = webId,
+      grants = scopes,
+      grantedBy = webId,
+    )
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), clientId, webId, durable = true)
+    val refreshToken = refreshTokenStore.issueNewFamily(
+      podId = checkNotNull(pod.id),
+      podName = pod.name,
+      clientId = clientId,
+      webId = webId,
+      scopes = scopes,
+    ).plaintext
+
+    val request = mapOf(
+      "jsonrpc" to "2.0",
+      "id" to 123,
+      "method" to "tools/call",
+      "params" to mapOf(
+        "name" to "authorize",
+        "arguments" to mapOf("reauthorize" to true, "nosuchargument" to "x"),
+      ),
+    )
+
+    val response = httpClient.preparePost(mcpUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody(objectMapper.writeValueAsString(request))
+      .execute()
+
+    assertEquals(200, response.statusCode, "a malformed tool call is a tool error, not a 401")
+    assertTrue(
+      response.responseBody.contains("nosuchargument"),
+      "the refusal must name the argument it refused: ${response.responseBody}",
+    )
+
+    // Nothing was ended: the family still rotates and the generation did not move.
+    val refreshResponse = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token" +
+        "&refresh_token=${URLEncoder.encode(refreshToken, "UTF-8")}" +
+        "&client_id=${URLEncoder.encode(clientId, "UTF-8")}",
+    )
+    assertEquals(200, refreshResponse.statusCode, refreshResponse.responseBody)
+    assertEquals(
+      consent.generation,
+      consentDecisionStore.find(checkNotNull(pod.id), clientId, listOf(webId))?.generation,
+      "a refused request must not raise the consent generation",
+    )
+  }
+
+  @Test
   fun `tools call authorize with reauthorize=true revokes a family recorded under an alias`() {
     // Explicit reauthorization ends access, and a person is a set of URIs on every path that does.
     // The pod stores whichever URI authenticated, so the family that would refresh around the
