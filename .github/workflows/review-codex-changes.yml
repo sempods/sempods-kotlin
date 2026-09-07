@@ -18,11 +18,15 @@ name: Review Codex changes
 # few, not a broken build.
 #
 # No `synchronize`. Codex comments on every push already — six times on #85, five on #87 and #88 —
-# and doubling that is how review comments stop being read. This asks once per pull request, which
-# is the rate at which "did the author get this right" is actually a new question.
+# and doubling that is how review comments stop being read. This asks once each time the change is
+# declared ready, which is the rate at which "did the author get this right" is a new question.
 #
-# A draft opened as a draft fires `opened` too, so `draft` is excluded explicitly: without it a
-# change that starts as a draft is reviewed twice, once before it was ready to be.
+# Once per readiness rather than once per pull request, and the difference is deliberate. A draft
+# opened as a draft fires `opened` too, so `draft` is excluded explicitly: without it a change that
+# starts as a draft is reviewed before it was ready to be. Taking a ready pull request back to
+# draft and marking it ready again then does earn a second review — which is the author saying the
+# change is no longer the one that was reviewed, and the one occasion where asking again is worth
+# what it costs. So nothing here remembers that a review has happened, and nothing needs to.
 on:
   pull_request:
     types: [opened, ready_for_review]
