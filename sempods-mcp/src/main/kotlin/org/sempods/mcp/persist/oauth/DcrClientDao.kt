@@ -1,12 +1,14 @@
 package org.sempods.mcp.persist.oauth
 
 import com.mongodb.MongoCommandException
+import com.mongodb.MongoServerException
 import com.mongodb.MongoWriteException
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import org.bson.Document
+import org.bson.conversions.Bson
 import java.util.Date
 import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.mcp.SempodsMcpCollections
@@ -55,23 +57,46 @@ class DcrClientDao(
       Indexes.ascending("profile", "clientId"),
       IndexOptions().unique(true),
     )
-    // Unique — [findOrCreate] leans on it. A deployment that ran before this holds the same two
-    // fields non-unique, so the build refuses, and Mongo's message names neither the collection nor
-    // the way out. Naming them is all this catch does; `AGENTS.md` §"Deployment stance" is why
-    // clearing the way stays an operator step.
+    createFingerprintIndex(collectionName)
+  }
+
+  /**
+   * The index that makes the dedup in [findOrCreate] a constraint rather than a lookup.
+   *
+   * It carries a name of its own, where the other takes MongoDB's default, so that it is built
+   * *beside* a predecessor over the same two fields rather than conflicting with it. A deployment
+   * that has run before this one holds exactly such a predecessor, and the order is what makes the
+   * change safe on it: the constraint stands before anything is dropped. A gap does not correct
+   * itself afterwards — two `/register` calls landing in one each return a `client_id`, and
+   * nothing takes back what was handed out.
+   *
+   * What a gap already produced is the one thing left over: the build refuses duplicate rows, and
+   * clearing those is an operator's, per `AGENTS.md` §"Deployment stance".
+   */
+  private fun createFingerprintIndex(collectionName: String) {
     try {
-      clients.createIndex(
-        Indexes.ascending("profile", "fingerprint"),
-        IndexOptions().unique(true),
-      )
-    } catch (e: MongoCommandException) {
+      clients.createIndex(FINGERPRINT_KEYS, IndexOptions().name(FINGERPRINT_UNIQUE).unique(true))
+    } catch (e: MongoServerException) {
+      // A build that trips over duplicates arrives as a write failure and not as a command one, so
+      // the type here is the supertype of both and the code is what tells them apart.
+      if (e.code != DUPLICATE_KEY) throw e
       throw IllegalStateException(
-        "cannot make (profile, fingerprint) unique on $collectionName — either an index over those " +
-          "fields already exists with other options, or duplicate rows still share one fingerprint. " +
-          "Run db['$collectionName'].dropIndex('profile_1_fingerprint_1') and delete the duplicates; " +
-          "an AI client whose row goes registers again on its next connect.",
+        "cannot make (profile, fingerprint) unique on $collectionName — duplicate rows still share " +
+          "one fingerprint. Delete all but the newest of each group; the AI client whose row goes " +
+          "registers again on its next connect.",
         e,
       )
+    }
+    val predecessor = clients.listIndexes().firstOrNull {
+      it.get("key", Document::class.java)?.keys?.toList() == listOf("profile", "fingerprint") &&
+        it.getString("name") != FINGERPRINT_UNIQUE
+    }?.getString("name") ?: return
+    try {
+      clients.dropIndex(predecessor)
+    } catch (alreadyGone: MongoCommandException) {
+      // 27 = IndexNotFound: another replica dropped it first. The constraint is built either way,
+      // and this is only the tidying after it.
+      if (alreadyGone.errorCode != INDEX_NOT_FOUND) throw alreadyGone
     }
   }
 
@@ -123,6 +148,17 @@ class DcrClientDao(
     clients.find(
       Filters.and(Filters.eq("profile", profile), Filters.eq("clientId", clientId)),
     ).firstOrNull()?.toClient()
+
+  private companion object {
+
+    val FINGERPRINT_KEYS: Bson = Indexes.ascending("profile", "fingerprint")
+
+    /** Named, where the other index takes MongoDB's default — [createFingerprintIndex] says why. */
+    const val FINGERPRINT_UNIQUE = "profile_1_fingerprint_1_unique"
+
+    const val INDEX_NOT_FOUND = 27
+    const val DUPLICATE_KEY = 11000
+  }
 
   private fun DcrClient.toDocument() = Document().apply {
     put("clientId", clientId)

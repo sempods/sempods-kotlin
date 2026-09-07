@@ -185,17 +185,14 @@ lookup, the index refuses the second, and the loser answers the winner's
 `client_id`. Unsetting the field is how a duplicate written before the
 constraint leaves the lookup without losing the id its grants hang off.
 
+The hosted service holds the same rule per `(profile, fingerprint)`, and
+over the whole collection: every row it writes carries a fingerprint.
+
 The digest has a fourth slot — a realm — that the pod leaves empty. It
 used to carry the MCP path, which forced one OAuth client per MCP URL on
 cloud connectors that otherwise collapse several UI entries onto one; the
 hosted MCP service fills the same slot with its profile. What the pod
 gives up with it is in [`clients.md`](clients.md#chatgpt).
-
-**One row per digest at the hosted service, by constraint.** There
-`(profile, fingerprint)` is a unique index. The lookup and the insert are
-two statements, so two registrations of one AI client arriving together
-both miss the lookup; the index refuses the second, and the loser re-reads
-and answers the winner's `client_id`.
 
 ## Setup for clients
 

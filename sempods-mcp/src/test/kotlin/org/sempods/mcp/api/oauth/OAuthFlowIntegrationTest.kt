@@ -624,14 +624,37 @@ class OAuthFlowIntegrationTest {
   }
 
   @Test
-  fun `a collection carrying the old non-unique index names the step that clears it`() {
+  fun `a collection carrying the old non-unique index is taken over, no operator involved`() {
     val collection = "test.dcr." + UUID.randomUUID().toString().take(8)
     db!!.getCollection(collection).createIndex(Indexes.ascending("profile", "fingerprint"))
 
+    val dao = DcrClientDao(db!!, collection)
+
+    assertTrue(dao.create(dcrClient("dyn:first")))
+    assertFalse(dao.create(dcrClient("dyn:second")), "the constraint must hold where a predecessor stood")
+    assertEquals(
+      listOf("_id_", "profile_1_clientId_1", "profile_1_fingerprint_1_unique"),
+      db!!.getCollection(collection).listIndexes().map { it.getString("name") }.sorted(),
+      "the predecessor must be dropped, not left standing beside its replacement",
+    )
+  }
+
+  @Test
+  fun `duplicates an earlier gap left behind stop the boot and name what to delete`() {
+    val collection = "test.dcr." + UUID.randomUUID().toString().take(8)
+    val rows = db!!.getCollection(collection)
+    listOf("dyn:first", "dyn:second").forEach {
+      rows.insertOne(
+        Document().append("clientId", it)
+          .append("profile", PodKey.DEFAULT_PROFILE)
+          .append("fingerprint", "one-digest"),
+      )
+    }
+
     val refused = assertFailsWith<IllegalStateException> { DcrClientDao(db!!, collection) }
     assertTrue(
-      refused.message!!.contains("dropIndex('profile_1_fingerprint_1')"),
-      "an operator reading the boot failure must be told what to run: ${refused.message}",
+      refused.message!!.contains("duplicate rows"),
+      "an operator reading the boot failure must be told what to delete: ${refused.message}",
     )
   }
 
