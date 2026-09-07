@@ -126,8 +126,7 @@ Vision and concepts:
   app installation
 - Roadmaps: `docs/roadmaps/` — milestones being implemented, if any. Dissolved when they ship.
   Running: `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and
-  protected DCR; `offline-access-refresh-tokens.md` — `offline_access`, refresh-token hardening and
-  hosted MCP migration
+  protected DCR
 
 IST documentation:
 

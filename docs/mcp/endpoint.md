@@ -237,10 +237,9 @@ Notes:
 - `scopes_supported` is the whole of what a client may put in `scope`. It
   is short because per-context permissions are grants — agreed in the
   consent dialog and resolved per request, never asked for through
-  `scope` — and it carries `offline_access` because a client that has read
-  no sempods documentation has no other way to learn the extension exists
-  (see [`../auth/oauth.md`](../auth/oauth.md#offline_access)). `openid` is
-  absent: a pod issues no `id_token`.
+  `scope` — and it carries `offline_access`, the durable-connection
+  extension ([`../auth/oauth.md`](../auth/oauth.md#offline_access)).
+  `openid` is absent: a pod issues no `id_token`.
 
 Authorization-server metadata (RFC 8414):
 
