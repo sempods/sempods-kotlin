@@ -932,6 +932,16 @@ class McpEndpoint @Inject constructor(
     // is dead on arrival. Nothing escapes by being late: a family is minted only where a decision
     // stands, so the raise above covers every one of them, and an exchange whose code predates it
     // gives up its own family at the re-read.
+    //
+    // **The look happens after the raise, and one family can still be caught by being early.** One
+    // minted between the two carries the new generation, is legitimate, and is in this set anyway;
+    // its exchange passes its own re-check and returns a refresh token this call has already
+    // killed. Looking before the raise instead only moves the window: a family minted between the
+    // look and the raise would then survive both the sweep and a re-check that reads the old
+    // generation, which leaves a live credential the call meant to end — the worse of the two,
+    // here. Closing it needs the family to carry the generation it was minted under, so the sweep
+    // can ask rather than guess from ordering. That is a field on the refresh row, and it belongs
+    // with the identity-and-generation work the milestone parked, not with a third reordering.
     val revoked = refreshTokenStore.revokeFamilies(
       refreshTokenStore.liveFamilies(podId = podId, clientId = clientId, webIds = subjects),
     )
