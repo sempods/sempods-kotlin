@@ -64,10 +64,11 @@ are the authority; these are the probes.
 git diff HEAD | grep -cE "^\+\s*(\*|//)"                    # comment lines added
 git diff HEAD | grep -vE "^\+\+\+|^\+\s*(\*|//)" | grep -cE "^\+\s*\S"   # code lines added
 git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 3 antithesis
+git grep -n '<a phrase from each rationale added>' -- '*.md' '*.kt' '*.kts'      # a second owner
 ```
 
-The first two only count; a ratio far above 1:1 means reading what the prose bought. Then, for each
-rationale the change adds, take a distinctive phrase from it and `grep -rn` the tree — a second hit
+The first two only count; a ratio far above 1:1 means reading what the prose bought. The last is
+`git grep` for the reason [`roadmap-lifecycle.md`](roadmap-lifecycle.md) §5 gives, and a second hit
 means choosing the owner and making the rest point there.
 
 Over what is left:
