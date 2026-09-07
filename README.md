@@ -218,7 +218,9 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revisi
 ```
 
 `<sha>-dirty` means uncommitted changes, `unknown` that the build could not identify its commit;
-neither gets a tag, since neither names one build. The images are pushed by hand — each service's
+neither gets a tag, since neither names one commit. The commit tag names the source and not the
+bytes — the base image floats, so rebuilding one commit republishes that tag with different content.
+Pin a digest where exact content is what matters. The images are pushed by hand — each service's
 `jib` task, no workflow — so that label is the only record of which commit reached the registry.
 
 ## Repository layout

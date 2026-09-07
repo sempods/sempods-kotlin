@@ -54,24 +54,28 @@ extra["publishedModules"] = publishedModules
 // root first — a foreign commit on the label is worse than none. A dirty tree is marked for the
 // same reason.
 val gitRevision: String = run {
+  // `null` is the command failing, `""` the command succeeding with nothing to say. Collapsing the
+  // two would read a `status` that could not run as a clean tree, and publish a bare SHA for a
+  // build whose cleanliness was never established.
   fun git(vararg args: String): String? = runCatching {
-    providers.exec {
+    val exec = providers.exec {
       commandLine("git", *args)
       isIgnoreExitValue = true
-    }.standardOutput.asText.get().trim().ifEmpty { null }
+    }
+    if (exec.result.get().exitValue != 0) null else exec.standardOutput.asText.get().trim()
   }.getOrNull()
 
-  val toplevel = git("rev-parse", "--show-toplevel") ?: return@run "unknown"
+  val toplevel = git("rev-parse", "--show-toplevel")?.ifEmpty { null } ?: return@run "unknown"
   if (File(toplevel).canonicalFile != rootDir.canonicalFile) return@run "unknown"
 
-  val head = git("rev-parse", "--short", "HEAD") ?: return@run "unknown"
-  if (git("status", "--porcelain").isNullOrEmpty()) head else "$head-dirty"
+  val head = git("rev-parse", "--short", "HEAD")?.ifEmpty { null } ?: return@run "unknown"
+  val status = git("status", "--porcelain") ?: return@run "unknown"
+  if (status.isEmpty()) head else "$head-dirty"
 }
 extra["gitRevision"] = gitRevision
 
 // Only a revision naming one commit is worth a tag: `unknown` and `<sha>-dirty` each describe any
-// number of builds, and tagging with them would move a tag the README offers for pinning. The label
-// carries them either way, which is where they belong.
+// number of builds. The label carries them either way, which is where they belong.
 extra["revisionTags"] = if (gitRevision == "unknown" || gitRevision.endsWith("-dirty")) {
   emptySet<String>()
 } else {
