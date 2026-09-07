@@ -902,9 +902,7 @@ class McpEndpoint @Inject constructor(
    * without a browser, so parallel sessions sharing a dynamic `client_id` would refresh straight
    * around the consent UI. An **authorization code** stays redeemable for five minutes and the
    * client holds its verifier, so one issued just before the call would still mint the bearer and
-   * seed the family the challenge exists to make it ask for again — and unlike a consent
-   * submission, this path records no decision, so the generation a code is bound to never moves
-   * (`PodAuthEndpoint`, "A code is a request, not an authority").
+   * seed the family the challenge exists to make it ask for again.
    *
    * All three go broad over the person rather than over the one URI this bearer happens to carry:
    * a family, a code or a decision under the twin is the same person's, and leaving it is leaving

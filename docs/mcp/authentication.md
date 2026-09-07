@@ -80,9 +80,12 @@ consent*, and two things would otherwise answer it from stock. Its
 UI. And any **authorization code it has not yet exchanged**: a code stays
 redeemable for five minutes and the client keeps its verifier, so one
 issued just before the call would still mint the bearer and seed the
-family the challenge exists to make it ask for. Unlike a consent
-submission, this path records no decision, so the generation a code is
-bound to never moves and nothing else reaches it.
+family the challenge exists to make it ask for. The two are ended by
+different means, and the split is the third state: where a decision
+stands, raising its generation is already enough to spend the outstanding
+codes, because that is what the exchange compares them against; where
+nothing is recorded there is no generation, and deleting the rows is what
+reaches them.
 
 The person is every URI derivable from the bearer's `sub`, not that one
 URI: a pod stores whichever WebID authenticated, and a family recorded

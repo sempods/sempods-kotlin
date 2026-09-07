@@ -121,13 +121,14 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
   /**
    * Ends every code this `(realm, clientId)` still holds for [subjects], before it is exchanged.
    *
-   * A code outlives the moment it was issued in by up to five minutes, and the events that end an
-   * app's access do not all arrive through consent. Where one does — a consent submission, a
-   * disconnect — [Entry.consentGeneration] is what spends the outstanding codes, and nothing here
-   * is needed. Where one does not, this is the only thing that reaches them: an MCP client asking
-   * for explicit reauthorization is answered with a 401, and a code it was already holding would
-   * otherwise still mint the bearer and the refresh family that challenge exists to force it to
-   * ask for again.
+   * A code outlives the moment it was issued in by up to five minutes, so an event that ends an
+   * app's access has to reach the ones still in hand — otherwise a client answers its own 401 by
+   * spending what it was already holding.
+   *
+   * [Entry.consentGeneration] covers this wherever the server has a generation to move, and where
+   * it does that is the better mechanism: it needs no query and it binds a code that is already in
+   * flight. This is for the rest — an authorization the server has recorded nothing about has no
+   * generation to move, and a code under it would otherwise survive every such event.
    *
    * [subjects] rather than one URI, because a person is a set of equivalent URIs on every path
    * that ends access.
