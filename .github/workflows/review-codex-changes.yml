@@ -1,0 +1,90 @@
+name: Review Codex changes
+
+# A second automated reviewer is only worth its noise if it did not write the code. Codex already
+# reviews every pull request in this repository, and a Claude review running beside it on the same
+# diff would answer a question that has been answered — same rules from `AGENTS.md`, same diff,
+# largely the same findings, and a human left to arbitrate the difference.
+#
+# So the reviewer is chosen by who wrote the change: Claude reviews what Codex wrote, and nothing
+# else. The reverse direction is not configured here and cannot be — Codex' automatic review is a
+# setting in the ChatGPT cloud console, outside this repository.
+#
+# **The branch prefix is what identifies the author.** The obvious condition —
+# `github.event.pull_request.user.login` — does not work here: every bot in this repository pushes
+# with a human's credentials, so all twelve of the most recent pull requests, Claude's included,
+# have `haed` as their author. The head branch is the one thing that differs: Claude Code opens
+# `claude/…`, Codex opens `codex/…`. It is a convention rather than a guarantee, which is the right
+# strength for the decision it makes — the cost of a wrong answer is one review too many or too
+# few, not a broken build.
+#
+# No `synchronize`. Codex comments on every push already — six times on #85, five on #87 and #88 —
+# and doubling that is how review comments stop being read. This asks once per pull request, which
+# is the rate at which "did the author get this right" is actually a new question.
+#
+# A draft opened as a draft fires `opened` too, so `draft` is excluded explicitly: without it a
+# change that starts as a draft is reviewed twice, once before it was ready to be.
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+# Deliberately without `contents: write`. Codex can push to the branch it opened — `@codex address
+# that feedback` — and a second agent with the same permission is the one genuine conflict between
+# them: two force-pushes onto one branch. This job comments and does nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: startsWith(github.head_ref, 'codex/') && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+
+    # On the job rather than on the step that reads it: `secrets` is not a context a step's `if`
+    # can see, and a step's own `env` block is not reliably in scope for its own condition. This is
+    # the placement where `env.CLAUDE_CODE_OAUTH_TOKEN != ''` means what it says.
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+    steps:
+      # Full history: the review reasons about the change as a whole, and a shallow clone leaves
+      # `git diff` against the base without a base to diff against.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The token is absent in forks, where `pull_request` hands out neither secrets nor a writable
+      # token. That is not a broken build — it is a fork, and the review simply does not run.
+      #
+      # `CLAUDE_CODE_OAUTH_TOKEN` bills against a Claude subscription (`claude setup-token`
+      # generates it). Swap in `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` to bill the
+      # API instead; nothing else in this file changes.
+      - name: Review the change
+        if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: --model claude-opus-5
+          # The action reads `CLAUDE.md`, which routes to `AGENTS.md` — naming the hub anyway,
+          # because a reviewer that has not read the documentation rules is the reviewer this
+          # repository least needs.
+          prompt: |
+            You are reviewing a change you did not write. Read AGENTS.md first; it is the canonical
+            guidance, and docs/agents/ai-instructions.md is the hub it routes through.
+
+            Review the diff of this pull request on two axes:
+
+            - Correctness. What breaks, what the tests do not cover, what the change assumes without
+              checking, what a caller outside this repository would now get wrong.
+            - This repository's own rules. The documentation duty in
+              docs/agents/documentation-strategy.md §"Definition of done" — IST documentation, KDoc
+              on changed signatures, the roadmap tick, context7.json. One fact, one owner: a rule
+              restated in a second file is a finding. The naming conventions in docs/naming.md.
+
+            Do not report what CI already answers. `./gradlew test checkNoLoggingBinding
+            checkNoTestLibrariesInPom checkDocLinks` and `./gradlew buildHealth` run on this pull
+            request and cover the tests, dead markdown links, logging bindings and the
+            api/implementation boundary.
+
+            Do not summarise the change; the author knows what they wrote. Say what is wrong, where,
+            and why it matters. Rank by severity and stop at the point where you would be inventing
+            work. If nothing is wrong, say so in one line — that is a complete review.
