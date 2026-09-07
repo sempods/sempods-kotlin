@@ -150,6 +150,13 @@ Consequence: a client that re-registers with the same `clientName` /
 `userAgent` and redirect-URI shape reuses its existing `dyn:` clientId,
 so consent and grants stay anchored to one row.
 
+**One row per digest, by constraint**, not by the lookup alone:
+`(registeredForPodId, fingerprint)` is a unique index, partial on the
+fingerprint existing. Two registrations arriving together both miss the
+lookup, the index refuses the second, and the loser answers the winner's
+`client_id`. Unsetting the field is how a duplicate written before the
+constraint leaves the lookup without losing the id its grants hang off.
+
 The digest has a fourth slot — a realm — that the pod leaves empty. It
 used to carry the MCP path, which forced one OAuth client per MCP URL on
 cloud connectors that otherwise collapse several UI entries onto one; the

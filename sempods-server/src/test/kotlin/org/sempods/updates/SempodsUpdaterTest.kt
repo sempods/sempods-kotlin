@@ -18,9 +18,9 @@ import kotlin.test.assertTrue
  * 404s and 403s for data that exists — so the property is pinned here rather than left to the
  * reading of a comment.
  *
- * The registered list is empty since the backup backfill was retired with the legacy decommission
- * so the tests drive the updater with fakes — the mechanism is what is pinned
- * here, not any particular migration.
+ * The tests drive the updater with fakes rather than the registered list — the mechanism is what is
+ * pinned here, not any particular migration. `DcrFingerprintUniquenessTest` covers the entry that
+ * list holds today.
  */
 class SempodsUpdaterTest {
 
