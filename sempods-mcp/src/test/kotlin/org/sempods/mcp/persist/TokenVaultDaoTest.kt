@@ -20,6 +20,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -100,6 +101,25 @@ class TokenVaultDaoTest {
     dao.upsert(tokens(key, "a", null, Date(), Date()))
     assertNull(raw.find(keyFilter(key)).first()!!.getString("refreshToken"))
     assertNull(dao.find(key)!!.refreshToken)
+  }
+
+  @Test
+  fun `deleteIfUnchanged takes back its own write and leaves a later one alone`() {
+    // The connect callback drops a token it committed once a disconnect has taken the connection
+    // out from under it. Between seeing that and dropping it, another connect can commit its own
+    // family; a delete by key would take that one, and the person who wrote it was told they had
+    // connected.
+    val key = newKey()
+    val mine = Date(1_000)
+    dao.upsert(tokens(key, updatedAt = mine))
+
+    assertTrue(dao.deleteIfUnchanged(key, mine), "its own write goes")
+    assertNull(dao.find(key))
+
+    dao.upsert(tokens(key, accessToken = "a-later-connect", updatedAt = Date(2_000)))
+
+    assertTrue(!dao.deleteIfUnchanged(key, mine), "a row written since is not this one")
+    assertEquals("a-later-connect", assertNotNull(dao.find(key)).accessToken, "and it stands")
   }
 
   @Test

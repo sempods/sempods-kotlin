@@ -447,6 +447,21 @@ class TokenVaultDao(
     tokens.deleteOne(keyFilter(key))
   }
 
+  /**
+   * Delete this row only while it is still the one written at [writtenAt] — [PodTokens.updatedAt],
+   * which every write to this row moves.
+   *
+   * The connect callback's compensating delete needs it. Between seeing that a disconnect took the
+   * connection and removing the token it had just committed, another connect can commit its own,
+   * and a delete by key alone would take that one — leaving a person told they had connected beside
+   * a connection with no token. Same stamp and same reason as
+   * [ConnectionRegistryDao.recordSubjectIfUnchanged] on the other row.
+   *
+   * @return whether the row was still this one, and went.
+   */
+  fun deleteIfUnchanged(key: PodKey, writtenAt: Date): Boolean =
+    tokens.deleteOne(Filters.and(keyFilter(key), Filters.eq("updatedAt", writtenAt))).deletedCount == 1L
+
   private fun Document.toKey() = PodKey(getString("user"), getString("profile"), getString("pod"))
 
   private fun keyFilter(key: PodKey) = Filters.and(

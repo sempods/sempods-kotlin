@@ -520,10 +520,14 @@ fun Application.webUiEndpoint(
         // exactly that, and the token goes the same way. The commit point can be raced; it cannot
         // be allowed to outlive what it commits to.
         if (connectionRegistryDao.find(key) == null) {
-          tokenVaultDao.delete(key)
+          // Conditional, because this branch is itself a check then an act: another connect can
+          // commit its own family in between, and a delete by key would take that one and leave the
+          // person who wrote it told they had connected.
+          val dropped = tokenVaultDao.deleteIfUnchanged(key, now)
           logger.info {
             "pod '${pending.pod}' was disconnected while its connect completed for user='${pending.user}' " +
-              "profile='${pending.profile}' — the new token was dropped with it"
+              "profile='${pending.profile}' — " +
+              if (dropped) "the new token was dropped with it" else "another connect has since committed one, which stands"
           }
           auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "disconnected_meanwhile")
           return@runCatching landing("error=${enc("pod was disconnected while connecting")}")
