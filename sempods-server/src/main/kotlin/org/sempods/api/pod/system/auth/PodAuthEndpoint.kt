@@ -1467,6 +1467,18 @@ class PodAuthEndpoint @Inject constructor(
       emptySet()
     }
 
+    // Counted before the insert for the same reason `superseded` is: the check that follows can
+    // only call a set empty *now* a revocation if it was not empty *then*.
+    val grantsBeforeIssue = if (durable) {
+      podGrantsDao.fetchGrantStrings(
+        podId = checkNotNull(podDbo.id),
+        appId = entry.clientId,
+        webIds = listOf(entry.subject),
+      )
+    } else {
+      emptySet()
+    }
+
     val issuedRefresh = if (durable) {
       refreshTokenStore.issueNewFamily(
         podId = checkNotNull(podDbo.id),
@@ -1489,6 +1501,37 @@ class PodAuthEndpoint @Inject constructor(
             "revokedRows=$revoked"
       }
       return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
+    }
+
+    // The third of the three, and the one this path was missing while its sibling had it. A
+    // revocation that empties the app — a context deletion, an owner-level withdrawal — sweeps by
+    // filter, so it catches an insert that precedes it and misses one that follows: this family
+    // can appear behind the sweep and belong to an app holding nothing. The consent re-checks
+    // above cannot see that, because neither the decision nor its generation moves when a grant
+    // goes.
+    //
+    // **Emptiness alone is not the signal, the transition is.** An authorization can legitimately
+    // reach here holding no grant row — a code carrying only feature scopes, which
+    // `authorization_code exchange returns both access_token and refresh_token` pins — and
+    // refusing that would be a new rule rather than a race closed. So the rows are counted before
+    // the insert as well, and only a set that emptied in between is a revocation that landed.
+    // Keyed on the code's own subject, exactly as `exchangeRefreshToken` keys its `currentGrants`
+    // check, so the two paths cannot disagree about whose rows count. Untestable for the same
+    // reason as its neighbours — it is the window between two statements.
+    if (issuedRefresh != null &&
+      grantsBeforeIssue.isNotEmpty() &&
+      podGrantsDao.fetchGrantStrings(
+        podId = checkNotNull(podDbo.id),
+        appId = entry.clientId,
+        webIds = listOf(entry.subject),
+      ).isEmpty()
+    ) {
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      logger.info {
+        "[oauth/token] grants revoked mid-exchange — family revoked: pod='${podDbo.name}', " +
+            "clientId='${entry.clientId}', webId='${entry.subject}', revokedRows=$revoked"
+      }
+      return tokenError(OAuthErrorCode.INVALID_GRANT, "all previously granted scopes have been revoked")
     }
 
     // I9 again, and this time about the sweep rather than the mint. The generation was compared

@@ -111,8 +111,17 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * authorization stood at while asking the person nothing. Returns how many documents moved.
    *
    * An explicit `authorize(reauthorize=true)` is such an event: it forces the person back through
-   * consent, so every code and every consent form bound to the generation before it is spent —
-   * which is what the token endpoint's own re-checks already compare against. **No upsert.** An
+   * consent, and every authorization code bound to the generation before it is spent — that is
+   * what the token endpoint's own re-checks compare against.
+   *
+   * **A consent form is not.** `submitConsent` lets a mismatched generation through wherever the
+   * app still holds something, which a forced reauthorization does not change, so a page rendered
+   * just before one stays submittable. That is the coexistence rule I13 keeps on purpose — several
+   * consent screens may be open at once — and the person submitting such a page ticked what it
+   * shows. What the mismatch does refuse is a page whose app now holds nothing, which is the
+   * disconnect it was rendered before.
+   *
+   * **No upsert.** An
    * authorization with nothing recorded has no generation to raise and needs none: the durable
    * connection is read from the decision, so without one no family is minted and there is nothing
    * for a racing exchange to walk away with.
