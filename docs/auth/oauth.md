@@ -275,11 +275,23 @@ rolling — every rotation renews it in full.
 once.** Those authorizations hold grants with no answer beside them, which
 is the one state that can produce a code the exchange has nothing to
 compare — so their codes are refused, and their families are refused with
-them at the next rotation. Dropping two collections in the pod's database
-resolves it: `grants` and `oauth.refreshTokens`. Both are recreated on
-first use, the contexts and resources they point at are untouched, and the
-cost is that every person re-consents each app once and every pod
-connected to a hosted MCP service is reconnected. Do **not** drop
+them at the next rotation. Emptying two collections in the pod's database
+resolves it, `grants` and `oauth.refreshTokens`:
+
+```js
+db.grants.deleteMany({})
+db["oauth.refreshTokens"].deleteMany({})
+```
+
+**The documents, not the collections.** Both stores build their indexes in
+their constructors and nowhere else, so a `drop()` against a running
+server returns an unindexed collection: grant lookups scan, and refresh
+rows stop being reaped because the TTL index is gone. Neither comes back
+before the next boot. Dropping is only safe while the server is stopped.
+
+The contexts and resources these point at are untouched, and the cost is
+that every person re-consents each app once and every pod connected to a
+hosted MCP service is reconnected. Do **not** empty
 `oauth.consentDecisions`: that is where the answers live, and clearing it
 puts every authorization into exactly the state being removed.
 
@@ -348,7 +360,13 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 An unanswered lifetime question is what sends an authorization older than the
 control to the dialog, once, so it can acquire an answer at all; afterwards the
 auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
-code and receives what an absent answer means — an access token and nothing more.
+code — but that code carries no generation and the token endpoint refuses it
+([`#offline_access`](#offline_access)). The redirect still carries a `code`, and
+spending it answers `invalid_grant`; the flow works again once the person has
+answered once, and does not arise at all on a pod that has run the clearing step
+above. Answering `consent_required` at `/authorize` instead would be tidier and
+is not done, because that is a live contract for every authorization that *has*
+an answer, and this one is transitional.
 
 `prompt=none` succeeds only when **three** things hold together, and it
 is worth being exact because the common case does not qualify:

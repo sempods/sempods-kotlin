@@ -1439,8 +1439,9 @@ class PodAuthEndpoint @Inject constructor(
     // from an authorization that has been answered — the anonymous `public-read` exchange, which
     // has no person and no answer, returned above. A code without one is therefore either older
     // than the consent control or the debris of a half-written consent, and neither is something
-    // to hand a token for. Deployments that predate this cross it once, by clearing the delegation
-    // rows: `docs/auth/oauth.md` §"Refresh token rotation".
+    // to hand a token for. Deployments that predate this cross it once, by emptying the delegation
+    // rows — the documents and not the collections, since the indexes are built at boot:
+    // `docs/auth/oauth.md` §"Refresh token rotation".
     val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
     if (issuedUnder == null || decision?.generation != issuedUnder) {
