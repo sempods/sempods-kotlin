@@ -371,7 +371,7 @@ above. Answering `consent_required` at `/authorize` instead would be tidier and
 is not done, because that is a live contract for every authorization that *has*
 an answer, and this one is transitional.
 
-`prompt=none` succeeds only when **three** things hold together, and it
+`prompt=none` succeeds only when **four** things hold together, and it
 is worth being exact because the common case does not qualify:
 
 1. **The pod remembers the person.** The sign-in leaves a session
@@ -386,6 +386,20 @@ is worth being exact because the common case does not qualify:
    `consent_required`, session or not.
 3. **Grants for that client survive.** With none, the answer is
    `consent_required` rather than a code.
+4. **The request carries the cookie.** It is `SameSite=Lax`, so a browser
+   sends it on a top-level navigation and withholds it from a cross-site
+   subrequest. A hidden iframe is therefore silent only where the app and
+   the pod are the same site (`apps.example.org` framing
+   `example.org/{pod}`); an app on another site gets `login_required` from
+   the frame and has to renew by navigating. Nothing on the pod can tell
+   the two apart — the request simply arrives without a session — so this
+   is a property of where an app is deployed rather than of what it asked
+   for.
+
+`SameSite=None` would make the frame work everywhere and is not done: the
+cookie authenticates the consent screen, and sending it on cross-site
+subrequests is the CSRF exposure `Lax` exists to prevent. What that costs
+is one visible navigation for a cross-site app, not the renewal itself.
 
 So the session removes the round trip to the id-server; it does not by
 itself make silent authorization possible. An app should treat

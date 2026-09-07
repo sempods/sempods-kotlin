@@ -13,8 +13,14 @@ import java.net.URI
  *
  * `SameSite=Lax` on both: each is required on a **top-level GET** that arrives as a redirect from
  * another origin — the id-server sending the browser back. `Strict` would withhold the cookie on
- * exactly that request and break the flow; `None` would send it on cross-site sub-requests, which
- * neither needs.
+ * exactly that request and break the flow.
+ *
+ * `None` is the one with something to offer and is still refused. It would let an app on another
+ * site renew silently in a hidden frame, because a cross-site subrequest would then carry the
+ * session — and so would every other cross-site subrequest, against a cookie that authenticates
+ * the consent screen. That is the CSRF exposure `Lax` exists to prevent, and the price of keeping
+ * it is one visible navigation for an app deployed away from its pod (`docs/auth/oauth.md`
+ * §"The `prompt` parameter").
  *
  * The framework-specific half of what `sempods-mcp` does with `LoginCsrfPin` and `WebSession`.
  * What the two services share — minting a secret, comparing one — lives in
