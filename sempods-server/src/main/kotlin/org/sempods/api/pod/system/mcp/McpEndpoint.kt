@@ -30,6 +30,7 @@ import org.sempods.mcp.core.ToolsCapability
 import org.sempods.mcp.core.ToolsListResult
 import org.sempods.mcp.core.isNotification
 import com.google.inject.Inject
+import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.client.SempodsClientException
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
@@ -83,6 +84,7 @@ class McpEndpoint @Inject constructor(
   private val podToolExecutor: PodToolExecutor,
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val refreshTokenStore: PodRefreshTokenStore,
+  private val authorizationCodeStore: AuthorizationCodeStore,
   private val webIdUriDeriver: WebIdUriDeriver,
   podFacade: PodFacade,
   podDao: PodDao,
@@ -736,7 +738,7 @@ class McpEndpoint @Inject constructor(
         val reauthorize = arguments.path("reauthorize").asBoolean(false)
         val decision = decideAuthorizeToolCall(credentials, reauthorize)
         if (decision.startOAuthFlow) {
-          if (decision.revokeRefreshTokens) revokeRefreshTokensForExplicitReauthorize(credentials)
+          if (decision.endWhatTheClientHolds) endWhatTheClientHoldsForExplicitReauthorize(credentials)
           if (decision.recordReplayChallenge) recordReauthorizeChallenge(credentials)
           throw upgradeRequired(credentials.pod.name)
         }
@@ -844,13 +846,14 @@ class McpEndpoint @Inject constructor(
    *   or restarts the OAuth flow.
    * @property recordReplayChallenge remember this 401 so the client's post-OAuth replay of
    *   the same tool call can return success instead of causing a second 401 loop.
-   * @property revokeRefreshTokens invalidate existing refresh tokens for explicit
-   *   re-authorization so clients cannot satisfy the 401 by silently rotating a token.
+   * @property endWhatTheClientHolds invalidate the refresh tokens and the unexchanged
+   *   authorization codes for explicit re-authorization, so the client can satisfy the 401
+   *   neither by silently rotating a token nor by spending a code it was already holding.
    */
   private data class AuthorizeToolDecision(
     val startOAuthFlow: Boolean,
     val recordReplayChallenge: Boolean = false,
-    val revokeRefreshTokens: Boolean = false,
+    val endWhatTheClientHolds: Boolean = false,
   )
 
   private fun decideAuthorizeToolCall(
@@ -876,7 +879,7 @@ class McpEndpoint @Inject constructor(
     return AuthorizeToolDecision(
       startOAuthFlow = true,
       recordReplayChallenge = true,
-      revokeRefreshTokens = credentials.oauthClientId != null,
+      endWhatTheClientHolds = credentials.oauthClientId != null,
     )
   }
 
@@ -890,24 +893,37 @@ class McpEndpoint @Inject constructor(
         .build(),
     )
 
-  private fun revokeRefreshTokensForExplicitReauthorize(credentials: SempodsCredentials) {
+  /**
+   * Ends what this app holds for this person, so the forced 401 cannot be answered from stock.
+   *
+   * Two things outlive the challenge and both would defeat it. A **refresh token** rotates
+   * without a browser, so parallel sessions sharing a dynamic `client_id` would refresh straight
+   * around the consent UI. An **authorization code** stays redeemable for five minutes and the
+   * client holds its verifier, so one issued just before the call would still mint the bearer and
+   * seed the family the challenge exists to make it ask for again — and unlike a consent
+   * submission, this path records no decision, so the generation a code is bound to never moves
+   * (`PodAuthEndpoint`, "A code is a request, not an authority").
+   *
+   * Both go broad over the person rather than over the one URI this bearer happens to carry: a
+   * family or a code under the twin is the same person's, and leaving it is leaving the way round
+   * open. The reach is the derivable set, which is every equivalent URI a pod can hold today —
+   * see [WebIdUriDeriver.derivableAliases] for what would be needed if that stops being true.
+   */
+  private fun endWhatTheClientHoldsForExplicitReauthorize(credentials: SempodsCredentials) {
     val podId = podFacade.getPodId(credentials.pod.name) ?: return
     val clientId = credentials.oauthClientId ?: return
     val webId = credentials.tokenSub ?: return
-    // Scope is intentionally broad for this pod/client/user: explicit reauthorization
-    // means "review current consent", so parallel sessions with the same dynamic
-    // client_id must not silently refresh around the consent UI. Broad over the person too,
-    // not over the one URI this bearer happens to carry — a family minted under the twin would
-    // otherwise keep refreshing around exactly that UI.
-    val revoked = refreshTokenStore.revokeForUser(
-      podId = podId,
+    val subjects = webIdUriDeriver.derivableAliases(webId)
+    val revoked = refreshTokenStore.revokeForUser(podId = podId, clientId = clientId, webIds = subjects)
+    val spent = authorizationCodeStore.revokeFor(
+      realm = credentials.pod.name,
       clientId = clientId,
-      webIds = webIdUriDeriver.derivableAliases(webId),
+      subjects = subjects,
     )
-    if (revoked > 0) {
+    if (revoked > 0 || spent > 0) {
       logger.info {
-        "[mcp] Revoked refresh tokens for explicit reauthorize: pod='${credentials.pod.name}', " +
-            "client_id='$clientId', web_id='$webId', revoked=$revoked"
+        "[mcp] Ended what the client held for explicit reauthorize: pod='${credentials.pod.name}', " +
+            "client_id='$clientId', web_id='$webId', revoked=$revoked, codes=$spent"
       }
     }
   }

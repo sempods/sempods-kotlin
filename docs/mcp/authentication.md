@@ -73,13 +73,20 @@ pod only; the first fresh authenticated token on that pod consumes them.
 Anonymous entries are last-write-wins per pod; concurrent anonymous flows
 against the same pod may need to retry.
 
-Refresh tokens for the affected `(podId, clientId, person)` are revoked
-on the original 401 — explicit reauthorize means *review current
-consent*, so parallel sessions must not silently rotate around the
-consent UI. The person is every URI derivable from the bearer's `sub`,
-not that one URI: a pod stores whichever WebID authenticated, and a
-family recorded under the twin would keep rotating around the same
-dialog.
+What the client already holds for the affected `(podId, clientId, person)`
+is ended on the original 401 — explicit reauthorize means *review current
+consent*, and two things would otherwise answer it from stock. Its
+**refresh tokens**, so parallel sessions cannot rotate around the consent
+UI. And any **authorization code it has not yet exchanged**: a code stays
+redeemable for five minutes and the client keeps its verifier, so one
+issued just before the call would still mint the bearer and seed the
+family the challenge exists to make it ask for. Unlike a consent
+submission, this path records no decision, so the generation a code is
+bound to never moves and nothing else reaches it.
+
+The person is every URI derivable from the bearer's `sub`, not that one
+URI: a pod stores whichever WebID authenticated, and a family recorded
+under the twin would keep rotating around the same dialog.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent
@@ -99,7 +106,7 @@ finds the extension. Asking is not what decides the outcome: the person
 answers a control in the consent dialog, and
 [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns that rule.
 
-The re-authorize path above ends the families it finds, which is not the
+The re-authorize path above ends what the client holds, which is not the
 same as asking again. Whether the next `/authorize` renders a dialog is
 the ordinary auto-grant question: a `dyn:` client — which is how the
 clients in [`clients.md`](clients.md) register — always gets the consent

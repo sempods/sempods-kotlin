@@ -6,6 +6,7 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.bson.Document
+import org.bson.conversions.Bson
 import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.utils.HashUtil.sha256Hex
@@ -106,6 +107,20 @@ class OneTimeStore<T>(
     rows.updateOne(Filters.eq("_id", hashed), Updates.set(FIELD_EXPIRES_AT, Date.from(Instant.now().plus(ttl))))
     return payload
   }
+
+  /**
+   * Deletes every row matching [filter], live or expired, and returns how many went.
+   *
+   * The one bulk path into a store whose whole point is one key at a time: something outside the
+   * flow has ended what the parked rows were for, and they must not be redeemable afterwards. What
+   * "belongs to" means is the caller's — the payload fields are written by [write] and this store
+   * cannot name them — so the filter is built where the payload is known.
+   *
+   * No secondary index backs it. Every collection here is TTL-bounded to minutes, so the scan is
+   * over what is in flight rather than over a history, and the paths that call this are ones a
+   * person triggers.
+   */
+  fun deleteWhere(filter: Bson): Long = rows.deleteMany(filter).deletedCount
 
   private fun Document.readIfLive(): T? {
     val expiresAt = getInstant(FIELD_EXPIRES_AT) ?: return null

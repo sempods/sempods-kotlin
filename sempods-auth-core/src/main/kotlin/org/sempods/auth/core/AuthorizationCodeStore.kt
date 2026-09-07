@@ -1,6 +1,7 @@
 package org.sempods.auth.core
 
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putNotNull
 import org.sempods.commons.mongo.putStrings
@@ -116,4 +117,29 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
    * into a 500 on a request that can only ever fail anyway.
    */
   fun consume(code: String): Entry? = codes.consume(code)
+
+  /**
+   * Ends every code this `(realm, clientId)` still holds for [subjects], before it is exchanged.
+   *
+   * A code outlives the moment it was issued in by up to five minutes, and the events that end an
+   * app's access do not all arrive through consent. Where one does — a consent submission, a
+   * disconnect — [Entry.consentGeneration] is what spends the outstanding codes, and nothing here
+   * is needed. Where one does not, this is the only thing that reaches them: an MCP client asking
+   * for explicit reauthorization is answered with a 401, and a code it was already holding would
+   * otherwise still mint the bearer and the refresh family that challenge exists to force it to
+   * ask for again.
+   *
+   * [subjects] rather than one URI, because a person is a set of equivalent URIs on every path
+   * that ends access.
+   */
+  fun revokeFor(realm: String, clientId: String, subjects: Collection<String>): Long {
+    if (subjects.isEmpty()) return 0
+    return codes.deleteWhere(
+      Filters.and(
+        Filters.eq("realm", realm),
+        Filters.eq("clientId", clientId),
+        Filters.`in`("subject", subjects),
+      ),
+    )
+  }
 }

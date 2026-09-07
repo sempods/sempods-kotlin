@@ -39,6 +39,12 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var authorizationCodeStore: org.sempods.auth.core.AuthorizationCodeStore
+
+  @Inject
+  private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
+
   private val httpClient by lazy { http.followingRedirects }
   private val objectMapper = JsonMappers.default()
 
@@ -2067,6 +2073,65 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(
       refreshResponse.responseBody.contains("\"invalid_grant\""),
       "Revoked refresh token must force the client into an authorization flow: ${refreshResponse.responseBody}",
+    )
+  }
+
+  @Test
+  fun `tools call authorize with reauthorize=true spends the code the client was still holding`() {
+    // The other half of ending what the client holds. A refresh token is not the only thing that
+    // outlives the challenge: an authorization code stays redeemable for five minutes and the
+    // client keeps its verifier, so one issued just before the call would mint the very bearer and
+    // refresh family the 401 exists to force the person to grant again.
+    //
+    // The consent behind the code is recorded and its generation matches, so the exchange's
+    // supersession check passes — which is the point. Nothing but the reauthorize itself can
+    // refuse this code.
+    val pod = sempodsTestFactory.newPod()
+    val webId = "https://id.test/user"
+    val clientId = "did:web:test.example"
+    val redirectUri = "http://localhost:5173/callback"
+    val (contextUri, token) = createContextWithToken(pod, "main-${TestUtil.randomId()}", webId = webId)
+    val consent = consentDecisionStore.record(checkNotNull(pod.id), clientId, webId, durable = true)
+    val code = authorizationCodeStore.issue(
+      realm = pod.name,
+      clientId = clientId,
+      subject = webId,
+      scopes = setOf("${contextUri}#read"),
+      redirectUri = redirectUri,
+      codeChallenge = null,
+      codeChallengeMethod = null,
+      consentGeneration = consent.generation,
+    )
+
+    val request = mapOf(
+      "jsonrpc" to "2.0",
+      "id" to 123,
+      "method" to "tools/call",
+      "params" to mapOf(
+        "name" to "authorize",
+        "arguments" to mapOf("reauthorize" to true),
+      ),
+    )
+
+    val response = httpClient.preparePost(mcpUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody(objectMapper.writeValueAsString(request))
+      .execute()
+
+    assertEquals(401, response.statusCode)
+
+    val exchange = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code" +
+        "&code=$code" +
+        "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
+        "&client_id=${URLEncoder.encode(clientId, "UTF-8")}",
+    )
+    assertEquals(400, exchange.statusCode, exchange.responseBody)
+    assertTrue(
+      exchange.responseBody.contains("\"invalid_grant\""),
+      "a code held across an explicit reauthorize must not still mint a token: ${exchange.responseBody}",
     )
   }
 
