@@ -58,9 +58,10 @@ jib {
   }
   to {
     image = "ghcr.io/haed/sempods"
-    // `latest` is what the deployment pulls; the revision tag is what makes a build addressable
-    // afterwards, since `latest` moves and cannot say which one it is now.
-    tags = setOf("latest", rootProject.extra["gitRevision"] as String)
+    // `latest` is what the deployment pulls; the revision tag is what makes a clean build
+    // addressable afterwards, since `latest` moves and cannot say which one it is now.
+    @Suppress("UNCHECKED_CAST")
+    tags = setOf("latest") + (rootProject.extra["revisionTags"] as Set<String>)
   }
   container {
     val additionalJvmFlags = application.applicationDefaultJvmArgs.toMutableList()
