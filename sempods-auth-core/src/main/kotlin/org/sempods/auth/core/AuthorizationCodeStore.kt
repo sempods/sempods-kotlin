@@ -2,6 +2,7 @@ package org.sempods.auth.core
 
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Indexes
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putNotNull
 import org.sempods.commons.mongo.putStrings
@@ -83,6 +84,16 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       )
     },
   )
+
+  init {
+    // Backs [revokeFor], which an MCP client can repeat as fast as it likes: the pod's
+    // `authorize(reauthorize=true)` leaves its bearer valid, so every retry answers 401 and sweeps
+    // again. Unindexed that is a scan of every tenant's in-flight codes per call, and the tool
+    // path carries no rate limiter — the `/token` budget does not reach it. The `exists` clause
+    // stays off the index: these three narrow to one client's codes, and what is left to filter
+    // is a handful.
+    codes.index(Indexes.ascending("realm", "clientId", "subject"))
+  }
 
   fun issue(
     subject: String,

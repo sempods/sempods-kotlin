@@ -58,6 +58,17 @@ class OneTimeStore<T>(
   }
 
   /**
+   * Declares a secondary index over payload fields — for a store whose rows are also looked up or
+   * deleted by something other than their key.
+   *
+   * Idempotent, and called from the owning store's constructor: what the fields *mean* is the
+   * caller's, since [write] is the only thing that knows the payload.
+   */
+  fun index(keys: Bson) {
+    rows.createIndex(keys)
+  }
+
+  /**
    * An unpredictable key, minted without storing anything.
    *
    * For the flows whose key has to exist before the payload does — an OAuth `state` is sent
@@ -116,9 +127,10 @@ class OneTimeStore<T>(
    * "belongs to" means is the caller's — the payload fields are written by [write] and this store
    * cannot name them — so the filter is built where the payload is known.
    *
-   * No secondary index backs it. Every collection here is TTL-bounded to minutes, so the scan is
-   * over what is in flight rather than over a history, and the paths that call this are ones a
-   * person triggers.
+   * Index the fields a caller filters on with [index]. The TTL keeps the collection to what is in
+   * flight rather than to a history, but "small" is not "bounded": one collection holds every
+   * tenant's rows, and a caller that can repeat the operation this backs turns each repeat into a
+   * scan of all of them.
    */
   fun deleteWhere(filter: Bson): Long = rows.deleteMany(filter).deletedCount
 
