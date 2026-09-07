@@ -271,6 +271,18 @@ previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
 rolling — every rotation renews it in full.
 
+**A pod carrying delegations older than the consent control clears them
+once.** Those authorizations hold grants with no answer beside them, which
+is the one state that can produce a code the exchange has nothing to
+compare — so their codes are refused, and their families are refused with
+them at the next rotation. Dropping two collections in the pod's database
+resolves it: `grants` and `oauth.refreshTokens`. Both are recreated on
+first use, the contexts and resources they point at are untouched, and the
+cost is that every person re-consents each app once and every pod
+connected to a hosted MCP service is reconnected. Do **not** drop
+`oauth.consentDecisions`: that is where the answers live, and clearing it
+puts every authorization into exactly the state being removed.
+
 **A reconnect replaces, it does not accumulate.** An answer to the
 lifetime question governs what stands after it: a consent granting a
 durable connection retires the families it supersedes once the successor
