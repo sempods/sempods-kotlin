@@ -370,17 +370,24 @@ class TokenVaultDao(
       Updates.set("deadGrantSince", at),
     ).modifiedCount == 1L
 
+  /**
+   * The non-secret half of one row. Nothing here is ciphertext, so — unlike [find] — a row whose
+   * tokens will not decrypt still answers: what it holds is what the surfaces that only *report* a
+   * connection show, and what decides whether re-authorizing it has to re-register.
+   */
+  fun findFacts(key: PodKey): PodTokenFacts? =
+    tokens.find(keyFilter(key)).projection(FACTS).firstOrNull()?.toFacts()
+
   fun listForProfile(profile: ProfileKey): List<PodTokenFacts> =
     tokens.find(Filters.and(Filters.eq("user", profile.user), Filters.eq("profile", profile.profile)))
-      .projection(Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince"))
-      .map {
-        PodTokenFacts(
-          pod = it.getString("pod"),
-          podClientId = it.getString("podClientId"),
-          podRedirectUri = it.getString("podRedirectUri"),
-          deadGrantSince = it.getDate("deadGrantSince"),
-        )
-      }.toList()
+      .projection(FACTS).map { it.toFacts() }.toList()
+
+  private fun Document.toFacts() = PodTokenFacts(
+    pod = getString("pod"),
+    podClientId = getString("podClientId"),
+    podRedirectUri = getString("podRedirectUri"),
+    deadGrantSince = getDate("deadGrantSince"),
+  )
 
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
   fun releaseRefreshClaim(key: PodKey, holder: String) {
@@ -451,5 +458,7 @@ class TokenVaultDao(
      * away.
      */
     private const val REFRESH_TOKEN_TYPE = "string"
+
+    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince")
   }
 }

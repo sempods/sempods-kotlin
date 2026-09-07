@@ -17,6 +17,7 @@ import org.sempods.mcp.auth.WebSession
 import org.sempods.mcp.auth.JwtTestSupport
 import org.sempods.mcp.oauth.FakeIdentityProvider
 import org.sempods.mcp.oauth.TokenIssuer
+import org.sempods.mcp.crypto.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
 import org.sempods.mcp.persist.AuditEventType
 import org.sempods.mcp.persist.AuditLogDao
@@ -500,6 +501,41 @@ class WebUiEndpointTest {
       pod.verify(
         request().withMethod("POST").withPath("/p/_system/auth/register"),
         VerificationTimes.never(),
+      )
+    }
+  }
+
+  @Test
+  fun `a dead connection whose tokens will not decrypt still re-registers on re-authorize`() = testApplication {
+    // The dashboard reports the mark without decrypting anything, so an unreadable row is shown as
+    // "reconnect needed" — and re-authorizing it is exactly what the person is here to do. Reading
+    // the row through `find` would answer null, lose the mark, and reuse a `dyn:` id the pod may
+    // have cleared, which dead-ends on its 400: the case dead-grant re-registration exists for.
+    val user = "https://id.test/e/web-user-unreadable"
+    val tokenIssuer = installWebUi()
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
+          issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      // Written under a key this deployment does not have, the way a rotated or lost
+      // `MCP_SECRET_KEY` leaves a row behind.
+      TokenVaultDao(db!!, SecretCipher(ByteArray(32) { (it + 9).toByte() })).upsert(
+        PodTokens(
+          user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
+          accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
+        ),
+      )
+      assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase))
+
+      assertEquals(
+        "dyn:fresh", authorize.parameters["client_id"],
+        "the mark survives a row that will not decrypt, so the re-auth still re-registers: $authorize",
       )
     }
   }

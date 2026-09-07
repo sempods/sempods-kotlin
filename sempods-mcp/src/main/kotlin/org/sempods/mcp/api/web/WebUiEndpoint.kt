@@ -142,9 +142,13 @@ fun Application.webUiEndpoint(
     // Read only where it can be used: `/pods/separate` passes `existing = null` for a pod that IS
     // connected, because dropping the registration and taking the profile's own is the whole point
     // of that route — so the registry row, not the token row that outlives it, is the gate.
-    val vault = existing?.let { tokenVaultDao.find(PodKey(user, profile, podBaseUrl)) }
-    val registration = existing?.let { PodClientIdentity.registrationOf(vault, it) }
-    val reused = reusableClientId(registration?.clientId, deadGrant = vault?.isDeadGrant == true, metadata)
+    // The facts, not the decrypted row: a connection whose tokens will not decrypt is exactly one
+    // somebody is here to re-authorize, and reading it through `find` would answer null — dropping
+    // the mark the dashboard just showed them, so the flow would reuse a `dyn:` id the pod may have
+    // cleared and dead-end on its 400. Nothing below needs a token.
+    val facts = existing?.let { tokenVaultDao.findFacts(PodKey(user, profile, podBaseUrl)) }
+    val registration = existing?.let { PodClientIdentity.registrationOf(facts, it) }
+    val reused = reusableClientId(registration?.clientId, deadGrant = facts?.isDeadGrant == true, metadata)
     // The identity follows the connection, not the profile. An existing one presents what it was
     // registered under even where it has to re-register — that is what makes [reusableClientId]'s
     // fresh DCR free, since the fingerprint is then the one the live registration holds. Only a
