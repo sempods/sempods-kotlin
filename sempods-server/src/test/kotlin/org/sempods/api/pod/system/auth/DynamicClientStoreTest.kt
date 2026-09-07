@@ -15,16 +15,10 @@ import kotlin.test.assertTrue
 
 /**
  * What [DynamicClientStore.register] answers when two registrations of one client meet at a pod.
+ * One `client_id` has to come out of it: the pod's grants are keyed `(pod, client_id, WebID)`.
  *
- * Hosted MCP sends an identical registration for every user, so the fingerprint carries nothing
- * that tells two people apart: both press "Connect" for one pod, both ask "do you know this
- * client?", both are told no. One `client_id` has to come out of that, because the pod's grants are
- * keyed `(pod, client_id, WebID)` and a second id would split the consent screen into two entries
- * that look alike.
- *
- * The spy is what puts the second registration in the gap, rather than two threads: the race is a
- * property of the mechanism — a lookup and an insert that are not one statement — and asserting it
- * through timing would only ever assert the timing.
+ * The spy puts the second registration in the gap rather than two threads — the race is a property
+ * of the mechanism, and asserting it through timing would only assert the timing.
  */
 class DynamicClientStoreTest : SempodsIntegrationTest() {
 
@@ -38,9 +32,8 @@ class DynamicClientStoreTest : SempodsIntegrationTest() {
     val collection = ownStore("dcr")
     val dao = DynamicClientRegistrationDao(db, collection)
 
-    // The lookup this caller runs reports a miss, and the winner's row lands before the insert —
-    // which is exactly the order two concurrent registrations produce. Every later call is the
-    // real one, so the re-read after the refusal is the DAO's own.
+    // The lookup misses and the winner's row lands before the insert, which is the order two
+    // concurrent registrations produce. Every later call is the real one.
     var raced = false
     val racing = spyk(dao)
     every { racing.findByFingerprint(any(), any()) } answers {
@@ -74,10 +67,9 @@ class DynamicClientStoreTest : SempodsIntegrationTest() {
 
   @Test
   fun `a winner that is gone by the re-read is registered afresh, not answered as a 500`() {
-    // The other direction of the same gap. `/register` is unauthenticated, and the pod-deletion
-    // cascade clears every registration this pod holds — so the row that refused this insert can
-    // be gone by the time the loser reads it. Answering nothing there would turn a race plus a
-    // delete into a 500 on a pre-auth endpoint, against the deterministic-errors stance.
+    // The other direction of the same gap: the pod-deletion cascade can clear the row that refused
+    // this insert before the loser reads it. Answering nothing would make that a 500 on a pre-auth
+    // endpoint.
     val collection = ownStore("dcr")
     val dao = DynamicClientRegistrationDao(db, collection)
 

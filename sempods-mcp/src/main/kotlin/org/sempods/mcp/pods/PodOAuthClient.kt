@@ -311,10 +311,9 @@ class PodOAuthClient(
 
   /**
    * RFC 7591 DCR at the pod. A pod dedups by fingerprint, so this is idempotent per pod — and
-   * [clientName] together with [redirectUri] is what decides which registration it dedups *to*:
-   * one profile's client, not the service's (see [PodClientIdentity]). The `software_id` and the
-   * `User-Agent` stay [CLIENT_NAME], because those say which software is calling, not which of its
-   * identities.
+   * [clientName] with [redirectUri] is what decides which registration it dedups *to*
+   * ([PodClientIdentity]). `software_id` and the `User-Agent` stay [CLIENT_NAME]: they say which
+   * software is calling, not which of its identities.
    */
   suspend fun registerClient(
     metadata: PodOAuthMetadata,

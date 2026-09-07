@@ -23,11 +23,8 @@ import kotlin.test.assertNull
 /**
  * What the update leaves behind: the unique fingerprint index, on a collection that can take it.
  *
- * The two things in its way are rows sharing a fingerprint and the non-unique index the old build
- * created. What it must **not** remove is a row — a `client_id` is what the pod's grants hang off,
- * so a duplicate is retired by dropping out of the lookup rather than by being deleted — and it
- * must not remove a unique index either, which is what a second boot would do if the drop were
- * decided by a read taken before it.
+ * Two things it must not remove — a row, because a `client_id` is what the pod's grants hang off,
+ * and the index another replica just built.
  */
 class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
@@ -80,11 +77,8 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `a second run leaves the unique index it built in place`() {
-    // Nothing records that an update ran, so every entry runs on every boot — including the boot
-    // after the one that finished the work. The second run finds its own index already standing and
-    // no predecessor left to clear, and must leave both facts alone: dropping what the first run
-    // built would leave a replica already serving accepting the duplicate registrations this
-    // exists to refuse.
+    // Every entry runs on every boot, this one included. The second run finds its own index
+    // standing and no predecessor left, and must leave both alone.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.row("dyn:older", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
@@ -103,9 +97,8 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `an index built while this update was already running is kept, not dropped`() {
-    // The concurrent boot, played out: another replica finishes the whole replacement before this
-    // one starts. `createOn` then asks for exactly the index that is already standing — same name,
-    // same options — which MongoDB answers as a no-op, and there is no predecessor left to clear.
+    // Another replica finishes before this one starts: `createOn` asks for the index already
+    // standing, same name and options, which is a no-op.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.createIndex(
@@ -127,10 +120,8 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
   @Test
   fun `a duplicate written while the sweep was running is swept too`() {
     // The rolling upgrade: the replica still on the old build serves `/register` without the
-    // constraint the whole time this runs, so it can land a duplicate after the sweep has passed
-    // that group and before the index is built. MongoDB refuses the build with E11000, and
-    // `SempodsUpdater` would log that and carry on — leaving the deployment with no constraint at
-    // all. The spy writes the row exactly where the other replica would.
+    // constraint, so it can land a duplicate between a sweep and the next build. The spy writes the
+    // row where that replica would.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.row("dyn:first", fingerprint = "fp-1", registeredAt = REGISTERED_AT)
@@ -162,11 +153,9 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `two rows written in the same millisecond retire the same way twice`() {
-    // The ordinary case here, not an exotic one: these duplicates come from two inserts racing
-    // inside one millisecond, and BSON stores milliseconds. Ordering on `registeredAt` alone leaves
-    // the winner to whatever the aggregation returned first, so two replicas sweeping at once can
-    // each unset the row the other kept — and the group ends with no fingerprint at all, which
-    // sends the client off to register a third `client_id` and orphans both grant sets.
+    // The ordinary case here: these rows come from two inserts racing inside one millisecond, and
+    // BSON stores milliseconds. On `registeredAt` alone the winner is whatever the aggregation
+    // returned first, so two replicas can each unset the row the other kept.
     val first = ownStore("dcr")
     val second = ownStore("dcr")
     val tied = listOf(ObjectId(), ObjectId(), ObjectId())
@@ -191,12 +180,10 @@ class DcrFingerprintUniquenessTest : SempodsIntegrationTest() {
 
   @Test
   fun `a replica that finished first keeps its index, and this one does not report a failure`() {
-    // The interleaving a name is what closes: this replica reads the predecessor, the other one
-    // finishes the whole replacement, and only then does this one drop. By key pattern the old
-    // index and the new one are one handle, so that drop would take the constraint the other
-    // replica just built — and the gap it opens is not self-correcting: two `/register` calls
-    // landing in it both insert and both return an id, and the sweep unsets one row's fingerprint
-    // while the id it handed out keeps its own grants. By name the drop finds nothing instead.
+    // The interleaving the name closes: this replica reads the predecessor, the other finishes the
+    // whole replacement, and only then does this one drop. By key pattern that drop would take the
+    // constraint just built — and the gap is not self-correcting, since two `/register` calls
+    // landing in it each return an id the sweep cannot take back. By name it finds nothing.
     val collectionName = ownStore("dcr")
     val registrations = db.getCollection(collectionName)
     registrations.createIndex(

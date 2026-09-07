@@ -187,45 +187,33 @@ inside its own JSON-RPC stream (see
 
 **One redirect URI per profile**
 ([`PodClientIdentity`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/pods/PodClientIdentity.kt)):
-the default profile keeps `…/_system/ui/pods/callback` and a named one is that address plus its own
-segment. That is what gives a profile a client identity of its own at the pod, on both registration
-paths at once — a sempods pod dedups DCR on (client name, `User-Agent`, redirect URIs), and a
-`did:web` identifier covers a path prefix, so a named profile presents an identifier scoped to its
-callback where a pod offers no DCR. The profile also goes into the client name, or the pod's consent
-screen lists two entries that look alike.
+`…/_system/ui/pods/callback` for the default profile, plus a segment of its own for a named one.
+That forks both registration paths at once — a sempods pod dedups DCR on (client name,
+`User-Agent`, redirect URIs), and a `did:web` identifier covers a path prefix. The profile goes into
+the client name too, or the consent screen lists two entries that look alike.
 
-The segment sits *below* the callback rather than at the service root, and that is forced: the web
-session is a cookie scoped to `/_system/ui`, and RFC 6265 sends it nowhere else — a callback outside
-that path arrives with no session, and the connect ends at the sign-in screen instead of at the
-token exchange.
+The segment sits *below* the callback rather than at the service root because the session cookie is
+scoped to `/_system/ui`: outside it the callback arrives with no session and the connect ends at the
+sign-in screen.
 
-It has to fork, because permissions are the pod's and not this service's:
+It has to fork, because the permissions are the pod's:
 
-> Connect `pod.example` in `…/private` and allow *finance* and *notes*; connect it in
-> `…/cron-agent` and allow *notes*. The pod resolves what a request may read from
-> `(pod, client_id, WebID)` — the access token carries feature scopes only — so as one `client_id`
-> the cron agent reaches finance, whatever the dashboard shows. Sign in at the pod as a *different*
-> user and the profiles were already separate: grants and refresh families are per WebID.
+> Allow *finance* and *notes* in `…/private`, allow *notes* in `…/cron-agent`. The pod reads what a
+> request may see from `(pod, client_id, WebID)`, not from the token — so as one `client_id` the
+> cron agent reaches finance.
 
-The default profile keeps the identity it has, so nothing existing re-consents. A named-profile
-connection made before the fork also keeps its shared `client_id` and the callback that
-registration is pinned to — on every path, connect and re-authorize alike, because an identity is a
-property of the connection rather than of the profile it sits in. The dashboard marks it *shared
-client* and offers to separate it, which is its own action for the reason it exists: it registers
-the profile's own client and costs one consent at the pod, because the new identity starts with no
-grants. What it buys is the paragraph above, and one thing more:
+**An identity belongs to the connection, not to the profile.** The default profile keeps the one it
+has, and a connection made before the fork keeps its shared `client_id` and callback on every path,
+connect and re-authorize alike. The dashboard marks it *shared client* and offers to separate it —
+its own action, because the new client has no grants at the pod and the person is asked again:
 
-> While two profiles share a `client_id`, connecting `pod.example` in `…/cron-agent` retires the
-> refresh-token family `…/private` holds there, so `…/private` reports "reconnect required" once
-> its access token expires. Separated, the second connect costs the first nothing.
+> While two profiles share a `client_id`, connecting in `…/cron-agent` retires the refresh-token
+> family `…/private` holds, so `…/private` reports "reconnect required". Separated, it costs the
+> first nothing.
 
-**The fork is per profile and not per service user**, and the line runs where the pod draws it. Two
-people who sign in at a pod as the same WebID are one person to that pod — it holds one grant set
-and one refresh-token family for that identity, and nothing this service sends can make it hold
-two. So two service accounts that both name a profile `cron-agent` and both authenticate at
-`pod.example` as the same pod user arrive as one client and collide there exactly as two profiles
-of one account used to. What separates *people* at a pod is the WebID they sign in as, which is why
-the fork above is about profiles and stops there.
+**Per profile, not per service user.** Two accounts signing in at a pod as the same WebID are one
+person to that pod — one grant set, one refresh-token family, whatever this service sends. The
+WebID is what separates people there, so the fork stops at the profile.
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
 client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
@@ -324,17 +312,11 @@ service sends the profile's own callback:
    for the shared digest), forcing distinct OAuth clients on the connector
    side.
 2. **Service → pod.** The **tokens** are isolated by the key: registry and
-   vault rows are `(user, profile, pod)`, so `…/private` and `…/cron-agent`
-   hold separate bearers and reach separate connection bundles. The
-   **pod-side client identity** is isolated by the redirect URI, which is
-   the fingerprint input this service can give meaning to — a named profile
-   registers under its own callback segment, so a pod that dedups arrives at
-   a different `client_id`, and a pod offering no DCR is shown a `did:web`
-   identifier scoped to that callback. Grants are keyed
-   `(pod, client_id, WebID)`, so the profile and the WebID now separate
-   different things there: which client, and which person. See [connecting a
-   pod](#connecting-a-pod-oauth) for what a connection made before the fork
-   keeps until it is separated.
+   vault rows are `(user, profile, pod)`. The **pod-side client identity** is
+   isolated by the redirect URI, the fingerprint input this service can give
+   meaning to. Grants are keyed `(pod, client_id, WebID)`, so the profile and
+   the WebID separate different things there: which client, and which person.
+   See [connecting a pod](#connecting-a-pod-oauth).
 
 ### Identity and keying
 

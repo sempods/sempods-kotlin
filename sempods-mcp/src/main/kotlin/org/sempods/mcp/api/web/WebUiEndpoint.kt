@@ -42,18 +42,16 @@ import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.utils.appendEscapedHtml
 
-/**
- * The session-protected management web-UI, bundled under the `/_system/ui` sub-tree (reserved
- * system namespace; every route here requires the web-session cookie, which is why the cookie is
- * scoped to exactly this path). It lets a user connect pods (service → pod OAuth) and
- * see/disconnect their connections — filling the M1 persistence spine (`connections` +
- * `podTokens`). Machine MCP/AS endpoints stay at the root, with one exception that has to sit
- * inside this tree: a named profile's DID document, at its callback plus `/did.json`, is public
- * and unauthenticated, because the did:web read algorithm derives that address from an identifier
- * whose subtree the session cookie also decides (`PodClientIdentity`).
- */
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.web")
 
+/**
+ * The management web-UI: connect a pod, see and disconnect what is connected.
+ *
+ * Every route here reads the web-session cookie, which is scoped to `/_system/ui` and reaches
+ * nowhere else — the reason a named profile's callback sits under this sub-tree rather than at the
+ * service root ([PodClientIdentity]). The one route in the tree that needs no session is that
+ * profile's DID document, which `oauthMetadataEndpoint` serves at the callback plus `/did.json`.
+ */
 fun Application.webUiEndpoint(
   config: SempodsMcpConfig,
   webSession: WebSession,
@@ -140,22 +138,11 @@ fun Application.webUiEndpoint(
   ): String {
     val metadata = podOAuthClient.discoverMetadata(podBaseUrl)
     val reused = reusableClientId(existing, metadata)
-    // Which identity this connect presents, and it follows the **connection** rather than the
-    // profile wherever there is one. A first connect presents the profile's own — and the
-    // dashboard's Separate identity is a first connect, which is what makes it the deliberate step
-    // it was meant to be.
-    //
-    // An existing connection presents the identity it was registered under **even where it has to
-    // re-register**. That is what [reusableClientId] promises above: a fresh DCR costs nothing when
-    // the registration is alive, because the fingerprint is stable and the pod hands the same id
-    // back. Reaching for the profile's own here would break that promise on exactly the connection
-    // most likely to need it — while two profiles share a client, a sibling's connect retires this
-    // one's refresh-token family, so it is flagged dead with its registration perfectly alive — and
-    // it would separate the connection silently on the one button a person in that state is told to
-    // press.
+    // The identity follows the connection, not the profile. An existing one presents what it was
+    // registered under even where it has to re-register — that is what makes [reusableClientId]'s
+    // fresh DCR free, since the fingerprint is then the one the live registration holds. Only a
+    // first connect takes the profile's own, and `/pods/separate` is a first connect.
     val identity = existing?.let { PodClientIdentity.profileOf(base, it.podRedirectUri) } ?: profile
-    // The address the identity is pinned to: a `dyn:` registration lists it and a `did:web`
-    // identifier covers the subtree it lies in.
     val redirectUri = PodClientIdentity.callbackUri(base, identity)
     val podClientId = reused
       ?: metadata.registrationEndpoint?.let {
@@ -345,15 +332,9 @@ fun Application.webUiEndpoint(
       }
 
       val redirect = runCatching {
-        // DCR when the pod offers it (full sempods pod), otherwise our static did:web client_id.
-        // Whether the pod resolves the did.json we serve or just matches the origin is its own
-        // choice — the method permits both, and this branch is for pods we did not write. A sempods
-        // pod fetches nothing (`DidWeb`).
-        //
-        // The existing row is looked up rather than assumed absent: this form is also how a person
-        // reconnects a pod they already have, and typing its URL again must not be the thing that
-        // takes its identity away. `/pods/separate` is where that decision is made, and it is the
-        // only caller that passes `existing = null` for a pod already connected.
+        // The row is looked up rather than assumed absent: this form is also how a person reconnects
+        // a pod they already have, and typing its URL again must not take its identity away.
+        // `/pods/separate` is the only caller that passes `existing = null` for a connected pod.
         buildPodAuthorizeRedirect(
           session.user, profile, podBaseUrl, returnTo,
           existing = connectionRegistryDao.find(PodKey(session.user, profile, podBaseUrl)),
@@ -402,15 +383,11 @@ fun Application.webUiEndpoint(
       call.respondRedirect(redirect)
     }
 
-    // --- Give a connection this profile's own identity at the pod (an explicit re-consent) ---
+    // --- Give a connection this profile's own identity at the pod ---
     //
-    // The one action that deliberately drops a connection's identity, which is why it is its own
-    // route rather than a flag on the connect form. What it costs is a consent: the profile's own
-    // client starts with no grants at the pod, so the person is asked again what it may read. Every
-    // other path — connect, re-authorize — keeps the identity the connection was registered under.
-    //
-    // Idempotent where the connection already has its own: the fingerprint is then the one it is
-    // registered under, so the pod dedups straight back to it.
+    // The one action that drops a connection's identity, which is why it is a route rather than a
+    // flag on the connect form: it costs a consent, because the new client has no grants at the
+    // pod. Idempotent where the connection already has its own.
     post("/_system/ui/pods/separate") {
       val session = webSession.read(call)
         ?: return@post call.respondRedirect("$base/_system/ui/login")
@@ -435,11 +412,9 @@ fun Application.webUiEndpoint(
 
     // --- Pod redirects here with the authorization code ---
     //
-    // Two routes, one handler: a connect started in a named profile is registered at
-    // `…/_system/ui/pods/callback/<profile>` and comes back there, while a connection made before
-    // profiles had their own identity is still pinned to the parent address and comes back here.
-    // Which one a flow belongs to is not read off the path — [PodConnectStateStore.Pending] holds
-    // it, and `arrivedAt` is only checked against it.
+    // Two routes, one handler: a named profile comes back at its own callback, a connection still
+    // on the shared client at the parent. Which flow it is comes from `Pending`, never from the
+    // path — `arrivedAt` is only checked against it.
     suspend fun ApplicationCall.completePodConnect(arrivedAt: String) {
       val session = webSession.read(this)
         ?: return respondRedirect("$base/_system/ui/login")
@@ -455,8 +430,7 @@ fun Application.webUiEndpoint(
       if (pending.user != session.user) {
         return respondRedirect("$base/_system/ui?error=${enc("session/user mismatch")}")
       }
-      // The code was issued for one address and must be redeemed at that one — a flow arriving at
-      // the other profile's callback is not this flow, whatever `state` it carries.
+      // The code was issued for one address and is redeemed at that one.
       if (pending.redirectUri != arrivedAt) {
         logger.warn {
           "pod callback arrived at '$arrivedAt' for a connect registered at '${forLog(pending.redirectUri)}'"
@@ -654,9 +628,8 @@ private fun dashboardHtml(
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val showUnverified = c.foreignIdentity && !c.subjectVerified
       val needsReconnect = c.deadGrantSince != null
-      // A named profile whose client at this pod is not its own — connected before profiles had
-      // one, so the pod holds a single `client_id` for it and the default profile, and one grant
-      // set under it. The dashboard says "cron-agent"; the pod does not know the word.
+      // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
+      // it and the default profile, and one grant set under it.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&
         PodClientIdentity.profileOf(base, c.podRedirectUri) != selectedProfile
       if (c.scopes.isNotEmpty() || showUnverified || needsReconnect || sharesDefaultClient) {
@@ -667,8 +640,7 @@ private fun dashboardHtml(
         if (sharesDefaultClient) append("<span class=\"badge warn\">shared client</span>")
         append("</div>")
       }
-      // Offered rather than done: the profile's own client starts with no grants at the pod, so
-      // separating costs one consent — a person's decision, not a silent switch on their behalf.
+      // Offered rather than done: separating costs one consent at the pod.
       if (sharesDefaultClient) {
         append("<div class=\"acts\">this pod knows one client for all your profiles; ")
         append("Separate identity registers this profile's own and asks the pod again what it may read</div>")

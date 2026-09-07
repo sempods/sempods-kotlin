@@ -55,29 +55,14 @@ data class PodConnection(
   val createdAt: Date,
   val updatedAt: Date,
   /**
-   * The redirect URI [podClientId] is pinned to at the pod — a `dyn:` registration lists it, and a
-   * `did:web` identifier covers the subtree it lies in, so presenting that id again means
-   * presenting this address again.
+   * The redirect URI [podClientId] is pinned to at the pod, so presenting that id again means
+   * presenting this address. Null is a connection made while every profile shared one client, and
+   * means the parent `…/_system/ui/pods/callback`; `PodClientIdentity.profileOf` reads it back.
    *
-   * Stored rather than derived from [profile], because the two can differ: a named profile
-   * registers under `…/_system/ui/pods/callback/<profile>`, while a connection made while every
-   * profile shared one client is pinned to the parent `…/_system/ui/pods/callback`, which is what
-   * null means. Such a connection keeps the identity it has until the person separates it —
-   * the dashboard offers that, and it costs one consent at the pod.
-   *
-   * Last in the list, after the two non-nullable dates. That buys one thing and it is worth being
-   * precise about which: every existing `componentN()` keeps its meaning, so a consumer compiled
-   * against an older artifact fails to link rather than silently destructuring this field where it
-   * asked for the scopes. The primary constructor and `copy` change their descriptors either way —
-   * a data class cannot gain a field without that, and there is no placement that avoids it.
-   *
-   * Which is allowed here, and the reason is not that nobody would notice. This module's promise is
-   * the **embedding contract** — the config and the Guice module, compiled by
-   * `:consumer-probe:mcp` — and `org.sempods.probe.auth.embedSempodsAuth` states the limit for both
-   * services: the wider public surface "was [not] designed as API", and naming it would "turn an
-   * accident into a promise". A persistence row reached through a DAO the module wires itself is
-   * that wider surface, and `../../AGENTS.md` §"Deployment stance" has this module assuming a fresh
-   * setup for a breaking schema change rather than carrying compatibility for one.
+   * Last in the list so every existing `componentN()` keeps its meaning — a consumer compiled
+   * against an older artifact then fails to link rather than destructuring this where it asked for
+   * the scopes. The constructor and `copy` change either way, which this module's promise does not
+   * cover: that is the embedding contract, per `org.sempods.probe.auth.embedSempodsAuth`.
    */
   val podRedirectUri: String? = null,
 ) {

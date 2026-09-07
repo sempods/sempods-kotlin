@@ -98,17 +98,11 @@ already says whose they are.
 Nothing here versions the stored data or records that a change was applied. What exists is
 `SempodsUpdater`, an eager singleton whose `runUpdates` is called while Guice builds the injector —
 before `SempodsServerStarter` obtains the Jetty server from it. The list of updates it submits is
-**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`. It builds the unique fingerprint
-index on `oauth.clientRegistrations`, and sweeps the duplicate rows out of the way only where the
-build says there are some — MongoDB refuses a unique index over duplicate data, so a build that
-succeeds has already proved there is nothing to sweep, and a boot on a database that has run this
-before costs one command instead of a scan. Up to three passes, because a replica still on the old
-build can write another duplicate in between. It works that collection directly rather than through
-`DynamicClientRegistrationDao` — the DAO builds the same index in its constructor, so injecting it
-would build it while the duplicates are still there. The index definition lives in one place
-(`DcrFingerprintIndex`) for the same reason: two spellings of it would conflict at every boot. It is
-also the one index here carrying an explicit name, which is what lets two replicas boot at once
-without either dropping the constraint the other just built — the reasoning is at `replaceOn`.
+**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`, which builds the unique fingerprint
+index on `oauth.clientRegistrations` and sweeps the duplicate rows only where the build says there
+are some. It works that collection directly rather than through `DynamicClientRegistrationDao`,
+which builds the same index in its constructor. `DcrFingerprintIndex` owns the definition and the
+reasoning — including why it is the one index here with a name of its own.
 
 **Two execution modes, and the split is the part that works.** Each update declares `blocking`. A
 blocking one runs synchronously there, so it is finished before the first request is accepted; the

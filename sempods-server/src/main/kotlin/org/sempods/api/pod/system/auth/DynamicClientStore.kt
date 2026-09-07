@@ -70,17 +70,11 @@ class DynamicClientStore @Inject constructor(
     // pod has one MCP surface, so there is nothing to fork registrations by.
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, realm = null, redirectUris)
 
-    // Look, then insert, and let the loop settle whichever of the two the other party won. A
-    // second registration of this client landing in the gap is all it takes to make the lookup
-    // miss and the insert be refused — two people clicking "Connect" for one pod in the same
-    // second, since the fingerprint carries nothing that tells them apart — and the next pass's
-    // lookup then answers the winner's row, which the caller cannot tell from an ordinary dedup
-    // hit because it is one: one logical client is one `client_id`, and that is what the pod's
-    // grants are keyed by.
-    //
-    // Looping rather than re-reading once, because the other direction happens too: the winner's
-    // row can be gone by the time the loser reads it (the pod-deletion cascade clears every
-    // registration), and a single re-read would answer nothing and turn an unauthenticated
+    // Look, then insert, and let the loop settle whichever the other party won. A second
+    // registration landing in the gap makes the lookup miss and the insert be refused, and the next
+    // pass's lookup answers the winner — which the caller cannot tell from an ordinary dedup hit
+    // because it is one. The other direction happens too: the winner's row can be gone by then (the
+    // pod-deletion cascade), and a single re-read would answer nothing and turn an unauthenticated
     // `/register` into a 500. The next pass just inserts.
     repeat(ATTEMPTS) {
       dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
@@ -106,7 +100,6 @@ class DynamicClientStore @Inject constructor(
       )
       if (dbo != null) return dbo.toRegistration()
     }
-    // Losing every pass means the two are alternating in step, which is not a race any more.
     error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPodId")
   }
 

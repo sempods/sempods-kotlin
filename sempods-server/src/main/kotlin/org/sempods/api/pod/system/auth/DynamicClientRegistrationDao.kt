@@ -87,22 +87,15 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
       ),
     )
     registrations.createIndex(Indexes.ascending(DynamicClientRegistrationDboFields.registeredAt))
-    // Unique, so that the dedup in [DynamicClientStore.register] holds under concurrency: the
-    // lookup and the insert are two statements, and two registrations of one client arriving
-    // together both miss the lookup. The index is what refuses the second insert; [create] turns
-    // that refusal into a `null` the caller re-reads by fingerprint. Defined in
-    // [DcrFingerprintIndex], because `DcrFingerprintUniqueness` builds the same one.
+    // Unique, which is what makes the dedup in [DynamicClientStore.register] hold: its lookup and
+    // its insert are two statements, and the index refuses the second of two that raced.
     DcrFingerprintIndex.createOn(registrations)
   }
 
   /**
-   * Inserts a registration, or answers `null` when this pod already holds one under the same
-   * [fingerprint].
-   *
-   * The `null` is the unique index speaking, and it is the second half of the dedup: the lookup in
-   * [DynamicClientStore.register] runs before this call, so two registrations of one client
-   * arriving together both find nothing and both come here. Whoever loses re-reads by fingerprint
-   * and returns the winner's id.
+   * Inserts a registration, or answers `null` where this pod already holds one under the same
+   * [fingerprint] — the unique index speaking, which [DynamicClientStore.register] reads as
+   * "somebody else won" and re-reads.
    */
   internal fun create(
     clientId: String,
@@ -149,8 +142,7 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
       registrations.insertOne(dbo.toDocument())
       dbo
     } catch (e: MongoWriteException) {
-      // `clientId` is 18 random bytes, so the only unique index a duplicate can be hitting is the
-      // fingerprint one — the same reasoning `OAuthSigningKeyDao.createInitial` states for `_id`.
+      // `clientId` is 18 random bytes, so the fingerprint index is the only one a duplicate can be.
       if (ErrorCategory.fromErrorCode(e.error.code) != ErrorCategory.DUPLICATE_KEY) throw e
       null
     }
@@ -211,9 +203,8 @@ class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, colle
    * The newest row matching [filter].
    *
    * Both lookups sort by `registeredAt` descending and take one, as they did under Morphia. Both
-   * filters are unique indexes now, so there is only ever one row to find — the sort is what still
-   * answers deterministically on a pod whose duplicates `DcrFingerprintUniqueness` failed to
-   * clear, and it costs nothing the index does not already give.
+   * filters are unique now, so there is only ever one row — the sort is what still answers
+   * deterministically on a pod whose duplicates `DcrFingerprintUniqueness` failed to clear.
    */
   private fun findNewest(filter: Bson): DynamicClientRegistrationDbo? =
     registrations.find(filter)

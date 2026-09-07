@@ -12,14 +12,11 @@ import org.bson.conversions.Bson
  * The index that makes the DCR dedup a constraint rather than a lookup:
  * `(registeredForPodId, fingerprint)`, unique, partial on the fingerprint existing.
  *
- * One definition, because two would be the failure it prevents. `DynamicClientRegistrationDao`
- * creates it and `DcrFingerprintUniqueness` builds it and clears away the one an older build left;
- * if those two spelled the options out separately, a difference between them would make one of them
- * throw `IndexOptionsConflict` against the other's index — at boot, on every boot.
+ * One definition, because `DynamicClientRegistrationDao` and `DcrFingerprintUniqueness` both build
+ * it: two spellings would conflict at every boot.
  *
- * Partial because most rows predate the dedup and carry no fingerprint at all: indexing them would
- * say nothing, the lookup never asks for them, and it is what lets a duplicate be retired by
- * unsetting the field rather than by deleting a row somebody's grants hang off.
+ * Partial because rows predating the dedup carry no fingerprint, and because it is what lets a
+ * duplicate be retired by unsetting the field rather than by deleting a row grants hang off.
  */
 internal object DcrFingerprintIndex {
 
@@ -28,11 +25,7 @@ internal object DcrFingerprintIndex {
     DynamicClientRegistrationDboFields.fingerprint,
   )
 
-  /**
-   * Named, where every other index in this collection takes MongoDB's default. The name is not
-   * decoration: it is the handle [replaceOn] drops by, and it is what stops one replica's drop from
-   * removing the index another replica has already built in its place — see there.
-   */
+  /** Named, where the other four take MongoDB's default: [replaceOn] needs a handle of its own. */
   const val UNIQUE_NAME = "registeredForPodId_1_fingerprint_1_unique"
 
   private val KEY_FIELDS = listOf(
@@ -48,27 +41,12 @@ internal object DcrFingerprintIndex {
   /**
    * Builds it and clears the predecessor away. Answers whether there was one.
    *
-   * **The name is what makes this safe under concurrent boots**, and it does it twice. The pod
-   * server runs more than one replica (`OAuthSigningKeyDao.createInitial` exists for the same
-   * reason), so two boots can be in here at once, and being refused is not a decision either can
-   * act on later: both can be refused before either drops.
-   *
-   * A name of its own removes the refusal altogether. MongoDB keeps two indexes over one key
-   * pattern when their names and options differ, so [createOn] simply succeeds beside the
-   * predecessor — and running it twice is a no-op, because the second replica asks for exactly the
-   * index the first built. **The constraint is therefore in place before anything is dropped**,
-   * where a replace would have had to open a gap to make room for it.
-   *
-   * And the drop can then only ever name the predecessor. By key pattern the old index and the new
-   * one are the same handle, so a replica dropping that way would delete the constraint another had
-   * just built; by name they are two things, and a drop whose target another replica already
-   * removed finds nothing.
-   *
-   * Both halves matter because the gap is not self-correcting. Two `/register` calls landing while
-   * no unique index stands both insert and both **return** their own `client_id`, and the sweep
-   * does not undo that — it unsets the older row's fingerprint so the lookup answers one of them,
-   * while the id it already handed out keeps its own grants. The database ends consistent and the
-   * client stays split in two, which is the whole of what this exists to prevent.
+   * The order is what makes concurrent boots safe, and the name is what allows the order. MongoDB
+   * keeps two indexes over one key pattern when their names differ, so [createOn] succeeds beside
+   * the predecessor instead of conflicting with it: the constraint is in place before anything is
+   * dropped, and a drop that names the predecessor cannot take the index another replica just
+   * built. Both matter because a gap is not self-correcting — two `/register` calls landing in one
+   * each insert and each **return** an id, and the sweep cannot take back what was handed out.
    */
   fun replaceOn(registrations: MongoCollection<Document>): Boolean {
     createOn(registrations)
@@ -76,27 +54,21 @@ internal object DcrFingerprintIndex {
     try {
       registrations.dropIndex(stale)
     } catch (alreadyGone: MongoCommandException) {
-      // 27 = IndexNotFound: the other replica dropped it between this one's read and its drop.
-      // Not a failure — the constraint is already built, and this is the tidying after it. Left
-      // unhandled it would have `SempodsUpdater` log a failed migration at SEVERE on a boot where
-      // everything worked, which is the one signal an operator has.
+      // 27 = IndexNotFound: another replica dropped it first. Not a failure — the constraint is
+      // already built, and this is only the tidying after it.
       if (alreadyGone.errorCode != INDEX_NOT_FOUND) throw alreadyGone
     }
     return true
   }
 
-  /**
-   * The name of an index over this key pattern that is not the one built here, or `null` where the
-   * only one is. Null is the ordinary answer: on a database that never had the predecessor, and on
-   * the second replica of a boot where the first has already cleared it.
-   */
+  /** An index over this key pattern that is not the one built here — `null` is the ordinary answer. */
   private fun predecessorName(registrations: MongoCollection<Document>): String? =
     registrations.listIndexes().firstOrNull { index ->
       index.get("key", Document::class.java)?.keys?.toList() == KEY_FIELDS &&
         index.getString("name") != UNIQUE_NAME
     }?.getString("name")
 
-  /** Fresh per call: `IndexOptions` is mutable, so a shared instance is a shared surprise. */
+  /** Fresh per call: `IndexOptions` is mutable. */
   private fun options(): IndexOptions = IndexOptions()
     .name(UNIQUE_NAME)
     .unique(true)

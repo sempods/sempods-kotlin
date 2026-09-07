@@ -68,29 +68,19 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
     respondText(body(profile), ContentType.Application.Json)
   }
 
-  // The service's own did:web document — a pod using the did:web static-client model may resolve
-  // the service's `client_id` to this and check `id` matches before accepting the connect. Offered
-  // because the method permits it, not because sempods needs it: a sempods pod accepts the
-  // identifier on the origin match alone (`DidWeb`) and fetches nothing, which is where its lack of
-  // an SSRF surface comes from.
+  // The DID document a pod may resolve a `client_id` to before accepting a connect. Offered
+  // because the method permits it, not because sempods needs it: a sempods pod matches the origin
+  // and fetches nothing.
   //
-  // One per profile, because the identifier is: `did:web:<host>` for the default profile and
-  // `did:web:<host>:<profile>` for a named one, which is what makes them different clients at a
-  // pod that offers no DCR (`PodClientIdentity`). `DidWeb.clientId` mints a path-scoped identifier
-  // only against the promise that its document is served where the method says it is — these two
-  // routes are that promise, and a mismatch is something a dereferencing pod may refuse.
-  //
-  // The two locations differ, and the split is the did:web read algorithm's: the colons become
-  // slashes, `/.well-known` is inserted **only** when that leaves no path, and `/did.json` is
-  // appended. So the host-only identifier resolves to `/.well-known/did.json`, and a named
-  // profile's — scoped to its callback — to that callback plus `/did.json`.
+  // One per profile, because the identifier is (`PodClientIdentity`), and at two different
+  // addresses because the did:web read algorithm derives them differently: `/.well-known/did.json`
+  // for the host-only form, and the callback plus `/did.json` for a path-scoped one.
   fun didDocument(profile: String): String =
     objectMapper.writeValueAsString(DidWeb.document(PodClientIdentity.didWebClientId(base, profile)))
 
-  // The default profile's is a constant, and this is the route a pod fetches on every connect —
-  // built once, as it was before the fork. A named profile's is built per request rather than
-  // memoised: the segment comes from the URL, so a map keyed by it would grow with whatever a
-  // stranger asks for, and the document is two fields.
+  // Built once: this is the route a pod fetches on every connect. A named profile's is per request
+  // rather than memoised — the segment comes from the URL, so a map keyed by it would grow with
+  // whatever a stranger asks for.
   val defaultDidDocument = didDocument(PodKey.DEFAULT_PROFILE)
 
   routing {

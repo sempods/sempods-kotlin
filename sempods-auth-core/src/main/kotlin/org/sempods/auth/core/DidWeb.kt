@@ -25,20 +25,7 @@ object DidWeb {
 
   /**
    * What a path segment handed to [clientId] may contain: the DID syntax's `idchar` less
-   * `pct-encoded`, which is `ALPHA / DIGIT / "." / "-" / "_"`.
-   *
-   * Narrow because both wider readings are wrong. Anything outside plain ASCII — an accent, a
-   * newline — is not a DID at all, and this repository would go on to refuse it as a `client_id`
-   * (`ClientId.isValid` is RFC 6749's `*VSCHAR`), so minting it produces an identity that cannot
-   * authorize anywhere: a caller learns that at `/authorize` instead of here. And `pct-encoded`,
-   * which the DID grammar does allow, is left out on purpose: [targetOf] percent-decodes every
-   * segment, so an encoded one would come back as something other than what was minted, and the
-   * identifier would cover a subtree nobody named. A caller needing a character outside this set
-   * needs a different segment, not an escape.
-   *
-   * `.` and `..` match this set and are refused separately, in every one of the three places a
-   * segment is read: they are instructions about a path rather than parts of one, so a prefix built
-   * from them names no location and covers addresses that arrive outside it.
+   * `pct-encoded`, which [targetOf] would decode into something other than what was minted.
    */
   val SEGMENT_CHARS = Regex("^[A-Za-z0-9._-]+$")
 
@@ -61,11 +48,7 @@ object DidWeb {
       val uriHost = uri.host?.trim()?.lowercase() ?: return false
       if (uriHost != host || normalizedPort(uri) != port) return false
       val path = uri.path.orEmpty()
-      // A `.` or `..` is not a path segment, it is an instruction about one, and matching on it
-      // would answer for a destination that is not the one asked about: `/mcp/../evil` starts with
-      // `/mcp/` and arrives at `/evil`, outside the subtree the identifier names. Refused rather
-      // than normalised, because what a client registers is an address and no address needs one.
-      if (path.split('/').any { it == "." || it == ".." }) return false
+      if (!isPlainPath(path)) return false
       if (pathPrefix == "/") return true
       return path == pathPrefix || path.startsWith("$pathPrefix/")
     }
@@ -88,12 +71,8 @@ object DidWeb {
    * permits it.
    *
    * @throws IllegalArgumentException if [baseUrl] is not an absolute host-root http(s) URL, or a
-   *   segment is not [SEGMENT_CHARS].
+   *   segment is not [SEGMENT_CHARS] or is a dot segment.
    */
-  // `@JvmOverloads` for the one-argument form, which this module has published. A Kotlin default
-  // keeps callers compiling and does not keep them running: it replaces the `clientId(String)`
-  // descriptor with `clientId(String, List)`, so a consumer compiled against the released artifact
-  // meets `NoSuchMethodError` on upgrading. The annotation puts the old descriptor back.
   @JvmOverloads
   fun clientId(baseUrl: String, pathSegments: List<String> = emptyList()): String {
     val uri = runCatching { URI(baseUrl.trimEnd('/')) }.getOrNull()
@@ -108,7 +87,7 @@ object DidWeb {
       "service base URL must be host-root for a did:web static client (path prefix '$rawPath' is not supported): $baseUrl"
     }
     pathSegments.forEach { segment ->
-      require(SEGMENT_CHARS.matches(segment) && segment != "." && segment != "..") {
+      require(SEGMENT_CHARS.matches(segment) && isPlainPath(segment)) {
         "did:web path segment must be one or more of A-Z a-z 0-9 . - _, and not '.' or '..': '$segment'"
       }
     }
@@ -130,11 +109,7 @@ object DidWeb {
     val hostUri = runCatching { URI("https://$hostRaw") }.getOrNull() ?: return null
     val host = hostUri.host?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
     val pathSegments = segments.drop(1).map { decode(it).trim().trim('/') }.filter { it.isNotBlank() }
-    // Malformed rather than tolerated: `did:web:example.org:..` names a prefix whose document sits
-    // at `https://example.org/../did.json`, which is not a location — an HTTP client resolves it
-    // somewhere else — and the prefix it claims would cover URIs that arrive outside it. This is
-    // the side a stranger's `client_id` reaches, so it refuses rather than repairs.
-    if (pathSegments.any { it == "." || it == ".." }) return null
+    if (pathSegments.any { !isPlainPath(it) }) return null
     return Target(
       host = host,
       port = normalizedPort(hostUri),
@@ -150,6 +125,17 @@ object DidWeb {
     "@context" to listOf("https://www.w3.org/ns/did/v1"),
     "id" to clientId,
   )
+
+  /**
+   * Whether [path] is only path, with no `.` or `..` in it.
+   *
+   * They are instructions about a path rather than parts of one, and every side of this reads a
+   * path: a redirect that starts with the prefix and arrives outside it (`/mcp/../evil` is `/evil`),
+   * and an identifier claiming a prefix whose DID document sits at no address anything fetches.
+   * Refused rather than normalised, because `URI.normalize` works on the raw path and a `%2F`
+   * hides a segment from it that [URI.getPath] then decodes back.
+   */
+  private fun isPlainPath(path: String): Boolean = path.split('/').none { it == "." || it == ".." }
 
   /** The port a URI addresses, with the scheme default filled in — so `:443` and absent compare equal. */
   fun normalizedPort(uri: URI): Int = if (uri.port != -1) uri.port else defaultPort(uri.scheme?.lowercase())

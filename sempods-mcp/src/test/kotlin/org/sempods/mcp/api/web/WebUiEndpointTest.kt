@@ -485,11 +485,9 @@ class WebUiEndpointTest {
 
   @Test
   fun `a named profile registers a client of its own, under its own callback and name`() = testApplication {
-    // The reason the whole fork exists: a pod resolves context permissions from
-    // `(pod, client_id, WebID)` and the access token carries feature scopes only. Two profiles
-    // arriving as one client_id are one permission set, so `…/cron-agent` would reach whatever the
-    // person allowed in `…/private`. The redirect URI is the fingerprint input with meaning, and
-    // the name is what keeps the pod's consent screen from listing two entries that look alike.
+    // Why the fork exists: a pod resolves permissions from `(pod, client_id, WebID)`, so two
+    // profiles arriving as one id are one permission set. The redirect URI is the fingerprint input
+    // with meaning; the name keeps the consent screen from listing two identical entries.
     val user = "https://id.test/e/web-user-named-profile"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
@@ -510,9 +508,8 @@ class WebUiEndpointTest {
 
   @Test
   fun `the default profile registers exactly what it registered before`() = testApplication {
-    // No migration, nothing existing breaks: the default profile's identity at every pod it is
-    // already connected to has to stay the one it was registered under, or every connection would
-    // pay a re-consent for a change it gets nothing from.
+    // No migration: the default profile's identity has to stay the one it was registered under, or
+    // every existing connection pays a re-consent for nothing.
     val user = "https://id.test/e/web-user-default-profile"
     val tokenIssuer = installWebUi()
     withSimulatedPod(registersAs = "dyn:root") { pod, podBase, _ ->
@@ -527,10 +524,8 @@ class WebUiEndpointTest {
 
   @Test
   fun `a pod with no DCR gives a named profile its own did-web identity`() = testApplication {
-    // The other registration path, forked by the same segment: `DidWeb.Target.covers` matches on
-    // path segments, so `did:web:mcp.test:cron-agent` may receive a code under `/cron-agent/` and
-    // nowhere else on the host. Without this a minimal pod would see one static client for every
-    // profile — the same failure, on the path that has no registration to vary.
+    // The other registration path, forked by the same segment. Without it a minimal pod sees one
+    // static client for every profile — the same failure, where there is no registration to vary.
     val user = "https://id.test/e/web-user-didweb-profile"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
@@ -545,10 +540,8 @@ class WebUiEndpointTest {
 
   @Test
   fun `a connection made before the fork keeps the callback its registration is pinned to`() = testApplication {
-    // A named profile connected while every profile shared one callback. Re-authorize presents the
-    // stored client_id — and a `dyn:` registration lists the address it was registered with, so
-    // sending the profile's new callback with it would be refused by the pod. The connection keeps
-    // what it has until the person separates it.
+    // A named profile connected while every profile shared one callback. Its registration lists
+    // the address it was made with, so sending the profile's new one would be refused.
     val user = "https://id.test/e/web-user-legacy-callback"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
@@ -574,11 +567,8 @@ class WebUiEndpointTest {
 
   @Test
   fun `connecting a pod this profile already holds keeps its identity`() = testApplication {
-    // The Connect form is also how a person reconnects a pod they already have — after seeing
-    // "reconnect needed", say. Typing the URL again must not be the thing that takes the
-    // connection's identity away: before profiles had one this was harmless, because the pod
-    // deduped straight back to the same client. Separate identity is where that decision is made,
-    // and it is the only path that drops an existing identity.
+    // The Connect form is also how a person reconnects a pod they already have. Typing the URL
+    // again must not take the connection's identity away — that is what Separate identity is.
     val user = "https://id.test/e/web-user-reconnect"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
@@ -604,14 +594,10 @@ class WebUiEndpointTest {
 
   @Test
   fun `re-authorizing a dead legacy connection keeps the shared identity it was registered under`() = testApplication {
-    // The connection most likely to be here, and the one this must not separate. While two
-    // profiles share a client at a pod, a sibling's connect retires this one's refresh-token
-    // family — so it is flagged dead with its registration perfectly alive, and Re-authorize is
-    // the button the dashboard tells the person to press. `reusableClientId` re-registers a dead
-    // `dyn:` connection on purpose, and that costs nothing only while the fingerprint is the one
-    // the live registration holds: presenting the profile's own callback and name instead would
-    // mint a second client_id, drop the pre-checked grants, and do silently what Separate identity
-    // exists to ask about.
+    // The connection most likely to be here: a sibling profile's connect retires this one's
+    // refresh-token family, so it is flagged dead with its registration alive, and Re-authorize is
+    // what the dashboard tells the person to press. `reusableClientId` re-registers a dead `dyn:`
+    // connection on purpose, which costs nothing only while the fingerprint is the live one's.
     val user = "https://id.test/e/web-user-dead-legacy"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
@@ -671,11 +657,9 @@ class WebUiEndpointTest {
 
   @Test
   fun `separating a shared connection stores the profile's own client and clears the badge`() = testApplication {
-    // The one flow in this change that costs a person a re-consent at the pod, driven end to end:
-    // the dashboard's button posts an ordinary connect, the pod registers the profile's own client,
-    // and the callback has to write both the new id and the callback it is pinned to. If it kept
-    // either, the badge would come back and the person would pay the consent again on the next
-    // press — with nothing failing.
+    // The one flow here that costs a person a re-consent, end to end. The callback has to write
+    // both the new id and the address it is pinned to; keeping either brings the badge back and
+    // charges the consent again on the next press.
     val user = "https://id.test/e/web-user-separated"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")

@@ -68,13 +68,10 @@ at registration and omitted where it is read.
   is answerable only at or below `/mcp`, matched **per path segment**,
   so `/mcp` and `/mcp/cb` are covered and `/mcp-other/cb` is not.
   Comparing host and port alone would let two services sharing a host
-  receive each other's codes. `DidWeb.Target.covers()` is the one place
-  that answers this, for both the pod and the id-server.
-- **A `.` or `..` is refused, not matched** — in the identifier and in
-  the redirect alike. It is an instruction about a path rather than a
-  segment of one, so `/mcp/../evil` starts with the prefix and arrives
-  outside it, and `did:web:example.org:..` names a prefix whose document
-  is at no location an HTTP client would fetch.
+  receive each other's codes, and a `.` or `..` anywhere in either is
+  refused rather than matched — `/mcp/../evil` starts with the prefix and
+  arrives outside it. `DidWeb.Target.covers()` is the one place that
+  answers this, for both the pod and the id-server.
 - No DCR; the app is its own identity.
 - Consent behaves per the `prompt` parameter — see the table under
   §"The `prompt` parameter", which is where that rule lives.
@@ -85,9 +82,8 @@ at registration and omitted where it is read.
   with a deterministic fingerprint (SHA-256 over `clientName`,
   `userAgent`, and the redirect-URI set with loopback ports stripped)
   for dedup. A repeat registration with the same fingerprint reuses the
-  existing `dyn:` client id, and a pod holds at most one registration per
-  fingerprint — a unique index, so two registrations arriving together
-  still come out as one client id
+  existing `dyn:` client id — a unique index, so two arriving together
+  still come out as one
   ([`../mcp/authentication.md`](../mcp/authentication.md#dcr-fingerprint)).
 - Loopback redirect URIs are matched with port-stripping (RFC 8252
   §7.3); non-loopback redirect URIs stay port-strict.
