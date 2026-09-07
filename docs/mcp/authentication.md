@@ -73,13 +73,48 @@ pod only; the first fresh authenticated token on that pod consumes them.
 Anonymous entries are last-write-wins per pod; concurrent anonymous flows
 against the same pod may need to retry.
 
-Refresh tokens for the affected `(podId, clientId, person)` are revoked
-on the original 401 — explicit reauthorize means *review current
-consent*, so parallel sessions must not silently rotate around the
-consent UI. The person is every URI derivable from the bearer's `sub`,
-not that one URI: a pod stores whichever WebID authenticated, and a
-family recorded under the twin would keep rotating around the same
-dialog.
+What the client already holds for the affected `(podId, clientId, person)`
+is ended on the original 401 — explicit reauthorize means *review current
+consent*, and two things would otherwise answer it from stock. Its
+**refresh tokens**, so parallel sessions cannot rotate around the consent
+UI. And any **authorization code it has not yet exchanged**: a code stays
+redeemable for five minutes and the client keeps its verifier, so one
+issued just before the call would still mint the bearer and seed the
+family the challenge exists to make it ask for. Nothing sweeps those
+codes — raising the generation is what spends them, since the exchange
+compares a code against the answer standing for its authorization, and one
+carrying no generation at all is refused outright
+([`../auth/oauth.md`](../auth/oauth.md#offline_access)).
+
+The person is every URI derivable from the bearer's `sub`, not that one
+URI: a pod stores whichever WebID authenticated, and a family recorded
+under the twin would keep rotating around the same dialog.
+
+The family sweep names what it will end before it ends it, so a consent
+completing beside the call keeps the family it just produced — that one
+carries the generation this raise wrote, and taking it would hand the
+person a refresh token that is dead on arrival. One minted in the gap
+between the raise and that look is still taken; looking earlier only moves
+the window, and moves it towards leaving a live credential the call meant
+to end. Removing it altogether needs the family to carry its own
+generation.
+
+**The generation rises before that sweep, and that ordering is the whole
+argument.** An exchange already in flight can consume its code before the
+sweep runs and mint its family after it, out of the sweep's reach. What
+catches it is the re-read the token endpoint already does after minting:
+the raise landed first, so the exchange finds a generation its code does
+not carry and gives the family up. Whichever of the two lands second sees
+the first. It is a database `$inc` rather than a timestamp comparison,
+because the code and the reauthorize call can be served by different
+replicas and their clocks are not the same clock.
+
+Nothing is raised where the authorization has no decision recorded, and
+nothing needs to be: creating one would turn a forced review into an
+answer nobody gave, and a code from such an authorization is refused at
+the exchange for carrying no generation
+([`../auth/oauth.md`](../auth/oauth.md#offline_access)). There is neither a
+family nor a token to end.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
 inside the five-minute window does not cost the caller its consent
@@ -95,26 +130,19 @@ A client that has to stay connected past the access token's hour asks for
 `scope=offline_access` at the pod's `/authorize`. It is listed in
 `scopes_supported` in the protected-resource metadata the 401 points at,
 which is where a client with no sempods documentation in front of it
-finds the extension.
+finds the extension. Asking is not what decides the outcome: the person
+answers a control in the consent dialog, and
+[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns that rule.
 
-Sending it is not what makes the connection durable, and not sending it
-is not what prevents it. The consent dialog carries the control and the
-person answers it, so a client that cannot put a scope on the request is
-not thereby short-lived, and one that sends it has still asked rather
-than received. [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns
-that rule and the shape of the answer.
-
-The re-authorize path above ends the families it finds, but ending one is
-not the same as asking again. Whether the next `/authorize` renders a
-dialog is the ordinary auto-grant question, not something the reauthorize
-decides: a `dyn:` client — which is how the clients in
-[`clients.md`](clients.md) register — always gets the consent screen,
-while a static `did:web:` client whose grants survive and whose lifetime
-question is already answered is auto-granted, and the recorded answer
-stands: a durable one mints a replacement family, a short-lived one leaves
-the client with an access token and nothing else. Neither asks anybody. A
-static client that wants the review it just triggered sends
-`prompt=consent`;
+The re-authorize path above ends what the client holds, which is not the
+same as asking again. Whether the next `/authorize` renders a dialog is
+the ordinary auto-grant question: a `dyn:` client — which is how the
+clients in [`clients.md`](clients.md) register — always gets the consent
+screen, while a static `did:web:` client whose grants survive is
+auto-granted and the recorded answer stands, a durable one minting a
+replacement family and a short-lived one leaving the client with an
+access token and nothing else. A static client that wants the review it
+just triggered sends `prompt=consent`;
 [`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
 
 ## Bearer challenge format
