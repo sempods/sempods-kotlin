@@ -276,11 +276,6 @@ class PodGrantsFacade @Inject constructor(
    * families by the scope string would end the sessions of apps that still hold other grants, and
    * end them over a string that authorizes none of it.
    *
-   * `SPS-CTX-017` has deletion remove "grants naming it, refresh tokens scoped to it, and the
-   * context's statements", and no row here can be scoped to a context. The specification is
-   * pre-`0.1` and descriptive, so by its own governance the text is what follows the code; the edit
-   * belongs to `docs/roadmaps/offline-access-refresh-tokens.md` item 8 with the rest of them.
-   *
    * What does end a family here is the same condition [sweepUnbackedAppGrants] applies — the app
    * is left holding nothing — and it needs a pass of its own, because a pair whose *last* grant
    * named the deleted context never reaches that one: its rows are gone before the recompute

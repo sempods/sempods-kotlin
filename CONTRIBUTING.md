@@ -181,9 +181,10 @@ is declared by that module, on `api`** — not inherited from a sibling that
 happens to bring it. `docs/concepts/modularity.md` §"Open-source readiness" says what this
 guards and what it cannot.
 
-Two more run in CI and are worth running locally when a change touches them:
-`./gradlew checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks`. The last
-one walks every markdown file and fails on a relative link that points at nothing.
+Three more run in CI and are worth running locally when a change touches them:
+`./gradlew checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata`. The
+third walks every markdown file and fails on a relative link that points at nothing; the fourth
+keeps a container image from shipping without the label that says which commit it is.
 
 A behaviour change carries its documentation in the same commit —
 `docs/agents/documentation-strategy.md` §"Definition of done" is the list. It is also

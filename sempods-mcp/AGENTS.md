@@ -44,11 +44,23 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
 - **Stays a client.** It never becomes an authority a pod depends on. Token custody is
   the real cost — see the concept doc.
 - **Canonical key** for registry / token vault is `(user, profile, pod)`, with an implicit
-  default profile from day one. The pod-side DCR client is not keyed by it — the registration
-  request is identical for every profile, so a pod that dedups (a sempods pod does, per pod) hands
-  back one shared `dyn:` client_id for every connection this service holds there (M2). The dedup is
-  a lookup and not a uniqueness constraint — two first connects racing at one pod can each miss and
-  mint their own id, which then hold their own grants.
+  default profile from day one. The pod-side client identity is not in that key but follows the
+  profile all the same: `pods/PodClientIdentity` gives a named profile its own callback
+  (`…/_system/ui/pods/callback/<profile>` — below the parent, because the session cookie is scoped
+  to `/_system/ui` and a browser sends it nowhere else), its own client name and its own `did:web`
+  identifier scoped to that callback, so a pod that dedups by fingerprint arrives at a different
+  `client_id` and holds separate grants under it. The default profile keeps what it registered
+  before, and an existing connection presents the identity it was registered under on every path —
+  connect and re-authorize included, re-registration of a dead grant included, since the fingerprint
+  is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
+  it, because doing so costs a consent at the pod.
+
+  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — read off one
+  row** (`PodClientIdentity.registrationOf`), because the pod refuses an id offered under an address
+  it was not registered with. It lives on the **token** row, with the registry's copies as the
+  fallback for older rows; `PodTokens` states why. What still keys on the registry row is whether a
+  connection exists at all, which is what makes `/pods/separate` — it passes none for a pod that is
+  connected — the deliberate step.
 
 ## Deployment stance (PoC — no migrations)
 
@@ -135,7 +147,7 @@ the operator reading a stack trace is not reading this file.
   passes while the scan reads everything. Against the pod server's own `/token` budget (`../docs/auth/oauth.md` §"Rate
   limit": 20 a minute per `<address>|<client identity>`) this stays clear by a wide margin, and the
   cadence widens it: only one of a refresh's four requests is the token POST, and the pod's DCR
-  dedup is per pod, so every connection this service holds *there* spends one shared `dyn:` key. A
+  dedup is per pod and profile, so every connection one profile holds *there* spends one `dyn:` key. A
   connection under active warm-keeping spends 0.02 of that 20 — about 1,100 simultaneously-used
   connections at one pod to meet it — while an idle one, touched once per preservation cadence,
   spends 0.00002. What the *warm* tier drops needs no such marker — it is only ever pre-warming, and the
@@ -146,10 +158,14 @@ the operator reading a stack trace is not reading this file.
   only. **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
   minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
   — the AS endpoints are derived from the issuer (`…/authorize`, `…/token`), the service presents a
-  **static `did:web:<mcp-host>` client** instead of registering. What the pod makes of that
-  identifier is the pod's own business, and this fallback is for pods we did not write: a sempods
-  pod matches the origin and fetches nothing, while a third party following the did:web method may
-  resolve `/.well-known/did.json` — which is why the service serves one. No JWKS means the pod
+  **static `did:web` client** instead of registering: `did:web:<mcp-host>` for the default profile
+  and, for a named one, an identifier scoped to that profile's callback, which is how a profile is a
+  separate client on the path that has no registration to vary. What the pod makes of that identifier is the pod's
+  own business, and this fallback is for pods we did not write: a sempods pod matches the origin
+  and fetches nothing, while a third party following the did:web method may resolve the document —
+  at `/.well-known/did.json` for the host-only identifier and at the profile's own callback plus
+  `/did.json` for a named one, which is where the method's read algorithm looks. The service serves
+  both. No JWKS means the pod
   token's subject is trusted via the direct TLS token (`subject_verified: false`). The convention is
   taken **only on a genuine 404** for the AS metadata — a transient failure propagates rather than
   silently downgrading a full pod. The machine MCP/AS endpoints stay at the root; `/_system` is the reserved system
@@ -259,11 +275,13 @@ the operator reading a stack trace is not reading this file.
   (`TokenVaultDao.replaceIfClaimedBy` — only while the claim is still this replica's), so a
   `/_system/ui` re-connect landing mid-refresh wins (its `upsert` clears the claim; the stale
   rotation of the superseded family is discarded) and a disconnect's delete is not resurrected.
-  Both refresh entries short-circuit **ahead of** that claim on `PodConnection.deadGrantSince`: a
-  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect writes
-  a fresh registry row, so it costs two point reads a tick instead of a claim, a metadata discovery,
-  a token POST and a release — and `deadGrantSince` now records when the grant died rather than when
-  it was last retried (the mark's compare-and-set matched the row its own predecessor had written).
+  Both refresh entries short-circuit **ahead of** that claim on `PodTokens.deadGrantSince`: a
+  connection the pod answered RFC 6749 §5.2 `invalid_grant` for is finished until a reconnect, so it
+  costs a field on a row already in hand instead of a claim, a metadata discovery, a token POST and a
+  release — and it records when the grant died rather than when it was last retried. On the vault
+  row, so a reconnect lifts it in the same write that installs the new family, and written under the
+  claim a rotation persists under (`TokenVaultDao.markDeadGrantIfClaimedBy`) so a reconnect landing
+  mid-refresh wins.
   A claim-*losing* caller re-checks the mark before its optimistic fallback too: the winner persists
   nothing when it finds the grant dead, so the polled row never moves and the fallback would
   otherwise hand back a still-unexpired token for the rest of the skew window. The answer does not

@@ -298,11 +298,13 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   @Provides @Singleton
   fun readTools(
     connectionRegistryDao: ConnectionRegistryDao,
+    tokenVaultDao: TokenVaultDao,
     podTokenProvider: PodTokenProvider,
     executor: PodToolExecutor,
     objectMapper: ObjectMapper,
     auditLog: AuditLog,
-  ): ReadTools = ReadTools(connectionRegistryDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
+  ): ReadTools =
+    ReadTools(connectionRegistryDao, tokenVaultDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
 
   @Provides @Singleton
   fun writeTools(

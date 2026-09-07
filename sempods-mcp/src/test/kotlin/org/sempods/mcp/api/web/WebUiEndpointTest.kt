@@ -14,8 +14,10 @@ import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
 import org.sempods.mcp.auth.WebSession
+import org.sempods.mcp.auth.JwtTestSupport
 import org.sempods.mcp.oauth.FakeIdentityProvider
 import org.sempods.mcp.oauth.TokenIssuer
+import org.sempods.mcp.crypto.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
 import org.sempods.mcp.persist.AuditEventType
 import org.sempods.mcp.persist.AuditLogDao
@@ -24,11 +26,13 @@ import org.sempods.mcp.persist.PodConnection
 import java.util.Date
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
+import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.auth.core.SigningKeys
 import org.sempods.mcp.persist.oauth.McpSigningKeyStore
 import org.sempods.mcp.persist.oauth.SigningKeyDao
 import io.ktor.client.request.forms.submitForm
+import io.ktor.http.ParametersBuilder
 import io.ktor.http.parameters
 import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
@@ -107,6 +111,22 @@ class WebUiEndpointTest {
 
   /** The id-server under test, so a test can read back the nonce it must answer with. */
   private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
+
+  /** A token row: these tests write only the connection otherwise. */
+  private fun seedTokens(
+    user: String,
+    profile: String,
+    pod: String,
+    podClientId: String? = null,
+    podRedirectUri: String? = null,
+    deadGrantSince: Date? = null,
+  ) = TokenVaultDao(db!!, testSecretCipher()).upsert(
+    PodTokens(
+      user, profile, pod, accessToken = "at", refreshToken = "rt",
+      accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+      podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
+    ),
+  )
 
   private fun ApplicationTestBuilder.installWebUi(): TokenIssuer {
     val database = db!!
@@ -302,10 +322,11 @@ class WebUiEndpointTest {
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
         issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), deadGrantSince = Date(),
+        scopes = setOf("public-read"),
         createdAt = Date(), updatedAt = Date(),
       ),
     )
+    seedTokens(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p", deadGrantSince = Date())
 
     val body = createClient { followRedirects = false }.get("/_system/ui") {
       header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
@@ -317,8 +338,10 @@ class WebUiEndpointTest {
 
   @Test
   fun `a healthy pod carries no reconnect marker`() = testApplication {
-    // The counter-case, so the badge cannot become decoration that is always on.
-    val user = "https://id.test/e/web-user"
+    // The counter-case, so the badge cannot become decoration that is always on. Its own user, as
+    // the other pod cases have: the mark sits on the token row, which this test never writes, so
+    // sharing a key with the dead-grant case above would let that row answer for this one.
+    val user = "https://id.test/e/web-user-healthy"
     val tokenIssuer = installWebUi()
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
@@ -442,9 +465,10 @@ class WebUiEndpointTest {
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
           issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
-          deadGrantSince = Date(), createdAt = Date(), updatedAt = Date(),
+          createdAt = Date(), updatedAt = Date(),
         ),
       )
+      seedTokens(user, PodKey.DEFAULT_PROFILE, podBase, deadGrantSince = Date())
 
       val authorize = Url(reauthorize(tokenIssuer, user, podBase))
 
@@ -479,6 +503,344 @@ class WebUiEndpointTest {
         VerificationTimes.never(),
       )
     }
+  }
+
+  @Test
+  fun `a dead connection whose tokens will not decrypt still re-registers on re-authorize`() = testApplication {
+    // The dashboard reports the mark without decrypting anything, so an unreadable row is shown as
+    // "reconnect needed" — and re-authorizing it is exactly what the person is here to do. Reading
+    // the row through `find` would answer null, lose the mark, and reuse a `dyn:` id the pod may
+    // have cleared, which dead-ends on its 400: the case dead-grant re-registration exists for.
+    val user = "https://id.test/e/web-user-unreadable"
+    val tokenIssuer = installWebUi()
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
+          issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      // Written under a key this deployment does not have, the way a rotated or lost
+      // `MCP_SECRET_KEY` leaves a row behind.
+      TokenVaultDao(db!!, SecretCipher(ByteArray(32) { (it + 9).toByte() })).upsert(
+        PodTokens(
+          user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
+          accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
+        ),
+      )
+      assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase))
+
+      assertEquals(
+        "dyn:fresh", authorize.parameters["client_id"],
+        "the mark survives a row that will not decrypt, so the re-auth still re-registers: $authorize",
+      )
+    }
+  }
+
+  @Test
+  fun `a re-authorize presents the registration the token row holds, not the registry's`() = testApplication {
+    // The half-landed `/pods/separate`: its vault write recorded the new registration, its registry
+    // write did not. Presenting the registry's stale id would hand the person a consent screen with
+    // none of their grants pre-checked and re-grant them under a different id, orphaning the ones
+    // the live registration holds.
+    //
+    // Both halves come off the same row, which is the point: `dyn:separated` was registered under
+    // the cron-agent callback, so offering it under the parent one — the address the stale registry
+    // row still names — is a flow the pod refuses.
+    val user = "https://id.test/e/web-user-split-rows"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:unused") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      seedTokens(
+        user, "cron-agent", podBase,
+        podClientId = "dyn:separated", podRedirectUri = "$BASE/_system/ui/pods/callback/cron-agent",
+      )
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals("dyn:separated", authorize.parameters["client_id"], "$authorize")
+      assertEquals(
+        "$BASE/_system/ui/pods/callback/cron-agent", authorize.parameters["redirect_uri"],
+        "the address that id is pinned to, off the same row: $authorize",
+      )
+      pod.verify(
+        request().withMethod("POST").withPath("/p/_system/auth/register"),
+        VerificationTimes.never(),
+      )
+    }
+  }
+
+  @Test
+  fun `a named profile registers a client of its own, under its own callback and name`() = testApplication {
+    // Why the fork exists: a pod resolves permissions from `(pod, client_id, WebID)`, so two
+    // profiles arriving as one id are one permission set. The redirect URI is the fingerprint input
+    // with meaning; the name keeps the consent screen from listing two identical entries.
+    val user = "https://id.test/e/web-user-named-profile"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:cron") { pod, podBase, _ ->
+      val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals("dyn:cron", authorize.parameters["client_id"])
+      assertEquals(
+        "$BASE/_system/ui/pods/callback/cron-agent",
+        authorize.parameters["redirect_uri"],
+        "the profile's own callback is what forks the pod's dedup: $authorize",
+      )
+      val registration = pod.registrationRequest()
+      assertTrue("\"sempods-mcp (cron-agent)\"" in registration, "the profile belongs in the client name: $registration")
+      assertTrue("$BASE/_system/ui/pods/callback/cron-agent" in registration, registration)
+    }
+  }
+
+  @Test
+  fun `the default profile registers exactly what it registered before`() = testApplication {
+    // No migration: the default profile's identity has to stay the one it was registered under, or
+    // every existing connection pays a re-consent for nothing.
+    val user = "https://id.test/e/web-user-default-profile"
+    val tokenIssuer = installWebUi()
+    withSimulatedPod(registersAs = "dyn:root") { pod, podBase, _ ->
+      val authorize = Url(connect(tokenIssuer, user, podBase))
+
+      assertEquals("$BASE/_system/ui/pods/callback", authorize.parameters["redirect_uri"], "$authorize")
+      val registration = pod.registrationRequest()
+      assertTrue("\"sempods-mcp\"" in registration, registration)
+      assertFalse("(default)" in registration, "the default profile is unnamed at a pod: $registration")
+    }
+  }
+
+  @Test
+  fun `a pod with no DCR gives a named profile its own did-web identity`() = testApplication {
+    // The other registration path, forked by the same segment. Without it a minimal pod sees one
+    // static client for every profile — the same failure, where there is no registration to vary.
+    val user = "https://id.test/e/web-user-didweb-profile"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "unused", publishesAsMetadata = false) { _, podBase, _ ->
+      val named = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+      assertEquals("did:web:mcp.test:_system:ui:pods:callback:cron-agent", named.parameters["client_id"], "$named")
+
+      val default = Url(connect(tokenIssuer, user, podBase))
+      assertEquals("did:web:mcp.test", default.parameters["client_id"], "$default")
+    }
+  }
+
+  @Test
+  fun `a connection made before the fork keeps the callback its registration is pinned to`() = testApplication {
+    // A named profile connected while every profile shared one callback. Its registration lists
+    // the address it was made with, so sending the profile's new one would be refused.
+    val user = "https://id.test/e/web-user-legacy-callback"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:fresh") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals("dyn:shared", authorize.parameters["client_id"], "$authorize")
+      assertEquals("$BASE/_system/ui/pods/callback", authorize.parameters["redirect_uri"], "$authorize")
+      pod.verify(
+        request().withMethod("POST").withPath("/p/_system/auth/register"),
+        VerificationTimes.never(),
+      )
+    }
+  }
+
+  @Test
+  fun `connecting a pod this profile already holds keeps its identity`() = testApplication {
+    // The Connect form is also how a person reconnects a pod they already have. Typing the URL
+    // again must not take the connection's identity away — that is what Separate identity is.
+    val user = "https://id.test/e/web-user-reconnect"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:profile-own") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+
+      val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals("dyn:shared", authorize.parameters["client_id"], "$authorize")
+      assertEquals("$BASE/_system/ui/pods/callback", authorize.parameters["redirect_uri"], "$authorize")
+      pod.verify(
+        request().withMethod("POST").withPath("/p/_system/auth/register"),
+        VerificationTimes.never(),
+      )
+    }
+  }
+
+  @Test
+  fun `re-authorizing a dead legacy connection keeps the shared identity it was registered under`() = testApplication {
+    // The connection most likely to be here: a sibling profile's connect retires this one's
+    // refresh-token family, so it is flagged dead with its registration alive, and Re-authorize is
+    // what the dashboard tells the person to press. `reusableClientId` re-registers a dead `dyn:`
+    // connection on purpose, which costs nothing only while the fingerprint is the live one's.
+    val user = "https://id.test/e/web-user-dead-legacy"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    withSimulatedPod(registersAs = "dyn:shared") { pod, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      seedTokens(user, "cron-agent", podBase, deadGrantSince = Date())
+
+      val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = "cron-agent"))
+
+      assertEquals(
+        "$BASE/_system/ui/pods/callback",
+        authorize.parameters["redirect_uri"],
+        "the address the live registration is pinned to, not this profile's: $authorize",
+      )
+      val registration = pod.registrationRequest()
+      assertTrue("\"sempods-mcp\"" in registration, registration)
+      assertFalse("(cron-agent)" in registration, "the name is half the fingerprint: $registration")
+      assertEquals("dyn:shared", authorize.parameters["client_id"], "so the pod dedups back to it: $authorize")
+    }
+  }
+
+  @Test
+  fun `the dashboard offers to separate a profile still sharing the default client`() = testApplication {
+    val user = "https://id.test/e/web-user-separate-offer"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    ConnectionRegistryDao(db!!).upsert(
+      PodConnection(
+        user = user, profile = "cron-agent", pod = "https://pod.example/p",
+        issuer = "https://pod.example/p/_system/auth", podClientId = "dyn:shared",
+        scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    // The same pod in the default profile, where the shared client *is* this profile's own.
+    ConnectionRegistryDao(db!!).upsert(
+      PodConnection(
+        user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
+        issuer = "https://pod.example/p/_system/auth", podClientId = "dyn:shared",
+        scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    val client = createClient { followRedirects = false }
+
+    val named = client.get("/_system/ui?profile=cron-agent") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
+    assertTrue("shared client" in named, "the profile has to say the pod does not know it apart: $named")
+    assertTrue("Separate identity" in named, named)
+
+    val default = client.get("/_system/ui") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
+    assertFalse("Separate identity" in default, "the default profile shares nothing — it is the one: $default")
+  }
+
+  @Test
+  fun `separating a shared connection stores the profile's own client and clears the badge`() = testApplication {
+    // The one flow here that costs a person a re-consent, end to end. The callback has to write
+    // both the new id and the address it is pinned to; keeping either brings the badge back and
+    // charges the consent again on the next press.
+    val user = "https://id.test/e/web-user-separated"
+    val tokenIssuer = installWebUi()
+    ProfileDao(db!!).create(user, "cron-agent")
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:separated", tokenSubject = user) { _, podBase, authBase ->
+      ConnectionRegistryDao(db!!).upsert(
+        PodConnection(
+          user = user, profile = "cron-agent", pod = podBase,
+          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          createdAt = Date(), updatedAt = Date(),
+        ),
+      )
+      // The registration this profile shares, on the row a re-authorize now reads it from. This
+      // route must ignore it: dropping the shared identity is its whole purpose, and it is the one
+      // caller that passes `existing = null` for a pod that IS connected.
+      seedTokens(user, "cron-agent", podBase, podClientId = "dyn:shared")
+      assertTrue(
+        "Separate identity" in client.get("/_system/ui?profile=cron-agent") {
+          header(HttpHeaders.Cookie, cookie)
+        }.bodyAsText(),
+      )
+
+      // What the button submits.
+      val authorize = Url(separate(tokenIssuer, user, podBase, profile = "cron-agent"))
+      assertEquals("dyn:separated", authorize.parameters["client_id"], "$authorize")
+
+      // What the pod redirects back to, with the code.
+      val callback = client.get(
+        "/_system/ui/pods/callback/cron-agent?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertEquals(HttpStatusCode.Found, callback.status)
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+
+      val stored = assertNotNull(ConnectionRegistryDao(db!!).find(PodKey(user, "cron-agent", podBase)))
+      assertEquals("dyn:separated", stored.podClientId, "the profile's own client replaces the shared one")
+      assertEquals(
+        "$BASE/_system/ui/pods/callback/cron-agent",
+        stored.podRedirectUri,
+        "and the address it is pinned to, or the next re-authorize sends the wrong one",
+      )
+      assertFalse(
+        "Separate identity" in client.get("/_system/ui?profile=cron-agent") {
+          header(HttpHeaders.Cookie, cookie)
+        }.bodyAsText(),
+        "the offer has to go once it has been taken",
+      )
+    }
+  }
+
+  @Test
+  fun `a callback arriving at the wrong profile's address is refused`() = testApplication {
+    // The code was issued for one address and is redeemed at that one. A flow that comes back
+    // somewhere else is not this flow, whatever `state` it carries.
+    val tokenIssuer = installWebUi()
+    val user = "https://id.test/e/web-user-callback-mismatch"
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+    val state = podConnectStateStore.create { expiresAt ->
+      PodConnectStateStore.Pending(
+        user = user, profile = "cron-agent", pod = "https://sempods.org/x",
+        metadata = PodOAuthMetadata(
+          issuer = "https://sempods.org", authorizationEndpoint = "https://sempods.org/a",
+          tokenEndpoint = "https://sempods.org/t", registrationEndpoint = null, jwksUri = null,
+        ),
+        podClientId = "c", codeVerifier = "v",
+        redirectUri = "$BASE/_system/ui/pods/callback/cron-agent",
+        expiresAt = expiresAt, returnTo = null,
+      )
+    }
+
+    val resp = client.get("/_system/ui/pods/callback?state=$state&code=some-code") {
+      header(HttpHeaders.Cookie, cookie)
+    }
+
+    assertEquals(HttpStatusCode.Found, resp.status)
+    val location = resp.headers[HttpHeaders.Location]!!
+    assertTrue("callback" in location && "mismatch" in location, "$location")
+    assertNull(
+      ConnectionRegistryDao(db!!).find(PodKey(user, "cron-agent", "https://sempods.org/x")),
+      "a refused callback must store nothing",
+    )
   }
 
   @Test
@@ -647,6 +1009,9 @@ class WebUiEndpointTest {
   private suspend fun withSimulatedPod(
     registersAs: String,
     advertisedScopes: List<String> = emptyList(),
+    publishesAsMetadata: Boolean = true,
+    /** When set, the pod's `/token` answers a signed access token carrying this `sub`. */
+    tokenSubject: String? = null,
     body: suspend (pod: ClientAndServer, podBase: String, authBase: String) -> Unit,
   ) {
     val pod = ClientAndServer.startClientAndServer(0)
@@ -662,13 +1027,34 @@ class WebUiEndpointTest {
         )
       pod.`when`(request().withMethod("GET").withPath("/p/_system/auth/.well-known/oauth-authorization-server"))
         .respond(
-          response().withStatusCode(200).withBody(
-            """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize",""" +
-              """"token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register"}""",
-          ),
+          if (publishesAsMetadata) {
+            response().withStatusCode(200).withBody(
+              """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize",""" +
+                """"token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register"}""",
+            )
+          } else {
+            // The minimal pod: RFC 9728 only, so no DCR to register at and the static client is
+            // what this service presents instead.
+            response().withStatusCode(404)
+          },
         )
       pod.`when`(request().withMethod("POST").withPath("/p/_system/auth/register"))
         .respond(response().withStatusCode(201).withBody("""{"client_id":"$registersAs"}"""))
+      if (tokenSubject != null) {
+        // Signed, because `verifyAccessTokenSubject` parses the token to read `sub` and a connect
+        // whose subject it cannot read fails. This pod advertises no `jwks_uri`, so the signature
+        // is trusted by the transport and never checked — any key will do.
+        val token = JwtTestSupport.sign(
+          JwtTestSupport.generateKey("pod-key"),
+          JwtTestSupport.webIdClaims(authBase, tokenSubject),
+        )
+        pod.`when`(request().withMethod("POST").withPath("/p/_system/auth/token"))
+          .respond(
+            response().withStatusCode(200).withBody(
+              """{"access_token":"$token","token_type":"Bearer","expires_in":3600,"scope":"public-read"}""",
+            ),
+          )
+      }
       body(pod, podBase, authBase)
     } finally {
       pod.stop()
@@ -680,20 +1066,51 @@ class WebUiEndpointTest {
     tokenIssuer: TokenIssuer,
     user: String,
     pod: String,
+    profile: String = PodKey.DEFAULT_PROFILE,
+  ): String = submitPodForm(tokenIssuer, user, profile, "reauthorize") { append("pod", pod) }
+
+  /** Submits the dashboard's Separate identity form for [pod] and returns the redirect. */
+  private suspend fun ApplicationTestBuilder.separate(
+    tokenIssuer: TokenIssuer,
+    user: String,
+    pod: String,
+    profile: String = PodKey.DEFAULT_PROFILE,
+  ): String = submitPodForm(tokenIssuer, user, profile, "separate") { append("pod", pod) }
+
+  /** Submits the dashboard's Connect form for [pod] and returns the redirect it answers with. */
+  private suspend fun ApplicationTestBuilder.connect(
+    tokenIssuer: TokenIssuer,
+    user: String,
+    pod: String,
+    profile: String = PodKey.DEFAULT_PROFILE,
+  ): String = submitPodForm(tokenIssuer, user, profile, "connect") { append("pod_base_url", pod) }
+
+  private suspend fun ApplicationTestBuilder.submitPodForm(
+    tokenIssuer: TokenIssuer,
+    user: String,
+    profile: String,
+    action: String,
+    fields: ParametersBuilder.() -> Unit,
   ): String {
     val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
     val client = createClient { followRedirects = false }
-    val dash = client.get("/_system/ui") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
+    val dash = client.get("/_system/ui?profile=$profile") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
     val csrf = Regex("name=\"csrf\" value=\"([^\"]+)\"").find(dash)!!.groupValues[1]
     val resp = client.submitForm(
-      url = "/_system/ui/pods/reauthorize",
+      url = "/_system/ui/pods/$action",
       formParameters = parameters {
-        append("csrf", csrf); append("profile", PodKey.DEFAULT_PROFILE); append("pod", pod)
+        append("csrf", csrf); append("profile", profile); fields()
       },
     ) { header(HttpHeaders.Cookie, cookie) }
     assertEquals(HttpStatusCode.Found, resp.status)
     return resp.headers[HttpHeaders.Location]!!
   }
+
+  /** The body of the one DCR request [pod] received. */
+  private fun ClientAndServer.registrationRequest(): String = assertNotNull(
+    retrieveRecordedRequests(request().withMethod("POST").withPath("/p/_system/auth/register")).singleOrNull(),
+    "expected exactly one DCR at the pod",
+  ).bodyAsString
 
   private fun enc(v: String) = java.net.URLEncoder.encode(v, Charsets.UTF_8)
 

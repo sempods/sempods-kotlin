@@ -378,11 +378,21 @@
       </ul>
     </div>
 
-    <!-- How long the credential lasts, said as a lifetime rather than as a scope name. Ticked when
-         the client asked for it, or when this person granted it here before; what the client asks
-         only preselects, the tick is what grants. -->
+    <!-- Asked as "may it act without you", not as a duration and not as a scope name: a refresh
+         token is what lets a client work while nobody is there, and that is a question a person can
+         answer without knowing what a token is. The pod cannot answer it for them — every
+         interactive client here is public, and a `did:web:` identifier belongs to a browser-only
+         app and a server-backed one alike.
+
+         The unticked half names the hour, because an access token already issued is not recalled
+         and the app can use it after the person leaves. It says "through your browser" rather than
+         promising a quiet renewal, because a `dyn:` client is refused auto-grant and meets this
+         page again every time.
+
+         Ticked when the client asked for it, or when this person granted it here before; what the
+         client asks only preselects, the tick is what grants. -->
     <div class="public-read-section">
-      <h2>How long</h2>
+      <h2>Background access</h2>
       <label class="public-read-toggle">
         <input type="checkbox"
                id="durableToggle"
@@ -390,11 +400,12 @@
                value="1"
                th:checked="${durablePreselected}"/>
         <span class="text">
-          Keep this app connected.
+          Let this app act when you are not using it.
           <span class="description">
-            Ticked, the app can renew its own access without asking you again, until you
-            disconnect it or it goes unused for a long time. Unticked, its access expires
-            within the hour and it has to ask you the next time.
+            Ticked, it can renew its access on its own — what an app needs to sync or run on
+            a schedule. That lasts until you disconnect it, or until it goes a long time
+            unused. Unticked, it cannot renew on its own: whatever access it holds runs out
+            within the hour, and getting more brings it back through your browser.
           </span>
         </span>
       </label>

@@ -399,6 +399,11 @@ class PodAuthEndpoint @Inject constructor(
     // way `scope=public-read` cannot mask a manipulated token, and a
     // malformed `scope` on an unauthenticated request still yields
     // `invalid_scope` instead of `login_required`.
+    // TODO: an unknown scope is dropped in silence, so a typo (`offline-access`) is answered with
+    // a working token and no explanation. RFC 6749 §4.1.2.1 would have this be `invalid_scope`;
+    // what it costs is a refusal for clients that send scope names from their own world, and which
+    // of the clients in `docs/mcp/clients.md` those are is what the `[oauth/authorize]` log line
+    // accumulates.
     val requestedScopes = OAuthSyntax.parseScope(scope)
 
     // ── R1: forced re-authentication ──────────────────────────────────────
@@ -564,11 +569,12 @@ class PodAuthEndpoint @Inject constructor(
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith("dyn:")
     // An authorization that predates the lifetime control has no decision recorded, and this branch
-    // renders nothing — so it could never acquire one: it would keep working, short-lived, for ever,
-    // without anybody being asked. Once, therefore, it falls through to the dialog instead. Only
-    // where there is a dialog to fall through to: `prompt=none` has none, and answering it with
-    // `consent_required` would retire a silent re-authorization that works today, so it keeps its
-    // code and receives what an absent decision means anyway — an access token and nothing else.
+    // renders nothing — so it could never acquire one. Once, therefore, it falls through to the
+    // dialog instead, which is where it picks one up. Only where there is a dialog to fall through
+    // to: `prompt=none` has none, so it keeps its silent code and the redirect looks unchanged.
+    // What that code buys is nothing — carrying no generation, it is refused at the exchange — and
+    // answering `consent_required` here instead is not worth changing a live contract for a state
+    // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
     val decisionRecorded =
       consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
@@ -1080,8 +1086,16 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
 
-    // Recorded whichever way it was answered, because a refusal has to be tellable from a silence:
-    // an authorization that predates the control has nothing written and keeps what it holds.
+    // **The answer is written after the grants, and a run dying between them leaves the safe
+    // half.** What survives is the selection the person just made, under the answer that stood
+    // before it — so a narrowing takes effect, and the durability question keeps its previous
+    // answer rather than acquiring one nobody gave. Writing the answer first inverts exactly that:
+    // the old, wider grants would stand under a *new* generation, the narrowing silently lost and
+    // the credentials it was meant to end still rotating.
+    //
+    // The pair this order can leave — grants with no answer beside them, on a first consent — is
+    // harmless since a code carrying no generation is refused at the exchange: nothing redeems,
+    // auto-grant needs a decision it does not have, and the next visit renders this dialog again.
     val durableGranted = durable != null
     val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
     if (!durableGranted) {
@@ -1421,15 +1435,17 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
 
-    // A code is a request, not an authority: it must not pick up a consent given after it. The
-    // generation it carries is the one that produced it, so a disconnect — or any later answer —
-    // makes it stale, and its scopes are stale with it. Compared in both directions, because the
-    // first answer an authorization ever gets supersedes the codes issued before it just as surely
-    // as the second: a code from an authorization that had none carries none, and matches only for
-    // as long as none is recorded.
+    // A code is a request, not an authority: it must not pick up a consent given after it, so the
+    // generation it carries is compared against the one standing now.
+    //
+    // **A code carrying none is refused outright.** Every code minted for a person comes from an
+    // authorization that has been answered — consent records an answer, and auto-grant reaches its
+    // code only where one is on record — so a code without a generation is the debris of a
+    // half-written consent or older than the control itself. The anonymous `public-read` exchange
+    // has no person and no answer, and returned above.
     val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
-    if (decision?.generation != issuedUnder) {
+    if (decision == null || issuedUnder == null || decision.generation != issuedUnder) {
       logger.info {
         "[oauth/token] authorization code superseded by a later consent: pod='${podDbo.name}', " +
             "clientId='${entry.clientId}', webId='${entry.subject}', " +
@@ -1443,10 +1459,9 @@ class PodAuthEndpoint @Inject constructor(
     // from the grant store, never echoed into the token. This also bounds the refresh row.
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
-    // Read from the stored consent, not from the code: a code carries what was asked for, never the
-    // authority. An absent decision is not a grant — it leaves an already-rotating family alone,
-    // which the refresh grant still honours, and mints no new one here.
-    val durable = decision?.durable == true
+    // Read from the stored consent, not from the code: a code carries what was asked for, never
+    // the authority.
+    val durable = decision.durable
 
     // What this exchange supersedes, named *before* the successor exists — see
     // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
@@ -1474,37 +1489,37 @@ class PodAuthEndpoint @Inject constructor(
       null
     }
 
-    // The same two moments on this path: the decision was read above and the family is inserted
-    // here, so a withdrawal in between would revoke what it saw and leave this one standing.
-    if (issuedRefresh != null && refusedDurability(podDbo, entry.clientId, entry.subject)) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+    // The decision is read once more, after the insert, and it is the only gate this path needs.
+    // Every write to it raises the generation, so a withdrawal landing mid-exchange has already
+    // moved what this code carries — asking about `durable` separately beforehand could not fire on
+    // anything the comparison misses. The message still tells the two apart, because a person who
+    // withheld the durable connection is owed a different sentence than one whose consent moved.
+    //
+    // **Ungated on purpose.** A short-lived exchange mints no family and would skip this, then
+    // return a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore` — so the
+    // client's replay reads "already authorized" and the forced consent screen is never rendered.
+    // An access token is no row and cannot be recalled, so the only moment to refuse it is before
+    // it goes out (`SPS-AUTH-062`, `SPS-AUTH-063`).
+    //
+    // Two gaps remain and neither grants authority the client did not hold: this read and the mint
+    // are two moments, and the raise is one `updateMany` over the person's alias documents, atomic
+    // per document. Closing them needs a generation spanning a person rather than a URI, bound to
+    // issuance rather than compared before it; `recordDecision` keeps one answer per URI so a code
+    // issued under an alias can go stale on its own. No test reaches either — the check before the
+    // exchange answers anything a test can set up.
+    val standing = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    if (standing?.generation != issuedUnder) {
+      val revoked = issuedRefresh?.let { refreshTokenStore.revokeFamily(it.token.familyId) } ?: 0
+      val withdrawn = standing?.durable == false
       logger.info {
-        "[oauth/token] durable connection withdrawn mid-exchange — family revoked: " +
+        "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
             "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "revokedRows=$revoked"
+            "codeGeneration=$issuedUnder, durableWithheld=$withdrawn, revokedRows=$revoked"
       }
-      return tokenError(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
-    }
-
-    // I9 again, and this time about the sweep rather than the mint. The generation was compared
-    // before any of this existed, and what follows it is destructive: an answer landing in between
-    // is a *later* one than this code's, so retiring what its exchange produced would let the older
-    // code win — the supersession running backwards. Asked once more for the same reason the
-    // refusal above is, and answered the same way: this exchange's own family goes and the client
-    // is told to come back through consent. Only the sequential case has a test (`a code cannot
-    // pick up a consent granted after it`); this window is between two statements, where none can
-    // reach.
-    if (issuedRefresh != null &&
-      consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
-        ?.generation != issuedUnder
-    ) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
-      logger.info {
-        "[oauth/token] consent moved mid-exchange — family revoked before the sweep: " +
-            "pod='${podDbo.name}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "codeGeneration=$issuedUnder, revokedRows=$revoked"
-      }
-      return tokenError(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
+      return tokenError(
+        OAuthErrorCode.INVALID_GRANT,
+        if (withdrawn) "the durable connection was withdrawn" else "authorization code superseded by a later consent",
+      )
     }
 
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer

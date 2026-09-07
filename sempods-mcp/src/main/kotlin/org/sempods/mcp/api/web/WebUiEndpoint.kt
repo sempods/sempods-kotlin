@@ -11,12 +11,14 @@ import org.sempods.mcp.forLog
 import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
+import org.sempods.mcp.persist.PodTokenFacts
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.ProfilePath
 import org.sempods.mcp.persist.TokenVaultDao
-import org.sempods.auth.core.DidWeb
+import org.sempods.mcp.api.resolveProfileOr404
+import org.sempods.mcp.pods.PodClientIdentity
 import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodOAuthMetadata
@@ -41,14 +43,16 @@ import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.utils.appendEscapedHtml
 
-/**
- * The session-protected management web-UI, bundled under the `/_system/ui` sub-tree (reserved
- * system namespace; everything here requires the web-session cookie). It lets a user connect
- * pods (service → pod OAuth) and see/disconnect their connections — filling the M1 persistence
- * spine (`connections` + `podTokens`). Machine MCP/AS endpoints stay at the root.
- */
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.web")
 
+/**
+ * The management web-UI: connect a pod, see and disconnect what is connected.
+ *
+ * Every route here reads the web-session cookie, which is scoped to `/_system/ui` and reaches
+ * nowhere else — the reason a named profile's callback sits under this sub-tree rather than at the
+ * service root ([PodClientIdentity]). The one route in the tree that needs no session is that
+ * profile's DID document, which `oauthMetadataEndpoint` serves at the callback plus `/did.json`.
+ */
 fun Application.webUiEndpoint(
   config: SempodsMcpConfig,
   webSession: WebSession,
@@ -73,7 +77,6 @@ fun Application.webUiEndpoint(
    * by the flow's `state`, so two browser sign-ins do not share a cookie either.
    */
   val UI_LOGIN_PIN_COOKIE_PREFIX = "mcp_ui_login_"
-  val podCallbackUri = "$base/_system/ui/pods/callback"
 
   // The web session identifies the *user*; the profile is a request-scoped selection (one WebID
   // session legitimately spans all of that user's profiles). For a **mutating** action the profile
@@ -99,8 +102,9 @@ fun Application.webUiEndpoint(
   // prior context selection on its consent screen. A fresh DCR against a pod that does not dedup
   // could mint a different id and orphan those grants.
   //
-  // The exception is a connection the pod has already declared finished (`deadGrantSince`). Then
-  // those grants are unreachable through that id anyway, and a cleared `dyn:` registration looks
+  // The exception is a connection the pod has already declared finished
+  // ([PodTokens.deadGrantSince]). Then those grants are unreachable through that id anyway, and a
+  // cleared `dyn:` registration looks
   // exactly like this from here — the pod answers /authorize with a flat 400 that the browser, not
   // this service, is holding, which is why the reconnect used to dead-end and the only way out was
   // to disconnect the pod first. Re-registering is the only way to find out which of the two it is,
@@ -110,9 +114,9 @@ fun Application.webUiEndpoint(
   //
   // Only for `dyn:` — the static did:web client has no registration to lose — and only where the
   // pod publishes somewhere to register.
-  fun reusableClientId(existing: PodConnection?, metadata: PodOAuthMetadata): String? {
-    val stored = existing?.podClientId ?: return null
-    if (existing.deadGrantSince == null) return stored
+  fun reusableClientId(stored: String?, deadGrant: Boolean, metadata: PodOAuthMetadata): String? {
+    if (stored == null) return null
+    if (!deadGrant) return stored
     if (!stored.startsWith("dyn:")) return stored
     if (metadata.registrationEndpoint == null) return stored
     return null
@@ -135,13 +139,35 @@ fun Application.webUiEndpoint(
     existing: PodConnection?,
   ): String {
     val metadata = podOAuthClient.discoverMetadata(podBaseUrl)
-    val podClientId = reusableClientId(existing, metadata)
-      ?: metadata.registrationEndpoint
-        ?.let { podOAuthClient.registerClient(metadata, podCallbackUri, softwareVersion = SERVICE_VERSION) }
-      ?: DidWeb.clientId(base)
-    if (existing != null && existing.podClientId != podClientId) {
+    // Read only where it can be used: `/pods/separate` passes `existing = null` for a pod that IS
+    // connected, because dropping the registration and taking the profile's own is the whole point
+    // of that route — so the registry row, not the token row that outlives it, is the gate.
+    // The facts, not the decrypted row: a connection whose tokens will not decrypt is exactly one
+    // somebody is here to re-authorize, and reading it through `find` would answer null — dropping
+    // the mark the dashboard just showed them, so the flow would reuse a `dyn:` id the pod may have
+    // cleared and dead-end on its 400. Nothing below needs a token.
+    val facts = existing?.let { tokenVaultDao.findFacts(PodKey(user, profile, podBaseUrl)) }
+    val registration = existing?.let { PodClientIdentity.registrationOf(facts, it) }
+    val reused = reusableClientId(registration?.clientId, deadGrant = facts?.isDeadGrant == true, metadata)
+    // The identity follows the connection, not the profile. An existing one presents what it was
+    // registered under even where it has to re-register — that is what makes [reusableClientId]'s
+    // fresh DCR free, since the fingerprint is then the one the live registration holds. Only a
+    // first connect takes the profile's own, and `/pods/separate` is a first connect.
+    val identity = registration?.let { PodClientIdentity.profileOf(base, it.redirectUri) } ?: profile
+    val redirectUri = PodClientIdentity.callbackUri(base, identity)
+    val podClientId = reused
+      ?: metadata.registrationEndpoint?.let {
+        podOAuthClient.registerClient(
+          metadata,
+          redirectUri,
+          softwareVersion = SERVICE_VERSION,
+          clientName = PodClientIdentity.clientName(identity),
+        )
+      }
+      ?: PodClientIdentity.didWebClientId(base, identity)
+    if (registration != null && registration.clientId != podClientId) {
       logger.info {
-        "pod '${forLog(podBaseUrl)}' no longer knows client_id '${forLog(existing.podClientId)}' " +
+        "pod '${forLog(podBaseUrl)}' no longer knows client_id '${forLog(registration.clientId)}' " +
           "— re-registered as '${forLog(podClientId)}' for user='${forLog(user)}' profile='$profile'"
       }
     }
@@ -150,7 +176,7 @@ fun Application.webUiEndpoint(
     val state = podConnectStateStore.create { expiresAt ->
       PodConnectStateStore.Pending(
         user = user, profile = profile, pod = podBaseUrl, metadata = metadata,
-        podClientId = podClientId, codeVerifier = verifier, redirectUri = podCallbackUri,
+        podClientId = podClientId, codeVerifier = verifier, redirectUri = redirectUri,
         expiresAt = expiresAt, returnTo = returnTo,
       )
     }
@@ -165,7 +191,7 @@ fun Application.webUiEndpoint(
           "connecting without it, so the connection lasts as long as the pod chooses to make it"
       }
     }
-    return podOAuthClient.buildAuthorizeUrl(metadata, podClientId, podCallbackUri, challenge, state, scope)
+    return podOAuthClient.buildAuthorizeUrl(metadata, podClientId, redirectUri, challenge, state, scope)
   }
 
   routing {
@@ -179,7 +205,10 @@ fun Application.webUiEndpoint(
       val profiles = profileDao.listForUser(session.user)
       val profile = ProfilePath.normalize(call.request.queryParameters["profile"])
         ?.takeIf { it in profiles } ?: PodKey.DEFAULT_PROFILE
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(session.user, profile))
+      val profileKey = ProfileKey(session.user, profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
+      // The badges describe what a re-authorize would present, so they are read off the rows it reads.
+      val tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod }
       call.respondText(
         dashboardHtml(
           base = base,
@@ -188,6 +217,7 @@ fun Application.webUiEndpoint(
           selectedProfile = profile,
           allProfiles = profiles,
           connections = connections,
+          tokensByPod = tokensByPod,
           connectedBanner = call.request.queryParameters["connected"],
           connectedAs = call.request.queryParameters["connected_as"],
           errorBanner = call.request.queryParameters["error"],
@@ -317,11 +347,13 @@ fun Application.webUiEndpoint(
       }
 
       val redirect = runCatching {
-        // First connect: no pinned client_id yet — DCR when the pod offers it (full sempods pod),
-        // otherwise our static did:web client_id (did:web:<mcp-host>). Whether the pod resolves the
-        // did.json we serve or just matches the origin is its own choice — the method permits both,
-        // and this branch is for pods we did not write. A sempods pod fetches nothing (`DidWeb`).
-        buildPodAuthorizeRedirect(session.user, profile, podBaseUrl, returnTo, existing = null)
+        // The row is looked up rather than assumed absent: this form is also how a person reconnects
+        // a pod they already have, and typing its URL again must not take its identity away.
+        // `/pods/separate` is the only caller that passes `existing = null` for a connected pod.
+        buildPodAuthorizeRedirect(
+          session.user, profile, podBaseUrl, returnTo,
+          existing = connectionRegistryDao.find(PodKey(session.user, profile, podBaseUrl)),
+        )
       }.getOrElse { e ->
         logger.warn(e) { "pod connect failed for '$podBaseUrl'" }
         errorBack("could not reach pod")
@@ -331,7 +363,7 @@ fun Application.webUiEndpoint(
 
     // --- Re-authorize a connected pod (change the granted contexts on the pod's consent screen) ---
     // The pod re-shows its consent UI (our MCP registration is a `dyn:` client, so consent is always
-    // re-displayed) with the prior context grants pre-checked; the shared /pods/callback below then
+    // re-displayed) with the prior context grants pre-checked; /pods/callback below then
     // re-`upsert`s the connection with whatever scopes come back. Which client_id is presented —
     // the stored one, or a freshly registered one for a connection the pod has declared dead — is
     // [reusableClientId]'s decision. This is also the button the dashboard offers for a pod that
@@ -366,21 +398,59 @@ fun Application.webUiEndpoint(
       call.respondRedirect(redirect)
     }
 
-    // --- Pod redirects here with the authorization code ---
-    get("/_system/ui/pods/callback") {
+    // --- Give a connection this profile's own identity at the pod ---
+    //
+    // The one action that drops a connection's identity, which is why it is a route rather than a
+    // flag on the connect form: it costs a consent, because the new client has no grants at the
+    // pod. Idempotent where the connection already has its own.
+    post("/_system/ui/pods/separate") {
       val session = webSession.read(call)
-        ?: return@get call.respondRedirect("$base/_system/ui/login")
-      val q = call.request.queryParameters
+        ?: return@post call.respondRedirect("$base/_system/ui/login")
+      val form = call.receiveParameters()
+      if (!csrfOk(form["csrf"], session)) return@post call.respondRedirect("$base/_system/ui?error=${enc("invalid request token")}")
+      val profile = ownedProfile(form["profile"], session.user)
+        ?: return@post call.respondRedirect("$base/_system/ui?error=${enc("unknown profile")}")
+      fun errorBack(msg: String): String = "$base/_system/ui?profile=${enc(profile)}&error=${enc(msg)}"
+      val pod = form["pod"]?.trim()?.trimEnd('/').orEmpty()
+      if (pod.isEmpty()) return@post call.respondRedirect(errorBack("missing pod URL"))
+      val connection = connectionRegistryDao.find(PodKey(session.user, profile, pod))
+        ?: return@post call.respondRedirect(errorBack("unknown connection"))
+
+      val redirect = runCatching {
+        buildPodAuthorizeRedirect(session.user, profile, connection.pod, returnTo = null, existing = null)
+      }.getOrElse { e ->
+        logger.warn(e) { "pod identity separation failed for '${forLog(pod)}'" }
+        errorBack("could not reach pod")
+      }
+      call.respondRedirect(redirect)
+    }
+
+    // --- Pod redirects here with the authorization code ---
+    //
+    // Two routes, one handler: a named profile comes back at its own callback, a connection still
+    // on the shared client at the parent. Which flow it is comes from `Pending`, never from the
+    // path — `arrivedAt` is only checked against it.
+    suspend fun ApplicationCall.completePodConnect(arrivedAt: String) {
+      val session = webSession.read(this)
+        ?: return respondRedirect("$base/_system/ui/login")
+      val q = request.queryParameters
       // Resolve the pending connect FIRST — even on an OAuth error the pod echoes `state`, so
       // consuming it here (and cross-checking the session) is what makes `pending.returnTo`
       // available to every subsequent branch. Consuming on error also cleans the one-time entry.
       // Only a callback with no usable `state` has to fall back to the dashboard: without pending
       // there is no returnTo to honour.
-      val state = q["state"] ?: return@get call.respondRedirect("$base/_system/ui?error=${enc("missing state")}")
+      val state = q["state"] ?: return respondRedirect("$base/_system/ui?error=${enc("missing state")}")
       val pending = podConnectStateStore.consume(state)
-        ?: return@get call.respondRedirect("$base/_system/ui?error=${enc("invalid or expired connect state")}")
+        ?: return respondRedirect("$base/_system/ui?error=${enc("invalid or expired connect state")}")
       if (pending.user != session.user) {
-        return@get call.respondRedirect("$base/_system/ui?error=${enc("session/user mismatch")}")
+        return respondRedirect("$base/_system/ui?error=${enc("session/user mismatch")}")
+      }
+      // The code was issued for one address and is redeemed at that one.
+      if (pending.redirectUri != arrivedAt) {
+        logger.warn {
+          "pod callback arrived at '$arrivedAt' for a connect registered at '${forLog(pending.redirectUri)}'"
+        }
+        return respondRedirect("$base/_system/ui?error=${enc("callback/profile mismatch")}")
       }
 
       // Where to send the browser: back to the consent screen if this connect was started there
@@ -392,8 +462,8 @@ fun Application.webUiEndpoint(
 
       // A pod-denied consent or a malformed callback with no code returns to wherever the connect
       // was started — the consent screen keeps the flow (and the selected profile), not the dashboard.
-      q["error"]?.let { return@get call.respondRedirect(landing("error=${enc("pod denied: $it")}")) }
-      val code = q["code"] ?: return@get call.respondRedirect(landing("error=${enc("missing code")}"))
+      q["error"]?.let { return respondRedirect(landing("error=${enc("pod denied: $it")}")) }
+      val code = q["code"] ?: return respondRedirect(landing("error=${enc("missing code")}"))
 
       val result = runCatching {
         val tokens = podOAuthClient.exchangeCode(pending.metadata, code, pending.redirectUri, pending.podClientId, pending.codeVerifier)
@@ -413,7 +483,8 @@ fun Application.webUiEndpoint(
         val scopes = OAuthSyntax.parseScope(tokens.scope)
         val connection = PodConnection(
           user = pending.user, profile = pending.profile, pod = pending.pod,
-          issuer = pending.metadata.issuer, podClientId = pending.podClientId, scopes = scopes,
+          issuer = pending.metadata.issuer, podClientId = pending.podClientId,
+          podRedirectUri = pending.redirectUri, scopes = scopes,
           podSubject = subject.webId, subjectVerified = subject.verified,
           createdAt = now, updatedAt = now,
         )
@@ -426,6 +497,8 @@ fun Application.webUiEndpoint(
             // A connect IS a use: the person is right here, and whatever they do next should not
             // pay for a cold connection the sweep has not been given a reason to keep warm yet.
             lastUsedAt = now,
+            podClientId = pending.podClientId,
+            podRedirectUri = pending.redirectUri,
           ),
         )
         connectionRegistryDao.upsert(connection)
@@ -442,7 +515,21 @@ fun Application.webUiEndpoint(
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "connect_failed")
         landing("error=${enc("connect failed")}")
       }
-      call.respondRedirect(result)
+      respondRedirect(result)
+    }
+
+    get(PodClientIdentity.CALLBACK_PATH) {
+      call.completePodConnect(PodClientIdentity.callbackUri(base, PodKey.DEFAULT_PROFILE))
+    }
+
+    // A named profile's own callback — the fork that gives it a client identity of its own at the
+    // pod. Below the parent path rather than at the service root, because the session cookie is
+    // scoped to `/_system/ui` and a browser sends it nowhere else ([PodClientIdentity]). Reserved
+    // segments answer 404 here as everywhere else, so nothing can register a redirect URI under a
+    // name that is really a route.
+    get("${PodClientIdentity.CALLBACK_PATH}/{profile}") {
+      val profile = call.resolveProfileOr404() ?: return@get
+      call.completePodConnect(PodClientIdentity.callbackUri(base, profile))
     }
 
     post("/_system/ui/pods/disconnect") {
@@ -472,6 +559,7 @@ private fun dashboardHtml(
   selectedProfile: String,
   allProfiles: List<String>,
   connections: List<PodConnection>,
+  tokensByPod: Map<String, PodTokenFacts>,
   connectedBanner: String?,
   connectedAs: String?,
   errorBanner: String?,
@@ -557,13 +645,24 @@ private fun dashboardHtml(
       // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val showUnverified = c.foreignIdentity && !c.subjectVerified
-      val needsReconnect = c.deadGrantSince != null
-      if (c.scopes.isNotEmpty() || showUnverified || needsReconnect) {
+      val tokens = tokensByPod[c.pod]
+      val needsReconnect = tokens?.isDeadGrant == true
+      // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
+      // it and the default profile, and one grant set under it.
+      val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&
+        PodClientIdentity.profileOf(base, PodClientIdentity.registrationOf(tokens, c).redirectUri) != selectedProfile
+      if (c.scopes.isNotEmpty() || showUnverified || needsReconnect || sharesDefaultClient) {
         append("<div class=\"badges\">")
         for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")
         if (showUnverified) append("<span class=\"badge warn\">unverified</span>")
         if (needsReconnect) append("<span class=\"badge warn\">reconnect needed</span>")
+        if (sharesDefaultClient) append("<span class=\"badge warn\">shared client</span>")
         append("</div>")
+      }
+      // Offered rather than done: separating costs one consent at the pod.
+      if (sharesDefaultClient) {
+        append("<div class=\"acts\">this pod knows one client for all your profiles; ")
+        append("Separate identity registers this profile's own and asks the pod again what it may read</div>")
       }
       // A pill is easy to miss, and this one means the pod is doing nothing at all — say it in
       // words next to the action that fixes it.
@@ -583,6 +682,13 @@ private fun dashboardHtml(
       append("<input type=\"hidden\" name=\"profile\" value=\"").appendEscapedHtml(selectedProfile).append("\">")
       append("<input type=\"hidden\" name=\"csrf\" value=\"").appendEscapedHtml(csrfToken).append("\">")
       append("<button type=\"submit\" class=\"reauth\">Re-authorize</button></form>")
+      if (sharesDefaultClient) {
+        append("<form method=\"post\" action=\"").append(base).append("/_system/ui/pods/separate\">")
+        append("<input type=\"hidden\" name=\"pod\" value=\"").appendEscapedHtml(c.pod).append("\">")
+        append("<input type=\"hidden\" name=\"profile\" value=\"").appendEscapedHtml(selectedProfile).append("\">")
+        append("<input type=\"hidden\" name=\"csrf\" value=\"").appendEscapedHtml(csrfToken).append("\">")
+        append("<button type=\"submit\" class=\"reauth\">Separate identity</button></form>")
+      }
       append("<form method=\"post\" action=\"").append(base).append("/_system/ui/pods/disconnect\">")
       append("<input type=\"hidden\" name=\"pod\" value=\"").appendEscapedHtml(c.pod).append("\">")
       append("<input type=\"hidden\" name=\"profile\" value=\"").appendEscapedHtml(selectedProfile).append("\">")

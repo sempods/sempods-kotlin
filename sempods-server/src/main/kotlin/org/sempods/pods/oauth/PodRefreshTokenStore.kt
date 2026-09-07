@@ -87,8 +87,9 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   internal fun revokeFamily(familyId: String): Long = store.revokeFamily(familyId)
 
   /**
-   * Revokes what one app holds for one person on one pod. The consent-withdrawal path, and the
-   * MCP surface's explicit re-authorization.
+   * Revokes what one app holds for one person on one pod — the consent-withdrawal and disconnect
+   * paths. The MCP surface's explicit re-authorization uses [revokeLiveFamiliesFor] instead, for
+   * the reason stated there.
    */
   internal fun revokeForUser(podId: ObjectId, clientId: String, webId: String): Long =
     revokeForUser(podId, clientId, listOf(webId))
@@ -103,6 +104,19 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    */
   internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
     ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
+
+  /**
+   * Ends the families this app holds for this person **as they stand now**, and no later ones.
+   *
+   * For an event that reviews a consent rather than replacing it — the MCP surface's explicit
+   * re-authorization. [revokeForUser] would do it in one write, but its filter also catches a
+   * family inserted while it runs, and that one belongs to a consent completing beside the call:
+   * taking it hands the person a refresh token dead on arrival. Naming the set first cannot reach
+   * anything minted after the look. What is minted between the caller's own generation raise and
+   * this look is still taken; removing that needs the family to carry its own generation.
+   */
+  internal fun revokeLiveFamiliesFor(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
+    revokeFamilies(liveFamilies(podId, clientId, webIds))
 
   /**
    * The live families this app holds for this person — what a consent about to mint one supersedes.

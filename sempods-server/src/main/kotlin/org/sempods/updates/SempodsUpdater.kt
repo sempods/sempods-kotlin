@@ -7,10 +7,11 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 
 class SempodsUpdater {
 
-  // Empty since the legacy decommission retired the backup backfill. The
-  // mechanism stays: it is what a one-time data update registers with until the versioned migration
-  // registry replaces it (the maintainer's internal roadmap).
-  private val updates: List<SempodsUpdate> = emptyList()
+  // What a one-time data update registers with, until the versioned migration registry replaces it
+  // (the maintainer's internal roadmap).
+  private val updates: List<SempodsUpdate> = listOf(
+    DcrFingerprintUniqueness(),
+  )
 
   private val updateExecutor = Executors.newSingleThreadExecutor { runnable ->
     Thread(runnable, "sempods-updates").apply {

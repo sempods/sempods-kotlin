@@ -69,30 +69,38 @@ class DynamicClientStore @Inject constructor(
     // an orphan per reconnect. The realm slot the fingerprint offers stays empty here — a
     // pod has one MCP surface, so there is nothing to fork registrations by.
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, realm = null, redirectUris)
-    dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
-      return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
-    }
 
-    val clientId = "dyn:" + newOpaqueId()
-    val dbo = dao.create(
-      clientId = clientId,
-      registeredForPodId = registeredForPodId,
-      registeredForPodName = registeredForPodName,
-      redirectUris = redirectUris,
-      clientName = clientName,
-      clientUri = clientUri,
-      logoUri = logoUri,
-      softwareId = softwareId,
-      softwareVersion = softwareVersion,
-      contacts = contacts,
-      tosUri = tosUri,
-      policyUri = policyUri,
-      rawRequest = rawRequest,
-      remoteAddr = remoteAddr,
-      userAgent = userAgent,
-      fingerprint = fingerprint,
-    )
-    return dbo.toRegistration()
+    // Look, then insert, and let the loop settle whichever the other party won. A second
+    // registration landing in the gap makes the lookup miss and the insert be refused, and the next
+    // pass's lookup answers the winner — which the caller cannot tell from an ordinary dedup hit
+    // because it is one. The other direction happens too: the winner's row can be gone by then (the
+    // pod-deletion cascade), and a single re-read would answer nothing and turn an unauthenticated
+    // `/register` into a 500. The next pass just inserts.
+    repeat(ATTEMPTS) {
+      dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
+        return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
+      }
+      val dbo = dao.create(
+        clientId = "dyn:" + newOpaqueId(),
+        registeredForPodId = registeredForPodId,
+        registeredForPodName = registeredForPodName,
+        redirectUris = redirectUris,
+        clientName = clientName,
+        clientUri = clientUri,
+        logoUri = logoUri,
+        softwareId = softwareId,
+        softwareVersion = softwareVersion,
+        contacts = contacts,
+        tosUri = tosUri,
+        policyUri = policyUri,
+        rawRequest = rawRequest,
+        remoteAddr = remoteAddr,
+        userAgent = userAgent,
+        fingerprint = fingerprint,
+      )
+      if (dbo != null) return dbo.toRegistration()
+    }
+    error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPodId")
   }
 
   internal fun lookup(podId: ObjectId, clientId: String): Registration? =
@@ -127,5 +135,10 @@ class DynamicClientStore @Inject constructor(
     val bytes = ByteArray(18)
     random.nextBytes(bytes)
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+  }
+
+  private companion object {
+    /** Lookup-then-insert passes before a client racing itself is somebody's problem. */
+    const val ATTEMPTS = 3
   }
 }

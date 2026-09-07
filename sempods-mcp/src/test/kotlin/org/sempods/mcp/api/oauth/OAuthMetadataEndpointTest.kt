@@ -49,6 +49,29 @@ class OAuthMetadataEndpointTest {
   }
 
   @Test
+  fun `a named profile's did-web document names the profile's own identifier`() = testApplication {
+    // At the address the did:web read algorithm derives, which is not the one the host-only
+    // identifier uses: the colons become slashes, `/.well-known` is inserted only where that leaves
+    // no path, and `/did.json` is appended. A resolver that follows the method finds nothing under
+    // `/<profile>/.well-known/`, and the profile then cannot connect to exactly the non-sempods
+    // pods this document exists for.
+    application { oauthMetadataEndpoint(config, mapper) }
+
+    val resp = client.get("/_system/ui/pods/callback/cron-agent/did.json")
+    assertEquals(HttpStatusCode.OK, resp.status)
+    assertEquals(
+      "did:web:mcp.test:_system:ui:pods:callback:cron-agent",
+      mapper.readTree(resp.bodyAsText())["id"].asText(),
+    )
+
+    assertEquals(
+      HttpStatusCode.NotFound,
+      client.get("/_system/ui/pods/callback/mcp/did.json").status,
+      "a reserved segment is not a profile here either",
+    )
+  }
+
+  @Test
   fun `named-profile host-rooted discovery (RFC 9728 path-insertion) is profile-scoped`() = testApplication {
     application { oauthMetadataEndpoint(config, mapper) }
     val prm = mapper.readTree(client.get("/.well-known/oauth-protected-resource/private").bodyAsText())

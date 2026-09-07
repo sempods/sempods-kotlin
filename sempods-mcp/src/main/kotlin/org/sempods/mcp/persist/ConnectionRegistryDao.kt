@@ -5,7 +5,6 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.ReplaceOptions
-import com.mongodb.client.model.Updates
 import org.bson.Document
 import org.sempods.commons.mongo.putNotNull
 import java.util.Date
@@ -24,7 +23,10 @@ data class PodConnection(
   val pod: String,
   /** The pod's OAuth authorization-server issuer, discovered via the pod's metadata. */
   val issuer: String,
-  /** The client_id the service registered at the pod via DCR. */
+  /**
+   * The client_id the service registered at the pod via DCR — the fallback copy, read with
+   * [podRedirectUri] and never apart from it. [PodTokens] says which row answers and why.
+   */
   val podClientId: String,
   /** Feature scopes granted to the service by the pod (e.g. "public-read"). */
   val scopes: Set<String>,
@@ -42,18 +44,19 @@ data class PodConnection(
    * pod's token endpoint over TLS (trusted by transport, not by signature).
    */
   val subjectVerified: Boolean = false,
-  /**
-   * When the pod last answered a refresh with `invalid_grant` — the one code that means the grant
-   * is finished (RFC 6749 §5.2), not that the attempt failed.
-   *
-   * Set so the dashboard can say "reconnect needed" instead of showing the pod as healthy while
-   * every tool call quietly returns no token. Cleared by a successful (re-)connect, which writes a
-   * fresh row. The row itself is **never** deleted on a dead grant: it carries the pod URL the
-   * person needs in order to reconnect.
-   */
-  val deadGrantSince: Date? = null,
   val createdAt: Date,
   val updatedAt: Date,
+  /**
+   * The redirect URI [podClientId] is pinned to at the pod, so presenting that id again means
+   * presenting this address. Null is a connection made while every profile shared one client, and
+   * means the parent `…/_system/ui/pods/callback`; `PodClientIdentity.profileOf` reads it back.
+   *
+   * Last in the list so every existing `componentN()` keeps its meaning — a consumer compiled
+   * against an older artifact then fails to link rather than destructuring this where it asked for
+   * the scopes. The constructor and `copy` change either way, which this module's promise does not
+   * cover: that is the embedding contract, per `org.sempods.probe.auth.embedSempodsAuth`.
+   */
+  val podRedirectUri: String? = null,
 ) {
   /** True when the pod authorized a different WebID than the service identity ([user]). */
   val foreignIdentity: Boolean get() = podSubject != null && podSubject != user
@@ -113,23 +116,6 @@ class ConnectionRegistryDao(
     )
   }
 
-  /**
-   * Records that the pod declared this connection's grant finished.
-   *
-   * Compare-and-set on [PodConnection.updatedAt] rather than a blind update, because the decision
-   * is made *after* a network round trip: a reconnect that landed in the meantime would otherwise
-   * be stamped "reconnect needed" permanently, and nothing clears the mark except another
-   * reconnect. It also makes this a no-op rather than a resurrection when a disconnect deleted the
-   * row mid-flight. Same reasoning as `TokenVaultDao.replaceIfClaimedBy` on the token side.
-   *
-   * @return whether the row was still the one that was read.
-   */
-  fun markDeadGrant(key: PodKey, at: Date, ifUpdatedAt: Date): Boolean =
-    connections.updateOne(
-      Filters.and(keyFilter(key), Filters.eq("updatedAt", ifUpdatedAt)),
-      Updates.combine(Updates.set("deadGrantSince", at), Updates.set("updatedAt", at)),
-    ).modifiedCount == 1L
-
   fun delete(key: PodKey) {
     connections.deleteOne(keyFilter(key))
   }
@@ -146,12 +132,10 @@ class ConnectionRegistryDao(
     put("pod", pod)
     put("issuer", issuer)
     put("podClientId", podClientId)
+    putNotNull("podRedirectUri", podRedirectUri)
     put("scopes", scopes.toList())
     put("podSubject", podSubject)
     put("subjectVerified", subjectVerified)
-    // `putNotNull`, unlike the `podSubject` line above: an absent field is the contract
-    // `sempods-commons-mongo/docs/document-contract.md` states, and it is the common case here.
-    putNotNull("deadGrantSince", deadGrantSince)
     put("createdAt", createdAt)
     put("updatedAt", updatedAt)
   }
@@ -162,10 +146,10 @@ class ConnectionRegistryDao(
     pod = getString("pod"),
     issuer = getString("issuer"),
     podClientId = getString("podClientId"),
+    podRedirectUri = getString("podRedirectUri"),
     scopes = (getList("scopes", String::class.java) ?: emptyList()).toSet(),
     podSubject = getString("podSubject"),
     subjectVerified = getBoolean("subjectVerified", false),
-    deadGrantSince = getDate("deadGrantSince"),
     createdAt = getDate("createdAt") ?: Date(),
     updatedAt = getDate("updatedAt") ?: Date(),
   )

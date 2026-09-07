@@ -28,9 +28,10 @@ import java.util.Date
  * a refusal stays distinguishable from a silence. Reading them as the same thing is a bug in both
  * directions — it either ends connections nobody ended, or lets a withdrawal be ignored.
  *
- * [Decision.generation] rises with every answer, a refusal included. It is written from the first
- * row because it cannot be reconstructed afterwards: it is what a later authorization code or
- * consent form is bound to, so that neither can outlive the consent that produced it.
+ * [Decision.generation] rises with every answer, a refusal included, and with every other event
+ * that resets what the authorization stands at — see [bumpGeneration]. It is written from the
+ * first row because it cannot be reconstructed afterwards: it is what a later authorization code
+ * or consent form is bound to, so that neither can outlive the consent that produced it.
  *
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md`
@@ -103,6 +104,32 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
       FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
     )
     return checkNotNull(updated) { "upsert returned no document" }.toDecision()
+  }
+
+  /**
+   * Raises the generation without answering anything — for an event that ends what this
+   * authorization stood at while asking the person nothing. Returns how many documents moved.
+   *
+   * An explicit `authorize(reauthorize=true)` is one: every code bound to the generation before it
+   * is spent, which is what the token endpoint compares against. A consent *form* is not — a
+   * mismatched generation still submits wherever the app holds something, which is the coexistence
+   * of screens `ConsentTransactionStore` allows on purpose.
+   *
+   * **No upsert.** An absent document is a state of its own, and writing one here would turn a
+   * forced review into an answer nobody gave. The caller raises before it sweeps, so whichever of
+   * the two lands second sees the first (`SPS-AUTH-063`) — a database `$inc` rather than a
+   * timestamp, because the two calls can be served by different replicas.
+   */
+  internal fun bumpGeneration(podId: ObjectId, appId: String, webIds: Collection<String>): Long {
+    if (webIds.isEmpty()) return 0
+    return decisions.updateMany(
+      Filters.and(
+        Filters.eq(FIELD_POD_ID, podId),
+        Filters.eq(FIELD_APP_ID, appId),
+        Filters.`in`(FIELD_WEB_ID, webIds),
+      ),
+      Updates.inc(FIELD_GENERATION, 1L),
+    ).modifiedCount
   }
 
   /** The pod-cascade delete path, where the authorizations themselves are going away. */
