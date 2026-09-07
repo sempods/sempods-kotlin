@@ -580,10 +580,10 @@ class PodTokenProviderTest {
 
   @Test
   fun `identity drift is decided against the subject the token was minted for`() = runBlocking {
-    // The same half-landed reconnect, one row further along: the vault carries the identity the new
-    // family was minted for, and the registry still names the one before it. Decided on the
-    // registry, this refusal is permanent — the line that repairs the recorded subject sits *after*
-    // the check that blocks it, so it never runs.
+    // The vault and the registry name different identities. Whichever way round they got there, the
+    // refresh is about the family in the vault: it checks drift against that row and rotates it.
+    // The registry is left to whoever wrote it — under this write order a row naming another
+    // identity is the newer one, a reconnect whose token write has not landed.
     seedConnection(podSubject = "https://pod.example/u/original")
     seedToken(
       expiresAt = Date(System.currentTimeMillis() - 60_000),
@@ -594,8 +594,8 @@ class PodTokenProviderTest {
     assertNotNull(provider.validAccessToken(key), "the pod answered as the identity this family is for")
     assertEquals("rt-2", vault.find(key)!!.refreshToken, "so the rotation persists")
     assertEquals(
-      "https://pod.example/u/reconnected", registry.find(key)!!.podSubject,
-      "and the backfill the refusal used to skip repairs the registry's copy",
+      "https://pod.example/u/original", registry.find(key)!!.podSubject,
+      "and the registry is left alone: naming another identity makes it the newer row, not the stale one",
     )
     verify(exactly = 0) { auditLog.podTokenRefreshed(key, ok = false, detail = "identity_drift") }
   }
@@ -616,6 +616,27 @@ class PodTokenProviderTest {
 
     assertEquals("at-1", access.token)
     assertEquals("https://pod.example/u/whose-token-this-is", access.podSubject, "the identity this token was minted for")
+  }
+
+  @Test
+  fun `a registry row naming another identity is left to whoever wrote it`() = runBlocking {
+    // The reachable half-landed shape under this write order: the registry row is the reconnect's,
+    // its token write has not landed, and the refresh is rotating the family that reconnect
+    // replaces. Answering that row with this family's identity would put the superseded
+    // connection's answer on the one replacing it.
+    seedConnection(podSubject = "https://pod.example/u/from-the-reconnect")
+    seedToken(
+      expiresAt = Date(System.currentTimeMillis() - 60_000),
+      podSubject = "https://pod.example/u/whose-token-this-is",
+    )
+    stubRefreshReturningSubject("https://pod.example/u/whose-token-this-is")
+
+    assertNotNull(provider.validAccessToken(key), "the family in hand still refreshes")
+
+    assertEquals(
+      "https://pod.example/u/from-the-reconnect", registry.find(key)!!.podSubject,
+      "the newer row keeps what it says",
+    )
   }
 
   @Test

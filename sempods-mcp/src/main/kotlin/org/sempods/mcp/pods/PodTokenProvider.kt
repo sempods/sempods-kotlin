@@ -358,7 +358,16 @@ class PodTokenProvider(
       // Keep the recorded identity accurate: backfill a legacy null podSubject, or reflect a pod that
       // has since added a JWKS (unverified → verified). No write when the subject is unreadable or
       // nothing changed.
-      if (subject != null && (connection.podSubject != subject.webId || connection.subjectVerified != subject.verified)) {
+      //
+      // And none onto a row naming somebody else. The connect callback writes the registry row
+      // before the token row, so a registry that disagrees about the identity is the *newer* of the
+      // two — a reconnect whose token write has not landed — and answering it with this family's
+      // identity would put the superseded connection's answer on the one replacing it. What repairs
+      // such a row is the reconnect being retried.
+      val recorded = connection.podSubject
+      if (subject != null && (recorded == null || recorded == subject.webId) &&
+        (recorded != subject.webId || connection.subjectVerified != subject.verified)
+      ) {
         if (!connectionRegistryDao.recordSubjectIfUnchanged(connection, subject.webId, subject.verified, now)) {
           logger.debug { "connection row for $key moved on mid-refresh — leaving its identity to whoever wrote it" }
         }
