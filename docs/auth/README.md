@@ -84,7 +84,11 @@ cookie; this is the other half.
 
 **A pod session is neither visible nor revocable to the person holding
 it.** There is no "signed in as … / sign out" surface on a pod, and no way
-to end a session other than waiting out its twelve hours.
+to end a session other than waiting it out — twelve hours after it was last
+used, and up to thirty days for one that keeps being used (see
+[`oauth.md`](oauth.md) §"The `prompt` parameter"). Ending one early would
+need something a signature alone cannot carry: a session id and a list of
+the ones that no longer stand.
 
 **`prompt=login` cannot be guaranteed for an Apple sign-in.** The value is
 parsed and forwarded, and Google honours it. Apple's authorize endpoint

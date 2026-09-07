@@ -10,6 +10,7 @@ import com.nimbusds.jwt.SignedJWT
 import org.sempods.auth.core.JwtVerification
 import org.sempods.auth.core.JwtVerifier
 import org.sempods.auth.core.SigningKeys
+import org.sempods.auth.core.instantClaimOrNull
 import org.sempods.auth.core.stringClaimOrNull
 import org.sempods.auth.core.stringListClaimOrNull
 import java.time.Instant
@@ -103,20 +104,33 @@ class PodTokenIssuer(
    * The person proved who they are at the id-server; this is how the pod remembers it across the
    * consent screen and the next authorization, instead of running the whole round trip again. It
    * answers *who*, and only that — *which consent screen, and has it been used* is
-   * `ConsentTransactionStore`'s question, and a session-derived value cannot answer it: the same
-   * session spans every screen for twelve hours, and a second sign-in replaces it.
+   * `ConsentTransactionStore`'s question, and a session-derived value cannot answer it: one
+   * session spans every screen it outlives, and a second sign-in replaces it.
    *
    * **Not an access token, and not accepted as one.** It carries no `client_id`, which
    * `PodTokenAuthenticator` requires, and `token_use=session` says so outright —
    * two independent reasons, because the two are signed by the same key and a shape that drifted
    * into being redeemable would be silent.
+   *
+   * @param authTime when the person authenticated at the id-server. Defaults to now, which is
+   *   right for a sign-in and wrong for a renewal — [renewSession] passes the original forward,
+   *   because the absolute limit is measured from it and a renewal that reset it would lift it.
    */
-  fun issueSession(pod: String, webId: String, alsoKnownAs: List<String> = emptyList()): String {
+  fun issueSession(
+    pod: String,
+    webId: String,
+    alsoKnownAs: List<String> = emptyList(),
+    authTime: Instant = Instant.now(),
+  ): String {
     val now = Instant.now()
     val claims = JWTClaimsSet.Builder()
       .issuer("${apiBaseUrl.trimEnd('/')}/$pod/")
       .subject(webId)
       .claim(CLAIM_TOKEN_USE, TOKEN_USE_SESSION)
+      // When the person actually signed in, carried unchanged across every renewal — `exp` moves,
+      // this does not. It is what [renewSession] measures the absolute limit against, and it is
+      // OIDC Core 1.0 §2's `auth_time` because that is the claim that already means this.
+      .claim(CLAIM_AUTH_TIME, authTime.epochSecond)
       // The equivalent identity URIs the id-server asserted. Ownership and grants are decided
       // against all of them, so a session that dropped them would silently demote someone whose
       // pod records an alias — and would write app grants under a narrower subject set than the
@@ -154,10 +168,41 @@ class PodTokenIssuer(
     if (claims.stringClaimOrNull(CLAIM_TOKEN_USE) != TOKEN_USE_SESSION) return null
     if (claims.issuer != "${apiBaseUrl.trimEnd('/')}/$pod/") return null
     val webId = claims.subject?.takeIf { it.isNotBlank() } ?: return null
-    return SessionPrincipal(webId = webId, alsoKnownAs = claims.stringListClaimOrNull(CLAIM_ALSO_KNOWN_AS).orEmpty())
+    return SessionPrincipal(
+      webId = webId,
+      alsoKnownAs = claims.stringListClaimOrNull(CLAIM_ALSO_KNOWN_AS).orEmpty(),
+      // A cookie minted before renewals existed carries no `auth_time`, and its `iat` is that
+      // sign-in — the two were the same value until the first renewal moved one of them. So the
+      // fallback is the honest reading rather than a grace period, and it drains: the renewal it
+      // permits writes the claim, and the absolute limit runs from where it always did.
+      authTime = claims.instantClaimOrNull(CLAIM_AUTH_TIME) ?: claims.issueTime?.toInstant() ?: Instant.EPOCH,
+    )
   }
 
-  data class SessionPrincipal(val webId: String, val alsoKnownAs: List<String>)
+  /**
+   * A fresh session cookie for a person who is using one, or `null` once the sign-in behind it is
+   * too old to extend.
+   *
+   * [SESSION_TTL_SECONDS] becomes an idle window rather than a countdown from sign-in: somebody
+   * working through the afternoon is not thrown out mid-task, and somebody who stops is signed out
+   * the same twelve hours later. [SESSION_ABSOLUTE_TTL_SECONDS] is the other end — without it,
+   * "renew on use" means a cookie that never expires while anything holds it, and this one cannot
+   * be recalled (there is no session store, only a signature).
+   *
+   * `null` is not an error: the caller leaves the cookie it has, which expires on its own and
+   * sends the person through the id-server once.
+   */
+  fun renewSession(pod: String, session: SessionPrincipal): String? {
+    if (Instant.now() >= session.authTime.plusSeconds(SESSION_ABSOLUTE_TTL_SECONDS)) return null
+    return issueSession(pod, session.webId, session.alsoKnownAs, authTime = session.authTime)
+  }
+
+  /**
+   * @param authTime when the person signed in at the id-server, which a renewal carries forward
+   *   rather than resetting. Older than the cookie's own `iat` on every session that has been
+   *   renewed at least once.
+   */
+  data class SessionPrincipal(val webId: String, val alsoKnownAs: List<String>, val authTime: Instant)
 
   private fun issueToken(
     pod: String,
@@ -194,18 +239,33 @@ class PodTokenIssuer(
     const val USER_TOKEN_TTL_SECONDS: Long = 3600
 
     /**
-     * How long the pod remembers a sign-in (12 h).
+     * How long the pod remembers a sign-in that nobody is using (12 h).
      *
      * Longer than an access token because it is not one: it authorises nothing on its own, it only
-     * saves the person a round trip to the id-server. Short enough that a shared machine does not
-     * stay signed in overnight.
+     * saves the person a round trip to the id-server. Every authorization renews it
+     * ([renewSession]), so this is the gap after which a pod forgets — a shared machine still does
+     * not stay signed in overnight, and somebody working past the twelfth hour is not interrupted.
      */
     const val SESSION_TTL_SECONDS: Long = 12 * 3600
+
+    /**
+     * How long a sign-in can be extended by using it (30 d), measured from `auth_time`.
+     *
+     * A renewed session outlives the twelve hours by design, and something has to end it: the
+     * cookie is a signature rather than a row, so nothing can recall it once issued, and "renew on
+     * use" without a ceiling is a credential that lives as long as whoever holds it keeps asking.
+     * Thirty days is the point at which the pod stops taking the id-server's word from a month ago
+     * and asks again.
+     */
+    const val SESSION_ABSOLUTE_TTL_SECONDS: Long = 30 * 24 * 3600
 
     /** Says a token is a browser session, so nothing can mistake it for an access token. */
     const val CLAIM_TOKEN_USE = "token_use"
     const val TOKEN_USE_SESSION = "session"
     const val CLAIM_ALSO_KNOWN_AS = "also_known_as"
+
+    /** OIDC Core 1.0 §2 — when the person authenticated, not when this cookie was written. */
+    const val CLAIM_AUTH_TIME = "auth_time"
 
     /**
      * Default TTL for service-client access tokens (10 min). `client_credentials`

@@ -46,6 +46,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import java.io.IOException
 import java.net.URI
+import java.time.Instant
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 @Path("{pod}/_system/auth")
@@ -261,21 +262,53 @@ class PodAuthEndpoint @Inject constructor(
     @QueryParam("prompt") prompt: String?,
     @QueryParam("scope") scope: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
-  ): Response = runAuthorize(
-    pod = pod,
-    responseType = responseType,
-    clientId = clientId,
-    redirectUri = redirectUri,
-    state = state,
-    codeChallenge = codeChallenge,
-    codeChallengeMethod = codeChallengeMethod,
-    prompt = prompt,
-    scope = scope,
+  ): Response {
     // Who the pod already knows, from a cookie on its own origin. Never from a parameter a browser
     // carried — that was the arrangement the OIDC cutover removed. A session saves the round trip
     // to the id-server and is what makes `prompt=none` answerable at all.
-    session = readSession(pod, sessionCookie),
-  )
+    val session = readSession(pod, sessionCookie)
+    val answer = runAuthorize(
+      pod = pod,
+      responseType = responseType,
+      clientId = clientId,
+      redirectUri = redirectUri,
+      state = state,
+      codeChallenge = codeChallenge,
+      codeChallengeMethod = codeChallengeMethod,
+      prompt = prompt,
+      scope = scope,
+      session = session,
+    )
+    return withRenewedSession(pod, session, answer)
+  }
+
+  /**
+   * Extends the sign-in this request arrived with, on whatever the request answered.
+   *
+   * **This endpoint alone, and that is enough.** An app renewing its access silently comes through
+   * here every hour, and every consent screen is reached through here too — so a person using an
+   * app keeps their session by using it, and the form submission that follows a dialog needs no
+   * renewal of its own. Nothing else on the pod reads the cookie.
+   *
+   * Attached the way [oidcCallback] attaches the original, and for the same reason: `runAuthorize`
+   * has a dozen exits and threading a cookie through each is how one gets missed. An error is
+   * renewed alongside a code, because what the client asked for does not change whether the person
+   * is here.
+   *
+   * [pod] is safe to build a cookie path from precisely where there is a session to renew:
+   * [PodTokenIssuer.readSession] compares the issuer against this string, so a principal exists
+   * only for a pod name that matched one this server minted.
+   */
+  private fun withRenewedSession(
+    pod: String,
+    session: PodTokenIssuer.SessionPrincipal?,
+    answer: Response,
+  ): Response {
+    val renewed = session?.let { podTokenIssuer.renewSession(pod, it) } ?: return answer
+    return Response.fromResponse(answer)
+      .cookie(cookies.session(pod, renewed, PodTokenIssuer.SESSION_TTL_SECONDS.toInt()))
+      .build()
+  }
 
   /**
    * The authorization flow, entered twice for one sign-in: once by the client's browser with no
@@ -861,8 +894,8 @@ class PodAuthEndpoint @Inject constructor(
 
     // Two questions, two answers. The session says *who* is submitting; the transaction says
     // *which screen* this is, and that it has not been submitted before. Neither alone is enough:
-    // a session-derived token would be the same on every screen for twelve hours (so a stale page
-    // could be replayed over a narrower consent), and a transaction alone could be lifted out of a
+    // a session-derived token would be the same on every screen the session outlives (so a stale
+    // page could be replayed over a narrower consent), and a transaction alone could be lifted out of a
     // page and spent from another browser.
     val session = readSession(pod, sessionCookie)
       ?: return Response.status(401).entity("session expired — please re-authorize").type("text/plain").build()
@@ -1997,7 +2030,11 @@ class PodAuthEndpoint @Inject constructor(
     // Remember the sign-in on this pod's own origin, so the next authorization needs no round trip
     // and `prompt=none` has something to answer with. Scoped to this pod: pods are isolated
     // tenants, and on a path-scoped deployment they share a host.
-    val sessionToken = podTokenIssuer.issueSession(podDbo.name, verified.webId, verified.alsoKnownAs)
+    // One instant for both: the cookie's `auth_time` and the principal this request runs under
+    // describe the same sign-in, and two `Instant.now()` calls would date it twice.
+    val authTime = Instant.now()
+    val sessionToken =
+      podTokenIssuer.issueSession(podDbo.name, verified.webId, verified.alsoKnownAs, authTime = authTime)
     val answer = runAuthorize(
       pod = podDbo.name,
       responseType = "code",
@@ -2008,7 +2045,7 @@ class PodAuthEndpoint @Inject constructor(
       codeChallengeMethod = pending.codeChallengeMethod,
       prompt = pending.prompt,
       scope = pending.scope,
-      session = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs),
+      session = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs, authTime),
     )
     // Attached once to whatever the flow answered — consent page, auto-granted code, or an error.
     // `runAuthorize` has a dozen exits and threading a cookie through each is how one gets missed.

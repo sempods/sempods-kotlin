@@ -392,6 +392,20 @@ itself make silent authorization possible. An app should treat
 `login_required` and `consent_required` alike: fall back to a full
 interactive re-authorize.
 
+**The session is an idle window, not a countdown from sign-in.** Every
+`/authorize` that arrives with a valid one answers with a fresh cookie, so
+twelve hours is the gap after which the pod forgets rather than the time a
+person has. An app renewing silently comes through `/authorize` every hour,
+which is what lets a connection with no refresh token keep working for as
+long as somebody is using it.
+
+Renewal carries `auth_time` — the original sign-in — forward unchanged, and
+stops thirty days after it. The cookie is a signature rather than a row, so
+nothing can recall it once issued; without that ceiling, "renew on use"
+would be a credential that lives as long as whoever holds it keeps asking.
+Past the limit the cookie is still honoured until it expires, it is simply
+no longer extended.
+
 `prompt=login` is never satisfied by that session: the person asked to
 prove themselves again, and the cookie is exactly what they are asking
 to bypass. The browser AppShell uses a 60 s loop
