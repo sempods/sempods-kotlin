@@ -198,11 +198,9 @@ class PodTokenIssuer(
    * A fresh session cookie for a person who is using one, or `null` once the sign-in behind it is
    * too old to extend.
    *
-   * [SESSION_TTL_SECONDS] becomes an idle window rather than a countdown from sign-in: somebody
-   * working through the afternoon is not thrown out mid-task, and somebody who stops is signed out
-   * the same twelve hours later. [SESSION_ABSOLUTE_TTL_SECONDS] is the other end — without it,
-   * "renew on use" means a cookie that never expires while anything holds it, and this one cannot
-   * be recalled (there is no session store, only a signature).
+   * This is what makes [SESSION_TTL_SECONDS] an idle window: somebody working through the
+   * afternoon keeps their session by using it, and somebody who stops is signed out twelve hours
+   * later. [SESSION_ABSOLUTE_TTL_SECONDS] is the other end, and carries why it exists.
    *
    * `null` is not an error: the caller leaves the cookie it has, which expires on its own and
    * sends the person through the id-server once.
@@ -213,10 +211,9 @@ class PodTokenIssuer(
   fun renewSession(pod: String, session: SessionPrincipal): RenewedSession? {
     val remaining = session.authTime.plusSeconds(SESSION_ABSOLUTE_TTL_SECONDS).epochSecond - Instant.now().epochSecond
     if (remaining <= 0) return null
-    // The shorter of the two windows, so a renewal in the final hours ends *at* the deadline
-    // instead of twelve hours past it. Handing out the full idle window there would put the whole
-    // absolute limit a day out of date on a credential nothing can recall — and the last renewal
-    // before the deadline is exactly the one an actively used session gets.
+    // The shorter of the two windows, so a renewal in the final hours ends *at* the deadline. The
+    // full idle window there would put [SESSION_ABSOLUTE_TTL_SECONDS] most of a day out of date,
+    // and that renewal is the one an actively used session gets last.
     val ttlSeconds = minOf(SESSION_TTL_SECONDS, remaining)
     return RenewedSession(
       token = issueSession(pod, session.webId, session.alsoKnownAs, session.authTime, ttlSeconds),

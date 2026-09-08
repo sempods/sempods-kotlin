@@ -1898,9 +1898,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a sign-in older than the absolute limit is used but not renewed`() {
-    // The other end of "renew on use": the cookie is a signature rather than a row, so nothing can
-    // recall it, and renewing without a ceiling is a credential that lives as long as somebody
-    // keeps asking. What is still valid still works — it simply stops being extended.
+    // The other end of "renew on use" — see `SESSION_ABSOLUTE_TTL_SECONDS` for why there is one.
+    // What is still valid still works; it simply stops being extended.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1920,8 +1919,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a renewal in the final hours ends at the absolute deadline, not twelve hours past it`() {
-    // The renewal an actively used session gets last. Handing it the full idle window would put
-    // the absolute limit most of a day out of date — on a credential nothing can recall.
+    // The renewal an actively used session gets last, and the one that decides whether the
+    // absolute limit means what it says.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
