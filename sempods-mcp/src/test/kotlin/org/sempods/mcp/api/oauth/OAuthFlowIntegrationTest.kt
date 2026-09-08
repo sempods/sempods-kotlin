@@ -132,7 +132,7 @@ class OAuthFlowIntegrationTest {
     Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
   }
 
-  private fun ApplicationTestBuilder.installAuth(dcrClientDao: DcrClientDao = DcrClientDao(db!!)) {
+  private fun ApplicationTestBuilder.installAuth() {
     val database = db!!
     val config = SempodsMcpConfig(0, MONGO_URL, dbName, BASE, listOf(ISSUER))
     auditLogDao = AuditLogDao(database)
@@ -147,7 +147,7 @@ class OAuthFlowIntegrationTest {
     application {
       authEndpoint(
         config = config,
-        dcrClientDao = dcrClientDao,
+        dcrClientDao = DcrClientDao(database),
         authorizationCodeStore = AuthorizationCodeStore(database, SempodsMcpCollections.OAUTH_AUTH_CODES),
         loginStateStore = LoginStateStore(database),
         identityProvider = idServer.identityProvider(BASE),
@@ -587,7 +587,7 @@ class OAuthFlowIntegrationTest {
 
   @Test
   fun `a second registration under one fingerprint is refused`() {
-    val dao = DcrClientDao(db!!, "test.dcr." + UUID.randomUUID().toString().take(8))
+    val dao = DcrClientDao(db!!, freshCollection())
 
     assertTrue(dao.create(dcrClient("dyn:first")), "the first registration under a digest is the one that lands")
     assertFalse(
@@ -597,52 +597,38 @@ class OAuthFlowIntegrationTest {
     assertEquals("dyn:first", dao.findByFingerprint(PodKey.DEFAULT_PROFILE, "one-digest")?.clientId)
   }
 
-  /**
-   * The spy is what puts the competing registration in the gap, rather than two threads: the race
-   * is a property of the mechanism — a lookup and an insert that are not one statement — and
-   * asserting it through timing would only ever assert the timing. What refuses this caller's
-   * insert is still the index itself; only the competitor's arrival is arranged.
-   */
+  /** The competitor is arranged through the spy; the index still does the refusing. */
   @Test
-  fun `a registration that loses the insert answers the winner's client id`() = testApplication {
-    val winnerId = "dyn:winner"
-    val dao = DcrClientDao(db!!)
+  fun `a registration that loses the insert answers the winner's row`() {
+    val dao = DcrClientDao(db!!, freshCollection())
     val racing = spyk(dao)
     every { racing.create(any()) } answers {
-      dao.create(firstArg<DcrClient>().copy(clientId = winnerId))
+      dao.create(firstArg<DcrClient>().copy(clientId = "dyn:winner"))
       callOriginal()
     }
-    installAuth(racing)
 
-    val body = mapper.readTree(
-      client.post("/register") {
-        contentType(ContentType.Application.Json)
-        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Racing Client"}""")
-      }.bodyAsText(),
-    )
-
-    assertEquals(winnerId, body["client_id"].asText(), "the loser must hand back the id the winner minted")
+    assertEquals("dyn:winner", racing.findOrCreate(dcrClient("dyn:loser")).clientId)
   }
 
   @Test
-  fun `a collection carrying the old non-unique index is taken over, no operator involved`() {
-    val collection = "test.dcr." + UUID.randomUUID().toString().take(8)
+  fun `a collection carrying the old non-unique index gets the constraint beside it`() {
+    val collection = freshCollection()
     db!!.getCollection(collection).createIndex(Indexes.ascending("profile", "fingerprint"))
 
     val dao = DcrClientDao(db!!, collection)
 
     assertTrue(dao.create(dcrClient("dyn:first")))
-    assertFalse(dao.create(dcrClient("dyn:second")), "the constraint must hold where a predecessor stood")
+    assertFalse(dao.create(dcrClient("dyn:second")), "the constraint must hold where a predecessor stands")
     assertEquals(
-      listOf("_id_", "profile_1_clientId_1", "profile_1_fingerprint_1_unique"),
+      listOf("_id_", "profile_1_clientId_1", "profile_1_fingerprint_1", "profile_1_fingerprint_1_unique"),
       db!!.getCollection(collection).listIndexes().map { it.getString("name") }.sorted(),
-      "the predecessor must be dropped, not left standing beside its replacement",
+      "the predecessor is left standing — building beside it is what keeps the boot alive",
     )
   }
 
   @Test
   fun `duplicates an earlier gap left behind stop the boot and name what to delete`() {
-    val collection = "test.dcr." + UUID.randomUUID().toString().take(8)
+    val collection = freshCollection()
     val rows = db!!.getCollection(collection)
     listOf("dyn:first", "dyn:second").forEach {
       rows.insertOne(
@@ -654,10 +640,12 @@ class OAuthFlowIntegrationTest {
 
     val refused = assertFailsWith<IllegalStateException> { DcrClientDao(db!!, collection) }
     assertTrue(
-      refused.message!!.contains("duplicate rows"),
+      refused.message!!.contains("Delete all but one"),
       "an operator reading the boot failure must be told what to delete: ${refused.message}",
     )
   }
+
+  private fun freshCollection() = "test.dcr." + UUID.randomUUID().toString().take(8)
 
   /** A registration under one shared digest; only the `client_id` differs between calls. */
   private fun dcrClient(clientId: String) = DcrClient(

@@ -1,14 +1,12 @@
 package org.sempods.mcp.persist.oauth
 
-import com.mongodb.MongoCommandException
-import com.mongodb.MongoServerException
+import com.mongodb.DuplicateKeyException
 import com.mongodb.MongoWriteException
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import org.bson.Document
-import org.bson.conversions.Bson
 import java.util.Date
 import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.mcp.SempodsMcpCollections
@@ -47,7 +45,7 @@ data class DcrClient(
  */
 class DcrClientDao(
   db: MongoDatabase,
-  collectionName: String = SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS,
+  private val collectionName: String = SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS,
 ) {
 
   private val clients = db.getCollection(collectionName)
@@ -57,45 +55,33 @@ class DcrClientDao(
       Indexes.ascending("profile", "clientId"),
       IndexOptions().unique(true),
     )
-    createFingerprintIndex(collectionName)
+    createFingerprintIndex()
   }
 
   /**
    * The index that makes the dedup in [findOrCreate] a constraint rather than a lookup.
    *
-   * It carries a name of its own, where the other takes MongoDB's default, so that it is built
-   * *beside* a predecessor over the same two fields rather than conflicting with it: a deployment
-   * that has run before this one holds exactly such a predecessor and boots with nobody touching
-   * it. Build first and drop second, never the other way round — `sempods-server`'s
-   * `DcrFingerprintIndex` carries why.
+   * It carries a name of its own, where the other index takes MongoDB's default, so that it is
+   * built *beside* an earlier non-unique index over the same two fields rather than conflicting
+   * with it. A deployment that has run before this one holds exactly that, and boots with nobody
+   * touching it; the index it no longer needs is one command whenever somebody is there anyway.
    *
-   * What a gap already produced is the one thing left over: the build refuses duplicate rows, and
-   * clearing those is an operator's, per `AGENTS.md` §"Deployment stance".
+   * Rows two registrations already split are the one thing a person has to answer for: the build
+   * refuses them, and clearing data at boot is the pass `AGENTS.md` §"Deployment stance" rules out.
    */
-  private fun createFingerprintIndex(collectionName: String) {
+  private fun createFingerprintIndex() {
     try {
-      clients.createIndex(FINGERPRINT_KEYS, IndexOptions().name(FINGERPRINT_UNIQUE).unique(true))
-    } catch (e: MongoServerException) {
-      // A build that trips over duplicates arrives as a write failure and not as a command one, so
-      // the type here is the supertype of both and the code is what tells them apart.
-      if (e.code != DUPLICATE_KEY) throw e
-      throw IllegalStateException(
-        "cannot make (profile, fingerprint) unique on $collectionName — duplicate rows still share " +
-          "one fingerprint. Delete all but the newest of each group; the AI client whose row goes " +
-          "registers again on its next connect.",
-        e,
+      clients.createIndex(
+        Indexes.ascending("profile", "fingerprint"),
+        IndexOptions().name("profile_1_fingerprint_1_unique").unique(true),
       )
-    }
-    val predecessor = clients.listIndexes().firstOrNull {
-      it.get("key", Document::class.java)?.keys?.toList() == listOf("profile", "fingerprint") &&
-        it.getString("name") != FINGERPRINT_UNIQUE
-    }?.getString("name") ?: return
-    try {
-      clients.dropIndex(predecessor)
-    } catch (alreadyGone: MongoCommandException) {
-      // 27 = IndexNotFound: another replica dropped it first. The constraint is built either way,
-      // and this is only the tidying after it.
-      if (alreadyGone.errorCode != INDEX_NOT_FOUND) throw alreadyGone
+    } catch (duplicates: DuplicateKeyException) {
+      throw IllegalStateException(
+        "cannot make (profile, fingerprint) unique on $collectionName — rows still share one " +
+          "fingerprint. Delete all but one of each group; the AI client whose row goes registers " +
+          "again on its next connect.",
+        duplicates,
+      )
     }
   }
 
@@ -103,28 +89,21 @@ class DcrClientDao(
    * The registration this profile holds under [candidate]'s fingerprint — [candidate] itself when
    * it is the one that lands.
    *
-   * One logical client is one `client_id`, and it takes both halves to hold that. The lookup
-   * catches the ordinary case, a client with no persistent client-state re-registering on
-   * reconnect. The unique index catches the pair that looked at the same moment: the digest
-   * carries nothing that tells two reconnects in the same second apart, so both are told the
-   * client is unknown and both insert. Whoever loses re-reads and gets the winner's row, which it
-   * cannot tell from an ordinary dedup hit, because it is one.
+   * It takes both halves to hold that. The lookup catches the ordinary reconnect; the unique
+   * index catches the pair that looked at the same moment, because the digest carries nothing
+   * that tells two reconnects in the same second apart and both are told the client is unknown.
+   * Whoever loses re-reads and gets the winner's row, which it cannot tell from an ordinary dedup
+   * hit, because it is one.
    */
-  fun findOrCreate(candidate: DcrClient): DcrClient =
-    findByFingerprint(candidate.profile, candidate.fingerprint)
-      ?: if (create(candidate)) {
-        candidate
-      } else {
-        checkNotNull(findByFingerprint(candidate.profile, candidate.fingerprint)) {
-          "insert refused as a duplicate fingerprint, but no row holds it (profile=${candidate.profile})"
-        }
-      }
+  fun findOrCreate(candidate: DcrClient): DcrClient {
+    findByFingerprint(candidate.profile, candidate.fingerprint)?.let { return it }
+    if (create(candidate)) return candidate
+    return checkNotNull(findByFingerprint(candidate.profile, candidate.fingerprint)) {
+      "insert refused as a duplicate fingerprint, but no row holds it (profile=${candidate.profile})"
+    }
+  }
 
-  /**
-   * Inserts a registration, or answers `false` when the unique index refuses it. Separate from
-   * [findOrCreate], which is the only sound way to call it, so that a test can assert the refusal
-   * itself rather than what is made of it.
-   */
+  /** Inserts a registration, or answers `false` when the unique index refuses it. */
   internal fun create(client: DcrClient): Boolean =
     try {
       clients.insertOne(client.toDocument())
@@ -147,17 +126,6 @@ class DcrClientDao(
     clients.find(
       Filters.and(Filters.eq("profile", profile), Filters.eq("clientId", clientId)),
     ).firstOrNull()?.toClient()
-
-  private companion object {
-
-    val FINGERPRINT_KEYS: Bson = Indexes.ascending("profile", "fingerprint")
-
-    /** Named, where the other index takes MongoDB's default — [createFingerprintIndex] says why. */
-    const val FINGERPRINT_UNIQUE = "profile_1_fingerprint_1_unique"
-
-    const val INDEX_NOT_FOUND = 27
-    const val DUPLICATE_KEY = 11000
-  }
 
   private fun DcrClient.toDocument() = Document().apply {
     put("clientId", clientId)

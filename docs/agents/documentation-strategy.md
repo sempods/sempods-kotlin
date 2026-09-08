@@ -67,8 +67,8 @@ Rules for choosing the level:
 An `AGENTS.md` is a **map**: the scope it governs, the rules an agent would otherwise break, and
 links to the documents. What is true of the code — a runbook, a stored shape, a field contract, a
 phase history — goes where a reader of that subject would look, which is never a file about how to
-work here, and the map links to it. Writing it into the map is rule 3's second owner, with the map
-as the copy nobody updates.
+work here, and the map links to it. Filed into the map instead, it is out of reach of the reader
+who needs it — and where the document carries it too, the map is the copy nobody updates.
 
 The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
 has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
@@ -186,7 +186,10 @@ A behaviour change is not finished until, **in the same change**:
 - the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
 - nothing you wrote gives a fact a second owner, and what the change made redundant is gone
   (rules 3 and 9). This is the one that fails quietly, because every copy reads correctly on its
-  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught.
+  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught;
+- nothing you added to an `AGENTS.md` is a fact some document owns (§"AGENTS.md is none of the
+  four"). This one fails quietly too, and for the opposite reason: there is only one copy, so no
+  search finds it.
 
 [`documentation-sync.md`](documentation-sync.md) is the procedure that walks this list.
 

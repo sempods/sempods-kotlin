@@ -149,8 +149,6 @@ fun Application.authEndpoint(
       userAgent = userAgent,
       registeredAt = Date(),
     )
-    // One logical client is one `client_id`, which is what this service's consent and its tokens
-    // are held under — [DcrClientDao.findOrCreate] is where that is held, lookup and index both.
     val client = dcrClientDao.findOrCreate(fresh)
 
     if (client.clientId == fresh.clientId) {
