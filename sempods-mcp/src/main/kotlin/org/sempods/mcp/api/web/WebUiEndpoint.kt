@@ -648,8 +648,7 @@ private fun dashboardHtml(
   } else {
     for (c in connections.sortedBy { it.pod }) {
       append("<div class=\"pod\"><div class=\"pod-main\"><code>").appendEscapedHtml(c.pod).append("</code>")
-      // Feature scopes (e.g. `public-read`) as pills, plus an "unverified" flag when the pod exposes
-      // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
+      // Per-context grants live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val tokens = tokensByPod[c.pod]
       val actsForeign = c.actsForeign(tokens?.podSubject)

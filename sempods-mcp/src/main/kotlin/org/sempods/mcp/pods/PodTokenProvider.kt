@@ -311,8 +311,9 @@ class PodTokenProvider(
       //    this pod" rather than silently acting as someone else.
       //  - Unreadable (opaque/sub-less token, or a transient JWKS-fetch blip): NOT drift — refusing
       //    would discard the freshly rotated refresh token and brick a healthy connection over a
-      //    non-identity hiccup. Keep the token (no worse than the pre-identity behaviour, which stored
-      //    refreshes unconditionally) and leave the recorded identity untouched.
+      //    non-identity hiccup. Keep the rotated tokens and the recorded podSubject reference.
+      //    Clear subjectVerified: the previous token's verification does not verify its replacement
+      //    (see PodTokens.subjectVerified).
       // The recorded subject is this row's own — the registry's could describe another family.
       val outcome = podOAuthClient.verifyAccessTokenSubject(metadata, refreshed.accessToken)
       if (outcome is PodOAuthClient.SubjectOutcome.VerificationFailed) {
