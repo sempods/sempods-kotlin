@@ -104,7 +104,11 @@ class TokenRefreshSchedulerTest {
     usedAt: Date? = null,
     refreshToken: String? = "rt",
   ) = PodKey("https://id.test/e/user", PodKey.DEFAULT_PROFILE, "https://pod.test/$pod").also {
-    vault.upsert(PodTokens(it.user, it.profile, it.pod, "at", refreshToken, expiresAt, rotatedAt, usedAt))
+    vault.upsert(
+      PodTokens(it.user, it.profile, it.pod, "at", refreshToken, expiresAt, rotatedAt, usedAt, issuer = "${it.pod}/_system/auth", podSubject = it.user,
+        podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+      ),
+    )
   }
 
   /** The pods each tier handed to the provider, by the reason it gave. */

@@ -95,6 +95,7 @@ class WriteToolsIntegrationTest {
   private lateinit var httpClient: HttpClient
   private lateinit var writeTools: WriteTools
   private lateinit var registry: ConnectionRegistryDao
+  private lateinit var vault: TokenVaultDao
   private val auditLog = mockk<AuditLog>(relaxed = true)
 
   @BeforeEach
@@ -102,7 +103,7 @@ class WriteToolsIntegrationTest {
     val database = db!!
     database.getCollection(SempodsMcpCollections.POD_TOKENS).drop()
     database.getCollection(SempodsMcpCollections.CONNECTIONS).drop()
-    val vault = TokenVaultDao(database, testSecretCipher())
+    vault = TokenVaultDao(database, testSecretCipher())
     registry = ConnectionRegistryDao(database)
     httpClient = HttpClient(CIO)
     val provider = PodTokenProvider(vault, registry, PodOAuthClient(
@@ -136,7 +137,7 @@ class WriteToolsIntegrationTest {
       .respond(response().withStatusCode(204).withHeader("ETag", "\"v2\""))
 
     registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date()))
+    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
   }
 
   @AfterEach
@@ -169,8 +170,15 @@ class WriteToolsIntegrationTest {
     registry.upsert(
       PodConnection(
         user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), podSubject = foreignWebId, subjectVerified = false,
+        scopes = setOf("public-read"), podSubject = foreignWebId,
         createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    vault.upsert(
+      PodTokens(
+        user, profile, pod, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$pod/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
@@ -178,6 +186,30 @@ class WriteToolsIntegrationTest {
     assertTrue(env["foreign_identity"].asBoolean(), "write envelope must flag a foreign pod identity: $env")
     assertEquals(foreignWebId, env["pod_subject"].asText())
     assertEquals(user, env["similar_to"].asText(), "write envelope must carry the weak similar_to link")
+  }
+
+  @Test
+  fun `a write reports the identity its own token belongs to, not the registry's`() = runBlocking {
+    val acting = "https://pod.example/u/whose-token-this-is"
+    registry.upsert(
+      PodConnection(
+        user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
+        scopes = setOf("public-read"), podSubject = "https://pod.example/u/from-a-later-connect",
+        createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    vault.upsert(
+      PodTokens(
+        user, profile, pod, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$pod/_system/auth", podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+      ),
+    )
+
+    val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
+
+    assertTrue(env["ok"].asBoolean(), env.toString())
+    assertEquals(acting, env["pod_subject"].asText(), "the envelope names the identity the call went out as: $env")
   }
 
   @Test

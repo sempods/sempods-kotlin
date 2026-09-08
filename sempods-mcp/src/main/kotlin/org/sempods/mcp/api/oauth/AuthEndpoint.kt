@@ -32,6 +32,7 @@ import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.ProfilePath
+import org.sempods.mcp.persist.PodTokenFacts
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.oauth.DcrClient
 import org.sempods.mcp.persist.oauth.DcrClientDao
@@ -391,10 +392,12 @@ fun Application.authEndpoint(
       // concurrent OAuth round-trip therefore rotates the CSRF token of an already-open dashboard
       // tab; acceptable for now (re-render recovers), tracked with the cookie-scoping tradeoff below.
       val principal = webSession.establish(call, identity.webId)
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(identity.webId, pending.profile))
+      val profileKey = ProfileKey(identity.webId, pending.profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
       call.respondConsent(
         base, txnId, clientLabel, identity.webId, pending.profile,
         csrfToken = principal.csrfToken, connections = connections,
+        tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod },
         connectedBanner = null, connectedAs = null, disconnectedBanner = null, errorBanner = null,
       )
     }
@@ -416,10 +419,12 @@ fun Application.authEndpoint(
       // "Allow"); an already-expired txn is not resurrected.
       val txn = consentTransactionStore.touch(txnId)
         ?: return@get call.respondText("consent session expired, please retry the sign-in", status = HttpStatusCode.BadRequest)
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(txn.user, txn.profile))
+      val profileKey = ProfileKey(txn.user, txn.profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
       call.respondConsent(
         base, txnId, txn.clientLabel, txn.user, txn.profile,
         csrfToken = null, connections = connections,
+        tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod },
         connectedBanner = q["connected"], connectedAs = q["connected_as"],
         disconnectedBanner = q["disconnected"], errorBanner = q["error"],
       )
@@ -462,11 +467,13 @@ fun Application.authEndpoint(
       // own WebID, granting this client means it will act on that pod as that identity — require the
       // user to confirm first. Enforced server-side (the form checkbox is `required`, but a crafted
       // POST must not bypass it): a missing confirmation re-renders the consent with an error.
-      val connections = connectionRegistryDao.listForProfile(ProfileKey(txn.user, txn.profile))
-      if (connections.any { it.foreignIdentity } && form["confirm_foreign"] != "on") {
+      val profileKey = ProfileKey(txn.user, txn.profile)
+      val connections = connectionRegistryDao.listForProfile(profileKey)
+      val tokensByPod = tokenVaultDao.listForProfile(profileKey).associateBy { it.pod }
+      if (connections.any { it.actsForeign(tokensByPod[it.pod]?.podSubject) } && form["confirm_foreign"] != "on") {
         return@post call.respondConsent(
           base, txnId, txn.clientLabel, txn.user, txn.profile,
-          csrfToken = null, connections = connections,
+          csrfToken = null, connections = connections, tokensByPod = tokensByPod,
           connectedBanner = null, connectedAs = null, disconnectedBanner = null,
           errorBanner = "Please confirm you understand a connected pod acts under a different identity before allowing.",
         )
@@ -691,6 +698,8 @@ private suspend fun ApplicationCall.respondConsent(
   profile: String,
   csrfToken: String?,
   connections: List<PodConnection>,
+  /** Keyed by pod: who a call would act as is recorded with the family it would use. */
+  tokensByPod: Map<String, PodTokenFacts>,
   connectedBanner: String?,
   connectedAs: String?,
   disconnectedBanner: String?,
@@ -764,16 +773,17 @@ private suspend fun ApplicationCall.respondConsent(
       for (c in connections.sortedBy { it.pod }) {
         append("<div class=\"pod\"><div class=\"pod-main\"><code>").appendEscapedHtml(c.pod).append("</code>")
         // Scopes + foreign-identity state as small badges instead of a raw muted line.
-        if (c.scopes.isNotEmpty() || c.foreignIdentity) {
+        val actsForeign = c.actsForeign(tokensByPod[c.pod]?.podSubject)
+        if (c.scopes.isNotEmpty() || actsForeign) {
           append("<div class=\"badges\">")
           for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")
-          if (c.foreignIdentity && !c.subjectVerified) append("<span class=\"badge warn\">unverified</span>")
+          if (actsForeign && tokensByPod[c.pod]?.subjectVerified != true) append("<span class=\"badge warn\">unverified</span>")
           append("</div>")
         }
         // A pod that runs its own identity provider authorized us as a WebID of its own; the caller
         // acts on it as that WebID. Name it (as the dashboard does) so the acting identity is explicit.
-        if (c.foreignIdentity) {
-          append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.podSubject.orEmpty()).append("</code></div>")
+        if (actsForeign) {
+          append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokensByPod[c.pod]?.podSubject).orEmpty()).append("</code></div>")
         }
         append("</div>")
         // Remove: authorized by the consent txn (works on first AND resumed render — see the route).
@@ -819,7 +829,7 @@ private suspend fun ApplicationCall.respondConsent(
     // When a connected pod authorized the user under its own identity, require an explicit
     // acknowledgement before Allow — the client will act on that pod as that WebID (also enforced
     // server-side on submit). See the "acts as" lines above.
-    if (connections.any { it.foreignIdentity }) {
+    if (connections.any { it.actsForeign(tokensByPod[it.pod]?.podSubject) }) {
       append("<div class=\"confirm\"><label><input type=\"checkbox\" name=\"confirm_foreign\" required> ")
       append("<span>I understand at least one connected pod authorized me under its own identity, and this client will act on that pod as that identity — not my sempods WebID.</span></label></div>")
     }

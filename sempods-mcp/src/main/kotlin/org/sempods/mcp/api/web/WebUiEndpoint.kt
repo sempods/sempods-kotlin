@@ -12,6 +12,7 @@ import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.PodTokenFacts
+import org.sempods.mcp.persist.needsReconnect
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
@@ -485,9 +486,12 @@ fun Application.webUiEndpoint(
           user = pending.user, profile = pending.profile, pod = pending.pod,
           issuer = pending.metadata.issuer, podClientId = pending.podClientId,
           podRedirectUri = pending.redirectUri, scopes = scopes,
-          podSubject = subject.webId, subjectVerified = subject.verified,
+          podSubject = subject.webId,
           createdAt = now, updatedAt = now,
         )
+        // Connect and disconnect both change the vault before the registry. Reversing only the
+        // connect order lets a callback recreate credentials after a disconnect has deleted them
+        // and then lose its registry row to that disconnect's second delete.
         tokenVaultDao.upsert(
           PodTokens(
             user = pending.user, profile = pending.profile, pod = pending.pod,
@@ -499,17 +503,20 @@ fun Application.webUiEndpoint(
             lastUsedAt = now,
             podClientId = pending.podClientId,
             podRedirectUri = pending.redirectUri,
+            issuer = pending.metadata.issuer,
+            podSubject = subject.webId,
+            subjectVerified = subject.verified,
           ),
         )
         connectionRegistryDao.upsert(connection)
         logger.info {
-          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.foreignIdentity}"
+          "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.actsForeign(null)}"
         }
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = true)
         // Carry the pod-local identity into the landing when it differs from the service identity,
         // so the connect-time screen can tell the user this connection acts as a different WebID.
         val connected = "connected=${enc(pending.pod)}"
-        landing(if (connection.foreignIdentity) "$connected&connected_as=${enc(subject.webId)}" else connected)
+        landing(if (connection.actsForeign(null)) "$connected&connected_as=${enc(subject.webId)}" else connected)
       }.getOrElse { e ->
         logger.warn(e) { "pod token exchange failed for '${pending.pod}'" }
         auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "connect_failed")
@@ -641,12 +648,12 @@ private fun dashboardHtml(
   } else {
     for (c in connections.sortedBy { it.pod }) {
       append("<div class=\"pod\"><div class=\"pod-main\"><code>").appendEscapedHtml(c.pod).append("</code>")
-      // Feature scopes (e.g. `public-read`) as pills, plus an "unverified" flag when the pod exposes
-      // no JWKS. Per-context grants are NOT held here — they live on the pod; edit them via Re-authorize.
+      // Per-context grants live on the pod; edit them via Re-authorize.
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
-      val showUnverified = c.foreignIdentity && !c.subjectVerified
       val tokens = tokensByPod[c.pod]
-      val needsReconnect = tokens?.isDeadGrant == true
+      val actsForeign = c.actsForeign(tokens?.podSubject)
+      val showUnverified = actsForeign && tokens?.subjectVerified != true
+      val needsReconnect = tokensByPod.needsReconnect(c.pod)
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.
       val sharesDefaultClient = selectedProfile != PodKey.DEFAULT_PROFILE &&
@@ -671,8 +678,8 @@ private fun dashboardHtml(
       }
       // Surface the pod-local identity when it differs from the service identity — this connection
       // acts on the pod as that WebID.
-      if (c.foreignIdentity) {
-        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.podSubject.orEmpty()).append("</code></div>")
+      if (actsForeign) {
+        append("<div class=\"acts\">acts as <code>").appendEscapedHtml(c.actingSubject(tokens?.podSubject).orEmpty()).append("</code></div>")
       }
       append("</div>")
       // Per-pod actions: Re-authorize (re-open the pod consent to change contexts) + Disconnect.

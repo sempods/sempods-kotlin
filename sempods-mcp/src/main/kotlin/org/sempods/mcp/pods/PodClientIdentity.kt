@@ -3,7 +3,7 @@ package org.sempods.mcp.pods
 import org.sempods.auth.core.DidWeb
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
-import org.sempods.mcp.persist.PodRegistrationRow
+import org.sempods.mcp.persist.PodTokenFacts
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.ProfilePath
 
@@ -58,13 +58,16 @@ object PodClientIdentity {
   }
 
   /**
-   * The registration [connection] presents: the row that recorded it, or the registry copy for a
-   * row written before it was recorded there ([PodTokens]).
+   * The registration to present: the token row's complete client-id/redirect-URI pair, or the
+   * registry [fallback] when either field is absent. Off **one** row, never one field from each —
+   * the pod refuses an id offered under an address it was not registered with.
    *
-   * Off **one** row, never one field from each.
+   * Takes the projection, because that is where a null is still possible: on [PodTokens] both are
+   * required, so what needs resolving here is a document the refresh path reads as unreadable and
+   * the surfaces that only report a connection still show.
    */
-  fun registrationOf(row: PodRegistrationRow?, fallback: PodConnection): PodRegistration =
-    if (row?.podClientId != null) PodRegistration(row.podClientId!!, row.podRedirectUri)
+  fun registrationOf(facts: PodTokenFacts?, fallback: PodConnection): PodRegistration =
+    if (facts?.podClientId != null && facts.podRedirectUri != null) PodRegistration(facts.podClientId, facts.podRedirectUri)
     else PodRegistration(fallback.podClientId, fallback.podRedirectUri)
 
   /** What the pod's consent screen calls this client, or two profiles list as identical entries. */
