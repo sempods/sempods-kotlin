@@ -55,13 +55,38 @@ Apply the writing rules. In particular, ask in this order:
 Every changed public signature: does its KDoc still describe the contract — nullability, units,
 ownership, what an implementation owes its caller? Field-level detail lives here, not in markdown.
 
-## 5. Roadmap
+## 5. Weight
+
+The steps above ask whether what you wrote is **true**. This one asks what it costs. Rules 3 and 9
+are the authority; these are the probes.
+
+```bash
+git diff HEAD | grep -cE "^\+\s*(\*|//)"                    # comment lines added
+git diff HEAD | grep -vE "^\+\+\+|^\+\s*(\*|//)" | grep -cE "^\+\s*\S"   # code lines added
+git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 3 antithesis
+git grep -n --untracked '<a phrase from each rationale added>' -- '*.md' '*.kt' '*.kts'   # a second owner
+```
+
+The first two only count; a ratio far above 1:1 means reading what the prose bought. The last is
+`git grep` for the reason [`roadmap-lifecycle.md`](roadmap-lifecycle.md) §5 gives — it still skips
+what `.gitignore` names — with `--untracked`, because step 1 leaves a new file untracked on purpose
+and that is often where the rationale being added lives. Without the flag the search finds the older
+owner, misses the new one, and one hit reads as none. A second hit means choosing the owner and
+making the rest point there.
+
+Over what is left:
+
+- Does a field's KDoc repeat what the class KDoc says? The field wins (rule 6).
+- Does anything explain why something was **not** changed? That is the commit message's job.
+- Did the change delete anything? One that only adds has not looked (rule 9).
+
+## 6. Roadmap
 
 If a roadmap covers this work, tick the item **now**, in this change. Leave the completed items in
 place; the roadmap is dissolved as a whole, later, via
 [`roadmap-lifecycle.md`](roadmap-lifecycle.md).
 
-## 6. context7.json
+## 7. context7.json
 
 Read the `rules` array in [`../../context7.json`](../../context7.json) against the change. It
 asserts facts about grants, contexts, the SPARQL surface, client identity shapes, the updater, the
@@ -70,13 +95,13 @@ change is exactly what turns one of those assertions into a lie.
 
 Also check `excludeFiles` if documents were added, moved or deleted.
 
-## 7. Pointers and links
+## 8. Pointers and links
 
 - A new document is reachable from at least one `AGENTS.md`.
 - A deleted or moved document is gone from every `AGENTS.md` and every cross-link.
 - `./gradlew checkDocLinks`.
 
-## 8. Report
+## 9. Report
 
 Name what was updated, what was **deleted** and why, and what was deliberately left alone. "No
 documentation change needed, because the code follows the standard" is a complete and correct

@@ -88,13 +88,16 @@ Every read tool returns a single text content block carrying:
   when at least one pod is listed a `note` says so and points at `list_contexts` (the authoritative
   live read/write view). `pod_subject` is the WebID the pod authorized the caller as; `foreign_identity`
   is true when it differs from the service identity (the caller acts on that pod as `pod_subject`), and
-  the `note` then also carries the foreign-identity warning; `subject_verified` is false when the pod
-  exposes no JWKS (the subject is trusted via the direct TLS token, not a signature). `similar_to` is
+  the `note` then also carries the foreign-identity warning. `subject_verified` comes from the same
+  token row as the identity and is true only when that access token's subject verified against the
+  pod's JWKS; a refresh without readable verification evidence clears it. `similar_to` is
   the caller's sempods WebID that `pod_subject` **likely** denotes the same person as — a weak
   correlation hint (like `rdfs:seeAlso`), **not** an asserted `owl:sameAs`; null when not foreign.
-  `reconnect_required` is true when the pod declared this connection's grant finished (RFC 6749 §5.2
-  `invalid_grant`) — every call to that pod will fail until the person reconnects at `/_system/ui`,
-  so there is nothing to gain by retrying it. A
+  `reconnect_required` reports a missing token row, missing registration (`podClientId` or
+  `podRedirectUri`), issuer or subject, or a grant the pod declared finished (RFC 6749 §5.2
+  `invalid_grant`). It does not detect every unusable connection:
+  expiry without a refresh token, undecryptable credentials and an issuer mismatch surface when
+  acquiring a token for a call. A
   read fan-out entry and a write success envelope both gain the same `foreign_identity` / `pod_subject`
   / `similar_to` fields when that pod's identity is foreign. When nothing is connected, fan-out tools
   return `{ "pods": [], "hint": "…/_system/ui" }`.

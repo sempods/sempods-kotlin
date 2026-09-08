@@ -21,7 +21,11 @@ data class PodConnection(
   val user: String,
   val profile: String,
   val pod: String,
-  /** The pod's OAuth authorization-server issuer, discovered via the pod's metadata. */
+  /**
+   * The pod's OAuth authorization-server issuer, discovered via the pod's metadata — what
+   * `list_pods` reports. [PodTokens.issuer] is what a refresh pins against, and says why this copy
+   * is not.
+   */
   val issuer: String,
   /**
    * The client_id the service registered at the pod via DCR — the fallback copy, read with
@@ -32,17 +36,19 @@ data class PodConnection(
   val scopes: Set<String>,
   /**
    * The WebID the pod itself minted as the token's `sub` — the pod-local identity of the person
-   * this connection acts as. May differ from [user] (the id.sempods.org identity the caller signed
-   * into the service as) when the pod runs its own identity provider: the connection stays keyed
-   * under [user], but every use acts on the pod as [podSubject]. Null only for legacy rows written
-   * before this was captured.
+   * this connection acts as, and what the dashboard and `list_pods` show. May differ from [user]
+   * (the id.sempods.org identity the caller signed into the service as) when the pod runs its own
+   * identity provider: the connection stays keyed under [user], but every use acts on the pod as
+   * [podSubject]. Null only for rows written before this was captured. Nothing a refresh decides
+   * reads this copy — [PodTokens.podSubject] says why — and [actingSubject] falls back to it only
+   * for a surface describing a connection, where a stale answer costs a line on a screen.
    */
   val podSubject: String? = null,
   /**
-   * Whether [podSubject] was cryptographically verified against the pod's JWKS. False = the pod
-   * exposes no JWKS and `sub` was decoded from the token the service fetched directly from the
-   * pod's token endpoint over TLS (trusted by transport, not by signature).
+   * Unpersisted compatibility slot: removing it shifts the two Date-valued `componentN()` methods
+   * and lets an already compiled consumer silently read the wrong timestamp.
    */
+  @Deprecated("Read subjectVerified from the token vault's PodTokenFacts")
   val subjectVerified: Boolean = false,
   val createdAt: Date,
   val updatedAt: Date,
@@ -58,22 +64,33 @@ data class PodConnection(
    */
   val podRedirectUri: String? = null,
 ) {
+  /**
+   * The pod-local identity a call on this connection acts as: [recorded], the copy the token family
+   * carries — `PodAccess.podSubject` for a call that has one in hand, the vault row's for a surface
+   * only describing the connection — and this row's own for a family recording none, or where there
+   * is no family to consult (`null`, at connect, where this row *is* the family).
+   *
+   * The two rows are written independently; [PodTokens] carries the family's identity.
+   */
+  fun actingSubject(recorded: String?): String? = recorded ?: podSubject
+
   /** True when the pod authorized a different WebID than the service identity ([user]). */
-  val foreignIdentity: Boolean get() = podSubject != null && podSubject != user
+  fun actsForeign(recorded: String?): Boolean = actingSubject(recorded).let { it != null && it != user }
 
   /**
    * Stamp a per-pod tool envelope (read fan-out entry or write result) with the foreign-identity
-   * markers when this connection acts on the pod as its own [podSubject]. One place so the read and
-   * write surfaces cannot drift. No-op for a same-identity connection.
+   * markers when the call acted on the pod as another identity. One place so the read and write
+   * surfaces cannot drift. No-op for a same-identity connection.
    *
-   * `similar_to` names the caller's sempods WebID ([user]) that [podSubject] *likely* denotes the
-   * same person as — a **weak** hint (think `rdfs:seeAlso` / "similar"), deliberately NOT an asserted
-   * `owl:sameAs`. It lets a client correlate the two WebIDs in a graph without collapsing them.
+   * `similar_to` names the caller's sempods WebID ([user]) that the acting subject *likely* denotes
+   * the same person as — a **weak** hint (think `rdfs:seeAlso` / "similar"), deliberately NOT an
+   * asserted `owl:sameAs`. It lets a client correlate the two WebIDs in a graph without collapsing
+   * them.
    */
-  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>) {
-    if (foreignIdentity) {
+  fun annotateForeignIdentity(envelope: MutableMap<String, Any?>, recorded: String?) {
+    if (actsForeign(recorded)) {
       envelope["foreign_identity"] = true
-      envelope["pod_subject"] = podSubject
+      envelope["pod_subject"] = actingSubject(recorded)
       envelope["similar_to"] = user
     }
   }
@@ -135,7 +152,6 @@ class ConnectionRegistryDao(
     putNotNull("podRedirectUri", podRedirectUri)
     put("scopes", scopes.toList())
     put("podSubject", podSubject)
-    put("subjectVerified", subjectVerified)
     put("createdAt", createdAt)
     put("updatedAt", updatedAt)
   }
@@ -149,7 +165,6 @@ class ConnectionRegistryDao(
     podRedirectUri = getString("podRedirectUri"),
     scopes = (getList("scopes", String::class.java) ?: emptyList()).toSet(),
     podSubject = getString("podSubject"),
-    subjectVerified = getBoolean("subjectVerified", false),
     createdAt = getDate("createdAt") ?: Date(),
     updatedAt = getDate("updatedAt") ?: Date(),
   )

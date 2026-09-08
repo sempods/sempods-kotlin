@@ -5,10 +5,7 @@ import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
-import org.sempods.ai.AiServiceTestObserver
-import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,9 +14,6 @@ class PodAiSemWebEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var http: TestHttpClient
-
-  @Inject
-  private lateinit var aiServiceTestObserver: AiServiceTestObserver
 
   private val httpClient by lazy { http.followingRedirects }
 
@@ -39,18 +33,6 @@ class PodAiSemWebEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(401, response.statusCode)
     assertTrue(response.responseBody.contains("missing or invalid app bearer token"))
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST text2model should return 403 for token issued for different pod`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST text2model should call ai service and return JSON-LD envelope for valid app token`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
   }
 
   @Test
@@ -78,30 +60,6 @@ class PodAiSemWebEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(401, response.statusCode)
     assertTrue(response.responseBody.contains("missing or invalid app bearer token"))
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST model2model should call ai service and return updated model for valid app token`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST text2model should derive SHACL guidance when client guidance is omitted`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST model2model should return no_change when model remains unchanged and allowNoChange true`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
-  }
-
-  @Test
-  @Disabled("TODO: Rewrite for WebID/JWT authorize flow")
-  fun `POST model2model should return 422 when model remains unchanged and allowNoChange false`() {
-    // TODO: Rewrite for WebID/JWT authorize flow
   }
 
   private fun buildText2ModelPayload(

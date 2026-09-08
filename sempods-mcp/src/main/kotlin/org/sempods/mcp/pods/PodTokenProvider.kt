@@ -40,6 +40,15 @@ sealed interface RefreshTrigger {
 }
 
 /**
+ * A usable pod access token and the identity the family it came from was minted for, together —
+ * because they are one answer. Which row a call's token came from is decided inside
+ * [PodTokenProvider.validAccessToken], including by a refresh it performs on the way, so a caller
+ * that wants to say what the call acted as cannot read it off any snapshot of its own.
+ *
+ */
+data class PodAccess(val token: String, val podSubject: String)
+
+/**
  * Single source of truth for *"give me a usable pod access token for `(user, profile, pod)`"*.
  * Shared by the synchronous read tools (M3) and the background [TokenRefreshScheduler] sweep (M2),
  * so the discover → **issuer-pin** → rotate → persist logic lives in exactly one place.
@@ -110,7 +119,7 @@ class PodTokenProvider(
    * connection per [TOUCH_GRANULARITY_MS] and no extra read. Nothing is marked when the caller
    * leaves empty-handed: a null return never reached the pod.
    */
-  private fun String?.alsoMarkUsed(key: PodKey, row: PodTokens): String? = also {
+  private fun PodAccess?.alsoMarkUsed(key: PodKey, row: PodTokens): PodAccess? = also {
     if (it == null) return@also
     val now = System.currentTimeMillis()
     val last = row.lastUsedAt?.time
@@ -132,7 +141,7 @@ class PodTokenProvider(
    * The on-demand path only needs the token valid *now*, so it refreshes within the small
    * [expirySkewSeconds] — not the wider proactive window the background sweep uses ([refreshIfDue]).
    */
-  suspend fun validAccessToken(key: PodKey): String? {
+  suspend fun validAccessToken(key: PodKey): PodAccess? {
     val current = tokenVaultDao.find(key) ?: return null
     if (!isDue(current, onDemand)) return usableOrNull(current).alsoMarkUsed(key, current)
     return lockFor(key).withLock {
@@ -162,7 +171,7 @@ class PodTokenProvider(
    * (or a row deleted by a disconnect mid-poll) returns null and the caller surfaces "reconnect
    * this pod", same as a failed refresh.
    */
-  private suspend fun awaitOtherReplica(key: PodKey): String? {
+  private suspend fun awaitOtherReplica(key: PodKey): PodAccess? {
     logger.debug { "refresh claim for $key held by another replica — awaiting its result" }
     repeat(CLAIM_POLL_ATTEMPTS) {
       delay(CLAIM_POLL_INTERVAL_MS)
@@ -180,13 +189,14 @@ class PodTokenProvider(
   }
 
   /**
-   * A not-due token to hand back, or null. A token with an **unknown** expiry is returned (used
+   * A not-due token to hand back with the identity it was minted for, or null. A token with an **unknown** expiry is returned (used
    * optimistically — the pod 401s if it turns out stale). But a token with a **known, already-past**
    * expiry that landed here can only be the un-refreshable case (a refreshable expired token is
    * [isDue] → refreshed instead): handing it out would just 401 forever, so return null and let the
    * caller surface "reconnect this pod".
    */
-  private fun usableOrNull(tokens: PodTokens): String? = if (isExpired(tokens)) null else tokens.accessToken
+  private fun usableOrNull(tokens: PodTokens): PodAccess? =
+    if (isExpired(tokens)) null else PodAccess(tokens.accessToken, tokens.podSubject)
 
   private fun isExpired(tokens: PodTokens): Boolean {
     val expiresAt = tokens.accessTokenExpiresAt ?: return false
@@ -272,25 +282,24 @@ class PodTokenProvider(
   private suspend fun refreshLocked(tokens: PodTokens): PodTokens? {
     val key = PodKey(tokens.user, tokens.profile, tokens.pod)
     val refreshToken = tokens.refreshToken ?: return null
-    val connection = connectionRegistryDao.find(key) ?: run {
+    if (connectionRegistryDao.find(key) == null) {
       logger.warn { "no connection registry row for $key — skipping refresh" }
       return null
     }
     return runCatching {
       val metadata = podOAuthClient.discoverMetadata(tokens.pod)
-      // Pin to the issuer chosen at connect time: if the pod's metadata now points at a different
-      // authorization server (DNS/domain takeover, misconfig), refuse to post the stored refresh
-      // token to that new token endpoint — otherwise a metadata change could exfiltrate and rotate
-      // the user's pod refresh token.
-      if (metadata.issuer != connection.issuer) {
+      // Pin to the authorization server that minted this refresh token: if the pod's metadata now
+      // points at a different one (DNS/domain takeover, misconfig), refuse to post the stored
+      // refresh token to that new token endpoint — otherwise a metadata change could exfiltrate and
+      // rotate the user's pod refresh token.
+      if (metadata.issuer != tokens.issuer) {
         logger.warn {
-          "issuer mismatch for $key (connected='${connection.issuer}', discovered='${metadata.issuer}') — skipping refresh"
+          "issuer mismatch for $key (pinned='${tokens.issuer}', discovered='${metadata.issuer}') — skipping refresh"
         }
         auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch")
         return@runCatching null
       }
-      val registration = PodClientIdentity.registrationOf(tokens, connection)
-      val refreshed = podOAuthClient.refresh(metadata, refreshToken, registration.clientId)
+      val refreshed = podOAuthClient.refresh(metadata, refreshToken, tokens.podClientId)
 
       // Re-verify the identity on refresh. Three outcomes, three responses:
       //  - VerificationFailed: the refreshed token IS a JWT but its signature did not verify against
@@ -302,9 +311,10 @@ class PodTokenProvider(
       //    this pod" rather than silently acting as someone else.
       //  - Unreadable (opaque/sub-less token, or a transient JWKS-fetch blip): NOT drift — refusing
       //    would discard the freshly rotated refresh token and brick a healthy connection over a
-      //    non-identity hiccup. Keep the token (no worse than the pre-identity behaviour, which stored
-      //    refreshes unconditionally) and leave the recorded identity untouched.
-      // A legacy row with no recorded podSubject has nothing to protect and is backfilled below.
+      //    non-identity hiccup. Keep the rotated tokens and the recorded podSubject reference.
+      //    Clear subjectVerified: the previous token's verification does not verify its replacement
+      //    (see PodTokens.subjectVerified).
+      // The recorded subject is this row's own — the registry's could describe another family.
       val outcome = podOAuthClient.verifyAccessTokenSubject(metadata, refreshed.accessToken)
       if (outcome is PodOAuthClient.SubjectOutcome.VerificationFailed) {
         logger.warn { "refreshed pod token for $key failed JWKS signature verification — refusing" }
@@ -312,9 +322,9 @@ class PodTokenProvider(
         return@runCatching null
       }
       val subject = (outcome as? PodOAuthClient.SubjectOutcome.Readable)?.subject
-      if (subject != null && connection.podSubject != null && subject.webId != connection.podSubject) {
+      if (subject != null && subject.webId != tokens.podSubject) {
         logger.warn {
-          "identity drift on refresh for $key (recorded='${connection.podSubject}', refreshed='${subject.webId}') — refusing"
+          "identity drift on refresh for $key (recorded='${tokens.podSubject}', refreshed='${subject.webId}') — refusing"
         }
         auditLog.podTokenRefreshed(key, ok = false, detail = "identity_drift")
         return@runCatching null
@@ -326,10 +336,8 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
-        // Both halves. Draining only the id would leave a row whose id says "read me" beside a null
-        // address — the mixed pair `PodClientIdentity.registrationOf` exists to prevent.
-        podClientId = registration.clientId,
-        podRedirectUri = registration.redirectUri,
+        podSubject = subject?.webId ?: tokens.podSubject,
+        subjectVerified = subject?.verified == true,
       )
       if (!tokenVaultDao.replaceIfClaimedBy(updated, instanceId)) {
         // A concurrent re-connect replaced the row (clearing our claim) — or a disconnect deleted
@@ -340,14 +348,6 @@ class PodTokenProvider(
           "pod token row for $key changed mid-refresh (re-connect/disconnect) — discarding the stale rotation"
         }
         return@runCatching tokenVaultDao.find(key)
-      }
-      // Keep the recorded identity accurate: backfill a legacy null podSubject, or reflect a pod that
-      // has since added a JWKS (unverified → verified). No write when the subject is unreadable or
-      // nothing changed.
-      if (subject != null && (connection.podSubject != subject.webId || connection.subjectVerified != subject.verified)) {
-        connectionRegistryDao.upsert(
-          connection.copy(podSubject = subject.webId, subjectVerified = subject.verified, updatedAt = now),
-        )
       }
       logger.info { "refreshed pod token for $key" }
       auditLog.podTokenRefreshed(key, ok = true)

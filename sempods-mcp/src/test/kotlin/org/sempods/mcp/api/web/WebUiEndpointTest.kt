@@ -8,8 +8,11 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpConfig
+import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
@@ -47,6 +50,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.mockk.every
+import io.mockk.spyk
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -117,18 +122,21 @@ class WebUiEndpointTest {
     user: String,
     profile: String,
     pod: String,
-    podClientId: String? = null,
-    podRedirectUri: String? = null,
+    podClientId: String = "dyn:x",
+    podRedirectUri: String = "https://mcp.test/_system/ui/pods/callback",
     deadGrantSince: Date? = null,
   ) = TokenVaultDao(db!!, testSecretCipher()).upsert(
     PodTokens(
       user, profile, pod, accessToken = "at", refreshToken = "rt",
       accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
       podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
+      issuer = "$pod/_system/auth", podSubject = user,
     ),
   )
 
-  private fun ApplicationTestBuilder.installWebUi(): TokenIssuer {
+  private fun ApplicationTestBuilder.installWebUi(
+    registry: ConnectionRegistryDao = ConnectionRegistryDao(db!!),
+  ): TokenIssuer {
     val database = db!!
     val signingKeys = SigningKeys(McpSigningKeyStore(SigningKeyDao(database, testSecretCipher())))
     val tokenIssuer = TokenIssuer(BASE, signingKeys)
@@ -146,13 +154,39 @@ class WebUiEndpointTest {
         ),
         podConnectStateStore = podConnectStateStore,
         podUrlPolicy = PodUrlPolicy(allowLocal = true),
-        connectionRegistryDao = ConnectionRegistryDao(database),
+        connectionRegistryDao = registry,
         tokenVaultDao = TokenVaultDao(database, testSecretCipher()),
         profileDao = ProfileDao(database),
         auditLog = AuditLog(auditLogDao, retentionDays = 90),
       )
     }
     return tokenIssuer
+  }
+
+  @Test
+  fun `the dashboard shows verification from the family whose identity it displays`() = testApplication {
+    val user = "https://id.test/e/web-user-verification"
+    val pod = "https://pod.example/verification"
+    val acting = "https://pod.example/u/acting"
+    val tokenIssuer = installWebUi()
+    val key = PodKey(user, PodKey.DEFAULT_PROFILE, pod)
+    ConnectionRegistryDao(db!!).upsert(PodConnection(
+      user, PodKey.DEFAULT_PROFILE, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x",
+      scopes = emptySet(), podSubject = "https://pod.example/u/stale",
+      createdAt = Date(), updatedAt = Date(),
+    ))
+    seedTokens(user, PodKey.DEFAULT_PROFILE, pod)
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+    val client = createClient { followRedirects = false }
+    for (verified in listOf(false, true)) {
+      vault.upsert(vault.find(key)!!.copy(podSubject = acting, subjectVerified = verified))
+      val body = client.get("/_system/ui") {
+        header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
+      }.bodyAsText()
+      assertTrue(acting in body)
+      assertFalse("https://pod.example/u/stale" in body)
+      assertEquals(!verified, ">unverified</span>" in body)
+    }
   }
 
   @Test
@@ -339,8 +373,8 @@ class WebUiEndpointTest {
   @Test
   fun `a healthy pod carries no reconnect marker`() = testApplication {
     // The counter-case, so the badge cannot become decoration that is always on. Its own user, as
-    // the other pod cases have: the mark sits on the token row, which this test never writes, so
-    // sharing a key with the dead-grant case above would let that row answer for this one.
+    // the other pod cases have: what the badge reads sits on the token row, which a shared key
+    // would let another case answer for.
     val user = "https://id.test/e/web-user-healthy"
     val tokenIssuer = installWebUi()
     ConnectionRegistryDao(db!!).upsert(
@@ -350,12 +384,35 @@ class WebUiEndpointTest {
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
+    seedTokens(user, PodKey.DEFAULT_PROFILE, "https://pod.example/p")
 
     val body = createClient { followRedirects = false }.get("/_system/ui") {
       header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
     }.bodyAsText()
 
     assertFalse("reconnect needed" in body, body)
+  }
+
+  @Test
+  fun `a connection whose token row is absent is shown as needing a reconnect`() = testApplication {
+    // A disconnect can remove credentials before its registry delete lands.
+    val user = "https://id.test/e/web-user-uncommitted"
+    val tokenIssuer = installWebUi()
+    ConnectionRegistryDao(db!!).upsert(
+      PodConnection(
+        user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
+        issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
+        scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    // No token row at all.
+
+    val body = createClient { followRedirects = false }.get("/_system/ui") {
+      header(HttpHeaders.Cookie, "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}")
+    }.bodyAsText()
+
+    assertTrue("reconnect needed" in body, "the badge must name the state: $body")
+    assertTrue("Re-authorize" in body, "and the action that fixes it must be on the same row")
   }
 
   @Test
@@ -527,6 +584,8 @@ class WebUiEndpointTest {
         PodTokens(
           user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
           accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
+          issuer = "$podBase/_system/auth", podSubject = user,
+          podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
         ),
       )
       assertNull(TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)))
@@ -578,6 +637,56 @@ class WebUiEndpointTest {
         VerificationTimes.never(),
       )
     }
+  }
+
+  @Test
+  fun `re-authorize repairs an incomplete token registration using the registry pair`() = testApplication {
+    val tokenIssuer = installWebUi()
+    val client = createClient { followRedirects = false }
+    val profile = "cron-agent"
+    val redirectUri = "$BASE/_system/ui/pods/callback/$profile"
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+
+    listOf(listOf("podClientId"), listOf("podRedirectUri"), listOf("podClientId", "podRedirectUri"))
+      .forEachIndexed { index, missing ->
+        val user = "https://id.test/e/web-user-incomplete-registration-$index"
+        ProfileDao(db!!).create(user, profile)
+        val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+        withSimulatedPod(registersAs = "dyn:unused", tokenSubject = user) { pod, podBase, authBase ->
+          val key = PodKey(user, profile, podBase)
+          ConnectionRegistryDao(db!!).upsert(
+            PodConnection(
+              user = user, profile = profile, pod = podBase, issuer = authBase,
+              podClientId = "dyn:registry", podRedirectUri = redirectUri, scopes = setOf("public-read"),
+              createdAt = Date(), updatedAt = Date(),
+            ),
+          )
+          seedTokens(user, profile, podBase, podClientId = "dyn:incomplete")
+          db!!.getCollection(SempodsMcpCollections.POD_TOKENS).updateOne(
+            Filters.and(Filters.eq("user", user), Filters.eq("profile", profile), Filters.eq("pod", podBase)),
+            Updates.combine(missing.map { Updates.unset(it) }),
+          )
+          assertNull(vault.find(key))
+          val before = client.get("/_system/ui?profile=$profile") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
+          assertTrue("reconnect needed" in before, "$missing: $before")
+          assertFalse("shared client" in before, "the registry pair belongs to the named profile: $before")
+
+          val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = profile))
+          assertEquals("dyn:registry", authorize.parameters["client_id"], "$missing: $authorize")
+          assertEquals(redirectUri, authorize.parameters["redirect_uri"], "$missing: $authorize")
+          pod.verify(request().withMethod("POST").withPath("/p/_system/auth/register"), VerificationTimes.never())
+
+          val callback = client.get(
+            "/_system/ui/pods/callback/$profile?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+          ) { header(HttpHeaders.Cookie, cookie) }
+          assertEquals(HttpStatusCode.Found, callback.status)
+          assertFalse("error=" in callback.headers[HttpHeaders.Location]!!, "$missing: ${callback.headers}")
+          val repaired = assertNotNull(vault.find(key))
+          assertEquals("dyn:registry", repaired.podClientId)
+          assertEquals(redirectUri, repaired.podRedirectUri)
+          assertFalse(assertNotNull(vault.findFacts(key)).needsReconnect)
+        }
+      }
   }
 
   @Test
@@ -806,6 +915,59 @@ class WebUiEndpointTest {
         }.bodyAsText(),
         "the offer has to go once it has been taken",
       )
+    }
+  }
+
+  @Test
+  fun `a connect records on the token row everything a refresh presents and checks against`() = testApplication {
+    val user = "https://id.test/e/web-user-self-sufficient"
+    val tokenIssuer = installWebUi()
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = "https://pod.example/u/on-the-pod") { _, podBase, authBase ->
+      val authorize = Url(connect(tokenIssuer, user, podBase))
+
+      val callback = client.get(
+        "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+
+      val stored = assertNotNull(
+        TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)),
+      )
+      assertEquals(authBase, stored.issuer, "the authorization server that minted this family")
+      assertEquals("https://pod.example/u/on-the-pod", stored.podSubject, "and the identity it minted it for")
+      assertEquals("dyn:fresh", stored.podClientId, "beside the registration it was issued to")
+      assertFalse(stored.subjectVerified, "the simulated pod advertises no JWKS")
+    }
+  }
+
+  @Test
+  fun `a disconnect starting when the callback publishes the connection leaves no token behind`() = testApplication {
+    val user = "https://id.test/e/web-user-disconnect-race"
+    val registry = spyk(ConnectionRegistryDao(db!!))
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+    val tokenIssuer = installWebUi(registry = registry)
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = user) { _, podBase, _ ->
+      val key = PodKey(user, PodKey.DEFAULT_PROFILE, podBase)
+      val authorize = Url(connect(tokenIssuer, user, podBase))
+      every { registry.upsert(any()) } answers {
+        callOriginal()
+        // Pause the disconnect between its two deletes while the callback completes.
+        vault.delete(key)
+      }
+      val callback = client.get(
+        "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+      ) { header(HttpHeaders.Cookie, cookie) }
+      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!)
+      registry.delete(key)
+
+      assertNull(registry.find(key))
+      assertNull(vault.find(key), "the callback must not recreate tokens after the disconnect's first delete")
     }
   }
 

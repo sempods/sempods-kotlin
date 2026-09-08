@@ -55,21 +55,23 @@ Planned port **8092**, deployed as a separate container (`ghcr.io/haed/sempods-m
   is what makes that identity-preserving. `/_system/ui/pods/separate` is the one route that drops
   it, because doing so costs a consent at the pod.
 
-  **A registration is a pair — the `client_id` and the redirect URI it is pinned to — read off one
-  row** (`PodClientIdentity.registrationOf`), because the pod refuses an id offered under an address
-  it was not registered with. It lives on the **token** row, with the registry's copies as the
-  fallback for older rows; `PodTokens` states why. What still keys on the registry row is whether a
-  connection exists at all, which is what makes `/pods/separate` — it passes none for a pod that is
-  connected — the deliberate step.
+  **The token row carries the family's registration, issuer, identity, verification and dead-grant
+  status.** `PodTokens` owns these contracts. Refresh writes that row alone; display surfaces read
+  its identity and verification together. The registry gates connection existence and supplies the
+  descriptive fallback used by `PodClientIdentity.registrationOf` and `PodConnection.actingSubject`.
+  Connect and disconnect both write the vault before the registry. The two writes are non-atomic:
+  a failed registry write can leave stale metadata or an unlisted token after a first connect.
+  Cross-replica serialization of connection lifecycle operations remains outside this mechanism.
 
 ## Deployment stance (PoC — no migrations)
 
 The deployment is a **PoC used only by the maintainer**: a breaking schema / crypto change
 assumes a **fresh setup** (drop the DB, re-connect pods and AI clients) instead of carrying
-migration logic. The code deliberately holds **no legacy-tolerant reads and no startup
-migration passes** — it always reflects the current state (this is *why* e.g. M6.1
-encryption-at-rest expects ciphertext with no plaintext fallback). Once the service carries
-**real user state**, migrations become a hard requirement — a requirement *then*, not now.
+migration logic. The code deliberately holds **no startup migration passes** and no
+legacy-tolerant credential reads: a token row missing its registration, issuer or subject is
+unreadable. Reporting can fall back to registry descriptions; missing verification evidence is
+reported as unverified. Encryption-at-rest expects ciphertext with no plaintext fallback.
+Once the service carries **real user state**, migrations become a hard requirement.
 
 ## Documentation
 
