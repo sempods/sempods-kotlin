@@ -1,5 +1,5 @@
 [versions]
-awsSdk = "2.54.7"
+awsSdk = "2.54.13"
 coroutines = "1.11.0"
 jackson = "2.22.2"
 jersey = "4.0.2"
@@ -7,7 +7,7 @@ ktor = "3.5.2"
 mongodb = "5.11.0"
 okhttp = "5.5.0"
 rdf4j = "6.0.1"
-slf4j = "2.0.18"
+slf4j = "2.0.19"
 
 [libraries]
 jerseyBom = { module = "org.glassfish.jersey:jersey-bom", version.ref = "jersey" }
@@ -63,7 +63,7 @@ commonsText = "org.apache.commons:commons-text:1.15.0"
 commonsValidator = "commons-validator:commons-validator:1.11.0"
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.85.2"
 
-googleApiClient = "com.google.api-client:google-api-client:2.9.0"
+googleApiClient = "com.google.api-client:google-api-client:2.9.1"
 owaspHtmlSanitizer = "com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20260313.1"
 
 guice = "com.google.inject:guice:7.0.0"
