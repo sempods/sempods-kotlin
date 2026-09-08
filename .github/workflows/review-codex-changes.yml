@@ -68,6 +68,16 @@ jobs:
           set -euo pipefail
           git diff "origin/$BASE_REF...HEAD" > "$RUNNER_TEMP/pr.diff"
 
+          # No path the branch ships is a symlink, and this comes first because the lines below
+          # walk paths. The branch chooses what each of its files *is*: `notes.md ->
+          # /proc/self/environ` puts this process's own environment, credentials included, behind
+          # a name that reads like part of the change — and a directory link would send the
+          # `rm -rf` and the restore outside this checkout altogether. Tracked entries only, so
+          # nothing a tool in this job installed for itself is touched. Neither repository tracks
+          # a symlink today, so this removes nothing.
+          git ls-files -s | awk -F'\t' '$1 ~ /^120000 / {print $2}' \
+            | tr '\n' '\0' | xargs -0 -r rm -f
+
           git ls-files -z -- 'AGENTS.md' '*/AGENTS.md' | xargs -0 rm -f
           rm -rf pr.diff docs/agents CONTRIBUTING.md docs/naming.md
 
