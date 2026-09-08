@@ -8,8 +8,11 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpConfig
+import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
@@ -634,6 +637,56 @@ class WebUiEndpointTest {
         VerificationTimes.never(),
       )
     }
+  }
+
+  @Test
+  fun `re-authorize repairs an incomplete token registration using the registry pair`() = testApplication {
+    val tokenIssuer = installWebUi()
+    val client = createClient { followRedirects = false }
+    val profile = "cron-agent"
+    val redirectUri = "$BASE/_system/ui/pods/callback/$profile"
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+
+    listOf(listOf("podClientId"), listOf("podRedirectUri"), listOf("podClientId", "podRedirectUri"))
+      .forEachIndexed { index, missing ->
+        val user = "https://id.test/e/web-user-incomplete-registration-$index"
+        ProfileDao(db!!).create(user, profile)
+        val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+        withSimulatedPod(registersAs = "dyn:unused", tokenSubject = user) { pod, podBase, authBase ->
+          val key = PodKey(user, profile, podBase)
+          ConnectionRegistryDao(db!!).upsert(
+            PodConnection(
+              user = user, profile = profile, pod = podBase, issuer = authBase,
+              podClientId = "dyn:registry", podRedirectUri = redirectUri, scopes = setOf("public-read"),
+              createdAt = Date(), updatedAt = Date(),
+            ),
+          )
+          seedTokens(user, profile, podBase, podClientId = "dyn:incomplete")
+          db!!.getCollection(SempodsMcpCollections.POD_TOKENS).updateOne(
+            Filters.and(Filters.eq("user", user), Filters.eq("profile", profile), Filters.eq("pod", podBase)),
+            Updates.combine(missing.map { Updates.unset(it) }),
+          )
+          assertNull(vault.find(key))
+          val before = client.get("/_system/ui?profile=$profile") { header(HttpHeaders.Cookie, cookie) }.bodyAsText()
+          assertTrue("reconnect needed" in before, "$missing: $before")
+          assertFalse("shared client" in before, "the registry pair belongs to the named profile: $before")
+
+          val authorize = Url(reauthorize(tokenIssuer, user, podBase, profile = profile))
+          assertEquals("dyn:registry", authorize.parameters["client_id"], "$missing: $authorize")
+          assertEquals(redirectUri, authorize.parameters["redirect_uri"], "$missing: $authorize")
+          pod.verify(request().withMethod("POST").withPath("/p/_system/auth/register"), VerificationTimes.never())
+
+          val callback = client.get(
+            "/_system/ui/pods/callback/$profile?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+          ) { header(HttpHeaders.Cookie, cookie) }
+          assertEquals(HttpStatusCode.Found, callback.status)
+          assertFalse("error=" in callback.headers[HttpHeaders.Location]!!, "$missing: ${callback.headers}")
+          val repaired = assertNotNull(vault.find(key))
+          assertEquals("dyn:registry", repaired.podClientId)
+          assertEquals(redirectUri, repaired.podRedirectUri)
+          assertFalse(assertNotNull(vault.findFacts(key)).needsReconnect)
+        }
+      }
   }
 
   @Test

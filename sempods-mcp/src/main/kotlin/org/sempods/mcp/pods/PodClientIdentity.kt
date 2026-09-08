@@ -58,16 +58,16 @@ object PodClientIdentity {
   }
 
   /**
-   * The registration [connection] presents: the token row that recorded it, or the registry copy
-   * for a document that records none. Off **one** row, never one field from each — the pod refuses
-   * an id offered under an address it was not registered with.
+   * The registration to present: the token row's complete client-id/redirect-URI pair, or the
+   * registry [fallback] when either field is absent. Off **one** row, never one field from each —
+   * the pod refuses an id offered under an address it was not registered with.
    *
    * Takes the projection, because that is where a null is still possible: on [PodTokens] both are
    * required, so what needs resolving here is a document the refresh path reads as unreadable and
    * the surfaces that only report a connection still show.
    */
   fun registrationOf(facts: PodTokenFacts?, fallback: PodConnection): PodRegistration =
-    if (facts?.podClientId != null) PodRegistration(facts.podClientId, facts.podRedirectUri)
+    if (facts?.podClientId != null && facts.podRedirectUri != null) PodRegistration(facts.podClientId, facts.podRedirectUri)
     else PodRegistration(fallback.podClientId, fallback.podRedirectUri)
 
   /** What the pod's consent screen calls this client, or two profiles list as identical entries. */
