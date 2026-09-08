@@ -94,6 +94,25 @@ jobs:
         if: env.HAS_CLAUDE_TOKEN == 'true'
         uses: anthropics/claude-code-action@v1
         with:
+          # What the steps above cannot reach, written down rather than left to be rediscovered.
+          #
+          # The reviewer runs on the maintainer's subscription and reads text the author of the
+          # change wrote. Everything above keeps that text away from a shell, from the rules the
+          # review applies, and from any path leading out of the checkout — but the process holds
+          # the token, because the action gives it one, and what a file tool may open is the
+          # action's decision rather than this workflow's. `/proc/self/environ` by absolute path
+          # is the case that stays open.
+          #
+          # Accepted, because the job only ever runs on a branch in this repository: a fork gets
+          # no secrets from `pull_request`, so whoever reaches this step can already push here —
+          # and could have edited this file instead. What remains is an agent pushing a prepared
+          # branch, not a stranger.
+          #
+          # Changing that answer is a change of credential, not another line here: workload
+          # identity federation (`anthropic_federation_rule_id` and its companions) trades this
+          # token for a short-lived one the job exchanges its OIDC token for, and a stolen one is
+          # then worth minutes. It also moves these runs off the subscription and onto API
+          # billing, which is why it is the maintainer's call and not a detail of this file.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # A `prompt` puts the action in automation mode, which posts nothing of its own accord —
