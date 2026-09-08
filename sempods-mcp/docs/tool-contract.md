@@ -93,8 +93,9 @@ Every read tool returns a single text content block carrying:
   pod's JWKS; a refresh without readable verification evidence clears it. `similar_to` is
   the caller's sempods WebID that `pod_subject` **likely** denotes the same person as — a weak
   correlation hint (like `rdfs:seeAlso`), **not** an asserted `owl:sameAs`; null when not foreign.
-  `reconnect_required` reports a missing token row, missing issuer or subject, or a grant the pod
-  declared finished (RFC 6749 §5.2 `invalid_grant`). It does not detect every unusable connection:
+  `reconnect_required` reports a missing token row, missing registration (`podClientId` or
+  `podRedirectUri`), issuer or subject, or a grant the pod declared finished (RFC 6749 §5.2
+  `invalid_grant`). It does not detect every unusable connection:
   expiry without a refresh token, undecryptable credentials and an issuer mismatch surface when
   acquiring a token for a call. A
   read fan-out entry and a write success envelope both gain the same `foreign_identity` / `pod_subject`
