@@ -131,14 +131,15 @@ data class PodTokenFacts(
 
   /**
    * Whether this row records a reason the person has to reconnect: the pod declared the grant
-   * finished, or the row lacks the issuer or subject [PodTokens] requires.
+   * finished, or the row lacks the registration, issuer or subject [PodTokens] requires.
    *
    * Both are durable and readable here. What is not is a connection that has merely run out —
    * an expired access token the pod issued no refresh token for, or ciphertext this deployment can
    * no longer open — because neither is a property of the fields this projection reads. Those
    * surface at the call, as "reconnect this pod", and reporting them ahead of it is its own change.
    */
-  val needsReconnect: Boolean get() = isDeadGrant || issuer == null || podSubject == null
+  val needsReconnect: Boolean
+    get() = isDeadGrant || issuer == null || podSubject == null || podClientId == null || podRedirectUri == null
 }
 
 /**

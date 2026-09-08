@@ -20,6 +20,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -101,6 +102,31 @@ class TokenVaultDaoTest {
     dao.upsert(tokens(key, "a", null, Date(), Date()))
     assertNull(raw.find(keyFilter(key)).first()!!.getString("refreshToken"))
     assertNull(dao.find(key)!!.refreshToken)
+  }
+
+  @Test
+  fun `a token row missing its client id requires reconnect`() {
+    assertMissingRegistrationRequiresReconnect("podClientId")
+  }
+
+  @Test
+  fun `a token row missing its redirect URI requires reconnect`() {
+    assertMissingRegistrationRequiresReconnect("podRedirectUri")
+  }
+
+  private fun assertMissingRegistrationRequiresReconnect(field: String) {
+    val key = newKey()
+    dao.upsert(tokens(key))
+    assertNotNull(dao.find(key))
+    assertFalse(assertNotNull(dao.findFacts(key)).needsReconnect)
+
+    raw.updateOne(keyFilter(key), Updates.unset(field))
+
+    assertNull(dao.find(key), "a token missing $field cannot be used")
+    assertTrue(assertNotNull(dao.findFacts(key)).needsReconnect)
+    val facts = dao.listForProfile(ProfileKey(key.user, key.profile)).single()
+    assertEquals(key.pod, facts.pod)
+    assertTrue(mapOf(facts.pod to facts).needsReconnect(key.pod))
   }
 
   @Test
