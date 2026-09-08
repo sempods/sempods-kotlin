@@ -16,6 +16,7 @@ import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.persist.needsReconnect
 import org.sempods.client.SempodsClientException
 import org.sempods.mcp.pods.PodTokenProvider
 import org.sempods.mcp.pods.isRetryablePodFailure
@@ -99,14 +100,13 @@ class ReadTools(
         // when the pod exposes no JWKS (the sub is trusted via the direct TLS token, not a signature).
         // `similar_to` is your sempods WebID that `pod_subject` *likely* denotes the same person as —
         // a weak hint (like `rdfs:seeAlso`), not an asserted `owl:sameAs` (null when not foreign).
-        "pod_subject" to it.podSubject,
-        "foreign_identity" to it.foreignIdentity,
-        "subject_verified" to it.subjectVerified,
-        "similar_to" to if (it.foreignIdentity) it.user else null,
-        // The pod declared this connection's grant finished, so every call to it will fail until
-        // the person reconnects. The dashboard says so to them; this says it to the agent, which
-        // would otherwise retry the pod on every turn.
-        "reconnect_required" to (tokensByPod[it.pod]?.isDeadGrant == true),
+        "pod_subject" to it.actingSubject(tokensByPod[it.pod]?.podSubject),
+        "foreign_identity" to it.actsForeign(tokensByPod[it.pod]?.podSubject),
+        "subject_verified" to (tokensByPod[it.pod]?.subjectVerified == true),
+        "similar_to" to if (it.actsForeign(tokensByPod[it.pod]?.podSubject)) it.user else null,
+        // Nothing here can reach the pod until the person reconnects. The dashboard says so to
+        // them; this says it to the agent, which would otherwise retry the pod on every turn.
+        "reconnect_required" to tokensByPod.needsReconnect(it.pod),
       )
     }
     val body = linkedMapOf<String, Any?>("pods" to pods)
@@ -118,7 +118,8 @@ class ReadTools(
       // grants that can change over time, so it is not cached here. Point the caller at the
       // authoritative live view instead of letting a bare `scopes: [public-read]` read as "no access".
       // When any pod runs its own identity provider, also warn that you act there as a foreign WebID.
-      body["note"] = if (connections.any { it.foreignIdentity }) "$SCOPES_NOTE $FOREIGN_IDENTITY_NOTE" else SCOPES_NOTE
+      body["note"] =
+        if (connections.any { it.actsForeign(tokensByPod[it.pod]?.podSubject) }) "$SCOPES_NOTE $FOREIGN_IDENTITY_NOTE" else SCOPES_NOTE
     }
     auditLog.toolCall(profile.user, profile.profile, "list_pods", targets = emptyList(), outcome = "ok")
     return textResult(body)
@@ -187,7 +188,7 @@ class ReadTools(
     plan: PodToolPlan.Call,
   ): Map<String, Any?> {
     if (connection == null) return podError(pod, "not_connected", "pod not connected for this profile")
-    val token = try {
+    val access = try {
       podTokenProvider.validAccessToken(PodKey(profile.user, profile.profile, pod))
     } catch (e: CancellationException) {
       throw e // never swallow cancellation — let structured concurrency tear the request down
@@ -204,16 +205,10 @@ class ReadTools(
       // wires coroutine cancellation to the socket. The classification below stays OUT here, where a
       // cancelled call still arrives as `CancellationException` — inside `podIo` it would look like
       // an ordinary socket failure and become a well-formed "the pod failed".
-      val entry = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to podIo { plan.execute(URI(pod), token) })
+      val entry = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to podIo { plan.execute(URI(pod), access.token) })
       // When this pod runs its own identity provider, mark that the result was produced acting as a
       // foreign WebID — so a caller reading e.g. list_contexts knows whose access it is looking at.
-      // validAccessToken() above may have refreshed and BACKFILLED a legacy null podSubject; re-read
-      // the row for the annotation in that one case so the first post-backfill read is not stale
-      // (steady-state rows already carry podSubject → no extra read).
-      val fresh = if (connection.podSubject == null)
-        connectionRegistryDao.find(PodKey(profile.user, profile.profile, pod)) ?: connection
-      else connection
-      fresh.annotateForeignIdentity(entry)
+      connection.annotateForeignIdentity(entry, access.podSubject)
       entry
     } catch (e: CancellationException) {
       throw e

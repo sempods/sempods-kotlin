@@ -100,7 +100,7 @@ class WriteTools(
     connection: PodConnection,
     plan: PodToolPlan.Call,
   ): Map<String, Any?> {
-    val token = try {
+    val access = try {
       podTokenProvider.validAccessToken(key)
     } catch (e: CancellationException) {
       throw e
@@ -115,14 +115,11 @@ class WriteTools(
     return try {
       // `podIo` bridges to the blocking executor on a virtual thread; the classification below stays
       // outside it, where a cancelled call still arrives as `CancellationException`.
-      val result = podIo { plan.execute(URI(pod), token) }
+      val result = podIo { plan.execute(URI(pod), access.token) }
       val ok = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to result)
       // Mirror the read fan-out: when the write happened as a foreign WebID, say so on the envelope
-      // — the write landed on the pod as `pod_subject`, not the caller's sempods identity.
-      // validAccessToken() may have refreshed and BACKFILLED a legacy null podSubject; re-read the row
-      // for the annotation in that one case (steady-state rows already carry podSubject → no extra read).
-      val fresh = if (connection.podSubject == null) connectionRegistryDao.find(key) ?: connection else connection
-      fresh.annotateForeignIdentity(ok)
+      // — the pod recorded the write under that identity.
+      connection.annotateForeignIdentity(ok, access.podSubject)
       ok
     } catch (e: CancellationException) {
       throw e

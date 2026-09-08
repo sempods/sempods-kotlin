@@ -23,30 +23,22 @@ import java.util.Date
  * ciphertext under the [SecretCipher] envelope.
  *
  * A row whose ciphertext cannot be decrypted (a lost / changed [SecretCipher] key) is treated as
- * **unreadable** rather than fatal: [find] returns null and the refresh sweep skips it, so the
- * caller surfaces "reconnect this pod" instead of the read or the whole sweep crashing.
+ * **unreadable** rather than fatal: [TokenVaultDao.find] returns null and the refresh sweep skips
+ * it, so the caller surfaces "reconnect this pod" instead of the read or the whole sweep crashing.
  *
- * **Everything a refresh must present alongside the token lives here**, and this is why: the connect
- * callback writes this row and the `PodConnection` registry row one after the other, and nothing
- * makes that pair atomic. So the client id the token was issued to, the address that id is pinned
- * to, and whether the pod has declared the grant finished are all recorded on the row they are
- * about — [PodTokens.podClientId], [PodTokens.podRedirectUri], [PodTokens.deadGrantSince]. The
- * registry keeps its own copies of the first two, which answer for a row written before they were
- * recorded here; a half-landed connect then costs a stale id rather than a dead connection. The
- * registration is a pair and is read as one (`PodClientIdentity.registrationOf`).
+ * **Everything a refresh presents, and everything it checks the answer against, lives here** —
+ * [podClientId], [podRedirectUri], [issuer], [podSubject], [deadGrantSince] — because the connect
+ * callback writes this row and the `PodConnection` registry row one after the other and nothing
+ * makes that pair atomic. A failed registry write or overlapping callbacks can leave the registry
+ * describing another family. A refresh therefore reads these facts from this row alone.
+ * `PodClientIdentity.registrationOf` uses the registry as a descriptive fallback for surfaces
+ * reading [PodTokenFacts], which can still represent an unreadable token document.
+ *
+ * [subjectVerified] travels with the identity it describes. `PodConnection.scopes` is descriptive;
+ * the pod enforces the token's permissions.
  *
  * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
  */
-/**
- * The registration a row records: the pod-side `client_id` and the redirect URI it is pinned to.
- * Read as a pair (`PodClientIdentity.registrationOf`) — the pod refuses an id offered under an
- * address it was not registered with, so one field from each row is a flow that cannot complete.
- */
-interface PodRegistrationRow {
-  val podClientId: String?
-  val podRedirectUri: String?
-}
-
 data class PodTokens(
   val user: String,
   val profile: String,
@@ -71,15 +63,14 @@ data class PodTokens(
    */
   val lastUsedAt: Date? = null,
   /**
-   * The pod-side `client_id` [refreshToken] was issued to. The pod pairs the two: presenting any
-   * other id is answered `invalid_grant`, which marks the connection dead until somebody reconnects.
+   * The pod-side `client_id` [refreshToken] was issued to, and the address that id is pinned to.
+   * The pod pairs all three: presenting any other id, or the right id at another address, is
+   * answered `invalid_grant`, which marks the connection dead until somebody reconnects.
    *
-   * Null on a row written before this field. Such a row refreshes with `PodConnection.podClientId`,
-   * as it always did, and the first refresh the pod accepts records the id it used.
+   * Both are required and written with the token they belong to; a row predating them does not map.
    */
-  override val podClientId: String? = null,
-  /** Null wherever [podClientId] is, and written with it. */
-  override val podRedirectUri: String? = null,
+  val podClientId: String,
+  val podRedirectUri: String,
   /**
    * When the pod last answered a refresh for [refreshToken] with `invalid_grant` — the one code
    * that means the grant is finished (RFC 6749 §5.2) rather than that the attempt failed. Every
@@ -91,7 +82,30 @@ data class PodTokens(
    * set, so that write failing would strand a healthy token behind it.
    */
   val deadGrantSince: Date? = null,
-) : PodRegistrationRow {
+  /**
+   * The pod's OAuth authorization server as it stood when [refreshToken] was minted, and what a
+   * refresh pins the freshly discovered metadata against: a pod whose metadata now names a different
+   * one (DNS/domain takeover, misconfig) never receives this token.
+   *
+   * Required: `PodOAuthClient.discoverMetadata` refuses a pod naming no authorization server.
+   * A row predating this field reads as unreadable.
+   */
+  val issuer: String,
+  /**
+   * The pod-local WebID the pod minted this family for — what a refresh checks the refreshed
+   * token's subject against, so a pod that starts answering as somebody else is refused.
+   *
+   * Required: a connect fails on a token whose subject it cannot read. An unreadable subject on
+   * refresh preserves this reference; a row predating this field does not map.
+   */
+  val podSubject: String,
+  /**
+   * Whether this access token's subject verified against the pod's JWKS. False when no signature
+   * verification was possible, including an unreadable refreshed token. Kept with [podSubject]
+   * so a partially saved reconnect cannot suppress the warning for another family's identity.
+   */
+  val subjectVerified: Boolean = false,
+) {
   /** True when the pod has declared this row's grant finished — see [deadGrantSince]. */
   val isDeadGrant: Boolean get() = deadGrantSince != null
 }
@@ -103,12 +117,37 @@ data class PodTokens(
  */
 data class PodTokenFacts(
   val pod: String,
-  override val podClientId: String?,
-  override val podRedirectUri: String?,
+  val podClientId: String?,
+  val podRedirectUri: String?,
   val deadGrantSince: Date?,
-) : PodRegistrationRow {
+  /** Null on a row predating [PodTokens.issuer], which is one no refresh can decide — see [needsReconnect]. */
+  val issuer: String?,
+  /** The identity this family was minted for; `PodConnection.actingSubject` says who reads it. */
+  val podSubject: String?,
+  /** [PodTokens.subjectVerified]; absent verification evidence reads as false. */
+  val subjectVerified: Boolean = false,
+) {
   val isDeadGrant: Boolean get() = deadGrantSince != null
+
+  /**
+   * Whether this row records a reason the person has to reconnect: the pod declared the grant
+   * finished, or the row lacks the registration, issuer or subject [PodTokens] requires.
+   *
+   * Both are durable and readable here. What is not is a connection that has merely run out —
+   * an expired access token the pod issued no refresh token for, or ciphertext this deployment can
+   * no longer open — because neither is a property of the fields this projection reads. Those
+   * surface at the call, as "reconnect this pod", and reporting them ahead of it is its own change.
+   */
+  val needsReconnect: Boolean
+    get() = isDeadGrant || issuer == null || podSubject == null || podClientId == null || podRedirectUri == null
 }
+
+/**
+ * Whether [pod] needs a reconnect, for the surfaces that report a connection they read from the
+ * registry while its credentials live here. A missing entry counts: a disconnect deletes the
+ * token row first, so the registry can still list a connection with no credentials.
+ */
+fun Map<String, PodTokenFacts>.needsReconnect(pod: String): Boolean = this[pod]?.needsReconnect != false
 
 /**
  * One read of the preservation queue: the rows the sweep can act on, and the keys of the rows it
@@ -387,6 +426,9 @@ class TokenVaultDao(
     podClientId = getString("podClientId"),
     podRedirectUri = getString("podRedirectUri"),
     deadGrantSince = getDate("deadGrantSince"),
+    issuer = getString("issuer"),
+    podSubject = getString("podSubject"),
+    subjectVerified = getBoolean("subjectVerified", false),
   )
 
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
@@ -420,12 +462,15 @@ class TokenVaultDao(
     // `putNotNull`: an absent field is the contract `sempods-commons-mongo/docs/document-contract.md` states, and a
     // never-used connection is the common case for a row this path writes.
     putNotNull("lastUsedAt", lastUsedAt)
-    putNotNull("podClientId", podClientId)
-    putNotNull("podRedirectUri", podRedirectUri)
+    put("podClientId", podClientId)
+    put("podRedirectUri", podRedirectUri)
     putNotNull("deadGrantSince", deadGrantSince)
+    put("issuer", issuer)
+    put("podSubject", podSubject)
+    put("subjectVerified", subjectVerified)
   }
 
-  /** Map a row, or null if it is unreadable (undecryptable ciphertext / corrupt) — logged, not thrown. */
+  /** Map a row, or null if unreadable — undecryptable, corrupt, or missing a required field. Logged, not thrown. */
   private fun Document.toTokensOrNull(): PodTokens? = try {
     toTokens()
   } catch (e: Exception) {
@@ -445,6 +490,9 @@ class TokenVaultDao(
     podClientId = getString("podClientId"),
     podRedirectUri = getString("podRedirectUri"),
     deadGrantSince = getDate("deadGrantSince"),
+    issuer = getString("issuer"),
+    podSubject = getString("podSubject"),
+    subjectVerified = getBoolean("subjectVerified", false),
   )
 
   companion object {
@@ -459,6 +507,6 @@ class TokenVaultDao(
      */
     private const val REFRESH_TOKEN_TYPE = "string"
 
-    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince")
+    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer", "podSubject", "subjectVerified")
   }
 }

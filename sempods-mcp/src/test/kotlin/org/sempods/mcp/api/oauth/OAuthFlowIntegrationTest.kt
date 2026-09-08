@@ -28,6 +28,7 @@ import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
+import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.oauth.DcrClient
 import org.sempods.mcp.persist.oauth.DcrClientDao
@@ -318,7 +319,7 @@ class OAuthFlowIntegrationTest {
       PodConnection(
         user = WEB_ID, profile = PodKey.DEFAULT_PROFILE, pod = pod,
         issuer = "https://sempods.org/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), podSubject = null, subjectVerified = false,
+        scopes = setOf("public-read"), podSubject = null,
         createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -922,19 +923,35 @@ class OAuthFlowIntegrationTest {
       PodConnection(
         user = WEB_ID, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example",
         issuer = "https://pod.example/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), podSubject = "https://pod.example/u/42", subjectVerified = false,
+        scopes = setOf("public-read"), podSubject = "https://pod.example/u/42",
         createdAt = Date(), updatedAt = Date(),
       ),
     )
 
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+    val key = PodKey(WEB_ID, PodKey.DEFAULT_PROFILE, "https://pod.example")
+    vault.upsert(PodTokens(
+      WEB_ID, key.profile, key.pod, accessToken = "at", refreshToken = "rt",
+      accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+      podClientId = "dyn:x", podRedirectUri = "$BASE/_system/ui/pods/callback",
+      issuer = "https://pod.example/_system/auth", podSubject = "https://pod.example/u/acting",
+      subjectVerified = true,
+    ))
+
     val (loginState, nonceCookie) = client.startAuthorize(clientId)
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
+    assertTrue("https://pod.example/u/acting" in consentHtml)
+    assertFalse("https://pod.example/u/42" in consentHtml)
+    assertFalse(">unverified</span>" in consentHtml)
     assertTrue("confirm_foreign" in consentHtml, "consent must render a foreign-identity confirmation checkbox")
     val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
+
+    vault.upsert(vault.find(key)!!.copy(subjectVerified = false))
 
     // Allow WITHOUT the confirmation → re-renders (200), issues no code. The txn is only peeked, so it survives.
     val denied = client.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
     assertEquals(HttpStatusCode.OK, denied.status, "un-confirmed foreign consent must re-render, not issue a code")
+    assertTrue(">unverified</span>" in denied.bodyAsText(), "the re-render reads the current family's verification")
     assertTrue("confirm_foreign" in denied.bodyAsText(), "the re-render must still offer the confirmation")
 
     // Allow WITH the confirmation → 302 to the client redirect_uri with a code.

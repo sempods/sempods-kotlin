@@ -125,7 +125,7 @@ class ReadToolsIntegrationTest {
     val soon = Date(System.currentTimeMillis() + 3_600_000)
     for (pod in listOf(podA, podB)) {
       registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date()))
+      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
     }
   }
 
@@ -152,6 +152,9 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "stale", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(),
+        // The two facts a refresh decides on; without them the row does not map and nothing
+        // reaches the pod.
+        issuer = authBase, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-protected-resource"))
@@ -180,6 +183,37 @@ class ReadToolsIntegrationTest {
   }
 
   @Test
+  fun `list_pods names the identity each pod's own token belongs to`() = runBlocking {
+    val acting = "https://pod.example/u/whose-token-this-is"
+    registry.upsert(
+      PodConnection(
+        user = user, profile = profile, pod = podA, issuer = "$podA/_system/auth",
+        podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
+        podSubject = "https://pod.example/u/from-a-later-connect",
+        createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    TokenVaultDao(db!!, testSecretCipher()).upsert(
+      PodTokens(
+        user, profile, podA, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$podA/_system/auth", podSubject = acting, subjectVerified = true, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+      ),
+    )
+
+    val a = podEntry(call("list_pods", null), podA)
+
+    assertEquals(acting, a["pod_subject"].asText(), "the row whose token a call uses is the one that answers: $a")
+    assertTrue(a["foreign_identity"].asBoolean())
+    assertTrue(a["subject_verified"].asBoolean(), "verification belongs to the same token row")
+
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+    val key = PodKey(user, profile, podA)
+    vault.upsert(vault.find(key)!!.copy(subjectVerified = false))
+    assertFalse(podEntry(call("list_pods", null), podA)["subject_verified"].asBoolean())
+  }
+
+  @Test
   fun `list_pods surfaces a foreign pod identity and warns about it`() = runBlocking {
     // A pod that authorized us as a WebID different from the service user (its own identity provider).
     val foreignWebId = "https://voicesappdev.example/api/pod/u/42"
@@ -187,7 +221,14 @@ class ReadToolsIntegrationTest {
       PodConnection(
         user = user, profile = profile, pod = "$podA", issuer = "$podA/_system/auth",
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
-        podSubject = foreignWebId, subjectVerified = false, createdAt = Date(), updatedAt = Date(),
+        podSubject = foreignWebId, createdAt = Date(), updatedAt = Date(),
+      ),
+    )
+    TokenVaultDao(db!!, testSecretCipher()).upsert(
+      PodTokens(
+        user, profile, podA, accessToken = "tok", refreshToken = "rt",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
+        issuer = "$podA/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val body = call("list_pods", null)
