@@ -64,11 +64,10 @@ class DcrClientDao(
    * The index that makes the dedup in [findOrCreate] a constraint rather than a lookup.
    *
    * It carries a name of its own, where the other takes MongoDB's default, so that it is built
-   * *beside* a predecessor over the same two fields rather than conflicting with it. A deployment
-   * that has run before this one holds exactly such a predecessor, and the order is what makes the
-   * change safe on it: the constraint stands before anything is dropped. A gap does not correct
-   * itself afterwards — two `/register` calls landing in one each return a `client_id`, and
-   * nothing takes back what was handed out.
+   * *beside* a predecessor over the same two fields rather than conflicting with it: a deployment
+   * that has run before this one holds exactly such a predecessor and boots with nobody touching
+   * it. Build first and drop second, never the other way round — `sempods-server`'s
+   * `DcrFingerprintIndex` carries why.
    *
    * What a gap already produced is the one thing left over: the build refuses duplicate rows, and
    * clearing those is an operator's, per `AGENTS.md` §"Deployment stance".

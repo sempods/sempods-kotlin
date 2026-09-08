@@ -65,10 +65,10 @@ Rules for choosing the level:
 ### AGENTS.md is none of the four
 
 An `AGENTS.md` is a **map**: the scope it governs, the rules an agent would otherwise break, and
-links to the documents. What is true of the code goes in a document or in KDoc and the map links to
-it. A fact written into the map is a second copy of that fact, and it is the copy nobody updates —
-a runbook, a stored shape, a field contract, a phase history all belong somewhere a reader of that
-subject would look, which is never a file about how to work here.
+links to the documents. What is true of the code — a runbook, a stored shape, a field contract, a
+phase history — goes where a reader of that subject would look, which is never a file about how to
+work here, and the map links to it. Writing it into the map is rule 3's second owner, with the map
+as the copy nobody updates.
 
 The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
 has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
