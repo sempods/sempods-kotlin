@@ -386,15 +386,17 @@ is worth being exact because the common case does not qualify:
    `consent_required`, session or not.
 3. **Grants for that client survive.** With none, the answer is
    `consent_required` rather than a code.
-4. **The request carries the cookie.** It is `SameSite=Lax`, so a browser
-   sends it on a top-level navigation and withholds it from a cross-site
-   subrequest. A hidden iframe is therefore silent only where the app and
-   the pod are the same site (`apps.example.org` framing
-   `example.org/{pod}`); an app on another site gets `login_required` from
-   the frame and has to renew by navigating. Nothing on the pod can tell
-   the two apart — the request simply arrives without a session — so this
-   is a property of where an app is deployed rather than of what it asked
-   for.
+4. **The request carries the cookie.** It is `SameSite=Lax`: sent on every
+   **same-site** request, and cross-site only on a **top-level
+   navigation**. A frame is not one, so a hidden iframe carries the session
+   only where the app and the pod share a site — and same site means the
+   registrable domain, not the origin, so `apps.example.org` framing
+   `example.org/{pod}` qualifies. An app on `another-host.example` does
+   not: its frame arrives without a session and is answered
+   `login_required`. It renews by navigating instead, which is the case
+   `Lax` does send the cookie on. Nothing on the pod tells the two apart —
+   the request simply arrives without a session — so this is a property of
+   where an app is deployed rather than of what it asked for.
 
 `SameSite=None` would make the frame work everywhere and is not done: the
 cookie authenticates the consent screen, and sending it on cross-site
