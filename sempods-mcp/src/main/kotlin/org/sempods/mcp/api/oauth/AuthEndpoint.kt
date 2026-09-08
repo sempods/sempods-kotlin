@@ -777,7 +777,7 @@ private suspend fun ApplicationCall.respondConsent(
         if (c.scopes.isNotEmpty() || actsForeign) {
           append("<div class=\"badges\">")
           for (s in c.scopes.sorted()) append("<span class=\"badge\">").appendEscapedHtml(s).append("</span>")
-          if (actsForeign && !c.subjectVerified) append("<span class=\"badge warn\">unverified</span>")
+          if (actsForeign && tokensByPod[c.pod]?.subjectVerified != true) append("<span class=\"badge warn\">unverified</span>")
           append("</div>")
         }
         // A pod that runs its own identity provider authorized us as a WebID of its own; the caller

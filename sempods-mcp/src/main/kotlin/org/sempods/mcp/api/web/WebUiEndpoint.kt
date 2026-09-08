@@ -482,22 +482,16 @@ fun Application.webUiEndpoint(
           ?: error("pod access token carried no usable subject")
         val now = Date()
         val scopes = OAuthSyntax.parseScope(tokens.scope)
-        val key = PodKey(pending.user, pending.profile, pending.pod)
         val connection = PodConnection(
           user = pending.user, profile = pending.profile, pod = pending.pod,
           issuer = pending.metadata.issuer, podClientId = pending.podClientId,
           podRedirectUri = pending.redirectUri, scopes = scopes,
-          podSubject = subject.webId, subjectVerified = subject.verified,
+          podSubject = subject.webId,
           createdAt = now, updatedAt = now,
         )
-        // Two writes, no transaction, so the second is the commit point — and the token row is it,
-        // because that row is self-sufficient for a refresh ([PodTokens]). Until it lands the
-        // previous connection is intact and the failure the browser is told about is the one that
-        // happened. Disconnect is the mirror: the token row goes first, so a half-landed one
-        // strands no custody. The order rests on [PodTokens.issuer] being required and never read
-        // off the row written here, and on a registry row that outlives an uncommitted connect
-        // saying so — `PodTokenFacts.needsReconnect`.
-        connectionRegistryDao.upsert(connection)
+        // Connect and disconnect both change the vault before the registry. Reversing only the
+        // connect order lets a callback recreate credentials after a disconnect has deleted them
+        // and then lose its registry row to that disconnect's second delete.
         tokenVaultDao.upsert(
           PodTokens(
             user = pending.user, profile = pending.profile, pod = pending.pod,
@@ -511,27 +505,10 @@ fun Application.webUiEndpoint(
             podRedirectUri = pending.redirectUri,
             issuer = pending.metadata.issuer,
             podSubject = subject.webId,
+            subjectVerified = subject.verified,
           ),
         )
-        // A disconnect that ran between the two writes above deleted both rows, and the second one
-        // just put a token back: an encrypted refresh token held for a connection the person ended,
-        // which nothing lists and no route can reach. Only a disconnect removes the registry row —
-        // this callback writes it first, and nothing else deletes it — so its absence here is
-        // exactly that, and the token goes the same way. The commit point can be raced; it cannot
-        // be allowed to outlive what it commits to.
-        if (connectionRegistryDao.find(key) == null) {
-          // Conditional, because this branch is itself a check then an act: another connect can
-          // commit its own family in between, and a delete by key would take that one and leave the
-          // person who wrote it told they had connected.
-          val dropped = tokenVaultDao.deleteIfUnchanged(key, now)
-          logger.info {
-            "pod '${pending.pod}' was disconnected while its connect completed for user='${pending.user}' " +
-              "profile='${pending.profile}' — " +
-              if (dropped) "the new token was dropped with it" else "another connect has since committed one, which stands"
-          }
-          auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "disconnected_meanwhile")
-          return@runCatching landing("error=${enc("pod was disconnected while connecting")}")
-        }
+        connectionRegistryDao.upsert(connection)
         logger.info {
           "pod connected: user='${pending.user}' profile='${pending.profile}' pod='${pending.pod}' scopes=$scopes podSubject='${forLog(subject.webId)}' verified=${subject.verified} foreign=${connection.actsForeign(null)}"
         }
@@ -676,7 +653,7 @@ private fun dashboardHtml(
       // TODO: surface the pod's per-context grants here once a pod-side grants read API exists.
       val tokens = tokensByPod[c.pod]
       val actsForeign = c.actsForeign(tokens?.podSubject)
-      val showUnverified = actsForeign && !c.subjectVerified
+      val showUnverified = actsForeign && tokens?.subjectVerified != true
       val needsReconnect = tokensByPod.needsReconnect(c.pod)
       // A named profile whose client at this pod is not its own: the pod holds one `client_id` for
       // it and the default profile, and one grant set under it.

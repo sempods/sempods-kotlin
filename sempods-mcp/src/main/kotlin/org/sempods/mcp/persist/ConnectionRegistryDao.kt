@@ -5,7 +5,6 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.ReplaceOptions
-import com.mongodb.client.model.Updates
 import org.bson.Document
 import org.sempods.commons.mongo.putNotNull
 import java.util.Date
@@ -46,10 +45,10 @@ data class PodConnection(
    */
   val podSubject: String? = null,
   /**
-   * Whether [podSubject] was cryptographically verified against the pod's JWKS. False = the pod
-   * exposes no JWKS and `sub` was decoded from the token the service fetched directly from the
-   * pod's token endpoint over TLS (trusted by transport, not by signature).
+   * Unpersisted compatibility slot: removing it shifts the two Date-valued `componentN()` methods
+   * and lets an already compiled consumer silently read the wrong timestamp.
    */
+  @Deprecated("Read subjectVerified from the token vault's PodTokenFacts")
   val subjectVerified: Boolean = false,
   val createdAt: Date,
   val updatedAt: Date,
@@ -71,9 +70,7 @@ data class PodConnection(
    * only describing the connection — and this row's own for a family recording none, or where there
    * is no family to consult (`null`, at connect, where this row *is* the family).
    *
-   * A reconnect writes this row before the token row, so [podSubject] can describe a family the
-   * vault does not hold. Every surface that says "acts as" resolves it here, so none can disagree
-   * with another or with the call.
+   * The two rows are written independently; [PodTokens] carries the family's identity.
    */
   fun actingSubject(recorded: String?): String? = recorded ?: podSubject
 
@@ -136,40 +133,6 @@ class ConnectionRegistryDao(
     )
   }
 
-  /**
-   * Record the identity a refresh just confirmed at the pod, and whether its signature verified —
-   * only while [read] is still what this row holds.
-   *
-   * Both halves matter, because the caller read [read] before a network round trip and a reconnect
-   * writes this row *before* the token row it commits on. A whole-row [upsert] would put that
-   * reconnect's scopes, registration and issuer back to the previous connection's, so this sets the
-   * two fields it actually learned. And those two are themselves about the family that was current
-   * when [read] was taken: landing them on a row a reconnect has moved on would pair the new
-   * family's subject with the old one's verification, and an unverified identity shown as verified
-   * is the "unverified" badge not appearing. So the write is conditional on what it saw, as
-   * [TokenVaultDao.replaceIfClaimedBy] is on the other row. Losing means a reconnect holds newer
-   * truth, and there is nothing to repair.
-   *
-   * The condition is [PodConnection.updatedAt] and not the two fields alone, because a reconnect
-   * can mint a new family for the same identity and the same verification state — the values would
-   * still match while the row they sit on is another connection's. Only this method and the connect
-   * callback write the stamp, so it versions the row.
-   *
-   * @return whether the repair landed.
-   */
-  fun recordSubjectIfUnchanged(read: PodConnection, podSubject: String, subjectVerified: Boolean, at: Date): Boolean =
-    connections.updateOne(
-      Filters.and(
-        keyFilter(PodKey(read.user, read.profile, read.pod)),
-        Filters.eq("updatedAt", read.updatedAt),
-      ),
-      Updates.combine(
-        Updates.set("podSubject", podSubject),
-        Updates.set("subjectVerified", subjectVerified),
-        Updates.set("updatedAt", at),
-      ),
-    ).matchedCount > 0
-
   fun delete(key: PodKey) {
     connections.deleteOne(keyFilter(key))
   }
@@ -189,7 +152,6 @@ class ConnectionRegistryDao(
     putNotNull("podRedirectUri", podRedirectUri)
     put("scopes", scopes.toList())
     put("podSubject", podSubject)
-    put("subjectVerified", subjectVerified)
     put("createdAt", createdAt)
     put("updatedAt", updatedAt)
   }
@@ -203,7 +165,6 @@ class ConnectionRegistryDao(
     podRedirectUri = getString("podRedirectUri"),
     scopes = (getList("scopes", String::class.java) ?: emptyList()).toSet(),
     podSubject = getString("podSubject"),
-    subjectVerified = getBoolean("subjectVerified", false),
     createdAt = getDate("createdAt") ?: Date(),
     updatedAt = getDate("updatedAt") ?: Date(),
   )

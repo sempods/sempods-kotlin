@@ -170,7 +170,7 @@ class WriteToolsIntegrationTest {
     registry.upsert(
       PodConnection(
         user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
-        scopes = setOf("public-read"), podSubject = foreignWebId, subjectVerified = false,
+        scopes = setOf("public-read"), podSubject = foreignWebId,
         createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -190,16 +190,12 @@ class WriteToolsIntegrationTest {
 
   @Test
   fun `a write reports the identity its own token belongs to, not the registry's`() = runBlocking {
-    // What a reconnect leaves when its registry write lands and its token write does not: the
-    // registry names the identity the new grant was for, while the call goes out on the family the
-    // vault still holds. Reporting the registry's would tell the caller it acted as somebody it did
-    // not act as — and the pod saw the other one.
     val acting = "https://pod.example/u/whose-token-this-is"
     registry.upsert(
       PodConnection(
         user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/from-a-later-connect",
-        subjectVerified = false, createdAt = Date(), updatedAt = Date(),
+        createdAt = Date(), updatedAt = Date(),
       ),
     )
     vault.upsert(

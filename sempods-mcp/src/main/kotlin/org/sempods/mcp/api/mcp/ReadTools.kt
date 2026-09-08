@@ -102,7 +102,7 @@ class ReadTools(
         // a weak hint (like `rdfs:seeAlso`), not an asserted `owl:sameAs` (null when not foreign).
         "pod_subject" to it.actingSubject(tokensByPod[it.pod]?.podSubject),
         "foreign_identity" to it.actsForeign(tokensByPod[it.pod]?.podSubject),
-        "subject_verified" to it.subjectVerified,
+        "subject_verified" to (tokensByPod[it.pod]?.subjectVerified == true),
         "similar_to" to if (it.actsForeign(tokensByPod[it.pod]?.podSubject)) it.user else null,
         // Nothing here can reach the pod until the person reconnects. The dashboard says so to
         // them; this says it to the agent, which would otherwise retry the pod on every turn.

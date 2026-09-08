@@ -29,15 +29,13 @@ import java.util.Date
  * **Everything a refresh presents, and everything it checks the answer against, lives here** —
  * [podClientId], [podRedirectUri], [issuer], [podSubject], [deadGrantSince] — because the connect
  * callback writes this row and the `PodConnection` registry row one after the other and nothing
- * makes that pair atomic. Each is a fact about *this* token family, which is the value a refresh
- * has to agree with, and all of them are required: nothing a refresh decides is read off the
- * registry, whose copies a connect writes first and which can therefore describe the reconnect
- * replacing this family. [issuer] says it once for all of them. What still reads the registry is
- * `PodClientIdentity.registrationOf`, for the surfaces that answer from [PodTokenFacts], where a
- * row that does not map still has a document.
+ * makes that pair atomic. A failed registry write or overlapping callbacks can leave the registry
+ * describing another family. A refresh therefore reads these facts from this row alone.
+ * `PodClientIdentity.registrationOf` uses the registry as a descriptive fallback for surfaces
+ * reading [PodTokenFacts], which can still represent an unreadable token document.
  *
- * `PodConnection.scopes` and `PodConnection.subjectVerified` stay on the registry: no refusal reads
- * either.
+ * [subjectVerified] travels with the identity it describes. `PodConnection.scopes` is descriptive;
+ * the pod enforces the token's permissions.
  *
  * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
  */
@@ -69,10 +67,7 @@ data class PodTokens(
    * The pod pairs all three: presenting any other id, or the right id at another address, is
    * answered `invalid_grant`, which marks the connection dead until somebody reconnects.
    *
-   * Required, for [issuer]'s reason. The registry's copies are written first by a connect, so they
-   * can be a reconnect's — `/_system/ui/pods/separate` exists to change exactly this pair — and
-   * presenting them with this family's token is the refusal they would cause. A connect writes both
-   * with the token they belong to; a row predating them does not map.
+   * Both are required and written with the token they belong to; a row predating them does not map.
    */
   val podClientId: String,
   val podRedirectUri: String,
@@ -92,25 +87,24 @@ data class PodTokens(
    * refresh pins the freshly discovered metadata against: a pod whose metadata now names a different
    * one (DNS/domain takeover, misconfig) never receives this token.
    *
-   * Required, and the one fact here with no fallback to the registry. The connect callback writes
-   * the registry row first, so a connect whose token write did not land leaves the new server's
-   * name beside the previous server's family, and a refresh reading it would post that family's
-   * token to a server that never issued it. `PodOAuthClient.discoverMetadata` refuses a pod naming
-   * no authorization server, so every row this service writes carries one; a row that predates the
-   * field does not map, and reads as unreadable.
+   * Required: `PodOAuthClient.discoverMetadata` refuses a pod naming no authorization server.
+   * A row predating this field reads as unreadable.
    */
   val issuer: String,
   /**
    * The pod-local WebID the pod minted this family for — what a refresh checks the refreshed
    * token's subject against, so a pod that starts answering as somebody else is refused.
    *
-   * Required, and read off this row alone, for [issuer]'s reason: the registry's copy can describe
-   * a reconnect whose token write never landed, and a drift check against it would refuse this
-   * family every time the pod answered with its own correct subject. A connect fails on a token
-   * whose subject it cannot read, and a refresh only ever records one it read, so every row this
-   * service writes carries one; a row that predates the field does not map.
+   * Required: a connect fails on a token whose subject it cannot read. An unreadable subject on
+   * refresh preserves this reference; a row predating this field does not map.
    */
   val podSubject: String,
+  /**
+   * Whether this access token's subject verified against the pod's JWKS. False when no signature
+   * verification was possible, including an unreadable refreshed token. Kept with [podSubject]
+   * so a partially saved reconnect cannot suppress the warning for another family's identity.
+   */
+  val subjectVerified: Boolean = false,
 ) {
   /** True when the pod has declared this row's grant finished — see [deadGrantSince]. */
   val isDeadGrant: Boolean get() = deadGrantSince != null
@@ -130,12 +124,14 @@ data class PodTokenFacts(
   val issuer: String?,
   /** The identity this family was minted for; `PodConnection.actingSubject` says who reads it. */
   val podSubject: String?,
+  /** [PodTokens.subjectVerified]; absent verification evidence reads as false. */
+  val subjectVerified: Boolean = false,
 ) {
   val isDeadGrant: Boolean get() = deadGrantSince != null
 
   /**
    * Whether this row records a reason the person has to reconnect: the pod declared the grant
-   * finished, or the row is missing something [PodTokens] requires and so does not map at all.
+   * finished, or the row lacks the issuer or subject [PodTokens] requires.
    *
    * Both are durable and readable here. What is not is a connection that has merely run out —
    * an expired access token the pod issued no refresh token for, or ciphertext this deployment can
@@ -147,10 +143,8 @@ data class PodTokenFacts(
 
 /**
  * Whether [pod] needs a reconnect, for the surfaces that report a connection they read from the
- * registry while its credentials live here. A missing entry counts: a connect writes the registry
- * row first, so no token row is a connect whose commit never landed — and a disconnect deletes this
- * row first, so it is also one half-way out. Both are a connection with nothing to call the pod
- * with, which is what the badge and `list_pods` exist to say.
+ * registry while its credentials live here. A missing entry counts: a disconnect deletes the
+ * token row first, so the registry can still list a connection with no credentials.
  */
 fun Map<String, PodTokenFacts>.needsReconnect(pod: String): Boolean = this[pod]?.needsReconnect != false
 
@@ -433,6 +427,7 @@ class TokenVaultDao(
     deadGrantSince = getDate("deadGrantSince"),
     issuer = getString("issuer"),
     podSubject = getString("podSubject"),
+    subjectVerified = getBoolean("subjectVerified", false),
   )
 
   /** Failure-path cleanup: drop the claim early so the next holder need not wait it out. Only the holder may. */
@@ -446,21 +441,6 @@ class TokenVaultDao(
   fun delete(key: PodKey) {
     tokens.deleteOne(keyFilter(key))
   }
-
-  /**
-   * Delete this row only while it is still the one written at [writtenAt] — [PodTokens.updatedAt],
-   * which every write to this row moves.
-   *
-   * The connect callback's compensating delete needs it. Between seeing that a disconnect took the
-   * connection and removing the token it had just committed, another connect can commit its own,
-   * and a delete by key alone would take that one — leaving a person told they had connected beside
-   * a connection with no token. Same stamp and same reason as
-   * [ConnectionRegistryDao.recordSubjectIfUnchanged] on the other row.
-   *
-   * @return whether the row was still this one, and went.
-   */
-  fun deleteIfUnchanged(key: PodKey, writtenAt: Date): Boolean =
-    tokens.deleteOne(Filters.and(keyFilter(key), Filters.eq("updatedAt", writtenAt))).deletedCount == 1L
 
   private fun Document.toKey() = PodKey(getString("user"), getString("profile"), getString("pod"))
 
@@ -486,6 +466,7 @@ class TokenVaultDao(
     putNotNull("deadGrantSince", deadGrantSince)
     put("issuer", issuer)
     put("podSubject", podSubject)
+    put("subjectVerified", subjectVerified)
   }
 
   /** Map a row, or null if unreadable — undecryptable, corrupt, or missing a required field. Logged, not thrown. */
@@ -510,6 +491,7 @@ class TokenVaultDao(
     deadGrantSince = getDate("deadGrantSince"),
     issuer = getString("issuer"),
     podSubject = getString("podSubject"),
+    subjectVerified = getBoolean("subjectVerified", false),
   )
 
   companion object {
@@ -524,6 +506,6 @@ class TokenVaultDao(
      */
     private const val REFRESH_TOKEN_TYPE = "string"
 
-    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer", "podSubject")
+    private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer", "podSubject", "subjectVerified")
   }
 }

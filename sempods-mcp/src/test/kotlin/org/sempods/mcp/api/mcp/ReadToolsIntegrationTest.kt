@@ -184,15 +184,12 @@ class ReadToolsIntegrationTest {
 
   @Test
   fun `list_pods names the identity each pod's own token belongs to`() = runBlocking {
-    // A reconnect writes the registry row first, so it can name the identity a grant that never
-    // committed was for, while every call still goes out on the family the vault holds. The two
-    // must not disagree about who the caller is acting as.
     val acting = "https://pod.example/u/whose-token-this-is"
     registry.upsert(
       PodConnection(
         user = user, profile = profile, pod = podA, issuer = "$podA/_system/auth",
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
-        podSubject = "https://pod.example/u/from-a-later-connect", subjectVerified = false,
+        podSubject = "https://pod.example/u/from-a-later-connect",
         createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -200,7 +197,7 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$podA/_system/auth", podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = "$podA/_system/auth", podSubject = acting, subjectVerified = true, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
 
@@ -208,6 +205,12 @@ class ReadToolsIntegrationTest {
 
     assertEquals(acting, a["pod_subject"].asText(), "the row whose token a call uses is the one that answers: $a")
     assertTrue(a["foreign_identity"].asBoolean())
+    assertTrue(a["subject_verified"].asBoolean(), "verification belongs to the same token row")
+
+    val vault = TokenVaultDao(db!!, testSecretCipher())
+    val key = PodKey(user, profile, podA)
+    vault.upsert(vault.find(key)!!.copy(subjectVerified = false))
+    assertFalse(podEntry(call("list_pods", null), podA)["subject_verified"].asBoolean())
   }
 
   @Test
@@ -218,7 +221,7 @@ class ReadToolsIntegrationTest {
       PodConnection(
         user = user, profile = profile, pod = "$podA", issuer = "$podA/_system/auth",
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
-        podSubject = foreignWebId, subjectVerified = false, createdAt = Date(), updatedAt = Date(),
+        podSubject = foreignWebId, createdAt = Date(), updatedAt = Date(),
       ),
     )
     TokenVaultDao(db!!, testSecretCipher()).upsert(
