@@ -73,6 +73,12 @@ who needs it — and where the document carries it too, the map is the copy nobo
 The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
 has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
 
+One file is not yet a map. `sempods-mcp/AGENTS.md` §"Phase status" is 261 of its 344 lines and
+calls itself the source of truth for what that module has shipped, which is the phase history this
+rule says belongs elsewhere. It is the example rather than a licence: it moves into that module's
+`docs/` when the service is next worked on, by the rule above for a misplaced document, and nothing
+joins it meanwhile.
+
 ## The writing rules
 
 **1. Everything except roadmaps and SOLL sections is IST.** It describes what the code does today.
