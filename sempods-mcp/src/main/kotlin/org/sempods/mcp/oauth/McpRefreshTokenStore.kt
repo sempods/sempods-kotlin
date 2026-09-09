@@ -46,15 +46,27 @@ class McpRefreshTokenStore(db: MongoDatabase, collectionName: String = SempodsMc
     },
   )
 
-  /** First token of a new family (from the `authorization_code` exchange). */
+  /**
+   * First token of a new family (from the `authorization_code` exchange).
+   *
+   * Every family is minted under [KIND], because this service has one lifetime class and no consent
+   * control to choose between two. It names one anyway: a row carrying no
+   * [RefreshTokenStore.Token.kind] is one that predates the field, and a rotation caps such a family
+   * at its predecessor's expiry. Leaving the value off would apply that cap to families minted from
+   * here on, which is a lifetime policy this service has not decided.
+   */
   fun issueNewFamily(
     user: String,
     profile: String,
     clientId: String,
     scopes: Set<String>,
     ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
-  ): RefreshTokenStore.Issued<Owner> =
-    store.issueNewFamily(Owner(user = user, profile = profile, clientId = clientId), scopes, ttlSeconds)
+  ): RefreshTokenStore.Issued<Owner> = store.issueNewFamily(
+    owner = Owner(user = user, profile = profile, clientId = clientId),
+    scopes = scopes,
+    kind = KIND,
+    ttlSeconds = ttlSeconds,
+  )
 
   /** Successor token in an existing family (rotation). */
   fun issueInFamily(
@@ -74,6 +86,9 @@ class McpRefreshTokenStore(db: MongoDatabase, collectionName: String = SempodsMc
   fun findByFamily(familyId: String): List<McpRefreshToken> = store.findByFamily(familyId)
 
   private companion object {
+
+    /** The one lifetime class this service mints — see [issueNewFamily]. */
+    const val KIND = "durable"
 
     // The owner's field names, in the order a row on disk carries them.
     const val FIELD_USER = "user"

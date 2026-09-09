@@ -61,16 +61,34 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     },
   )
 
+  /**
+   * Which lifetime a family was minted under, as this server's consent control decides it. Stored
+   * on every row as [RefreshTokenStore.Token.kind] and inherited by each rotation, so a rotation
+   * reads the terms off the credential rather than off the consent decision — that document is the
+   * person's to edit, and a durable family a withdrawal has not yet swept would otherwise be read
+   * as a session family: the short window **and** an escape from the withdrawal.
+   *
+   * A row carrying no `kind` predates the field, and it is [DURABLE]: the pod minted a family only
+   * where the person ticked the connection, so every one that exists was ticked. Reading such a row
+   * as [SESSION] would hand it both halves of the failure above.
+   */
+  internal enum class Lifetime(val kind: String) {
+    SESSION("session"),
+    DURABLE("durable"),
+  }
+
   internal fun issueNewFamily(
     podId: ObjectId,
     podName: String,
     clientId: String,
     webId: String,
     scopes: Set<String>,
+    lifetime: Lifetime,
     ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
   ): RefreshTokenStore.Issued<Owner> = store.issueNewFamily(
     owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
     scopes = scopes,
+    kind = lifetime.kind,
     ttlSeconds = ttlSeconds,
   )
 
