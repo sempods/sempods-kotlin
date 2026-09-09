@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeAll
 import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import java.time.Instant
 
 open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
@@ -171,6 +172,17 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
         pod = pod,
       )
     }
+
+  /**
+   * A cookie for somebody whose sign-in happened at [authTime] rather than just now — the input the
+   * absolute limit on renewals is measured against.
+   *
+   * Not cached, unlike [signIn]: two calls describe two different sign-ins, which is the point.
+   */
+  protected fun sessionCookieSignedInAt(pod: String, webId: String, authTime: Instant): String =
+    "sempods_pod_session=${
+      podTokenIssuer.issueSession(pod, webId, emptyList(), authTime, PodTokenIssuer.SESSION_TTL_SECONDS)
+    }"
 
   /**
    * One session per person per pod, for the length of a test.
