@@ -27,7 +27,10 @@ import org.sempods.commons.okhttp.getAll
 import org.bson.types.ObjectId
 import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
+import com.nimbusds.jwt.SignedJWT
 import java.net.URI
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -1854,6 +1857,106 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, second.statusCode, "a remembered sign-in must reach consent directly")
     assertTrue(second.responseBody.contains("consent"), second.responseBody)
+  }
+
+  @Test
+  fun `an authorization renews the session it arrived with`() {
+    // Why the twelve hours are an idle window and not a countdown from sign-in. Connecting a second
+    // app, reconnecting one and passing a consent screen all arrive here, and each arrival resets
+    // the clock; without this, somebody was signed out mid-task twelve hours after signing in.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val signedInAt = Instant.now().minus(11, ChronoUnit.HOURS)
+    val arrived = sessionCookieSignedInAt(pod.name, ownerWebId, signedInAt)
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "renewing")
+      .addHeader("Cookie", arrived)
+      .setFollowRedirect(false).execute()
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    val renewed = checkNotNull(response.sessionCookie()) { "an authorization must hand back a fresh session" }
+    assertNotEquals(arrived, renewed, "a renewal that returns the same cookie has extended nothing")
+
+    val claims = SignedJWT.parse(renewed.substringAfter('=')).jwtClaimsSet
+    // The sign-in it describes is the same one; only its expiry moved.
+    assertEquals(
+      signedInAt.epochSecond, claims.getLongClaim("auth_time"),
+      "a renewal must carry the original sign-in forward, or the absolute limit never arrives",
+    )
+    assertTrue(
+      checkNotNull(claims.expirationTime).toInstant().isAfter(signedInAt.plus(12, ChronoUnit.HOURS)),
+      "the renewed cookie must outlive what the arriving one was good for",
+    )
+  }
+
+  @Test
+  fun `a sign-in older than the absolute limit is used but not renewed`() {
+    // The other end of "renew on use" — see `SESSION_ABSOLUTE_TTL_SECONDS` for why there is one.
+    // What is still valid still works; it simply stops being extended.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "too-old")
+      .addHeader("Cookie", sessionCookieSignedInAt(pod.name, ownerWebId, Instant.now().minus(31, ChronoUnit.DAYS)))
+      .setFollowRedirect(false).execute()
+
+    assertEquals(200, response.statusCode, "a session past the limit is still a session until it expires")
+    assertNull(response.sessionCookie(), "a sign-in a month old must not be extended by using it")
+  }
+
+  @Test
+  fun `a renewal in the final hours ends at the absolute deadline, not twelve hours past it`() {
+    // The renewal an actively used session gets last, and the one that decides whether the
+    // absolute limit means what it says.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val signedInAt = Instant.now().minus(30, ChronoUnit.DAYS).plus(2, ChronoUnit.HOURS)
+    val deadline = signedInAt.plus(30, ChronoUnit.DAYS)
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "near-deadline")
+      .addHeader("Cookie", sessionCookieSignedInAt(pod.name, ownerWebId, signedInAt))
+      .setFollowRedirect(false).execute()
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    val renewed = checkNotNull(response.sessionCookie()) { "two hours of absolute lifetime is still some" }
+    val expiry = checkNotNull(SignedJWT.parse(renewed.substringAfter('=')).jwtClaimsSet.expirationTime).toInstant()
+    assertFalse(
+      expiry.isAfter(deadline),
+      "a renewal must not outlive the sign-in's thirtieth day: expiry=$expiry deadline=$deadline",
+    )
+
+    // And the browser is told the same thing, so it stops presenting the cookie when the pod stops
+    // accepting it rather than being refused with one in hand.
+    val maxAge = checkNotNull(
+      response.headers.getAll("Set-Cookie")
+        .first { it.startsWith("sempods_pod_session=") }
+        .split(';').map { it.trim() }
+        .firstOrNull { it.startsWith("Max-Age=", ignoreCase = true) },
+    ) { "the renewed cookie must carry a Max-Age" }
+    assertTrue(
+      maxAge.substringAfter('=').toLong() <= 2 * 3600,
+      "Max-Age must follow the shortened lifetime, not the idle window: $maxAge",
+    )
   }
 
   @Test
