@@ -610,6 +610,7 @@ class SempodsClient(
    * rather than for the JSON-LD `PodWireClient` reads: a caller filtering or re-writing per context
    * needs the fourth term, and a triple format silently drops it.
    */
+  @JvmOverloads
   fun getSubject(
     podBaseUrl: URI,
     subjectUri: URI,
@@ -869,7 +870,7 @@ class SempodsClient(
   private fun systemResourceUrl(podBaseUrl: URI, subjectUri: URI, contextUris: List<URI>): URI {
     val query = contextUris.joinToString("&") { "context=" + URLEncoder.encode(it.toString(), StandardCharsets.UTF_8) }
     val path = SempodsPodRoutes.resource(subjectUri)
-    return podBaseUrl.resolve(if (query.isEmpty()) path else "$path?$query")
+    return transport.baseWithTrailingSlash(podBaseUrl).resolve(if (query.isEmpty()) path else "$path?$query")
   }
 
   private fun resourcePathRelativeToPod(podBaseUrl: URI, resourceUri: URI): String {

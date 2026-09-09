@@ -654,11 +654,39 @@ class SempodsClientHttpTest {
 
   // ─── system layer (`{pod}/_system/resources/…`) ───────────────────────────
 
-  /**
-   * The path is asserted through [SempodsPodRoutes.resource] rather than against a literal, so the
-   * test pins that the client sends what every other sempods client computes — a hardcoded segment
-   * would keep passing after the encoding formula changed on both sides.
-   */
+  @Test
+  fun `subject operations retain the whole pod base with or without a trailing slash`() {
+    listOf("", "/", "/alice", "/alice/", "/pods/alice", "/pods/alice/").forEach { podPath ->
+      mockServer.reset()
+      val podBase = URI("http://localhost:${mockServer.port}$podPath")
+      val subject = URI("https://tickets.example/offers/42")
+      val context = URI("http://localhost:${mockServer.port}${podPath.trimEnd('/')}/_system/contexts/notes")
+      val path = podPath.trimEnd('/') + "/_system/resources/" +
+        "aHR0cHM6Ly90aWNrZXRzLmV4YW1wbGUvb2ZmZXJzLzQy"
+      val model = LinkedHashModel().apply {
+        add(vf.createIRI(subject.toString()), vf.createIRI("https://schema.org/name"), vf.createLiteral("Offer 42"))
+      }
+      mockServer.`when`(request().withMethod("PUT").withPath(path))
+        .respond(response().withStatusCode(201))
+      mockServer.`when`(request().withMethod("GET").withPath(path))
+        .respond(response().withStatusCode(200).withBody("<$subject> <https://schema.org/name> \"Offer 42\" ."))
+      mockServer.`when`(request().withMethod("DELETE").withPath(path))
+        .respond(response().withStatusCode(204))
+
+      client.putSubject(podBase, subject, context, model, "t")
+      assertEquals(model, client.getSubject(podBase, subject, listOf(context), "t"))
+      client.deleteSubject(podBase, subject, context, "t")
+
+      val recorded = mockServer.retrieveRecordedRequests(request())
+      assertEquals(listOf("PUT", "GET", "DELETE"), recorded.map { it.method.value })
+      recorded.forEach {
+        assertEquals(path, it.path.value)
+        assertEquals(context.toString(), it.getFirstQueryStringParameter("context"))
+        assertEquals("Bearer t", it.getFirstHeader("Authorization"))
+      }
+    }
+  }
+
   @Test
   fun `putSubject PUTs n-quads to the base64url route with the context`() {
     val subjectUri = baseUrl.resolve("events/e1")
