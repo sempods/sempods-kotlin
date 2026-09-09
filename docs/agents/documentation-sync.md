@@ -76,6 +76,9 @@ making the rest point there.
 
 Over what is left:
 
+- Did anything land in an `AGENTS.md`? Name the document that owns it. Where the answer is the
+  map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
+  exactly one copy.
 - Does a field's KDoc repeat what the class KDoc says? The field wins (rule 6).
 - Does anything explain why something was **not** changed? That is the commit message's job.
 - Did the change delete anything? One that only adds has not looked (rule 9).

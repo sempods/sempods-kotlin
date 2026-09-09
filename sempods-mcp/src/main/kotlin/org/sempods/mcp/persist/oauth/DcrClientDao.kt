@@ -1,12 +1,14 @@
 package org.sempods.mcp.persist.oauth
 
+import com.mongodb.DuplicateKeyException
+import com.mongodb.MongoWriteException
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
-import com.mongodb.client.model.Sorts
 import org.bson.Document
 import java.util.Date
+import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.mcp.SempodsMcpCollections
 
 /**
@@ -14,9 +16,10 @@ import org.sempods.mcp.SempodsMcpCollections
  * …) that registered against the service to obtain a `client_id` for `/authorize`.
  *
  * Scoped by **profile** (not pod): the service is the resource. The profile path is the
- * variable segment that separates the first OAuth layer (AI client → service). Inserts are
- * fingerprint-deduped so a client that re-registers on every reconnect (no persistent
- * client-state) reuses its `client_id` and keeps consent anchored to one row.
+ * variable segment that separates the first OAuth layer (AI client → service). A profile holds
+ * at most one registration per fingerprint ([findOrCreate]), so a client that re-registers on
+ * every reconnect (no persistent client-state) reuses its `client_id` and keeps consent anchored
+ * to one row.
  */
 data class DcrClient(
   val clientId: String,
@@ -42,7 +45,7 @@ data class DcrClient(
  */
 class DcrClientDao(
   db: MongoDatabase,
-  collectionName: String = SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS,
+  private val collectionName: String = SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS,
 ) {
 
   private val clients = db.getCollection(collectionName)
@@ -52,18 +55,71 @@ class DcrClientDao(
       Indexes.ascending("profile", "clientId"),
       IndexOptions().unique(true),
     )
-    clients.createIndex(Indexes.ascending("profile", "fingerprint"))
+    createFingerprintIndex()
   }
 
-  fun create(client: DcrClient) {
-    clients.insertOne(client.toDocument())
+  /**
+   * The index that makes the dedup in [findOrCreate] a constraint rather than a lookup.
+   *
+   * It carries a name of its own, where the other index takes MongoDB's default, so that it is
+   * built *beside* an earlier non-unique index over the same two fields rather than conflicting
+   * with it. A deployment that has run before this one holds exactly that, and boots with nobody
+   * touching it; the index it no longer needs is one command whenever somebody is there anyway.
+   *
+   * Rows two registrations already split are the one thing a person has to answer for: the build
+   * refuses them, and clearing data at boot is the pass `AGENTS.md` §"Deployment stance" rules out.
+   */
+  private fun createFingerprintIndex() {
+    try {
+      clients.createIndex(
+        Indexes.ascending("profile", "fingerprint"),
+        IndexOptions().name("profile_1_fingerprint_1_unique").unique(true),
+      )
+    } catch (duplicates: DuplicateKeyException) {
+      throw IllegalStateException(
+        "cannot make (profile, fingerprint) unique on $collectionName — rows still share one " +
+          "fingerprint. Delete all but one of each group; the AI client whose row goes registers " +
+          "again on its next connect.",
+        duplicates,
+      )
+    }
   }
 
-  /** Pod-... profile-scoped fingerprint lookup, newest match first (dedup on /register). */
+  /**
+   * The registration this profile holds under [candidate]'s fingerprint — [candidate] itself when
+   * it is the one that lands.
+   *
+   * It takes both halves to hold that. The lookup catches the ordinary reconnect; the unique
+   * index catches the pair that looked at the same moment, because the digest carries nothing
+   * that tells two reconnects in the same second apart and both are told the client is unknown.
+   * Whoever loses re-reads and gets the winner's row, which it cannot tell from an ordinary dedup
+   * hit, because it is one.
+   */
+  fun findOrCreate(candidate: DcrClient): DcrClient {
+    findByFingerprint(candidate.profile, candidate.fingerprint)?.let { return it }
+    if (create(candidate)) return candidate
+    return checkNotNull(findByFingerprint(candidate.profile, candidate.fingerprint)) {
+      "insert refused as a duplicate fingerprint, but no row holds it (profile=${candidate.profile})"
+    }
+  }
+
+  /** Inserts a registration, or answers `false` when the unique index refuses it. */
+  internal fun create(client: DcrClient): Boolean =
+    try {
+      clients.insertOne(client.toDocument())
+      true
+    } catch (e: MongoWriteException) {
+      // `clientId` is an opaque random string, so the only unique index a duplicate can be hitting
+      // is the fingerprint one.
+      if (!e.isDuplicateKey()) throw e
+      false
+    }
+
+  /** Profile-scoped fingerprint lookup, so `/register` can reuse a previously-issued `client_id`. */
   fun findByFingerprint(profile: String, fingerprint: String): DcrClient? =
     clients.find(
       Filters.and(Filters.eq("profile", profile), Filters.eq("fingerprint", fingerprint)),
-    ).sort(Sorts.descending("registeredAt")).firstOrNull()?.toClient()
+    ).firstOrNull()?.toClient()
 
   /** Hot-path lookup from /authorize. A clientId only resolves within its issuing profile. */
   fun findByClientId(profile: String, clientId: String): DcrClient? =

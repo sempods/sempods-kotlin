@@ -62,6 +62,23 @@ Rules for choosing the level:
   in one of the two, not a local override.
 - Every document is reachable through at least one `AGENTS.md` pointer.
 
+### AGENTS.md is none of the four
+
+An `AGENTS.md` is a **map**: the scope it governs, the rules an agent would otherwise break, and
+links to the documents. What is true of the code — a runbook, a stored shape, a field contract, a
+phase history — goes where a reader of that subject would look, which is never a file about how to
+work here, and the map links to it. Filed into the map instead, it is out of reach of the reader
+who needs it — and where the document carries it too, the map is the copy nobody updates.
+
+The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
+has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
+
+One file is not yet a map. `sempods-mcp/AGENTS.md` §"Phase status" is 261 of its 344 lines and
+calls itself the source of truth for what that module has shipped, which is the phase history this
+rule says belongs elsewhere. It is the example rather than a licence: it moves into that module's
+`docs/` when the service is next worked on, by the rule above for a misplaced document, and nothing
+joins it meanwhile.
+
 ## The writing rules
 
 **1. Everything except roadmaps and SOLL sections is IST.** It describes what the code does today.
@@ -175,7 +192,10 @@ A behaviour change is not finished until, **in the same change**:
 - the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
 - nothing you wrote gives a fact a second owner, and what the change made redundant is gone
   (rules 3 and 9). This is the one that fails quietly, because every copy reads correctly on its
-  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught.
+  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught;
+- nothing you added to an `AGENTS.md` is a fact some document owns (§"AGENTS.md is none of the
+  four"). This one fails quietly too, and for the opposite reason: there is only one copy, so no
+  search finds it.
 
 [`documentation-sync.md`](documentation-sync.md) is the procedure that walks this list.
 

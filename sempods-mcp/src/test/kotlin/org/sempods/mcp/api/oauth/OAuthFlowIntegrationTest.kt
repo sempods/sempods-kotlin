@@ -6,6 +6,9 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Indexes
+import io.mockk.every
+import io.mockk.spyk
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.SempodsMcpConfig
@@ -27,6 +30,7 @@ import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.persist.oauth.DcrClient
 import org.sempods.mcp.persist.oauth.DcrClientDao
 import org.sempods.auth.core.SigningKeys
 import org.sempods.mcp.persist.oauth.McpSigningKeyStore
@@ -60,6 +64,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -579,6 +584,81 @@ class OAuthFlowIntegrationTest {
     // The response must echo the CURRENT request's port, not the stored first one.
     assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asText())
   }
+
+  @Test
+  fun `a second registration under one fingerprint is refused`() {
+    val dao = DcrClientDao(db!!, freshCollection())
+
+    assertTrue(dao.create(dcrClient("dyn:first")), "the first registration under a digest is the one that lands")
+    assertFalse(
+      dao.create(dcrClient("dyn:second")),
+      "the index must refuse the second rather than mint a second id for one logical client",
+    )
+    assertEquals("dyn:first", dao.findByFingerprint(PodKey.DEFAULT_PROFILE, "one-digest")?.clientId)
+  }
+
+  /** The competitor is arranged through the spy; the index still does the refusing. */
+  @Test
+  fun `a registration that loses the insert answers the winner's row`() {
+    val dao = DcrClientDao(db!!, freshCollection())
+    val racing = spyk(dao)
+    every { racing.create(any()) } answers {
+      dao.create(firstArg<DcrClient>().copy(clientId = "dyn:winner"))
+      callOriginal()
+    }
+
+    assertEquals("dyn:winner", racing.findOrCreate(dcrClient("dyn:loser")).clientId)
+  }
+
+  @Test
+  fun `a collection carrying the old non-unique index gets the constraint beside it`() {
+    val collection = freshCollection()
+    db!!.getCollection(collection).createIndex(Indexes.ascending("profile", "fingerprint"))
+
+    val dao = DcrClientDao(db!!, collection)
+
+    assertTrue(dao.create(dcrClient("dyn:first")))
+    assertFalse(dao.create(dcrClient("dyn:second")), "the constraint must hold where a predecessor stands")
+    assertEquals(
+      listOf("_id_", "profile_1_clientId_1", "profile_1_fingerprint_1", "profile_1_fingerprint_1_unique"),
+      db!!.getCollection(collection).listIndexes().map { it.getString("name") }.sorted(),
+      "the predecessor is left standing — building beside it is what keeps the boot alive",
+    )
+  }
+
+  @Test
+  fun `duplicates an earlier gap left behind stop the boot and name what to delete`() {
+    val collection = freshCollection()
+    val rows = db!!.getCollection(collection)
+    listOf("dyn:first", "dyn:second").forEach {
+      rows.insertOne(
+        Document().append("clientId", it)
+          .append("profile", PodKey.DEFAULT_PROFILE)
+          .append("fingerprint", "one-digest"),
+      )
+    }
+
+    val refused = assertFailsWith<IllegalStateException> { DcrClientDao(db!!, collection) }
+    assertTrue(
+      refused.message!!.contains("Delete all but one"),
+      "an operator reading the boot failure must be told what to delete: ${refused.message}",
+    )
+  }
+
+  private fun freshCollection() = "test.dcr." + UUID.randomUUID().toString().take(8)
+
+  /** A registration under one shared digest; only the `client_id` differs between calls. */
+  private fun dcrClient(clientId: String) = DcrClient(
+    clientId = clientId,
+    profile = PodKey.DEFAULT_PROFILE,
+    redirectUris = setOf(REDIRECT),
+    clientName = "Twice",
+    softwareId = null,
+    softwareVersion = null,
+    fingerprint = "one-digest",
+    userAgent = null,
+    registeredAt = Date(),
+  )
 
   @Test
   fun `register rejects a non-loopback http redirect uri`() = testApplication {

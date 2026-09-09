@@ -185,6 +185,9 @@ lookup, the index refuses the second, and the loser answers the winner's
 `client_id`. Unsetting the field is how a duplicate written before the
 constraint leaves the lookup without losing the id its grants hang off.
 
+The hosted service holds the same rule per `(profile, fingerprint)`, and
+over the whole collection: every row it writes carries a fingerprint.
+
 The digest has a fourth slot — a realm — that the pod leaves empty. It
 used to carry the MCP path, which forced one OAuth client per MCP URL on
 cloud connectors that otherwise collapse several UI entries onto one; the
