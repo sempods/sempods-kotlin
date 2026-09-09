@@ -392,6 +392,21 @@ itself make silent authorization possible. An app should treat
 `login_required` and `consent_required` alike: fall back to a full
 interactive re-authorize.
 
+**The twelve hours measure the gap between authorizations.** Every
+`/authorize` that arrives with a valid session answers with a fresh cookie,
+so the clock starts at the last one. Connecting a second app, reconnecting
+one and passing a consent screen each reset it. Ordinary work never reaches
+`/authorize` — a connection holding a refresh token renews on that one — so
+somebody who authorizes nothing is forgotten twelve hours after their last.
+
+Renewal carries `auth_time`, the original sign-in, forward unchanged and
+stops thirty days after it. There is no session store to delete from, only a
+signature, so nothing can recall a cookie once issued and the ceiling is what
+ends one. The deadline bounds the renewal's own lifetime too: one issued in
+the final hours gets what is left of the thirty days, and its `Max-Age` says
+the same, so a browser stops presenting the cookie at the moment the pod
+stops accepting it.
+
 `prompt=login` is never satisfied by that session: the person asked to
 prove themselves again, and the cookie is exactly what they are asking
 to bypass. The browser AppShell uses a 60 s loop

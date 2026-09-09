@@ -1,6 +1,7 @@
 package org.sempods.auth.core
 
 import com.nimbusds.jwt.JWTClaimsSet
+import java.time.Instant
 
 /**
  * Reading a claim whose type the sender chose.
@@ -24,3 +25,10 @@ fun JWTClaimsSet.stringClaimOrNull(name: String): String? =
 /** As [stringClaimOrNull], for a claim that should carry a list of strings. */
 fun JWTClaimsSet.stringListClaimOrNull(name: String): List<String>? =
   runCatching { getStringListClaim(name) }.getOrNull()
+
+/**
+ * As [stringClaimOrNull], for a claim that should carry a NumericDate — seconds since the epoch,
+ * which is how RFC 7519 §2 spells a point in time.
+ */
+fun JWTClaimsSet.instantClaimOrNull(name: String): Instant? =
+  runCatching { getDateClaim(name)?.toInstant() }.getOrNull()
