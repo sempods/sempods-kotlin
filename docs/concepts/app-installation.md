@@ -80,13 +80,10 @@ the owner assign them later through service-client management.
 ## The durable connection is the person's (IST)
 
 Consent carries a control for keeping the app connected, beside the context grants, and it names the
-lifetime class rather than a scope. `offline_access` in the request preselects that control and
-settles nothing else; [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and what
-the token response says about it.
-
-Two classes, short-lived and durable. A menu of durations would need a clock the pod does not keep:
-a family's TTL is rolling and every rotation renews it in full, so an offered "one month" would mean
-"after this much disuse" where a reader hears a deadline.
+lifetime class rather than a scope — two classes, short-lived and durable. `offline_access` in the
+request preselects that control and settles nothing else;
+[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and what the token response says
+about it.
 
 The request cannot be the decision. OAuth defines refresh tokens but no way to ask for one, and
 `offline_access` is an OpenID Connect scope borrowed for an OAuth surface — a resource server may

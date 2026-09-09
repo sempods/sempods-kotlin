@@ -1950,6 +1950,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = webId,
       scopes = scopes,
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
     val request = mapOf(
@@ -2045,6 +2046,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = webId,
       scopes = scopes,
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
     val request = mapOf(
@@ -2157,6 +2159,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = webId,
       scopes = scopes,
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
     // `toolCall` asserts the 200 for us — a malformed tool call is a tool error, not a 401.
@@ -2204,6 +2207,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = alias,
       scopes = emptySet(),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
     val request = mapOf(

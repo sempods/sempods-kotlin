@@ -1521,6 +1521,7 @@ class PodAuthEndpoint @Inject constructor(
         clientId = entry.clientId,
         webId = entry.subject,
         scopes = featureScopes,
+        lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
       )
     } else {
       null
