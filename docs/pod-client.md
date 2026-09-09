@@ -95,6 +95,16 @@ The rule that keeps a layered client from multiplying its method count by the nu
 
 *The test:* a new pod route can be added at one tier without forcing a method at the others.
 
+The System-layer resource route is what that test looks like when it is applied. `putSubject`,
+`getSubject` and `deleteSubject` reach `{pod}/_system/resources/{b64url(iri)}` from the stateless
+tier and from nowhere else. They are named for the *subject* rather than the resource because that
+is the difference the route makes: it addresses by IRI instead of by a path under the pod base, so a
+subject the pod does not host is first-class here and refused by `putResource`, which keeps the LOD
+names. The bound tier grew nothing, because the consumer that asked for them mints a token per
+tenant and takes the stateless tier anyway — and `SempodsPodClient.delete` still clears an external
+subject predicate by predicate through `putSlot`, which `deleteSubject` could replace in one request
+whenever that tier has a caller for it.
+
 The raw passthrough is not a concession. [`concepts/modularity.md`](concepts/modularity.md) §"The service contract is
 semantic, not a facade over RDF" forbids a method whose *name* encodes an app's question — a
 `findReferencingMedia` would move one app's rule into every pod — and a generic passthrough is that

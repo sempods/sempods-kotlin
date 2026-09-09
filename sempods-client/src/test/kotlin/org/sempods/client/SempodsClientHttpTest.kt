@@ -1,11 +1,14 @@
 package org.sempods.client
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.sempods.commons.net.SempodsPodRoutes
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import org.sempods.media.PodMediaSource
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
+import org.eclipse.rdf4j.rio.RDFFormat
+import org.eclipse.rdf4j.rio.Rio
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -647,6 +650,262 @@ class SempodsClientHttpTest {
       contextUri = baseUrl.resolve("_system/contexts/apps/notes/public"),
       token = "t",
     )
+  }
+
+  // ─── system layer (`{pod}/_system/resources/…`) ───────────────────────────
+
+  /**
+   * The path is asserted through [SempodsPodRoutes.resource] rather than against a literal, so the
+   * test pins that the client sends what every other sempods client computes — a hardcoded segment
+   * would keep passing after the encoding formula changed on both sides.
+   */
+  @Test
+  fun `putSubject PUTs n-quads to the base64url route with the context`() {
+    val subjectUri = baseUrl.resolve("events/e1")
+    val contextUri = baseUrl.resolve("_system/contexts/apps/notes")
+    val path = "/alice/" + SempodsPodRoutes.resource(subjectUri)
+    mockServer
+      .`when`(
+        request()
+          .withMethod("PUT")
+          .withPath(path)
+          .withQueryStringParameter("context", contextUri.toString())
+          .withHeader("Content-Type", "application/n-quads")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(response().withStatusCode(200))
+
+    val model = LinkedHashModel().apply {
+      add(
+        vf.createIRI(subjectUri.toString()),
+        vf.createIRI("https://schema.org/name"),
+        vf.createLiteral("E1"),
+        vf.createIRI(contextUri.toString()),
+      )
+    }
+
+    client.putSubject(
+      podBaseUrl = baseUrl,
+      subjectUri = subjectUri,
+      contextUri = contextUri,
+      model = model,
+      token = "t",
+    )
+
+    val recorded = mockServer.retrieveRecordedRequests(request().withPath(path))
+    assertEquals(1, recorded.size)
+    // Raw bytes, not `bodyAsString`: n-quads is not a media type MockServer treats as text, so the
+    // latter hands back base64.
+    val sent = Rio.parse(recorded[0].bodyAsRawBytes.inputStream(), RDFFormat.NQUADS)
+    assertEquals(model, sent)
+  }
+
+  /**
+   * The reason the trio exists: a subject the pod does not host has no LOD URL, and
+   * [SempodsClient.putResource] refuses it rather than inventing one.
+   */
+  @Test
+  fun `putSubject writes a subject outside the pod base that putResource refuses`() {
+    val external = URI("https://tickets.example/offers/42")
+    val contextUri = baseUrl.resolve("_system/contexts/apps/offers")
+    val path = "/alice/" + SempodsPodRoutes.resource(external)
+    mockServer
+      .`when`(request().withMethod("PUT").withPath(path))
+      .respond(response().withStatusCode(201).withHeader("Location", path))
+
+    val model = LinkedHashModel().apply {
+      add(
+        vf.createIRI(external.toString()),
+        vf.createIRI("https://schema.org/name"),
+        vf.createLiteral("Offer 42"),
+        vf.createIRI(contextUri.toString()),
+      )
+    }
+
+    client.putSubject(
+      podBaseUrl = baseUrl,
+      subjectUri = external,
+      contextUri = contextUri,
+      model = model,
+      token = "t",
+    )
+
+    val refused = assertThrows<SempodsClientException> {
+      client.putResource(
+        podBaseUrl = baseUrl,
+        resourceUri = external,
+        contextUri = contextUri,
+        model = model,
+        token = "t",
+      )
+    }
+    assertTrue(refused.message!!.contains("not under pod base"), refused.message!!)
+  }
+
+  @Test
+  fun `putSubject surfaces a non-2xx with the server's own body`() {
+    val subjectUri = baseUrl.resolve("events/e1")
+    mockServer
+      .`when`(request().withMethod("PUT").withPath("/alice/" + SempodsPodRoutes.resource(subjectUri)))
+      .respond(response().withStatusCode(403).withBody("no write grant on that context"))
+
+    val ex = assertThrows<SempodsClientException> {
+      client.putSubject(
+        podBaseUrl = baseUrl,
+        subjectUri = subjectUri,
+        contextUri = baseUrl.resolve("_system/contexts/apps/notes"),
+        model = LinkedHashModel(),
+        token = "t",
+      )
+    }
+
+    assertEquals(403, ex.statusCode)
+    assertTrue(ex.message!!.contains("no write grant on that context"), ex.message!!)
+  }
+
+  /**
+   * N-quads and not Turtle, and this is the assertion that says why: the caller gets the statements
+   * back with the context each came from, which is the whole reason a per-context caller reads
+   * through this route.
+   */
+  @Test
+  fun `getSubject round-trips a model whose statements keep their graph`() {
+    val subjectUri = URI("https://tickets.example/offers/42")
+    val ctxA = baseUrl.resolve("_system/contexts/apps/offers/public")
+    val ctxB = baseUrl.resolve("_system/contexts/apps/offers/private")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/" + SempodsPodRoutes.resource(subjectUri))
+          .withHeader("Accept", "application/n-quads")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(
+            "<$subjectUri> <https://schema.org/name> \"Offer 42\" <$ctxA> .\n" +
+              "<$subjectUri> <https://schema.org/price> \"19.90\" <$ctxB> .",
+          ),
+      )
+
+    val model = client.getSubject(
+      podBaseUrl = baseUrl,
+      subjectUri = subjectUri,
+      token = "t",
+    )
+
+    assertNotNull(model)
+    assertEquals(2, model!!.size)
+    assertEquals(
+      setOf(vf.createIRI(ctxA.toString()), vf.createIRI(ctxB.toString())),
+      model.contexts(),
+    )
+  }
+
+  @Test
+  fun `getSubject repeats the context parameter once per context and omits it for an empty list`() {
+    val subjectUri = URI("https://tickets.example/offers/42")
+    val path = "/alice/" + SempodsPodRoutes.resource(subjectUri)
+    val ctxA = baseUrl.resolve("_system/contexts/apps/offers/public")
+    val ctxB = baseUrl.resolve("_system/contexts/apps/offers/private")
+    mockServer
+      .`when`(request().withMethod("GET").withPath(path))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody("<$subjectUri> <https://schema.org/name> \"Offer 42\" <$ctxA> ."),
+      )
+
+    client.getSubject(baseUrl, subjectUri, listOf(ctxA, ctxB), "t")
+    client.getSubject(baseUrl, subjectUri, emptyList(), "t")
+
+    val recorded = mockServer.retrieveRecordedRequests(request().withPath(path))
+    assertEquals(2, recorded.size)
+    assertEquals(
+      listOf(ctxA.toString(), ctxB.toString()),
+      recorded[0].queryStringParameterList.first { it.name.value == "context" }.values.map { it.value },
+    )
+    // An empty list is "no filter", not a filter matching nothing — so no parameter travels at all.
+    assertTrue(recorded[1].getFirstQueryStringParameter("context").isEmpty())
+  }
+
+  @Test
+  fun `getSubject returns null on 404`() {
+    val subjectUri = URI("https://tickets.example/offers/gone")
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/alice/" + SempodsPodRoutes.resource(subjectUri)))
+      .respond(response().withStatusCode(404))
+
+    assertNull(client.getSubject(podBaseUrl = baseUrl, subjectUri = subjectUri, token = "t"))
+  }
+
+  @Test
+  fun `getSubject surfaces a non-2xx with the server's own body`() {
+    val subjectUri = URI("https://tickets.example/offers/42")
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/alice/" + SempodsPodRoutes.resource(subjectUri)))
+      .respond(response().withStatusCode(500).withBody("index unavailable"))
+
+    val ex = assertThrows<SempodsClientException> {
+      client.getSubject(podBaseUrl = baseUrl, subjectUri = subjectUri, token = "t")
+    }
+
+    assertEquals(500, ex.statusCode)
+    assertTrue(ex.message!!.contains("index unavailable"), ex.message!!)
+  }
+
+  @Test
+  fun `deleteSubject removes an external subject from a context and treats 404 as done`() {
+    val external = URI("https://tickets.example/offers/42")
+    val contextUri = baseUrl.resolve("_system/contexts/apps/offers")
+    val path = "/alice/" + SempodsPodRoutes.resource(external)
+    mockServer
+      .`when`(
+        request()
+          .withMethod("DELETE")
+          .withPath(path)
+          .withQueryStringParameter("context", contextUri.toString()),
+      )
+      .respond(response().withStatusCode(204))
+
+    client.deleteSubject(podBaseUrl = baseUrl, subjectUri = external, contextUri = contextUri, token = "t")
+
+    // The LOD delete has no URL for this subject at all — which is what the method is for.
+    val refused = assertThrows<SempodsClientException> {
+      client.deleteResource(baseUrl, external, contextUri, "t")
+    }
+    assertTrue(refused.message!!.contains("not under pod base"), refused.message!!)
+
+    mockServer.reset()
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath(path))
+      .respond(response().withStatusCode(404))
+
+    client.deleteSubject(podBaseUrl = baseUrl, subjectUri = external, contextUri = contextUri, token = "t")
+  }
+
+  @Test
+  fun `deleteSubject surfaces a non-2xx with the server's own body`() {
+    val subjectUri = baseUrl.resolve("events/e1")
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/alice/" + SempodsPodRoutes.resource(subjectUri)))
+      .respond(response().withStatusCode(409).withBody("precondition failed"))
+
+    val ex = assertThrows<SempodsClientException> {
+      client.deleteSubject(
+        podBaseUrl = baseUrl,
+        subjectUri = subjectUri,
+        contextUri = baseUrl.resolve("_system/contexts/apps/notes"),
+        token = "t",
+      )
+    }
+
+    assertEquals(409, ex.statusCode)
+    assertTrue(ex.message!!.contains("precondition failed"), ex.message!!)
   }
 
   @Test
