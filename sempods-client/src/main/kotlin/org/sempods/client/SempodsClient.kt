@@ -28,8 +28,9 @@ import java.util.Base64
  * client handed a token per call cannot tell a rotated credential from a refused one.
  *
  * Coverage is the slice of the pod's surface that maps onto existing pod HTTP endpoints
- * (`PodResourceEndpoint`, `PodContextsEndpoint`, `PodMetaEndpoint`, `SparqlEndpoint`,
- * `PodMediaEndpoint`, `PodAuthEndpoint`), and it grows with the consumers that need it.
+ * (`PodResourceEndpoint`, `PodSystemResourcesEndpoint`, `PodContextsEndpoint`, `PodMetaEndpoint`,
+ * `SparqlEndpoint`, `PodMediaEndpoint`, `PodAuthEndpoint`), and it grows with the consumers that
+ * need it.
  *
  * **Pod lifecycle and app provisioning are not here.** They live on the host-level admin surface
  * (`{server}/_system/admin/pods/…`), which is proprietary to the reference implementation rather
@@ -131,7 +132,8 @@ class SempodsClient(
   /**
    * GETs a resource as n-quads. Returns the parsed model, or `null` if the server
    * answers 404. The model carries statements across all contexts the bearer can
-   * read; callers that need a per-context view must filter client-side.
+   * read; a caller that wants the pod to narrow the read instead asks [getSubject], whose route
+   * takes a context filter this one has no parameter for.
    */
   fun getResource(podBaseUrl: URI, resourceUri: URI, token: String?): Model? {
     // The pod base only guards here — the URL it resolves to is `resourceUri` again. Callers who
@@ -538,6 +540,130 @@ class SempodsClient(
     return Rio.parse(ByteArrayInputStream(response.body), RDFFormat.NQUADS)
   }
 
+  // ─── system layer (`{pod}/_system/resources/…`) ───────────────────────────────
+  //
+  // The same resources as the LOD routes above, addressed by the **subject IRI** instead of by a
+  // path under the pod base (sempods-spec `spec/core/lod-crud.md` §5). That is the whole
+  // difference, and it is why these are their own methods rather than a flag on [putResource]: a
+  // subject the pod does not host — `https://tickets.example/offers/42` — has no LOD URL at all, so
+  // the two are different addresses for overlapping sets of resources rather than two modes of one
+  // call. `putResource` refuses such a subject and will go on refusing it; whoever writes one
+  // reaches for [putSubject] and knows why.
+  //
+  // Whole-subject writes here ([putSubject], [deleteSubject]) replace what [putSlot] does one
+  // predicate at a time — for a caller holding the complete description, the slot loop is a
+  // round trip per predicate and is not atomic in between.
+
+  /**
+   * PUTs the outgoing edges of [subjectUri] into [contextUri] through
+   * `PUT {pod}/_system/resources/{b64url(subject)}` — replace semantics for that subject in that
+   * context, as [putResource] has for a subject the pod hosts.
+   *
+   * [model] is expected to hold exactly the statements of [subjectUri]; the pod stores what it is
+   * sent, serialized as n-quads like the LOD PUT.
+   *
+   * Both success statuses are accepted without distinguishing them: the route carries the LOD PUT's
+   * semantics (`SPS-CRUD-040`) and so answers `201` when the subject was new and `200` when it
+   * replaced an existing description, with a `Location` on the create that points back at this
+   * base64url route because an external IRI has no canonical path (`SPS-CRUD-043`). A caller doing
+   * replace semantics has nothing to decide on that difference, and the address it would learn is
+   * the one it just wrote to.
+   */
+  fun putSubject(
+    podBaseUrl: URI,
+    subjectUri: URI,
+    contextUri: URI,
+    model: Model,
+    token: String?,
+  ) {
+    val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, listOf(contextUri))
+    val body = ByteArrayOutputStream().use { buffer ->
+      Rio.write(model, buffer, RDFFormat.NQUADS)
+      buffer.toByteArray()
+    }
+
+    val request = newRequest(targetUrl, token)
+      .header("Content-Type", "application/n-quads")
+      .PUT(SempodsBody.bytes(body))
+      .build()
+
+    val response = transport.send(request)
+    if (response.statusCode / 100 != 2) {
+      throw transport.failure("PUT", targetUrl, response.statusCode, response.body)
+    }
+  }
+
+  /**
+   * GETs the description of [subjectUri] as n-quads through
+   * `GET {pod}/_system/resources/{b64url(subject)}`. Returns the parsed model, or `null` when the
+   * pod answers 404 — the same contract [dereference] has, since a subject that is absent and one
+   * the bearer may not see are deliberately the same answer.
+   *
+   * [contextUris] narrows the read to those contexts; empty means no filter, i.e. every context the
+   * bearer can read. The pod repeats the parameter per context, and this sends it that way.
+   *
+   * **This is the read [getResource] has no URL for.** That one dereferences the subject IRI itself,
+   * which reaches a foreign subject's own server rather than this pod, and carries no context
+   * filter because the LOD GET has none.
+   *
+   * The statements keep the graph they came from, which is why the route is asked for n-quads
+   * rather than for the JSON-LD `PodWireClient` reads: a caller filtering or re-writing per context
+   * needs the fourth term, and a triple format silently drops it.
+   */
+  @JvmOverloads
+  fun getSubject(
+    podBaseUrl: URI,
+    subjectUri: URI,
+    contextUris: List<URI> = emptyList(),
+    token: String?,
+  ): Model? {
+    val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, contextUris)
+
+    val request = newRequest(targetUrl, token)
+      .header("Accept", "application/n-quads")
+      .GET()
+      .build()
+
+    val response = transport.sendBytes(request)
+    if (response.statusCode == 404) {
+      return null
+    }
+    if (response.statusCode / 100 != 2) {
+      throw transport.failure(
+        "GET",
+        targetUrl,
+        response.statusCode,
+        response.body.toString(StandardCharsets.UTF_8),
+      )
+    }
+    return Rio.parse(ByteArrayInputStream(response.body), RDFFormat.NQUADS)
+  }
+
+  /**
+   * DELETEs everything [subjectUri] says in [contextUri] through
+   * `DELETE {pod}/_system/resources/{b64url(subject)}` — the whole-subject removal
+   * [deleteResource] offers for a hosted subject, and the one an external subject has no LOD URL
+   * for.
+   *
+   * 404 counts as success, as it does on the LOD delete: the route is idempotent and a subject that
+   * is already gone is the state the caller asked for.
+   */
+  fun deleteSubject(podBaseUrl: URI, subjectUri: URI, contextUri: URI, token: String?) {
+    val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, listOf(contextUri))
+
+    val request = newRequest(targetUrl, token)
+      .DELETE()
+      .build()
+
+    val response = transport.send(request)
+    if (response.statusCode == 404) {
+      return
+    }
+    if (response.statusCode / 100 != 2) {
+      throw transport.failure("DELETE", targetUrl, response.statusCode, response.body)
+    }
+  }
+
   /**
    * Replaces one slot — all values of `(subjectUri, predicateUri)` in [contextUri] — via
    * the System-layer endpoint `PUT {pod}/_system/resources/{b64url(subject)}/{b64url(predicate)}`.
@@ -545,6 +671,11 @@ class SempodsClient(
    * Unlike the LOD resource PUT, the System layer accepts subjects OUTSIDE the pod base
    * (external URIs are first-class there), which is what `putView` needs for
    * external-subject views (e.g. offers keyed by their ticket-shop URI).
+   *
+   * **One predicate, and that is what it is for.** A caller holding the whole description writes it
+   * with [putSubject] instead: this leaves every other predicate of the subject untouched, which is
+   * the point when two writers own disjoint predicates of the same subject and the wrong choice
+   * when one writer owns the resource.
    */
   // TODO: the semantic tier has no precondition vocabulary — this replaces a slot unconditionally,
   //  where `PodWireClient` reads an `ETag` and sends it back as `If-Match`. A caller doing
@@ -724,6 +855,22 @@ class SempodsClient(
       throw SempodsClientException("Empty context path in '$contextString'")
     }
     return podBaseUrl.resolve(SempodsPodRoutes.context(pathSuffix))
+  }
+
+  /**
+   * The System-layer URL of one subject, with a `context` parameter per entry of [contextUris] —
+   * repeated rather than joined, because that is how the endpoint reads a multi-context filter
+   * (`@QueryParam("context") List<String>`). An empty list yields no parameter at all, which the
+   * read route takes as "every context the bearer can see".
+   *
+   * The base64url segment comes from [SempodsPodRoutes.resource] rather than from an encoder here:
+   * the pod decodes it strictly, and a second spelling of the same formula is how the two sides
+   * come to disagree about padding.
+   */
+  private fun systemResourceUrl(podBaseUrl: URI, subjectUri: URI, contextUris: List<URI>): URI {
+    val query = contextUris.joinToString("&") { "context=" + URLEncoder.encode(it.toString(), StandardCharsets.UTF_8) }
+    val path = SempodsPodRoutes.resource(subjectUri)
+    return transport.baseWithTrailingSlash(podBaseUrl).resolve(if (query.isEmpty()) path else "$path?$query")
   }
 
   private fun resourcePathRelativeToPod(podBaseUrl: URI, resourceUri: URI): String {
