@@ -276,8 +276,13 @@ set it was granted.
 Per RFC 6749 §10.4 / OAuth 2.1 best practice. Refresh tokens belong to
 a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
-tokens are SHA-256 hashed at rest; default TTL is 90 days, and it is
-rolling — every rotation renews it in full.
+tokens are SHA-256 hashed at rest.
+
+A family carries the terms it was minted under, and a rotation
+inherits them rather than deciding them again — so the 90-day default
+is the idle window and not the family's life.
+`RefreshTokenStore.issueInFamily` owns the rule, RFC 10017 §6.3.2.3
+the requirement behind it.
 
 **A deployment older than the consent control clears its delegations
 once.** Those authorizations hold grants with no answer beside them, so

@@ -167,6 +167,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       clientId = "dyn:cascade-${randomId()}",
       webId = "https://id.example.org/cascade-test",
       scopes = setOf("$contextUri#read"),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
     // DynamicClientRegistrationDbo: pod-scoped row, deterministic clientId.

@@ -24,6 +24,10 @@ import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
+import org.sempods.SempodsCollections
 import org.bson.types.ObjectId
 import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
@@ -60,6 +64,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var refreshTokenStore: PodRefreshTokenStore
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   @Inject
   private lateinit var consentDecisionStore: org.sempods.pods.oauth.PodConsentDecisionStore
@@ -3906,6 +3913,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = webId,
       scopes = resolvedScopes,
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
   }
 
@@ -4184,6 +4192,31 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val successor = familyRows.single { it.tokenHash != originalHash }
     assertNull(successor.rotatedAt)
     assertNull(successor.revokedAt)
+  }
+
+  @Test
+  fun `a family that predates the terms stops sliding at its first rotation`() {
+    val pod = sempodsTestFactory.newPod()
+    val issued = seedRefreshToken(pod)
+    // The row a running deployment already holds. Its family named no lifetime, so every rotation
+    // it ever had rebased the expiry to a fresh ninety days and nothing was ever going to end it.
+    db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
+      Updates.unset(RefreshTokenStore.Field.KIND),
+    )
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token" +
+        "&refresh_token=${java.net.URLEncoder.encode(issued.plaintext, "UTF-8")}" +
+        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    val successor = refreshTokenStore.findByFamily(issued.token.familyId)
+      .single { it.tokenHash != issued.token.tokenHash }
+    assertEquals(issued.token.expiresAt, successor.endsAt, "the family inherits the one deadline it has")
+    assertEquals(successor.endsAt, successor.expiresAt, "and the successor cannot outlive it")
   }
 
   @Test

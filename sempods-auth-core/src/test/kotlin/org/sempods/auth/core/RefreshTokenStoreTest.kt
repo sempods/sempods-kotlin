@@ -507,4 +507,112 @@ class RefreshTokenStoreTest {
     }.exceptionOrNull()
     assertTrue(thrown is IllegalArgumentException, "was $thrown")
   }
+
+  @Test
+  fun `a family that names its lifetime rotates under its own window and acquires no deadline`() {
+    val first = store.issueNewFamily(owner(), scopes = emptySet(), kind = "durable")
+    assertNull(first.token.endsAt, "naming a policy is not the same as putting a deadline on it")
+    assertEquals(ISSUED_AT.plusSeconds(RefreshTokenStore.DEFAULT_TTL_SECONDS), first.token.expiresAt)
+
+    clock = ROTATED_AT
+    val second = store.issueInFamily(first.token, scopes = emptySet())
+
+    assertEquals("durable", second.token.kind, "the successor is minted under the family's policy")
+    assertNull(second.token.endsAt, "a family that names one is left alone by the transition rule")
+    assertEquals(ROTATED_AT.plusSeconds(RefreshTokenStore.DEFAULT_TTL_SECONDS), second.token.expiresAt)
+  }
+
+  @Test
+  fun `a deadline clamps the expiry at mint, and only where it is the nearer of the two`() {
+    val near = ISSUED_AT.plusSeconds(3600)
+    val clamped = store.issueNewFamily(owner(), scopes = emptySet(), kind = "session", endsAt = near)
+    assertEquals(near, clamped.token.expiresAt, "a token cannot outlive its family")
+    assertEquals(near, clamped.token.endsAt)
+
+    val far = ISSUED_AT.plusSeconds(2 * RefreshTokenStore.DEFAULT_TTL_SECONDS)
+    val untouched = store.issueNewFamily(owner(), scopes = emptySet(), kind = "session", endsAt = far)
+    assertEquals(
+      ISSUED_AT.plusSeconds(RefreshTokenStore.DEFAULT_TTL_SECONDS),
+      untouched.token.expiresAt,
+      "the idle window is the shorter of the two here, and still decides",
+    )
+    assertEquals(far, untouched.token.endsAt)
+  }
+
+  @Test
+  fun `a rotation near the deadline ends at it rather than a full window past it`() {
+    val deadline = ISSUED_AT.plusSeconds(4 * 3600)
+    val first = store.issueNewFamily(owner(), scopes = emptySet(), kind = "session", endsAt = deadline)
+
+    clock = ROTATED_AT
+    val second = store.issueInFamily(first.token, scopes = emptySet())
+
+    assertEquals(deadline, second.token.endsAt, "copied verbatim rather than recomputed")
+    assertEquals(deadline, second.token.expiresAt, "so the family ends when it was always going to")
+
+    // Answered at read, so the TTL reaper's latency cannot buy a rotation past the deadline.
+    clock = deadline.plusSeconds(1)
+    assertEquals(RefreshTokenStore.LookupState.EXPIRED, store.lookup(second.plaintext).state)
+  }
+
+  @Test
+  fun `a family that predates the terms takes its predecessor's expiry as its deadline, once`() {
+    // The row a running deployment already holds: no policy, no deadline, and an expiry that every
+    // rotation it ever had rebased to a fresh ninety days.
+    val first = store.issueNewFamily(owner(), scopes = emptySet())
+    assertNull(first.token.kind)
+
+    clock = ROTATED_AT
+    val second = store.issueInFamily(first.token, scopes = emptySet())
+
+    assertEquals(first.token.expiresAt, second.token.endsAt, "the only deadline the family demonstrably has")
+    assertEquals(first.token.expiresAt, second.token.expiresAt, "so this rotation moved no expiry at all")
+
+    clock = REVOKED_AT
+    val third = store.issueInFamily(second.token, scopes = emptySet())
+    assertEquals(first.token.expiresAt, third.token.endsAt, "and every rotation after it copies that one")
+    assertEquals(first.token.expiresAt, third.token.expiresAt)
+  }
+
+  @Test
+  fun `the deadline and the policy survive a round trip through lookup`() {
+    val deadline = ISSUED_AT.plusSeconds(3 * 3600)
+    val issued = store.issueNewFamily(owner(), scopes = setOf("public-read"), kind = "session", endsAt = deadline)
+
+    val read = assertNotNull(store.lookup(issued.plaintext).token)
+    assertEquals(deadline, read.endsAt)
+    assertEquals("session", read.kind)
+  }
+
+  @Test
+  fun `the two terms are written last, and a spent row appends past them`() {
+    val issued = store.issueNewFamily(
+      owner(),
+      scopes = setOf("public-read"),
+      kind = "durable",
+      endsAt = ISSUED_AT.plusSeconds(4 * 3600),
+    )
+    assertEquals(
+      listOf(
+        "_id", "tokenHash", "familyId", "podId", "podName", "clientId", "webId", "scopes",
+        "issuedAt", "expiresAt", "endsAt", "kind",
+      ),
+      document(issued.token.tokenHash).keys.toList(),
+      "declaration order, and a live row carries neither spent timestamp",
+    )
+
+    clock = ROTATED_AT
+    assertTrue(store.markRotated(issued.token.tokenHash))
+    clock = REVOKED_AT
+    store.revokeFamily(issued.token.familyId)
+
+    assertEquals(
+      listOf(
+        "_id", "tokenHash", "familyId", "podId", "podName", "clientId", "webId", "scopes",
+        "issuedAt", "expiresAt", "endsAt", "kind", "rotatedAt", "revokedAt",
+      ),
+      document(issued.token.tokenHash).keys.toList(),
+      "the two `\$set` updates append, so on a spent row they follow the terms",
+    )
+  }
 }

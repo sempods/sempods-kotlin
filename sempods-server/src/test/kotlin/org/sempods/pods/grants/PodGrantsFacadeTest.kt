@@ -228,6 +228,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       clientId = testClientId,
       webId = webId,
       scopes = setOf("public-read"),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
     podGrantsFacade.revokeWebIdGrants(pod, webId, listOf("$ctx#read"))
@@ -262,6 +263,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       clientId = testClientId,
       webId = webId,
       scopes = setOf("$ctx#read", "public-read"),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
     podFacade.removeContext(pod.name, URI(ctx))
@@ -293,6 +295,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       clientId = testClientId,
       webId = webId,
       scopes = emptySet(),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
     podFacade.removeContext(pod.name, URI(ctx))
@@ -328,6 +331,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       clientId = testClientId,
       webId = bystander,
       scopes = emptySet(),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
     podFacade.removeContext(pod.name, URI(ctx))
@@ -354,6 +358,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       clientId = testClientId,
       webId = webId,
       scopes = emptySet(),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
     val result = podGrantsFacade.revokeAllWebIdGrants(pod, webId)

@@ -33,14 +33,20 @@ import java.util.concurrent.TimeUnit
  * - **Reuse revokes the family.** If a client rotated A → B and something replays A, both die, so
  *   the thief's in-flight B is worthless.
  * - **Expiry is a TTL index**, and rotated-but-unexpired rows stay: the reuse-detection window is
- *   the token's natural lifetime rather than a shorter one.
+ *   the token's own lifetime, so a shorter lifetime is a shorter window — a replay arriving after
+ *   it reports [LookupState.NOT_FOUND] rather than [LookupState.REUSED], and the family survives.
+ * - **A family carries the terms it was minted under.** [Token.endsAt] is its deadline,
+ *   [Token.kind] the policy behind it, and a rotation inherits both. [issue] clamps every expiry to
+ *   the deadline — without that one line the fields are decoration and a family that keeps
+ *   rotating never ends.
  *
  * [OWNER] is carried by two lambdas rather than a map, so the fields keep their types and their
  * order. The order matters: a row is written as `_id`, `tokenHash`, `familyId`, **the owner's
- * fields**, `scopes`, `issuedAt`, `expiresAt`, `rotatedAt`, `revokedAt`, and both collections that
- * exist were already laid out that way — the owner block sits between `familyId` and `scopes` in
- * each. One writer therefore reproduces both, which is what let live collections move onto this
- * class without rewriting a stored document.
+ * fields**, `scopes`, `issuedAt`, `expiresAt`, `rotatedAt`, `revokedAt`, `endsAt`, `kind` — the
+ * owner block between `familyId` and `scopes`, which is where both collections that exist already
+ * carried it. One writer therefore reproduces both, which is what let live collections move onto
+ * this class without rewriting a stored document. That is the declaration order; a live row carries
+ * neither spent timestamp and takes them by `$set`, so on a spent row they follow the two terms.
  *
  * Not built on [OneTimeStore], though both hash their key: that one is consumed once and gone,
  * this one is a mutating chain whose spent links have to stay readable.
@@ -86,9 +92,22 @@ class RefreshTokenStore<OWNER>(
    * through [revokeWhere] over the owner's fields. Carrying the key out would put the collection's
    * identifier type in this class's signature to answer a question no caller asks.
    *
-   * [issuedAt] and [expiresAt] are millisecond-truncated at mint, so the rest really is the row and
-   * not an in-memory value that will read back slightly different — BSON's date type has nowhere to
-   * put the nanoseconds, and `commons-mongo` documents the same trap.
+   * [issuedAt], [expiresAt] and [endsAt] are millisecond-truncated at mint, so the rest really is
+   * the row and not an in-memory value that will read back slightly different — BSON's date type
+   * has nowhere to put the nanoseconds, and `commons-mongo` documents the same trap.
+   *
+   * A new field is **appended**: declaration order is the row's order
+   * (`sempods-commons-mongo/docs/document-contract.md` §"Field order"), so one placed in the middle
+   * would write a shape neither live collection has.
+   *
+   * @param endsAt the family's absolute deadline, or `null` where it has none. Computed once, at
+   *   the mint of the family's first token, and copied verbatim by every rotation — never
+   *   recomputed, which is what makes it a deadline rather than a second sliding window. [issue]
+   *   clamps [expiresAt] to it, so a token cannot outlive its family.
+   * @param kind the lifetime policy the family was minted under, in the minting service's own
+   *   vocabulary — this class stores it and hands it down, and reads nothing into the value.
+   *   `null` says the row predates the field, and that absence is what [issueInFamily] keys the
+   *   transition on.
    */
   data class Token<OWNER>(
     val tokenHash: String,
@@ -99,6 +118,8 @@ class RefreshTokenStore<OWNER>(
     val expiresAt: Instant,
     val rotatedAt: Instant? = null,
     val revokedAt: Instant? = null,
+    val endsAt: Instant? = null,
+    val kind: String? = null,
   )
 
   /** The plaintext, which exists only here and in the response, beside the row it was stored as. */
@@ -145,30 +166,92 @@ class RefreshTokenStore<OWNER>(
     val fingerprint: String,
   )
 
-  /** The first token of a new family — the `authorization_code` exchange, where there is no predecessor. */
+  /**
+   * The first token of a new family — the `authorization_code` exchange, where there is no predecessor.
+   *
+   * **Names no policy**, so the family it starts is indistinguishable from one written before
+   * [Token.kind] existed and acquires a deadline at its first rotation. A caller that knows which
+   * lifetime it is minting takes the overload below.
+   */
   fun issueNewFamily(
     owner: OWNER,
     scopes: Set<String>,
     ttlSeconds: Long = DEFAULT_TTL_SECONDS,
-  ): Issued<OWNER> = issue(owner, scopes, UUID.randomUUID().toString(), ttlSeconds)
+  ): Issued<OWNER> = issue(owner, scopes, UUID.randomUUID().toString(), ttlSeconds, kind = null, endsAt = null)
 
-  /** The successor to an existing token, as part of a rotation. The owner is the predecessor's. */
+  /**
+   * The same, for a caller that names the family's terms.
+   *
+   * An overload rather than two more defaulted parameters: this module is published, and a default
+   * replaces the JVM descriptor the three-argument form has always had.
+   *
+   * @param kind see [Token.kind]. Non-null: naming no policy is what the form above does.
+   * @param endsAt see [Token.endsAt]. Optional, because naming a policy and putting a deadline on
+   *   it are two decisions and the second is the service's.
+   */
+  fun issueNewFamily(
+    owner: OWNER,
+    scopes: Set<String>,
+    kind: String,
+    endsAt: Instant? = null,
+    ttlSeconds: Long = DEFAULT_TTL_SECONDS,
+  ): Issued<OWNER> = issue(owner, scopes, UUID.randomUUID().toString(), ttlSeconds, kind, endsAt)
+
+  /**
+   * The successor to an existing token, as part of a rotation. Owner, family id and the family's
+   * terms are all the predecessor's — a rotation continues a family, so it settles nothing about
+   * how long that family lives.
+   *
+   * **A family that predates [Token.kind] acquires its deadline here, and that deadline is the
+   * predecessor's own [Token.expiresAt]** — the only one such a family demonstrably has. Taking it
+   * extends nothing: the clamp in [issue] hands the successor that same instant, so the first
+   * rotation after the field arrived moves no expiry at all. Deriving one any other way — "this
+   * rotation plus six months" — would give a family expiring tomorrow half a year more, which is
+   * the defect the two fields exist to end.
+   *
+   * **A missing [Token.kind] is what triggers it, not a missing deadline.** Keyed on the deadline
+   * the rule would fire on families minted since, which name a policy and carry no deadline yet,
+   * and cap each of them at its first rotation under a policy nobody has decided.
+   */
   fun issueInFamily(
     previous: Token<OWNER>,
     scopes: Set<String>,
     ttlSeconds: Long = DEFAULT_TTL_SECONDS,
-  ): Issued<OWNER> = issue(previous.owner, scopes, previous.familyId, ttlSeconds)
+  ): Issued<OWNER> = issue(
+    owner = previous.owner,
+    scopes = scopes,
+    familyId = previous.familyId,
+    ttlSeconds = ttlSeconds,
+    kind = previous.kind,
+    endsAt = previous.endsAt ?: previous.expiresAt.takeIf { previous.kind == null },
+  )
 
-  private fun issue(owner: OWNER, scopes: Set<String>, familyId: String, ttlSeconds: Long): Issued<OWNER> {
+  private fun issue(
+    owner: OWNER,
+    scopes: Set<String>,
+    familyId: String,
+    ttlSeconds: Long,
+    kind: String?,
+    endsAt: Instant?,
+  ): Issued<OWNER> {
     val plaintext = PLAINTEXT_PREFIX + Secrets.newSecret()
     val now = clock().truncatedTo(ChronoUnit.MILLIS)
+    // Truncated before the comparison rather than after it: `putInstant` drops the nanoseconds on
+    // the way to disk, so an expiry clamped to an untruncated deadline would read back as a
+    // different instant than the one returned here.
+    val deadline = endsAt?.truncatedTo(ChronoUnit.MILLIS)
+    val natural = now.plusSeconds(ttlSeconds)
     val token = Token(
       tokenHash = sha256Hex(plaintext),
       familyId = familyId,
       owner = owner,
       scopes = scopes,
       issuedAt = now,
-      expiresAt = now.plusSeconds(ttlSeconds),
+      // The clamp, and the whole of the enforcement: a token never outlives its family, so no
+      // number of rotations buys one past the deadline.
+      expiresAt = deadline?.let { minOf(natural, it) } ?: natural,
+      endsAt = deadline,
+      kind = kind,
     )
     tokens.insertOne(token.toDocument())
     return Issued(plaintext, token)
@@ -297,6 +380,8 @@ class RefreshTokenStore<OWNER>(
     .putInstant(Field.EXPIRES_AT, expiresAt)
     .putInstant(Field.ROTATED_AT, rotatedAt)
     .putInstant(Field.REVOKED_AT, revokedAt)
+    .putInstant(Field.ENDS_AT, endsAt)
+    .putNotNull(Field.KIND, kind)
 
   private fun Document.toToken(): Token<OWNER> = Token(
     tokenHash = getString(Field.TOKEN_HASH),
@@ -309,6 +394,8 @@ class RefreshTokenStore<OWNER>(
     expiresAt = readInstant(Field.EXPIRES_AT),
     rotatedAt = getInstant(Field.ROTATED_AT),
     revokedAt = getInstant(Field.REVOKED_AT),
+    endsAt = getInstant(Field.ENDS_AT),
+    kind = getString(Field.KIND),
   )
 
   /**
@@ -330,6 +417,8 @@ class RefreshTokenStore<OWNER>(
     const val EXPIRES_AT = "expiresAt"
     const val ROTATED_AT = "rotatedAt"
     const val REVOKED_AT = "revokedAt"
+    const val ENDS_AT = "endsAt"
+    const val KIND = "kind"
   }
 
   companion object {
@@ -344,7 +433,11 @@ class RefreshTokenStore<OWNER>(
      */
     const val FINGERPRINT_LENGTH: Int = 12
 
-    /** 90 days — long enough that a typical desktop or CLI client never hits it, short enough to bound exposure. */
+    /**
+     * 90 days — the idle window a caller gets where it asks for nothing shorter. Long enough that a
+     * typical desktop or CLI client never hits it, short enough to bound exposure. What bounds a
+     * family that keeps rotating is [Token.endsAt] and not this.
+     */
     const val DEFAULT_TTL_SECONDS: Long = 90L * 24 * 60 * 60
   }
 }
