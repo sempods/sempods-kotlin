@@ -1096,6 +1096,40 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the dialog names the durations the server actually enforces`() {
+    // Naming numbers was the deliberate choice over "a few days": the person can check what they
+    // were promised, and the promise is one the server keeps — an access token is capped against its
+    // family's deadline, so neither sentence owes a "and up to an hour more".
+    //
+    // Read off `Lifetime` rather than spelled out, because that is the whole point of asserting it:
+    // moving a constant without moving the copy leaves the dialog promising something nobody keeps,
+    // and nothing else in the build would notice.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "durations")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    val session = PodRefreshTokenStore.Lifetime.SESSION
+    val durable = PodRefreshTokenStore.Lifetime.DURABLE
+    for (expected in listOf(
+      "${durable.absoluteSeconds / (24 * 60 * 60)} days",
+      "${durable.idleSeconds / (24 * 60 * 60)} days",
+      "${session.absoluteSeconds / (24 * 60 * 60)} days",
+      "${session.idleSeconds / (60 * 60)} hours",
+    )) {
+      assertTrue(expected in page, "the dialog has to name '$expected' — it is what the server enforces")
+    }
+  }
+
+  @Test
   fun `an authorization made before the control cannot spend its silent code`() {
     // An absent decision is not a grant. That is this server's rule rather than the specification's,
     // which has stopped saying who gets a refresh token at all. Such an authorization takes the
