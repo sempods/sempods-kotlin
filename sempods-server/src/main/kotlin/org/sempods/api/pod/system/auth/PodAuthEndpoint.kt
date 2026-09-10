@@ -37,6 +37,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import jakarta.ws.rs.*
@@ -46,6 +47,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import java.io.IOException
 import java.net.URI
+import java.time.Duration
 import java.time.Instant
 import io.github.oshai.kotlinlogging.KotlinLogging
 
@@ -1220,6 +1222,22 @@ class PodAuthEndpoint @Inject constructor(
     consentDecisionStore.find(checkNotNull(podDbo.id), clientId, listOf(webId))?.durable == false
 
   /**
+   * Whether a refusal on record ends **this** family.
+   *
+   * A session family exists *because* the answer was "no", so asking only whether the person refused
+   * would end every one of them at its first rotation — the feature would do nothing, and a tester
+   * who ticks the box would never see it. What a refusal ends is a family minted on the long terms,
+   * or one grandfathered onto them (`PodRefreshTokenStore.lifetimeOf`).
+   *
+   * A session family keeps its withdrawal safety net elsewhere: the consent submission sweeps every
+   * family this app holds for this person, rotated rows included, so its predecessor is no longer
+   * standing and [PodRefreshTokenStore.noLongerStands] revokes the successor.
+   */
+  private fun endsOnRefusal(podDbo: PodDbo, token: PodRefreshToken): Boolean =
+    refreshTokenStore.lifetimeOf(token) == PodRefreshTokenStore.Lifetime.DURABLE &&
+        refusedDurability(podDbo, token.owner.clientId, token.owner.webId)
+
+  /**
    * Whether this app holds anything for this person — the question that decides both whether the
    * way out is offered and whether taking it means anything. Asked over every URI that names the
    * person: an authorization stored under an alias is one they can still end.
@@ -1497,35 +1515,35 @@ class PodAuthEndpoint @Inject constructor(
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
     // Read from the stored consent, not from the code: a code carries what was asked for, never
-    // the authority.
-    val durable = decision.durable
+    // the authority. What the answer settles is how long the family lives, not whether there is
+    // one — an app the person keeps in front of them needs a way back that does not run through a
+    // third-party cookie.
+    val lifetime =
+      if (decision.durable) PodRefreshTokenStore.Lifetime.DURABLE
+      else PodRefreshTokenStore.Lifetime.SESSION
 
     // What this exchange supersedes, named *before* the successor exists — see
     // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
     // person's derivable URIs, because the superseded family may have been minted under the twin
     // of the URI this code carries.
-    val superseded = if (durable) {
-      refreshTokenStore.liveFamilies(
-        podId = checkNotNull(podDbo.id),
-        clientId = entry.clientId,
-        webIds = webIdUriDeriver.derivableAliases(entry.subject),
-      )
-    } else {
-      emptySet()
-    }
+    //
+    // Measured for both answers, because both mint one. An auto-granted reconnect records no new
+    // decision and so revokes nothing: gated on the durable answer, every visit would leave one
+    // more live family behind, each renewing a window of its own.
+    val superseded = refreshTokenStore.liveFamilies(
+      podId = checkNotNull(podDbo.id),
+      clientId = entry.clientId,
+      webIds = webIdUriDeriver.derivableAliases(entry.subject),
+    )
 
-    val issuedRefresh = if (durable) {
-      refreshTokenStore.issueNewFamily(
-        podId = checkNotNull(podDbo.id),
-        podName = podDbo.name,
-        clientId = entry.clientId,
-        webId = entry.subject,
-        scopes = featureScopes,
-        lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
-      )
-    } else {
-      null
-    }
+    val issuedRefresh = refreshTokenStore.issueNewFamily(
+      podId = checkNotNull(podDbo.id),
+      podName = podDbo.name,
+      clientId = entry.clientId,
+      webId = entry.subject,
+      scopes = featureScopes,
+      lifetime = lifetime,
+    )
 
     // The decision is read once more, after the insert, and it is the only gate this path needs.
     // Every write to it raises the generation, so a withdrawal landing mid-exchange has already
@@ -1533,11 +1551,11 @@ class PodAuthEndpoint @Inject constructor(
     // anything the comparison misses. The message still tells the two apart, because a person who
     // withheld the durable connection is owed a different sentence than one whose consent moved.
     //
-    // **Ungated on purpose.** A short-lived exchange mints no family and would skip this, then
-    // return a bearer whose fresh `jti` and `iat` satisfy `ReauthorizeChallengeStore` — so the
-    // client's replay reads "already authorized" and the forced consent screen is never rendered.
-    // An access token is no row and cannot be recalled, so the only moment to refuse it is before
-    // it goes out (`SPS-AUTH-062`, `SPS-AUTH-063`).
+    // **Every exchange passes here, whatever lifetime it carries.** An access token is no row and
+    // cannot be recalled, so the only moment to refuse one is before it goes out (`SPS-AUTH-062`,
+    // `SPS-AUTH-063`) — and a bearer with a fresh `jti` and `iat` satisfies
+    // `ReauthorizeChallengeStore`, so a client that got past this reads "already authorized" and
+    // never meets the forced consent screen.
     //
     // Two gaps remain and neither grants authority the client did not hold: this read and the mint
     // are two moments, and the raise is one `updateMany` over the person's alias documents, atomic
@@ -1547,7 +1565,7 @@ class PodAuthEndpoint @Inject constructor(
     // exchange answers anything a test can set up.
     val standing = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
     if (standing?.generation != issuedUnder) {
-      val revoked = issuedRefresh?.let { refreshTokenStore.revokeFamily(it.token.familyId) } ?: 0
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
       val withdrawn = standing?.durable == false
       logger.info {
         "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
@@ -1562,8 +1580,8 @@ class PodAuthEndpoint @Inject constructor(
 
     // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
     // the withholding path gives from the other end, so that reconnecting twice does not leave two
-    // ninety-day families behind, each renewing its own TTL on every rotation. Swept only once the
-    // successor exists, so answering "yes" never leaves the person holding nothing.
+    // families behind, each renewing a window of its own. Swept only once the successor exists, so
+    // neither answer ever leaves the person holding nothing.
     if (superseded.isNotEmpty()) {
       val retired = refreshTokenStore.revokeFamilies(superseded)
       if (retired > 0) {
@@ -1577,15 +1595,15 @@ class PodAuthEndpoint @Inject constructor(
 
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podDbo.name}', clientId='${entry.clientId}', " +
-          "webId='${entry.subject}', scopes=${featureScopes.size}, durable=$durable, " +
-          "familyId='${issuedRefresh?.token?.familyId ?: "(none)"}'"
+          "webId='${entry.subject}', scopes=${featureScopes.size}, lifetime=${lifetime.kind}, " +
+          "familyId='${issuedRefresh.token.familyId}'"
     }
 
     // Liveness touch on the DCR row. Every completed flow reaches one of the three call sites —
     // this one, the anonymous public-read branch above and the rotation below — so a connection
-    // the person kept short-lived stays as live as a durable one; it just says so by
-    // re-authorizing rather than by refreshing. Best-effort: did:web clients have no DCR row and
-    // return false here, which is fine.
+    // stays as live under the short lifetime as under the long one, and the shorter window is not
+    // mistaken for an abandoned app. Best-effort: did:web clients have no DCR row and return false
+    // here, which is fine.
     dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
 
     return buildTokenResponse(
@@ -1593,8 +1611,8 @@ class PodAuthEndpoint @Inject constructor(
       clientId = entry.clientId,
       webId = entry.subject,
       scopes = featureScopes,
-      refreshToken = issuedRefresh?.plaintext,
-      grantedDurable = durable,
+      refreshToken = issuedRefresh.plaintext,
+      familyEndsAt = issuedRefresh.token.endsAt,
     )
   }
 
@@ -1712,13 +1730,12 @@ class PodAuthEndpoint @Inject constructor(
     // Optional down-scoping of the feature scopes. Unknown scopes are rejected per RFC 6749
     // §6 ("The requested scope […] MUST NOT include any scope not originally granted").
     //
-    // `offline_access` is taken out of that comparison first, because the response says it was
-    // granted and a client that does the standard thing — echo the granted scope back on the next
-    // refresh — would otherwise be told the scope it was just handed is not covered. It is never a
+    // `offline_access` is taken out of that comparison first. Clients hold scope lists carrying it
+    // and send them back, which is the standard thing to do with the `scope` of a token response, so
+    // refusing the echo would break exactly the clients that behaved correctly. It is never a
     // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
     // is already proving it holds, and a refusal on record has ended the family further up.
     val requested = OAuthSyntax.parseScope(requestedScope)
-    val durableEchoed = OFFLINE_ACCESS_SCOPE in requested
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
     } else {
@@ -1732,7 +1749,7 @@ class PodAuthEndpoint @Inject constructor(
 
     // A refusal ends the family, whether or not the withdrawal's own revocation reached it: that
     // sweep sees the rows that exist at the moment it runs, and rotation inserts one after it.
-    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+    if (endsOnRefusal(podDbo, token)) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId)
       logger.info {
         "[oauth/token] refresh refused — the durable connection was withdrawn: pod='${podDbo.name}', " +
@@ -1793,7 +1810,7 @@ class PodAuthEndpoint @Inject constructor(
     // Asked again, because the check above and this insert are two moments: a withdrawal landing
     // between them revokes what it can see and misses the row about to appear. Whoever arrives
     // second undoes the other's work rather than leaving a live successor behind.
-    if (refusedDurability(podDbo, token.owner.clientId, token.owner.webId)) {
+    if (endsOnRefusal(podDbo, token)) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId)
       logger.info {
         "[oauth/token] durable connection withdrawn mid-rotation — successor revoked: " +
@@ -1816,13 +1833,11 @@ class PodAuthEndpoint @Inject constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
-      // A rotation hands back a successor, so the durable connection is what this client holds, and
-      // a client refreshing its view of the granted scope from the newest response must not watch
-      // it disappear at the first rotation. Except where the client narrowed the request itself and
-      // left it out: RFC 6749 §6 down-scoping asks for a particular set, and answering with more
-      // than was asked for reads as ignoring the narrowing — `refresh_token down-scope to a granted
-      // feature subset succeeds` pins that. A client that echoed it back is asking, and is told.
-      grantedDurable = requestedScope.isNullOrBlank() || durableEchoed,
+      // The successor's deadline, not the predecessor's. A family that predates the terms acquires
+      // one in this very rotation (`RefreshTokenStore.issueInFamily`), so the row that was read
+      // still carries none — capping against that would hand out a full hour past a deadline that
+      // came into existence one statement ago.
+      familyEndsAt = issuedRefresh.token.endsAt,
     )
   }
 
@@ -1846,7 +1861,7 @@ class PodAuthEndpoint @Inject constructor(
     val body = linkedMapOf<String, Any>(
       "access_token" to accessToken,
       "token_type" to "Bearer",
-      "expires_in" to 3600,
+      "expires_in" to PodTokenIssuer.USER_TOKEN_TTL_SECONDS,
       "scope" to PUBLIC_READ_SCOPE,
     )
     return Response.ok(body)
@@ -1856,32 +1871,58 @@ class PodAuthEndpoint @Inject constructor(
       .build()
   }
 
+  /**
+   * How long an access token issued beside a family whose deadline is [familyEndsAt] may live: an
+   * hour, or the rest of the family where that is less. `null` says the family is over.
+   *
+   * One number, spent twice — on `expires_in` and on the JWT's `exp`. Derived separately they drift,
+   * and a client trusting the wrong one is what "seven days" turning into seven days and an hour
+   * looks like.
+   */
+  private fun accessTokenTtl(familyEndsAt: Instant?): Long? {
+    if (familyEndsAt == null) return PodTokenIssuer.USER_TOKEN_TTL_SECONDS
+    val remaining = Duration.between(Instant.now(), familyEndsAt).seconds
+    return if (remaining <= 0) null else minOf(PodTokenIssuer.USER_TOKEN_TTL_SECONDS, remaining)
+  }
+
   private fun buildTokenResponse(
     podName: String,
     clientId: String,
     webId: String,
     scopes: Set<String>,
     refreshToken: String?,
-    grantedDurable: Boolean = false,
+    familyEndsAt: Instant?,
   ): Response {
+    // Refused here only in the millisecond the deadline itself falls on: `RefreshTokenStore.lookup`
+    // compares with `isBefore`, so a row is still ACTIVE exactly at its expiry, and the clamp holds
+    // every expiry at or below the family's deadline. One millisecond later the refresh is already
+    // answered `EXPIRED`. The branch stays because it is the structural half of the guarantee — no
+    // bearer leaves this server outliving its family, whatever wrote the row.
+    val ttlSeconds = accessTokenTtl(familyEndsAt)
+      ?: return tokenError(OAuthErrorCode.INVALID_GRANT, "the connection has ended")
     val accessToken = podTokenIssuer.issue(
       pod = podName,
       webId = webId,
       clientId = clientId,
       scopes = scopes,
+      ttlSeconds = ttlSeconds,
     )
     val body = linkedMapOf<String, Any>(
       "access_token" to accessToken,
       "token_type" to "Bearer",
-      "expires_in" to 3600,
-      // RFC 6749 §3.3: where what was granted differs from what was asked for, the response says
-      // so. A durable connection is granted by the person and not by the request, so it can differ
-      // in either direction — the client asked and was refused, or never asked and was granted —
-      // and either way the `scope` member is where a client finds out. The access token's own
-      // claim stays slim: this is what was granted, not what the bearer carries.
-      "scope" to (if (grantedDurable) scopes + OFFLINE_ACCESS_SCOPE else scopes).joinToString(" "),
+      "expires_in" to ttlSeconds,
     )
-    // Absent rather than null when no durable connection was granted: RFC 6749 §5.1 makes the
+    // RFC 6749 §5.1 defines this member as the scope of the *access token*, and a credential's
+    // lifetime has no standing in it — so `offline_access` does not appear here, whichever answer
+    // the person gave. A client could do nothing with it either: it starts a fresh flow when the
+    // family ends, whatever it knew beforehand. The consent screen is where the person is told.
+    //
+    // Omitted rather than empty where the bearer carries no feature scope at all, which is the
+    // ordinary shape of a context-only consent. §3.3's grammar is one `scope-token` followed by
+    // more, so `""` is not a scope this response is allowed to name, and §5.1 makes the member
+    // optional. A strict client is entitled to refuse the whole exchange over it.
+    if (scopes.isNotEmpty()) body["scope"] = scopes.joinToString(" ")
+    // Absent rather than null when no refresh token is handed back: RFC 6749 §5.1 makes the
     // member optional, and a client reading `"refresh_token": null` as a token is a bug this
     // response should not be able to provoke.
     refreshToken?.let { body["refresh_token"] = it }

@@ -7,6 +7,7 @@ import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import org.sempods.SempodsCollections
 import org.sempods.auth.core.RefreshTokenStore
+import java.time.Instant
 
 /** A refresh token of this pod server, with the owner already resolved. */
 internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
@@ -62,21 +63,54 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   )
 
   /**
-   * Which lifetime a family was minted under, as this server's consent control decides it. Stored
-   * on every row as [RefreshTokenStore.Token.kind] and inherited by each rotation, so a rotation
-   * reads the terms off the credential rather than off the consent decision — that document is the
-   * person's to edit, and a durable family a withdrawal has not yet swept would otherwise be read
-   * as a session family: the short window **and** an escape from the withdrawal.
+   * Which lifetime a family was minted under, as this server's consent control decides it, and how
+   * long each one lives.
    *
-   * A row carrying no `kind` predates the field, and it is [DURABLE]: the pod minted a family only
-   * where the person ticked the connection, so every one that exists was ticked. Reading such a row
-   * as [SESSION] would hand it both halves of the failure above.
+   * The class is stored on every row as [RefreshTokenStore.Token.kind] and inherited by each
+   * rotation, so a rotation reads the terms off the credential rather than off the consent decision
+   * — that document is the person's to edit, and a durable family a withdrawal has not yet swept
+   * would otherwise be read as a session family: the short window **and** an escape from the
+   * withdrawal.
+   *
+   * The numbers are this server's. RFC 10017 §6.3.2.3 requires a maximum lifetime or an idle expiry
+   * and fixes neither, and says an authorization server MAY set different policies for
+   * browser-based applications.
+   *
+   * @param idleSeconds how long a family survives unused. Every rotation renews it, which is what
+   *   makes it an idle window rather than a life.
+   * @param absoluteSeconds the family's outer bound, fixed when it is seeded and never moved again.
+   *   Without one a family that rotates daily never ends, which RFC 10017 §6.3.2.3 rules out: a
+   *   rotation may not extend the new token's lifetime beyond the initial token's.
    */
-  internal enum class Lifetime(val kind: String) {
-    SESSION("session"),
-    DURABLE("durable"),
+  internal enum class Lifetime(val kind: String, val idleSeconds: Long, val absoluteSeconds: Long) {
+    SESSION("session", 12L * 60 * 60, 7L * 24 * 60 * 60),
+    DURABLE("durable", 90L * 24 * 60 * 60, 180L * 24 * 60 * 60),
   }
 
+  /**
+   * The terms a row was minted under — what a caller asks before deciding whether something may end
+   * this family.
+   *
+   * A row carrying no [RefreshTokenStore.Token.kind] predates the field, and it is [Lifetime.DURABLE]:
+   * back then the pod minted a family only where the person ticked the connection, so every one that
+   * exists was ticked. Reading such a row as [Lifetime.SESSION] would hand it both halves of the
+   * failure the class exists to prevent. Every row written from here on names its own class, so this
+   * answers for rows older than that and for nothing else.
+   *
+   * An unrecognised value falls to [Lifetime.DURABLE] too, and that direction is the point: a class
+   * added later is ended by a refusal rather than quietly spared by one.
+   */
+  internal fun lifetimeOf(token: PodRefreshToken): Lifetime =
+    Lifetime.entries.firstOrNull { it.kind == token.kind } ?: Lifetime.DURABLE
+
+  /**
+   * Seeds a family on [lifetime]'s terms: its idle window becomes the row's TTL, and its outer bound
+   * becomes the family's [RefreshTokenStore.Token.endsAt] — computed once, here, and copied verbatim
+   * by every rotation afterwards.
+   *
+   * No `ttlSeconds` beside it. The class decides how long the family lives, and a second lever next
+   * to it is how a caller would set one of the two numbers and forget the other.
+   */
   internal fun issueNewFamily(
     podId: ObjectId,
     podName: String,
@@ -84,19 +118,41 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     webId: String,
     scopes: Set<String>,
     lifetime: Lifetime,
-    ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
   ): RefreshTokenStore.Issued<Owner> = store.issueNewFamily(
     owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
     scopes = scopes,
     kind = lifetime.kind,
-    ttlSeconds = ttlSeconds,
+    endsAt = Instant.now().plusSeconds(lifetime.absoluteSeconds),
+    ttlSeconds = lifetime.idleSeconds,
   )
 
+  /**
+   * The successor in an existing family, on that family's own idle window, and **under a deadline
+   * where the family reaches this without one**.
+   *
+   * The window comes from [lifetimeOf] and not from the store's default, or a session family would
+   * rotate on a ninety-day TTL: the clamp would hold it to its seven-day deadline and it would never
+   * expire from disuse at all.
+   *
+   * The deadline is the predecessor's own expiry — the only one such a family demonstrably has, and
+   * taking it extends nothing, because the clamp then hands the successor that same instant. At this
+   * pod the rule is asked of **every** family missing a deadline, which is wider than
+   * [RefreshTokenStore.issueInFamily]'s own: that one keys on a missing class, and it has to, because
+   * the hosted MCP service shares the store, names a class on every row and has settled no ceiling
+   * for itself. Two populations here name a class and carry no deadline all the same — the families
+   * minted between the terms arriving and this server deciding what they mean — and keyed on the
+   * class they would rotate on a rolling window forever, which is the whole of what the ceiling is
+   * for. Every family seeded from here on carries one at the mint, so this answers for what a
+   * running deployment already holds and for nothing else.
+   */
   internal fun issueInFamily(
     previous: PodRefreshToken,
     scopes: Set<String>,
-    ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
-  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(previous, scopes, ttlSeconds)
+  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(
+    previous = previous.copy(endsAt = previous.endsAt ?: previous.expiresAt),
+    scopes = scopes,
+    ttlSeconds = lifetimeOf(previous).idleSeconds,
+  )
 
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
@@ -139,10 +195,12 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   /**
    * The live families this app holds for this person — what a consent about to mint one supersedes.
    *
-   * A reconnect answers the lifetime question again, and the answer governs what stands afterwards:
-   * withholding ends the families through [revokeForUser], granting replaces them through this pair.
-   * Without it every reconnect leaves another ninety-day family behind that nobody counted and that
-   * renews its own TTL on each rotation.
+   * A reconnect answers the lifetime question again, and **either answer mints a family**, so either
+   * answer has to replace what it supersedes — that is this pair. Withholding sweeps them through
+   * [revokeForUser] as well, which is the same retirement from the other end. Without this one every
+   * reconnect leaves another family behind that nobody counted, each renewing a window of its own;
+   * an auto-granted reconnect records no new decision and so revokes nothing, which is how they
+   * accumulate one per visit.
    *
    * **Measured before the successor is minted, and that ordering is the correctness argument.** Two
    * exchanges can run under one standing consent — auto-grant issues a code without recording a new

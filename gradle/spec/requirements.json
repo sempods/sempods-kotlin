@@ -265,7 +265,7 @@
       "id": "SPS-AUTH-039",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "An implementation MUST interpret `prompt` per OIDC Core 1.0 §3.1.2.1: space-separated and multi-valued.",
+      "summary": "An implementation MUST interpret `prompt` per OIDC Core 1.0 §3.1.2.1.",
       "withdrawn": false
     },
     {
@@ -395,24 +395,10 @@
       "withdrawn": false
     },
     {
-      "id": "SPS-AUTH-058",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "An implementation MUST NOT seed a refresh-token family unless the person authorizing the request granted a durable connection at consent time.",
-      "withdrawn": false
-    },
-    {
       "id": "SPS-AUTH-059",
       "part": "core",
       "chapter": "spec/core/auth.md",
       "summary": "An implementation MUST NOT make `offline_access` in the authorization request a condition of issuing a refresh token.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-AUTH-060",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "A consent decision that withholds a durable connection MUST revoke the refresh-token families the application already holds for that person.",
       "withdrawn": false
     },
     {

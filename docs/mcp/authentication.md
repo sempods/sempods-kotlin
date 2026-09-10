@@ -126,12 +126,13 @@ place for the proper replay still to come.
 
 ## Durable connections
 
-A client that has to stay connected past the access token's hour asks for
-`scope=offline_access` at the pod's `/authorize`. It is listed in
-`scopes_supported` in the protected-resource metadata the 401 points at,
-which is where a client with no sempods documentation in front of it
-finds the extension. Asking is not what decides the outcome: the person
-answers a control in the consent dialog, and
+A client that wants a long connection asks for `scope=offline_access` at
+the pod's `/authorize`. It is listed in `scopes_supported` in the
+protected-resource metadata the 401 points at, which is where a client
+with no sempods documentation in front of it finds the extension. Asking
+buys the preselected control and nothing else, and a client that never
+asks is connected past the hour just the same: what the person answers is
+how long, not whether.
 [`../auth/oauth.md`](../auth/oauth.md#offline_access) owns that rule.
 
 The re-authorize path above ends what the client holds, which is not the
@@ -139,9 +140,8 @@ same as asking again. Whether the next `/authorize` renders a dialog is
 the ordinary auto-grant question: a `dyn:` client — which is how the
 clients in [`clients.md`](clients.md) register — always gets the consent
 screen, while a static `did:web:` client whose grants survive is
-auto-granted and the recorded answer stands, a durable one minting a
-replacement family and a short-lived one leaving the client with an
-access token and nothing else. A static client that wants the review it
+auto-granted and the recorded answer stands, minting a replacement family
+on that answer's terms. A static client that wants the review it
 just triggered sends `prompt=consent`;
 [`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
 

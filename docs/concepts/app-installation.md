@@ -53,8 +53,8 @@ The standard-shaped pieces stay standard-shaped:
 - Dynamic Client Registration creates the service client's OAuth client record, with the
   authorization server assigning the `client_id`.
 - Client Credentials obtains short-lived service tokens.
-- `offline_access` signals that the client needs a durable connection; the person answers it in
-  consent (§"The durable connection is the person's" below).
+- `offline_access` signals that the client wants a long connection; the person answers how long it
+  lasts in consent (§"The durable connection is the person's" below).
 
 Server-assigned client IDs are a security property, not just a naming preference. The caller must not
 choose the service client's `client_id` or a registration root. The escalation class in the old
@@ -79,11 +79,11 @@ the owner assign them later through service-client management.
 
 ## The durable connection is the person's (IST)
 
-Consent carries a control for keeping the app connected, beside the context grants, and it names the
-lifetime class rather than a scope — two classes, short-lived and durable. `offline_access` in the
-request preselects that control and settles nothing else;
-[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and what the token response says
-about it.
+Consent carries a control for how long the app stays connected, beside the context grants, and it
+names a lifetime class rather than a scope — two classes, one measured in days and one in months.
+Both are issued a refresh token; what the answer picks is the family's terms.
+`offline_access` in the request preselects that control and settles nothing else;
+[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and the numbers.
 
 The request cannot be the decision. OAuth defines refresh tokens but no way to ask for one, and
 `offline_access` is an OpenID Connect scope borrowed for an OAuth surface — a resource server may
