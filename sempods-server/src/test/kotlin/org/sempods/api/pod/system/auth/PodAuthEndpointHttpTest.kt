@@ -4265,10 +4265,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val refreshToken = body["refresh_token"] as? String
     assertNotNull(refreshToken, "authorization_code exchange must return a refresh_token")
     assertTrue(refreshToken.startsWith("rt_"), "refresh token plaintext should carry the rt_ prefix")
-    // Empty, and correctly so: the auth code carried a context scope and no feature scope survived
-    // it. Slimming is a property of the token, so it is asserted where it lives — and the response
-    // member says the same thing, because it is the same set.
-    assertEquals("", body["scope"])
+    // Absent, and correctly so: the auth code carried a context scope and no feature scope survived
+    // it. RFC 6749 §3.3's grammar has no empty scope, so a member naming one is worse than no member
+    // — and §5.1 makes it optional. Slimming itself is a property of the token, so it is asserted
+    // where it lives.
+    assertFalse("scope" in body, "an empty scope is not a scope this response may name: $body")
     assertEquals(
       "",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),

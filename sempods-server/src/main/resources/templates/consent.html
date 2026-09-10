@@ -378,24 +378,19 @@
       </ul>
     </div>
 
-    <!-- Asked as a duration, and it has to be. This used to ask "may it act without you", on the
-         reasoning that a refresh token is what lets a client work while nobody is there and that
-         somebody can answer that without knowing what a token is. That held while the answer decided
-         *whether* the app could act unattended. Both answers permit it now and differ only in how
-         long, so there is no "no" left to give — and the pod could not police the old question
-         anyway: it sees token-endpoint traffic, not presence, and a pinned tab or a service worker
-         produces that traffic with nobody there.
+    <!-- Asked as a duration, and it has to be. Both answers let the app renew its own access, so a
+         question about acting unattended has no "no" left to give — and this server could not police
+         one anyway: it sees token-endpoint traffic, not presence, and a pinned tab or a service
+         worker produces that traffic with nobody there. Phrasing it as "may it act without you"
+         reads better and is therefore tempting; it would promise something nothing here enforces.
 
-         So do not reach back for the presence wording. It reads better, which is why it will be
-         tempting.
+         Both halves name a number, because both are durations and both are enforced: an access token
+         is capped against its family's deadline, so neither sentence owes a "and up to an hour
+         more". A number binds this copy to `PodRefreshTokenStore.Lifetime` — change one and change
+         the other.
 
-         Both halves name a number, because both are durations and the server enforces both: an
-         access token minted from a family is capped against that family's deadline, so neither
-         sentence owes a "and up to an hour more". A number binds this copy to
-         `PodRefreshTokenStore.Lifetime` — change one and change the other.
-
-         What the long answer buys is time, not capability: seven days syncs on a schedule perfectly
-         well, so that is no longer what separates the two.
+         What the long answer buys is time, not capability. Seven days syncs on a schedule perfectly
+         well, so capability is not what separates the two.
 
          Ticked when the client asked for it, or when this person granted it here before; what the
          client asks only preselects, the tick is what decides. -->

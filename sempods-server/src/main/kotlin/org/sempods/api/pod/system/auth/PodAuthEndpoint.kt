@@ -1912,13 +1912,18 @@ class PodAuthEndpoint @Inject constructor(
       "access_token" to accessToken,
       "token_type" to "Bearer",
       "expires_in" to ttlSeconds,
-      // RFC 6749 §5.1 defines this member as the scope of the *access token*, and a credential's
-      // lifetime has no standing in it — so `offline_access` does not appear here, whichever answer
-      // the person gave. A client could do nothing with it either: it starts a fresh flow when the
-      // family ends, whatever it knew beforehand. The consent screen is where the person is told.
-      "scope" to scopes.joinToString(" "),
     )
-    // Absent rather than null when no durable connection was granted: RFC 6749 §5.1 makes the
+    // RFC 6749 §5.1 defines this member as the scope of the *access token*, and a credential's
+    // lifetime has no standing in it — so `offline_access` does not appear here, whichever answer
+    // the person gave. A client could do nothing with it either: it starts a fresh flow when the
+    // family ends, whatever it knew beforehand. The consent screen is where the person is told.
+    //
+    // Omitted rather than empty where the bearer carries no feature scope at all, which is the
+    // ordinary shape of a context-only consent. §3.3's grammar is one `scope-token` followed by
+    // more, so `""` is not a scope this response is allowed to name, and §5.1 makes the member
+    // optional. A strict client is entitled to refuse the whole exchange over it.
+    if (scopes.isNotEmpty()) body["scope"] = scopes.joinToString(" ")
+    // Absent rather than null when no refresh token is handed back: RFC 6749 §5.1 makes the
     // member optional, and a client reading `"refresh_token": null` as a token is a bug this
     // response should not be able to provoke.
     refreshToken?.let { body["refresh_token"] = it }
