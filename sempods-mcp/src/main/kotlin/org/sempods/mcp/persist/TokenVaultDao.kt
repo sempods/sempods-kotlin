@@ -50,8 +50,8 @@ data class PodTokens(
   /**
    * When this row last **rotated** — written by the connect path and by every refresh. It is what
    * the sweep's preservation tier reads: a row that has not rotated in a long time is one whose
-   * refresh-token family (and the pod-side DCR registration) is drifting toward its ninety-day
-   * deadline, whether or not its access token is anywhere near expiry.
+   * refresh token is drifting toward whatever deadline its pod applies, whether or not its access
+   * token is anywhere near expiry.
    */
   val updatedAt: Date,
   /**
@@ -232,12 +232,12 @@ class TokenVaultDao(
 
   /**
    * The sweep's **preservation** selection: at most [limit] refreshable rows that have not rotated
-   * since [cutoff], regardless of access-token expiry. One rotation resets the pod's refresh-token
-   * family and its DCR liveness in full, so this is the only cadence the ninety-day deadline
-   * actually asks for.
+   * since [cutoff], regardless of access-token expiry, which no refresh token's lifetime runs on.
+   * The KDoc on `SempodsMcpConfig.podTokenFamilyPreserveSeconds` owns the cadence and why it is a
+   * guess.
    *
    * **Least-recently-attempted first** ([markRefreshAttempted]), never-attempted rows ahead of all
-   * of them, ties broken by the oldest rotation — i.e. round-robin, closest-to-deadline first. That
+   * of them, ties broken by the oldest rotation — i.e. round-robin, oldest rotation first. That
    * ordering is what makes the pass advance, and it has to, because a refresh that fails persists
    * nothing: a failing row's `updatedAt` never moves, so ordered by that alone it would sit at the
    * head of a time-budgeted pass forever and the rows behind it would never be attempted at all,

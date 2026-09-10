@@ -25,21 +25,22 @@ private fun tickIntervalMs(config: SempodsMcpConfig) =
  * Background loop that keeps connected pods reachable headlessly (the "stay connected" half of M2),
  * on the clock the thing it protects actually runs on.
  *
- * What dies from disuse is the pod's **refresh-token family** — ninety days, reset in full by any
- * single rotation, and the same `/token` call keeps the service's DCR registration at that pod alive
- * against the same boundary. An expired **access** token costs no person and no dialog:
- * [PodTokenProvider.validAccessToken] renews it on demand, on a path that is built, tested and on
- * every read anyway. So the sweep runs two tiers, and only the first of them is about latency:
+ * What dies from disuse is the pod's **refresh-token family**, which only a rotation keeps alive —
+ * on a clock the pod owns and this service cannot read
+ * ([SempodsMcpConfig.podTokenFamilyPreserveSeconds]). An expired **access** token costs no person
+ * and no dialog: [PodTokenProvider.validAccessToken] renews it on demand, on a path that is built,
+ * tested and on every read anyway. So the sweep runs two tiers, and only the first of them is about
+ * latency:
  *
  *  - **Warm** ([SempodsMcpConfig.podTokenWarmIdleSeconds]) — a connection used recently is renewed
  *    ahead of expiry exactly as before, so an active agent never pays the four sequential pod
  *    requests a cold rotation costs. Past the idle threshold that trade turns: warm-keeping spends
  *    one rotation per token lifetime to save one, once.
  *  - **Preservation** ([SempodsMcpConfig.podTokenFamilyPreserveSeconds]) — every refreshable
- *    connection is rotated on a long cadence regardless of access-token expiry, which is the only
- *    cadence the ninety-day deadline asks for. The service cannot read the pod's refresh-token TTL
- *    (RFC 6749 has no field for it), so this is a deliberately conservative guess against a value
- *    the pod owns.
+ *    connection is rotated on a long cadence regardless of access-token expiry, which no refresh
+ *    token's lifetime runs on. Where a pod has ended the grant anyway, the refusal arrives here as
+ *    `invalid_grant` and the row is marked dead: this tier reports an ending it could not have
+ *    prevented.
  *
  * The load therefore scales with **use** rather than with inventory, which matters because
  * inventory only grows and the traffic lands at the pods — machines people host themselves — not at

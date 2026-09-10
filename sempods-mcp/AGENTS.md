@@ -104,19 +104,18 @@ Once the service carries **real user state**, migrations become a hard requireme
   (`pods/PodOAuthClient`), fills the `(user, profile, pod)` token vault + connection registry,
   and a background `TokenRefreshScheduler` keeps the connections alive headlessly (refresh-token
   rotation) on **two tiers, on the clock the thing it protects actually runs on**. What dies from
-  disuse is the pod's refresh-token *family* — ninety days, reset in full by any single rotation,
-  and the same `/token` call holds the service's DCR registration at that pod open against the same
-  boundary; an expired **access** token costs no person and no dialog, because
-  `PodTokenProvider.validAccessToken` renews it on demand. So: a **warm** tier renews the access
-  token of a connection used within `POD_TOKEN_WARM_IDLE_SECONDS` (default 1 h), which is the only
+  disuse is the pod's refresh-token *family*, which only a rotation keeps alive; an expired
+  **access** token costs no person and no dialog, because `PodTokenProvider.validAccessToken`
+  renews it on demand. So: a **warm** tier renews the access token of a connection used within
+  `POD_TOKEN_WARM_IDLE_SECONDS` (default 1 h), which is the only
   thing warm-keeping ever bought — latency on the next call; and a **preservation** tier rotates
   every refreshable connection once per `POD_TOKEN_FAMILY_PRESERVE_SECONDS` (default 30 d) whatever
   its access token says, including the unknown-expiry rows the warm tier can never select. The
-  service cannot read the pod's refresh-token TTL (RFC 6749 has no field for it), so that cadence is
-  a deliberately conservative guess against a value the pod owns. "Used" is written at one
-  chokepoint — `validAccessToken`, whose only callers are the pod-touching tool calls, so
-  `list_pods`, `authorize` and the dashboard mark nothing — as a throttled `lastUsedAt` on the vault
-  row, which the warm selection is indexed on (both selections are, and a test pins that). The
+  cadence is a guess, and the KDoc on `SempodsMcpConfig.podTokenFamilyPreserveSeconds` owns why.
+  "Used" is written at one chokepoint — `validAccessToken`, whose only callers are the pod-touching
+  tool calls, so `list_pods`, `authorize` and the dashboard mark nothing — as a
+  throttled `lastUsedAt` on the vault row, which the warm selection is indexed on (both selections
+  are, and a test pins that). The
   sweep's load therefore scales with **use** rather than with inventory, which matters because the
   traffic lands at the pods rather than at the service generating it; each tier is
   time-budgeted per tick (half a tick each), and the preservation budget is anchored where
