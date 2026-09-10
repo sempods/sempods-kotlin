@@ -104,6 +104,6 @@ Standards are *named*, not re-explained in these docs.
   three tool surfaces** (per-pod MCP, chat app, hosted) — all three stay,
   and the two server-side ones now run one shared implementation. Live on
   `mcp.sempods.org` (M1–M6 done).
-- **[`../roadmaps/`](../roadmaps/)** — the milestone currently being implemented,
-  if one is. Completed items stay marked done until the whole milestone is
-  consolidated; the file is dissolved then, not item by item.
+- **[GitHub issues](https://github.com/sempods/sempods-kotlin/issues)** — public goals and planned
+  iterations under [issue planning](../agents/documentation-strategy.md#issue-planning). Existing
+  roadmap and SOLL material follows the [transition](../agents/documentation-strategy.md#transition).

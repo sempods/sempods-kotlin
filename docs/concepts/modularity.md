@@ -13,8 +13,8 @@ exist and the ones that do not exist yet — and the invariants that are deliber
 selectable.
 
 Sections are marked **IST** (implemented, verifiable in code) or **SOLL** (target state).
-Sequencing of the missing seams is tracked in [`../roadmaps/`](../roadmaps/) while a milestone
-is running, not here.
+Plan new work through [issue planning](../agents/documentation-strategy.md#issue-planning).
+Existing SOLL material follows the [transition](../agents/documentation-strategy.md#transition).
 
 ## The pattern (IST)
 
@@ -379,6 +379,3 @@ repository these modules are extracted from, so it holds by construction rather 
 - `docs/ai-layer.md` — the provider abstraction that set the configuration precedent
 - `docs/architecture/dependency-injection.md` — the repo-wide rules for writing and composing a
   Guice module; the three binding shapes above are the sempods-specific reading of them
-
-Sequencing and dependencies for the missing seams live in `../roadmaps/` (server and
-control-plane).

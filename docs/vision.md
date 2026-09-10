@@ -85,8 +85,10 @@ are possible as long as they follow the standard.
 
 ## What comes later (extensions)
 
-Concepts for these live in [`concepts/`](concepts/); whatever is currently being built has a
-breakdown in [`roadmaps/`](roadmaps/). Key directions:
+Plan public goals and iterations through [GitHub issues](https://github.com/sempods/sempods-kotlin/issues)
+under the [issue-planning convention](agents/documentation-strategy.md#issue-planning). Existing
+proposed material in [`concepts/`](concepts/) follows the
+[transition](agents/documentation-strategy.md#transition). Key directions:
 
 - SHACL as app definition (shape registration, discovery, enforcement)
 - Web identity access (granting context permissions to people, not just apps)
