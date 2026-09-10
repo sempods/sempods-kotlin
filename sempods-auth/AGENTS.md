@@ -55,9 +55,10 @@ SHA-256 without HMAC — stateless, decentralized; any pod can derive URIs indep
 - `sempods-auth/docs/README.md` — module overview
 - `sempods-auth/docs/identity-service.md` — identity layers, WebID registry, OIDC bridge, JWT format, linked identities
 
-`sempods-auth/docs/` may hold the same four document types as the repository's own `docs/` — see
-[`../docs/agents/documentation-strategy.md`](../docs/agents/documentation-strategy.md). This module
-is the one that qualifies for a `docs/vision.md` of its own: it is deployable and usable on its own,
+`sempods-auth/docs/` follows the repository's
+[documentation types and placement rules](../docs/agents/documentation-strategy.md#the-three-document-types).
+Public plans follow [issue planning](../docs/agents/documentation-strategy.md#issue-planning).
+This module qualifies for a `docs/vision.md` of its own: it is deployable and usable on its own,
 as an identity provider, which is an audience the repository vision does not address. A module
 vision refines the repository's; it does not contradict it. None is written yet.
 
