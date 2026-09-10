@@ -1,7 +1,7 @@
 ---
 name: consolidate-roadmap
 description: Legacy workflow for the retained owner-app-installation roadmap only, if its
-  milestone ships before issue 120 transfers it. Follow the documentation strategy's transition.
+  milestone ships before its planned transfer to issues. Follow the documentation strategy's transition.
   Do not use for new issue-based work or to prune completed items from a running roadmap.
 ---
 

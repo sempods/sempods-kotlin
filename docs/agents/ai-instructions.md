@@ -38,8 +38,8 @@ One rule, and it covers both `AGENTS.md` files and the three documentation types
   path decides, not what happens to be loaded.
 - Documentation nests the same way. Every `docs/` directory — at the root, at a module, later at a
   larger package — may hold the three document types: Vision, maintained IST documentation and
-  Proposal, as defined in the documentation strategy. `concepts/` is a folder within maintained
-  documentation. A module's `docs/` is the place for what is true of that module only.
+  Proposal, as defined in the documentation strategy. Existing concept documents follow its
+  [transition](documentation-strategy.md#transition). A module's `docs/` owns its local subjects.
 - The one asymmetry: a scoped `AGENTS.md` may **override** a rule from a broader one, but a module
   `vision.md` only **refines** the repository vision. A contradiction there is a bug, not an
   override.

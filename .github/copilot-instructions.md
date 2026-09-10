@@ -59,6 +59,7 @@ commas, backtick test method names, no licence headers, KDoc carrying the field-
 
 Public plans and progress live in issues. Routine bot-generated dependency updates use their PR
 under the [documented exception](../docs/agents/documentation-strategy.md#automated-dependency-updates).
+Embargoed security fixes use the private advisory/fix PR under SECURITY.md; keep evidence private.
 Every PR records documentation and check evidence;
 behaviour changes update IST documentation, KDoc and affected `context7.json` assertions **in the
 same change**, including partial PRs. Close an issue only after all acceptance is met by merged work.

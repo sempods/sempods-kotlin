@@ -6,7 +6,9 @@ body:
       value: |
         Read [CONTRIBUTING.md](https://github.com/sempods/sempods-kotlin/blob/main/CONTRIBUTING.md)
         and [Issue planning](https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning).
-        Search existing issues before filing. Small work can stand alone; no release milestone is required.
+        Search existing issues before filing. Small work can stand alone.
+        Maintainers or triagers set relationships, suitable labels and any agreed release milestone.
+        You can file this form by supplying issue links; no metadata permissions are required.
         Security reports go privately via SECURITY.md.
   - type: checkboxes
     id: before-filing
@@ -33,7 +35,7 @@ body:
     id: relationships
     attributes:
       label: Parent, dependencies and decisions
-      description: Optional parent and prerequisite issues; identify decisions needed before work starts. Add native relationships after creation. Parent membership is not a blocker.
+      description: Link an optional parent and prerequisite issues; identify decisions needed before work starts. Maintainers or triagers set native relationships. Parent membership is not a blocker.
   - type: textarea
     id: acceptance
     attributes:

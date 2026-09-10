@@ -90,7 +90,7 @@ The short version:
 - **No history and no decision log.** Keep only the reasoning a future reader needs in order not to
   undo the decision; the rest is what commit messages are for.
 - The three document types — Vision, maintained IST documentation and Proposal — nest under any
-  `docs/` directory. `concepts/` is a folder for current architecture explanations.
+  `docs/` directory; existing concept content follows the strategy's transition.
 
 ## Auth layer (sempods-auth)
 
@@ -115,19 +115,18 @@ Key design choices:
 
 ## Documentation map
 
-Agent instructions: `docs/agents/` — the hub, the documentation strategy, issue planning and
-`documentation-sync.md`. `roadmap-lifecycle.md` remains only for the documented transition.
+Agent instructions: `docs/agents/` — the hub, documentation strategy,
+[issue-work procedure](docs/agents/issue-work.md) and `documentation-sync.md`.
+`roadmap-lifecycle.md` remains only under the [transition](docs/agents/documentation-strategy.md#transition).
 
-Vision and concepts:
+Vision and retained material:
 
 - Vision: `docs/vision.md`
-- Concepts: `docs/concepts/` — architecture explanations, with existing mixed content awaiting
-  [#121](https://github.com/sempods/sempods-kotlin/issues/121). Topics:
+- Concepts: `docs/concepts/` — retained architecture and design material under the transition above:
   modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
   app installation
-- Legacy roadmap: `docs/roadmaps/` — retained until
-  [#120](https://github.com/sempods/sempods-kotlin/issues/120) transfers its work to issues:
-  `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and protected DCR
+- Legacy roadmap: `docs/roadmaps/owner-app-installation.md` — the retained plan for owner-mediated
+  service-client installation, under the same transition
 
 IST documentation:
 

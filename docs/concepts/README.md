@@ -1,15 +1,8 @@
 # Concepts
 
-This folder holds current architecture explanations under the maintained IST documentation type.
-Public targets and progress belong in issues; substantive proposed design may use a proposal under
-`docs/proposals/` at the responsible scope. See
-[the strategy](../agents/documentation-strategy.md) for ownership, placement and writing rules.
-
-The six existing documents below still contain mixed or proposed material. They await paragraphwise
-verification and transfer in [#121](https://github.com/sempods/sempods-kotlin/issues/121), under the
-[transition](../agents/documentation-strategy.md#transition). A `(Concept)` title does not establish
-implemented status. Useful implemented explanations survive under the strategy's
-[preservation rule](../agents/documentation-strategy.md#preserving-current-explanations).
+This folder contains retained architecture and proposed design material awaiting classification.
+Its status, destinations and migration ownership are defined in
+[the transition](../agents/documentation-strategy.md#transition).
 
 ## Here today
 
@@ -26,7 +19,7 @@ implemented status. Useful implemented explanations survive under the strategy's
 - [`app-installation.md`](app-installation.md) — how a pod owner turns an interactive decision into
   a durable service-client credential.
 
-## Template for current architecture documentation
+## Template for verified architecture documentation
 
 ```markdown
 # <Topic>
@@ -50,5 +43,6 @@ Non-obvious boundaries and rationale a maintainer needs. Omit ordinary behaviour
 - Related planning issue, if further work is proposed
 ```
 
-The folder may also exist at a module's `docs/concepts/` for architecture specific to that module.
-Reference the strategy rather than copying its rules or this index into the module.
+Use this template after verification under the strategy's
+[preservation rule](../agents/documentation-strategy.md#preserving-current-explanations).
+The strategy also defines placement at a module's documentation scope.

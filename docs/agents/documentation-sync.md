@@ -87,7 +87,9 @@ Over what is left:
 
 ## 6. Issue and PR completion
 
-Follow [Issue planning](documentation-strategy.md#issue-planning). For an
+Follow [Issue planning](documentation-strategy.md#issue-planning). For embargoed security work,
+use the [private security record](documentation-strategy.md#security-fixes) and keep the evidence
+private. For an
 [automated dependency update](documentation-strategy.md#automated-dependency-updates), use the PR's
 scope and completion evidence; no separate issue is required. Otherwise link the owning issue and
 compare this PR with its acceptance and dependencies. Record the work and checks completed. Explain

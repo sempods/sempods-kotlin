@@ -3,13 +3,10 @@
 
 ## What this changes
 
-<!-- One or two sentences. New public work links its owning issue, including small changes.
-     A standalone issue is enough. Routine bot-generated dependency updates need no separate issue:
-     the PR carries their scope and completion evidence under documentation-strategy.md's
-     "Automated dependency updates" exception. The review and documentation requirements below apply.
-     Use "Refs #123" for partial work on an issue.
-     Use "Closes #123" only if merging this PR meets all acceptance, including follow-up actions.
-     Parent membership alone does not mean a dependency or that this PR finishes the parent. -->
+<!-- One or two sentences. Link the work record under:
+     https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning
+     Use "Refs #123" for partial work; "Closes #123" only when merge completes all acceptance.
+     Keep embargoed security work and its references private under SECURITY.md. -->
 
 ## Why
 
@@ -18,11 +15,9 @@
 
 ## Verification and documentation
 
-<!-- Commands and results; identify anything blocked or not run.
-     Name the documentation updated or deleted for this diff, or explain why no update is needed.
-     Check affected IST documents, KDoc, context7.json and instruction pointers.
-     Every PR completes its own documentation, even if the issue needs several PRs.
-     State acceptance still outstanding; closure evidence includes all required merged PRs. -->
+<!-- Give commands and results, documentation updates or a specific no-change reason, and any
+     remaining acceptance. Use docs/agents/documentation-strategy.md#definition-of-done to review
+     the affected surfaces. Record evidence for this PR even when its issue spans several PRs. -->
 
 ## Before requesting review
 
@@ -32,11 +27,6 @@
       public signature moved
 - [ ] `./gradlew checkDocLinks` passes — every relative link in a markdown file
       still resolves
-- [ ] The documentation is current *in this same change*: the IST documents, the
-      KDoc on any signature that moved, and `context7.json` if a fact it asserts
-      did. `docs/agents/documentation-strategy.md` §"Definition of done" is the
-      list — and the place to check whether the right answer is to delete a
-      section rather than write one
 - [ ] A model that did substantial work here is named in a `Co-Authored-By:`
       trailer, and the change is one I can defend in review
 

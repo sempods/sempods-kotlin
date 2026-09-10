@@ -194,22 +194,14 @@ expect.
 
 ## Planning work
 
-Use issues for actionable design, implementation and repository maintenance. Every PR for new
-public work links its owning issue, including small changes, except for
-[automated dependency updates](docs/agents/documentation-strategy.md#automated-dependency-updates),
-whose PR carries the scope and completion evidence. A standalone issue is enough for small work;
-a large goal can have native sub-issues for bounded iterations. The forms capture scope, acceptance,
-dependencies and documentation completion.
-[Issue planning](docs/agents/documentation-strategy.md#issue-planning) defines the lifecycle and
-closure evidence. General questions and exploratory conversation fit
-[Discussions](https://github.com/sempods/sempods-kotlin/discussions); vulnerabilities follow
-[SECURITY.md](SECURITY.md).
+Use the [issue-planning rules](docs/agents/documentation-strategy.md#issue-planning) to choose the
+work record, define scope and acceptance, and complete the work. General questions and exploratory
+conversation fit [Discussions](https://github.com/sempods/sempods-kotlin/discussions); vulnerability
+reports and fixes follow [SECURITY.md](SECURITY.md).
 
 ## Practical expectations
 
-* Follow [Issue planning](docs/agents/documentation-strategy.md#issue-planning) for issue ownership
-  and its automated dependency-update exception. Agree the scope of a large change in its issue
-  before implementation.
+* Agree the scope of a large change in its work record before implementation.
 * Small, focused changes are reviewed faster than large ones.
 * Response times vary — this is not anyone's full-time job yet. Silence is
   neither rejection nor disinterest; ping the issue.

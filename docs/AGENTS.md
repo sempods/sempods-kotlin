@@ -17,8 +17,8 @@ editing anything here. What it means for this folder:
 
 - English.
 - `vision.md` gives direction; maintained documentation describes current code; occasional
-  proposals carry explicitly unimplemented design. `concepts/` is an architecture folder.
-  Existing roadmap and SOLL content follow the
+  proposals carry explicitly unimplemented design.
+  Existing concept, roadmap and SOLL content follow the
   [transition](agents/documentation-strategy.md#transition).
 - Never mix runtime facts and target state in the same section.
 - High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
@@ -28,15 +28,12 @@ editing anything here. What it means for this folder:
 
 ## Key references
 
-- `docs/agents/` — the AI instruction hub, the documentation strategy, issue planning and
-  `documentation-sync.md`; `roadmap-lifecycle.md` serves only the retained legacy roadmap
-- `docs/concepts/` — architecture explanations with mixed content awaiting
-  [#121](https://github.com/sempods/sempods-kotlin/issues/121): modular deployment
-  (deployment-selected seams, the invariants that are not selectable, open-source blockers), graph
-  retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
-- `docs/roadmaps/` — legacy source until [#120](https://github.com/sempods/sempods-kotlin/issues/120):
-  `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and
-  protected DCR
+- `docs/agents/` — the AI instruction hub, documentation strategy,
+  [issue work](agents/issue-work.md) and `documentation-sync.md`; legacy procedures follow the
+  [transition](agents/documentation-strategy.md#transition)
+- `docs/concepts/` — retained architecture and design material under that transition: modular
+  deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
+- `docs/roadmaps/owner-app-installation.md` — retained installation plan under the same transition
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
 - `docs/vision.md` — core standard

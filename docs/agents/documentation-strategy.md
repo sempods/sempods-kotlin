@@ -8,7 +8,7 @@ How documentation is organised in this repository, and — more importantly — 
 | Type | Home | Owns |
 |---|---|---|
 | Vision | `vision.md` | Purpose and direction, independent of what is implemented. Changes rarely. |
-| Maintained IST documentation | `<topic>.md`, `<area>/`, including `concepts/` | What the code does today and the reasoning needed to maintain it. |
+| Maintained IST documentation | `<topic>.md`, `<area>/` | What the code does today and the reasoning needed to maintain it. |
 | Proposal | `proposals/<topic>.md`, only when needed | Substantive proposed design that benefits from a reviewable document. Explicitly not implemented. |
 
 GitHub issues own public goals, scope, decisions, dependencies and progress. They are the default
@@ -16,10 +16,12 @@ home for planned work. A proposal is occasional: link its owning issue, state it
 (proposed, accepted, superseded or withdrawn), and link adoption work. Merging or accepting it does
 not assert implementation. Keep it clearly proposed until adoption is verified; then update current
 documentation and remove or reduce redundant proposal content. Create no empty proposal directory
-or stub merely to complete the type list.
+or stub merely to complete the type list. Exclude proposal folders at every documentation scope
+from Context7 publication through `context7.json`.
 
-`concepts/` is a folder for current architecture explanations, not a fourth type or a permanent
-IST/SOLL lifecycle. Existing mixed documents follow the [transition](#transition).
+A verified architecture explanation can live in `concepts/` as maintained documentation; the
+folder itself is not a type. The existing contents remain outside IST classification under the
+[transition](#transition) until their claims have been checked.
 
 ### They nest
 
@@ -27,7 +29,6 @@ The three types may appear under any `docs/` directory, at the narrowest respons
 
 ```
 docs/vision.md                                   repository-wide direction
-docs/concepts/modularity.md                      architecture; transitional content noted below
 docs/naming.md                                   IST, repository-wide naming contract
 sempods-auth/docs/vision.md                      sub-vision for an independent audience
 sempods-auth/docs/identity-service.md            IST for that service
@@ -145,30 +146,26 @@ reads stops being true.
 
 Use an issue for actionable design, implementation and repository maintenance. Every PR for new
 public work links its owning issue, including small changes, except for
-[automated dependency updates](#automated-dependency-updates). Small work needs only a standalone
+[automated dependency updates](#automated-dependency-updates). Embargoed vulnerability work uses
+the private record defined under [Security fixes](#security-fixes). Small work needs only a standalone
 issue, with no parent or release milestone required. A larger goal uses a parent with native
 sub-issues for bounded iterations; each iteration has its own acceptance and documentation
 completion. Read and update the owning issue instead of duplicating sub-issue status in a checklist,
 document or Project field. Parent descriptions hold the current goal and decisions; discussion goes
 in comments, with actionable results incorporated into the owning description.
 
-1. Read the parent, relevant decisions and linked dependencies. Confirm the problem, target, scope
-   and verifiable acceptance before implementation. Resolve decisions that block this iteration.
-2. Use native parent/sub-issue relationships for membership and ordering. Use native blocked-by
-   relationships for prerequisites: being siblings or appearing earlier in a list is not a blocker.
-3. Implement through linked PRs. Each PR runs [documentation-sync](documentation-sync.md), updates
-   affected documentation in the same change, and records checks and documentation evidence or a
-   reason no update is needed. Documentation is never deferred to the final PR or iteration.
-4. Keep the issue open across partial PRs. Link those with `Refs #N`; use `Closes #N` only when
-   merging that PR satisfies all acceptance, including required follow-up work. Before closing,
-   verify acceptance against merged PRs and check results and record the completion evidence.
-   Close a parent only when its own acceptance and required sub-issues are complete. A child closed
-   as not planned requires an explicit scope decision; it does not count as delivered work.
+Every implementation PR completes the [definition of done](#definition-of-done) for its own diff.
+Keep an issue open across partial PRs; close it only after its acceptance, required merged work and
+completion evidence are verified. A parent also needs its own acceptance and required children
+complete. A child closed as not planned requires an explicit scope decision; it is not delivered
+work. [Issue work](issue-work.md) is the procedure for applying these rules.
 
 A proposal issue completes when its stated design deliverable is reviewed; that does not assert
 implementation. Adoption is tracked separately.
 
-Reuse existing category and module labels. Assign a milestone only for agreed release scope;
+Maintainers or triagers set native relationships and metadata from the links and scope supplied
+by the filer; filing an issue requires no triage permissions. Reuse existing category and module
+labels. Assign a milestone only for agreed release scope;
 Kotlin and specification release versions remain independent. Git tags identify publication.
 A shared GitHub Project is optional and may present the same issues
 across repositories without becoming another status owner.
@@ -184,6 +181,14 @@ needed. Apply the same verification and documentation requirements as other PRs.
 If an update exposes work that needs separate planning, such as a behaviour change or migration
 decision beyond the dependency update, track that work in an issue and link the PR. Bot authorship
 alone does not exempt other implementation or maintenance work from issue planning.
+
+### Security fixes
+
+[SECURITY.md](../../SECURITY.md) governs coordinated disclosure. Until disclosure, the private
+advisory and its private fix PR carry scope, decisions and completion evidence; no public owning
+issue or public link to that record is required. Keep review, check results and documentation
+changes within that private work until publication under the security policy. Disclosure does not
+require a duplicate tracking issue for an already completed fix.
 
 ### Private planning
 
@@ -218,12 +223,21 @@ no state is retired.
   its recorded work until [#120](https://github.com/sempods/sempods-kotlin/issues/120) maps and
   retires it. Tick completed legacy items in the same change and retain the complete list until
   transfer or consolidation; no second checklist owns that same work. Create no new roadmap files.
-- Existing concept and other SOLL material remains transitional until
-  [#121](https://github.com/sempods/sempods-kotlin/issues/121) classifies and transfers it. Preserve
-  its proposed status and useful explanations under the rule above; an unmarked concept paragraph
-  needs verification, not an assumption that it is current.
+- The existing `docs/concepts/` contents are retained material outside the maintained IST type until
+  [#121](https://github.com/sempods/sempods-kotlin/issues/121) classifies claims against code and
+  tests. Only verified current explanations enter maintained documentation, in place or in their existing owner;
+  future work moves to issues or proposals. Other existing SOLL passages remain explicitly proposed
+  until the same classification. Preserve useful explanations under the rule above.
+- `context7.json` temporarily excludes the retained `docs/concepts/` contents. The classification
+  iteration removes this exclusion only after all retained files there are safe to publish as
+  current documentation.
 - [The legacy lifecycle procedure](roadmap-lifecycle.md) and its wrapper remain only for the
-  retained roadmap. #120 removes them after transfer; #121 removes resolved SOLL transition notes.
+  retained roadmap. #120 owns removal of that source, its index, procedure, wrapper and their
+  incoming references after transfer. #121 owns the concept/SOLL classification and removes every
+  resolved transition note in instruction maps, documentation indexes and affected content.
+  Each iteration searches tracked sources for the retired paths and links to this section,
+  repairs its callers, and updates this section in the same PR. This section alone assigns the
+  migration issues; other entry points link here.
 
 ## Definition of done
 
@@ -235,7 +249,8 @@ behaviour change is not finished until, **in the same change**:
 - the KDoc on any changed interface or DTO is correct;
 - the PR records acceptance progress, checks and documentation evidence, with issue linkage under
   [Issue planning](#issue-planning) or the
-  [automated dependency-update exception](#automated-dependency-updates); any temporary legacy
+  [automated dependency-update exception](#automated-dependency-updates) or
+  [private security record](#security-fixes); any temporary legacy
   bookkeeping follows [Transition](#transition);
 - [`../../context7.json`](../../context7.json) still tells the truth. Its `rules` array asserts
   facts about grants, contexts, the SPARQL surface, client identity and trademark language, and it

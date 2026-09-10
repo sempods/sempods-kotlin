@@ -261,7 +261,7 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
 | [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
-| [`docs/concepts/`](docs/concepts/) | architecture explanations, with existing mixed content awaiting migration |
+| [`docs/concepts/`](docs/concepts/) | retained architecture and design material awaiting classification |
 | [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
 
 Maintained documentation describes current code; issues own public plans, with occasional explicitly
@@ -272,10 +272,10 @@ for human and AI contributors alike.
 
 ## Contributing
 
-Small changes are welcome. Link new public work to its owning issue; a standalone issue is enough
-for a small change. Routine automated dependency updates use their PR under the
-[documented exception](docs/agents/documentation-strategy.md#automated-dependency-updates).
-Agree larger changes in the issue before implementation.
+Small changes are welcome. Follow the
+[issue-planning rules](docs/agents/documentation-strategy.md#issue-planning) for the work record and
+completion evidence, including automated updates and private security fixes. Agree larger changes
+before implementation.
 Contributions run under the **Developer Certificate of Origin** — `git commit -s` — and there is
 deliberately **no CLA**: everyone, maintainer included, works under the same licence. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md), which also lists the handful of properties that will not

@@ -2,8 +2,7 @@
 
 Legacy procedure for the retained roadmap only, under
 [Transition](documentation-strategy.md#transition). New and migrated work uses issues.
-[#120](https://github.com/sempods/sempods-kotlin/issues/120) governs transfer and retirement; this
-procedure applies only if the legacy milestone ships before that transfer.
+This procedure applies only if the legacy milestone ships before the transfer defined there.
 
 Read [`documentation-strategy.md`](documentation-strategy.md) first — this procedure applies its
 rules and does not restate them. Wrapped for Claude Code as the `consolidate-roadmap` skill; any

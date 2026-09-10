@@ -6,9 +6,9 @@ body:
       value: |
         Read [CONTRIBUTING.md](https://github.com/sempods/sempods-kotlin/blob/main/CONTRIBUTING.md)
         and [Issue planning](https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning).
-        Search existing issues before filing. Use native sub-issues for bounded iterations;
-        add them after creation instead of keeping a second progress checklist here.
-        Use existing labels and only an agreed release milestone. Security reports go privately.
+        Search existing issues before filing. Describe the intended iterations and link related issues.
+        Maintainers or triagers set native relationships, suitable labels and any agreed release milestone.
+        You do not need those permissions to file this form. Security reports go privately.
   - type: checkboxes
     id: before-filing
     attributes:
@@ -41,7 +41,7 @@ body:
     id: dependencies
     attributes:
       label: Dependencies and decisions
-      description: Link prerequisites and identify unresolved decisions. Add native blocked-by relationships after creation where applicable.
+      description: Link prerequisite issues and identify unresolved decisions. Suggest release scope or labels if useful; maintainers or triagers set the metadata.
   - type: markdown
     attributes:
       value: |

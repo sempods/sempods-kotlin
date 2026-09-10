@@ -15,12 +15,10 @@ No proposal document is needed merely to open an issue.
 
 - [`vision.md`](vision.md) — the model and why it is shaped this way. Independent of what is built.
 
-## Concepts — architecture explanations
+## Concepts — retained material
 
-[`concepts/`](concepts/) is a folder within maintained documentation. Its six existing documents
-still contain proposed or mixed material awaiting
-[#121](https://github.com/sempods/sempods-kotlin/issues/121); a `(Concept)` title does not distinguish
-current behaviour from a target. Verify claims against code and tests before treating them as IST.
+[`concepts/`](concepts/) contains architecture and design material awaiting classification under
+[the transition](agents/documentation-strategy.md#transition).
 
 - [`concepts/modularity.md`](concepts/modularity.md) — which behaviours are deployment-selected
   seams and which invariants are not
@@ -67,11 +65,10 @@ explicit proposals, and current documentation stays current.
 - [`request-tracing.md`](request-tracing.md) — correlating a request across the three services
 - [`testing.md`](testing.md) — the test layers and which one a change belongs in
 
-## Legacy roadmap — awaiting transfer
+## Legacy roadmap — retained material
 
-[`roadmaps/`](roadmaps/) retains [owner app installation](roadmaps/owner-app-installation.md) as the
-owner of its recorded work until [#120](https://github.com/sempods/sempods-kotlin/issues/120) maps it
-to issues and retires the source. New work uses issues immediately.
+[Owner app installation](roadmaps/owner-app-installation.md) follows the same
+[transition](agents/documentation-strategy.md#transition).
 
 ## Instructions for contributors, human and AI
 
@@ -79,5 +76,6 @@ to issues and retires the source. New work uses issues immediately.
 they govern how the rest of this directory is written rather than describing the system:
 [`ai-instructions.md`](agents/ai-instructions.md) is the hub,
 [`documentation-strategy.md`](agents/documentation-strategy.md) the authority on types and issue planning,
-and [`documentation-sync.md`](agents/documentation-sync.md) the per-PR completion procedure.
+[`issue-work.md`](agents/issue-work.md) the work procedure, and
+[`documentation-sync.md`](agents/documentation-sync.md) the per-PR documentation procedure.
 [`roadmap-lifecycle.md`](agents/roadmap-lifecycle.md) remains only for the retained legacy source.

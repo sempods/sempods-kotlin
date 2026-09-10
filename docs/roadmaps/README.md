@@ -1,12 +1,9 @@
 # Roadmaps
 
-[Owner app installation](owner-app-installation.md) is the retained legacy source for its recorded
-work until [#120](https://github.com/sempods/sempods-kotlin/issues/120) transfers it to issues and
-retires this directory. Create no new roadmap files. New and migrated work uses issues, which own
-goals, decisions and progress; the former rule that a tracking issue holds no state is retired.
-
-See [Transition](../agents/documentation-strategy.md#transition) for the temporary ownership
-boundary. The format and rules below apply only to the retained source until transfer.
+[Owner app installation](owner-app-installation.md) is the retained source governed by
+[Transition](../agents/documentation-strategy.md#transition). That section owns the transfer and
+retirement plan. The format below applies only to this source; new work follows
+[Issue planning](../agents/documentation-strategy.md#issue-planning).
 
 ## The rule that surprises reviewers
 
