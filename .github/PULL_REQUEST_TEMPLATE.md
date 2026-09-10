@@ -4,7 +4,10 @@
 ## What this changes
 
 <!-- One or two sentences. New public work links its owning issue, including small changes.
-     A standalone issue is enough. Use "Refs #123" for partial work.
+     A standalone issue is enough. Routine bot-generated dependency updates need no separate issue:
+     the PR carries their scope and completion evidence under documentation-strategy.md's
+     "Automated dependency updates" exception. The review and documentation requirements below apply.
+     Use "Refs #123" for partial work on an issue.
      Use "Closes #123" only if merging this PR meets all acceptance, including follow-up actions.
      Parent membership alone does not mean a dependency or that this PR finishes the parent. -->
 

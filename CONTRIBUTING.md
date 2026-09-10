@@ -195,9 +195,11 @@ expect.
 ## Planning work
 
 Use issues for actionable design, implementation and repository maintenance. Every PR for new
-public work links its owning issue, including small changes. A standalone issue is enough for small
-work; a large goal can have native sub-issues for bounded iterations. The forms capture scope,
-acceptance, dependencies and documentation completion.
+public work links its owning issue, including small changes, except for
+[automated dependency updates](docs/agents/documentation-strategy.md#automated-dependency-updates),
+whose PR carries the scope and completion evidence. A standalone issue is enough for small work;
+a large goal can have native sub-issues for bounded iterations. The forms capture scope, acceptance,
+dependencies and documentation completion.
 [Issue planning](docs/agents/documentation-strategy.md#issue-planning) defines the lifecycle and
 closure evidence. General questions and exploratory conversation fit
 [Discussions](https://github.com/sempods/sempods-kotlin/discussions); vulnerabilities follow
@@ -205,8 +207,9 @@ closure evidence. General questions and exploratory conversation fit
 
 ## Practical expectations
 
-* Find or open the owning issue before starting new public work, including small changes.
-  Agree the scope of a large change in that issue before implementation.
+* Follow [Issue planning](docs/agents/documentation-strategy.md#issue-planning) for issue ownership
+  and its automated dependency-update exception. Agree the scope of a large change in its issue
+  before implementation.
 * Small, focused changes are reviewed faster than large ones.
 * Response times vary — this is not anyone's full-time job yet. Silence is
   neither rejection nor disinterest; ping the issue.

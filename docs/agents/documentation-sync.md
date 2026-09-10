@@ -87,8 +87,10 @@ Over what is left:
 
 ## 6. Issue and PR completion
 
-Follow [Issue planning](documentation-strategy.md#issue-planning). Link the owning issue, compare
-this PR with its acceptance and dependencies, and record the work and checks it completes. Explain
+Follow [Issue planning](documentation-strategy.md#issue-planning). For an
+[automated dependency update](documentation-strategy.md#automated-dependency-updates), use the PR's
+scope and completion evidence; no separate issue is required. Otherwise link the owning issue and
+compare this PR with its acceptance and dependencies. Record the work and checks completed. Explain
 any documentation no-change result. Partial PRs leave the issue open; closure requires all
 acceptance and merged work, including follow-up actions. For retained roadmap work, apply only the
 [transition bookkeeping](documentation-strategy.md#transition).

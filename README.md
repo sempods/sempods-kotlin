@@ -272,8 +272,10 @@ for human and AI contributors alike.
 
 ## Contributing
 
-Small changes are welcome. Link each PR for new public work to its owning issue; a standalone
-issue is enough for a small change. Agree larger changes in the issue before implementation.
+Small changes are welcome. Link new public work to its owning issue; a standalone issue is enough
+for a small change. Routine automated dependency updates use their PR under the
+[documented exception](docs/agents/documentation-strategy.md#automated-dependency-updates).
+Agree larger changes in the issue before implementation.
 Contributions run under the **Developer Certificate of Origin** — `git commit -s` — and there is
 deliberately **no CLA**: everyone, maintainer included, works under the same licence. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md), which also lists the handful of properties that will not

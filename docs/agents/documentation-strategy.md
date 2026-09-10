@@ -144,7 +144,8 @@ reads stops being true.
 ## Issue planning
 
 Use an issue for actionable design, implementation and repository maintenance. Every PR for new
-public work links its owning issue, including small changes. Small work needs only a standalone
+public work links its owning issue, including small changes, except for
+[automated dependency updates](#automated-dependency-updates). Small work needs only a standalone
 issue, with no parent or release milestone required. A larger goal uses a parent with native
 sub-issues for bounded iterations; each iteration has its own acceptance and documentation
 completion. Read and update the owning issue instead of duplicating sub-issue status in a checklist,
@@ -171,6 +172,18 @@ Reuse existing category and module labels. Assign a milestone only for agreed re
 Kotlin and specification release versions remain independent. Git tags identify publication.
 A shared GitHub Project is optional and may present the same issues
 across repositories without becoming another status owner.
+
+### Automated dependency updates
+
+Routine bot-generated dependency-update PRs, including the Gradle and GitHub Actions updates in
+[Dependabot's configuration](../../.github/dependabot.yml), need no separate owning issue. The PR
+itself owns the bounded update scope and completion evidence. Before merge, review the update,
+record applicable check results, and update affected documentation or explain why no update is
+needed. Apply the same verification and documentation requirements as other PRs.
+
+If an update exposes work that needs separate planning, such as a behaviour change or migration
+decision beyond the dependency update, track that work in an issue and link the PR. Bot authorship
+alone does not exempt other implementation or maintenance work from issue planning.
 
 ### Private planning
 
@@ -220,8 +233,10 @@ behaviour change is not finished until, **in the same change**:
 - the affected IST documentation is correct — or has been cut, because the logic now follows the
   standard (rules 4 and 5);
 - the KDoc on any changed interface or DTO is correct;
-- the PR links its issue and records acceptance progress, checks and documentation evidence;
-  any temporary legacy bookkeeping follows [Transition](#transition);
+- the PR records acceptance progress, checks and documentation evidence, with issue linkage under
+  [Issue planning](#issue-planning) or the
+  [automated dependency-update exception](#automated-dependency-updates); any temporary legacy
+  bookkeeping follows [Transition](#transition);
 - [`../../context7.json`](../../context7.json) still tells the truth. Its `rules` array asserts
   facts about grants, contexts, the SPARQL surface, client identity and trademark language, and it
   is served to agents everywhere. A behaviour change can turn one of those assertions into a lie
