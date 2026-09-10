@@ -186,10 +186,21 @@ Three more run in CI and are worth running locally when a change touches them:
 third walks every markdown file and fails on a relative link that points at nothing; the fourth
 keeps a container image from shipping without the label that says which commit it is.
 
+Every PR completes documentation for its own diff, including partial work on a larger issue.
 A behaviour change carries its documentation in the same commit —
-`docs/agents/documentation-strategy.md` §"Definition of done" is the list. It is also
+[the definition of done](docs/agents/documentation-strategy.md#definition-of-done) is the list. It is also
 the file that says when *not* to write documentation, which is more often than people
 expect.
+
+## Planning work
+
+Use issues for actionable design, implementation and repository maintenance. A large goal can have
+native sub-issues for bounded iterations; small work can stand alone. The forms capture scope,
+acceptance, dependencies and documentation completion.
+[Issue planning](docs/agents/documentation-strategy.md#issue-planning) defines the lifecycle and
+closure evidence. General questions and exploratory conversation fit
+[Discussions](https://github.com/sempods/sempods-kotlin/discussions); vulnerabilities follow
+[SECURITY.md](SECURITY.md).
 
 ## Practical expectations
 

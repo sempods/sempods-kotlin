@@ -3,12 +3,22 @@
 
 ## What this changes
 
-<!-- One or two sentences. Link the issue if there is one: "Closes #123". -->
+<!-- One or two sentences. Link the issue: "Refs #123" for partial work.
+     Use "Closes #123" only if merging this PR meets all acceptance, including follow-up actions.
+     Parent membership alone does not mean a dependency or that this PR finishes the parent. -->
 
 ## Why
 
 <!-- For a fix: what went wrong. For a seam or a signature: what it buys.
      For a specification change: the rationale CONTRIBUTING asks for. -->
+
+## Verification and documentation
+
+<!-- Commands and results; identify anything blocked or not run.
+     Name the documentation updated or deleted for this diff, or explain why no update is needed.
+     Check affected IST documents, KDoc, context7.json and instruction pointers.
+     Every PR completes its own documentation, even if the issue needs several PRs.
+     State acceptance still outstanding; closure evidence includes all required merged PRs. -->
 
 ## Before requesting review
 

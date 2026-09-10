@@ -43,8 +43,9 @@ so read it before changing behaviour on those paths.
 ## Working rules
 
 - Any behaviour change must come with tests — prefer HTTP-level conformance tests.
-- Keep docs and spec aligned with the implementation: `../docs/` is IST, and what is
-  planned but not built is SOLL and lives in the maintainer's internal roadmap.
+- Keep implementation documentation current and respect the specification boundary. Public technical
+  plans use [issue planning](../docs/agents/documentation-strategy.md#issue-planning); private
+  roadmap references follow the strategy's private planning boundary.
 - Be conservative with backward-incompatible changes.
 - Naming: [`../docs/naming.md`](../docs/naming.md) is the authority. Before
   renaming anything that already reads `sempods`, check its §3 "Frozen" — the `SEMPODS_*`

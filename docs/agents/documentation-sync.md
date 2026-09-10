@@ -1,7 +1,7 @@
 # Procedure: sync the documentation
 
-Bring documentation back in line after a change. This is the working half of the definition of done
-in [`documentation-strategy.md`](documentation-strategy.md) — run it before proposing a commit, not
+Bring documentation back in line in every PR, including partial work on a multi-PR issue. This is
+the working half of the definition of done in [`documentation-strategy.md`](documentation-strategy.md) — run it before proposing a commit, not
 as a separate pass later.
 
 Wrapped for Claude Code as the `sync-docs` skill; any other agent can be pointed at this file
@@ -48,7 +48,10 @@ Apply the writing rules. In particular, ask in this order:
    expected outcome of a simplification, and leaving the old prose in place is the error.
 3. Is something new here genuinely a deviation from the standard? Then document it — briefly, in the
    narrowest document that fits, and without the history of how it got that way.
-4. Is a section now half IST and half SOLL? Split it.
+4. Does a section mix current and proposed claims? Apply
+   [Preserving current explanations](documentation-strategy.md#preserving-current-explanations):
+   verify against code and tests, keep useful implemented explanations, and place new future work
+   in its issue or proposal. Existing SOLL material follows the documented transition.
 
 ## 4. KDoc
 
@@ -67,12 +70,11 @@ git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  
 git grep -n --untracked '<a phrase from each rationale added>' -- '*.md' '*.kt' '*.kts'   # a second owner
 ```
 
-The first two only count; a ratio far above 1:1 means reading what the prose bought. The last is
-`git grep` for the reason [`roadmap-lifecycle.md`](roadmap-lifecycle.md) §5 gives — it still skips
-what `.gitignore` names — with `--untracked`, because step 1 leaves a new file untracked on purpose
-and that is often where the rationale being added lives. Without the flag the search finds the older
-owner, misses the new one, and one hit reads as none. A second hit means choosing the owner and
-making the rest point there.
+The first two only count; a ratio far above 1:1 means reading what the prose bought. `git grep`
+searches tracked sources without reading generated `build/` content or ignored worktree checkouts.
+`--untracked` includes new files from step 1 while still respecting `.gitignore`. Without it, the
+search finds the older owner, misses the new one, and one hit reads as none. A second hit means
+choosing the owner and making the rest point there.
 
 Over what is left:
 
@@ -83,11 +85,13 @@ Over what is left:
 - Does anything explain why something was **not** changed? That is the commit message's job.
 - Did the change delete anything? One that only adds has not looked (rule 9).
 
-## 6. Roadmap
+## 6. Issue and PR completion
 
-If a roadmap covers this work, tick the item **now**, in this change. Leave the completed items in
-place; the roadmap is dissolved as a whole, later, via
-[`roadmap-lifecycle.md`](roadmap-lifecycle.md).
+Follow [Issue planning](documentation-strategy.md#issue-planning). Link the owning issue, compare
+this PR with its acceptance and dependencies, and record the work and checks it completes. Explain
+any documentation no-change result. Partial PRs leave the issue open; closure requires all
+acceptance and merged work, including follow-up actions. For retained roadmap work, apply only the
+[transition bookkeeping](documentation-strategy.md#transition).
 
 ## 7. context7.json
 
@@ -106,6 +110,7 @@ Also check `excludeFiles` if documents were added, moved or deleted.
 
 ## 9. Report
 
-Name what was updated, what was **deleted** and why, and what was deliberately left alone. "No
+Name what was updated or deleted and why, the checks run and their results, and any remaining
+acceptance or blocker. Record this evidence in the linked PR or issue. "No
 documentation change needed, because the code follows the standard" is a complete and correct
 report.

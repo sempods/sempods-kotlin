@@ -1,22 +1,15 @@
 # Concepts
 
-A concept document owns one topic. It says what the topic *is*, what is true today, and what the
-target state is — and it links to the roadmap implementing that target and to the IST documents
-describing the parts already built.
+This folder holds current architecture explanations under the maintained IST documentation type.
+Public targets and progress belong in issues; substantive proposed design may use a proposal under
+`docs/proposals/` at the responsible scope. See
+[the strategy](../agents/documentation-strategy.md) for ownership, placement and writing rules.
 
-A concept outlives the roadmaps that implement it. Where a roadmap is dissolved by design, a
-concept's SOLL section is rewritten as IST when it comes true, and the document stays. The one
-exception is a concept that ends up with nothing left to say: if it is entirely IST and small
-enough, it folds into the IST document it points at and is deleted — see
-[`../agents/roadmap-lifecycle.md`](../agents/roadmap-lifecycle.md) §2. Keeping a document that only
-repeats another one is not preservation.
-
-This folder is the repository-wide one. A module may hold its own — `<module>/docs/concepts/` — for
-a topic that is true of that module only. The rules below apply at every level; do not copy this
-file into a module, reference it.
-
-See [`../agents/documentation-strategy.md`](../agents/documentation-strategy.md) for the four
-documentation types and the writing rules.
+The six existing documents below still contain mixed or proposed material. They await paragraphwise
+verification and transfer in [#121](https://github.com/sempods/sempods-kotlin/issues/121), under the
+[transition](../agents/documentation-strategy.md#transition). A `(Concept)` title does not establish
+implemented status. Useful implemented explanations survive under the strategy's
+[preservation rule](../agents/documentation-strategy.md#preserving-current-explanations).
 
 ## Here today
 
@@ -28,45 +21,34 @@ documentation types and the writing rules.
   profile a third-party pod would have to meet.
 - [`mcp-agent-interface.md`](mcp-agent-interface.md) — where the per-pod MCP surface is going:
   SHACL-gated app contracts, cross-pod orchestration.
-- [`inference-context.md`](inference-context.md) — a TBox layer for type and predicate coverage.
+- [`inference-context.md`](inference-context.md) — a proposed TBox layer for type and predicate coverage;
+  SOLL throughout, not implemented.
 - [`app-installation.md`](app-installation.md) — how a pod owner turns an interactive decision into
   a durable service-client credential.
 
-## Template
+## Template for current architecture documentation
 
 ```markdown
-# <Topic> (Concept)
+# <Topic>
 
 ## Purpose
 
-What this topic is, and why it exists in the shape it does. Two or three paragraphs. Sections
-below are marked **IST** (implemented, verifiable in code) or **SOLL** (target state).
+What this topic is and why it has this shape.
 
-## <Aspect> (IST)
+## Behaviour
 
-What the system does today. Present tense. Links to the IST documents and code paths that carry
-the detail.
+What the system does today, verifiable in code. Link to the owning reference documentation and
+code paths for detail.
 
-## <Aspect> (SOLL)
+## Constraints
 
-The target state, and the constraint or trade-off behind it. Not a plan — a plan is a roadmap.
-
-## Not in scope
-
-What this concept deliberately does not cover, where a reader might expect it to.
+Non-obvious boundaries and rationale a maintainer needs. Omit ordinary behaviour and history.
 
 ## See also
 
-- IST documentation: `../<topic>.md`
-- Roadmap: `../roadmaps/<milestone>.md`   ← while one is running
+- Owning reference documentation and code paths
+- Related planning issue, if further work is proposed
 ```
 
-## Rules
-
-- **Never mix IST and SOLL in one section.** Mark each section, or the title if the whole document
-  is one or the other.
-- The concept carries the reasoning permanently. A roadmap links here rather than repeating it —
-  that is what keeps roadmaps thin and consolidation cheap.
-- Do not restate the IST documents. Link to them. The concept is the level above.
-- No history and no decision log. Keep only the reasoning a future reader needs in order not to undo
-  the decision.
+The folder may also exist at a module's `docs/concepts/` for architecture specific to that module.
+Reference the strategy rather than copying its rules or this index into the module.

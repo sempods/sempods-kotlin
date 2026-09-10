@@ -11,14 +11,15 @@ belongs there, and what is written here is what this implementation does about i
 
 ## Documentation policy
 
-[`agents/documentation-strategy.md`](agents/documentation-strategy.md) is the authority — the four
-types, how they nest, and when something should not be documented at all. Read it before editing
-anything here. What it means for this folder:
+[`agents/documentation-strategy.md`](agents/documentation-strategy.md) is the authority — the three
+document types, how they nest, and when something should not be documented at all. Read it before
+editing anything here. What it means for this folder:
 
 - English.
-- `vision.md` is the repository-wide vision; `concepts/` holds one document per topic, each stating
-  IST and SOLL; `roadmaps/` holds the milestone being implemented, if one is; everything else
-  describes what the code does today.
+- `vision.md` gives direction; maintained documentation describes current code; occasional
+  proposals carry explicitly unimplemented design. `concepts/` is an architecture folder.
+  Existing roadmap and SOLL content follow the
+  [transition](agents/documentation-strategy.md#transition).
 - Never mix runtime facts and target state in the same section.
 - High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
   document links to the file.
@@ -27,12 +28,13 @@ anything here. What it means for this folder:
 
 ## Key references
 
-- `docs/agents/` — the AI instruction hub, the documentation strategy, and the two procedures
-  (`roadmap-lifecycle.md`, `documentation-sync.md`)
-- `docs/concepts/` — one document per topic, each stating IST and SOLL: modular deployment
+- `docs/agents/` — the AI instruction hub, the documentation strategy, issue planning and
+  `documentation-sync.md`; `roadmap-lifecycle.md` serves only the retained legacy roadmap
+- `docs/concepts/` — architecture explanations with mixed content awaiting
+  [#121](https://github.com/sempods/sempods-kotlin/issues/121): modular deployment
   (deployment-selected seams, the invariants that are not selectable, open-source blockers), graph
   retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
-- `docs/roadmaps/` — milestones being implemented, if any. Dissolved when they ship. Running:
+- `docs/roadmaps/` — legacy source until [#120](https://github.com/sempods/sempods-kotlin/issues/120):
   `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and
   protected DCR
 - `docs/naming.md` — how the name is written in prose and in code, the package

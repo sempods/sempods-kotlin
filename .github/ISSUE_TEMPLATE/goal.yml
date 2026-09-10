@@ -1,0 +1,47 @@
+name: Goal or multi-step plan
+description: Plan a larger technical goal, design change or repository improvement.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [CONTRIBUTING.md](https://github.com/sempods/sempods-kotlin/blob/main/CONTRIBUTING.md)
+        and [Issue planning](https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning).
+        Search existing issues before filing. Use native sub-issues for bounded iterations;
+        add them after creation instead of keeping a second progress checklist here.
+        Use existing labels and only an agreed release milestone. Security reports go privately.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What needs to change, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: target
+    attributes:
+      label: Target and scope
+      description: Describe the intended result and boundaries. Link substantive design if needed.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: Observable conditions for completing the whole goal, beyond finishing its children.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and decisions
+      description: Link prerequisites and identify unresolved decisions. Add native blocked-by relationships after creation where applicable.
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation completion
+      description: Name likely documentation owners and adjust the completion plan for this goal.
+      value: |
+        Each implementation PR runs documentation-sync and updates affected documentation in that PR, or records why no update is needed.
+        Before closure, verify all acceptance and record merged PRs, check results and documentation evidence.
+    validations:
+      required: true

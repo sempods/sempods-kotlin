@@ -57,9 +57,11 @@ commas, backtick test method names, no licence headers, KDoc carrying the field-
 
 ## Documentation
 
-Every behaviour change updates the IST documentation, the KDoc, the relevant roadmap item and
-`context7.json` **in the same change**. Logic that follows the standard needs no documentation at
-all — and when a special case becomes ordinary, its documentation and comments are deleted.
+Public plans and progress live in issues. Every PR records documentation and check evidence;
+behaviour changes update IST documentation, KDoc and affected `context7.json` assertions **in the
+same change**, including partial PRs. Close an issue only after all acceptance is met by merged work.
+Logic that follows the standard needs no documentation at all — and when a special case becomes
+ordinary, its documentation and comments are deleted.
 
 Full rules: [`docs/agents/documentation-strategy.md`](../docs/agents/documentation-strategy.md).
 

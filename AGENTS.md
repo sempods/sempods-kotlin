@@ -19,7 +19,7 @@ authority where the two overlap.
 
 - [`docs/agents/ai-instructions.md`](docs/agents/ai-instructions.md) — how instructions are
   discovered and which file wins where two disagree. Every agent frontend routes through it.
-- [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) — the four
+- [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) — the three
   documentation types, and the rules for when *not* to document something. Read it before touching
   any `*.md`.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) §"What this project will not change" — the non-negotiable
@@ -81,16 +81,16 @@ The short version:
 
 - **Code contracts are the source of truth.** Field-level detail goes in KDoc; markdown stays
   high-level and links to the code path.
-- **Everything except roadmaps and SOLL sections describes what is true today.** Where a document
-  and the code disagree, the code is right and the document is a bug. Never mix the two in one
-  section.
+- **Maintained documentation describes what the code does today.** Public plans live in issues,
+  with occasional explicitly proposed design documents. Existing SOLL material follows the
+  [transition](docs/agents/documentation-strategy.md#transition).
 - **Logic that follows the standard needs no documentation at all** — and when a special case
   becomes ordinary, its documentation and its comments are deleted. Documentation shrinking is what
   a simplification is supposed to produce.
 - **No history and no decision log.** Keep only the reasoning a future reader needs in order not to
   undo the decision; the rest is what commit messages are for.
-- The four types — `vision.md`, `concepts/`, `roadmaps/`, IST documents — nest under any `docs/`
-  directory, at the repository root and at a module.
+- The three document types — Vision, maintained IST documentation and Proposal — nest under any
+  `docs/` directory. `concepts/` is a folder for current architecture explanations.
 
 ## Auth layer (sempods-auth)
 
@@ -115,18 +115,19 @@ Key design choices:
 
 ## Documentation map
 
-Agent instructions: `docs/agents/` — the hub, the documentation strategy, and the two procedures
-(`roadmap-lifecycle.md`, `documentation-sync.md`).
+Agent instructions: `docs/agents/` — the hub, the documentation strategy, issue planning and
+`documentation-sync.md`. `roadmap-lifecycle.md` remains only for the documented transition.
 
 Vision and concepts:
 
 - Vision: `docs/vision.md`
-- Concepts: `docs/concepts/` — one document per topic, each stating IST and SOLL. Currently
+- Concepts: `docs/concepts/` — architecture explanations, with existing mixed content awaiting
+  [#121](https://github.com/sempods/sempods-kotlin/issues/121). Topics:
   modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
   app installation
-- Roadmaps: `docs/roadmaps/` — milestones being implemented, if any. Dissolved when they ship.
-  Running: `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and
-  protected DCR
+- Legacy roadmap: `docs/roadmaps/` — retained until
+  [#120](https://github.com/sempods/sempods-kotlin/issues/120) transfers its work to issues:
+  `owner-app-installation.md` — a pod owner installs a service client through pod OAuth and protected DCR
 
 IST documentation:
 
@@ -216,8 +217,8 @@ and no already-applied check. Do not propose a migration framework as a fix for 
    configuration fails a separate CI job, not this one.
 3. Documentation, in this same change:
    [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) §"Definition of
-   done". IST documents, KDoc, the roadmap tick, and `context7.json`. The `sync-docs` procedure
-   ([`docs/agents/documentation-sync.md`](docs/agents/documentation-sync.md)) walks it.
+   done". IST documents, KDoc, issue/PR completion evidence, and `context7.json`. The
+   `sync-docs` procedure ([`docs/agents/documentation-sync.md`](docs/agents/documentation-sync.md)) walks it.
 4. `git commit -s`. The DCO workflow fails the pull request without a `Signed-off-by` line. Work
    done with an AI assistant also carries `Co-Authored-By` for the model —
    [`CONTRIBUTING.md`](CONTRIBUTING.md) §"AI-assisted contributions" is the policy, and it is the
@@ -225,7 +226,7 @@ and no already-applied check. Do not propose a migration framework as a fix for 
 5. Commit messages are **full imperative sentences in plain English**, not Conventional Commits —
    "Take MongoDB's key type out of the seams, and check that it stayed out", not `refactor: …`.
    The subject names the change directly, in the fewest words that stay correct: "Correct the
-   pod-connect flow: SOLL → IST", not "Describe the flow as what it does, not as what it still
+   pod-connect flow documentation", not "Describe the flow as what it does, not as what it still
    needs" (writing rule 3 in
    [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md)). The body
    explains what was wrong and why the fix has the shape it does.

@@ -1,0 +1,46 @@
+name: Task or iteration
+description: Define bounded design, implementation or maintenance work, standalone or under a parent.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [CONTRIBUTING.md](https://github.com/sempods/sempods-kotlin/blob/main/CONTRIBUTING.md)
+        and [Issue planning](https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning).
+        Search existing issues before filing. Small work can stand alone; no release milestone is required.
+        Security reports go privately via SECURITY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and intended result
+      description: What is missing, and what will be true when this task is complete?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Bound this iteration; link the parent goal or proposal where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: relationships
+    attributes:
+      label: Parent, dependencies and decisions
+      description: Optional parent and prerequisite issues; identify decisions needed before work starts. Add native relationships after creation. Parent membership is not a blocker.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and verification
+      description: How will completion be demonstrated? Include applicable checks and follow-up actions.
+    validations:
+      required: true
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation completion
+      description: Name affected documentation or explain why no update is expected.
+      value: |
+        Run documentation-sync in every PR and record documentation and check evidence.
+        Partial PRs link with "Refs"; keep this issue open until all acceptance is verified against merged work.
+    validations:
+      required: true

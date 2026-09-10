@@ -1,14 +1,12 @@
 # Roadmaps
 
-A roadmap documents the implementation of **one milestone**. It is temporary: it exists so the work
-can be done in a focused way, and it is dissolved when the milestone ships.
+[Owner app installation](owner-app-installation.md) is the retained legacy source for its recorded
+work until [#120](https://github.com/sempods/sempods-kotlin/issues/120) transfers it to issues and
+retires this directory. Create no new roadmap files. New and migrated work uses issues, which own
+goals, decisions and progress; the former rule that a tracking issue holds no state is retired.
 
-This folder is the repository-wide one. A milestone touching a single module gets its roadmap at
-that module instead — `<module>/docs/roadmaps/`. The rules below apply at every level; do not copy
-this file into a module, reference it.
-
-See [`../agents/documentation-strategy.md`](../agents/documentation-strategy.md) for the four
-documentation types and how they nest.
+See [Transition](../agents/documentation-strategy.md#transition) for the temporary ownership
+boundary. The format and rules below apply only to the retained source until transfer.
 
 ## The rule that surprises reviewers
 
@@ -26,13 +24,14 @@ Every roadmap repeats this in its own header, so a reviewer who sees only the di
   and the tick belongs in the diff a reviewer reads.
 - **One milestone per file.** Two milestones in one file never finish together, so the file never
   dissolves.
-- **A tracking issue holds no state.** If a milestone has a GitHub issue, that issue carries a title
-  and a link to this file — never a copy of the checklist.
+- **One status owner per item.** Until transfer, the retained file owns its recorded work.
+  Issues may link to it; they do not duplicate its checklist. After transfer the owning issue holds
+  that state, as defined in the strategy.
 - **Public repository.** Technical milestones belong here; anything strategic, commercial or
   personal does not.
 - When it is done, run [`../agents/roadmap-lifecycle.md`](../agents/roadmap-lifecycle.md).
 
-## Template
+## Legacy format — for the retained source only
 
 ````markdown
 # <Milestone> (SOLL)

@@ -18,7 +18,9 @@ Main components:
 - Keep field-level contract documentation in KDoc on interfaces/DTOs; markdown docs should stay high-level.
 - Document provider-specific behavior in `docs/ai-layer.md`.
 - Keep endpoint-level behavior documented in `docs/ai/semweb/text2model.md` and use-case guidance in `docs/ai/semweb/use-cases/tasks.md`.
-- Planned SHACL hard-validation work belongs to the maintainer's internal roadmap until implemented.
+- Public SHACL hard-validation plans follow
+  [issue planning](../../../../../../../docs/agents/documentation-strategy.md#issue-planning).
+  Existing private roadmap references follow its private planning boundary.
 
 ## References
 
