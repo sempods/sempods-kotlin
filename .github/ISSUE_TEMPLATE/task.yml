@@ -41,13 +41,15 @@ body:
       description: How will completion be demonstrated? Include applicable checks and follow-up actions.
     validations:
       required: true
+  - type: markdown
+    attributes:
+      value: |
+        Run documentation-sync in every PR and record documentation and check evidence.
+        Partial PRs link with "Refs"; keep this issue open until all acceptance is verified against merged work.
   - type: textarea
     id: documentation
     attributes:
       label: Documentation completion
-      description: |
-        Name affected documentation or explain why no update is expected.
-        Run documentation-sync in every PR and record documentation and check evidence.
-        Partial PRs link with "Refs"; keep this issue open until all acceptance is verified against merged work.
+      description: Name affected documentation or explain why no update is expected.
     validations:
       required: true

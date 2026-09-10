@@ -42,13 +42,15 @@ body:
     attributes:
       label: Dependencies and decisions
       description: Link prerequisites and identify unresolved decisions. Add native blocked-by relationships after creation where applicable.
+  - type: markdown
+    attributes:
+      value: |
+        Each implementation PR runs documentation-sync and updates affected documentation in that PR, or records why no update is needed.
+        Before closure, verify all acceptance and record merged PRs, check results and documentation evidence.
   - type: textarea
     id: documentation
     attributes:
       label: Documentation completion
-      description: |
-        Name likely documentation owners and planned updates, or explain why none are affected.
-        Each implementation PR runs documentation-sync and updates affected documentation in that PR, or records why no update is needed.
-        Before closure, verify all acceptance and record merged PRs, check results and documentation evidence.
+      description: Name likely documentation owners and planned updates, or explain why none are affected.
     validations:
       required: true
