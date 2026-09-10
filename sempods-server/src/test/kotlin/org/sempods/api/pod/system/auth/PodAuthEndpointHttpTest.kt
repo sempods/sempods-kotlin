@@ -1306,9 +1306,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `two silent codes under a standing refusal leave one live family`() {
-    // The same run on the answer that used to mint nothing at all. Measured only for the durable
-    // answer, `superseded` would come back empty here and every auto-granted visit would leave one
-    // more live family behind — nothing throws, the collection grows, and a connection the person
+    // The same run on the short answer. Measured only for the durable one, `superseded` would come
+    // back empty here and every auto-granted visit would leave one more live family behind — nothing throws, the collection grows, and a connection the person
     // believes they replaced keeps rotating.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1655,9 +1654,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `the response scope is the access token's own scope, whichever answer was given`() {
     // RFC 6749 §5.1 defines that member as the scope of the *access token*, and a credential's
-    // lifetime has no standing in it — so `offline_access` appears in neither answer's response,
-    // where an earlier version of this server put it in both. A client could do nothing with it: it
-    // starts a fresh flow when the family ends, whatever it was told beforehand.
+    // lifetime has no standing in it — so `offline_access` appears in neither answer's response. A
+    // client could do nothing with it: it starts a fresh flow when the family ends, whatever it was
+    // told beforehand.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1729,13 +1728,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a client may still echo back the scope list an earlier version handed it`() {
-    // The standard thing to do with a `scope` in a token response is to send it again, and this
-    // server used to put `offline_access` in that list. Clients keep what they were handed, so
-    // refusing the echo now would break exactly the ones that behaved correctly. It is not a feature
-    // scope and cannot be down-scoped to; it names the connection this request is already proving it
-    // holds. This test is the reason the scope is still taken out of the comparison, so it outlives
-    // the response member it was written for.
+  fun `a client may echo back a scope list this server does not hand out`() {
+    // The standard thing to do with a `scope` in a token response is to send it again, and clients
+    // hold lists carrying `offline_access`. Refusing the echo would break exactly the ones that
+    // behaved correctly. It is not a feature scope and cannot be down-scoped to; it names the
+    // connection this request is already proving it holds. This test is why the scope is still taken
+    // out of the comparison — without it the subtraction reads as dead code.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -4458,6 +4456,13 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `a refresh past the family's deadline is not recognised at all`() {
     // One millisecond further on, and the answer comes from `lookup` instead: the clamp holds every
     // expiry at or below the deadline, so a family that is over has no row left that reads ACTIVE.
+    //
+    // `invalid_grant` and not the description, because which of the two descriptions comes back is a
+    // race this test cannot win. The collection's TTL index expires at the instant in `expiresAt`,
+    // so a monitor pass landing between the write below and the POST reaps the row and `lookup`
+    // answers `NOT_FOUND` rather than `EXPIRED` — the two are the same row-absence, which is what
+    // the log line at the `NOT_FOUND` branch says outright. What the client is owed is the same
+    // either way.
     val pod = sempodsTestFactory.newPod()
     val held = seedRefreshToken(pod)
     val past = Instant.now().minusSeconds(1)
@@ -4468,7 +4473,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
     )
     assertEquals(400, response.statusCode, response.responseBody)
-    assertTrue("expired" in response.responseBody, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
   }
 
   @Test

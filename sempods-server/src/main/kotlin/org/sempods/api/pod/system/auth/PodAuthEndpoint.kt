@@ -1730,12 +1730,11 @@ class PodAuthEndpoint @Inject constructor(
     // Optional down-scoping of the feature scopes. Unknown scopes are rejected per RFC 6749
     // §6 ("The requested scope […] MUST NOT include any scope not originally granted").
     //
-    // `offline_access` is taken out of that comparison first, and it stays out now that the response
-    // no longer names it. An earlier version of this server did name it, clients keep the list they
-    // were handed, and echoing it back on the next refresh is the standard thing to do — refusing it
-    // would break exactly the clients that behaved correctly. It is never a feature scope, so it
-    // cannot be down-scoped *to*; what it names is the connection this request is already proving it
-    // holds, and a refusal on record has ended the family further up.
+    // `offline_access` is taken out of that comparison first. Clients hold scope lists carrying it
+    // and send them back, which is the standard thing to do with the `scope` of a token response, so
+    // refusing the echo would break exactly the clients that behaved correctly. It is never a
+    // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
+    // is already proving it holds, and a refusal on record has ended the family further up.
     val requested = OAuthSyntax.parseScope(requestedScope)
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
