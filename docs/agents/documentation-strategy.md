@@ -152,8 +152,8 @@ issue, with no parent or release milestone required. A larger goal uses a parent
 sub-issues for bounded iterations; each iteration has its own acceptance and documentation
 completion. Do not create repository roadmap files. Read and update the owning issue instead of
 duplicating sub-issue status in a checklist, document or Project field. Parent descriptions hold
-the current goal and decisions; discussion goes
-in comments, with actionable results incorporated into the owning description.
+the current goal and decisions; discussion goes in comments, with actionable results incorporated
+into the owning description.
 
 Every implementation PR completes the [definition of done](#definition-of-done) for its own diff.
 Keep an issue open across partial PRs; close it only after its acceptance, required merged work and

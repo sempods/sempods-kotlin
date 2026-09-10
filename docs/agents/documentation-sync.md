@@ -110,7 +110,9 @@ Also check `excludeFiles` and `excludeFolders` if documents were added, moved or
 ## 8. Pointers and links
 
 - A new document is reachable from at least one `AGENTS.md`.
-- A deleted or moved document is gone from every `AGENTS.md` and every cross-link.
+- Repair every `AGENTS.md` and cross-link when a document moves or is deleted. Before removing a
+  code comment such as `// see <doc> §N`, check whether it is the only pointer to a still-relevant
+  non-obvious invariant. Preserve that explanation in its maintained owner and retarget the reference.
 - `./gradlew checkDocLinks`.
 
 ## 9. Report

@@ -10,6 +10,8 @@ OAuth Client Credentials without a browser. The goal is to keep the OAuth parts 
 sempods-specific part honestly: OAuth registers and authenticates clients; sempods decides which
 contexts a service client may reach.
 
+The headings use **IST** for current behaviour and **SOLL** for proposed behaviour.
+
 [Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the target,
 decisions and implementation progress. This document retains design explanations under the
 [concept transition](../agents/documentation-strategy.md#transition); its IST/SOLL labels await
