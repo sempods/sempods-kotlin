@@ -8,6 +8,13 @@ body:
         and [Issue planning](https://github.com/sempods/sempods-kotlin/blob/main/docs/agents/documentation-strategy.md#issue-planning).
         Search existing issues before filing. Small work can stand alone; no release milestone is required.
         Security reports go privately via SECURITY.md.
+  - type: checkboxes
+    id: before-filing
+    attributes:
+      label: Before filing
+      options:
+        - label: I read "What this project will not change" in CONTRIBUTING.md and this does not break one of those properties.
+          required: true
   - type: textarea
     id: problem
     attributes:
@@ -38,8 +45,8 @@ body:
     id: documentation
     attributes:
       label: Documentation completion
-      description: Name affected documentation or explain why no update is expected.
-      value: |
+      description: |
+        Name affected documentation or explain why no update is expected.
         Run documentation-sync in every PR and record documentation and check evidence.
         Partial PRs link with "Refs"; keep this issue open until all acceptance is verified against merged work.
     validations:
