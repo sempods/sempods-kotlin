@@ -289,10 +289,10 @@ answer like anybody else's.
 On refresh the scope is accepted rather than refused. `scope=` there is a
 down-scope over feature scopes (see "Token exchange") and `offline_access`
 is not one, so it is taken out before the comparison instead of being
-reported as a scope this token does not cover. An earlier version of this
-server did put it in the response, clients keep the list they were handed,
-and echoing it back on the next refresh is the standard thing to do —
-refusing it would break exactly the clients that behaved correctly.
+reported as a scope this token does not cover. Clients hold scope lists
+carrying it and send them back, which is the standard thing to do with the
+`scope` of a token response; refusing the echo would break exactly the
+clients that behaved correctly.
 
 ### Refresh token rotation
 

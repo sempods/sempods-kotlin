@@ -70,10 +70,15 @@ class PodTokenIssuer(
    * an hour. The caller derives one number and spends it twice — on `exp` here, and on its own
    * `expires_in` — because two derivations of the same lifetime drift.
    *
-   * An overload rather than a defaulted parameter: this module is published, and a default replaces
-   * the JVM descriptor the four-argument form has always had.
+   * `internal`, so the hour above stays a promise this module keeps rather than a default an
+   * embedder can raise. What bounds a user token is the token endpoint's own arithmetic, and this
+   * form exists to carry that one result; a published lever for the same field would let a caller
+   * outside it contradict every sentence written about the lifetime.
+   *
+   * An overload rather than a defaulted parameter on the public form, which would replace the JVM
+   * descriptor that form has always had.
    */
-  fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>, ttlSeconds: Long): String {
+  internal fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>, ttlSeconds: Long): String {
     return issueToken(
       pod = pod,
       subject = webId,
