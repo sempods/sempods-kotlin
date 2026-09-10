@@ -5,18 +5,20 @@ and the three modules — lives in [`sempods-spec`](https://github.com/sempods/s
 at [spec.sempods.org](https://spec.sempods.org). Read that to implement a pod. Read this to
 understand, extend or operate *this* implementation.
 
-Everything below is one of the four types in
-[`agents/documentation-strategy.md`](agents/documentation-strategy.md), and the type is what tells
-you how much to trust it: **IST** is verifiable in code, **SOLL** is not yet.
+The three types are **Vision**, **maintained IST documentation** and occasional **Proposal**;
+[the strategy](agents/documentation-strategy.md) defines their ownership. Public plans and progress
+live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues). Existing roadmap and SOLL
+content is [transitional](agents/documentation-strategy.md#transition), not proof of implementation.
+No proposal document is needed merely to open an issue.
 
 ## Vision — why this exists
 
 - [`vision.md`](vision.md) — the model and why it is shaped this way. Independent of what is built.
 
-## Concepts — one topic each, IST and SOLL side by side
+## Concepts — retained material
 
-[`concepts/`](concepts/) — the level above the reference documentation. Each states what is true
-today and what the target is, and links down to both.
+[`concepts/`](concepts/) contains architecture and design material awaiting classification under
+[the transition](agents/documentation-strategy.md#transition).
 
 - [`concepts/modularity.md`](concepts/modularity.md) — which behaviours are deployment-selected
   seams and which invariants are not
@@ -36,9 +38,9 @@ today and what the target is, and links down to both.
 
 Two carry a **marked SOLL section** for work that is planned rather than built:
 [`pod-client.md`](pod-client.md) (`explicitApi()`, the owner and operator surfaces) and
-[`auth/identity.md`](auth/identity.md) (DPoP). That marking is the rule, not an exception —
-[`agents/documentation-strategy.md`](agents/documentation-strategy.md) forbids mixing the two inside
-one section precisely so a reader can tell them apart. **Trust the section marker, not the folder.**
+[`auth/identity.md`](auth/identity.md) (DPoP). These are retained SOLL material under the
+[transition](agents/documentation-strategy.md#transition). New planned work goes in issues or
+explicit proposals, and current documentation stays current.
 
 **By area**
 
@@ -63,16 +65,17 @@ one section precisely so a reader can tell them apart. **Trust the section marke
 - [`request-tracing.md`](request-tracing.md) — correlating a request across the three services
 - [`testing.md`](testing.md) — the test layers and which one a change belongs in
 
-## Roadmaps — temporary, dissolved when the milestone ships
+## Legacy roadmap — retained material
 
-[`roadmaps/`](roadmaps/) — a breakdown and its status, linking to its concept rather than repeating
-it. One is open: [owner app installation](roadmaps/owner-app-installation.md).
+[Owner app installation](roadmaps/owner-app-installation.md) follows the same
+[transition](agents/documentation-strategy.md#transition).
 
 ## Instructions for contributors, human and AI
 
 [`agents/`](agents/) — reached from [`../AGENTS.md`](../AGENTS.md) rather than from here, because
 they govern how the rest of this directory is written rather than describing the system:
 [`ai-instructions.md`](agents/ai-instructions.md) is the hub,
-[`documentation-strategy.md`](agents/documentation-strategy.md) the authority on the four types, and
-[`documentation-sync.md`](agents/documentation-sync.md) and
-[`roadmap-lifecycle.md`](agents/roadmap-lifecycle.md) the two procedures.
+[`documentation-strategy.md`](agents/documentation-strategy.md) the authority on types and issue planning,
+[`issue-work.md`](agents/issue-work.md) the work procedure, and
+[`documentation-sync.md`](agents/documentation-sync.md) the per-PR documentation procedure.
+[`roadmap-lifecycle.md`](agents/roadmap-lifecycle.md) remains only for the retained legacy source.

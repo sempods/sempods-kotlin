@@ -254,26 +254,30 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | | |
 |---|---|
 | [**sempods-spec**](https://github.com/sempods/sempods-spec) | **the contract** — contexts, grants, auth, CRUD, SPARQL, find, and the three modules. Start there to implement a pod |
-| [**`docs/`**](docs/) | **everything about this implementation**, indexed by type: vision, concepts, reference, roadmaps |
+| [**`docs/`**](docs/) | **everything about this implementation**, indexed as Vision, maintained IST documentation and occasional Proposal |
 | [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
 | [`docs/auth/`](docs/auth/) | what this implementation does around the OAuth contract: rate limits, timeouts, provisioning, the error page |
 | [`docs/mcp/`](docs/mcp/) | this implementation's MCP surfaces: the tool reference, the challenge store, and how real clients behave |
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
 | [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
-| [`docs/concepts/`](docs/concepts/) | one document per topic, each stating what is and what is planned |
+| [`docs/concepts/`](docs/concepts/) | retained architecture and design material awaiting classification |
+| [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
 
-Documentation is split into **IST** (implemented, verifiable in code) and **SOLL** (planned).
-Where the two disagree, the code is right and the document is a bug. How the two are kept apart —
-and when something should not be documented at all — is
-[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which applies to
-human and AI contributors alike.
+Maintained documentation describes current code; issues own public plans, with occasional explicitly
+proposed design documents. Existing roadmap and SOLL content follows the bounded
+[transition](docs/agents/documentation-strategy.md#transition). The
+[documentation strategy](docs/agents/documentation-strategy.md) defines ownership and completion
+for human and AI contributors alike.
 
 ## Contributing
 
-Small changes are welcome; open an issue before large ones. Contributions run under the
-**Developer Certificate of Origin** — `git commit -s` — and there is deliberately **no CLA**:
-everyone, maintainer included, works under the same licence. See
+Small changes are welcome. Follow the
+[issue-planning rules](docs/agents/documentation-strategy.md#issue-planning) for the work record and
+completion evidence, including automated updates and private security fixes. Agree larger changes
+before implementation.
+Contributions run under the **Developer Certificate of Origin** — `git commit -s` — and there is
+deliberately **no CLA**: everyone, maintainer included, works under the same licence. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md), which also lists the handful of properties that will not
 change.
 

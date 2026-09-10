@@ -7,9 +7,9 @@ ships — §"Retrieval primitives" opens with `find`, `get_resource` and `sparql
 — that is the baseline the proposal extends, and it says so. The shipped surface
 itself is documented in [`../mcp/`](../mcp/), which is the IST authority for it.
 
-The breakdown of whatever is currently being built lives in
-[`../roadmaps/`](../roadmaps/); the overarching direction is
-[`../vision.md`](../vision.md).
+Plan new iterations through [issue planning](../agents/documentation-strategy.md#issue-planning);
+the overarching direction is [`../vision.md`](../vision.md). Existing proposed material here
+follows the [transition](../agents/documentation-strategy.md#transition).
 
 ## Retrieval primitives — what remains
 
@@ -186,9 +186,6 @@ deliberately.
 
 - [`graph-retrieval.md`](graph-retrieval.md) — the graph retrieval
   pattern the primitives operationalize.
-- [`../roadmaps/`](../roadmaps/) — the breakdown of whichever of these is
-  currently being implemented, if any is. `find` itself shipped, see
-  [`../mcp/tools.md`](../mcp/tools.md#find-read).
 - [`../vision.md`](../vision.md) §"What comes later" — where SHACL,
   reactivity, the vector index and the enhanced MCP interface sit in the
   overall direction.

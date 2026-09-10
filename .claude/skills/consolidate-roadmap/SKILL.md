@@ -1,11 +1,8 @@
 ---
 name: consolidate-roadmap
-description: Use when a milestone has shipped and its roadmap should be retired into the permanent
-  documentation. Audits the roadmap against the code, rewrites the linked concept's SOLL section as
-  IST, deletes the roadmap file, and sweeps every reference to it in docs, AGENTS.md files, code
-  comments and context7.json. Invoke when the user says "let's consolidate", "audit the roadmap",
-  "is this still open?", after a milestone ships, or before a new one starts. Do NOT use to tidy a
-  roadmap that is still running — completed items stay in place until the whole milestone is done.
+description: Legacy workflow for the retained owner-app-installation roadmap only, if its
+  milestone ships before its planned transfer to issues. Follow the documentation strategy's transition.
+  Do not use for new issue-based work or to prune completed items from a running roadmap.
 ---
 
 # consolidate-roadmap
@@ -16,7 +13,7 @@ same steps, and this file deliberately holds no copy of them.
 
 Context you need alongside it:
 [`docs/agents/documentation-strategy.md`](../../../docs/agents/documentation-strategy.md) for the
-four documentation types and the writing rules.
+three document types, the writing rules and the bounded transition.
 
 Two things worth knowing before you start:
 

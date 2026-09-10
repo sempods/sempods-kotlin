@@ -16,7 +16,7 @@ Start here, then read what this file points at. It is deliberately short.
    non-negotiable invariants: that is [`CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project
    will not change", because the same list binds contributors and is what the feature-request
    template makes them confirm against. `AGENTS.md` links there.
-2. **[`documentation-strategy.md`](documentation-strategy.md)** — the four documentation types and
+2. **[`documentation-strategy.md`](documentation-strategy.md)** — the three documentation types and
    the rules for writing them. Read it before touching any `*.md`.
 3. **Scoped `AGENTS.md` files** in subtrees. Six exist today: `docs/`, `sempods-auth/`,
    `sempods-mcp/`, `sempods-server/`, and two inside `sempods-server` scoped to the `pods` and `ai`
@@ -28,7 +28,7 @@ Start here, then read what this file points at. It is deliberately short.
 
 ## Context resolution
 
-One rule, and it covers both `AGENTS.md` files and the four documentation types:
+One rule, and it covers both `AGENTS.md` files and the three documentation types:
 
 - What governs a change is the `AGENTS.md` files on the path from the repository root **down to the
   directory of the file being changed** — those, and no others. `sempods-server/AGENTS.md` does not
@@ -37,8 +37,9 @@ One rule, and it covers both `AGENTS.md` files and the four documentation types:
 - Reading a sibling subtree's file for orientation is fine. It still does not govern the edit; the
   path decides, not what happens to be loaded.
 - Documentation nests the same way. Every `docs/` directory — at the root, at a module, later at a
-  larger package — may hold the same four types: `vision.md`, `concepts/`, `roadmaps/`, and IST
-  documents. A module's `docs/` is the place for what is true of that module only.
+  larger package — may hold the three document types: Vision, maintained IST documentation and
+  Proposal, as defined in the documentation strategy. Existing concept documents follow its
+  [transition](documentation-strategy.md#transition). A module's `docs/` owns its local subjects.
 - The one asymmetry: a scoped `AGENTS.md` may **override** a rule from a broader one, but a module
   `vision.md` only **refines** the repository vision. A contradiction there is a bug, not an
   override.
@@ -81,7 +82,7 @@ subset minimal and let it link out for everything else.
 - Add a rule at the **narrowest** scope where it holds. Repository-wide rules go in the root
   `AGENTS.md`, module rules in that module's `AGENTS.md`. A *rule* — what is true of the code is
   not one, and an `AGENTS.md` links to it:
-  [`documentation-strategy.md`](documentation-strategy.md#agentsmd-is-none-of-the-four).
+  [`documentation-strategy.md`](documentation-strategy.md#instruction-files-are-maps).
 - A document is reachable from at least one `AGENTS.md` pointer, or it will not be read.
 
 ## Self-check

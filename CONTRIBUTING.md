@@ -186,15 +186,22 @@ Three more run in CI and are worth running locally when a change touches them:
 third walks every markdown file and fails on a relative link that points at nothing; the fourth
 keeps a container image from shipping without the label that says which commit it is.
 
+Every PR completes documentation for its own diff, including partial work on a larger issue.
 A behaviour change carries its documentation in the same commit —
-`docs/agents/documentation-strategy.md` §"Definition of done" is the list. It is also
+[the definition of done](docs/agents/documentation-strategy.md#definition-of-done) is the list. It is also
 the file that says when *not* to write documentation, which is more often than people
 expect.
 
+## Planning work
+
+Use the [issue-planning rules](docs/agents/documentation-strategy.md#issue-planning) to choose the
+work record, define scope and acceptance, and complete the work. General questions and exploratory
+conversation fit [Discussions](https://github.com/sempods/sempods-kotlin/discussions); vulnerability
+reports and fixes follow [SECURITY.md](SECURITY.md).
+
 ## Practical expectations
 
-* Open an issue before a large change. A rejected pull request after two weeks
-  of work is a bad experience for both sides, and avoidable.
+* Agree the scope of a large change in its work record before implementation.
 * Small, focused changes are reviewed faster than large ones.
 * Response times vary — this is not anyone's full-time job yet. Silence is
   neither rejection nor disinterest; ping the issue.

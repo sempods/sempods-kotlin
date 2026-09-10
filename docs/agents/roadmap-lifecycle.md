@@ -1,7 +1,8 @@
 # Procedure: consolidate a roadmap
 
-Retire a roadmap whose milestone has shipped. The concept absorbs what is now true, the roadmap file
-goes away, and nothing is left pointing at it.
+Legacy procedure for the retained roadmap only, under
+[Transition](documentation-strategy.md#transition). New and migrated work uses issues.
+This procedure applies only if the legacy milestone ships before the transfer defined there.
 
 Read [`documentation-strategy.md`](documentation-strategy.md) first — this procedure applies its
 rules and does not restate them. Wrapped for Claude Code as the `consolidate-roadmap` skill; any
@@ -20,19 +21,10 @@ A ticked item whose code is not there is the failure mode this step exists to ca
 
 ## 2. Rewrite the concept
 
-Open the concept the roadmap links to. For every item that is done, its SOLL section becomes IST:
-present tense, describing what the system *is*, not what was built.
-
-- Move a section from SOLL to IST, or merge it into an existing IST section — do not leave a SOLL
-  section that has come true.
-- Keep the reasoning that a future reader needs to not undo the decision. Drop the reasoning that
-  only explains the sequence of work.
-- If the concept is now entirely IST and small enough, it may collapse into the IST document it
-  points at. Deleting a concept that has nothing left to say is correct.
-
-If the roadmap carried concept-level content the concept never had — a contract, an invariant, an
-error envelope, a boundary — lift it now, at concept level. Drop per-iteration step lists, file
-manifests, verification checklists and dated banners.
+Read the linked concept and the completed roadmap content. Apply
+[Preserving current explanations](documentation-strategy.md#preserving-current-explanations) to
+both: verify claims, rewrite implemented explanations in their current owner, and preserve useful
+contracts and rationale before deleting a source.
 
 ## 3. Handle what is left
 
@@ -40,32 +32,31 @@ manifests, verification checklists and dated banners.
   procedure is premature. Stop here: the file keeps every entry it has, completed ones included,
   and consolidation waits. Slimming it down to the open items is the one thing a running roadmap
   must never have done to it.
-- An item still open that belongs to a **different** milestone: move it to that roadmap, or file a
-  new one for it, rephrased as work still to do. This milestone is then done and dissolves whole.
+- An item still open that belongs to a **different** milestone: link or create its owning
+  issue, rephrased as work still to do. This milestone is then done and dissolves whole.
 - A workaround that survives: it belongs in the IST document, called out as a deviation with the
   reason the code looks that way. This is the one case where rule 3 of the strategy yields.
-- A minor open item that deserves no roadmap section: a plain `// TODO:` at the exact code location,
-  saying what is missing and why it matters.
+- For minor local omissions, apply the permanent
+  [TODO rule](documentation-strategy.md#minor-local-omissions).
 
 ## 4. Delete
 
 Delete the roadmap file. A consolidation that reaches this step is one where nothing is left to
 carry: what was done lives in the concept and the IST documents, and what was open has moved to the
-roadmap that owns it.
+issue that owns it.
 
 ## 5. Sweep
 
-- Search the sources for the roadmap's filename. `git grep` rather than `grep -r`, because
-  tracked files are exactly the right scope: it never reads `build/`, and never the checkouts
-  under `.claude/worktrees/`, without a list of exclusions that would also skip an ordinary
-  directory that happens to share a name.
+- Search tracked sources for the retired roadmap's filename; the search scope is explained in
+  [documentation-sync §5](documentation-sync.md#5-weight). Respect the
+  [private planning boundary](documentation-strategy.md#private-planning).
 
   ```bash
   git grep -n '<roadmap-filename>' -- '*.md' '*.kt' '*.kts'
   ```
 
-  Update or remove every hit. A comment pointing at a section that no longer exists is re-anchored
-  to the IST document if it guards a real invariant, and removed if it only named a phase.
+  Update or remove each verified reference to this retired source. Re-anchor a comment to the IST
+  document if it guards a real invariant; remove it if it only named a phase.
 - Check every `AGENTS.md` from the root down: remove entries for the retired roadmap, add entries
   for any new IST document.
 - Check [`../../context7.json`](../../context7.json). The milestone changed behaviour; its `rules`

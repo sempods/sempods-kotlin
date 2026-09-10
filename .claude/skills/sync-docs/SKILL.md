@@ -1,8 +1,8 @@
 ---
 name: sync-docs
-description: Use before proposing a commit, to bring documentation back in line with a change.
+description: Use in every PR and before proposing a commit, to bring documentation back in line with a change.
   Finds the documents affected by the diff, corrects or deletes the IST documentation, checks KDoc
-  on changed public signatures, ticks the roadmap item, and verifies context7.json still tells the
+  on changed public signatures, records issue/PR completion evidence, and verifies context7.json tells the
   truth. Invoke when the user says "sync the docs", "update the documentation", "is the doc still
   right?", or after any change to behaviour, a public signature, a stored shape or an HTTP surface.
 ---

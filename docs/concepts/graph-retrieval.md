@@ -313,5 +313,6 @@ any AI.
 - **Open** — a vector / hybrid `find` engine (same contract), the per-type
   expansion registry, the general predicate filter, and SHACL-gated app
   surfaces. The concept for all of it is
-  [`mcp-agent-interface.md`](mcp-agent-interface.md); whichever piece is being
-  implemented has its breakdown in [`../roadmaps/`](../roadmaps/).
+  [`mcp-agent-interface.md`](mcp-agent-interface.md), retained under the
+  [transition](../agents/documentation-strategy.md#transition). Plan new iterations through
+  [issue planning](../agents/documentation-strategy.md#issue-planning).

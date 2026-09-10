@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The roadmap is early and deliberately open, which means a well-argued
+        The project direction is early and deliberately open, which means a well-argued
         request may still be declined or deferred — that is about scope and
         timing, not about you. Please read CONTRIBUTING.md first: some properties
         of the model are fixed, and a request that breaks one will be declined
@@ -19,7 +19,7 @@ body:
           required: true
         - label: I read "What this project will not change" in CONTRIBUTING.md and this does not break one of those properties.
           required: true
-        - label: I understand this may be declined or deferred, and that a large change should start as a Discussion first.
+        - label: I understand this may be declined or deferred; large changes need an agreed issue plan before implementation.
           required: true
   - type: textarea
     id: problem
