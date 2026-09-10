@@ -136,8 +136,8 @@ What the hosted service buys over a purely client-side (in-browser / in-app) too
 - **Server-side token refresh** → headless / cron / agentic use without an
   open browser. This is the capability a purely client-side tool layer
   cannot have. It rests on a pod-issued refresh token, and how long one stays
-  usable is that pod's policy: OAuth carries no field for it, so the service
-  rotates on a conservative cadence and learns of an ending by being refused.
+  usable is that pod's policy: the service rotates on a conservative cadence
+  and learns of an ending by being refused.
   At a sempods pod the person decides that length at consent
   ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and a connection
   consented as short-lived lapses after hours of disuse — this service does not

@@ -32,9 +32,9 @@ sealed interface RefreshTrigger {
 
   /**
    * The row has not rotated since [notRotatedSince] — the sweep's preservation tier. Deliberately
-   * indifferent to the access token: what it holds open is the refresh token, whose own lifetime
-   * this service cannot read and can only keep running by rotating. A row with an unknown expiry is
-   * therefore preserved here, where [Expiring] can never select it.
+   * indifferent to the access token: what it holds open is the refresh token, which only a rotation
+   * keeps running. A row with an unknown expiry is therefore preserved here, where [Expiring] can
+   * never select it.
    */
   data class Preserving(val notRotatedSince: Date) : RefreshTrigger
 }

@@ -27,8 +27,13 @@ import org.sempods.commons.config.Env
  * - [podTokenFamilyPreserveSeconds] is the cadence on which every connection is rotated whether or
  *   not anyone uses it — rotating is the only thing that keeps a pod's refresh token alive. How
  *   long a pod leaves one usable is that pod's policy and reaches a client through no field RFC
- *   6749 defines, so the default is a deliberately conservative guess; a pod that ends the grant
- *   sooner refuses the refresh, and the connection is marked dead rather than kept.
+ *   6749 defines — `refresh_token_expires_in` is registered nowhere either — so this default is a
+ *   deliberately conservative guess and cannot be anything else. A pod that ends the grant sooner
+ *   refuses the refresh, and the connection is marked dead rather than kept.
+ *
+ *   **The single home for that reasoning.** The sweep, the vault and this module's documents name
+ *   the cadence and point here; a second copy is how the last one came to describe a pod that no
+ *   longer existed.
  */
 data class SempodsMcpConfig(
   val port: Int,

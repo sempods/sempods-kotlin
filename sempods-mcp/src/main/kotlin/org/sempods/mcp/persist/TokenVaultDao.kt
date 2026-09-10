@@ -232,9 +232,9 @@ class TokenVaultDao(
 
   /**
    * The sweep's **preservation** selection: at most [limit] refreshable rows that have not rotated
-   * since [cutoff], regardless of access-token expiry. Rotating is the only thing that keeps a
-   * refresh token alive, and how long a pod leaves one usable does not travel on the wire, so this
-   * cadence is a guess that no access-token clock can inform.
+   * since [cutoff], regardless of access-token expiry, which no refresh token's lifetime runs on.
+   * The KDoc on `SempodsMcpConfig.podTokenFamilyPreserveSeconds` owns the cadence and why it is a
+   * guess.
    *
    * **Least-recently-attempted first** ([markRefreshAttempted]), never-attempted rows ahead of all
    * of them, ties broken by the oldest rotation — i.e. round-robin, oldest rotation first. That
