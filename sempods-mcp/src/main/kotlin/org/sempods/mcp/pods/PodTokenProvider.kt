@@ -32,9 +32,9 @@ sealed interface RefreshTrigger {
 
   /**
    * The row has not rotated since [notRotatedSince] — the sweep's preservation tier. Deliberately
-   * indifferent to the access token: what it is holding open is the refresh-token family and the
-   * pod-side DCR registration, both of which any single rotation resets in full. A row with an
-   * unknown expiry is therefore preserved here, where [Expiring] can never select it.
+   * indifferent to the access token: what it holds open is the refresh token, whose own lifetime
+   * this service cannot read and can only keep running by rotating. A row with an unknown expiry is
+   * therefore preserved here, where [Expiring] can never select it.
    */
   data class Preserving(val notRotatedSince: Date) : RefreshTrigger
 }
@@ -207,9 +207,10 @@ class PodTokenProvider(
    * Background-sweep entry: refresh a row the scheduler selected, for the reason [trigger] names —
    * [RefreshTrigger.Expiring] for the warm tier (a recently-used connection whose access token is
    * inside the configured window, so the next call pays no latency), [RefreshTrigger.Preserving] for
-   * the preservation tier (any connection whose refresh-token family is drifting toward its
-   * ninety-day deadline). Goes through the same per-key lock and re-check under the same trigger, so
-   * it never double-refreshes a token a tool call, another replica or a prior sweep just rotated.
+   * the preservation tier (any connection whose refresh token has gone long enough without a
+   * rotation to be worth one). Goes through the same per-key lock and re-check under the same
+   * trigger, so it never double-refreshes a token a tool call, another replica or a prior sweep
+   * just rotated.
    */
   suspend fun refreshIfDue(tokens: PodTokens, trigger: RefreshTrigger) {
     val key = PodKey(tokens.user, tokens.profile, tokens.pod)

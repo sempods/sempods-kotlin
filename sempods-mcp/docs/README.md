@@ -24,10 +24,12 @@ sweep (`TokenRefreshScheduler`) has two tiers. **Warm** — a connection used wi
 `POD_TOKEN_WARM_IDLE_SECONDS` (default 3600) has its access token renewed ahead of expiry, so an
 active agent never pays the four sequential pod requests a cold rotation costs. **Preservation** —
 every refreshable connection is rotated once per `POD_TOKEN_FAMILY_PRESERVE_SECONDS` (default 30 d)
-regardless of access-token expiry, which is the only cadence the pod's ninety-day refresh-token
-family and the service's DCR registration there actually ask for; the pod advertises no TTL for
-either, so the default is a conservative guess. "Used" is a throttled `lastUsedAt` on the vault row,
-written in `PodTokenProvider.validAccessToken` — the one place a pod read or write gets its token,
+regardless of access-token expiry, which is the only clock a refresh token's own lifetime runs on;
+how long a pod leaves one usable never travels on the wire, so the default is a conservative guess.
+What no cadence reaches is a pod that ends the grant sooner: the refresh is refused with
+`invalid_grant`, the row is marked dead, and the connection is reported as needing a reconnect.
+"Used" is a throttled `lastUsedAt` on the vault row, written in
+`PodTokenProvider.validAccessToken` — the one place a pod read or write gets its token,
 so `list_pods`, `authorize` and the dashboard never count. Both selections are index-backed and bounded per tick — order and bound from the access path, not from a sort, on indexes partial to the rows that have something to rotate with. A test pins it by explaining the queries the sweep actually issues and asserting each reads no more than it returns. Each tier gets half a tick, preservation's budget starting when preservation does, and the preservation queue is round-robin — a row is marked before it is attempted and that mark orders the selection — so neither a slow warm pass nor a pod that fails slowly can hold the budget against the rows behind it. The
 load thereby scales with use rather than with the number of connections, and it is the pods, not
 this service, that were paying for the difference.

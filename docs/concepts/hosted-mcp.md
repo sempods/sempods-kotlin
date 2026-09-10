@@ -135,11 +135,13 @@ What the hosted service buys over a purely client-side (in-browser / in-app) too
   arguments (`targets`), not into N separately-configured servers.
 - **Server-side token refresh** → headless / cron / agentic use without an
   open browser. This is the capability a purely client-side tool layer
-  cannot have. It rests on a pod-issued refresh token, which the person
-  grants in the pod's consent dialog
-  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)): a connection
-  consented as short-lived holds nothing to rotate, is never selected by the
-  refresh sweep, and needs reconnecting once its hour is up.
+  cannot have. It rests on a pod-issued refresh token, and how long one stays
+  usable is that pod's policy: OAuth carries no field for it, so the service
+  rotates on a conservative cadence and learns of an ending by being refused.
+  At a sempods pod the person decides that length at consent
+  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and a connection
+  consented as short-lived lapses after hours of disuse — this service does not
+  hold it open, because holding it is the authority that answer declined.
 - **Cross-pod calls in one tool invocation**, with per-`(pod, context)`
   isolation so one unreachable pod does not poison the others.
 

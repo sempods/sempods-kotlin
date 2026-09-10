@@ -25,9 +25,10 @@ import org.sempods.commons.config.Env
  *   still worth doing that at all. Past the threshold the trade turns: warm-keeping spends a
  *   rotation per token lifetime to save the one an on-demand refresh would cost, once.
  * - [podTokenFamilyPreserveSeconds] is the cadence on which every connection is rotated whether or
- *   not anyone uses it — what keeps the pod's refresh-token family and the service's DCR
- *   registration there inside their ninety-day deadline. The pod does not advertise that TTL (RFC
- *   6749 has no field for it), so the default is a conservative guess against a value the pod owns.
+ *   not anyone uses it — rotating is the only thing that keeps a pod's refresh token alive. How
+ *   long a pod leaves one usable is that pod's policy and reaches a client through no field RFC
+ *   6749 defines, so the default is a deliberately conservative guess; a pod that ends the grant
+ *   sooner refuses the refresh, and the connection is marked dead rather than kept.
  */
 data class SempodsMcpConfig(
   val port: Int,
@@ -70,9 +71,12 @@ data class SempodsMcpConfig(
         podTokenRefreshWindowSeconds = Env.get("POD_TOKEN_REFRESH_WINDOW_SECONDS")?.toLongOrNull() ?: 300,
         // 0 disables the warm tier — every first call after an idle period then rotates on demand.
         podTokenWarmIdleSeconds = Env.get("POD_TOKEN_WARM_IDLE_SECONDS")?.toLongOrNull() ?: 3600,
-        // 30 days: comfortably inside a ninety-day family, with room for a missed run, a restart or
-        // a pod that is briefly unreachable. 0 disables the tier, which is not a supported operating
-        // mode — a connection nobody uses then lapses on the pod's own clock.
+        // 30 days: a guess, because no pod advertises how long it leaves a refresh token usable.
+        // Comfortable against a sempods pod's long-lived connections, with room for a missed run, a
+        // restart or a pod that is briefly unreachable — and useless against its short-lived ones,
+        // which end in hours. That is the right way round: holding one of those open is the
+        // authority its person declined. 0 disables the tier, which is not a supported operating
+        // mode: a connection nobody uses then lapses on its pod's own clock.
         podTokenFamilyPreserveSeconds = Env.get("POD_TOKEN_FAMILY_PRESERVE_SECONDS")?.toLongOrNull() ?: (30L * 24 * 60 * 60),
       )
     }
