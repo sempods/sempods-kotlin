@@ -143,12 +143,13 @@ reads stops being true.
 
 ## Issue planning
 
-Use an issue for actionable design, implementation and repository maintenance. Small work can use
-one standalone issue. A larger goal uses a parent with native sub-issues for bounded iterations;
-each iteration has its own acceptance and documentation completion. Read and update the owning
-issue instead of duplicating sub-issue status in a checklist, document or Project field. Parent
-descriptions hold the current goal and decisions; discussion goes in comments, with actionable
-results incorporated into the owning description.
+Use an issue for actionable design, implementation and repository maintenance. Every PR for new
+public work links its owning issue, including small changes. Small work needs only a standalone
+issue, with no parent or release milestone required. A larger goal uses a parent with native
+sub-issues for bounded iterations; each iteration has its own acceptance and documentation
+completion. Read and update the owning issue instead of duplicating sub-issue status in a checklist,
+document or Project field. Parent descriptions hold the current goal and decisions; discussion goes
+in comments, with actionable results incorporated into the owning description.
 
 1. Read the parent, relevant decisions and linked dependencies. Confirm the problem, target, scope
    and verifiable acceptance before implementation. Resolve decisions that block this iteration.

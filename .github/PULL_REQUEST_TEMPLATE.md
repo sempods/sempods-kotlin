@@ -3,7 +3,8 @@
 
 ## What this changes
 
-<!-- One or two sentences. Link the issue: "Refs #123" for partial work.
+<!-- One or two sentences. New public work links its owning issue, including small changes.
+     A standalone issue is enough. Use "Refs #123" for partial work.
      Use "Closes #123" only if merging this PR meets all acceptance, including follow-up actions.
      Parent membership alone does not mean a dependency or that this PR finishes the parent. -->
 

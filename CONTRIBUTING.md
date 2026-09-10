@@ -194,8 +194,9 @@ expect.
 
 ## Planning work
 
-Use issues for actionable design, implementation and repository maintenance. A large goal can have
-native sub-issues for bounded iterations; small work can stand alone. The forms capture scope,
+Use issues for actionable design, implementation and repository maintenance. Every PR for new
+public work links its owning issue, including small changes. A standalone issue is enough for small
+work; a large goal can have native sub-issues for bounded iterations. The forms capture scope,
 acceptance, dependencies and documentation completion.
 [Issue planning](docs/agents/documentation-strategy.md#issue-planning) defines the lifecycle and
 closure evidence. General questions and exploratory conversation fit
@@ -204,8 +205,8 @@ closure evidence. General questions and exploratory conversation fit
 
 ## Practical expectations
 
-* Open an issue before a large change. A rejected pull request after two weeks
-  of work is a bad experience for both sides, and avoidable.
+* Find or open the owning issue before starting new public work, including small changes.
+  Agree the scope of a large change in that issue before implementation.
 * Small, focused changes are reviewed faster than large ones.
 * Response times vary — this is not anyone's full-time job yet. Silence is
   neither rejection nor disinterest; ping the issue.
