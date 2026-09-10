@@ -150,8 +150,9 @@ public work links its owning issue, including small changes, except for
 the private record defined under [Security fixes](#security-fixes). Small work needs only a standalone
 issue, with no parent or release milestone required. A larger goal uses a parent with native
 sub-issues for bounded iterations; each iteration has its own acceptance and documentation
-completion. Read and update the owning issue instead of duplicating sub-issue status in a checklist,
-document or Project field. Parent descriptions hold the current goal and decisions; discussion goes
+completion. Do not create repository roadmap files. Read and update the owning issue instead of
+duplicating sub-issue status in a checklist, document or Project field. Parent descriptions hold
+the current goal and decisions; discussion goes
 in comments, with actionable results incorporated into the owning description.
 
 Every implementation PR completes the [definition of done](#definition-of-done) for its own diff.
@@ -219,10 +220,6 @@ step lists and historical sequencing once the issue owns that information.
 does new work. Issues now hold planning state; the former blanket rule that tracking issues hold
 no state is retired.
 
-- [`../roadmaps/owner-app-installation.md`](../roadmaps/owner-app-installation.md) temporarily owns
-  its recorded work until [#120](https://github.com/sempods/sempods-kotlin/issues/120) maps and
-  retires it. Tick completed legacy items in the same change and retain the complete list until
-  transfer or consolidation; no second checklist owns that same work. Create no new roadmap files.
 - The existing `docs/concepts/` contents are retained material outside the maintained IST type until
   [#121](https://github.com/sempods/sempods-kotlin/issues/121) classifies claims against code and
   tests. Only verified current explanations enter maintained documentation, in place or in their existing owner;
@@ -231,13 +228,10 @@ no state is retired.
 - `context7.json` temporarily excludes the retained `docs/concepts/` contents. The classification
   iteration removes this exclusion only after all retained files there are safe to publish as
   current documentation.
-- [The legacy lifecycle procedure](roadmap-lifecycle.md) and its wrapper remain only for the
-  retained roadmap. #120 owns removal of that source, its index, procedure, wrapper and their
-  incoming references after transfer. #121 owns the concept/SOLL classification and removes every
-  resolved transition note in instruction maps, documentation indexes and affected content.
-  Each iteration searches tracked sources for the retired paths and links to this section,
-  repairs its callers, and updates this section in the same PR. This section alone assigns the
-  migration issues; other entry points link here.
+- #121 owns the concept/SOLL classification and removes every resolved transition note in
+  instruction maps, documentation indexes and affected content. It searches tracked sources for
+  moved or retired paths and links to this section, repairs callers, and updates this section in
+  the same PR. This section alone assigns the remaining migration issue; other entry points link here.
 
 ## Definition of done
 
@@ -250,8 +244,7 @@ behaviour change is not finished until, **in the same change**:
 - the PR records acceptance progress, checks and documentation evidence, with issue linkage under
   [Issue planning](#issue-planning) or the
   [automated dependency-update exception](#automated-dependency-updates) or
-  [private security record](#security-fixes); any temporary legacy
-  bookkeeping follows [Transition](#transition);
+  [private security record](#security-fixes);
 - [`../../context7.json`](../../context7.json) still tells the truth. Its `rules` array asserts
   facts about grants, contexts, the SPARQL surface, client identity and trademark language, and it
   is served to agents everywhere. A behaviour change can turn one of those assertions into a lie

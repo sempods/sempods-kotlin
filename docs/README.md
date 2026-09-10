@@ -7,7 +7,7 @@ understand, extend or operate *this* implementation.
 
 The three types are **Vision**, **maintained IST documentation** and occasional **Proposal**;
 [the strategy](agents/documentation-strategy.md) defines their ownership. Public plans and progress
-live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues). Existing roadmap and SOLL
+live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues). Existing concept and SOLL
 content is [transitional](agents/documentation-strategy.md#transition), not proof of implementation.
 No proposal document is needed merely to open an issue.
 
@@ -65,11 +65,6 @@ explicit proposals, and current documentation stays current.
 - [`request-tracing.md`](request-tracing.md) — correlating a request across the three services
 - [`testing.md`](testing.md) — the test layers and which one a change belongs in
 
-## Legacy roadmap — retained material
-
-[Owner app installation](roadmaps/owner-app-installation.md) follows the same
-[transition](agents/documentation-strategy.md#transition).
-
 ## Instructions for contributors, human and AI
 
 [`agents/`](agents/) — reached from [`../AGENTS.md`](../AGENTS.md) rather than from here, because
@@ -78,4 +73,3 @@ they govern how the rest of this directory is written rather than describing the
 [`documentation-strategy.md`](agents/documentation-strategy.md) the authority on types and issue planning,
 [`issue-work.md`](agents/issue-work.md) the work procedure, and
 [`documentation-sync.md`](agents/documentation-sync.md) the per-PR documentation procedure.
-[`roadmap-lifecycle.md`](agents/roadmap-lifecycle.md) remains only for the retained legacy source.

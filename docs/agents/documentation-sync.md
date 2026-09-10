@@ -52,6 +52,8 @@ Apply the writing rules. In particular, ask in this order:
    [Preserving current explanations](documentation-strategy.md#preserving-current-explanations):
    verify against code and tests, keep useful implemented explanations, and place new future work
    in its issue or proposal. Existing SOLL material follows the documented transition.
+5. Preserve minor local omissions under the permanent
+   [TODO rule](documentation-strategy.md#minor-local-omissions); do not bulk-convert them to issues.
 
 ## 4. KDoc
 
@@ -94,8 +96,7 @@ private. For an
 scope and completion evidence; no separate issue is required. Otherwise link the owning issue and
 compare this PR with its acceptance and dependencies. Record the work and checks completed. Explain
 any documentation no-change result. Partial PRs leave the issue open; closure requires all
-acceptance and merged work, including follow-up actions. For retained roadmap work, apply only the
-[transition bookkeeping](documentation-strategy.md#transition).
+acceptance and merged work, including follow-up actions.
 
 ## 7. context7.json
 
@@ -104,7 +105,7 @@ asserts facts about grants, contexts, the SPARQL surface, client identity shapes
 build and trademark language — and it is published to agents outside this repository. A behaviour
 change is exactly what turns one of those assertions into a lie.
 
-Also check `excludeFiles` if documents were added, moved or deleted.
+Also check `excludeFiles` and `excludeFolders` if documents were added, moved or deleted.
 
 ## 8. Pointers and links
 

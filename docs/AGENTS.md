@@ -18,7 +18,7 @@ editing anything here. What it means for this folder:
 - English.
 - `vision.md` gives direction; maintained documentation describes current code; occasional
   proposals carry explicitly unimplemented design.
-  Existing concept, roadmap and SOLL content follow the
+  Existing concept and SOLL content follow the
   [transition](agents/documentation-strategy.md#transition).
 - Never mix runtime facts and target state in the same section.
 - High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
@@ -29,11 +29,10 @@ editing anything here. What it means for this folder:
 ## Key references
 
 - `docs/agents/` — the AI instruction hub, documentation strategy,
-  [issue work](agents/issue-work.md) and `documentation-sync.md`; legacy procedures follow the
-  [transition](agents/documentation-strategy.md#transition)
-- `docs/concepts/` — retained architecture and design material under that transition: modular
+  [issue work](agents/issue-work.md) and `documentation-sync.md`
+- `docs/concepts/` — retained architecture and design material under the
+  [transition](agents/documentation-strategy.md#transition): modular
   deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
-- `docs/roadmaps/owner-app-installation.md` — retained installation plan under the same transition
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
 - `docs/vision.md` — core standard
