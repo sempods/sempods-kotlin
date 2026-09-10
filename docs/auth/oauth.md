@@ -313,11 +313,18 @@ deadline. The deadline is fixed when the family is seeded and copied
 verbatim afterwards, so nothing a rotation does moves it — without one, a
 family that rotates daily never ends.
 
-Families seeded before the fields existed acquire a deadline at their
-first rotation, and it is **the predecessor's own expiry**: the only one
-such a family demonstrably has, and taking it extends nothing. An
-actively used one therefore has up to ninety days left and then asks for
-a fresh authorization once. No migration script, no backfill.
+A family that reaches a rotation without a deadline acquires one there,
+and it is **the predecessor's own expiry**: the only one such a family
+demonstrably has, and taking it extends nothing. Two populations arrive
+that way — the families seeded before the fields existed, and those
+seeded after them but before this server decided what each class means.
+An actively used one therefore has up to ninety days left and then asks
+for a fresh authorization once. No migration script, no backfill.
+
+`PodRefreshTokenStore.issueInFamily` owns that rule rather than the
+shared store, which asks it only of a family naming no class at all: the
+hosted MCP service shares the store, names one on every row and has
+settled no ceiling of its own.
 
 **A deployment older than the consent control clears its delegations
 once.** Those authorizations hold grants with no answer beside them, so

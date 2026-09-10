@@ -4459,6 +4459,35 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a durable family minted before the ceiling takes its expiry as its deadline`() {
+    // The other population of families with no deadline, and the one the shared store's rule cannot
+    // see: it keys on a missing *class*, and these name one. They were minted after the terms
+    // arrived and before a ceiling was decided for them, so nothing would ever end them — a rolling
+    // ninety days, renewed on every rotation, exactly what the ceiling exists to stop.
+    val pod = sempodsTestFactory.newPod()
+    val issued = seedRefreshToken(pod)
+    db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
+      Updates.unset(RefreshTokenStore.Field.ENDS_AT),
+    )
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(issued.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    val successor = refreshTokenStore.findByFamily(issued.token.familyId)
+      .single { it.tokenHash != issued.token.tokenHash }
+    assertEquals(
+      issued.token.expiresAt,
+      successor.endsAt,
+      "the deadline is the one the family demonstrably has, so the rotation extends nothing",
+    )
+    assertEquals(successor.endsAt, successor.expiresAt, "and the successor cannot outlive it")
+  }
+
+  @Test
   fun `a fresh durable exchange still hands out a full hour`() {
     // The cap now applies on the code path too, because a durable family is seeded with a deadline
     // as well. A hundred and eighty days out, it takes nothing off the access token.
