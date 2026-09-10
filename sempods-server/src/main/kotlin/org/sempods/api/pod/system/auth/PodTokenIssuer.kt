@@ -48,26 +48,43 @@ class PodTokenIssuer(
   val jwksJson: String = signingKeys.jwksJson
 
   /**
-   * Issues a pod-scoped user access token (sub = WebID, default TTL 1 h).
+   * Issues a pod-scoped user access token (sub = WebID), good for an hour.
    *
-   * Thin wrapper around [issueToken] kept under its original signature so user
-   * call sites do not need to change. Service-client tokens take a different
-   * route via [issueServiceToken].
+   * Service-client tokens take a different route via [issueServiceToken].
    *
    * Claims:
    * - iss: `{apiBaseUrl}{pod}/` (pod-specific issuer)
    * - sub: user's WebID
    * - client_id: the app's did:web identity
    * - scope: space-separated granted scopes
-   * - exp: now + 3600 s
+   * - exp: now + [USER_TOKEN_TTL_SECONDS]
    */
-  fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>): String {
+  fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>): String =
+    issue(pod, webId, clientId, scopes, USER_TOKEN_TTL_SECONDS)
+
+  /**
+   * The same, for a caller with a reason to hand out less than an hour.
+   *
+   * The token endpoint's reason is a refresh-token family whose deadline is nearer than that: an
+   * access token minted from it must not outlive the family, or "seven days" means seven days and
+   * an hour. The caller derives one number and spends it twice — on `exp` here, and on its own
+   * `expires_in` — because two derivations of the same lifetime drift.
+   *
+   * `internal`, so the hour above stays a promise this module keeps rather than a default an
+   * embedder can raise. What bounds a user token is the token endpoint's own arithmetic, and this
+   * form exists to carry that one result; a published lever for the same field would let a caller
+   * outside it contradict every sentence written about the lifetime.
+   *
+   * An overload rather than a defaulted parameter on the public form, which would replace the JVM
+   * descriptor that form has always had.
+   */
+  internal fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>, ttlSeconds: Long): String {
     return issueToken(
       pod = pod,
       subject = webId,
       clientId = clientId,
       scopes = scopes,
-      ttlSeconds = USER_TOKEN_TTL_SECONDS,
+      ttlSeconds = ttlSeconds,
       clientType = null,
     )
   }

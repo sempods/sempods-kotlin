@@ -378,21 +378,24 @@
       </ul>
     </div>
 
-    <!-- Asked as "may it act without you", not as a duration and not as a scope name: a refresh
-         token is what lets a client work while nobody is there, and that is a question a person can
-         answer without knowing what a token is. The pod cannot answer it for them — every
-         interactive client here is public, and a `did:web:` identifier belongs to a browser-only
-         app and a server-backed one alike.
+    <!-- Asked as a duration, and it has to be. Both answers let the app renew its own access, so a
+         question about acting unattended has no "no" left to give — and this server could not police
+         one anyway: it sees token-endpoint traffic, not presence, and a pinned tab or a service
+         worker produces that traffic with nobody there. Phrasing it as "may it act without you"
+         reads better and is therefore tempting; it would promise something nothing here enforces.
 
-         The unticked half names the hour, because an access token already issued is not recalled
-         and the app can use it after the person leaves. It says "through your browser" rather than
-         promising a quiet renewal, because a `dyn:` client is refused auto-grant and meets this
-         page again every time.
+         Both halves name a number, because both are durations and both are enforced: an access token
+         is capped against its family's deadline, so neither sentence owes a "and up to an hour
+         more". A number binds this copy to `PodRefreshTokenStore.Lifetime` — change one and change
+         the other.
+
+         What the long answer buys is time, not capability. Seven days syncs on a schedule perfectly
+         well, so capability is not what separates the two.
 
          Ticked when the client asked for it, or when this person granted it here before; what the
-         client asks only preselects, the tick is what grants. -->
+         client asks only preselects, the tick is what decides. -->
     <div class="public-read-section">
-      <h2>Background access</h2>
+      <h2>How long this app stays connected</h2>
       <label class="public-read-toggle">
         <input type="checkbox"
                id="durableToggle"
@@ -400,12 +403,12 @@
                value="1"
                th:checked="${durablePreselected}"/>
         <span class="text">
-          Let this app act when you are not using it.
+          Keep this app connected for up to 180 days.
           <span class="description">
-            Ticked, it can renew its access on its own — what an app needs to sync or run on
-            a schedule. That lasts until you disconnect it, or until it goes a long time
-            unused. Unticked, it cannot renew on its own: whatever access it holds runs out
-            within the hour, and getting more brings it back through your browser.
+            Ticked, it stays connected for up to 180 days — or until it goes 90 days unused.
+            Unticked, for up to 7 days — or until it goes 12 hours unused. Either way it
+            renews its own access until then, and either way you can disconnect it here at
+            any time.
           </span>
         </span>
       </label>

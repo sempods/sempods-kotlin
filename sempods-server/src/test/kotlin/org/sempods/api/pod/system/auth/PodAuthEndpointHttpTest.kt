@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory
 import org.junit.jupiter.api.Test
 import com.nimbusds.jwt.SignedJWT
 import java.net.URI
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.test.assertEquals
@@ -973,18 +974,35 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the lifetime control grants the refresh token, not the scope in the request`() {
-    // `SPS-AUTH-059` from the two sides that matter. A client can ask — it preselects the
-    // control and nothing more — and a client that never asked is still one the person can grant.
+  fun `the lifetime control sets how long the connection lives, not whether there is one`() {
+    // `SPS-AUTH-059` from the two sides that matter: a client can ask, which preselects the control
+    // and nothing more, and a client that never asked is still one the person can grant. Both
+    // answers mint a family now — an app that only ever runs in front of somebody answers "no"
+    // honestly, and an hour later it is still the app they are looking at.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
     val clear = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "clear")))
-    assertNull(clear["refresh_token"], "an unticked control must not produce one: $clear")
+    val session = checkNotNull(refreshTokenStore.lookup(clear["refresh_token"] as String).token) {
+      "an unticked control still leaves one: $clear"
+    }
+    assertEquals("session", session.kind)
 
     val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
-    assertNotNull(ticked["refresh_token"], "a ticked control grants it, whatever the client asked: $ticked")
+    val durable = checkNotNull(refreshTokenStore.lookup(ticked["refresh_token"] as String).token) {
+      "a ticked control grants it, whatever the client asked: $ticked"
+    }
+    assertEquals("durable", durable.kind)
+
+    // The two windows, which is the whole of what the answer buys.
+    assertTrue(
+      session.expiresAt.isBefore(durable.expiresAt),
+      "the short answer takes the short idle window: ${session.expiresAt} / ${durable.expiresAt}",
+    )
+    val sessionEnd = checkNotNull(session.endsAt) { "every family is seeded with an outer bound" }
+    val durableEnd = checkNotNull(durable.endsAt) { "the long one included" }
+    assertTrue(sessionEnd.isBefore(durableEnd), "and the short answer's is the nearer: $sessionEnd / $durableEnd")
   }
 
   @Test
@@ -1078,11 +1096,46 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the dialog names the durations the server actually enforces`() {
+    // Naming numbers was the deliberate choice over "a few days": the person can check what they
+    // were promised, and the promise is one the server keeps — an access token is capped against its
+    // family's deadline, so neither sentence owes a "and up to an hour more".
+    //
+    // Read off `Lifetime` rather than spelled out, because that is the whole point of asserting it:
+    // moving a constant without moving the copy leaves the dialog promising something nobody keeps,
+    // and nothing else in the build would notice.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "durations")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+
+    val session = PodRefreshTokenStore.Lifetime.SESSION
+    val durable = PodRefreshTokenStore.Lifetime.DURABLE
+    for (expected in listOf(
+      "${durable.absoluteSeconds / (24 * 60 * 60)} days",
+      "${durable.idleSeconds / (24 * 60 * 60)} days",
+      "${session.absoluteSeconds / (24 * 60 * 60)} days",
+      "${session.idleSeconds / (60 * 60)} hours",
+    )) {
+      assertTrue(expected in page, "the dialog has to name '$expected' — it is what the server enforces")
+    }
+  }
+
+  @Test
   fun `an authorization made before the control cannot spend its silent code`() {
-    // `SPS-AUTH-058`, and now enforced rather than worked around: an absent decision is not a grant. Such an
-    // authorization takes the auto-grant branch, which renders nothing, so reading the silence as
-    // consent would let it mint credentials nobody ever saw the lifetime of. The code it yields
-    // carries no generation, and a code with no generation buys nothing — the deployment step that
+    // An absent decision is not a grant. That is this server's rule rather than the specification's,
+    // which has stopped saying who gets a refresh token at all. Such an authorization takes the
+    // auto-grant branch, which renders nothing, so reading the silence as consent would let it mint
+    // credentials nobody ever saw the lifetime of. The code it yields carries no generation, and
+    // nothing redeems one — the same comparison `SPS-AUTH-062` rides on. The deployment step that
     // clears the delegation rows is what a pod crosses this once with.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1113,8 +1166,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `withholding the durable connection revokes what the app already held`() {
-    // `SPS-AUTH-060`: the choice has to take effect on what exists, not only on what is minted next. Without
-    // this, somebody unticks the control, keeps their context grants, and changes nothing they can
+    // The choice has to take effect on what exists, not only on what is minted next. Without this,
+    // somebody unticks the control, keeps their context grants, and changes nothing they can
     // observe — the family they just declined keeps rotating.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -1249,6 +1302,113 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(400, refresh(earlier).statusCode, "the earlier family is superseded")
     assertEquals(200, refresh(later).statusCode, "and exactly one is left alive")
+  }
+
+  @Test
+  fun `two silent codes under a standing refusal leave one live family`() {
+    // The same run on the short answer. Measured only for the durable one, `superseded` would come
+    // back empty here and every auto-granted visit would leave one more live family behind — nothing throws, the collection grows, and a connection the person
+    // believes they replaced keeps rotating.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "standing").statusCode)
+
+    fun silentCode(state: String): String = codeFrom(
+      http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", state)
+        .addQueryParam("prompt", "none")
+        .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+        .setFollowRedirect(false).execute(),
+    )
+
+    val earlier = checkNotNull(exchangeCode(pod, silentCode("one"))["refresh_token"] as? String)
+    val later = checkNotNull(exchangeCode(pod, silentCode("two"))["refresh_token"] as? String)
+
+    fun refresh(token: String) = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refresh(earlier).statusCode, "the earlier family is superseded")
+    assertEquals(200, refresh(later).statusCode, "and exactly one is left alive")
+  }
+
+  @Test
+  fun `a session family survives a rotation under the answer that created it`() {
+    // A session family exists *because* the answer was "no", so a refusal check that does not read
+    // the family's own class ends every one of them at its first rotation. Nothing fails loudly —
+    // the feature simply does nothing, and a test that ticks the box never reproduces it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    val issued = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "session")))
+    val token = checkNotNull(issued["refresh_token"] as? String) { "the unticked answer mints one: $issued" }
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(
+      200,
+      refreshed.statusCode,
+      "the standing 'no' is the answer this family was minted under: ${refreshed.responseBody}",
+    )
+  }
+
+  @Test
+  fun `a durable family does not survive the answer that ended it`() {
+    // The other direction of the same gate, because one passing test hides the inverted case. The
+    // refusal is written straight to the decision store rather than through the consent form: that
+    // form sweeps the family itself, and would answer this test without the gate ever running.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    assertTrue(
+      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
+      "the whole family goes with the refusal, not just this rotation",
+    )
+  }
+
+  @Test
+  fun `a family that predates the control is ended by a refusal like a durable one`() {
+    // A row carrying no class was minted when only a ticked box produced one, so every one that
+    // exists was ticked. Reading such a row as a session family would hand it the short window
+    // **and** an escape from the withdrawal.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+    val held = seedRefreshToken(pod, webId = ownerWebId)
+    db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, held.token.tokenHash),
+      Updates.unset(RefreshTokenStore.Field.KIND),
+    )
+
+    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+
+    val refreshed = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
   }
 
   @Test
@@ -1492,25 +1652,26 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the response names the durable connection where the client never asked for it`() {
-    // The person can grant what the client did not request, so RFC 6749 §3.3's "say what was
-    // granted where it differs" is the client's only way to learn it did get one.
+  fun `the response scope is the access token's own scope, whichever answer was given`() {
+    // RFC 6749 §5.1 defines that member as the scope of the *access token*, and a credential's
+    // lifetime has no standing in it — so `offline_access` appears in neither answer's response. A
+    // client could do nothing with it: it starts a fresh flow when the family ends, whatever it was
+    // told beforehand.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
-    val body = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "granted", durable = true)))
-
-    assertNotNull(body["refresh_token"])
-    assertTrue(
-      (body["scope"] as String).split(" ").contains("offline_access"),
-      "the granted scope has to name it: ${body["scope"]}",
-    )
-    val claim = com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet
-    assertFalse(
-      (claim.getStringClaim("scope") ?: "").contains("offline_access"),
-      "and the bearer's own claim stays slim: ${claim.getStringClaim("scope")}",
-    )
+    for ((state, ticked) in listOf("granted" to true, "withheld" to false)) {
+      val body = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = state, durable = ticked)))
+      assertNotNull(body["refresh_token"], "both answers mint one: $body")
+      val claim = com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet
+      assertEquals(
+        claim.getStringClaim("scope"),
+        body["scope"],
+        "the member and the bearer's claim are one set (durable=$ticked): $body",
+      )
+      assertFalse("offline_access" in (body["scope"] as String), "$body")
+    }
   }
 
   @Test
@@ -1541,15 +1702,14 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a rotation keeps naming the durable connection it hands back`() {
-    // The response is where a client reads what it was granted, so a view refreshed from the newest
-    // one must not watch the durable connection vanish at the first rotation — it is still holding
-    // a successor.
+  fun `a rotation names the same set the exchange did`() {
+    // The other half of the rule above, where a client refreshing its view of the granted scope from
+    // the newest response would otherwise see the two disagree.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
-    val held = seedRefreshToken(pod, webId = ownerWebId)
+    val held = seedRefreshToken(pod, webId = ownerWebId, scopes = setOf("public-read"))
 
     val response = postForm(
       tokenUrl(pod.name),
@@ -1560,18 +1720,20 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     @Suppress("UNCHECKED_CAST")
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
     assertNotNull(body["refresh_token"])
-    assertTrue(
-      (body["scope"] as String).split(" ").contains("offline_access"),
-      "a rotation still hands back a durable connection: ${body["scope"]}",
+    assertEquals(
+      com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
+      body["scope"],
+      "a rotation hands back the bearer's own scope and nothing beside it: $body",
     )
   }
 
   @Test
-  fun `a client may echo the granted scope back on the next refresh`() {
-    // The standard thing to do with a `scope` in a token response is to send it again, and the
-    // response now names the durable connection — so refusing that echo would tell a client its own
-    // granted scope is not covered. `offline_access` is not a feature scope and cannot be
-    // down-scoped to; it names the connection this request is already proving it holds.
+  fun `a client may echo back a scope list this server does not hand out`() {
+    // The standard thing to do with a `scope` in a token response is to send it again, and clients
+    // hold lists carrying `offline_access`. Refusing the echo would break exactly the ones that
+    // behaved correctly. It is not a feature scope and cannot be down-scoped to; it names the
+    // connection this request is already proving it holds. This test is why the scope is still taken
+    // out of the comparison — without it the subtraction reads as dead code.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1587,7 +1749,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, response.statusCode, response.responseBody)
     @Suppress("UNCHECKED_CAST")
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
-    assertEquals("public-read offline_access", body["scope"], "what it echoed is what it gets back")
+    assertEquals("public-read", body["scope"], "accepted, and answered with the access token's scope")
     assertEquals(
       "public-read",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
@@ -3896,6 +4058,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     clientId: String = testClientId,
     webId: String = "https://id.test/user",
     scopes: Set<String> = emptySet(),
+    lifetime: PodRefreshTokenStore.Lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
   ): RefreshTokenStore.Issued<PodRefreshTokenStore.Owner> {
     val resolvedScopes = scopes.ifEmpty {
       setOf("${contextUri(pod.name, "public/tasks")}#read")
@@ -3913,7 +4076,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       clientId = clientId,
       webId = webId,
       scopes = resolvedScopes,
-      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
+      lifetime = lifetime,
     )
   }
 
@@ -4056,10 +4219,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
     assertNotNull(body["access_token"])
     assertEquals("Bearer", body["token_type"])
-    assertEquals(3600, body["expires_in"])
-    // The response says what was granted, the durable connection included (RFC 6749 §3.3); the
-    // bearer's own claim carries the feature scopes and nothing else.
-    assertEquals("public-read offline_access", body["scope"])
+    assertEquals(PodTokenIssuer.USER_TOKEN_TTL_SECONDS.toInt(), body["expires_in"])
+    // RFC 6749 §5.1: the member is the access token's scope, so it is the claim, spelled twice.
+    assertEquals("public-read", body["scope"])
     assertEquals(
       "public-read",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
@@ -4097,14 +4259,15 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
     assertNotNull(body["access_token"])
     assertEquals("Bearer", body["token_type"])
-    assertEquals(3600, body["expires_in"])
+    assertEquals(PodTokenIssuer.USER_TOKEN_TTL_SECONDS.toInt(), body["expires_in"])
     val refreshToken = body["refresh_token"] as? String
     assertNotNull(refreshToken, "authorization_code exchange must return a refresh_token")
     assertTrue(refreshToken.startsWith("rt_"), "refresh token plaintext should carry the rt_ prefix")
-    // The response names the granted durable connection and nothing else — the auth code carried a
-    // context scope and no feature scope survived it. Slimming is a property of the token, so it is
-    // asserted where it lives: the bearer's own claim.
-    assertEquals("offline_access", body["scope"])
+    // Absent, and correctly so: the auth code carried a context scope and no feature scope survived
+    // it. RFC 6749 §3.3's grammar has no empty scope, so a member naming one is worse than no member
+    // — and §5.1 makes it optional. Slimming itself is a property of the token, so it is asserted
+    // where it lives.
+    assertFalse("scope" in body, "an empty scope is not a scope this response may name: $body")
     assertEquals(
       "",
       com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
@@ -4145,10 +4308,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a forced reauthorize raises nothing where the authorization has no decision`() {
-    // No upsert, and the reason is `SPS-AUTH-058`: an absent decision is a state of its own, and writing
-    // one here would turn a forced review into an answer nobody gave. Nothing needs catching
-    // either — a code from such an authorization is refused at the exchange for carrying no
-    // generation, so there is neither a family nor a token to end.
+    // No upsert: an absent decision is a state of its own, and writing one here would turn a forced
+    // review into an answer nobody gave. Nothing needs catching either — a code from such an
+    // authorization is refused at the exchange for carrying no generation, so there is neither a
+    // family nor a token to end.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/undecided-${TestUtil.randomId()}"
 
@@ -4198,11 +4361,17 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `a family that predates the terms stops sliding at its first rotation`() {
     val pod = sempodsTestFactory.newPod()
     val issued = seedRefreshToken(pod)
-    // The row a running deployment already holds. Its family named no lifetime, so every rotation
-    // it ever had rebased the expiry to a fresh ninety days and nothing was ever going to end it.
+    // The row a running deployment already holds. Its family named no lifetime and carried no
+    // deadline, so every rotation it ever had rebased the expiry to a fresh ninety days and nothing
+    // was ever going to end it. **Both fields have to go.** A seeded family now arrives with a
+    // deadline, and `issueInFamily` prefers an existing one — leaving it in place would take the
+    // successor down the ordinary path and let this test pass without reaching the rule at all.
     db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
       Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
-      Updates.unset(RefreshTokenStore.Field.KIND),
+      Updates.combine(
+        Updates.unset(RefreshTokenStore.Field.KIND),
+        Updates.unset(RefreshTokenStore.Field.ENDS_AT),
+      ),
     )
 
     val response = postForm(
@@ -4217,6 +4386,162 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .single { it.tokenHash != issued.token.tokenHash }
     assertEquals(issued.token.expiresAt, successor.endsAt, "the family inherits the one deadline it has")
     assertEquals(successor.endsAt, successor.expiresAt, "and the successor cannot outlive it")
+  }
+
+  /** Rewrites one row's terms, which is the only way an HTTP test can stand near a deadline. */
+  private fun setTerms(tokenHash: String, endsAt: Instant?, expiresAt: Instant) {
+    var update = Updates.set(RefreshTokenStore.Field.EXPIRES_AT, java.util.Date.from(expiresAt))
+    if (endsAt != null) {
+      update = Updates.combine(update, Updates.set(RefreshTokenStore.Field.ENDS_AT, java.util.Date.from(endsAt)))
+    }
+    db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash),
+      update,
+    )
+  }
+
+  @Test
+  fun `a refresh inside the last hour of a family expires with it`() {
+    // `expires_in` and the bearer's own `exp` come out of one subtraction. Derived separately they
+    // drift, and a family half an hour from its end would hand out an access token good for a full
+    // one — "seven days" meaning seven days and an hour.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+    val deadline = Instant.now().plusSeconds(1800)
+    setTerms(held.token.tokenHash, endsAt = deadline, expiresAt = deadline)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+
+    val expiresIn = (body["expires_in"] as Number).toLong()
+    assertTrue(
+      expiresIn in 1700..1800,
+      "the access token may not outlive the family: $expiresIn",
+    )
+    val claims = com.nimbusds.jwt.SignedJWT.parse(body["access_token"] as String).jwtClaimsSet
+    assertEquals(
+      expiresIn,
+      Duration.between(claims.issueTime.toInstant(), claims.expirationTime.toInstant()).seconds,
+      "and the number the client is told is the number the bearer carries",
+    )
+  }
+
+  @Test
+  fun `a refresh on the family's deadline issues nothing`() {
+    // The instant itself. `lookup` compares with `isBefore`, so a row is still ACTIVE exactly at its
+    // expiry and the structural guard in `buildTokenResponse` is what answers.
+    //
+    // The row below is one the clamp would never write — a deadline behind an expiry — because the
+    // millisecond this is really about cannot be aimed at over HTTP. What it pins is that no bearer
+    // leaves this server outliving its family, whatever wrote the row.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+    val now = Instant.now()
+    setTerms(held.token.tokenHash, endsAt = now.minusSeconds(1), expiresAt = now.plusSeconds(3600))
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `a refresh past the family's deadline is not recognised at all`() {
+    // One millisecond further on, and the answer comes from `lookup` instead: the clamp holds every
+    // expiry at or below the deadline, so a family that is over has no row left that reads ACTIVE.
+    //
+    // `invalid_grant` and not the description, because which of the two descriptions comes back is a
+    // race this test cannot win. The collection's TTL index expires at the instant in `expiresAt`,
+    // so a monitor pass landing between the write below and the POST reaps the row and `lookup`
+    // answers `NOT_FOUND` rather than `EXPIRED` — the two are the same row-absence, which is what
+    // the log line at the `NOT_FOUND` branch says outright. What the client is owed is the same
+    // either way.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+    val past = Instant.now().minusSeconds(1)
+    setTerms(held.token.tokenHash, endsAt = past, expiresAt = past)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue("invalid_grant" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `a durable family rotating near its deadline ends at it, not a full window past it`() {
+    // The whole of RFC 10017 §6.3.2.3's third obligation. A rolling ninety-day TTL renewed on every
+    // rotation is a family that rotates daily and never ends; the deadline is what the rotation may
+    // not move, and the clamp is what holds the successor to it.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+    val deadline = Instant.now().plusSeconds(3 * 24 * 60 * 60).truncatedTo(ChronoUnit.MILLIS)
+    setTerms(held.token.tokenHash, endsAt = deadline, expiresAt = deadline)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    val successor = refreshTokenStore.findByFamily(held.token.familyId)
+      .single { it.tokenHash != held.token.tokenHash }
+    assertEquals(deadline, successor.endsAt, "the deadline is inherited, never recomputed")
+    assertEquals(deadline, successor.expiresAt, "and three days is what is left, not ninety")
+  }
+
+  @Test
+  fun `a durable family minted before the ceiling takes its expiry as its deadline`() {
+    // The other population of families with no deadline, and the one the shared store's rule cannot
+    // see: it keys on a missing *class*, and these name one. They were minted after the terms
+    // arrived and before a ceiling was decided for them, so nothing would ever end them — a rolling
+    // ninety days, renewed on every rotation, exactly what the ceiling exists to stop.
+    val pod = sempodsTestFactory.newPod()
+    val issued = seedRefreshToken(pod)
+    db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
+      Updates.unset(RefreshTokenStore.Field.ENDS_AT),
+    )
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(issued.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    val successor = refreshTokenStore.findByFamily(issued.token.familyId)
+      .single { it.tokenHash != issued.token.tokenHash }
+    assertEquals(
+      issued.token.expiresAt,
+      successor.endsAt,
+      "the deadline is the one the family demonstrably has, so the rotation extends nothing",
+    )
+    assertEquals(successor.endsAt, successor.expiresAt, "and the successor cannot outlive it")
+  }
+
+  @Test
+  fun `a fresh durable exchange still hands out a full hour`() {
+    // The cap now applies on the code path too, because a durable family is seeded with a deadline
+    // as well. A hundred and eighty days out, it takes nothing off the access token.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals(PodTokenIssuer.USER_TOKEN_TTL_SECONDS.toInt(), body["expires_in"])
   }
 
   @Test

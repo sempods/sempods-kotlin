@@ -148,7 +148,10 @@ sends neither is the ordinary case.
 
 Response is the standard OAuth token response. Pod access tokens are
 RS256-signed JWTs with `iss = pod base URL`, `sub = <WebID>`,
-`client_id`, `scope`, `exp = 1h`. The `scope` claim carries **feature
+`client_id`, `scope`, and an `exp` of at most an hour — less where the
+refresh-token family behind it ends sooner, so a connection that lasts
+seven days lasts seven days rather than seven days and an hour.
+`expires_in` and `exp` come out of one subtraction. The `scope` claim carries **feature
 scopes only** (e.g. `public-read`); per-context permissions are not in
 the token — they are resolved server-side per request from the grant
 store, and the `scope=` down-scope on refresh applies to feature scopes
@@ -230,14 +233,31 @@ issues no `id_token`, and does not advertise `openid`. Both discovery
 documents list it under `scopes_supported`, which is where a client that
 has read no sempods documentation finds it.
 
-Asking is not getting. The scope preselects the consent page's
-"Background access" control — which asks whether the app may act while
-the person is not using it, because that is the decision a refresh token
-actually makes and the one a person can answer. What grants the token is
-the tick, so a client that cannot send the scope is not thereby denied a
-durable connection. The exchange reads that decision from the
-store rather than from the authorization code, so a code carries the
-request and never the authority.
+Asking is not getting. The scope preselects the consent page's control
+and settles nothing else. What the tick decides is **how long** the
+connection lives, not whether there is one: every answered authorization
+is issued a refresh token, and the answer picks the family's terms.
+
+| | idle window | absolute ceiling |
+|---|---|---|
+| unticked | 12 h | 7 days |
+| ticked | 90 days | 180 days |
+
+Both classes end. An app that syncs daily and has been connected
+indefinitely re-authorizes on a schedule from here on, which is a
+product decision about background apps rather than a corollary of the
+rest.
+
+An app that runs only in front of somebody answers "no" honestly and
+still needs a way back when the hour is up. There is no silent one: a
+hidden-iframe `prompt=none` carries the pod session only where the app
+and the pod share a site, and a sempods app is meant to work against any
+pod. `grant_type=refresh_token` is that way back, and it needs no site
+relationship at all.
+
+The exchange reads the decision from the store rather than from the
+authorization code, so a code carries the request and never the
+authority.
 
 An authorization that predates the control has no decision recorded, and
 its codes are refused: a code carries the generation of the consent that
@@ -252,15 +272,16 @@ selection the person just made under the answer that stood before it; the
 pair it can leave on a first consent, grants with no answer beside them,
 redeems nothing.
 
-A response carrying no `refresh_token` is therefore no evidence about the
-request, which is the half a client debugs: either the person left the
-control unticked, or the authorization predates the control and its codes
-no longer redeem at all. Re-sending the scope
-grants nothing by itself — what answers the question is a fresh
-authorization the person sees.
+Nothing on the wire says which lifetime a client got. `offline_access`
+is accepted in the request and does not appear in the response `scope`:
+RFC 6749 §5.1 defines that member as the access token's scope, and a
+credential's lifetime has no standing in it. A client could do nothing
+with the answer either — it starts a fresh flow when the family ends,
+whatever it was told beforehand, which is the same reasoning that rules
+out `refresh_token_expires_in`. The person is told at the consent screen.
 
-Two flows sit outside that diagnosis, because nobody was asked in them at
-all: an anonymous `public-read` exchange and a service client's
+Two flows mint no family at all, because nobody was asked in them: an
+anonymous `public-read` exchange and a service client's
 `client_credentials` are short-lived by construction. Authenticated
 `public-read` takes the ordinary path, and its lifetime is the consent
 answer like anybody else's.
@@ -268,8 +289,10 @@ answer like anybody else's.
 On refresh the scope is accepted rather than refused. `scope=` there is a
 down-scope over feature scopes (see "Token exchange") and `offline_access`
 is not one, so it is taken out before the comparison instead of being
-reported as a scope this token does not cover: a client may echo back the
-set it was granted.
+reported as a scope this token does not cover. Clients hold scope lists
+carrying it and send them back, which is the standard thing to do with the
+`scope` of a token response; refusing the echo would break exactly the
+clients that behaved correctly.
 
 ### Refresh token rotation
 
@@ -278,11 +301,30 @@ a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest.
 
-A family carries the terms it was minted under, and a rotation
-inherits them rather than deciding them again — so the 90-day default
-is the idle window and not the family's life.
-`RefreshTokenStore.issueInFamily` owns the rule, RFC 10017 §6.3.2.3
-the requirement behind it.
+A family carries the terms it was minted under, and a rotation inherits
+them rather than deciding them again. Each class has its own idle window
+— 12 h for a family minted without the tick, 90 days with it — and a
+rotation renews that window rather than the family's life.
+`PodRefreshTokenStore.Lifetime` holds the numbers,
+`RefreshTokenStore.issueInFamily` the inheritance, RFC 10017 §6.3.2.3 the
+requirement behind it: a rotation may not extend the new token's lifetime
+beyond the initial token's where the family has a preestablished
+deadline. The deadline is fixed when the family is seeded and copied
+verbatim afterwards, so nothing a rotation does moves it — without one, a
+family that rotates daily never ends.
+
+A family that reaches a rotation without a deadline acquires one there,
+and it is **the predecessor's own expiry**: the only one such a family
+demonstrably has, and taking it extends nothing. Two populations arrive
+that way — the families seeded before the fields existed, and those
+seeded after them but before this server decided what each class means.
+An actively used one therefore has up to ninety days left and then asks
+for a fresh authorization once. No migration script, no backfill.
+
+`PodRefreshTokenStore.issueInFamily` owns that rule rather than the
+shared store, which asks it only of a family naming no class at all: the
+hosted MCP service shares the store, names one on every row and has
+settled no ceiling of its own.
 
 **A deployment older than the consent control clears its delegations
 once.** Those authorizations hold grants with no answer beside them, so
@@ -308,8 +350,10 @@ lifetime question governs what stands after it: a consent granting a
 durable connection retires the families it supersedes once the successor
 exists, one withholding it retires them outright, and both span every URI
 derivable from the person's WebID. So reconnecting replaces the client's
-refresh token rather than leaving a second ninety-day credential beside
-it.
+refresh token rather than leaving a second credential beside it, each
+renewing a window of its own. Both answers mint, so both retire: an
+auto-granted reconnect records no new decision and revokes nothing, which
+is how one per visit would otherwise accumulate.
 
 Each exchange retires what it observed before minting its own, which
 bounds it rather than serialising it: two codes redeemed at the same

@@ -48,7 +48,7 @@ import jakarta.ws.rs.core.Response
  *     form because the exact claude.ai probe set is not fully documented.
  *
  * `scopes_supported` names everything a client may put in `scope`: the feature scopes, and
- * `offline_access` for a client that needs a refresh token. The list is short and complete because
+ * `offline_access` for a client that wants a long connection. The list is short and complete because
  * the per-context permissions a caller ends up with are grants — agreed in the consent dialog and
  * resolved per request, never asked for through `scope`. Advertising it is what lets a client that
  * has read no sempods documentation discover the extension at all; `openid` is deliberately absent,
