@@ -241,7 +241,12 @@ is issued a refresh token, and the answer picks the family's terms.
 | | idle window | absolute ceiling |
 |---|---|---|
 | unticked | 12 h | 7 days |
-| ticked | 90 days | none yet |
+| ticked | 90 days | 180 days |
+
+Both classes end. An app that syncs daily and has been connected
+indefinitely re-authorizes on a schedule from here on, which is a
+product decision about background apps rather than a corollary of the
+rest.
 
 An app that runs only in front of somebody answers "no" honestly and
 still needs a way back when the hour is up. There is no silent one: a
@@ -302,9 +307,17 @@ them rather than deciding them again. Each class has its own idle window
 rotation renews that window rather than the family's life.
 `PodRefreshTokenStore.Lifetime` holds the numbers,
 `RefreshTokenStore.issueInFamily` the inheritance, RFC 10017 §6.3.2.3 the
-requirement behind it. An outer bound is what stops a family that rotates
-daily from living forever; the short class has one at seven days, and the
-long one does not have one yet.
+requirement behind it: a rotation may not extend the new token's lifetime
+beyond the initial token's where the family has a preestablished
+deadline. The deadline is fixed when the family is seeded and copied
+verbatim afterwards, so nothing a rotation does moves it — without one, a
+family that rotates daily never ends.
+
+Families seeded before the fields existed acquire a deadline at their
+first rotation, and it is **the predecessor's own expiry**: the only one
+such a family demonstrably has, and taking it extends nothing. An
+actively used one therefore has up to ninety days left and then asks for
+a fresh authorization once. No migration script, no backfill.
 
 **A deployment older than the consent control clears its delegations
 once.** Those authorizations hold grants with no answer beside them, so

@@ -1000,8 +1000,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       session.expiresAt.isBefore(durable.expiresAt),
       "the short answer takes the short idle window: ${session.expiresAt} / ${durable.expiresAt}",
     )
-    assertNotNull(session.endsAt, "and it is the answer that comes with an outer bound")
-    assertNull(durable.endsAt, "the long one has none yet")
+    val sessionEnd = checkNotNull(session.endsAt) { "every family is seeded with an outer bound" }
+    val durableEnd = checkNotNull(durable.endsAt) { "the long one included" }
+    assertTrue(sessionEnd.isBefore(durableEnd), "and the short answer's is the nearer: $sessionEnd / $durableEnd")
   }
 
   @Test
@@ -4327,11 +4328,17 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `a family that predates the terms stops sliding at its first rotation`() {
     val pod = sempodsTestFactory.newPod()
     val issued = seedRefreshToken(pod)
-    // The row a running deployment already holds. Its family named no lifetime, so every rotation
-    // it ever had rebased the expiry to a fresh ninety days and nothing was ever going to end it.
+    // The row a running deployment already holds. Its family named no lifetime and carried no
+    // deadline, so every rotation it ever had rebased the expiry to a fresh ninety days and nothing
+    // was ever going to end it. **Both fields have to go.** A seeded family now arrives with a
+    // deadline, and `issueInFamily` prefers an existing one — leaving it in place would take the
+    // successor down the ordinary path and let this test pass without reaching the rule at all.
     db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
       Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
-      Updates.unset(RefreshTokenStore.Field.KIND),
+      Updates.combine(
+        Updates.unset(RefreshTokenStore.Field.KIND),
+        Updates.unset(RefreshTokenStore.Field.ENDS_AT),
+      ),
     )
 
     val response = postForm(
@@ -4427,6 +4434,45 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(400, response.statusCode, response.responseBody)
     assertTrue("expired" in response.responseBody, response.responseBody)
+  }
+
+  @Test
+  fun `a durable family rotating near its deadline ends at it, not a full window past it`() {
+    // The whole of RFC 10017 §6.3.2.3's third obligation. A rolling ninety-day TTL renewed on every
+    // rotation is a family that rotates daily and never ends; the deadline is what the rotation may
+    // not move, and the clamp is what holds the successor to it.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+    val deadline = Instant.now().plusSeconds(3 * 24 * 60 * 60).truncatedTo(ChronoUnit.MILLIS)
+    setTerms(held.token.tokenHash, endsAt = deadline, expiresAt = deadline)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+
+    val successor = refreshTokenStore.findByFamily(held.token.familyId)
+      .single { it.tokenHash != held.token.tokenHash }
+    assertEquals(deadline, successor.endsAt, "the deadline is inherited, never recomputed")
+    assertEquals(deadline, successor.expiresAt, "and three days is what is left, not ninety")
+  }
+
+  @Test
+  fun `a fresh durable exchange still hands out a full hour`() {
+    // The cap now applies on the code path too, because a durable family is seeded with a deadline
+    // as well. A hundred and eighty days out, it takes nothing off the access token.
+    val pod = sempodsTestFactory.newPod()
+    val held = seedRefreshToken(pod)
+
+    val response = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, response.statusCode, response.responseBody)
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals(PodTokenIssuer.USER_TOKEN_TTL_SECONDS.toInt(), body["expires_in"])
   }
 
   @Test

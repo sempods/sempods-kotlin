@@ -79,11 +79,12 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
    * @param idleSeconds how long a family survives unused. Every rotation renews it, which is what
    *   makes it an idle window rather than a life.
    * @param absoluteSeconds the family's outer bound, fixed when it is seeded and never moved again.
-   *   `null` leaves the family unbounded, which is where [DURABLE] still stands.
+   *   Without one a family that rotates daily never ends, which RFC 10017 §6.3.2.3 rules out: a
+   *   rotation may not extend the new token's lifetime beyond the initial token's.
    */
-  internal enum class Lifetime(val kind: String, val idleSeconds: Long, val absoluteSeconds: Long?) {
+  internal enum class Lifetime(val kind: String, val idleSeconds: Long, val absoluteSeconds: Long) {
     SESSION("session", 12L * 60 * 60, 7L * 24 * 60 * 60),
-    DURABLE("durable", RefreshTokenStore.DEFAULT_TTL_SECONDS, null),
+    DURABLE("durable", 90L * 24 * 60 * 60, 180L * 24 * 60 * 60),
   }
 
   /**
@@ -121,7 +122,7 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
     scopes = scopes,
     kind = lifetime.kind,
-    endsAt = lifetime.absoluteSeconds?.let { Instant.now().plusSeconds(it) },
+    endsAt = Instant.now().plusSeconds(lifetime.absoluteSeconds),
     ttlSeconds = lifetime.idleSeconds,
   )
 
