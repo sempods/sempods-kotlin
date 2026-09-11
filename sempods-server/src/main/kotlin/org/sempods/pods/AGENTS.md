@@ -62,4 +62,5 @@ or returns a row is `internal` too — giving one a public answer means giving i
 - The document contract the `commons-mongo` helpers implement, and the conventions over it (IST):
   [`document-contract.md`](../../../../../../../sempods-commons-mongo/docs/document-contract.md)
 - Architecture: `docs/architecture/module-layering.md`
-- Pod store & journal roadmap (SOLL): the maintainer's internal roadmap
+- [Durable recovery design](https://github.com/sempods/sempods-kotlin/issues/143) and
+  [deployment/store selection](https://github.com/sempods/sempods-kotlin/issues/139)

@@ -4,7 +4,7 @@ import org.sempods.client.net.SempodsUrlPolicy
 import java.net.InetAddress
 
 /**
- * Pod base-URL guard — the URL-string half of the two-layer SSRF defense (M2 + M6.2).
+ * Pod base-URL guard — the URL-string half of the two-layer SSRF defense.
  *
  * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client`. They were spelled out twice — here
  * and in a consumer's dereference guard — and the two drifted: this side knew `::a.b.c.d` carries a

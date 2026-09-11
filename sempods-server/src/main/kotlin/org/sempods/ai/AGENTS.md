@@ -20,12 +20,11 @@ Main components:
 - Keep endpoint-level behavior documented in `docs/ai/semweb/text2model.md` and use-case guidance in `docs/ai/semweb/use-cases/tasks.md`.
 - Public SHACL hard-validation plans follow
   [issue planning](../../../../../../../docs/agents/documentation-strategy.md#issue-planning).
-  Existing private roadmap references follow its private planning boundary.
 
 ## References
 
 - `docs/ai-layer.md`
 - `docs/ai/semweb/text2model.md`
 - `docs/ai/semweb/use-cases/tasks.md`
-- the maintainer's internal roadmap
+- [Shape-contract design](https://github.com/sempods/sempods-kotlin/issues/137)
 - `AGENTS.md` at the repository root

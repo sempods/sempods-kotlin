@@ -39,7 +39,7 @@ Three primitives:
   primitive ships as the one retrieval ergonomic; richer retrieval (vector,
   expansion registry) and SHACL-gated contracts are the concept, not the
   current surface (see
-  [`../concepts/mcp-agent-interface.md`](../concepts/mcp-agent-interface.md)).
+  [`../proposals/mcp-agent-interface.md`](../proposals/mcp-agent-interface.md)).
 - **Commons server, not one-per-use-case.** A single MCP server per pod
   serves all usage patterns; new patterns require new contexts, not new
   MCP variants. App-/user-defined MCP surfaces under `apps/…` and
@@ -92,10 +92,9 @@ Standards are *named*, not re-explained in these docs.
   (proactive vs. defensive) for Claude Desktop / Code / Web, ChatGPT,
   Copilot / VS Code, Open-Code, plus known client-side limits we
   document but do not work around.
-- **[`../concepts/mcp-agent-interface.md`](../concepts/mcp-agent-interface.md)** — the concept:
-  SHACL-gated app contracts, vector-assisted retrieval (the `find` primitive
-  itself shipped — see `tools.md`), cross-pod orchestration. Target state,
-  without committing to a delivery shape.
+- **[`../proposals/mcp-agent-interface.md`](../proposals/mcp-agent-interface.md)** — the proposal for
+  SHACL-gated app contracts and reactive agents, with links to retrieval design and the owning
+  issue. These capabilities remain unimplemented.
 - **[`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md)** — a standalone MCP service (the `sempods-mcp` module)
   that fronts many pods over one connection, treating MCP as an
   LLM-tooling layer *over* the pod's primitives rather than a per-pod
@@ -103,7 +102,6 @@ Standards are *named*, not re-explained in these docs.
   the cost (token custody), profile-path naming, and the **direction on the
   three tool surfaces** (per-pod MCP, chat app, hosted) — all three stay,
   and the two server-side ones now run one shared implementation. Live on
-  `mcp.sempods.org` (M1–M6 done).
+  `mcp.sempods.org`.
 - **[GitHub issues](https://github.com/sempods/sempods-kotlin/issues)** — public goals and planned
-  iterations under [issue planning](../agents/documentation-strategy.md#issue-planning). Existing
-  concept and SOLL material follows the [transition](../agents/documentation-strategy.md#transition).
+  iterations under [issue planning](../agents/documentation-strategy.md#issue-planning).

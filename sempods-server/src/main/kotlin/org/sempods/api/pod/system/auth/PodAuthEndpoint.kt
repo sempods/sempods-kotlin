@@ -1637,9 +1637,8 @@ class PodAuthEndpoint @Inject constructor(
       //  submitted `client_id` names an app rather than an installation. Attributing a failed
       //  attempt to a person would mean keeping durable tombstones for tokens that no longer
       //  exist — a retention design that has to answer what is worth keeping about a credential
-      //  that failed, not a log line. The policy question is tracked in the maintainer's auth
-      //  roadmap; what the store *can* say is in `docs/auth/oauth.md` §"Refresh token
-      //  rotation".
+      //  that failed, not a log line. What the store can say is in
+      //  `docs/auth/oauth.md` §"Refresh token rotation".
       RefreshTokenStore.LookupState.NOT_FOUND -> {
         // "unknown or expired", because the two are the same row-absence here: an expired token
         // reports EXPIRED only until the TTL index reaps it, and NOT_FOUND ever after. Reading

@@ -1,22 +1,13 @@
-# sempods.org — Modular Deployment (Concept)
+# sempods.org — Modular Deployment
 
 ## Purpose
 
-`sempods-server` is meant to be a **reference implementation** of the sempods standard, not one
-particular hosting. A deployment should come about by *selecting implementations*, not by
-forking the code: the same codebase serves a single self-hosted pod, a multi-tenant
-hosting, and an app that embeds a pod.
+`sempods-server` exposes deployment-selected bindings for retrieval, AI, media and
+authorization. The current composition hosts pods addressed by a path segment.
+[Additional deployment profiles](../proposals/deployment-profiles.md) remain proposed;
+this document explains the existing seams and their constraints.
 
-The mechanism is a **seam**: a behavior that a deployment may replace is expressed as an
-interface with a deployment-selected binding. This document names the seams — the ones that
-exist and the ones that do not exist yet — and the invariants that are deliberately *not*
-selectable.
-
-Sections are marked **IST** (implemented, verifiable in code) or **SOLL** (target state).
-Plan new work through [issue planning](../agents/documentation-strategy.md#issue-planning).
-Existing SOLL material follows the [transition](../agents/documentation-strategy.md#transition).
-
-## The pattern (IST)
+## The pattern
 
 Three shapes are already in use, and new seams should reuse them rather than invent a
 fourth:
@@ -70,12 +61,12 @@ The same reading applies in reverse to what a seam *returns*. `SempodsCredential
 `org.sempods.api` and into `org.sempods.pods.grants`, next to the seam that produces it. See also
 [`../architecture/module-layering.md`](../architecture/module-layering.md).
 
-## Seams that exist (IST)
+## Seams that exist
 
 | Seam | Contract | Implementations today |
 |---|---|---|
 | RDF store per pod | `pods/PodRepository` | `InMemoryPodRepository` (MemoryStore, write-through to MongoDB sinks); lifecycle owned by `PodRepositoryCache` |
-| Write-path sinks | `pods/changes/PodChangeListener` (Multibinder) — a `PodChangeSet` names its pod by `PodId` and by name, so a sink a deployment supplies inherits no key type | `BackupSinkPodChangeListener` (critical — the pod's durable persistence). The best-effort `MediaCleanupPodChangeListener` went with media roadmap M9; the Multibinder is what made removing it a deletion rather than an edit to the write path |
+| Write-path sinks | `pods/changes/PodChangeListener` (Multibinder) — a `PodChangeSet` names its pod by `PodId` and by name, so a sink a deployment supplies inherits no key type | `BackupSinkPodChangeListener` (critical — the pod's durable persistence); a deployment contributes listeners without changing the write path |
 | `find` engine | `retrieval/FindAdapter` (Multibinder) | `SparqlTextFindAdapter`; the interface KDoc states the intent — "find is a specification, not an algorithm" |
 | Resource expansion | `retrieval/ResourceExpander` | `SparqlResourceExpander` |
 | AI provider | `ai/AiService`, selected by `AI_PROVIDER` | `OllamaAiService`, `OpenAiService` |
@@ -88,8 +79,7 @@ The same reading applies in reverse to what a seam *returns*. `SempodsCredential
 | Host access from outside | The admin surface (`{server}/_system/admin/pods/…`) — a wire contract too, and the reference implementation's own rather than the pod contract | `SempodsControlPlaneClient` (`sempods-control-plane-client`), bound to one server base URL and one admin credential |
 
 Per-pod store *selection* (a factory choosing a different backend per pod) is not part of
-this list — the store interface exists, the per-pod choice does not. See
-the maintainer's internal roadmap.
+this list — the store interface exists, the per-pod choice does not. [Issue #139](https://github.com/sempods/sempods-kotlin/issues/139) owns the proposed selection seam.
 
 Two of these have exactly one implementation, for opposite reasons. The **authorization** seam has
 one because the grant model is what every deployment shipped here runs, and the alternatives it
@@ -98,13 +88,9 @@ not built; what earned it the interface anyway was that the code beneath it had 
 responsibilities into one method, and separating *is this bearer good* (concrete) from *what may it
 reach* (selectable) is what made either testable on its own.
 
-The admin-authority seam has exactly one implementation, and deliberately no deployment-level
-selection: every deployment this repository ships binds an HTTP connector, so its admin surface is
-always reachable across a trust boundary and always wants a credential check. A second
-implementation — WebID plus an operator allowlist, so a hosted operator console authenticates
-*people* instead of sharing a static secret — is what keeps this an interface rather than a
-concrete class (control-plane admin roadmap A3). That is a missing implementation, not a missing
-seam: `SempodsBaseEndpoint.resolvePodOwnerPrincipal` is the identity check to model it on.
+The admin-authority seam's current binding, trust boundary and reason for remaining an interface
+are owned by [`AdminAuthorizer`'s KDoc](../../sempods-server/src/main/kotlin/org/sempods/admin/AdminAuthorizer.kt).
+Alternative operator identities belong to the [deployment proposal](../proposals/deployment-profiles.md).
 
 ### The service contract is semantic, not a facade over RDF
 
@@ -128,47 +114,29 @@ pod. What the pod will accept is bounded on the server rather than by convention
 rejects every Update form and refuses `SERVICE` anywhere in the algebra, and a token's sandbox scopes
 what any query can see.
 
-The corollary points the other way too, and it has since been followed to its end. There used to be
-a `SempodsService` interface here — a composite of `SempodsDataService` and
-`SempodsLifecycleService` — and it is gone. A consumer takes one of the client's two tiers —
-`SempodsClient` or `SempodsPodClient` — plus its own domain layer. Those are
-alternatives a consumer picks *one* of and not a stack it assembles: the bound tier is the stateless
-one with a coordinate fixed, so taking it removes an argument rather than adding a layer. Fewer types
-between an app and a graph is the goal; a better-shaped facade is not.
+A consumer chooses `SempodsClient` or `SempodsPodClient` plus its own domain layer.
+The bound tier fixes a coordinate of the stateless one; these are alternatives, not a stack.
 
-### The authority boundary outlived the types
+### The authority boundary
 
-Retiring those interfaces did not retire what they encoded, and it is worth saying where the line
-went, because the line is the real thing.
+**The split is by authority.** Pod-scoped operations authenticate a pod token and resolve context
+permissions from durable server-side grants. Feature scopes travel in the token; context grants
+do not. [`GrantStorePodAuthorizer`](../../sempods-server/src/main/kotlin/org/sempods/pods/grants/GrantStorePodAuthorizer.kt)
+owns the resolution details. Creating and deleting a pod is host-level, and no
+`<context>#permission` grant can express it: at `createPod` the pod does not exist yet.
+Media and resource writes use the same `PodContextWriteAuthorizer` and the same
+`<context>#write` / `#manage` grants, so a split by subject matter would add no authority boundary.
+`createContext` and `removeContext` are pod-scoped too, although they operate on MongoDB rows
+rather than RDF statements.
 
-**The split was by authority, not by topic.** Pod-scoped operations — resources, contexts and media
-alike — are authorized by a pod-scoped token; creating and deleting a pod is host-level, and no
-`<context>#permission` scope can express it (at `createPod` the pod does not exist yet, so there is
-nothing to scope against). That is why media never became a third interface: media writes go
-through the very same `PodContextWriteAuthorizer` and the very same `<context>#write` / `#manage`
-scopes as the resource writes, so a split by subject matter would have said nothing about who may
-call what. `createContext` and `removeContext` make the same point from the other side — not RDF at
-all, `_system` operations on MongoDB rows, and pod-scoped for exactly this reason.
-
-The boundary is now marked by **two modules with two credentials** rather than two interfaces:
+The boundary is marked by **two modules with two credentials** rather than two interfaces:
 `:sempods-client` (`SempodsPodClient`, the credential typed as `SempodsAuth` —
 anonymous, or a 2-leg pod-scoped token) and
-`:sempods-control-plane-client` (`SempodsControlPlaneClient` — a host-level admin secret, against
-`_system/admin/pods/…`, with a consumer-side `PodControlPlaneClient` interface in front of it).
-That is a sharper statement than the types were, because the types could not say it:
-`SempodsLifecycleService.createPod` and `deletePod` had **no implementation that performed them** —
-the one implementation threw and named the control plane — while `PodControlPlaneClient` already
-declared all three, `createPod` with a return type the interface could not offer
-(`CreatePodResult`, which answers "already existed" instead of throwing). The interface described
-an authority nothing exercised through it.
-
-It started as two classes in one module, separated by a comment banner, and that was not enough:
-`sempods-client` is destined to be published as *the client for the pod specification*, and a
-module carrying the proprietary half teaches every reader that the control plane is part of the
-contract. The module boundary states it where a dependency declaration can show it — a consumer of
-the specification never adds the second module. The remaining edge runs the other way on purpose
-(the control-plane client borrows `SempodsHttpTransport`), so the proprietary half depends on the
-contract and never the reverse.
+`:sempods-control-plane-client` (`SempodsControlPlaneClient` — a host-level admin secret against
+`_system/admin/pods/…`).
+Keeping host administration in a separate module makes its proprietary authority visible
+in dependency declarations. `sempods-control-plane-client` borrows `SempodsHttpTransport`;
+the pod client never depends on the host-specific module.
 
 The sharpest evidence that the boundary survived is `existsPod`, which exists on **both** clients on
 purpose — and now in both *modules*, which is as visible as a duplicate gets. The data path asks it
@@ -180,20 +148,7 @@ boundary refusing to let a data-path caller acquire host-level authority for a c
 The rule this leaves for anything added later is the one the section above states: an operation
 belongs with the credential that authorizes it, and an app's rules about the graph stay in the app.
 
-## Seams that do not exist yet (SOLL)
-
-Each row names the place that hardwires the behavior today, so the cost of introducing the
-seam is visible.
-
-| Seam | Purpose | Hardwired today in |
-|---|---|---|
-| **Pod resolution** | Decide which pod a request addresses: path segment (multi-pod), fixed pod (single-pod deployment), or host header. | The routing itself — `@Path("{pod}…")` plus `@PathParam("pod") pod: String` on every endpoint, carried on through `SempodsBaseEndpoint.authenticate(pod)` into `PodFacade`. The most invasive seam of the set. **The service's own name falls with it**: today it hosts pods, and a single-pod deployment *is* one. The names disagree about which: the database says `sempods-server`, the docker service and its env file say `sempods`. Settling them means knowing what the service is ([`../naming.md`](../naming.md) §3, "One name is unsettled"). Renaming a docker service is cheap next to this seam, so it is not worth doing before it. |
-| **Query rewriting** | Let a deployment (or an individual pod) enforce additional constraints on SPARQL before execution. | Nothing exists; the sandbox is applied directly on the query path. |
-| **Store selection per pod** | Choose the store backend per pod (in-memory, file-based, remote SPARQL). The interface is there; the per-pod choice is not — and the write path still reaches through it to an RDF4J Sail for change capture, which is the actual blocker. | `PodRepositoryCache.initialize()` constructs `InMemoryPodRepository` unconditionally; `InMemoryPodRepository.doWork` casts to `NotifyingSailConnection`. Tracked in the maintainer's internal roadmap. |
-| **`_system` extensions** | Let a deployment add endpoint sets under `_system/…` without patching the module. | The endpoint list in `SempodsModule.bindEndpoints(...)` is static. Partial precedent: `SempodsMediaModule` contributes a set from the deployment composition — the Multibinder behind `JaxRsApplicationModule.bindEndpoints` already allows it. |
-| **Transport without RDF** | Let a consumer of the host-level admin surface take the HTTP plumbing without the pod client — an operator console with no RDF anywhere. | `:sempods-control-plane-client` declares `api(project(":sempods-client"))`, so `SempodsHttpTransport` and `SempodsClientException` arrive with RDF4J attached. The move is a package move into a small `sempods-http`, not a redesign — and nothing owes it today: the only consumer takes the pod client anyway, and the operator panel (the maintainer's internal roadmap) does not exist yet. Two changes have raised the stake without changing the answer: `sempods-mcp` takes `:sempods-client` for its wire layer, and `:sempods-mcp-core` now takes it for `PodToolExecutor` — and through that module `:sempods-server` inherits it too. Three consumers carrying RDF4J for a transport, one of which (`sempods-server`) has RDF4J anyway. The split would buy the other two a smaller classpath and nothing else, which is still not enough to owe it. See [`../pod-client.md`](../pod-client.md). |
-
-## What is not selectable (IST)
+## What is not selectable
 
 The seams shape *how* a deployment behaves, never *whether* it conforms. Every invariant in
 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) §"What this project will not change" holds for
@@ -214,13 +169,13 @@ pod and nothing above it: a pod has one base URL and the specification does not 
 URL decomposes ([`SPS-CORE-007`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-007)), so path-segment resolution,
 a fixed pod and a host that *is* one pod are equally conformant and equally invisible to it.
 Hosting many pods is therefore not a conformance question at all. It is this implementation's
-extension, the pod-resolution seam above is where it lives, and a hosting conforms exactly when
+extension; alternative resolution is [proposed separately](../proposals/deployment-profiles.md). A hosting conforms when
 each of its pods does.
 
 This is what keeps conformance testable: a conformance suite runs against the invariants,
 not against a particular set of bindings.
 
-## Target deployment profiles (SOLL)
+## Deployment composition
 
 A profile is *selected* somewhere, and that somewhere is a deployment artifact rather than
 any of the modules it composes. `:deployments:sempods:image` holds the pod server's entry point
@@ -231,11 +186,6 @@ depend on the seams it uses without depending on the modules that happen to sit 
 deployment — an application does not install the pod server, it talks to one. Tests that need a composed
 injector compose their own; they do not reach back into the deployment artifact.
 
-The claim held before it was proven: these three used to be composed into **one** process, and the
-split into two artifacts changed only the compositions — not a line in `:sempods-server` or in any
-consuming module. That is what a deployment profile being a property of the deployment means in
-practice.
-
 The media store is the sharpest case of that rule so far, because there it is **forced rather than
 chosen**. `S3PodMediaStore` ships in `:sempods-media-s3`, a sibling that depends on `:sempods-server` — so
 `:sempods-server` can never name it to select it, and no amount of good intentions inside `SempodsModule`
@@ -243,35 +193,9 @@ could. Only `SempodsMediaModule` in `:deployments:sempods:image` holds both, so 
 A third party embedding `:sempods-server` writes the same handful of lines in its own composition, which is
 the sibling-module principle behaving as intended rather than a gap.
 
-The profiles are the reason the seams are worth their cost — each is the same code with a
-different selection:
-
-- **Single pod, self-hosted.** Fixed pod resolution, a single-operator admin credential,
-  file-based store, no multi-tenant concerns.
-- **Multi-tenant hosting** (sempods.org today, and the shape the application decoupling ended
-  in). Path-segment pod resolution, credential-checked admin authority, per-pod store
-  selection; app backends, operator UI and owner console are all HTTP clients of the same
-  surface.
-- **Embedded in an application.** The application owns the pod in its own process and the
-  server is not reachable from outside it. Pod resolution is fixed. **Not shipped**: the
-  server always binds an HTTP connector, so this profile does not exist — and it never did,
-  not even while the pod server and its first consumer shared a JVM, because the sempods app was exposed on its
-  own port throughout.
-
-The last profile is the one that invites a mistake, which is why it has no "skip the
-authority" implementation waiting for it. Dropping the credential check would be a statement
-about *reachability*, not about trust, and the two look identical from inside the calling
-code: an app backend that reaches the server over HTTP — including one that shared a JVM with it
-before M4 and ships separately since — is **not** embedded and needs a credential like any
-other client. If the
-profile ever becomes real, the honest form of it is a server that binds no connector at all;
-until something enforces that, an authority that authorizes everyone is a footgun with no
-legitimate user.
-
 ## Open-source readiness
 
-The property this heading names, stated as what the modules **are** — the account of how they got
-there is planning material and lives in the maintainer's roadmap.
+The publication boundary is checked through dependency analysis and consumer probes.
 
 **No in-house application layer sits between these modules and the libraries they use.** Each
 service builds on a framework directly — the pod server on Jersey and Jetty through
@@ -280,7 +204,7 @@ share is the `sempods-commons` family (`sempods-commons`, `sempods-commons-jaxrs
 `sempods-commons-mongo`, `sempods-commons-okhttp`), which is a set of helpers rather than a framework of its own.
 The dependency direction runs one way, from every module into that family and never back out of
 it. `SempodsModule` composes from `org.sempods.commons.guice.BaseModule` and installs what it
-uses, `SempodsConfig` is the pod server's own configuration, and the fifteen collections sit on
+uses, `SempodsConfig` is the pod server's own configuration, and the collections sit on
 the MongoDB driver ([`../../sempods-server/docs/collections.md`](../../sempods-server/docs/collections.md)).
 
 That matters for a reader who is meant to copy this. Frameworks are unavoidable and not the point;
@@ -338,8 +262,8 @@ What the probes cover is that **embedding contract**, not the whole public surfa
 service. Both surfaces are far wider — `OidcTokenExchange` takes a Ktor `HttpClient`, the route
 extensions take an `Application` — and none of that is compilable from outside, because none of it
 was designed as API. Exporting it to make a probe pass would turn an accident into a promise. The
-open question is narrowing it instead; whatever survives that as public is what the two probe files
-should then name.
+open work is [narrowing it in #15](https://github.com/sempods/sempods-kotlin/issues/15); whatever survives as public is
+what the two probe files should name.
 
 **And a consumer's classpath carries nothing that only the tests need.** Three modules apply
 `java-test-fixtures` — `sempods-commons`, `sempods-commons-okhttp` and `sempods-server`, the last publishing the
@@ -366,7 +290,6 @@ pointers at test classes, context paths in fixtures — each said something true
 and each says it as a property now, because a name that a reader cannot resolve is a dangling
 reference whatever it was worth to whoever wrote it. That rule is enforced mechanically in the
 repository these modules are extracted from, so it holds by construction rather than by care.
-
 
 ## Related documents
 

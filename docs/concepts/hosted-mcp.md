@@ -1,4 +1,4 @@
-# Hosted MCP — a standalone MCP service for pods (Concept)
+# Hosted MCP — a standalone MCP service for pods
 
 **hosted-mcp** is an **additional, standalone service** (e.g. `mcp.sempods.org`) that
 provides the **MCP / LLM-tooling layer** over sempods pods. One service fronts **many
@@ -6,23 +6,10 @@ pods** — including pods run by others that implement the sempods HTTP/Auth pro
 addressed by pod base URL — so one AI client reaches all of a user's pods over one
 connection.
 
-Implemented in the `sempods-mcp` module and **live on `mcp.sempods.org`**: service
-login / identity, pod-connect, the read + write tool surface, named profiles with hard
-isolation, and the full hosting hardening (secrets-at-rest, the two-layer SSRF defense,
-durable multi-instance state, and multi-tenancy + audit + per-user quotas) are all
-shipped. The authoritative as-built record is
-[`../../sempods-mcp/AGENTS.md`](../../sempods-mcp/AGENTS.md) (phase status) and
-[`../../sempods-mcp/docs/tool-contract.md`](../../sempods-mcp/docs/tool-contract.md)
-(the tool contract).
-
-The remaining forward-looking work — the [conformance
-profile](#what-counts-as-a-pod--conformance-profile), a versioned tool-contract spec, and
-cross-implementation conformance tests (see [toolset divergence](#toolset-divergence)) — is
-described below as **concept, not schedule, and is not yet actionable**. It is gated on two
-things that do not exist yet: **third-party pods that implement the profile at all** (the
-code is not public yet, so there is nothing external to front), and **the three tool
-implementations stabilising** — freezing a versioned contract against still-moving impls
-would be premature. Picked up when those preconditions hold, not before.
+The implementation lives in `sempods-mcp`. Its [runtime documentation](../../sempods-mcp/docs/runtime.md)
+owns persistence, token renewal and operational constraints; the [tool contract](../../sempods-mcp/docs/tool-contract.md)
+owns the tool surface. This document explains the cross-module architecture and credential boundaries.
+[Portable interoperability](../../sempods-mcp/docs/proposals/interoperability.md) remains proposed.
 
 ## Why a separate layer, not pod-immanent
 
@@ -93,40 +80,6 @@ Pod access goes through each pod's **public HTTP System layer** (`_system/resour
 SPARQL) — the pod's primitive API, the same surface the chat app uses. The service
 depends only on that, not on any embedded per-pod MCP.
 
-The reference design already exists, client-side: the **chat app**
-(`sempods-apps/apps/chat`) implements the full multi-pod tool layer — a toolset
-(`list_contexts`, a whole-resource read, `sparql_select` / `sparql_graph`, `find`, the
-CRUD + property tools), `targets`-based pod selection, AST SPARQL rewriting, and per-`(pod,
-context)` result envelopes. The service lifts that layer server-side; the semantics, not
-the TS code, are the reference.
-
-## What counts as a pod — conformance profile
-
-A target is usable only if the service can deterministically discover and exercise it.
-"Pod base URL" therefore implies a **named conformance profile** the target must satisfy:
-
-- **Endpoints** — the System-layer routes (`_system/resources/...`,
-  `find`) and the SPARQL query/construct endpoints, at a discoverable base.
-- **OAuth metadata** — RFC 9728 protected-resource metadata and RFC 8414
-  AS metadata at the well-known locations, so the service can register
-  (DCR) and obtain bearers without per-pod hand-configuration.
-- **Contexts** — `list_contexts` semantics: the authoritative,
-  permission-annotated set the bearer covers.
-- **SPARQL guardrails** — the same read-only / no-`SERVICE` / timeout
-  contract, so a rewritten cross-pod query behaves identically everywhere.
-- **Capability discovery** — a way to learn which operations a target
-  supports, so the service degrades gracefully against partial
-  implementations instead of failing opaquely.
-
-The bullets above are the conceptual requirements; they stay abstract on
-purpose at this stage. Before implementation, discovery should resolve to a
-**concrete, versioned mechanism** — e.g. a `_system/capabilities` (or
-profile) endpoint, or a fixed discovery document — that advertises the
-profile version and supported operations, rather than the service probing
-each route. Without this profile, "front any pod" is not implementable.
-Defining it (versioned, testable) is a prerequisite, tracked under
-[Toolset divergence](#toolset-divergence) and conformance tests.
-
 ## What it buys — and what it costs
 
 What the hosted service buys over a purely client-side (in-browser / in-app) tool layer:
@@ -155,7 +108,7 @@ The cost is **token custody** — the price of making MCP a separate service:
 
 The service becomes a credential custodian. This is acceptable when it is **self-hostable**
 and the user **connects pods explicitly and can revoke** at any time; on a **public
-multi-tenant** instance the custody is the main liability (hardening in M6). It does not
+multi-tenant** instance the custody is the main liability (see the module runtime documentation). It does not
 change that the service stays a **client** — it adds no authority a pod depends on.
 
 Two-layer consent follows: (1) the user authenticates **once** to the service (MCP OAuth —
@@ -216,9 +169,10 @@ person to that pod — one grant set, one refresh-token family, whatever this se
 WebID is what separates people there, so the fork stops at the profile.
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
-client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
-a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a
-pod free to reuse the prior authorization will, and the button then changes nothing. The stored
+client its consent screen, with prior context grants pre-checked; those durable grants are edited
+there, rather than encoded in the OAuth `scope` request parameter. Elsewhere that is the pod's
+call: the service sends no `prompt=consent`, so a pod free to reuse the prior authorization will,
+and the button then changes nothing. The stored
 `client_id` is reused — except for a dead (`invalid_grant`) `dyn:` connection at a pod offering
 DCR, which re-registers; a static `did:web` client has no registration to lose and keeps its
 identity. The callback stores the scopes the token response returned, not the ones asked for, and
@@ -230,11 +184,10 @@ The pod sees an ordinary OAuth client; consent and grants stay pod-side.
 
 Reads fan out (scatter-gather across `targets`); writes must not.
 
-- **Reads** may address multiple pods/contexts; results stay
-  **provenance-stable**: per pod, per context, with partial errors
-  surfaced individually. **No global result fusion without provenance** —
-  the caller always sees which pod and context each row came from (the
-  chat app's per-`(pod, context)` envelope is the model).
+- **Reads** may address multiple pods/contexts. Results and errors stay in per-pod envelopes;
+  the service does not merge them into one result set. Context attribution depends on the tool's
+  result shape: narrowing a SPARQL query to contexts does not annotate its rows with their source
+  contexts. See the [tool contract's provenance rules](../../sempods-mcp/docs/tool-contract.md#provenance).
 - **Writes** require **exactly one explicit target pod and one explicit
   `context_iri`**. No default-all-targets, no implicit context, no
   fan-out write. A write whose target is ambiguous is rejected, not
@@ -243,46 +196,18 @@ Reads fan out (scatter-gather across `targets`); writes must not.
 
 ## Security — pod URLs and SSRF
 
-> **As-built (M6.2, done).** Implemented as a two-layer defense: URL-string checks at admission
-> (`PodUrlPolicy.reject`) plus connect-time DNS vetting on the single outbound client
-> (`:sempods-client`'s `SempodsOutboundGuard`: OkHttp engine, proxy pinned off, `VettingDns`, plus a
-> per-request check for IP-literal hosts no resolver hook can see) — every resolved A/AAAA is
-> checked against the blocked-range set and the engine connects to exactly the vetted addresses,
-> so resolve and connect are one event (rebinding/TOCTOU closed); a mixed public/private
-> resolution rejects the whole lookup. One deliberate strengthening: **redirects are not followed
-> at all** (instead of per-hop re-validation). Per-pod rate limits (`POD_RATE_LIMIT_PER_MINUTE`,
-> keyed host + first path segment) and timeouts bound every fetch. The pod client carries no
-> trust exemptions; only the identity verifier's issuer-JWKS fetch runs on a separate hardened
-> client with the configured issuer hosts exempt. The strict/relaxed split is the deploy-time
-> `ALLOW_LOCAL_PODS`. See
-> [`../../sempods-mcp/AGENTS.md`](../../sempods-mcp/AGENTS.md) (phase status, M6.2).
-
-Because users supply arbitrary pod base URLs, a **hosted** instance
-(`mcp.sempods.org`) treats every target URL as untrusted input and the
-fetch path as an SSRF surface:
-
-- **HTTPS by default**; canonicalize the URL before use.
-- **Block private / reserved IP ranges** (RFC 1918, loopback, link-local,
-  ULA, metadata IPs) and defend against **DNS rebinding** (re-resolve and
-  re-check at connect time, pin or re-validate on each request).
-- **Constrained redirect policy** (no redirects into blocked ranges),
-  explicit **allow/deny** rules, per-pod **timeouts** and **rate limits**.
-
-These constraints may be relaxed for **self-hosted / local** instances
-(where reaching a private pod is the point) but **not** for the public
-hosted instance. The split is a deploy-time policy, not a per-request one.
+User-supplied pod URLs are untrusted. Admission checks and connect-time address vetting
+apply to the pod HTTP client; it follows no redirects. The issuer verifier uses a separate
+client with narrowly configured issuer exemptions. [Runtime documentation](../../sempods-mcp/docs/runtime.md#outbound-requests)
+owns the two-layer defense, rate limits and the deploy-time local-pod policy.
 
 ## Naming — optional profile paths
 
-> **As-built (M5, done).** This is implemented exactly in the suffix-free form below: the default
-> profile is the service root and a named profile is `mcp.sempods.org/<profile>` (no `/mcp`
-> segment — the pre-M5 `/mcp` endpoint was removed, no aliases). Named profiles are materialised
-> either in the `/_system/ui` profile switcher or automatically on first authorization against
-> `…/<profile>` (so pointing an AI client at a fresh profile URL just works); the MCP endpoint
-> enforces hard isolation (a token's `profile` claim must match the path). See
-> [`../../sempods-mcp/AGENTS.md`](../../sempods-mcp/AGENTS.md) (phase status, M5).
+The service uses its URL namespace for profiles. `ProfilePath` rejects reserved names;
+profiles are created in the UI or on first authorization. The MCP endpoint requires the
+token's profile claim to match the request path.
 
-The service carves **its own** URL namespace into profiles:
+The profile addresses are:
 
 - **Default `mcp.sempods.org`** — the **default profile's** connected pods.
   There is always exactly one (implicit) default profile; the root path is
@@ -291,7 +216,7 @@ The service carves **its own** URL namespace into profiles:
 - **Optional `mcp.sempods.org/<profile>`** — a **named profile**: its own
   OAuth identity, its own token set, its own (narrower) connection bundle.
   `…/private` can structurally reach only "Mein Pod", `…/playground` only
-  the sandbox, `…/cron-agent` only one pod with a narrow scope.
+  the sandbox, `…/cron-agent` only one pod with narrowly granted context permissions.
 
 The driving fact: MCP OAuth keys auth on the **resource URL**, so two
 independent identities / token sets require two URLs. The per-pod MCP had
@@ -338,156 +263,60 @@ Keep two separation axes distinct:
 | Axis | Example | Solved by | Needs a path? |
 |---|---|---|---|
 | **Pod** separation | "Mein Pod" vs. "AI-Playground" | `targets` + connection registry, *inside* one service | No |
-| **Profile / identity / scope** separation | private vs. sandbox vs. cron-agent | own OAuth client + connection bundle | Yes |
+| **Profile / identity / permissions** separation | private vs. sandbox vs. cron-agent | own OAuth client + connection bundle | Yes |
 
 A path **per pod** would re-fragment the very thing the service unifies
-(back to N URLs) — an anti-pattern. Profiles are coarse, identity- and
-scope-bound, and give **isolation by construction** (a profile cannot
-address a pod outside its bundle), which runtime `targets` alone does not.
+(back to N URLs) — an anti-pattern. Profiles bind an OAuth client identity to a connection bundle
+and give **isolation by construction** (a profile cannot address a pod outside its bundle),
+which runtime `targets` alone does not.
 This is the cross-pod analogue of the per-pod `users/<slug>/...` and
 `<instance>` disambiguator, but anchored in the service account rather than
 in a pod.
 
-Default-profile-only (one path, one connection bundle) is enough for a
-first cut; additional named profiles are an additive later step, but the
-URL form should admit segments from the start so adding them is not a
-breaking change.
-
 ## Direction: one semantics, three surfaces
 
-The MCP tool surface is reachable in three places — the pod-immanent `McpEndpoint`, the
-chat app's client-side TS layer, and this hosted service. All three stay; **none of them is
-being pre-selected as a winner and none is being retired**. What changed is that "coequal"
-no longer means "each with its own implementation of the tools".
+The hosted and pod-immanent MCP surfaces share `ToolCatalog` and `PodToolExecutor` from
+`:sempods-mcp-core`. Execution uses one pod's public HTTP routes through `PodWireClient`.
+The hosted service adds profile-scoped fan-out, tokens, quotas and audit; the pod endpoint
+keeps route, discovery, authentication and delegation. `MULTI_POD` adds target selection
+and `list_pods`; `SINGLE_POD` uses the same declaration without them.
 
-The pod-immanent surface and this service now run the **same** `PodToolExecutor` from
-`:sempods-mcp-core` against the same `_system/…` routes; the pod endpoint keeps route,
-authentication, discovery, `authorize` and delegation, and nothing else. The property it
-uniquely carries — direct, no-third-party access — is untouched: it is still the pod
-answering, still without an intermediary. What it stopped carrying is a second copy of the
-semantics, which only one of the two had production traffic from outside exercising.
-
-The chat app's TS layer is still outside that, and is the remaining place where drift is
-possible rather than impossible; see [below](#toolset-divergence).
-
-Each of the three still serves a use-case that is needed now:
-
-- **Client-side / in-stack (the chat app).** Lowest cost, most direct: the client does
-  OAuth straight against the pod and holds its own token — no third party in the path,
-  nothing to operate, no server-side custody. The natural fit when the tool layer already
-  lives inside an app's own stack.
-- **Hosted service (`mcp.sempods.org`).** One MCP connection fronting many pods. Two things
-  it uniquely buys beyond server-side token refresh (headless / cron use, above):
-  - **One multi-pod MCP beats N per-pod MCPs.** Pointing an AI client at a dozen separate
-    sempods MCP servers invites **tool confusion** — the same `sparql_select` / `find`
-    repeated per server, the model picking the wrong one. One server with `targets`
-    selection collapses that to a single, unambiguous tool set.
-  - **A bridge / adapter for pods with no MCP layer of their own.** The service adapts any
-    conformant pod's plain HTTP System layer into MCP, so **a pod need not implement MCP at
-    all** — MCP stays out of the pod baseline, which makes the sempods spec **simpler to
-    implement** (implement the HTTP/Auth profile; the MCP surface comes for free from the
-    front, and need not be baseline functionality).
-- **Pod-immanent (integrated, decentralised).** MCP built into the pod itself: **direct,
-  no-third-party access** and full decentralisation — no intermediary, no central
-  chokepoint. The one property external-first gives up, kept alive here.
-
-The problems that showed up did inform the shape rather than force a collapse: triple
-maintenance is now double (the two server-side surfaces share their semantics, the chat app
-does not), and custody on the hosted instance is unchanged and still the price named above.
+These surfaces serve different access paths. Direct pod MCP requires no credential-custody
+intermediary. Hosted MCP provides one connection and one catalog over multiple pods, avoiding
+several identically named tool sets, and can adapt a pod that supplies the required HTTP/Auth
+operations without MCP. An application can also own its tool loop and call pods directly.
+The behavior of an external application's implementation must be checked in that repository.
 
 ## Toolset divergence
 
-Between the two MCP surfaces this is settled rather than managed: the per-pod MCP and this
-service build `tools/list` from **one** `ToolCatalog` in `:sempods-mcp-core`, and what
-differs between them is a variant — `MULTI_POD` adds `targets` / `target` and `list_pods`,
-`SINGLE_POD` does not. Tool names, argument schemas, `required` lists and the descriptions
-themselves are a single declaration, so they cannot drift apart by being edited in one place
-and not the other. The JSON-RPC envelope, the protocol-version list and the
-`WWW-Authenticate` challenge moved with them.
-
-The chat app's client-side tool layer is still outside that: the gap is visible as
-`get_resource` (MCP) vs. `retrieve` (chat app). For it the measure remains to **pin the
-contract** — a **versioned tool-contract spec** plus **cross-implementation conformance
-tests** — the same "pin it down" discipline as the
-[conformance profile](#what-counts-as-a-pod--conformance-profile) a target pod must satisfy,
-and the M7 work above. What the shared module changes is the starting point: the spec would
-now be written from one existing declaration rather than reconciled from two.
-
-Collapsing the *count of surfaces* — retiring the per-pod MCP, the chat app becoming a
-hosted-mcp client — stays on the table as a *possible later* simplification and is
-**explicitly not the current direction**: each surface earns its keep first. Collapsing the
-count of *implementations* is a different move and is done for the two server-side ones.
+The shared JVM declaration owns tool names, schemas, required arguments and descriptions;
+its executor owns argument normalization and results. Versioned external interoperability
+and conformance tests are [proposed separately](../../sempods-mcp/docs/proposals/interoperability.md).
 
 ## Relationship to the per-pod MCP
 
-The per-pod MCP (`McpEndpoint`, documented across [`../mcp/`](../mcp/)) is shipped, validated
-cross-client, and canonical. It is **not** treated as redundant: as
-[the direction above](#direction-one-semantics-three-surfaces) sets out, it is one of three
-surfaces, and the only one carrying the **direct, no-third-party access** property
-the hosted service gives up. Since the consolidation it runs the same executor this service
-does, so "which surface" is a question about access and operations, not about behaviour. A pod that exposes the HTTP/Auth profile *can* be reached
-through hosted-mcp without an embedded MCP — but "can" is a bridge for pods that lack one,
-not a reason to remove it where it exists.
+The [per-pod MCP](../mcp/) keeps direct access to the pod while using the same executor.
+Choosing between it and the hosted service changes credential custody and operations.
+It does not select a second JVM implementation of the tools.
 
-Whether to **retire** the per-pod MCP later is a **separate, larger decision** — one that
-would touch all of [`../mcp/`](../mcp/) — [`README.md`](../mcp/README.md),
-[`../mcp/tools.md`](../mcp/tools.md), [`../mcp/authentication.md`](../mcp/authentication.md) — and
-`McpEndpoint` itself, and weigh the lost direct-access property. It is
-**not the current lean**: all three coexist and are exercised first.
+## Current boundaries
 
-## Open questions
-
-- **Token vault.** *Addressed in M6:* AES-256-GCM encryption-at-rest
-  (`SecretCipher`), strict per-user tenancy (isolation review), and an audit
-  trail all shipped. Key management is still envelope-style (`MCP_SECRET_KEY`),
-  not KMS, and per-vault-key rotation (`v1:<kid>:…`) is deferred — the residual
-  open edge on what remains a high-value target.
-- **A registration a pod forgot.** Re-authorize presents the stored `client_id`, and only a
-  connection already refused with `invalid_grant` re-registers — so a registration the pod cleared
-  silently dead-ends on its 400. Re-registering every time would orphan grants at a pod that does
-  not dedup, and asking whether a `client_id` is still live needs the RFC 7592 registration token
-  this service does not keep.
-- **Centralization optics.** A sempods-operated `mcp.sempods.org` is a
-  chokepoint in a decentralized system. The service must stay self-hostable
-  by third parties so it is "one optional instance", not the gateway. (The
-  self-host knobs are in place — both hardening budgets default off on a
-  relaxed deployment.)
-- **LLM loop.** This concept is an MCP **server** that fans tool calls out;
-  the AI client runs the model loop, so no LLM keys live in the service. A
-  hosted agent loop (à la the chat app's `adapter.ts`) is a separate, later
-  question.
-
-## Parked / later
-
-Forward-looking capability work, not currently scheduled (no use case has
-pulled it in yet):
-
-- **SPARQL per-context provenance.** Context *scoping* for SPARQL is **done pod-side**: the pod's
-  `/_system/sparql/query` honors the SPARQL-1.1-protocol `default-graph-uri` / `named-graph-uri`
-  params, and the service forwards `context_iri` to them — the same `{requested} ∩ readable`
-  downscope as `find` / `get_resource`, no AST rewriter. What stays parked is *provenance
-  attribution* — telling which context each result row came from — which needs a `GRAPH ?g`-binding
-  rewrite (the chat app has a TS one); parked until a use case needs it.
-
-**Not a bridge concern — belongs to the pod:** `find` is an **abstract**
-primitive, and *how* a pod satisfies it (lexical, vector, hybrid — best
-combined) is the pod's own retrieval strategy. The service just calls `find`
-and repackages the result; it adds no retrieval capability of its own, so
-**vector / hybrid search is per-pod substrate work, not a bridge backlog
-item** — the service inherits the improvement for free when a pod's `find`
-gets better.
+- The token vault uses one configured encryption key; [key rotation design](https://github.com/sempods/sempods-kotlin/issues/141)
+  is separate work.
+- [Forgotten client registrations](https://github.com/sempods/sempods-kotlin/issues/142)
+  need a recovery decision; blindly re-registering can orphan grants at pods without deduplication.
+- The AI client owns the model loop. This service executes tools and holds no LLM keys.
+- SPARQL downscope is enforced at the pod. Free-form SPARQL results have per-pod provenance;
+  per-context attribution is part of the interoperability proposal.
+- `find` adapters belong to the pod. A richer adapter requires no new retrieval engine in this bridge.
 
 ## Related
 
 - [`../../sempods-mcp`](../../sempods-mcp) — the module that
-  implements this concept; the as-built phase status is in its
-  [`AGENTS.md`](../../sempods-mcp/AGENTS.md).
-- [`mcp-agent-interface.md`](mcp-agent-interface.md#cross-pod-orchestration-client-side) — the
-  client-side cross-pod pattern this service hosts.
+  implements this architecture; [runtime details](../../sempods-mcp/docs/runtime.md).
 - [`../mcp/README.md`](../mcp/README.md#design-principles) — the per-pod MCP's design
   principles; the service stays a client and adds no server-side cross-pod
   primitive, but see [Relationship to the per-pod MCP](#relationship-to-the-per-pod-mcp).
 - [`../mcp/authentication.md`](../mcp/authentication.md#dcr-fingerprint) — the DCR
   fingerprint both surfaces share; profile paths fill its realm slot.
-- `sempods-apps/apps/chat` — the client-side reference implementation of
-  the multi-pod tool layer.
+- `sempods-apps/apps/chat` — an external consumer; verify its implementation in that repository.

@@ -82,15 +82,14 @@ The short version:
 - **Code contracts are the source of truth.** Field-level detail goes in KDoc; markdown stays
   high-level and links to the code path.
 - **Maintained documentation describes what the code does today.** Public plans live in issues,
-  with occasional explicitly proposed design documents. Existing SOLL material follows the
-  [transition](docs/agents/documentation-strategy.md#transition).
+  with occasional explicitly proposed design documents.
 - **Logic that follows the standard needs no documentation at all** — and when a special case
   becomes ordinary, its documentation and its comments are deleted. Documentation shrinking is what
   a simplification is supposed to produce.
 - **No history and no decision log.** Keep only the reasoning a future reader needs in order not to
   undo the decision; the rest is what commit messages are for.
 - The three document types — Vision, maintained IST documentation and Proposal — nest under any
-  `docs/` directory; existing concept content follows the strategy's transition.
+  `docs/` directory.
 
 ## Auth layer (sempods-auth)
 
@@ -118,13 +117,13 @@ Key design choices:
 Agent instructions: `docs/agents/` — the hub, documentation strategy,
 [issue-work procedure](docs/agents/issue-work.md) and `documentation-sync.md`.
 
-Vision and retained material:
+Vision and architecture:
 
 - Vision: `docs/vision.md`
-- Concepts: `docs/concepts/` — retained architecture and design material under the
-  [transition](docs/agents/documentation-strategy.md#transition):
-  modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
-  app installation
+- Architecture: [docs/concepts/](docs/concepts/README.md) — deployment seams, graph retrieval,
+  hosted MCP and current service-client provisioning
+- Proposals: [docs/proposals/](docs/proposals/README.md) — unimplemented designs with owning issues;
+  module-local proposals are linked from their module instructions
 
 IST documentation:
 

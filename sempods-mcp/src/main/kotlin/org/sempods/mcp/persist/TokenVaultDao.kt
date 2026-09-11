@@ -18,9 +18,8 @@ import java.util.Date
 
 /**
  * The token vault: the service's custody of **pod** OAuth tokens, keyed `(user, profile, pod)`.
- * This is the "token custody" cost the concept doc calls out — the main liability hardened
- * in M6 (encryption-at-rest + key management). [accessToken]/[refreshToken] are stored as
- * ciphertext under the [SecretCipher] envelope.
+ * `docs/concepts/hosted-mcp.md` §"What it buys — and what it costs" explains the custody boundary.
+ * [accessToken]/[refreshToken] are stored as ciphertext under the [SecretCipher] envelope.
  *
  * A row whose ciphertext cannot be decrypted (a lost / changed [SecretCipher] key) is treated as
  * **unreadable** rather than fatal: [TokenVaultDao.find] returns null and the refresh sweep skips
@@ -37,7 +36,7 @@ import java.util.Date
  * [subjectVerified] travels with the identity it describes. `PodConnection.scopes` is descriptive;
  * the pod enforces the token's permissions.
  *
- * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
+ * The pod-connect flow writes these rows.
  */
 data class PodTokens(
   val user: String,
@@ -45,7 +44,7 @@ data class PodTokens(
   val pod: String,
   val accessToken: String,
   val refreshToken: String?,
-  /** Absolute expiry of [accessToken]; the refresh loop (M2) renews before this. */
+  /** Absolute expiry of [accessToken]; the refresh loop renews before this. */
   val accessTokenExpiresAt: Date?,
   /**
    * When this row last **rotated** — written by the connect path and by every refresh. It is what
@@ -346,7 +345,7 @@ class TokenVaultDao(
     ).modifiedCount == 1L
 
   /**
-   * Atomically claim the refresh of this row across replicas (M6.3): succeeds when no claim
+   * Atomically claim the refresh of this row across replicas: succeeds when no claim
    * exists or the existing one expired. The claim only serialises *refreshes* — reads are
    * untouched. A crashed holder's claim expires on its own; [holder] is the replica's
    * [InstanceId], [until] should be generous enough for a worst-case refresh (discover + token

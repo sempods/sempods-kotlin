@@ -38,9 +38,9 @@ import java.time.Instant
  * [PodGrantsDao] and unlike every other collection here, its rows are written by an upsert rather
  * than by a document mapper, so the server picks their field order — see [addGrants].
  *
- * TODO: owner-facing grant CRUD (`{pod}/_system/grants`) is a follow-up — see the control-plane
- *   console roadmap (C2). It exposes the facade's grant/replace/revoke methods over HTTP,
- *   authorized by owner / `<root>#manage` like `PodContextsEndpoint`.
+ * TODO: owner-facing grant CRUD (`{pod}/_system/grants`) would expose the facade's
+ *   grant/replace/revoke methods over HTTP, authorized by owner / `<root>#manage`
+ *   like `PodContextsEndpoint`.
  */
 class PodWebIdGrantsDao internal constructor(db: MongoDatabase, collectionName: String) {
 

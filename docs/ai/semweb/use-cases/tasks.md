@@ -803,4 +803,4 @@ When this is documented later, it should focus on:
 
 - `docs/ai/semweb/text2model.md` (endpoint behavior IST)
 - `docs/ai-layer.md` (AI layer IST)
-- AI/SemWeb roadmap (SOLL, currently internal)
+- [Shape-contract design](https://github.com/sempods/sempods-kotlin/issues/137) — proposed validation

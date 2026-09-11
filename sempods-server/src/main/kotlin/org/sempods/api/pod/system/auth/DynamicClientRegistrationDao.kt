@@ -46,7 +46,7 @@ import java.time.Instant
 //  client's row must survive as long as it authorizes. It needs `lastAuthorizedAt` — already
 //  written for this, and read by nothing — plus what to do with the grants that hang off a swept
 //  clientId. `sempods-mcp`'s DcrClientDao carries the same note for its own copy, where the risk
-//  is recorded as accepted in `sempods-mcp/docs/multi-tenancy-review.md` (M6.4).
+//  is recorded as accepted in `sempods-mcp/docs/multi-tenancy-review.md`.
 class DynamicClientRegistrationDao internal constructor(db: MongoDatabase, collectionName: String) {
 
   /**

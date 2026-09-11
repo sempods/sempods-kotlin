@@ -96,8 +96,8 @@ class PodScopeValidator {
      * what lets the validator tell a legitimate feature scope from a typo now that access tokens
      * carry only feature scopes (context permissions resolve server-side). See
      * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved
-     * server-side"). Which additional feature scopes to accept is still open
-     * (the maintainer's internal roadmap).
+     * server-side"). Additional installer authority is proposed under
+     * https://github.com/sempods/sempods-kotlin/issues/35.
      */
     val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE)
   }

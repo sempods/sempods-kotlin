@@ -28,7 +28,7 @@ class UserRateLimiterTest {
     val limiter = UserRateLimiter(1)
     assertTrue(limiter.tryAcquire(alice, "default"))
     assertFalse(limiter.tryAcquire(alice, "default"))
-    // Same user, different profile — its own bucket (profiles are isolation bundles, M5).
+    // Same user, different profile — its own bucket (profiles are isolation bundles).
     assertTrue(limiter.tryAcquire(alice, "private"))
     // Different user, same profile name — its own bucket.
     assertTrue(limiter.tryAcquire(bob, "default"))

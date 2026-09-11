@@ -572,7 +572,7 @@ private fun dashboardHtml(
   errorBanner: String?,
 ): String = buildString {
   // The MCP URL the AI client points at IS the resource: default profile = service root, a named
-  // profile = `$base/<profile>` (suffix-free, M5).
+  // profile = `$base/<profile>` (suffix-free).
   val mcpUrl = ProfilePath.baseUrlFor(base, selectedProfile)
 
   append("<!doctype html><html><head><meta charset=\"utf-8\"><title>sempods MCP — connections</title>")

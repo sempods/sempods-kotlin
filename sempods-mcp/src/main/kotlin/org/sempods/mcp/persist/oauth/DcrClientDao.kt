@@ -38,7 +38,7 @@ data class DcrClient(
 // TODO: /register is pre-auth (RFC 7591) and unthrottled — an anonymous flood can grow this
 //  collection (disk nuisance, no tenant-isolation break; fingerprint dedup absorbs real clients'
 //  re-register loops). Revisit with an IP-level limit if it becomes real — accepted residual risk
-//  in docs/multi-tenancy-review.md (M6.4).
+//  in docs/multi-tenancy-review.md.
 /**
  * @param collectionName the production name is the default; a test points an instance at a
  *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.

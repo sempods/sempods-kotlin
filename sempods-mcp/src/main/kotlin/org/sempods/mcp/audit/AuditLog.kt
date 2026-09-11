@@ -9,7 +9,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.Date
 
 /**
- * The audit emitter (M6.4): typed methods per event kind so call sites stay terse and the
+ * The audit emitter: typed methods per event kind so call sites stay terse and the
  * field mapping cannot drift. **Synchronous but swallowing** — every emit runs the Mongo
  * insert inline (the module already does sync Mongo reads on the tool-call hot path, so one
  * small insert is comparable cost; a queue would add a drop policy, a shutdown flush, and a

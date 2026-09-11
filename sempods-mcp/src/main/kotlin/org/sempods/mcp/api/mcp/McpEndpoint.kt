@@ -40,8 +40,7 @@ import io.ktor.server.routing.routing
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 /**
- * The MCP JSON-RPC 2.0 surface. M1 shipped the front-door skeleton; the read tools (M3) and write
- * tools (M4) that front pods are wired in via [readToolDispatch] / [writeToolDispatch].
+ * The MCP JSON-RPC 2.0 surface. The read and write tools that front pods are wired in via [readToolDispatch] / [writeToolDispatch].
  *
  * Unlike the per-pod MCP (which serves public contexts to anonymous callers), the hosted service
  * has **no public/anonymous mode**: there is no service-level data to serve without a connected
@@ -62,9 +61,9 @@ fun Application.mcpEndpoint(
   config: SempodsMcpConfig,
   bearerVerifier: ServiceBearerVerifier,
   reauthorizeChallengeStore: ReauthorizeChallengeStore,
-  /** Executes a read tool (M3) for an authenticated session; production wires [ReadTools.dispatch]. */
+  /** Executes a read tool for an authenticated session; production wires [ReadTools.dispatch]. */
   readToolDispatch: suspend (toolName: String, arguments: JsonNode?, session: ServiceBearerVerifier.Session) -> ToolCallResult,
-  /** Executes a write/property tool (M4) for an authenticated session; production wires [WriteTools.dispatch]. */
+  /** Executes a write/property tool for an authenticated session; production wires [WriteTools.dispatch]. */
   writeToolDispatch: suspend (toolName: String, arguments: JsonNode?, session: ServiceBearerVerifier.Session) -> ToolCallResult,
   objectMapper: ObjectMapper,
   userRateLimiter: UserRateLimiter,
@@ -72,8 +71,8 @@ fun Application.mcpEndpoint(
 ) {
   val base = config.mcpBaseUrl
 
-  // Per-profile RFC 6750 challenge. The MCP endpoint URL is the resource itself (suffix-free,
-  // M5): the default profile is the service root `$base`, a named profile is `$base/<profile>`.
+  // Per-profile RFC 6750 challenge. The MCP endpoint URL is the resource itself (suffix-free):
+  // the default profile is the service root `$base`, a named profile is `$base/<profile>`.
   // A client that follows only the WWW-Authenticate header (instead of probing the well-known
   // routes) lands on the discovery for exactly this resource. The pod-immanent MCP has one
   // surface per pod and needs no equivalent: its challenge always names the pod.
@@ -125,7 +124,7 @@ fun Application.mcpEndpoint(
         return call.respondChallenge(objectMapper, id, challenge)
       }
 
-      // Hard profile isolation (M5): a token minted for one profile must not act on another
+      // Hard profile isolation: a token minted for one profile must not act on another
       // profile's path. The token carries its profile as a claim; if it does not match the path
       // this request came in on, treat the bearer as invalid *for this resource* and answer the
       // 401 challenge that points at this path's metadata, so the client re-auths against it.
@@ -148,7 +147,7 @@ fun Application.mcpEndpoint(
         "tools/list" -> {
           // Reached only by an authenticated session (anonymous callers were 401'd above), so the
           // full tool set is always advertised: the `authorize`/reauthorize helper plus the pod
-          // read (M3) and write (M4) tools.
+          // read and write tools.
           val tools = buildList {
             add(authorizeToolSpec())
             addAll(hostedToolCatalog.readTools())
@@ -161,7 +160,7 @@ fun Application.mcpEndpoint(
           // A valid session is guaranteed here — anonymous callers never reach dispatch.
           val params = rpc["params"]
           val toolName = params?.get("name")?.asText()
-          // Per-user quota (M6.4), keyed on the VERIFIED (user, profile) — deliberately after the
+          // Per-user quota, keyed on the VERIFIED (user, profile) — deliberately after the
           // bearer + profile-isolation gates, so an unauthenticated spray cannot drain a victim's
           // budget. Scoped to the vault-accessing pod tools (read/write) plus the unknown-tool
           // rejection (so a misbehaving client cannot spam it for free); `authorize` is EXEMPT —
@@ -221,8 +220,8 @@ fun Application.mcpEndpoint(
   }
 
   routing {
-    // M5: the MCP endpoint IS the resource URL (suffix-free). The default profile is the service
-    // root; a named profile is `/{profile}`. The pre-M5 `/mcp` path is gone (404). A reserved or
+    // The MCP endpoint is the resource URL (suffix-free). The default profile is the service
+    // root; a named profile is `/{profile}`. The `/mcp` path is gone (404). A reserved or
     // malformed profile segment is rejected with 404 rather than treated as the default.
     post("/") { handleRpc(call, PodKey.DEFAULT_PROFILE) }
     post("/{profile}") {

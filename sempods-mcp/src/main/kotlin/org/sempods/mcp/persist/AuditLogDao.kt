@@ -10,7 +10,7 @@ import java.util.Date
 import java.util.concurrent.TimeUnit
 import org.sempods.mcp.SempodsMcpCollections
 
-/** The auditable event kinds (M6.4). Persisted by enum name — renaming is a breaking change. */
+/** The auditable event kinds. Persisted by enum name — renaming is a breaking change. */
 enum class AuditEventType {
   /** A pod was connected via the `/_system/ui` OAuth flow (or the attempt failed). */
   POD_CONNECT,
@@ -51,7 +51,7 @@ data class AuditEvent(
 )
 
 /**
- * The persistent audit trail (M6.4): one collection, append-only, retention-bounded by a Mongo
+ * The persistent audit trail: one collection, append-only, retention-bounded by a Mongo
  * TTL index on the per-row [AuditEvent.expiresAt]. The anchor is computed at write time from
  * the configured retention, so the index never changes — a retention change affects only new
  * rows (consistent with the no-migrations stance).

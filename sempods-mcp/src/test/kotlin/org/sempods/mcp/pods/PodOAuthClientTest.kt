@@ -41,7 +41,7 @@ class PodOAuthClientTest {
 
   @BeforeEach
   fun setup() {
-    // The full hardened M6.2 stack (pin + no-redirect), relaxed so loopback passes.
+    // The full hardened outbound stack (pin + no-redirect), relaxed so loopback passes.
     // The full hardened stack (resolve-and-pin + no redirects), relaxed so loopback passes.
     transport = SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules))
     client = PodOAuthClient(transport, jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))

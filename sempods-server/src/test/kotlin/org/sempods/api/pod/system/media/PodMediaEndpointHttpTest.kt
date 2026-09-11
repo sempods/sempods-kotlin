@@ -573,7 +573,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $strangerToken").execute()
 
     // 404, not 403: holding write somewhere must not become a way to ask whether the pod holds a
-    // given file. Same reasoning as the read routes — see the roadmap's rule on the media id.
+    // given file. The same visibility rule applies to the read routes.
     assertEquals(404, response.statusCode)
   }
 

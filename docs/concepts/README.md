@@ -1,23 +1,14 @@
-# Concepts
+# Architecture explanations
 
-This folder contains retained architecture and proposed design material awaiting classification.
-Its status, destinations and migration ownership are defined in
-[the transition](../agents/documentation-strategy.md#transition).
+This folder contains maintained explanations of current code. The folder name is an
+organizational choice, not a separate document type.
 
-## Here today
+- [Modularity](modularity.md) — deployment-selected seams and invariant boundaries.
+- [Graph retrieval](graph-retrieval.md) — current find and structural traversal.
+- [Hosted MCP](hosted-mcp.md) — credential custody and the shared tool architecture.
+- [Service-client provisioning](app-installation.md) — current operator registration and consent lifetime.
 
-- [`modularity.md`](modularity.md) — sempods as a *reference implementation*: which behaviours are
-  deployment-selected seams, which invariants are not, and what open-sourcing still needs.
-- [`graph-retrieval.md`](graph-retrieval.md) — the read pattern every consumer builds on:
-  consumer-agnostic `find` plus structural traversal.
-- [`hosted-mcp.md`](hosted-mcp.md) — one MCP service fronting many pods, and the conformance
-  profile a third-party pod would have to meet.
-- [`mcp-agent-interface.md`](mcp-agent-interface.md) — where the per-pod MCP surface is going:
-  SHACL-gated app contracts, cross-pod orchestration.
-- [`inference-context.md`](inference-context.md) — a proposed TBox layer for type and predicate coverage;
-  SOLL throughout, not implemented.
-- [`app-installation.md`](app-installation.md) — retained owner-installation design;
-  [the owning issue](https://github.com/sempods/sempods-kotlin/issues/35) carries target and progress.
+Unimplemented designs live in [proposals](../proposals/README.md), with planning owned by issues.
 
 ## Template for verified architecture documentation
 

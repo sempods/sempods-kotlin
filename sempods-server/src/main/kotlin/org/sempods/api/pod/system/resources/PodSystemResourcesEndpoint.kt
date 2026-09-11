@@ -178,7 +178,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     )
     // TODO: consider in-memory burst grouping for repeated `add` calls on the same
     //  `(pod, subject, predicate, context)` so the audit stream stays readable when an
-    //  agent loops a batch insert. Deferred from Iter 3 (roadmap §"Open questions").
+    //  agent loops a batch insert.
     val auditResult = when (result.outcome) {
       PodFacade.SlotAddOutcome.CREATED -> "created"
       PodFacade.SlotAddOutcome.ALREADY_PRESENT -> "already_present"
@@ -622,8 +622,8 @@ class PodSystemResourcesEndpoint @Inject constructor(
   /**
    * Audit line for System-layer slot writes. Marker `[slot/audit]` is intentionally distinct
    * from `[lod/audit]` and `[mcp/audit]` so ops can split resource-level from slot-level
-   * writes with a single grep. `result=` (optional) carries the secondary outcome that the
-   * Roadmap calls out as useful for burst detection — e.g. `outcome=add result=already_present`.
+   * writes with a single grep. `result=` (optional) carries the secondary outcome useful
+   * for burst detection — e.g. `outcome=add result=already_present`.
    */
   private fun logSlotAudit(
     outcome: String,

@@ -18,9 +18,8 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  *
  * Wire format: `v1:` + base64url(IV[12] ‖ ciphertext+tag). The version prefix versions the
  * **envelope format**. It is **not** a key-id: there is one active [KEY_ENV_VARIABLE], so a key
- * change is a flag-day (existing rows become undecryptable) — graceful key rotation (a
- * `v1:<kid>:…` form) is a later concern (deferred; see docs/concepts/hosted-mcp.md, open
- * questions).
+ * change makes existing rows undecryptable. Graceful key rotation is proposed in
+ * https://github.com/sempods/sempods-kotlin/issues/141.
  *
  * Standalone — no application-framework dependency; the JCA is all it needs.
  */

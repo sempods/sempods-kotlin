@@ -28,7 +28,7 @@ import java.time.Instant
  * The collection was `pods.resources.backup` and the class is still named for it. Neither word
  * was ever accurate: nothing else holds this data, so it is the primary copy rather than a backup
  * of one — which is why the collection dropped both. Renaming the class is a separate edit and a
- * larger one; the maintainer's internal roadmap is where the shape of this row changes anyway.
+ * larger one, to consider with the durable-record design linked from `pods/write-through.md`.
  *
  * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The document this writes is identical
  * to what Morphia's `PojoCodec` wrote for the same entity — field order included — which is pinned

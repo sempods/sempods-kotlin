@@ -17,7 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.sempods.mcp.SempodsMcpCollections
 
-/** Mongo-backed; skipped when Mongo is unreachable so the build stays green where it is absent (M6.4). */
+/** Mongo-backed; skipped when Mongo is unreachable so the build stays green where it is absent. */
 class AuditLogDaoTest {
 
   companion object {

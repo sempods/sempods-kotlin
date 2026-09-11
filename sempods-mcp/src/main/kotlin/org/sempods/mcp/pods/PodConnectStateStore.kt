@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Mongo-backed CSRF-state store for the pod-connect OAuth round-trip (service → pod) — durable
- * across restarts and shared across replicas (M6.3), so a connect started on one replica
+ * across restarts and shared across replicas, so a connect started on one replica
  * completes on another.
  *
  * The opaque `state` sent to the pod binds to the full flow context so the callback resumes the

@@ -21,7 +21,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Pod lifecycle over the host-level admin surface (control-plane admin roadmap A1):
+ * Pod lifecycle over the host-level admin surface:
  * `PUT` / `GET` / `DELETE /_system/admin/pods/{pod}`.
  *
  * Also the wire-level contract of the [org.sempods.admin.AdminAuthorizer] seam (A0) — 401 without

@@ -46,7 +46,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Mongo-guarded end-to-end of the M3 read surface: two connected pods, fresh vault tokens, and the
+ * Mongo-guarded end-to-end of the read surface: two connected pods, fresh vault tokens, and the
  * [ReadTools] fan-out producing the per-pod envelope — including partial-error isolation (one pod
  * 200, the other 502) and the `targets` selector. Skipped when local Mongo is unreachable.
  */

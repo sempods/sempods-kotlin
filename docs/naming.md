@@ -52,7 +52,6 @@ derives the Maven `artifactId` from the project name, so the prefix is what make
 `org.sempods:sempods-server` fall out by itself; a prefix-free module needs an explicit
 `base.archivesName` override, which is easy to forget and silent when forgotten. Identical
 project paths on both sides of the split also make the composite build cheap.
-The maintainer's internal roadmap holds the reasoning.
 
 **No exceptions, including the `sempods-commons` family.** Those six carried no prefix until the
 coordinates were about to freeze: shared infrastructure rather than part of the product, and the
@@ -151,12 +150,11 @@ rather than itself: the docker service is `sempods` — colliding with the bundl
 is also `sempods` — while its Gradle module and its database are `sempods-server`. So
 `env/sempods.env` stands beside `env/sempods-auth.env`, and the same process answers to two names.
 
-This is not settled here because it cannot be yet. What the service *is* depends on a seam that
-does not exist: with pod resolution by path segment it hosts pods and `sempods-server` describes
-it; as a single-pod deployment it *is* a pod, and a different name would read better. Both are the
-same code. See [`concepts/modularity.md`](concepts/modularity.md) §"Seams that do not exist yet", row "Pod
-resolution" — the naming falls with it, and renaming a docker service is cheap next to what that
-seam costs anyway. Until then: the service is `sempods`, its database `sempods-server`. Renaming
+The current service resolves pods by path segment and hosts several pods, so `sempods-server`
+describes it. The proposed single-pod deployment would use the same service codebase but represent
+one pod, for which a different name may fit. The naming decision therefore depends on the
+[pod-resolution design](proposals/deployment-profiles.md#proposed-seams); fixed-pod resolution
+is not implemented. Until then: the service is `sempods`, its database `sempods-server`. Renaming
 the service is not forbidden the way the frozen names above are — it is pending, and belongs with
 that seam rather than on its own.
 

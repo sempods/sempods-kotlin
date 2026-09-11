@@ -49,7 +49,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Mongo-guarded end-to-end of the M4 write surface: a single connected pod, a fresh vault token, and
+ * Mongo-guarded end-to-end of the write surface: a single connected pod, a fresh vault token, and
  * [WriteTools] proxying create/add to the pod System layer — plus the single-target resolution, that
  * the service forwards rather than pre-judges where a write may land, and a pod precondition failure
  * surfacing as `ok:false`. Skipped without Mongo.

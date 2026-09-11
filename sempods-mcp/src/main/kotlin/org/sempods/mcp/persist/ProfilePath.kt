@@ -1,7 +1,7 @@
 package org.sempods.mcp.persist
 
 /**
- * The profile path segment on the service's own URL namespace (M5). A named profile is reached
+ * The profile path segment on the service's own URL namespace. A named profile is reached
  * at `mcp.sempods.org/<profile>` (suffix-free); the default profile lives at the service root
  * `mcp.sempods.org` and is **implicit** (no segment).
  *
@@ -15,7 +15,7 @@ object ProfilePath {
 
   /**
    * Top-level path segments that are real service routes and therefore can never be a profile
-   * name. `mcp` is included even though M5 drops the old `/mcp` endpoint, to avoid resurrecting
+   * name. `mcp` is included although `/mcp` is not an endpoint, to avoid resurrecting
    * its former meaning by way of a profile. `default` is reserved so the sentinel never becomes a
    * routable second URL for the root profile (the default profile lives at the service root only).
    */

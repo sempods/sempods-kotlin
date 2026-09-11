@@ -26,7 +26,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * The multi-replica signing-key bootstrap (M6.3): with an empty `oauth.signingKeys`, N racing
+ * The multi-replica signing-key bootstrap: with an empty `oauth.signingKeys`, N racing
  * replicas must converge on ONE key — two replicas each signing with their own key would fail
  * token/JWKS verification cross-replica behind a load balancer. Each test uses its own database
  * because the bootstrap `_id` is a per-database singleton. Mongo-backed; skipped when Mongo is

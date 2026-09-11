@@ -22,7 +22,7 @@ private fun tickIntervalMs(config: SempodsMcpConfig) =
   (config.podTokenRefreshWindowSeconds * 1000 / 2).coerceAtLeast(30_000)
 
 /**
- * Background loop that keeps connected pods reachable headlessly (the "stay connected" half of M2),
+ * Background loop that keeps connected pods reachable headlessly,
  * on the clock the thing it protects actually runs on.
  *
  * What dies from disuse is the pod's **refresh-token family**, which only a rotation keeps alive —
@@ -46,7 +46,7 @@ private fun tickIntervalMs(config: SempodsMcpConfig) =
  * inventory only grows and the traffic lands at the pods — machines people host themselves — not at
  * the service generating it.
  *
- * Multi-instance (M6.3): every replica runs the loop, but each tick first tries the
+ * Multi-instance: every replica runs the loop, but each tick first tries the
  * [LeaseDao.TOKEN_REFRESH_SWEEP] lease — only the holder sweeps, so N replicas do not scan the
  * vault (and re-discover pod metadata) N times per interval. The lease is an efficiency layer,
  * not the correctness one: correctness against double-refresh lives in the per-token claims

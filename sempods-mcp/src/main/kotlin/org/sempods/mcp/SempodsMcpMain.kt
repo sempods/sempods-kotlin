@@ -48,10 +48,10 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * MCP as an LLM-tooling layer over the pod's primitives (external-first). Toward each pod it
  * is an ordinary OAuth client.
  *
- * Concept (why / trade-offs / direction): docs/concepts/hosted-mcp.md
- * As-built phase status:                  sempods-mcp/AGENTS.md
+ * Architecture and trade-offs: docs/concepts/hosted-mcp.md
+ * Runtime constraints: sempods-mcp/docs/runtime.md
  *
- * Live on mcp.sempods.org (M1–M6 done): service login / identity (own MCP-OAuth resource server /
+ * The service implements: service login / identity (own MCP-OAuth resource server /
  * AS, OIDC RP to id.sempods.org, user = stable WebID), pod-connect, the read + write tool surface
  * across connected pods, named profiles with hard isolation, and the full hosting hardening
  * (secrets-at-rest, SSRF defense, durable multi-instance state, multi-tenancy + audit + quotas).
@@ -80,7 +80,7 @@ fun startSempodsMcp(config: SempodsMcpConfig) {
   logger.info { "service base URL: ${config.mcpBaseUrl}" }
   logger.info { "trusted auth issuers: ${config.authIssuers.ifEmpty { listOf("none") }.joinToString()}" }
 
-  // Start the headless pod-token refresh loop (M2): keeps connected pods reachable.
+  // Start the headless pod-token refresh loop: keeps connected pods reachable.
   injector.getInstance(TokenRefreshScheduler::class.java).start()
 
   embeddedServer(Netty, port = config.port) {
@@ -102,7 +102,7 @@ private fun Application.healthRoutes() {
   }
 }
 
-/** Wires the M1 front-door surface: OAuth discovery, the AS endpoints, and the MCP skeleton. */
+/** Wires the front-door surface: OAuth discovery, the AS endpoints, and the MCP skeleton. */
 private fun Application.wireEndpoints(injector: Injector) {
   val config = injector.getInstance(SempodsMcpConfig::class.java)
   // One instance for both endpoints: the discovery round trip is shared, the redirect address is

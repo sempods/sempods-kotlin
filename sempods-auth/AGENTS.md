@@ -100,8 +100,3 @@ Apple is the one with sharp edges, all of them invisible until production:
   URL, and `APPLE_DOMAIN_ASSOCIATION` still serves that file. It stopped asking: `id.sempods.org`
   was configured without one in August 2026. Leave the variable unset and the route 404s, which is
   what a deployment Apple never asks wants.
-
-## Phase status
-
-- **Phase 1 (WebID registry)** — implemented and deployed at `id.sempods.org`
-- **Phase 2 (OIDC bridge + JWT issuance)** — implemented, live at `id.sempods.org`

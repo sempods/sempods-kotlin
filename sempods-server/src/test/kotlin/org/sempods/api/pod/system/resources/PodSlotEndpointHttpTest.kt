@@ -277,7 +277,6 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `DELETE whole slot is idempotent across repeated calls`() {
-    // Same idempotency contract for whole-slot DELETE (Roadmap finding parity).
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"

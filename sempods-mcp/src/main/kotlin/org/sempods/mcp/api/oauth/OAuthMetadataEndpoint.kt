@@ -20,7 +20,7 @@ import io.ktor.server.routing.routing
  * authorization-server metadata). The **service itself** is the protected resource and its own
  * authorization server — the AI-client → service OAuth layer.
  *
- * Profile-aware (M5): the default profile is the service root (`$base`); a named profile is the
+ * Profile-aware: the default profile is the service root (`$base`); a named profile is the
  * resource `$base/<profile>` with its own `authorize` / `token` / `register` endpoints under that
  * segment. The signing keys are service-wide, so `jwks_uri` always points at the root `/jwks.json`.
  *

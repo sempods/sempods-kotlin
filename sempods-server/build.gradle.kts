@@ -39,7 +39,7 @@ dependencies {
   // `SempodsHttpTransport` and exposes none.
   api(project(":sempods-mcp-core"))   // PodToolExecutor, JsonRpcRequest, ToolInputSchema, …
 
-  // Reached in production since M4: `SempodsModule.podToolExecutor` builds a `PodWireClient` against
+  // Reached in production: `SempodsModule.podToolExecutor` builds a `PodWireClient` against
   // `config.apiBaseUrl`, so the MCP surface talks to this pod the way any other client does.
   // Declared rather than inherited through `:sempods-mcp-core`'s `api`, because main code names
   // these types directly and a dependency you compile against is one you say you have.

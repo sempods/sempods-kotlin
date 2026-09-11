@@ -122,10 +122,9 @@ class SempodsModule : BaseModule() {
     // stay a development affordance: in production they would let anything on the user's machine
     // intercept an authorization code.
     install(SempodsAuthCoreModule(allowLoopbackRedirects = Env.isDevelopment))
-    // The `authorize(reauthorize=true)` challenge, shared with the hosted MCP service. Mongo-backed
-    // since M5: it used to be a `ConcurrentHashMap`, so a deploy inside the five-minute window
-    // between the deliberate 401 and the client's post-OAuth confirmation cost the caller its
-    // consent roundtrip, and a second replica never saw the challenge at all.
+    // The shared reauthorization challenge is Mongo-backed so a restart or second replica
+    // preserves the five-minute window between the deliberate 401 and post-OAuth confirmation;
+    // losing that state would cost the caller another consent roundtrip.
     install(SempodsMcpCoreModule())
 
     // Injected by `SempodsPromptBuilder`; it used to arrive with an application framework's module.
@@ -360,9 +359,9 @@ class SempodsModule : BaseModule() {
    * Deliberately *not* an env-selected switch like [bindAiService]: a credential check is right for
    * every deployment whose admin surface is reachable across a process or network boundary, which
    * is every deployment this repository ships — the server always binds an HTTP connector. The seam
-   * stays an interface because a second implementation is genuinely coming (WebID plus an operator
-   * allowlist for the hosted console, control-plane admin roadmap A3); when a deployment profile
-   * arrives that needs a *different* authority, this method is where the selection goes back in.
+   * permits a deployment-specific authority. A proposed WebID/operator-allowlist implementation
+   * is tracked in https://github.com/sempods/sempods-kotlin/issues/139; this binding currently
+   * selects the static credential check.
    */
   /**
    * Binds the authorization seam ([PodAuthorizer]) to [GrantStorePodAuthorizer] — durable

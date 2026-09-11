@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * The reference count of a media object is its set of context assignments, and
  * [PodMedia.unreferencedSince] is what says the set just emptied. Everything downstream — the sweep,
  * the grace period, whether a pod's bytes are ever reclaimed — reads that one field, so these are
- * the transitions M1 exists to get right.
+ * the persistence transitions.
  */
 class PodMediaDaoTest : SempodsIntegrationTest() {
 

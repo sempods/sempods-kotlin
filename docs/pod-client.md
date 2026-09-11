@@ -13,7 +13,7 @@ chapters, [`auth`](auth)), the admin surface to the
 reference implementation. Exact per-method contracts are KDoc on the classes.
 
 Why there are two modules rather than two classes is the authority boundary, and it is stated once
-in [`concepts/modularity.md`](concepts/modularity.md) §"The authority boundary outlived the types": a pod offers a
+in [`concepts/modularity.md`](concepts/modularity.md) §"The authority boundary": a pod offers a
 graph, an addressing scheme and a permission model, and that is what a specification can describe;
 hosting many pods cannot be described the same way, because at `createPod` the pod does not exist
 and no `<context>#permission` scope can authorize it. The consequence a dependency declaration can
@@ -153,8 +153,7 @@ a library may do to its consumer. OkHttp's `Dns` hook is, and it is one line.
 
 What the engine costs, stated rather than hidden:
 
-- **A third-party dependency in a Maven Central artifact**, which the JDK choice existed to avoid
-  (the maintainer's internal roadmap). It is `implementation`, never `api` — the engine stops at
+- **A third-party dependency in a Maven Central artifact.** It is `implementation`, never `api` — the engine stops at
   `SempodsHttpTransport`, callers speak `SempodsRequest` / `SempodsResponse` / `SempodsBody`, and a
   consumer never compiles against an OkHttp type. The dependency is real; the coupling is not.
 - **A version to keep**, pinned explicitly in the catalog rather than inherited from a Ktor BOM in a
@@ -243,27 +242,17 @@ methods return and accept. Rio, Sail and the SPARQL-results readers stay `implem
 clients are written, not what they expose. The in-repo consumers therefore declare no RDF4J of
 their own, which is the check that the export is real: a stranger cannot be told to compensate.
 
-**Open (SOLL, tracked elsewhere):** `explicitApi()` for the library-shaped modules
-(the maintainer's internal roadmap) —
-which is also what would let `SempodsHttpTransport` say in the type system what its KDoc says in
-prose, that it is public only because Kotlin's `internal` stops at the module boundary — and
-published coordinates (the maintainer's internal roadmap).
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) owns the proposed
+HTTP-core/RDF split and supported consumer contract. Publication exists today; API narrowing
+for the independently embeddable services belongs to [#15](https://github.com/sempods/sempods-kotlin/issues/15).
 
-## Target deployments
+## Authority and deployment
 
-What each planned surface talks to, so the module boundary has an address:
-
-| Surface | Speaks |
-|---|---|
-| `sempods.org/:pod` — the pod itself | the specification → `:sempods-client` |
-| `sempods.org/_system/admin` — pod hosting | reference implementation → `:sempods-control-plane-client` |
-| `my.sempods.org` — pod-owner self-service, federated, any conformant pod | mostly `:sempods-client`; `:sempods-control-plane-client` only for the "create a pod here" affordance against a host it is paired with |
-| `admin.sempods.org` — operator panel for a deployment | `:sempods-control-plane-client` |
-
-The asymmetry in that table is the point: the owner surface is implementation-agnostic and reaches
-any pod, the operator surface is bound to one deployment. A client that mixed both would have made
-the second column unwritable. Sequencing for the two planned surfaces — the owner console and
-the operator panel — lives in the maintainer's internal roadmap.
+Pod operations use `sempods-client` and a pod credential. Host administration uses
+`sempods-control-plane-client` and a host credential. Creating a pod requires the latter,
+because the pod and its context authority do not exist yet. The proposed owner and
+operator interfaces preserve this split; their [deployment design](proposals/deployment-profiles.md)
+and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry target scope.
 
 ## Contract source
 

@@ -65,11 +65,12 @@ architecture — its own tenancy, its own authorisation, its own search engine �
 documentation rather than against this code. That is the first evidence that the contract is
 implementable somewhere else, which is the claim this project actually needs to support.
 
-**Which of the two is right, while both exist.** The specification is *descriptive* until it tags
-`0.1`: it was extracted from this code, so where the two disagree today, **this code is right**. At
-that tag it reverses, and a deviation here becomes the bug. `gradle.properties` names the version
-this implements, and `./gradlew checkDocLinks` fails if that claim drifts from the vendored index in
-`gradle/spec/`.
+**The specification owns the contract**, including before `0.1`. Its
+[governance](https://github.com/sempods/sempods-spec/blob/main/GOVERNANCE.md#what-the-tag-changes-and-what-it-no-longer-does)
+governs deviations, recorded specification defects and identifier stability. Code establishes what
+this implementation does; differences must be resolved under that governance. `gradle.properties`
+names the specification version this implements, and `./gradlew checkDocLinks` fails if that claim
+drifts from the vendored index in `gradle/spec/`.
 
 **What does not exist yet:** a conformance suite — so nobody can prove an implementation conformant,
 including this one — and a one-command distribution.
@@ -261,12 +262,11 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
 | [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
-| [`docs/concepts/`](docs/concepts/) | retained architecture and design material awaiting classification |
+| [`docs/concepts/`](docs/concepts/) | current architecture explanations |
 | [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
 
 Maintained documentation describes current code; issues own public plans, with occasional explicitly
-proposed design documents. Existing concept and SOLL content follows the bounded
-[transition](docs/agents/documentation-strategy.md#transition). The
+[proposed design documents](docs/proposals/README.md). The
 [documentation strategy](docs/agents/documentation-strategy.md) defines ownership and completion
 for human and AI contributors alike.
 

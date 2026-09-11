@@ -3,7 +3,7 @@ package org.sempods.mcp.api.mcp
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
 
 /**
- * The per-user quota on `tools/call` (M6.4): a token bucket per `(user, profile)`, enforced by
+ * The per-user quota on `tools/call`: a token bucket per `(user, profile)`, enforced by
  * [McpEndpoint] AFTER bearer verification and the profile-isolation gate — the key is a verified
  * identity, so an unauthenticated spray can never drain a victim's budget. Only `tools/call` is
  * throttled: `initialize` / `tools/list` / `ping` are cheap, static, touch no vault, and throttling

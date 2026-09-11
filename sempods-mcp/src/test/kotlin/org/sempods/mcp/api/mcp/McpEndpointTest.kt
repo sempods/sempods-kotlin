@@ -44,7 +44,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Mongo-backed since M6.3 (`ReauthorizeChallengeStore` is a Mongo store); skipped when
+ * Mongo-backed (`ReauthorizeChallengeStore` is a Mongo store); skipped when
  * Mongo is unreachable so the build stays green where it is absent.
  */
 class McpEndpointTest {
@@ -321,7 +321,7 @@ class McpEndpointTest {
     assertEquals(HttpStatusCode.Accepted, resp.status)
   }
 
-  // --- Per-user quota (M6.4) ---
+  // --- Per-user quota ---
 
   private fun toolsCall(id: Int) = """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"list_pods","arguments":{}}}"""
 
