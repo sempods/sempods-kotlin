@@ -47,10 +47,10 @@ Rules for choosing the level:
   service even though the shape came from the helper. Where the honest answer is "more than one",
   the document is more than one document — and splitting it is the cheaper half of the work, because
   each half then has a reader who can tell whether it is still true.
-- **A misplaced document moves when the thing it describes is next worked on**, not in a sweep of
-  its own. Several here are older than this rule. The expensive part of a move is not the file, it
-  is the references: most of them are prose inside KDoc, `checkDocLinks` cannot see them, and a
-  batch of moves is a batch of chances to leave one pointing at nothing.
+- **Move a misplaced document when its subject is next worked on**, or as part of an explicitly
+  scoped documentation restructuring issue. The expensive part is the references: many are prose
+  inside KDoc that `checkDocLinks` cannot see. Review moves in bounded batches and check incoming
+  paths and section references in prose and KDoc as well as Markdown links.
 - A module earns a sub-vision when it is independently deployable or usable and has an audience of
   its own — not because it is large.
 - A sub-vision **refines** the repository vision. It never contradicts it; a contradiction is a bug

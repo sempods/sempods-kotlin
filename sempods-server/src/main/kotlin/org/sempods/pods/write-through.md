@@ -20,8 +20,8 @@ today:
 Pod media assignments are registry state, outside this write path. Their cascades live in
 `PodFacade.removeContext` and `SempodsFacade.deletePod`.
 
-Additional sinks can subscribe by contributing to the listener set binder in `SempodsModule`; the write path does not
-change. Each declares a `Durability` — at most one may be `CRITICAL` (see below).
+Additional sinks can subscribe by contributing to the listener set binder in `SempodsModule`;
+the write path does not change. Each declares a `Durability` — at most one may be `CRITICAL` (see below).
 
 ## Write flow (`InMemoryPodRepository`)
 
@@ -34,7 +34,8 @@ for the changed-resource set, the change events, and the rollback undo log:
    registered on the store connection for the duration of the transaction and buffers
    `statementAdded` / `statementRemoved`. Decoupled from any write-path bookkeeping, it will also
    see non-`doWork` writes once those open up (SPARQL UPDATE, bulk loads). Deriving the delta from
-   a Sail listener is also what ties a pod to an RDF4J Sail backend — the proposed store-selection seam must account for that coupling.
+   a Sail listener is also what ties a pod to an RDF4J Sail backend — the proposed store-selection
+   seam must account for that coupling.
 2. **Run the block** inside a `begin(SNAPSHOT)` / `commit()` transaction. Each block keeps its
    own graph-isomorphism guard so an identical-content no-op never touches the store. After the
    block, the **net delta** is read from the capture (replace-all churn netted out); an empty net
@@ -85,7 +86,8 @@ common write, more for `removeContext`) and it closes with everything else here:
 per change set.
 
 Closing it needs the change to become **one** durable record instead of N. A MongoDB transaction
-would do it but needs a replica set (declined); the intended answer is a durable change record. The recovery design linked above must settle when retries can be retired.
+would do it but needs a replica set (declined); the intended answer is a durable change record.
+The recovery design linked above must settle when retries can be retired.
 
 ### Resource boundary — no blank nodes
 

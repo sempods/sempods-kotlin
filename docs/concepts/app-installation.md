@@ -6,7 +6,6 @@ implementation iterations; it is not available yet.
 
 ## Provisioning by the operator
 
-
 Today service clients are registered out of band by the host operator:
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a private app root
 `<pod>/_system/contexts/apps/{clientId}`, registers `<root>#manage`, and returns a secret exactly
@@ -18,7 +17,6 @@ registration side is sempods policy: context roots, grants, revocation and audit
 OAuth.
 
 ## The durable connection is the person's
-
 
 Consent carries a control for how long the app stays connected, beside the context grants, and it
 names a lifetime class rather than a scope — two classes, one measured in days and one in months.

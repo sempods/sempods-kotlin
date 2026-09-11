@@ -150,11 +150,11 @@ rather than itself: the docker service is `sempods` — colliding with the bundl
 is also `sempods` — while its Gradle module and its database are `sempods-server`. So
 `env/sempods.env` stands beside `env/sempods-auth.env`, and the same process answers to two names.
 
-This is not settled here because it cannot be yet. What the service *is* depends on a seam that
-does not exist: with pod resolution by path segment it hosts pods and `sempods-server` describes
-it; as a single-pod deployment it *is* a pod, and a different name would read better. Both are the
-proposed deployment variants. See [pod-resolution design](proposals/deployment-profiles.md#proposed-seams) — the naming falls with it, and renaming a docker service is cheap next to what that
-seam costs anyway. Until then: the service is `sempods`, its database `sempods-server`. Renaming
+The current service resolves pods by path segment and hosts several pods, so `sempods-server`
+describes it. The proposed single-pod deployment would use the same service codebase but represent
+one pod, for which a different name may fit. The naming decision therefore depends on the
+[pod-resolution design](proposals/deployment-profiles.md#proposed-seams); fixed-pod resolution
+is not implemented. Until then: the service is `sempods`, its database `sempods-server`. Renaming
 the service is not forbidden the way the frozen names above are — it is pending, and belongs with
 that seam rather than on its own.
 

@@ -16,7 +16,6 @@ Scope: applies to `sempods-mcp/**`. The [repository instructions](../AGENTS.md) 
 
 ## Deployment stance (PoC — no migrations)
 
-
 The deployment is a **PoC used only by the maintainer**: a breaking schema / crypto change
 assumes a **fresh setup** (drop the DB, re-connect pods and AI clients) instead of carrying
 migration logic. The code deliberately holds **no startup migration passes** and no

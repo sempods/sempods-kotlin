@@ -84,9 +84,6 @@ dependencies {
   testImplementation(libs.awaitility)
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
-
-  // Context downscope uses the pod protocol. Row-level SPARQL provenance is proposed in
-  // https://github.com/sempods/sempods-kotlin/issues/140; it does not require an RDF dependency here today.
 }
 
 application {

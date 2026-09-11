@@ -18,8 +18,8 @@ import java.util.Date
 
 /**
  * The token vault: the service's custody of **pod** OAuth tokens, keyed `(user, profile, pod)`.
- * The architecture document explains the custody boundary. [accessToken]/[refreshToken] are stored as
- * ciphertext under the [SecretCipher] envelope.
+ * `docs/concepts/hosted-mcp.md` §"What it buys — and what it costs" explains the custody boundary.
+ * [accessToken]/[refreshToken] are stored as ciphertext under the [SecretCipher] envelope.
  *
  * A row whose ciphertext cannot be decrypted (a lost / changed [SecretCipher] key) is treated as
  * **unreadable** rather than fatal: [TokenVaultDao.find] returns null and the refresh sweep skips

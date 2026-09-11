@@ -88,10 +88,9 @@ not built; what earned it the interface anyway was that the code beneath it had 
 responsibilities into one method, and separating *is this bearer good* (concrete) from *what may it
 reach* (selectable) is what made either testable on its own.
 
-The admin-authority seam has one implementation and no deployment-level selection. Every
-shipped composition binds an HTTP connector, so the admin surface crosses a trust boundary
-and requires credential checks. Alternative operator identities belong to the
-[deployment proposal](../proposals/deployment-profiles.md).
+The admin-authority seam's current binding, trust boundary and reason for remaining an interface
+are owned by [`AdminAuthorizer`'s KDoc](../../sempods-server/src/main/kotlin/org/sempods/admin/AdminAuthorizer.kt).
+Alternative operator identities belong to the [deployment proposal](../proposals/deployment-profiles.md).
 
 ### The service contract is semantic, not a facade over RDF
 
@@ -290,7 +289,6 @@ pointers at test classes, context paths in fixtures — each said something true
 and each says it as a property now, because a name that a reader cannot resolve is a dangling
 reference whatever it was worth to whoever wrote it. That rule is enforced mechanically in the
 repository these modules are extracted from, so it holds by construction rather than by care.
-
 
 ## Related documents
 

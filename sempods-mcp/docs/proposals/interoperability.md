@@ -5,7 +5,6 @@
 
 ## Target pod profile
 
-
 A target is usable only if the service can deterministically discover and exercise it.
 "Pod base URL" therefore implies a **named conformance profile** the target must satisfy:
 

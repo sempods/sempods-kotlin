@@ -129,6 +129,6 @@ handing over an ever-larger bearer token.
 
 - [`graph-retrieval.md`](../concepts/graph-retrieval.md) — the graph retrieval
   pattern the primitives operationalize.
-- [`../vision.md`](../vision.md) §"What comes later" — where SHACL,
+- [`../vision.md`](../vision.md) §"What comes later (extensions)" — where SHACL,
   reactivity, the vector index and the enhanced MCP interface sit in the
   overall direction.

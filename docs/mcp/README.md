@@ -92,10 +92,9 @@ Standards are *named*, not re-explained in these docs.
   (proactive vs. defensive) for Claude Desktop / Code / Web, ChatGPT,
   Copilot / VS Code, Open-Code, plus known client-side limits we
   document but do not work around.
-- **[`../proposals/mcp-agent-interface.md`](../proposals/mcp-agent-interface.md)** — the concept:
-  SHACL-gated app contracts, vector-assisted retrieval (the `find` primitive
-  itself shipped — see `tools.md`), cross-pod orchestration. Target state,
-  without committing to a delivery shape.
+- **[`../proposals/mcp-agent-interface.md`](../proposals/mcp-agent-interface.md)** — the proposal for
+  SHACL-gated app contracts and reactive agents, with links to retrieval design and the owning
+  issue. These capabilities remain unimplemented.
 - **[`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md)** — a standalone MCP service (the `sempods-mcp` module)
   that fronts many pods over one connection, treating MCP as an
   LLM-tooling layer *over* the pod's primitives rather than a per-pod

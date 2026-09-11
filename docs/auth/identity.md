@@ -129,8 +129,9 @@ it can access.
 ## Current authentication boundary
 
 Users authenticate through the OIDC provider flow. Pod access tokens are bearer tokens;
-this implementation does not bind them to a client-held key. [DPoP work](https://github.com/sempods/sempods-kotlin/issues/112)
-is tracked separately. Proof of possession would complement authentication; it does not
+this implementation does not bind them to a client-held key.
+[DPoP work](https://github.com/sempods/sempods-kotlin/issues/112) is tracked separately.
+Proof of possession would complement authentication; it does not
 by itself replace the identity provider.
 
 ## Self-hosted deployments

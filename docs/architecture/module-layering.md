@@ -22,15 +22,13 @@ A `Service` interface is an **abstraction over a capability** whose implementati
 the composition rather than fixed by the caller — `AiService` is the one that exists today, with
 the Ollama and OpenAI implementations behind it.
 
-It is deliberately **not** the mandatory shape of every cross-module call. An interface with one
-implementation and one caller documents nothing and costs indirection, which is why the
-`SempodsService` abstraction was retired — see
-[`../concepts/modularity.md`](../concepts/modularity.md) §"The authority boundary
-outlived the types". The authority boundary it was thought to carry — who may do what — lives in
-the authorization model, not in a type.
+An interface earns its indirection when a second implementation is real, or when a deployment
+must be able to supply one. The latter can justify a seam with one shipped implementation; see
+[`AdminAuthorizer`'s rationale](../../sempods-server/src/main/kotlin/org/sempods/admin/AdminAuthorizer.kt).
+Otherwise call the facade.
 
-Introduce a `Service` when a second implementation is real, or when a deployment must be able to
-select one. Otherwise call the facade.
+Who may perform an operation is enforced by authorization, not by introducing a service type;
+see [the authority boundary](../concepts/modularity.md#the-authority-boundary).
 
 Service implementation responsibilities:
 
