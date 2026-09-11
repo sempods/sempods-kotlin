@@ -119,14 +119,15 @@ The bound tier fixes a coordinate of the stateless one; these are alternatives, 
 
 ### The authority boundary
 
-**The split is by authority.** Pod-scoped operations — resources, contexts and media
-alike — are authorized by a pod-scoped token; creating and deleting a pod is host-level, and no
-`<context>#permission` scope can express it (at `createPod` the pod does not exist yet, so there is
-nothing to scope against). That is why media never became a third interface: media writes go
-through the very same `PodContextWriteAuthorizer` and the very same `<context>#write` / `#manage`
-scopes as the resource writes, so a split by subject matter would have said nothing about who may
-call what. `createContext` and `removeContext` make the same point from the other side — not RDF at
-all, `_system` operations on MongoDB rows, and pod-scoped for exactly this reason.
+**The split is by authority.** Pod-scoped operations authenticate a pod token and resolve context
+permissions from durable server-side grants. Feature scopes travel in the token; context grants
+do not. [`GrantStorePodAuthorizer`](../../sempods-server/src/main/kotlin/org/sempods/pods/grants/GrantStorePodAuthorizer.kt)
+owns the resolution details. Creating and deleting a pod is host-level, and no
+`<context>#permission` grant can express it: at `createPod` the pod does not exist yet.
+Media and resource writes use the same `PodContextWriteAuthorizer` and the same
+`<context>#write` / `#manage` grants, so a split by subject matter would add no authority boundary.
+`createContext` and `removeContext` are pod-scoped too, although they operate on MongoDB rows
+rather than RDF statements.
 
 The boundary is marked by **two modules with two credentials** rather than two interfaces:
 `:sempods-client` (`SempodsPodClient`, the credential typed as `SempodsAuth` —

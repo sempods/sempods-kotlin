@@ -169,9 +169,10 @@ person to that pod — one grant set, one refresh-token family, whatever this se
 WebID is what separates people there, so the fork stops at the profile.
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`
-client its consent screen, with the prior grants pre-checked, so scopes change there rather than in
-a request parameter. Elsewhere that is the pod's call: the service sends no `prompt=consent`, so a
-pod free to reuse the prior authorization will, and the button then changes nothing. The stored
+client its consent screen, with prior context grants pre-checked; those durable grants are edited
+there, rather than encoded in the OAuth `scope` request parameter. Elsewhere that is the pod's
+call: the service sends no `prompt=consent`, so a pod free to reuse the prior authorization will,
+and the button then changes nothing. The stored
 `client_id` is reused — except for a dead (`invalid_grant`) `dyn:` connection at a pod offering
 DCR, which re-registers; a static `did:web` client has no registration to lose and keeps its
 identity. The callback stores the scopes the token response returned, not the ones asked for, and
@@ -183,11 +184,10 @@ The pod sees an ordinary OAuth client; consent and grants stay pod-side.
 
 Reads fan out (scatter-gather across `targets`); writes must not.
 
-- **Reads** may address multiple pods/contexts; results stay
-  **provenance-stable**: per pod, per context, with partial errors
-  surfaced individually. **No global result fusion without provenance** —
-  the caller always sees which pod and context each row came from (the
-  chat app's per-`(pod, context)` envelope is the model).
+- **Reads** may address multiple pods/contexts. Results and errors stay in per-pod envelopes;
+  the service does not merge them into one result set. Context attribution depends on the tool's
+  result shape: narrowing a SPARQL query to contexts does not annotate its rows with their source
+  contexts. See the [tool contract's provenance rules](../../sempods-mcp/docs/tool-contract.md#provenance).
 - **Writes** require **exactly one explicit target pod and one explicit
   `context_iri`**. No default-all-targets, no implicit context, no
   fan-out write. A write whose target is ambiguous is rejected, not
@@ -216,7 +216,7 @@ The profile addresses are:
 - **Optional `mcp.sempods.org/<profile>`** — a **named profile**: its own
   OAuth identity, its own token set, its own (narrower) connection bundle.
   `…/private` can structurally reach only "Mein Pod", `…/playground` only
-  the sandbox, `…/cron-agent` only one pod with a narrow scope.
+  the sandbox, `…/cron-agent` only one pod with narrowly granted context permissions.
 
 The driving fact: MCP OAuth keys auth on the **resource URL**, so two
 independent identities / token sets require two URLs. The per-pod MCP had
@@ -263,12 +263,12 @@ Keep two separation axes distinct:
 | Axis | Example | Solved by | Needs a path? |
 |---|---|---|---|
 | **Pod** separation | "Mein Pod" vs. "AI-Playground" | `targets` + connection registry, *inside* one service | No |
-| **Profile / identity / scope** separation | private vs. sandbox vs. cron-agent | own OAuth client + connection bundle | Yes |
+| **Profile / identity / permissions** separation | private vs. sandbox vs. cron-agent | own OAuth client + connection bundle | Yes |
 
 A path **per pod** would re-fragment the very thing the service unifies
-(back to N URLs) — an anti-pattern. Profiles are coarse, identity- and
-scope-bound, and give **isolation by construction** (a profile cannot
-address a pod outside its bundle), which runtime `targets` alone does not.
+(back to N URLs) — an anti-pattern. Profiles bind an OAuth client identity to a connection bundle
+and give **isolation by construction** (a profile cannot address a pod outside its bundle),
+which runtime `targets` alone does not.
 This is the cross-pod analogue of the per-pod `users/<slug>/...` and
 `<instance>` disambiguator, but anchored in the service account rather than
 in a pod.
