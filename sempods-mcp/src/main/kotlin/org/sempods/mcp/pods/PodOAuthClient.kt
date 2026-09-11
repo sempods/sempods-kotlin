@@ -24,9 +24,9 @@ import org.sempods.auth.core.JwtVerification
 import org.sempods.auth.core.JwtVerifier
 import org.sempods.auth.core.OAuthErrorCode
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.sempods.client.SempodsBody
+import org.sempods.client.core.SempodsBody
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.SempodsResponse
+import org.sempods.client.core.SempodsResponse
 import org.sempods.mcp.forLog
 import org.sempods.mcp.oauth.SempodsClientHttpTransport
 import java.net.URI
@@ -333,9 +333,9 @@ class PodOAuthClient(
     val response = podIo {
       transport.send(
         transport.newRequest(URI(registrationEndpoint))
-          .header("Content-Type", "application/json")
-          .header("User-Agent", CLIENT_NAME)
-          .POST(SempodsBody.text(body))
+          .setHeader("Content-Type", "application/json")
+          .setHeader("User-Agent", CLIENT_NAME)
+          .post(SempodsBody.text(body))
           .build(),
       )
     }
@@ -435,7 +435,7 @@ class PodOAuthClient(
 
   private suspend fun get(url: String): SempodsResponse<String> {
     requireAllowed(url)
-    return podIo { transport.send(transport.newRequest(URI(url)).GET().build()) }
+    return podIo { transport.send(transport.newRequest(URI(url)).get().build()) }
   }
 
   /** `application/x-www-form-urlencoded` per RFC 6749 §2.3.1 — the shape a token endpoint expects. */
@@ -445,8 +445,8 @@ class PodOAuthClient(
     return podIo {
       transport.send(
         transport.newRequest(URI(url))
-          .header("Content-Type", "application/x-www-form-urlencoded")
-          .POST(SempodsBody.text(form))
+          .setHeader("Content-Type", "application/x-www-form-urlencoded")
+          .post(SempodsBody.text(form))
           .build(),
       )
     }
@@ -456,7 +456,7 @@ class PodOAuthClient(
 
   /** Rejects a URL the [podUrlPolicy] disallows (SSRF guard for discovered endpoints). */
   private fun requireAllowed(url: String) {
-    podUrlPolicy.reject(url)?.let { reason -> throw PodOAuthException("blocked URL ($reason): $url") }
+    podUrlPolicy.rejectEndpoint(url)?.let { reason -> throw PodOAuthException("blocked URL ($reason): $url") }
   }
 
   private fun parseTokenResponse(body: String): PodTokenResponse {

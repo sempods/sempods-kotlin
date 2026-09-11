@@ -195,7 +195,8 @@ the sibling-module principle behaving as intended rather than a gap.
 
 ## Open-source readiness
 
-The publication boundary is checked through dependency analysis and consumer probes.
+The publication boundary is checked through dependency analysis, consumer probes and an
+artifact harness.
 
 **No in-house application layer sits between these modules and the libraries they use.** Each
 service builds on a framework directly — the pod server on Jersey and Jetty through
@@ -257,6 +258,25 @@ the config, the module, `Guice.createInjector`. Gradle propagates only `api` acr
 boundary, so each probe's compile classpath is a consumer's compile classpath, and a missing export
 is a compile error here rather than in someone else's build. They are two modules and not one file
 because a probe holding both services hid a missing export in each behind the other's declaration.
+
+**A probe still compiles against a project, which is the layer it cannot reach.** Gradle gives it a
+consumer's *compile classpath*, and that is what makes it a good answer to the `api` question — but
+a POM, Gradle module metadata and a jar exist only once a module is published, and a probe sees none
+of them. `./gradlew checkPublishedArtifacts` is where those are exercised: the root build publishes
+every module into `build/consumer-harness-repo`, and `consumer-harness/` — a build of its own, with
+no `includeBuild` and no substitution available to it — resolves `org.sempods:sempods-client-core` by
+coordinate and compiles and runs a Java consumer out of it. Two variants, because a Maven consumer
+and a Gradle one read different files: one resolves the module metadata, the other is declared
+`ignoreGradleMetadataRedirection()` so the POM is the whole answer.
+
+It is the only place a JDK 21 process runs. The producer and `buildHealth` stay on 25, and the
+matrix in `test.yml` compiles and runs the consumer on 21 and on 25 with `actions/setup-java`
+installing both — bytecode built for 21 and executed only on 25 is not a baseline anyone tested. The
+consumer asserts what only a process can: its own runtime version, the class file version of what it
+loaded, and that RDF4J, Jena and Jackson are not loadable at all. The build asserts the two halves
+around it — that nothing forbidden is in the resolved graph, that the engine is absent from the
+*compile* classpath, and that no repository but the file one and Central could have answered.
+Deliberately outside `check`: it republishes every module and runs two more Gradle builds.
 
 What the probes cover is that **embedding contract**, not the whole public surface of either
 service. Both surfaces are far wider — `OidcTokenExchange` takes a Ktor `HttpClient`, the route

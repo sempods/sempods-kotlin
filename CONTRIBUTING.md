@@ -181,10 +181,17 @@ is declared by that module, on `api`** — not inherited from a sibling that
 happens to bring it. `docs/concepts/modularity.md` §"Open-source readiness" says what this
 guards and what it cannot.
 
-Three more run in CI and are worth running locally when a change touches them:
-`./gradlew checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata`. The
-third walks every markdown file and fails on a relative link that points at nothing; the fourth
-keeps a container image from shipping without the label that says which commit it is.
+Five more run in CI and are worth running locally when a change touches them:
+`./gradlew checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata
+checkPublishedSignatures`. `checkDocLinks` walks every markdown file and fails on a relative link
+that points at nothing; `checkImageMetadata` keeps a container image from shipping without the label
+that says which commit it is; `checkPublishedSignatures` keeps a Kotlin function type or an HTTP
+engine off the surface a Java consumer compiles against.
+
+A sixth is not in that line because it needs two JDKs installed:
+`./gradlew checkPublishedArtifacts` publishes every module into an isolated repository and compiles
+and runs a Java consumer out of it on 21 and on 25. Run it when a change touches what is published
+or how it is declared.
 
 Every PR completes documentation for its own diff, including partial work on a larger issue.
 A behaviour change carries its documentation in the same commit —

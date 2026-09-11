@@ -1,4 +1,4 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull

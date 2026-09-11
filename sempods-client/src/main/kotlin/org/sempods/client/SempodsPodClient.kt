@@ -1,8 +1,6 @@
 package org.sempods.client
 
 import com.fasterxml.jackson.databind.JsonNode
-import org.sempods.media.UploadedMedia
-import org.sempods.rdf.toIri
 import java.io.InputStream
 import java.net.URI
 import java.nio.file.Files
@@ -15,6 +13,10 @@ import org.eclipse.rdf4j.model.Statement
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.util.Values
+import org.sempods.client.core.SempodsBody
+import org.sempods.client.core.SempodsResponse
+import org.sempods.media.UploadedMedia
+import org.sempods.rdf.toIri
 
 /**
  * **One pod, one credential.** Pod-scoped operations over HTTP — resource and slot CRUD, context

@@ -138,6 +138,7 @@ include(
   "sempods-auth-core",
   "sempods-bom",
   "sempods-client",
+  "sempods-client-core",
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",

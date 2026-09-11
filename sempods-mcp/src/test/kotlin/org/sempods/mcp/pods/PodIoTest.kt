@@ -39,7 +39,7 @@ class PodIoTest {
   private fun url(path: String) = URI("http://localhost:${server.port}$path")
 
   private fun get(path: String) =
-    transport.send(transport.newRequest(url(path)).GET().build())
+    transport.send(transport.newRequest(url(path)).get().build())
 
   @Test
   fun `the caller's trace reaches the pod across the dispatcher hop`() = runBlocking {

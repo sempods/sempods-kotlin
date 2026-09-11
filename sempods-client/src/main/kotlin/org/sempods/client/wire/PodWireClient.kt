@@ -1,11 +1,11 @@
 package org.sempods.client.wire
 
 import com.fasterxml.jackson.databind.JsonNode
-import org.sempods.client.SempodsBody
+import org.sempods.client.core.SempodsBody
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.SempodsRequest
-import org.sempods.client.SempodsResponse
+import org.sempods.client.core.SempodsRequest
+import org.sempods.client.core.SempodsResponse
 import org.sempods.commons.net.SempodsPodRoutes
 import java.net.URI
 import java.net.URLEncoder
@@ -101,9 +101,9 @@ class PodWireClient(
     if (limit != null) payload["limit"] = limit
 
     val request = transport.newRequest(url, token)
-      .header("Accept", JSON_LD)
-      .header("Content-Type", JSON)
-      .POST(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
+      .setHeader("Accept", JSON_LD)
+      .setHeader("Content-Type", JSON)
+      .post(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
       .build()
     return jsonOrFail("find", url, transport.send(request))
   }
@@ -252,15 +252,15 @@ class PodWireClient(
     val scoping = contextIris.flatMap { listOf("default-graph-uri" to it.toString(), "named-graph-uri" to it.toString()) }
     val url = route(podBaseUrl, SempodsPodRoutes.SPARQL_QUERY, scoping)
     val request = transport.newRequest(url, token)
-      .header("Accept", accept)
-      .header("Content-Type", SPARQL_QUERY)
-      .POST(SempodsBody.text(query))
+      .setHeader("Accept", accept)
+      .setHeader("Content-Type", SPARQL_QUERY)
+      .post(SempodsBody.text(query))
       .build()
     return jsonOrFail(op, url, transport.send(request))
   }
 
   private fun get(url: URI, token: String?, accept: String): SempodsResponse<String> =
-    transport.send(transport.newRequest(url, token).header("Accept", accept).GET().build())
+    transport.send(transport.newRequest(url, token).setHeader("Accept", accept).get().build())
 
   private fun write(
     op: String,
@@ -275,9 +275,9 @@ class PodWireClient(
   ): PodWriteResult {
     val target = withQuery(url, listOf("context" to contextIri.toString()))
     val builder = transport.newRequest(target, token)
-    ifMatch?.let { builder.header("If-Match", it) }
-    ifNoneMatch?.let { builder.header("If-None-Match", it) }
-    contentType?.let { builder.header("Content-Type", it) }
+    ifMatch?.let { builder.setHeader("If-Match", it) }
+    ifNoneMatch?.let { builder.setHeader("If-None-Match", it) }
+    contentType?.let { builder.setHeader("Content-Type", it) }
     val payload = body?.let { SempodsBody.bytes(objectMapper.writeValueAsBytes(it)) }
     val request = applyMethod(builder, method, payload).build()
 
@@ -294,10 +294,10 @@ class PodWireClient(
 
   private fun applyMethod(builder: SempodsRequest.Builder, method: String, body: SempodsBody?) =
     when (method) {
-      "PUT" -> builder.PUT(body ?: SempodsBody.empty())
-      "POST" -> builder.POST(body ?: SempodsBody.empty())
-      "PATCH" -> builder.PATCH(body ?: SempodsBody.empty())
-      "DELETE" -> builder.DELETE()
+      "PUT" -> builder.put(body ?: SempodsBody.empty())
+      "POST" -> builder.post(body ?: SempodsBody.empty())
+      "PATCH" -> builder.patch(body ?: SempodsBody.empty())
+      "DELETE" -> builder.delete()
       else -> throw IllegalArgumentException("unsupported write method: $method")
     }
 

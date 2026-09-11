@@ -1,6 +1,6 @@
 package org.sempods.controlplane
 
-import org.sempods.client.SempodsBody
+import org.sempods.client.core.SempodsBody
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsHttpTransport
 import java.net.URI
@@ -52,9 +52,9 @@ class SempodsControlPlaneClient(
     val body = objectMapper.writeValueAsBytes(mapOf("ownerEmail" to ownerEmail))
 
     val request = transport.newRequest(targetUrl, adminSecret)
-      .header("Content-Type", "application/json")
-      .header("Accept", "application/json")
-      .PUT(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/json")
+      .setHeader("Accept", "application/json")
+      .put(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -75,7 +75,7 @@ class SempodsControlPlaneClient(
     val targetUrl = adminPodUrl(podName)
 
     val request = transport.newRequest(targetUrl, adminSecret)
-      .DELETE()
+      .delete()
       .build()
 
     val response = transport.send(request)
@@ -96,8 +96,8 @@ class SempodsControlPlaneClient(
     val targetUrl = adminPodUrl(podName)
 
     val request = transport.newRequest(targetUrl, adminSecret)
-      .header("Accept", "application/json")
-      .GET()
+      .setHeader("Accept", "application/json")
+      .get()
       .build()
 
     val response = transport.send(request)
@@ -132,9 +132,9 @@ class SempodsControlPlaneClient(
     val body = objectMapper.writeValueAsBytes(mapOf("expectedRegistrationId" to expectedRegistrationId))
 
     val request = transport.newRequest(targetUrl, adminSecret)
-      .header("Content-Type", "application/json")
-      .header("Accept", "application/json")
-      .POST(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/json")
+      .setHeader("Accept", "application/json")
+      .post(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)

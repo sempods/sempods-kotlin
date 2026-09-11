@@ -1,12 +1,5 @@
 package org.sempods.client
 
-import org.sempods.commons.net.SempodsPodRoutes
-import org.sempods.media.PodMediaSource
-import org.sempods.media.UploadedMedia
-import org.eclipse.rdf4j.model.Model
-import org.eclipse.rdf4j.model.Value
-import org.eclipse.rdf4j.rio.RDFFormat
-import org.eclipse.rdf4j.rio.Rio
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -16,6 +9,17 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.Base64
+import org.eclipse.rdf4j.model.Model
+import org.eclipse.rdf4j.model.Value
+import org.eclipse.rdf4j.rio.RDFFormat
+import org.eclipse.rdf4j.rio.Rio
+import org.sempods.client.core.SempodsBody
+import org.sempods.client.core.SempodsRequest
+import org.sempods.client.core.SempodsResponse
+import org.sempods.client.core.SempodsStreamedResponse
+import org.sempods.commons.net.SempodsPodRoutes
+import org.sempods.media.PodMediaSource
+import org.sempods.media.UploadedMedia
 
 /**
  * Thin HTTP client for the **pod surface** — `{pod}/…` and `{pod}/_system/…`, the half of a
@@ -78,9 +82,9 @@ class SempodsClient(
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val query = "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <$contextUri> { ?s ?p ?o } }"
     val request = newRequest(sparqlUrl, token)
-      .header("Content-Type", "application/sparql-query")
-      .header("Accept", "application/n-quads")
-      .POST(SempodsBody.text(query))
+      .setHeader("Content-Type", "application/sparql-query")
+      .setHeader("Accept", "application/n-quads")
+      .post(SempodsBody.text(query))
       .build()
 
     transport.sendStreaming(request) { response ->
@@ -119,8 +123,8 @@ class SempodsClient(
     }
 
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", "application/n-quads")
-      .PUT(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/n-quads")
+      .put(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -157,8 +161,8 @@ class SempodsClient(
    */
   fun dereference(resourceUri: URI, token: String? = null): Model? {
     val request = newRequest(resourceUri, token)
-      .header("Accept", "application/n-quads")
-      .GET()
+      .setHeader("Accept", "application/n-quads")
+      .get()
       .build()
 
     val response = transport.sendBytes(request)
@@ -185,7 +189,7 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve("$resourcePath?context=$encodedContext")
 
     val request = newRequest(targetUrl, token)
-      .DELETE()
+      .delete()
       .build()
 
     val response = transport.send(request)
@@ -228,9 +232,9 @@ class SempodsClient(
     val body = objectMapper.writeValueAsBytes(payload)
 
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", "application/json")
-      .header("Accept", "application/json")
-      .PUT(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/json")
+      .setHeader("Accept", "application/json")
+      .put(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -249,7 +253,7 @@ class SempodsClient(
     val targetUrl = contextManagementUrl(podBaseUrl, contextUri)
 
     val request = newRequest(targetUrl, token)
-      .DELETE()
+      .delete()
       .build()
 
     val response = transport.send(request)
@@ -274,8 +278,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.CONTEXTS)
 
     val request = newRequest(targetUrl, token)
-      .header("Accept", "application/json")
-      .GET()
+      .setHeader("Accept", "application/json")
+      .get()
       .build()
 
     val response = transport.send(request)
@@ -321,9 +325,9 @@ class SempodsClient(
   ): UploadedMedia {
     val targetUrl = mediaCollectionUrl(podBaseUrl, contextUri, filename)
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", contentType)
-      .header("Accept", "application/json")
-      .POST(SempodsBody.stream(size, body))
+      .setHeader("Content-Type", contentType)
+      .setHeader("Accept", "application/json")
+      .post(SempodsBody.stream(body, size))
       .build()
 
     return readUploadResponse(targetUrl, transport.send(request))
@@ -351,9 +355,9 @@ class SempodsClient(
     if (filename != null) payload["filename"] = filename
 
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", PodMediaSource.MEDIA_TYPE)
-      .header("Accept", "application/json")
-      .POST(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
+      .setHeader("Content-Type", PodMediaSource.MEDIA_TYPE)
+      .setHeader("Accept", "application/json")
+      .post(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
       .build()
 
     return readUploadResponse(targetUrl, transport.send(request))
@@ -369,7 +373,7 @@ class SempodsClient(
   fun assignMedia(podBaseUrl: URI, mediaId: String, contextUri: URI, token: String?) {
     val targetUrl = mediaUrl(podBaseUrl, mediaId, contextUri)
     val request = newRequest(targetUrl, token)
-      .PUT(SempodsBody.empty())
+      .put(SempodsBody.empty())
       .build()
 
     val response = transport.send(request)
@@ -388,7 +392,7 @@ class SempodsClient(
   fun unassignMedia(podBaseUrl: URI, mediaId: String, contextUri: URI, token: String?) {
     val targetUrl = mediaUrl(podBaseUrl, mediaId, contextUri)
     val request = newRequest(targetUrl, token)
-      .DELETE()
+      .delete()
       .build()
 
     val response = transport.send(request)
@@ -450,8 +454,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.META_DATE_MODIFIED)
 
     val request = newRequest(targetUrl, token)
-      .header("Accept", "application/json")
-      .GET()
+      .setHeader("Accept", "application/json")
+      .get()
       .build()
 
     val response = transport.send(request)
@@ -524,9 +528,9 @@ class SempodsClient(
   fun sparqlConstruct(podBaseUrl: URI, query: String, token: String?): Model {
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val request = newRequest(sparqlUrl, token)
-      .header("Content-Type", "application/sparql-query")
-      .header("Accept", "application/n-quads")
-      .POST(SempodsBody.text(query))
+      .setHeader("Content-Type", "application/sparql-query")
+      .setHeader("Accept", "application/n-quads")
+      .post(SempodsBody.text(query))
       .build()
 
     val response = transport.sendBytes(request)
@@ -583,8 +587,8 @@ class SempodsClient(
     }
 
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", "application/n-quads")
-      .PUT(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/n-quads")
+      .put(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -620,8 +624,8 @@ class SempodsClient(
     val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, contextUris)
 
     val request = newRequest(targetUrl, token)
-      .header("Accept", "application/n-quads")
-      .GET()
+      .setHeader("Accept", "application/n-quads")
+      .get()
       .build()
 
     val response = transport.sendBytes(request)
@@ -652,7 +656,7 @@ class SempodsClient(
     val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, listOf(contextUri))
 
     val request = newRequest(targetUrl, token)
-      .DELETE()
+      .delete()
       .build()
 
     val response = transport.send(request)
@@ -699,8 +703,8 @@ class SempodsClient(
     val body = objectMapper.writeValueAsBytes(values.map(::toJsonLdValueObject))
 
     val request = newRequest(targetUrl, token)
-      .header("Content-Type", "application/ld+json")
-      .PUT(SempodsBody.bytes(body))
+      .setHeader("Content-Type", "application/ld+json")
+      .put(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -742,9 +746,9 @@ class SempodsClient(
       .encodeToString("$encodedId:$encodedSecret".toByteArray(StandardCharsets.UTF_8))
 
     val request = newRequest(tokenUrl)
-      .header("Authorization", "Basic $basic")
-      .header("Content-Type", "application/x-www-form-urlencoded")
-      .POST(SempodsBody.text("grant_type=client_credentials"))
+      .setHeader("Authorization", "Basic $basic")
+      .setHeader("Content-Type", "application/x-www-form-urlencoded")
+      .post(SempodsBody.text("grant_type=client_credentials"))
       .build()
 
     val response = transport.send(request)
@@ -786,8 +790,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.META_DATE_MODIFIED)
 
     val request = newRequest(targetUrl)
-      .header("Accept", "application/json")
-      .GET()
+      .setHeader("Accept", "application/json")
+      .get()
       .build()
 
     val response = transport.send(request)
@@ -811,9 +815,9 @@ class SempodsClient(
   ): String {
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val request = newRequest(sparqlUrl, token)
-      .header("Content-Type", "application/sparql-query")
-      .header("Accept", accept)
-      .POST(SempodsBody.text(query))
+      .setHeader("Content-Type", "application/sparql-query")
+      .setHeader("Accept", accept)
+      .post(SempodsBody.text(query))
       .build()
 
     val response = transport.send(request)
@@ -890,31 +894,3 @@ data class ServiceTokenResponse(
   val expiresInSeconds: Long,
   val scope: String?,
 )
-
-class SempodsClientException(
-  message: String,
-  /** HTTP status of the failed response, when the failure was a non-2xx answer (else null). */
-  val statusCode: Int? = null,
-  /**
-   * What the server wrote in the failed response, on its own — the same excerpt [message] embeds,
-   * without the method and URL in front of it.
-   *
-   * Separate because a caller that forwards a failure onward must not forward the URL with it.
-   * [message] is written for a log line, where knowing which call failed is the point; an MCP tool
-   * error goes to a language model, which has no use for `http://localhost:8090/pod/_system/…` and
-   * some tendency to repeat it back to the user as if it were an address they should visit.
-   * Recovering the detail by cutting [message] at a separator would be the kind of string surgery
-   * that breaks silently the first time the format changes.
-   *
-   * Null when there was no response to read — a refused connection, or a body that could not be
-   * parsed as the route's contract requires.
-   */
-  val responseBody: String? = null,
-  /**
-   * The failure underneath, when there is one — a transport refusing to connect at all rather than
-   * a server answering. Callers classify on it: a blocked address and a dead credential both surface
-   * as this exception, and only the cause chain tells them apart. Dropping it makes the two
-   * indistinguishable, which is how a refused connection gets reported as an expired token.
-   */
-  cause: Throwable? = null,
-) : RuntimeException(message, cause)

@@ -13,11 +13,11 @@ import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.net.OutboundRateLimiter
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.SempodsRateLimitedException
-import org.sempods.client.net.SempodsUrlPolicy
-import org.sempods.client.net.SsrfBlockedException
+import org.sempods.client.core.net.OutboundRateLimiter
+import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.core.net.SempodsRateLimitedException
+import org.sempods.client.core.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SsrfBlockedException
 import org.slf4j.event.Level
 import java.net.InetAddress
 import java.net.URI
@@ -61,12 +61,12 @@ class SempodsHttpTransportGuardTest {
       policy = SempodsUrlPolicy(allowPrivateAddresses = allowPrivate),
       trustedHosts = trustedHosts,
       rateLimiter = rateLimiter,
-      resolve = { listOf(InetAddress.getByName(resolvesTo)) },
+      resolver = { listOf(InetAddress.getByName(resolvesTo)) },
     ),
   )
 
   private fun get(transport: SempodsHttpTransport, uri: URI = target) =
-    transport.send(transport.newRequest(uri).GET().build())
+    transport.send(transport.newRequest(uri).get().build())
 
   @Test
   fun `a name resolving into a blocked range is refused inside the connection path`() {
@@ -103,7 +103,7 @@ class SempodsHttpTransportGuardTest {
     val transport = SempodsHttpTransport(
       guard = SempodsOutboundGuard(
         policy = SempodsUrlPolicy(allowPrivateAddresses = false),
-        resolve = { listOf(InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.5")) },
+        resolver = { listOf(InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.5")) },
       ),
     )
     assertThrows<SempodsClientException> { get(transport) }
@@ -137,7 +137,7 @@ class SempodsHttpTransportGuardTest {
     // Opt-in: consumers that only reach pods they configured themselves lost nothing.
     val plain = SempodsHttpTransport()
     val uri = URI("http://127.0.0.1:${mockServer.port}/x")
-    assertEquals(200, plain.send(plain.newRequest(uri).GET().build()).statusCode)
+    assertEquals(200, plain.send(plain.newRequest(uri).get().build()).statusCode)
   }
 
   @Test
@@ -149,7 +149,7 @@ class SempodsHttpTransportGuardTest {
     listOf("127.0.0.1", "localhost").forEach { host ->
       val trusting = transport(trustedHosts = setOf(host))
       val uri = URI("http://$host:${mockServer.port}/x")
-      assertEquals(200, trusting.send(trusting.newRequest(uri).GET().build()).statusCode, "for $host")
+      assertEquals(200, trusting.send(trusting.newRequest(uri).get().build()).statusCode, "for $host")
     }
   }
 
@@ -160,21 +160,21 @@ class SempodsHttpTransportGuardTest {
     val guard = SempodsOutboundGuard(
       policy = SempodsUrlPolicy(allowPrivateAddresses = false),
       trustedHosts = setOf("::1"),
-      resolve = { listOf(InetAddress.getByName("::1")) },
+      resolver = { listOf(InetAddress.getByName("::1")) },
     )
     val trusting = SempodsHttpTransport(guard = guard)
     val uri = URI("http://[::1]:${mockServer.port}/x")
-    assertEquals(200, trusting.send(trusting.newRequest(uri).GET().build()).statusCode)
+    assertEquals(200, trusting.send(trusting.newRequest(uri).get().build()).statusCode)
   }
 
   @Test
   fun `the exemption covers the host only — a untrusted host and a bad scheme are still refused`() {
     val trusting = transport(trustedHosts = setOf("127.0.0.1"))
     assertThrows<SempodsClientException> {
-      trusting.send(trusting.newRequest(URI("http://169.254.169.254/meta")).GET().build())
+      trusting.send(trusting.newRequest(URI("http://169.254.169.254/meta")).get().build())
     }
     val ex = assertThrows<SempodsClientException> {
-      trusting.send(trusting.newRequest(URI("file:///etc/passwd")).GET().build())
+      trusting.send(trusting.newRequest(URI("file:///etc/passwd")).get().build())
     }
     assertTrue(ex.message!!.contains("HTTP(S)"), ex.message)
   }

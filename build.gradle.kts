@@ -35,6 +35,7 @@ val publishedModules = listOf(
   "sempods-auth",
   "sempods-auth-core",
   "sempods-client",
+  "sempods-client-core",
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",
@@ -196,6 +197,94 @@ subprojects {
     }
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoLoggingBinding) }
+
+  // The published shape of the HTTP core, asserted rather than reviewed.
+  //
+  // Three separate promises it makes to a Java consumer, each of which compiles perfectly inside
+  // this repository and fails only in someone else's build: that no HTTP engine type is on its
+  // surface, that no RDF or JSON library is, and that no callback is a Kotlin function type. The
+  // third is the one nothing else here would notice — `(SempodsStreamedResponse) -> T` reaches a
+  // Java caller as `kotlin.jvm.functions.Function1`, which they have to name and which cannot
+  // declare `IOException`, and every sibling module is Kotlin and would never see it.
+  //
+  // Reads the compiled classes rather than the source, because what a consumer compiles against is
+  // the bytecode: a Kotlin type can arrive in a signature the source never names. `javap` rather
+  // than a bytecode library, because it ships with the JDK that is already required to build —
+  // a build-script dependency for one check is a larger commitment than the check is worth.
+  //
+  // `consumer-harness/` is the other half: this says the shape is right, that says the published
+  // artifact resolves, compiles and runs.
+  if (name == "sempods-client-core") {
+    val classesDir = layout.buildDirectory.dir("classes/kotlin/main")
+    val javapLauncher = javaToolchains.launcherFor(java.toolchain)
+
+    val checkPublishedSignatures = tasks.register("checkPublishedSignatures") {
+      group = "verification"
+      description = "Fails if the client core names an engine, an RDF/JSON library or a Kotlin function type in a public signature."
+      dependsOn(tasks.named("classes"))
+      inputs.dir(classesDir)
+      doLast {
+        val root = classesDir.get().asFile
+        val classes = root.walkTopDown()
+          .filter { it.extension == "class" }
+          .map { it.relativeTo(root).path.removeSuffix(".class").replace(File.separatorChar, '.') }
+          .sorted().toList()
+        if (classes.isEmpty()) throw GradleException("${project.path} compiled to no classes to inspect.")
+
+        val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
+        val output = providers.exec {
+          commandLine(listOf(javap.absolutePath, "-public", "-classpath", root.absolutePath) + classes)
+        }.standardOutput.asText.get()
+
+        val forbidden = mapOf(
+          "okhttp3." to "an HTTP engine type",
+          "okio." to "an HTTP engine type",
+          "com.fasterxml.jackson." to "a JSON library type",
+          "org.eclipse.rdf4j." to "an RDF library type",
+          "org.apache.jena." to "an RDF library type",
+          "kotlin.jvm.functions.Function" to "a Kotlin function type",
+          "kotlin.coroutines." to "a coroutine type",
+        )
+        // javap prints whatever it is handed, so a class that is not public has to be dropped
+        // here rather than left out there: a `private` nested body writer is not a surface.
+        // Likewise a name carrying `$`, which is an `internal` member Kotlin mangled on purpose —
+        // public in bytecode, and unwritable by a consumer. Those are the module's own plumbing;
+        // what this check is about is what someone can actually compile against.
+        val offences = mutableListOf<String>()
+        var inPublicClass = false
+        output.lineSequence().map { it.trimEnd() }.forEach { line ->
+          val trimmed = line.trim()
+          when {
+            trimmed.startsWith("Compiled from") || trimmed.isEmpty() -> Unit
+            trimmed == "}" -> inPublicClass = false
+            !line.startsWith(" ") -> {
+              inPublicClass = trimmed.startsWith("public ")
+              if (inPublicClass && !trimmed.contains("$")) {
+                forbidden.forEach { (prefix, what) ->
+                  if (trimmed.contains(prefix)) offences += "$trimmed — $what"
+                }
+              }
+            }
+            inPublicClass && !trimmed.contains("$") ->
+              forbidden.forEach { (prefix, what) ->
+                if (trimmed.contains(prefix)) offences += "$trimmed — $what"
+              }
+          }
+        }
+        offences.sort()
+
+        if (offences.isNotEmpty()) {
+          throw GradleException(
+            "${project.path} must be consumable from Java with nothing but its own types on the " +
+              "surface, and these are not:\n  " + offences.distinct().joinToString("\n  ") +
+              "\nA callback belongs in a `fun interface` that can declare `IOException`; an engine, " +
+              "an RDF store or an object mapper belongs behind the boundary, not on it.",
+          )
+        }
+      }
+    }
+    tasks.matching { it.name == "check" }.configureEach { dependsOn(checkPublishedSignatures) }
+  }
 
   tasks.withType<JavaExec>().configureEach {
     // kotlin-logging prints `kotlin-logging: initializing... active logger factory: …` to
@@ -505,6 +594,18 @@ allprojects {
           name = "centralBundle"
           url = rootProject.layout.buildDirectory.dir("central-bundle").get().asFile.toURI()
         }
+
+        // Where a publication is staged to be *consumed* rather than shipped. `consumer-harness/`
+        // resolves out of this directory as an ordinary Maven repository, which is the only way to
+        // exercise what exists solely after publication: the POM, the Gradle module metadata and
+        // the jar. A file repository rather than `mavenLocal()`, because `~/.m2` holds whatever
+        // every other project on this machine has installed — a harness reading that would pass on
+        // an artifact this build never produced, and would go on passing after a module stopped
+        // being published at all.
+        maven {
+          name = "consumerHarness"
+          url = rootProject.layout.buildDirectory.dir("consumer-harness-repo").get().asFile.toURI()
+        }
       }
 
       publications.withType<MavenPublication>().configureEach {
@@ -562,6 +663,80 @@ val clearCentralBundle = tasks.register<Delete>("clearCentralBundle") {
 allprojects {
   tasks.matching { it.name.endsWith("ToCentralBundleRepository") }
     .configureEach { dependsOn(clearCentralBundle) }
+}
+
+// The published artifacts, consumed the way a stranger consumes them: by coordinate, out of
+// `build/consumer-harness-repo`, from a build that is not this one. What it adds over
+// `:consumer-probe:*` — which compile against `project(...)` — is everything that exists only once
+// a module is published; what it adds over `checkNoTestLibrariesInPom` is that it *resolves* those
+// files instead of reading one of them as text.
+//
+// Deliberately not wired into `check`. It republishes every module and then runs two more Gradle
+// builds, which is minutes; `./gradlew test` stays what a developer runs on every change, and
+// `.github/workflows/test.yml` gives this its own job.
+
+val consumerHarnessRepo = layout.buildDirectory.dir("consumer-harness-repo")
+
+// Gradle deploys a `-SNAPSHOT` to a `maven { }` repository the way Maven does, file URL included:
+// a timestamped file name per publish, and a `maven-metadata.xml` naming the newest. (The
+// overwrite-in-place form is `publishToMavenLocal`, which is a different publisher.) Left in place
+// the directory accumulates a set of jars per run — so a failed publish would leave yesterday's
+// artifacts resolvable and this check green on them.
+val clearConsumerHarnessRepo = tasks.register<Delete>("clearConsumerHarnessRepo") {
+  delete(consumerHarnessRepo)
+}
+
+allprojects {
+  tasks.matching { it.name.endsWith("ToConsumerHarnessRepository") }
+    .configureEach { dependsOn(clearConsumerHarnessRepo) }
+}
+
+// One entry point, sliced by `-PconsumerJdks`. CI runs the same command a developer runs, narrowed
+// to the matrix entry; locally the default is both, so a missing JDK fails with the harness's own
+// message rather than a toolchain error.
+val consumerJdks = (findProperty("consumerJdks") as String? ?: "21,25")
+  .split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+val checkPublishedArtifacts = tasks.register("checkPublishedArtifacts") {
+  group = "verification"
+  description = "Publishes every module into an isolated repository and consumes it from a separate build on each JDK."
+}
+
+consumerJdks.forEach { jdk ->
+  val consume = tasks.register<Exec>("checkPublishedArtifactsOnJdk$jdk") {
+    group = "verification"
+    description = "Compiles and runs the published-artifact consumers on JDK $jdk."
+
+    // A provider: these tasks are created while the modules are evaluated, which is after this line
+    // runs.
+    dependsOn(
+      provider {
+        subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToConsumerHarnessRepository") }
+      },
+    )
+
+    workingDir = layout.projectDirectory.dir("consumer-harness").asFile
+
+    // `Exec` on the wrapper rather than `GradleBuild`, which runs the nested build inside this
+    // daemon and shares its services — the opposite of the claim being tested.
+    //
+    // The toolchain locations are forwarded rather than re-derived: whoever started this build
+    // already told Gradle where the JDKs are, and a nested build inherits no project property at
+    // all. They are gradle properties, so the `-D` spelling is read by nothing.
+    val forwarded = listOf("org.gradle.java.installations.fromEnv", "org.gradle.java.installations.paths")
+      .mapNotNull { name -> (findProperty(name) as String?)?.let { "-P$name=$it" } }
+
+    commandLine(
+      listOf(
+        rootProject.layout.projectDirectory.file("gradlew").asFile.absolutePath,
+        "check",
+        "-PconsumerJdk=$jdk",
+        "-PsempodsVersion=$version",
+        "-PsempodsRepository=${consumerHarnessRepo.get().asFile.absolutePath}",
+      ) + forwarded,
+    )
+  }
+  checkPublishedArtifacts.configure { dependsOn(consume) }
 }
 
 // Central validates after the upload, which is a slow way to learn that one sources jar went
