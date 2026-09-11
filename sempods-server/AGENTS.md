@@ -13,7 +13,7 @@ over the `sempods-commons` family and takes **no application-framework** depende
 What a deployment may replace is expressed as a **seam** — an interface with a
 deployment-selected binding. Before adding an abstraction, read
 [`../docs/concepts/modularity.md`](../docs/concepts/modularity.md): it lists the seams that exist,
-the ones that deliberately do not yet, and the invariants that are not selectable at all.
+their current constraints, and the invariants that are not selectable at all.
 
 ## The project-level authority is not this file
 
@@ -44,8 +44,7 @@ so read it before changing behaviour on those paths.
 
 - Any behaviour change must come with tests — prefer HTTP-level conformance tests.
 - Keep implementation documentation current and respect the specification boundary. Public technical
-  plans use [issue planning](../docs/agents/documentation-strategy.md#issue-planning); private
-  roadmap references follow the strategy's private planning boundary.
+  plans use [issue planning](../docs/agents/documentation-strategy.md#issue-planning).
 - Be conservative with backward-incompatible changes.
 - Naming: [`../docs/naming.md`](../docs/naming.md) is the authority. Before
   renaming anything that already reads `sempods`, check its §3 "Frozen" — the `SEMPODS_*`

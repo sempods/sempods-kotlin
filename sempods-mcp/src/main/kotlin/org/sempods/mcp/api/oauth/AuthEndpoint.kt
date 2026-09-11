@@ -70,8 +70,7 @@ import org.sempods.commons.utils.appendEscapedHtml
  * one-time [ConsentTransactionStore] id. This prevents a leaked short-lived WebID JWT from
  * being replayed into a service authorization code / long-lived refresh token.
  *
- * For M1 everything runs under the **default profile**; the `(user, profile, pod)` key is
- * already threaded through so named profiles (M5) are additive.
+ * The default and named profiles have distinct resource URLs and profile-bound tokens.
  */
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.oauth")
 

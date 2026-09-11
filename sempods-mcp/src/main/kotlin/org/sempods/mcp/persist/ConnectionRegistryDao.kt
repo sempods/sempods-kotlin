@@ -15,7 +15,7 @@ import org.sempods.mcp.SempodsMcpCollections
  * about a pod connection: the pod's OAuth issuer, the DCR client the service registered at
  * that pod, and the granted scopes. The actual pod tokens live in [TokenVaultDao].
  *
- * M1 establishes the schema; rows are written from M2 (connect-a-pod) onward.
+ * The pod-connect flow writes these rows.
  */
 data class PodConnection(
   val user: String,

@@ -1104,7 +1104,7 @@ class WebUiEndpointTest {
     val location = resp.headers[HttpHeaders.Location]!!
     assertTrue("error=" !in location, "default-profile mutation must not error: $location")
     assertEquals("$BASE/_system/ui?profile=default", location)
-    // The disconnect action landed in the audit trail (M6.4).
+    // The disconnect action landed in the audit trail.
     val audit = auditLogDao.listFor("https://id.test/e/web-user5", PodKey.DEFAULT_PROFILE)
     assertEquals(1, audit.count { it.type == AuditEventType.POD_DISCONNECT && it.pod == "https://sempods.org/x" })
   }

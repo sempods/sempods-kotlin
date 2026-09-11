@@ -738,7 +738,7 @@ class PodTokenProviderTest {
     assertTrue(held.tryLock())
     try {
       // Touch far more keys than the 4096 cap: the CAS-gated sweep must kick in and evict
-      // unlocked mutexes, so the map cannot grow one-entry-per-key-ever-touched (M6.4).
+      // unlocked mutexes, so the map cannot grow one-entry-per-key-ever-touched.
       repeat(5000) { provider.lockFor(PodKey(user, profile, "http://localhost:9/pod-$it")) }
       assertTrue(provider.lockCount < 5000, "the lock map must be swept, not grow unbounded: ${provider.lockCount}")
       assertTrue(provider.lockFor(heldKey) === held, "a held lock must survive the sweep")

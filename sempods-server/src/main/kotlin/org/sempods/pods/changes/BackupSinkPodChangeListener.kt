@@ -38,8 +38,7 @@ import java.net.URI
  * single-context writes — the common case — are one row and unaffected either way.
  *
  * The retry narrows the window; it does not close it. Closing it needs the change to become **one**
- * durable record instead of N, which is the journal in
- * the maintainer's internal roadmap.
+ * durable record instead of N; `write-through.md` links the recovery design.
  *
  * **Row count.** This is also where the pod's `resourceRowCount` is maintained
  * (`PodDbo.resourceRowCount`), because this class is the only thing that creates or removes a row.
@@ -92,7 +91,7 @@ class BackupSinkPodChangeListener @Inject constructor(
     //   cannot reach, because nothing here is wrong about what it did, the process simply stopped.
     //   It is the same kill that already leaves the backup rows partially applied (see
     //   `write-through.md` §"Partial application"), and it closes the same way: one durable record
-    //   per change set, the journal in the maintainer's internal roadmap. A
+    //   per change set. A
     //   pending marker short of that cannot tell a crashed set from a live one without a lease.
     if (plannedDeletes > 0L) moveRowCount(changeSet, -plannedDeletes)
 
@@ -160,8 +159,7 @@ class BackupSinkPodChangeListener @Inject constructor(
    *
    * A failure is logged and swallowed rather than thrown: the caller runs this in a `finally`, and
    * throwing would replace the write failure it is about to surface with an unrelated one. Closing
-   * the residual outright means making a change set one durable record: the journal in
-   * the maintainer's internal roadmap.
+   * the residual outright means making a change set one durable record; see `write-through.md`.
    */
   private fun moveRowCount(changeSet: PodChangeSet, delta: Long) {
     val allowed = if (delta > 0L) MAX_ATTEMPTS else 1
@@ -223,7 +221,7 @@ class BackupSinkPodChangeListener @Inject constructor(
   // TODO: an upsert that inserted but whose response was indeterminate throws, and the retry then
   //   sees the row it made and reports a replacement — so the set undercounts by one, permanently,
   //   since a recovery never lifts a count. Resolving it needs a durable record of what this change
-  //   set did, which is the journal (the maintainer's internal roadmap); there
+  //   set did; there
   //   is nothing to key an idempotent retry on before that lands.
   private fun writeRows(podId: ObjectId, plan: List<RowWrite>, onInsert: () -> Unit, onDelete: () -> Unit) {
     plan.forEach { row ->

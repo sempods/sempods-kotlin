@@ -71,7 +71,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * End-to-end exercise of the M1 OAuth core: register → authorize → (simulated id-server)
+ * End-to-end exercise of the OAuth core: register → authorize → (simulated id-server)
  * callback → consent → token, plus refresh-token rotation and reuse detection. Runs against a
  * real local MongoDB (the repo convention); if Mongo is unreachable the whole class is skipped
  * rather than failed, so the build stays green where Mongo is absent.

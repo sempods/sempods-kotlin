@@ -78,8 +78,7 @@ mixing the two is how this tree ended up with four idioms at once.
 
 1. **No secrets in log lines.** No tokens, no secrets, no `Authorization` values, no AI prompt or
    response bodies. Name the subject (`pod='alice'`, `user=<WebID>`) and the outcome, not the
-   credential. The AI layer's version of this is tracked in
-   the maintainer's internal roadmap.
+   credential.
 
    **A URL path counts.** `ApiExceptionMapper` logs the method and path of every failure, and for
    one refused *during* matching (405, 406) Jersey offers no template to log instead. A route that

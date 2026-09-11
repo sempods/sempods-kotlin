@@ -86,9 +86,8 @@ are possible as long as they follow the standard.
 ## What comes later (extensions)
 
 Plan public goals and iterations through [GitHub issues](https://github.com/sempods/sempods-kotlin/issues)
-under the [issue-planning convention](agents/documentation-strategy.md#issue-planning). Existing
-proposed material in [`concepts/`](concepts/) follows the
-[transition](agents/documentation-strategy.md#transition). Key directions:
+under the [issue-planning convention](agents/documentation-strategy.md#issue-planning).
+[Proposals](proposals/README.md) hold substantive design detail. Key directions:
 
 - SHACL as app definition (shape registration, discovery, enforcement)
 - Web identity access (granting context permissions to people, not just apps)

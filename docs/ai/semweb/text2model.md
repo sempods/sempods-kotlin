@@ -79,6 +79,6 @@ Note: `guidance` is optional. Default recommendation is SHACL-only first, then a
 ## Related Docs
 
 - `docs/ai-layer.md` (AI layer IST)
-- AI/SemWeb roadmap (SOLL, currently internal)
+- [Shape-contract design](https://github.com/sempods/sempods-kotlin/issues/137) — proposed validation
 - `docs/ai/semweb/use-cases/tasks.md` (task-focused use-case playbook)
 - `docs/vision.md` (vision)

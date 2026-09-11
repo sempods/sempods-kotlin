@@ -12,13 +12,13 @@ import org.sempods.commons.config.Env
  *   JWTs establish the stable `user`. Empty disables OIDC verification (local dev only).
  * - [allowLocalPods] relaxes the SSRF defense (URL-string guard + connect-time DNS vetting) to
  *   permit http/loopback/private pods — the deploy-time strict/relaxed split for local dev and
- *   self-host. See `PodUrlPolicy` and `:sempods-client`'s `SempodsOutboundGuard` (M6.2).
+ *   self-host. See `PodUrlPolicy` and `:sempods-client`'s `SempodsOutboundGuard`.
  * - [podRateLimitPerMinute] is the per-pod-host request budget on the hardened fetch path;
  *   `0` disables the limiter.
  * - [userRateLimitPerMinute] is the per-`(user, profile)` `tools/call` budget on the MCP
- *   endpoint (M6.4); `0` disables the limiter. Like the pod limiter it is in-memory per
+ *   endpoint; `0` disables the limiter. Like the pod limiter it is in-memory per
  *   replica, so the effective budget scales with the replica count.
- * - [auditRetentionDays] bounds the `auditLog` trail (M6.4): each row's TTL anchor is
+ * - [auditRetentionDays] bounds the `auditLog` trail: each row's TTL anchor is
  *   computed at write time, so a change affects only new rows.
  * - [podTokenRefreshWindowSeconds] is how long before expiry the background loop refreshes a
  *   pod access token, and [podTokenWarmIdleSeconds] is how long after a pod was last used it is

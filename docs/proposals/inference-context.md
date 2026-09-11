@@ -1,10 +1,7 @@
-# Virtual inference context — a TBox layer for type/predicate coverage (Concept)
+# Virtual inference context — a TBox layer for type/predicate coverage
 
-> **Status: concept / proposal — not implemented.** This document sketches a
-> future capability and its contract. It is intentionally kept out of the IST
-> docs; nothing here describes current server behavior. The companion
-> client-side guidance (what consumers do *today*, with no server support) lives
-> in the chat app's system prompt and `apps/chat/docs/concepts/multi-pod.md`.
+> **Disposition: proposed — not implemented.** [Issue #138](https://github.com/sempods/sempods-kotlin/issues/138) owns design
+> review, decisions and adoption links. Accepting this proposal does not implement it.
 
 ## Purpose
 
@@ -26,17 +23,16 @@ free to apply no reasoning at all — the reference implementation (RDF4J
 - `?s a <Event>` matches only resources typed *exactly* `<Event>`; subclasses
   are not folded in.
 - `find`'s `type` filter is, by contract, **exact match, no subclass reasoning**
-  (see [`graph-retrieval.md`](graph-retrieval.md)).
+  (see [`graph-retrieval.md`](../concepts/graph-retrieval.md)).
 - SPARQL 1.1 property paths (`?s a/rdfs:subClassOf* <Event>`) only help when the
   `rdfs:subClassOf` triples are themselves present in the data — usually they
   are not, because pods store instance data (ABox), rarely the ontology (TBox).
 
-So today, inference is the **consumer's** job, resolved in three steps (see the
-chat system prompt):
+Without server-side inference, a consumer can use this three-step strategy:
 
 1. **Probe** what the graph itself asserts (a presence test for
    `rdfs:subClassOf` / `rdfs:subPropertyOf` — `ASK`, or a `SELECT … LIMIT 1`
-   where the surface is SELECT-only, as the chat MCP tools are); if present,
+   where the surface is SELECT-only, on a SELECT-only client surface); if present,
    read the hierarchy or use a path.
 2. If the graph asserts no ontology — the common case — **infer the set itself**
    from the model's own ontology knowledge plus the types actually present
@@ -45,7 +41,7 @@ chat system prompt):
    inference rather than pod-asserted data.
 
 Step 2 works but is unverifiable and varies per consumer. **The virtual
-inference context is the planned upgrade for step 3**: turn "the model guessed
+inference context is the proposed upgrade for step 3**: turn "the model guessed
 the hierarchy" into "the model asked an authoritative, pod-side layer".
 
 ## Mental model
@@ -89,8 +85,9 @@ for sempods:
 - **Access control.** sempods authorization is per named graph. An inferred
   triple has no well-defined home context; folding it into ABox graphs risks
   making facts derivable across context boundaries. A TBox-only context sidesteps
-  this — schema is not sensitive and can be world-readable (or per-pod public)
-  without leaking instance data.
+  instance entailment, but does not make schema automatically public. A hierarchy
+  derived from private contexts must retain their visibility; registry-supplied public
+  schema needs a distinct provenance and access policy.
 - **Swappability.** The contract is a *specification*, like `find`: a pod with a
   real reasoner, a pod with a static curated ontology, and a pod with nothing
   can all satisfy it. Consumers write one query path regardless.
@@ -115,7 +112,7 @@ implemented; this doc stays at the contract level.
 
 ### Primary access pattern: pull the TBox with one CONSTRUCT, no ping-pong
 
-The hierarchy is small, so the consumer's cheapest path is a single `CONSTRUCT`
+For a bounded hierarchy, a consumer can use a single `CONSTRUCT`
 that pulls the relevant TBox slice from the inference context into its local
 model — replacing both the capability probe and the hierarchy round-trip:
 
@@ -138,7 +135,7 @@ falls back to its own inference. The thin result is itself the capability
 signal.
 
 **Keep schema and content separate.** This CONSTRUCT fetches the *schema*, not
-instances — and the schema is tiny, so it never has a scale problem. Once the
+instances with explicit closure and response bounds. Once the
 consumer holds the covering types, it lists or counts instances as a normal
 ABox query (`SELECT` / `COUNT(DISTINCT ?s)` with `VALUES` over the type set).
 Widening the CONSTRUCT to drag instances along would reship the whole match set
@@ -168,7 +165,7 @@ TBox is out of scope and the closure silently empties.
 - Does not replace consumer-side step 2 — it is the *authoritative source* a
   capable pod offers so the consumer can stop guessing.
 
-## Open questions
+## Review inputs
 
 - Registry curation: which vocabularies ship by default, how pod owners extend
   or override them.
@@ -178,9 +175,7 @@ TBox is out of scope and the closure silently empties.
 
 ## Related
 
-- [`graph-retrieval.md`](graph-retrieval.md) — retrieval primitives; `find`'s exact-match
+- [`graph-retrieval.md`](../concepts/graph-retrieval.md) — retrieval primitives; `find`'s exact-match
   `type` contract.
-- `apps/chat/docs/concepts/multi-pod.md` (sempods-apps repo) — the consumer-side
-  three-step coverage strategy this layer upgrades.
 - [`mcp-agent-interface.md`](mcp-agent-interface.md) — retrieval primitives and cross-pod
   orchestration.

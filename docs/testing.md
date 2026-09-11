@@ -192,8 +192,8 @@ test JVM would go on reading the value the build script hands it.
 Console output is off by default (`showStandardStreams`); `-PtestStdout` brings it back for one
 run. The trace id in `gradle/logback-test.xml`'s pattern is what makes an interleaved log readable.
 
-Some coupling remains by category rather than by test — a shared filesystem location, a
-process-wide clock — and is tracked in the maintainer's internal roadmap.
+Shared filesystem locations and process-wide clocks can still couple tests; inspect the
+local test setup before enabling more concurrency.
 
 ## Waiting, and the ten-second rule
 

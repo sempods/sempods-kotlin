@@ -50,7 +50,7 @@ data class PodAccess(val token: String, val podSubject: String)
 
 /**
  * Single source of truth for *"give me a usable pod access token for `(user, profile, pod)`"*.
- * Shared by the synchronous read tools (M3) and the background [TokenRefreshScheduler] sweep (M2),
+ * Shared by the synchronous read tools and the background [TokenRefreshScheduler] sweep,
  * so the discover → **issuer-pin** → rotate → persist logic lives in exactly one place.
  *
  * Refreshes for the same connection are serialised at two levels: pods rotate refresh tokens with
@@ -59,7 +59,7 @@ data class PodAccess(val token: String, val podSubject: String)
  *  - **In-process:** a per-key mutex — coroutines in the same JVM wait for each other and re-read
  *    the vault row inside the lock, so a token another holder just rotated is reused, not
  *    re-refreshed.
- *  - **Cross-replica (M6.3):** an expiring claim on the vault row ([TokenVaultDao.tryClaimRefresh],
+ *  - **Cross-replica:** an expiring claim on the vault row ([TokenVaultDao.tryClaimRefresh],
  *    keyed by this replica's [instanceId]) — exactly one replica refreshes; the sweep skips a
  *    claimed token (the winner is refreshing it), an on-demand caller briefly polls for the
  *    winner's result and falls back to the optimistic current token.
@@ -81,10 +81,10 @@ class PodTokenProvider(
   private val claimTtlMs: Long = 60_000,
 ) {
 
-  // One Mutex per (user, profile, pod) ever touched, with growth control (M6.4): past MAX_LOCKS
+  // One Mutex per (user, profile, pod) ever touched, with growth control: past MAX_LOCKS
   // entries, currently-unlocked mutexes are swept — CAS-gated to at most once per
   // LOCK_SWEEP_INTERVAL_MILLIS, so the O(n) sweep never sits on the per-request hot path.
-  // Evicting an unlocked mutex is SAFE: since M6.3 the correctness primitive against double-refresh
+  // Evicting an unlocked mutex is SAFE: the correctness primitive against double-refresh
   // is the cross-replica vault claim (tryClaimRefresh + dueness re-check under the claim); this
   // in-process mutex only reduces claim contention. Two same-JVM coroutines that briefly hold
   // different Mutex instances for one key behave exactly like two replicas — one wins the claim,
@@ -401,7 +401,7 @@ class PodTokenProvider(
     // per tool call — and a read fan-out is one call per pod.
     private const val TOUCH_GRANULARITY_MS = 60_000L
 
-    // Growth control for the per-key mutex map (M6.4) — same shape as TokenBucketRateLimiter.
+    // Growth control for the per-key mutex map — same shape as TokenBucketRateLimiter.
     private const val MAX_LOCKS = 4096
     private const val LOCK_SWEEP_INTERVAL_MILLIS = 60_000L
   }

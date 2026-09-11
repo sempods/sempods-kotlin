@@ -1,4 +1,4 @@
-# sempods-mcp — internal tool contract (M3 read + M4 write surface)
+# sempods-mcp — internal tool contract
 
 The single, slim source of truth for the hosted service's MCP tool surface. Two things in
 `:sempods-mcp-core` are its code source, both shared with the pod-immanent MCP:
@@ -12,22 +12,20 @@ the per-pod envelope, `partial` / `failed_pods`, `list_pods`. This doc records t
 that envelope, the error model, SPARQL guardrails, provenance rules, and the write rules — so the
 tool surface does not grow ad-hoc against implicit assumptions.
 
-Names and shapes no longer have to be kept in lockstep by hand; they are one declaration. The
-forward-looking conformance profile would expand that same artifact into a public, **versioned**
-spec with cross-implementation tests — concept, not yet built (see
-[`../../docs/concepts/hosted-mcp.md`](../../docs/concepts/hosted-mcp.md)).
+Names and shapes have one declaration. [Portable interoperability](proposals/interoperability.md)
+is a separate proposed contract and conformance effort.
 
 ## Identity & gating
 
-- Every tool runs under an **authenticated** service session `(user, profile)` (M1). The read
+- Every tool runs under an **authenticated** service session `(user, profile)`. The read
   tools are advertised in `tools/list` only when a session is present; calling one without a valid
   bearer returns the same `401` + `WWW-Authenticate` OAuth-upgrade challenge as `authorize`.
 - The service maps `(user, profile)` → connected pods (`connections`) and uses the per-pod
   vault token (`podTokens`, refreshed on demand via `PodTokenProvider`) as the **pod-scoped
   bearer**. Pod-side visibility is the pod's decision (its token scopes); the service does not add
-  a second per-scope gate in M3.
+  a second per-scope gate here.
 
-## Read tools (M3)
+## Read tools
 
 Mirror the pod-immanent MCP read tools 1:1, plus an optional `targets` array (a subset of the
 caller's connected pod base URLs; from `list_pods`). `targets` is **tri-state**: **absent** → fan
@@ -136,7 +134,7 @@ the `{requested} ∩ readable` downscope. The query runs **independently on each
 `LIMIT` apply **per pod, not globally** —
 a caller wanting a global top-N must re-rank the per-pod result sets (the fan-out does not merge them).
 
-## Write tools (M4)
+## Write tools
 
 The write / property-mutation tools **never fan out**. Each carries a required single `target` (one
 connected pod base URL) and a required single `context_iri` (a string, not an array), so a write
@@ -166,10 +164,8 @@ among them: where a write may land is the pod's decision, surfaced as its own 40
 
 **Pre-pod validation (uniform across every tool, read and write).** Every IRI argument (`target`,
 `context_iri`, `resource_iri`, `subject_iri`, `predicate_iri`, `target_iri`, and the elements of
-`type`) must be an **absolute IRI** — a malformed one is a tool error, not a pod call. It was a
-write-only rule until consolidation M3, and the reads paid for that twice: a bad `resource_iri` came
-back as "the pod failed", and a bad `context_iri` was dropped, which fails **open** — `find` then
-searched every readable context instead of the one named. Prefixed forms (`schema:Person`) are
+`type`) must be an **absolute IRI** — a malformed one is a tool error, not a pod call. Rejecting malformed context IRIs before dispatch prevents a dropped filter from
+broadening the read to every readable context. Prefixed forms (`schema:Person`) are
 absolute and stay legal. A precondition (`if_match` / `if_none_match`),
 when present, is **normalized to a valid HTTP entity-tag** before forwarding: `*` passes through, an
 already-quoted (optionally weak `W/"…"`) tag is kept, and a **bare token** (`v1`) is quoted (`"v1"`).
@@ -198,18 +194,12 @@ this service's own state, not the pod's.
 surfaced as the per-pod error (not a crash). ETag preconditions pass straight through:
 `if_match` → `If-Match` (a stale tag → pod **412**), `if_none_match: "*"` → `If-None-Match`.
 
-**Partial-error surfacing on reads (M4).** A failed pod in a multi-pod read carries a stable error
+**Partial-error surfacing on reads.** A failed pod in a multi-pod read carries a stable error
 `kind` — `not_connected` | `no_token` | `pod_error` — and the envelope flags `partial: true` with a
-`failed_pods` list, so a caller cannot mistake an incomplete read for a complete one. Since
-consolidation M3 a read entry also carries the pod's `status`, the same as a write.
+`failed_pods` list, so a caller cannot mistake an incomplete read for a complete one. A read entry also carries the pod's `status`, the same as a write.
 
-## Parked
+## Proposed extensions
 
-- Per-context SPARQL **provenance** — row-level attribution of a free-form query result to the
-  context each row came from, via a `GRAPH ?g`-binding AST rewrite (the chat app has a TS one).
-  Context **scoping** is done (pod SPARQL-protocol dataset params, forwarded from `context_iri`); only
-  the provenance rewrite remains, until a use case needs it.
-
-The public conformance profile + capability-discovery endpoint (the versioned "what counts as a pod")
-is forward-looking concept, tracked in
-[`../../docs/concepts/hosted-mcp.md`](../../docs/concepts/hosted-mcp.md), not here.
+[Portable interoperability](proposals/interoperability.md) owns the proposed external contract
+and row-level SPARQL provenance. Current context downscope forwards the pod's protocol dataset
+parameters; it does not infer each result row's source context.

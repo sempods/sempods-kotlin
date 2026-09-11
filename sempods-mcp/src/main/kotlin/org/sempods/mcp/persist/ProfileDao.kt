@@ -18,7 +18,7 @@ data class Profile(
 )
 
 /**
- * The per-user list of **named** profiles (M5). A profile is the coarse isolation bundle the
+ * The per-user list of **named** profiles. A profile is the coarse isolation bundle the
  * `(user, profile, pod)` key carries; named profiles are created explicitly through the web UI so
  * a profile exists (and can show its MCP URL) even before any pod is connected to it.
  *
@@ -75,8 +75,8 @@ class ProfileDao(db: MongoDatabase, collectionName: String = SempodsMcpCollectio
     profile == PodKey.DEFAULT_PROFILE ||
       profiles.find(keyFilter(user, profile)).firstOrNull() != null
 
-  // TODO: M5+ — profile delete/rename in the UI (and the cascade onto mcp.connections /
-  //  mcp.podTokens for that (user, profile)). M5 ships create + switch only.
+  // TODO: profile delete/rename in the UI (and the cascade onto connections /
+  //  podTokens for that (user, profile)). The UI currently supports create and switch only.
   fun delete(user: String, profile: String) {
     if (profile == PodKey.DEFAULT_PROFILE) return
     profiles.deleteOne(keyFilter(user, profile))

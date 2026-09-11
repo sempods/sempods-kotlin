@@ -18,7 +18,7 @@ import java.nio.file.StandardOpenOption
 /**
  * Fetches the bytes a caller pointed the pod at, or refuses to.
  *
- * **The dangerous half of copy-from-URL, and the reason M3 is a milestone of its own.** Ingesting a
+ * **The security boundary of copy-from-URL.** Ingesting a
  * URL means the pod server issues an HTTP request to an address the caller chose, from inside the
  * network the pod server sits in — server-side request forgery. On sempods.org that network also
  * holds Mongo, the object store and a model server; in a cloud it holds a metadata service that

@@ -40,9 +40,8 @@ sealed interface AdminAuthorization {
  *   the admin routes always cross a trust boundary. [org.sempods.SempodsModule.bindAdminAuthorizer]
  *   binds it unconditionally — there is no authority switch to get wrong.
  *
- * A WebID + operator-allowlist implementation for the human operator console is planned
- * (control-plane admin roadmap A3) and does not exist yet; that is what keeps this an interface
- * rather than a concrete class.
+ * A WebID/operator-allowlist alternative is proposed in
+ * https://github.com/sempods/sempods-kotlin/issues/139; the current implementation uses static credentials.
  *
  * Implementations must never widen authority beyond what the deployment configured, and must
  * return [AdminAuthorization.NotConfigured] rather than [AdminAuthorization.Authorized] when they

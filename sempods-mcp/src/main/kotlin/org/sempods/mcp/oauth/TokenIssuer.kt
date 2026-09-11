@@ -66,7 +66,7 @@ class TokenIssuer(
   }
 
   /**
-   * Mints a browser **web-session** token (carried in the `/_system/ui` session cookie, M2),
+   * Mints a browser **web-session** token (carried in the `/_system/ui` session cookie),
    * signed with the same key but tagged `typ=web_session` so it can never be presented as an
    * MCP access token (and vice versa). Holds only the user identity — the active profile is a
    * request-scoped selection in the UI, not bound to the session (one session spans all profiles).

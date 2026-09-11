@@ -162,7 +162,7 @@ class ReadTools(
         async { queryOnePod(profile, toolName, pod, connected[pod], plan) }
       }.awaitAll()
     }
-    // Partial-error surfacing (M4): if any pod failed, flag the whole result as incomplete and list
+    // Partial-error surfacing: if any pod failed, flag the whole result as incomplete and list
     // the failed pods, so a caller cannot mistake a multi-pod read missing one pod for a complete one.
     val body = linkedMapOf<String, Any?>("pods" to entries)
     val failed = entries.filter { it["ok"] == false }.map { it["pod"] }
@@ -170,7 +170,7 @@ class ReadTools(
       body["partial"] = true
       body["failed_pods"] = failed
     }
-    // One audit row per tools/call (M6.4) — the vault-access / usage trail at tool-call granularity.
+    // One audit row per tools/call — the vault-access / usage trail at tool-call granularity.
     val outcome = when {
       failed.isEmpty() -> "ok"
       failed.size == entries.size -> "error"

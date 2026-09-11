@@ -18,8 +18,6 @@ editing anything here. What it means for this folder:
 - English.
 - `vision.md` gives direction; maintained documentation describes current code; occasional
   proposals carry explicitly unimplemented design.
-  Existing concept and SOLL content follow the
-  [transition](agents/documentation-strategy.md#transition).
 - Never mix runtime facts and target state in the same section.
 - High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
   document links to the file.
@@ -30,9 +28,9 @@ editing anything here. What it means for this folder:
 
 - `docs/agents/` — the AI instruction hub, documentation strategy,
   [issue work](agents/issue-work.md) and `documentation-sync.md`
-- `docs/concepts/` — retained architecture and design material under the
-  [transition](agents/documentation-strategy.md#transition): modular
-  deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts, app installation
+- [docs/concepts/](concepts/README.md) — current architecture: deployment seams, graph retrieval,
+  hosted MCP and service-client provisioning
+- [docs/proposals/](proposals/README.md) — proposed designs and their owning issues
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
 - `docs/vision.md` — core standard
@@ -89,5 +87,4 @@ Per-pod MCP specification and design docs live in `docs/mcp/`:
   the synthetic `authorize` tool, DCR fingerprint
 - `docs/mcp/clients.md` — client setup + observed behavioral clusters
   (Claude, ChatGPT, Copilot, Open-Code)
-- `docs/concepts/mcp-agent-interface.md` — retrieval primitives, SHACL-gated app
-  contracts, cross-pod orchestration
+- `docs/proposals/mcp-agent-interface.md` — proposed grant-bound shape contracts and reactive agents

@@ -76,7 +76,7 @@ data class PodMediaConfig(
      * 30 days. Long enough that a deletion noticed a week later is still recoverable, short enough
      * that abandoned bytes are not paid for indefinitely.
      *
-     * **No environment variable**, the same call M3 made for the source timeouts: a deployment that
+     * **No environment variable**, like the source timeouts: a deployment that
      * means something else says so where the config is built, and the sweep route takes a
      * per-request override — which is what an operator actually reaches for, since the two occasions
      * to deviate (reclaim now, or hold everything while investigating) are both one-off.

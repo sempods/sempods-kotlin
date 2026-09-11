@@ -85,7 +85,8 @@ dependencies {
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 
-  // TODO: Add rdf4j (libs.bundles.rdf4j) for M7 AST SPARQL subset rewriting; whole-pod queries only until then.
+  // Context downscope uses the pod protocol. Row-level SPARQL provenance is proposed in
+  // https://github.com/sempods/sempods-kotlin/issues/140; it does not require an RDF dependency here today.
 }
 
 application {
@@ -127,6 +128,6 @@ jib {
 // *method*, and under concurrent classes that churn intermittently leaves its client talking to a
 // port the server no longer owns — a `ClientException` carrying someone else's 404. The class does
 // not need a server per method; it owns the instance either way. Moving the start to `@BeforeAll`
-// and re-registering expectations per method is the fix; see
-// the maintainer's internal roadmap.
+// and re-registering expectations per method would remove this coupling.
+// TODO: isolate the test server lifecycle before enabling concurrent classes here.
 tasks.test { systemProperty("junit.jupiter.execution.parallel.enabled", "false") }

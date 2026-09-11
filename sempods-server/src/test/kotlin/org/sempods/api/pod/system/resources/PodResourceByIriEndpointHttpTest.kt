@@ -85,7 +85,7 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $token")
       .execute()
 
-  // ── M2 acceptance: full lifecycle on an external IRI ────────────────────────────────
+  // ── acceptance: full lifecycle on an external IRI ────────────────────────────────
 
   @Test
   fun `create merge-patch delete cycle on an external foaf IRI`() {
@@ -123,7 +123,7 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(404, get(url, token).statusCode, "resource must be gone after delete")
   }
 
-  // ── M1 acceptance: GET an external IRI as canonical JSON-LD with an ETag ─────────────
+  // ── acceptance: GET an external IRI as canonical JSON-LD with an ETag ─────────────
 
   @Test
   fun `GET on external IRI returns canonical JSON-LD with an ETag`() {

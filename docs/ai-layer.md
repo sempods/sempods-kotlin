@@ -61,5 +61,5 @@ CI/integration tests use observer/delegate-based test bindings by default, not r
 
 - `docs/ai/semweb/text2model.md` (IST endpoint behavior)
 - `docs/ai/semweb/use-cases/tasks.md` (task-oriented `text2model`/`model2model` playbook)
-- AI/SemWeb roadmap (SOLL, currently internal)
+- [Shape-contract design](https://github.com/sempods/sempods-kotlin/issues/137) — proposed validation
 - `docs/vision.md` (vision)

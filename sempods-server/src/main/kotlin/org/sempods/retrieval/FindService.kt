@@ -66,7 +66,7 @@ class FindService @Inject constructor(
 
     // Several adapters together overflowed the limit. Cap deterministically by IRI (consistent
     // with each adapter's `ORDER BY STR(?s)`) and prune the dropped hits' edges from the result.
-    // TODO(M3): replace the IRI-order truncation with cross-adapter rank fusion once engines
+    // TODO: replace the IRI-order truncation with cross-adapter rank fusion once engines
     // return relevance scores — a flat union has no ranking to merge on yet.
     val keep = hits.sortedBy { it.stringValue() }.take(request.limit).toSet()
     val capped = LinkedHashModel()

@@ -73,7 +73,7 @@ interface MediaSourceAddressGuard {
      * **IPv4-mapped and IPv4-compatible forms are rejected outright**, before any range test. A JVM
      * normalises the literal `[::ffff:169.254.169.254]` into an [Inet4Address], so the IPv4 rules
      * would catch it anyway — but that normalisation is an implementation detail of the resolver,
-     * and this is the smuggling path the roadmap names. No legitimate public host needs to be
+     * so validation must reject the encoded form too. No legitimate public host needs to be
      * addressed in either form, so refusing them costs nothing and does not depend on the JVM's
      * behaviour staying what it is.
      */

@@ -261,12 +261,11 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
 | [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
 | [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
-| [`docs/concepts/`](docs/concepts/) | retained architecture and design material awaiting classification |
+| [`docs/concepts/`](docs/concepts/) | current architecture explanations |
 | [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
 
 Maintained documentation describes current code; issues own public plans, with occasional explicitly
-proposed design documents. Existing concept and SOLL content follows the bounded
-[transition](docs/agents/documentation-strategy.md#transition). The
+[proposed design documents](docs/proposals/README.md). The
 [documentation strategy](docs/agents/documentation-strategy.md) defines ownership and completion
 for human and AI contributors alike.
 

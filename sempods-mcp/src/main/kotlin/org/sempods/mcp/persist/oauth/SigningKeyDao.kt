@@ -59,7 +59,7 @@ class SigningKeyDao(
   }
 
   /**
-   * Insert the **first** signing key atomically across replicas (M6.3): the bootstrap row carries
+   * Insert the **first** signing key atomically across replicas: the bootstrap row carries
    * a fixed `_id`, so of N replicas racing an empty collection exactly one insert wins — the
    * losers get false (nothing written) and must re-read the winner's key. Without this, two
    * replicas behind a load balancer could each sign with a different key and tokens/JWKS would

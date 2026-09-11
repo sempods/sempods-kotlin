@@ -21,8 +21,8 @@ import kotlin.test.assertTrue
 /**
  * The SSRF guard as a whole, over a real socket.
  *
- * **Its own class, and that is a requirement rather than tidiness**: the roadmap asks that the part
- * with security weight not share a file with endpoint tests, so a change to either is reviewed for
+ * **A separate class** keeps the security-sensitive fetch behavior separate from endpoint tests,
+ * so a change to either is reviewed for
  * what it is. [MediaSourceAddressGuardTest] covers the address table; this one covers everything the
  * table cannot see — the redirect chain, what happens to the body while it streams, and what is left
  * on disk afterwards.
@@ -234,9 +234,7 @@ class MediaSourceFetcherTest {
    * apart, so a third caller of this code path has to take the same lock.
    *
    * TODO: give the fetcher a configurable buffer directory and point this suite at a temporary one,
-   *  the way the media store tests already do. That retires the lock rather than adding to it. A
-   *  category for the maintainer's internal roadmap: shared filesystem locations, alongside
-   *  the process-wide caches it already lists.
+   *  the way the media store tests already do. That retires the shared-filesystem lock.
    */
   private fun sourceBuffers(): Set<String> =
     Files.newDirectoryStream(Path.of(System.getProperty("java.io.tmpdir")), "sempods-media-source-*")

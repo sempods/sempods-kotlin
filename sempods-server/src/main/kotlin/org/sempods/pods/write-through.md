@@ -1,8 +1,7 @@
 # Write-through Store + Change Dispatch (IST)
 
-Implemented behavior of the pod write path. For what is planned on the store side — the store
-contract as a replaceable seam, the journal that makes a change one durable record, restore and
-implementation switch — see the maintainer's internal roadmap.
+Current pod write behavior. [Durable recovery design](https://github.com/sempods/sempods-kotlin/issues/143)
+and [store selection](https://github.com/sempods/sempods-kotlin/issues/139) have separate planning owners.
 
 ## Principle
 
@@ -18,15 +17,10 @@ today:
   "Recovery" below). It is critical for exactly that reason: a write it did not record must not be
   reported as successful, because the next restart would silently drop it.
 
-A second, best-effort sink used to sit here — `MediaCleanupPodChangeListener`, which dropped an
-application-side media-store reference of a deleted `schema:ImageObject`. It went with media roadmap
-M9, once nothing wrote to that store any more. The pod's *own* media are not on this path at all:
-their
-assignments are registry state, and the cascades that clear them live in `PodFacade.removeContext`
-and `SempodsFacade.deletePod`.
+Pod media assignments are registry state, outside this write path. Their cascades live in
+`PodFacade.removeContext` and `SempodsFacade.deletePod`.
 
-Further sinks (audit/ChangeStreams — vision V4.1; pod-local hooks such as a search index — V4.2)
-subscribe by contributing to the listener set binder in `SempodsModule`; the write path does not
+Additional sinks can subscribe by contributing to the listener set binder in `SempodsModule`; the write path does not
 change. Each declares a `Durability` — at most one may be `CRITICAL` (see below).
 
 ## Write flow (`InMemoryPodRepository`)
@@ -40,8 +34,7 @@ for the changed-resource set, the change events, and the rollback undo log:
    registered on the store connection for the duration of the transaction and buffers
    `statementAdded` / `statementRemoved`. Decoupled from any write-path bookkeeping, it will also
    see non-`doWork` writes once those open up (SPARQL UPDATE, bulk loads). Deriving the delta from
-   a Sail listener is also what ties a pod to an RDF4J Sail backend — replacing it is planned in
-   the maintainer's internal roadmap.
+   a Sail listener is also what ties a pod to an RDF4J Sail backend — the proposed store-selection seam must account for that coupling.
 2. **Run the block** inside a `begin(SNAPSHOT)` / `commit()` transaction. Each block keeps its
    own graph-isomorphism guard so an identical-content no-op never touches the store. After the
    block, the **net delta** is read from the capture (replace-all churn netted out); an empty net
@@ -92,8 +85,7 @@ common write, more for `removeContext`) and it closes with everything else here:
 per change set.
 
 Closing it needs the change to become **one** durable record instead of N. A MongoDB transaction
-would do it but needs a replica set (declined); the intended answer is the journal in
-the maintainer's internal roadmap, which retires the retry with it.
+would do it but needs a replica set (declined); the intended answer is a durable change record. The recovery design linked above must settle when retries can be retired.
 
 ### Resource boundary — no blank nodes
 
@@ -242,8 +234,7 @@ set.)
 
 One shape escapes even that, and is left standing: an upsert that inserted but could not say so
 leaves the count low by a row. There is nothing to key an idempotent retry on until a change set
-becomes one durable record — the journal in
-the maintainer's internal roadmap.
+becomes one durable record — the durable-record design linked above.
 
 **The one lift a recovery still makes** is the first baseline of a pod that predates the field, and
 it is *raised to* what was loaded rather than set or added, because two different things can have

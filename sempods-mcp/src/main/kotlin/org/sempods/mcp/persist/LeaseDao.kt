@@ -10,14 +10,14 @@ import java.util.Date
 import org.sempods.mcp.SempodsMcpCollections
 
 /**
- * This replica's identity for Mongo leases and per-token refresh claims (M6.3). Generated fresh
+ * This replica's identity for Mongo leases and per-token refresh claims. Generated fresh
  * at boot — no configuration, no registration: a crashed holder's lease/claim simply expires.
  * The hostname prefix is purely for log forensics ("which replica held it").
  */
 data class InstanceId(val value: String)
 
 /**
- * Best-effort singleton leases over Mongo (M6.3): at most one replica holds a named lease at a
+ * Best-effort singleton leases over Mongo: at most one replica holds a named lease at a
  * time, so periodic work (the token-refresh sweep) runs once across replicas instead of N times.
  *
  * **Efficiency, not correctness.** A lease expires on wall-clock time, so two holders can briefly

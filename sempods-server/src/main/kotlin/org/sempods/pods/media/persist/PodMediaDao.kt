@@ -97,8 +97,8 @@ class PodMediaDao internal constructor(db: MongoDatabase, collectionName: String
    * an assignment is by definition referenced again.
    *
    * **An assignment that is already there is left exactly as it is** — not replaced with an
-   * otherwise-identical one carrying a fresh `createdAt`. This is the context-copy path, which the
-   * endpoint and the roadmap both promise is idempotent, and "changes nothing" has to mean the
+   * otherwise-identical one carrying a fresh `createdAt`. Context-copy is idempotent, so
+   * "changes nothing" has to mean the
    * stored row too: a retry that keeps rewriting the timestamp is a retry that keeps changing the
    * answer. `upsertAndAssign` does replace, and should — there the caller supplied a new
    * description on purpose.

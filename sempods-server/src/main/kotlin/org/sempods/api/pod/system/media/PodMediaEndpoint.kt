@@ -156,7 +156,7 @@ class PodMediaEndpoint @Inject constructor(
    * all: a JSON document is a perfectly ordinary media, and on `application/json` the two would be
    * indistinguishable — one caller's upload would become another's instruction.
    *
-   * **Not a query parameter**, which the roadmap settles for a reason worth repeating: source URLs
+   * **Use a body, not a query parameter**: source URLs
    * are routinely credentials in themselves — a signed Drive or S3 link — and a query parameter
    * lands in every access log along the way.
    *

@@ -51,7 +51,7 @@ Apply the writing rules. In particular, ask in this order:
 4. Does a section mix current and proposed claims? Apply
    [Preserving current explanations](documentation-strategy.md#preserving-current-explanations):
    verify against code and tests, keep useful implemented explanations, and place new future work
-   in its issue or proposal. Existing SOLL material follows the documented transition.
+   in its issue or proposal.
 5. Preserve minor local omissions under the permanent
    [TODO rule](documentation-strategy.md#minor-local-omissions); do not bulk-convert them to issues.
 

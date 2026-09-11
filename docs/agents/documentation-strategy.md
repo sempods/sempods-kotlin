@@ -20,8 +20,7 @@ or stub merely to complete the type list. Exclude proposal folders at every docu
 from Context7 publication through `context7.json`.
 
 A verified architecture explanation can live in `concepts/` as maintained documentation; the
-folder itself is not a type. The existing contents remain outside IST classification under the
-[transition](#transition) until their claims have been checked.
+folder itself is not a type.
 
 ### They nest
 
@@ -70,12 +69,6 @@ who needs it — and where the document carries it too, the map is the copy nobo
 The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
 has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
 
-One file is not yet a map. `sempods-mcp/AGENTS.md` §"Phase status" is 261 of its 344 lines and
-calls itself the source of truth for what that module has shipped, which is the phase history this
-rule says belongs elsewhere. It is the example rather than a licence: it moves into that module's
-`docs/` when the service is next worked on, by the rule above for a misplaced document, and nothing
-joins it meanwhile.
-
 ## The writing rules
 
 **1. Maintained documentation is IST.** It describes what the code does today. Where this
@@ -84,8 +77,7 @@ remain owned by [sempods-spec](https://github.com/sempods/sempods-spec); an impl
 not authority to change that contract.
 
 **2. Make proposed status explicit.** New targets belong in issues or clearly marked proposals.
-Keep them separate from current documentation. Existing SOLL material follows the
-[transition](#transition); a `(Concept)` title alone does not establish implemented status.
+Keep them separate from current documentation; a title alone never establishes implemented status.
 
 **3. Short, direct, plain.** Take the shortest wording that is still correct.
 
@@ -193,12 +185,12 @@ require a duplicate tracking issue for an already completed fix.
 
 ### Private planning
 
-“The maintainer's internal roadmap” names private planning outside this migration. Preserve
-existing references to that source, including verified control-plane admin A1/A3 and console C2
-references, without publishing its contents. Public technical work uses issues; private material
-stays outside the public repository. A roadmap keyword or iteration number alone does not identify
-an in-repository roadmap. Limit retirement sweeps to identified source files; leave ambiguous
-references intact, record their unresolved provenance, and continue independent work.
+Private planning stays outside the public repository and its issues. Public explanations must
+stand on their own: do not leave opaque private-source or historical item-number references in
+documents or comments. Preserve useful technical rationale in its maintained owner and link
+public planned work to its issue. Removing an opaque reference does not authorize inspecting,
+importing or reconstructing private material. Check what a pointer explains before removing it;
+retain or retarget any non-obvious invariant it alone carries.
 
 ### Minor local omissions
 
@@ -211,27 +203,8 @@ independently tracked decision. Do not bulk-convert existing TODOs into tickets.
 Classify claims paragraph by paragraph against current code and tests. A proposed section already
 implemented becomes current documentation or merges into its existing owner. Preserve useful
 non-obvious contracts, boundaries and rationale. Delete content only when redundant, superseded or
-no longer useful; a SOLL heading alone is never a reason to delete its explanation. Drop iteration
+no longer useful; a proposed-status heading alone is never a reason to delete its explanation. Drop iteration
 step lists and historical sequencing once the issue owns that information.
-
-## Transition
-
-[The migration](https://github.com/sempods/sempods-kotlin/issues/118) uses issues immediately, as
-does new work. Issues now hold planning state; the former blanket rule that tracking issues hold
-no state is retired.
-
-- The existing `docs/concepts/` contents are retained material outside the maintained IST type until
-  [#121](https://github.com/sempods/sempods-kotlin/issues/121) classifies claims against code and
-  tests. Only verified current explanations enter maintained documentation, in place or in their existing owner;
-  future work moves to issues or proposals. Other existing SOLL passages remain explicitly proposed
-  until the same classification. Preserve useful explanations under the rule above.
-- `context7.json` temporarily excludes the retained `docs/concepts/` contents. The classification
-  iteration removes this exclusion only after all retained files there are safe to publish as
-  current documentation.
-- #121 owns the concept/SOLL classification and removes every resolved transition note in
-  instruction maps, documentation indexes and affected content. It searches tracked sources for
-  moved or retired paths and links to this section, repairs callers, and updates this section in
-  the same PR. This section alone assigns the remaining migration issue; other entry points link here.
 
 ## Definition of done
 

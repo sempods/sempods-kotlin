@@ -7,8 +7,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 
 class SempodsUpdater {
 
-  // What a one-time data update registers with, until the versioned migration registry replaces it
-  // (the maintainer's internal roadmap).
+  // Every registered update runs on each boot; each implementation must tolerate repetition.
   private val updates: List<SempodsUpdate> = listOf(
     DcrFingerprintUniqueness(),
   )

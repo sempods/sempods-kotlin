@@ -33,8 +33,7 @@ import java.net.URI
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 /**
- * Host-level pod lifecycle and app service-client provisioning over HTTP (control-plane admin
- * roadmap A1), authorized through the [AdminAuthorizer] seam — **not** pod-scoped: at `createPod`
+ * Host-level pod lifecycle and app service-client provisioning over HTTP, authorized through the [AdminAuthorizer] seam — **not** pod-scoped: at `createPod`
  * the pod does not exist yet, so no `<context>#permission` scope could express the authority.
  *
  * Routes (all gated by [requireAdminOrThrow], see [AdminAuthorizedEndpoint]):

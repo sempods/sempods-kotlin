@@ -174,7 +174,7 @@ class PodMediaFacadeTest : SempodsIntegrationTest() {
     val stored = facade.store(podId, contextA, source("content-${randomId()}"), "image/jpeg")
 
     // The id is a content hash, so telling the two apart would answer "does this pod hold exactly
-    // these bytes" for anyone who has them. Both are null, and M2 turns both into the same 404.
+    // these bytes" for anyone who has them. Both are null, and the endpoint turns both into the same 404.
     assertNull(facade.findReadable(podId, stored.mediaId, setOf(contextB)))
     assertNull(facade.findReadable(podId, randomId(), setOf(contextA)))
   }

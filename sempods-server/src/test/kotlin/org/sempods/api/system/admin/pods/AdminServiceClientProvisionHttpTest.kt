@@ -24,7 +24,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Service-client provisioning over the admin surface (control-plane admin roadmap A1):
+ * Service-client provisioning over the admin surface:
  * `POST /_system/admin/pods/{pod}/service-clients/{clientId}`.
  *
  * Covers the half of provisioning that lives server-side — root-context creation, public-root

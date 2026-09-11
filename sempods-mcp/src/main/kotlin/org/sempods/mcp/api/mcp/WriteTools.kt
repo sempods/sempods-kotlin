@@ -82,7 +82,7 @@ class WriteTools(
       ?: return refused("pod not connected for this profile: $target (connect it at $mcpBaseUrl/_system/ui)", target, detail = "not_connected")
 
     val envelope = writeEnvelope(key, toolName, target, connection, plan)
-    // One audit row per tools/call (M6.4) — a write targets exactly one pod; on failure the detail
+    // One audit row per tools/call — a write targets exactly one pod; on failure the detail
     // carries the stable per-pod error kind (no_token | pod_error), never the message.
     auditLog.toolCall(
       key.user, key.profile, toolName, targets = listOf(target),

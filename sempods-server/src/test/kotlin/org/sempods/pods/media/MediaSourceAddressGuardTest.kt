@@ -202,7 +202,7 @@ class MediaSourceAddressGuardTest {
 
   @Test
   fun `one private record among public ones rejects the whole host`() {
-    // The case the roadmap names: a hostname answering with a public and a private address. Taking
+    // A hostname answering with a public and a private address. Taking
     // the public one and proceeding would be wrong, because which record a connection lands on is
     // not the pod server's to decide — and an attacker controls the record set.
     val addresses = listOf(

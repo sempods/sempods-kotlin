@@ -54,7 +54,7 @@ class PodOAuthException(message: String, val oauthErrorCode: String? = null) : R
 }
 
 /**
- * The service acting as an OAuth **client** toward a pod (the service → pod layer of M2).
+ * The service acting as an OAuth **client** toward a pod (the service → pod OAuth layer).
  * Discovers the pod's OAuth metadata, registers via DCR, builds the authorize URL, and
  * exchanges/refreshes tokens. Uses the shared timeout-hardened [SempodsHttpTransport]; pods rotate
  * refresh tokens, so callers must persist the NEW refresh token after every [refresh].

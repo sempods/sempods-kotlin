@@ -15,8 +15,8 @@ import org.eclipse.rdf4j.sail.SailConnectionListener
  * writes that do not go through `doWork` once those open up (SPARQL UPDATE, bulk loads).
  *
  * Being Sail-specific is exactly what pins the pod to an RDF4J Sail backend — deriving the delta
- * from the operation instead of from the store is the first step in
- * the maintainer's internal roadmap.
+ * from the operation instead of from the store is one proposed replacement approach.
+ * `write-through.md` links the store-selection design.
  *
  * Not thread-safe: a [SailChangeCapture] instance belongs to exactly one connection/transaction,
  * and `doWork` serializes writes per pod.

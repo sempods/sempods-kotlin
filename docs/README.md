@@ -1,46 +1,39 @@
 # Documentation
 
 **The contract is not here.** What a pod must do — contexts, grants, auth, CRUD, SPARQL, `find`,
-and the three modules — lives in [`sempods-spec`](https://github.com/sempods/sempods-spec), rendered
+and the optional modules — lives in [`sempods-spec`](https://github.com/sempods/sempods-spec), rendered
 at [spec.sempods.org](https://spec.sempods.org). Read that to implement a pod. Read this to
 understand, extend or operate *this* implementation.
 
 The three types are **Vision**, **maintained IST documentation** and occasional **Proposal**;
 [the strategy](agents/documentation-strategy.md) defines their ownership. Public plans and progress
-live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues). Existing concept and SOLL
-content is [transitional](agents/documentation-strategy.md#transition), not proof of implementation.
+live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues).
 No proposal document is needed merely to open an issue.
 
 ## Vision — why this exists
 
 - [`vision.md`](vision.md) — the model and why it is shaped this way. Independent of what is built.
 
-## Concepts — retained material
+## Architecture
 
-[`concepts/`](concepts/) contains architecture and design material awaiting classification under
-[the transition](agents/documentation-strategy.md#transition).
+[`concepts/`](concepts/) explains current code and its boundaries.
 
 - [`concepts/modularity.md`](concepts/modularity.md) — which behaviours are deployment-selected
   seams and which invariants are not
 - [`concepts/graph-retrieval.md`](concepts/graph-retrieval.md) — `find`, then traverse: the read
   pattern every consumer builds on
 - [`concepts/hosted-mcp.md`](concepts/hosted-mcp.md) — one MCP service fronting many pods
-- [`concepts/mcp-agent-interface.md`](concepts/mcp-agent-interface.md) — where the per-pod MCP
-  surface is going
-- [`concepts/inference-context.md`](concepts/inference-context.md) — a TBox layer for type and
-  predicate coverage. **SOLL throughout; nothing here is implemented.**
-- [`concepts/app-installation.md`](concepts/app-installation.md) — how an owner turns an interactive
-  decision into a durable service-client credential
+- [`concepts/app-installation.md`](concepts/app-installation.md) — current operator provisioning and
+  connection-consent lifetime
+
+## Proposed designs
+
+[Proposals](proposals/README.md) cover unimplemented retrieval, inference, app-contract and
+deployment designs. Each links its owning issue; none is a statement of shipped behavior.
 
 ## Reference — what the system is today
 
 **IST.** Where one of these disagrees with the code, the code is right and the document is the bug.
-
-Two carry a **marked SOLL section** for work that is planned rather than built:
-[`pod-client.md`](pod-client.md) (`explicitApi()`, the owner and operator surfaces) and
-[`auth/identity.md`](auth/identity.md) (DPoP). These are retained SOLL material under the
-[transition](agents/documentation-strategy.md#transition). New planned work goes in issues or
-explicit proposals, and current documentation stays current.
 
 **By area**
 

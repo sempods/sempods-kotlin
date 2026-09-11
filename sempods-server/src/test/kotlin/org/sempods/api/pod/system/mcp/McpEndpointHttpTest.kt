@@ -1065,7 +1065,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertFalse(responseBody.contains("\"isError\":true"), "must accept external IRI subject: $responseBody")
   }
 
-  // ─── Whole-resource tools accept external IRIs (LOD-CRUD dynamic resources, M3) ───
+  // ─── Whole-resource tools accept external IRIs (LOD-CRUD dynamic resources) ───
 
   @Test
   fun `create update delete whole-resource cycle on an external IRI via MCP`() {
@@ -1167,7 +1167,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   // ─── Read tools + conditional-write sources (get_resource / get_property_values / etag) ───
 
   /** Unwrap the JSON-RPC envelope → tool result → embedded JSON payload object. */
-  // ─── M4: the tools run over this pod's own HTTP surface ──────────────────
+  // ─── the tools run over this pod's own HTTP surface ──────────────────
 
   @Test
   fun `a tool call carries the caller's bearer over the wire, not the caller's credentials object`() {

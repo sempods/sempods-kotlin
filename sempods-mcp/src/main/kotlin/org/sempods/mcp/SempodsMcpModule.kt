@@ -76,8 +76,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
     // from this service's own config, not from a lookup inside the module (see `MongoModule`).
     install(MongoModule(connectionString = config.mongoUrl, databaseName = config.mongoDbName))
     install(SempodsAuthCoreModule())
-    // The `authorize(reauthorize=true)` challenge, shared with the pod-immanent MCP since M5 — this
-    // service's Mongo version is the one that moved.
+    // Shared challenge state uses Mongo so the deliberate 401 survives restarts and replicas.
     install(SempodsMcpCoreModule())
 
     bind<SempodsMcpConfig>().toInstance(config)
@@ -107,7 +106,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   @Provides @Singleton
   fun profileDao(db: MongoDatabase): ProfileDao = ProfileDao(db)
 
-  // This replica's identity for leases and per-token refresh claims (M6.3). Fresh per boot; a
+  // This replica's identity for leases and per-token refresh claims. Fresh per boot; a
   // crashed holder's lease/claim just expires.
   @Provides @Singleton
   fun instanceId(): InstanceId =
@@ -119,16 +118,16 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   @Provides @Singleton
   fun leaseDao(db: MongoDatabase): LeaseDao = LeaseDao(db)
 
-  // The persistent audit trail (M6.4): typed emitter over mcp.auditLog, retention-bounded,
+  // The persistent audit trail: typed emitter over mcp.auditLog, retention-bounded,
   // synchronous-but-swallowing (an audit failure never fails the request path).
   @Provides @Singleton
   fun auditLog(db: MongoDatabase): AuditLog = AuditLog(AuditLogDao(db), config.auditRetentionDays)
 
-  // Per-user tools/call quota (M6.4) — in-memory per replica, like the pod limiter above.
+  // Per-user tools/call quota — in-memory per replica, like the pod limiter above.
   @Provides @Singleton
   fun userRateLimiter(): UserRateLimiter = UserRateLimiter(config.userRateLimitPerMinute)
 
-  // --- One-time OAuth flow state (Mongo-backed, TTL-indexed, atomic single-use consume — M6.3) ---
+  // --- One-time OAuth flow state (Mongo-backed, TTL-indexed, atomic single-use consume) ---
 
   @Provides @Singleton
   fun loginStateStore(db: MongoDatabase): LoginStateStore = LoginStateStore(db)
@@ -214,7 +213,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
       .map { it.removeSurrounding("[", "]") }
       .toSet()
 
-  // --- M2: pod-connect (service → pod OAuth) + web-session ---
+  // --- pod-connect (service → pod OAuth) + web-session ---
 
   @Provides @Singleton
   fun webSession(tokenIssuer: TokenIssuer, bearerVerifier: ServiceBearerVerifier): WebSession =
@@ -249,7 +248,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
     instanceId: InstanceId,
   ): TokenRefreshScheduler = TokenRefreshScheduler(config, tokenVaultDao, podTokenProvider, leaseDao, instanceId)
 
-  // --- M3: pod read surface (service → pod HTTP System layer) ---
+  // --- pod read surface (service → pod HTTP System layer) ---
 
   /**
    * The pod System-layer client — `:sempods-client`'s, with this service's hardening bolted on at

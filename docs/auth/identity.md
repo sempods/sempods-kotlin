@@ -126,16 +126,12 @@ they grant nothing beyond the pod's `public-read` scope. See
 `oauth.md` for how this is requested and sempods-spec `spec/core/grants.md` for what
 it can access.
 
-## Identity phases
+## Current authentication boundary
 
-- **v0 — OIDC bridge (current).** Users authenticate via an upstream
-  OIDC provider; the id-server derives the WebID URI and issues a
-  sempods JWT. No client-side key management.
-- **v1 — DPoP (planned, opt-in).** Users hold a private key in the
-  browser; every request proves possession via a signed DPoP header.
-  Removes the OIDC dependency and improves token-theft resistance.
-
-DPoP is open work — see [`README.md`](README.md) ("Known limitations").
+Users authenticate through the OIDC provider flow. Pod access tokens are bearer tokens;
+this implementation does not bind them to a client-held key. [DPoP work](https://github.com/sempods/sempods-kotlin/issues/112)
+is tracked separately. Proof of possession would complement authentication; it does not
+by itself replace the identity provider.
 
 ## Self-hosted deployments
 
