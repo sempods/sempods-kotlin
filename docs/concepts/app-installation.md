@@ -10,7 +10,12 @@ OAuth Client Credentials without a browser. The goal is to keep the OAuth parts 
 sempods-specific part honestly: OAuth registers and authenticates clients; sempods decides which
 contexts a service client may reach.
 
-Sections are marked **IST** (implemented, verifiable in code) or **SOLL** (target state).
+The headings use **IST** for current behaviour and **SOLL** for proposed behaviour.
+
+[Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the target,
+decisions and implementation progress. This document retains design explanations under the
+[concept transition](../agents/documentation-strategy.md#transition); its IST/SOLL labels await
+verification there. Accepted issue decisions govern the proposed design.
 
 ## Provisioning by the operator (IST)
 
@@ -135,5 +140,3 @@ control is therefore absent there, or shown unavailable with the reason.
   token exchange and audit.
 - [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — scope versus grant and context
   permissions.
-- [`../roadmaps/owner-app-installation.md`](../roadmaps/owner-app-installation.md) — the milestone
-  that implements the target state above.

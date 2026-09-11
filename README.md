@@ -265,7 +265,7 @@ forks. Which ones exist, which do not yet, and what each costs is documented in
 | [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
 
 Maintained documentation describes current code; issues own public plans, with occasional explicitly
-proposed design documents. Existing roadmap and SOLL content follows the bounded
+proposed design documents. Existing concept and SOLL content follows the bounded
 [transition](docs/agents/documentation-strategy.md#transition). The
 [documentation strategy](docs/agents/documentation-strategy.md) defines ownership and completion
 for human and AI contributors alike.

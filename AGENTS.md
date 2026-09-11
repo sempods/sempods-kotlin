@@ -117,16 +117,14 @@ Key design choices:
 
 Agent instructions: `docs/agents/` — the hub, documentation strategy,
 [issue-work procedure](docs/agents/issue-work.md) and `documentation-sync.md`.
-`roadmap-lifecycle.md` remains only under the [transition](docs/agents/documentation-strategy.md#transition).
 
 Vision and retained material:
 
 - Vision: `docs/vision.md`
-- Concepts: `docs/concepts/` — retained architecture and design material under the transition above:
+- Concepts: `docs/concepts/` — retained architecture and design material under the
+  [transition](docs/agents/documentation-strategy.md#transition):
   modular deployment, graph retrieval, hosted MCP, the MCP agent interface, inference contexts,
   app installation
-- Legacy roadmap: `docs/roadmaps/owner-app-installation.md` — the retained plan for owner-mediated
-  service-client installation, under the same transition
 
 IST documentation:
 

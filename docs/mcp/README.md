@@ -106,4 +106,4 @@ Standards are *named*, not re-explained in these docs.
   `mcp.sempods.org` (M1–M6 done).
 - **[GitHub issues](https://github.com/sempods/sempods-kotlin/issues)** — public goals and planned
   iterations under [issue planning](../agents/documentation-strategy.md#issue-planning). Existing
-  roadmap and SOLL material follows the [transition](../agents/documentation-strategy.md#transition).
+  concept and SOLL material follows the [transition](../agents/documentation-strategy.md#transition).

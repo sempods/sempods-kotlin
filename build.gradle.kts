@@ -647,8 +647,8 @@ val centralBundle = tasks.register<Zip>("centralBundle") {
 // A documentation set is a graph, and the one property of it that can be checked mechanically is
 // whether its edges still point at something. Nothing else here reads the markdown, so a link that
 // rots survives every green run and is found by a reader — usually an agent, which then follows
-// it to nothing and invents the rest. The failure this exists for is retiring a roadmap: the
-// file goes away and the pointers to it do not. See `docs/agents/documentation-strategy.md`.
+// it to nothing and invents the rest. When a document is retired, its incoming pointers must
+// go with it. See `docs/agents/documentation-strategy.md`.
 //
 // Only relative links: an external URL is somebody else's uptime, and checking it would make the
 // build depend on the network. Anchors are not resolved either — heading text drifts for reasons
@@ -812,10 +812,9 @@ val checkDocLinks = tasks.register("checkDocLinks") {
       .filter { it.isFile && it.extension == "md" }
       .sortedBy { it.path }
       .forEach { file ->
-        // Code fences are skipped, because the templates in `docs/roadmaps/README.md` and
-        // `docs/concepts/README.md` show links with placeholder targets — the fence is what marks
-        // them as an example rather than a claim. A fence opened with four backticks is closed only
-        // by four, which is how a template containing a fenced block stays one block.
+        // Code fences can contain example links with placeholder targets; the fence marks them
+        // as examples rather than claims that those paths exist. A fence opened with four backticks
+        // is closed only by four, which is how a template containing a fenced block stays one block.
         var open: String? = null
 
         file.readLines().forEachIndexed { index, line ->

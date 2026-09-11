@@ -16,8 +16,8 @@ Its status, destinations and migration ownership are defined in
   SHACL-gated app contracts, cross-pod orchestration.
 - [`inference-context.md`](inference-context.md) — a proposed TBox layer for type and predicate coverage;
   SOLL throughout, not implemented.
-- [`app-installation.md`](app-installation.md) — how a pod owner turns an interactive decision into
-  a durable service-client credential.
+- [`app-installation.md`](app-installation.md) — retained owner-installation design;
+  [the owning issue](https://github.com/sempods/sempods-kotlin/issues/35) carries target and progress.
 
 ## Template for verified architecture documentation
 

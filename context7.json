@@ -10,7 +10,6 @@
     ".claude",
     ".cursor",
     "docs/agents",
-    "docs/roadmaps",
     "docs/concepts",
     "docs/proposals",
     "**/docs/proposals",

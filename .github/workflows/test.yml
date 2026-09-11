@@ -50,8 +50,8 @@ jobs:
       # `checkNoTestLibrariesInPom` reads the published POM, which nothing else in the build does,
       # and is what caught JUnit, kotlin-test and MockK reaching a Maven consumer at `runtime`
       # through the test-fixtures variant. `checkDocLinks` walks the markdown, which nothing else
-      # reads at all, and catches the pointers left behind when a document moves or a roadmap is
-      # retired. `checkImageMetadata` reads the jib configuration, which nothing else touches, and
+      # reads at all, and catches the pointers left behind when a document moves or is retired.
+      # `checkImageMetadata` reads the jib configuration, which nothing else touches, and
       # keeps a container image from shipping without the label that says which commit it is.
       #
       # Naming them beats running `check`, which pulls a couple of dozen extra tasks into the same
