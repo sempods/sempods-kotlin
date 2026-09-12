@@ -253,8 +253,15 @@ subprojects {
       // it does not exist yet while this task is being registered. Both of these are lazy and are
       // resolved when the task runs, by which time it does.
       classpath = files(tasks.named("jar"), configurations.named("runtimeClasspath"))
-      javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+      val launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+      javaLauncher = launcher
       args("21")
+
+      // The probe prints this too, but a `JavaExec`'s stdout does not reach an ordinary Gradle log
+      // — so the one assertion that needs a CI log to be believed would leave no trace in one.
+      doFirst {
+        logger.lifecycle("probe runtime: ${launcher.get().metadata.javaRuntimeVersion}")
+      }
     }
 
     // `test` as well as `check`: `./gradlew test` is what a developer runs on every change and what

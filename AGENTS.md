@@ -178,7 +178,10 @@ Test flags: `-PtestStdout` restores standard streams for one run, `-PtestMethods
 methods concurrently as well as classes, `-PtestPortBase=<n>` moves the port range when two builds
 share a machine.
 
-Java 25 is required to build; published bytecode targets Java 21.
+Java 25 is required to build; published bytecode targets Java 21. **A JDK 21 has to be installed
+beside it**: `:consumer-probe:client-core` runs the published client core as a real 21 process, and
+`./gradlew test` fails without one rather than skipping it — the same stance the infrastructure step
+above takes.
 
 ## What this repository deliberately does not have
 
