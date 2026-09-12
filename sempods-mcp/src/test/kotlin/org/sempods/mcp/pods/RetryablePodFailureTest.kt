@@ -1,9 +1,9 @@
 package org.sempods.mcp.pods
 
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.OutboundRateLimiter
-import org.sempods.client.net.SsrfBlockedException
+import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.core.net.OutboundRateLimiter
+import org.sempods.client.core.net.SsrfBlockedException
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
 import io.ktor.client.request.get
 import java.net.InetAddress
@@ -48,7 +48,7 @@ class RetryablePodFailureTest {
     val transport = SempodsHttpTransport(
       guard = SempodsOutboundGuard(
         policy = PodUrlPolicy(allowLocal = false).rules,
-        resolve = resolveTo("10.0.0.1"),
+        resolver = resolveTo("10.0.0.1"),
       ),
     )
     val e = assertFailsWith<Exception> { fetch(transport, "http://internal.test:${server.port}/ok") }
@@ -61,7 +61,7 @@ class RetryablePodFailureTest {
       guard = SempodsOutboundGuard(
         policy = PodUrlPolicy(allowLocal = true).rules,
         rateLimiter = OutboundRateLimiter { limiter.tryAcquire(it.host) },
-        resolve = resolveTo("127.0.0.1"),
+        resolver = resolveTo("127.0.0.1"),
       ),
     )
     fetch(transport, "http://pod-a.test:${server.port}/ok")

@@ -1,6 +1,6 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SempodsUrlPolicy
 import java.net.InetAddress
 
 /**
@@ -12,7 +12,7 @@ import java.net.InetAddress
  * discard prefix. Neither knew the other's ranges. One table now, and both consumers get the union.
  *
  * What survives here is the naming this service uses: [allowLocal] for the deploy-time relaxation,
- * and `reject` for pod-base admission.
+ * `reject` for pod-base admission and [rejectEndpoint] for a discovered OAuth endpoint.
  *
  * Layer 2 (at connect time): [rejectAddress] vets every DNS-resolved address against the same
  * blocked-range set — enforced by the client's vetting resolver inside the pinned fetch path, so a
@@ -26,6 +26,13 @@ class PodUrlPolicy(allowLocal: Boolean) {
 
   /** Returns null if acceptable, otherwise a human-readable rejection reason. */
   fun reject(podBaseUrl: String): String? = rules.rejectPodBase(podBaseUrl)
+
+  /**
+   * The same admission for a discovered OAuth endpoint, which is not a base URL: it may carry a
+   * query and a path of the deployment's choosing, and must still be reachable only over `https`
+   * or a locally permitted address, because a client secret travels to it.
+   */
+  fun rejectEndpoint(url: String): String? = rules.rejectCredentialedTarget(url)
 
   /**
    * Vets a DNS-resolved address at connect time (layer 2 — called for every

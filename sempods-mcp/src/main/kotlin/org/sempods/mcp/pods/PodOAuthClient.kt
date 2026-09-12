@@ -456,7 +456,7 @@ class PodOAuthClient(
 
   /** Rejects a URL the [podUrlPolicy] disallows (SSRF guard for discovered endpoints). */
   private fun requireAllowed(url: String) {
-    podUrlPolicy.reject(url)?.let { reason -> throw PodOAuthException("blocked URL ($reason): $url") }
+    podUrlPolicy.rejectEndpoint(url)?.let { reason -> throw PodOAuthException("blocked URL ($reason): $url") }
   }
 
   private fun parseTokenResponse(body: String): PodTokenResponse {

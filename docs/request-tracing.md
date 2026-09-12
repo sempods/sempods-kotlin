@@ -96,20 +96,19 @@ Three paths, because three HTTP clients are in use:
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsHttpTransport`** (`sempods-client`) — OkHttp, but its own client rather than
-  `sempods-commons-okhttp`'s, so the interceptor above does not reach it; it sets the header in
-  `newRequest` instead. Its `newRequest(uri)` is the single door for both clients built on it — `SempodsClient`
-  and `SempodsControlPlaneClient` — and a request built any other way silently ends the trace.
+- **`SempodsSession.newRequest`** (`sempods-client-core`) and **`SempodsHttpTransport.newRequest`**
+  (`sempods-client`) — OkHttp, but the core's own client rather than `sempods-commons-okhttp`'s, so
+  the interceptor above does not reach it; both set the header when building a request instead.
+  Those two are the doors: a request built any other way — `SempodsRequest.to(uri)` directly —
+  silently ends the trace.
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
-**An explicit `traceparent` beats the ambient one on the interceptor paths only.** The OkHttp
-interceptor and the Ktor plugin both check for the header and leave a request that already carries
-one alone. `SempodsHttpTransport` does not: `newRequest` sets the ambient header before a caller can
-add anything and the builder *appends* rather than replaces, so an explicit `traceparent` there goes
-out **beside** the ambient one and the receiver sees two. No caller in the tree does that today —
-the `// TODO:` sits at `newRequest`, because the fix is replacement semantics on the builder and a
-test, not a sentence here.
+**An explicit `traceparent` beats the ambient one everywhere.** The OkHttp interceptor and the Ktor
+plugin check for the header and leave a request that already carries one alone; on the client the
+ambient header is set with `SempodsRequest.Builder.setHeader`, which replaces, so a caller setting
+its own afterwards wins and the receiver sees one. `addHeader` is there for the fields that may
+legitimately repeat, and `traceparent` is not one of them.
 
 ## Across threads
 

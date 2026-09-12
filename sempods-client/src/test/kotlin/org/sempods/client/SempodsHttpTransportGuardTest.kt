@@ -13,11 +13,11 @@ import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.net.OutboundRateLimiter
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.SempodsRateLimitedException
-import org.sempods.client.net.SempodsUrlPolicy
-import org.sempods.client.net.SsrfBlockedException
+import org.sempods.client.core.net.OutboundRateLimiter
+import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.core.net.SempodsRateLimitedException
+import org.sempods.client.core.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SsrfBlockedException
 import org.slf4j.event.Level
 import java.net.InetAddress
 import java.net.URI
@@ -61,7 +61,7 @@ class SempodsHttpTransportGuardTest {
       policy = SempodsUrlPolicy(allowPrivateAddresses = allowPrivate),
       trustedHosts = trustedHosts,
       rateLimiter = rateLimiter,
-      resolve = { listOf(InetAddress.getByName(resolvesTo)) },
+      resolver = { listOf(InetAddress.getByName(resolvesTo)) },
     ),
   )
 
@@ -103,7 +103,7 @@ class SempodsHttpTransportGuardTest {
     val transport = SempodsHttpTransport(
       guard = SempodsOutboundGuard(
         policy = SempodsUrlPolicy(allowPrivateAddresses = false),
-        resolve = { listOf(InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.5")) },
+        resolver = { listOf(InetAddress.getByName("93.184.216.34"), InetAddress.getByName("10.0.0.5")) },
       ),
     )
     assertThrows<SempodsClientException> { get(transport) }
@@ -160,7 +160,7 @@ class SempodsHttpTransportGuardTest {
     val guard = SempodsOutboundGuard(
       policy = SempodsUrlPolicy(allowPrivateAddresses = false),
       trustedHosts = setOf("::1"),
-      resolve = { listOf(InetAddress.getByName("::1")) },
+      resolver = { listOf(InetAddress.getByName("::1")) },
     )
     val trusting = SempodsHttpTransport(guard = guard)
     val uri = URI("http://[::1]:${mockServer.port}/x")

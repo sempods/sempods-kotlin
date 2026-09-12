@@ -30,9 +30,16 @@ dependencies {
   api(libs.jacksonDatabind)
   runtimeOnly(libs.jackson)
 
-  // `implementation`, never `api`: the engine stops at `SempodsHttpTransport`. Callers speak
-  // `SempodsRequest`/`SempodsResponse` and a consumer of the published artifact never compiles
-  // against an OkHttp type — see `SempodsBody` for why that boundary is drawn here.
+  // `api`, because this module's surface is the core's: `SempodsHttpTransport` hands back a
+  // `SempodsResponse` and takes a `SempodsRequest`, and a consumer compiling against those needs
+  // them declared here rather than inherited. The engine is not among them — it stops inside
+  // `:sempods-client-core`, which declares OkHttp on `implementation`, so nothing here names one.
+  api(project(":sempods-client-core"))
+
+  // Named directly because this module names it directly: the legacy surface translates its own
+  // `SempodsRequest` onto an `okhttp3.Request` and reads an `okhttp3.Response` back. It arrives
+  // through the core's `api` either way — declaring it is the repository's rule that a type you
+  // compile against is one you say you have.
   implementation(libs.okhttp)
 
   // No logging: nothing in this module logs. A failed request is handed back rather than written

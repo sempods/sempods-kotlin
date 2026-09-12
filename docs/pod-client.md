@@ -1,9 +1,9 @@
 # Pod client — the JVM client for the pod surface (IST)
 
-What a consumer reaches for when it wants to talk to a pod it does not run: `:sempods-client`
-(`SempodsClient`, `SempodsPodClient`, `PodWireClient`, `SempodsHttpTransport`),
-and the sibling that speaks the host-level admin surface beside it, `:sempods-control-plane-client`
-(`SempodsControlPlaneClient`).
+What a consumer reaches for when it wants to talk to a pod it does not run: `:sempods-client-core`
+(`SempodsSession`, `SempodsTransport`, `SempodsRequestAuth`), `:sempods-client` above it
+(`SempodsClient`, `SempodsPodClient`, `PodWireClient`, `SempodsHttpTransport`), and the sibling that
+speaks the host-level admin surface, `:sempods-control-plane-client` (`SempodsControlPlaneClient`).
 
 This document is the *shape* of those clients — what tiers they have, how a caller supplies a
 credential, what they are built on, and the rules that decide what may be added. The **routes** they
@@ -53,9 +53,14 @@ survives here has a caller behind it.
 
 **These are alternatives, not a stack a consumer assembles.** The bound tier is the stateless one
 with a coordinate fixed, so taking it removes an argument rather than adding a layer.
-`SempodsHttpTransport` sits under both and holds what every request shares: the W3C trace binding,
-`followRedirects(NEVER)`, the request timeout, the one error shape (`SempodsClientException`,
-carrying the server's own body).
+`SempodsHttpTransport` sits under both. It is the legacy surface now — a token stamped on each
+request, and the JSON helpers (`objectMapper`, `requiredText`) that kept the core from being
+consumable without an object mapper. It executes through `SempodsTransport`, so there is one
+implementation of the guard, the deadlines, cancellation and admission rather than two, and it
+translates the core's transport failure back into the shapes these tiers classify on
+(`SempodsClientException`, carrying the server's own body). Moving the tiers themselves onto
+`SempodsSession` is [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
+[#152](https://github.com/sempods/sempods-kotlin/issues/152).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** There used to be a
 third tier that did — resolving pod *names* through a registry interface — on a product whose
@@ -126,6 +131,67 @@ projecting a context reads by, and the reason it is not `sparqlConstruct` (which
 Both arrived when a caller needed them, and neither replaced the raw method, because neither answers
 the pagination question above.
 
+## The core: a pod, a credential, and OkHttp
+
+`:sempods-client-core` is the artifact a consumer takes when it wants the pod's HTTP surface without
+a representation. It resolves no RDF4J, no Jackson and no Jena, directly or transitively — checked
+from outside the build rather than asserted here,
+[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
+
+**The request and the response are OkHttp's.** There is no second vocabulary to learn: build a
+`Request`, run it, read the `Response`, close it. What this module adds is what OkHttp has no
+opinion about.
+
+| | |
+|---|---|
+| `SempodsPodBase` | the base URL rules, and containment |
+| `SempodsSession` | one pod and one credential over a transport; `newRequest` resolves, `execute` confines and authenticates |
+| `SempodsRequestAuth` | how a session authenticates, replaceable and decoratable |
+| `SempodsTransport` | shared connection pool, deadlines, outbound guard, admission budget |
+| `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
+
+```java
+var session = SempodsSession.builder(SempodsPodBase.of("https://pods.example/alice"))
+    .transport(transport)
+    .auth(SempodsRequestAuth.apiKeyHeader("X-Api-Key", key))
+    .build();
+
+var request = session.newRequest("GET", "_system/contexts")
+    .header("Accept", "application/json")
+    .build();
+try (Response response = session.execute(request)) {
+  String contexts = response.body().string();
+}
+```
+
+`newRequest` plus `execute` is also the **extension seam**: an endpoint group, a protocol module or
+a consumer's own route gets authentication, confinement, the guard, the deadlines and admission by
+using it, and needs nothing private. Any method token works, so HEAD, OPTIONS and an extension's own
+verb need no change.
+
+Four decisions shape everything above it. Each is one place in the code, and the KDoc there carries
+the contract:
+
+- **The core decides no route's meaning.** A failure status is an answer: 304, 404 and 412 are
+  outcomes on the routes above, `Response.isSuccessful` is OkHttp's, and a JSON body is returned as
+  it arrived, malformed or not. Only a decoder a consumer selected has an opinion about it.
+- **A credential never leaves its pod.** `SempodsPodBase` validates the base against
+  [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
+  and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020),
+  and the containment check runs again when a request is executed — and once more after
+  authentication, since a mechanism is meant to set headers and one that rewrote the URL would carry
+  the credential elsewhere.
+- **Only `execute` authorizes a retry**, at most once. A fixed bearer and an anonymous session do
+  not retry — there is nothing to re-mint. A refreshable credential does, while the body can be sent
+  again, and its acquisition is coalesced per credential. A one-shot body rules the second attempt
+  out whatever the mechanism says, because the alternative is a repeat that uploads nothing and is
+  answered 200.
+- **Cancellation and capacity are explicit.** `Call.cancel()` is the handle — the engine's own, and
+  it reaches the socket. Admission bounds active operations and waiting ones separately, because
+  bounding only the active ones lets a slow server turn into unbounded memory here; a response holds
+  its slot until it is closed. A caller that takes a `Call` from `newCall` and runs it themselves has
+  opted out of the budget, which is the honest consequence of handing out the engine's type.
+
 ## The transport: OkHttp, blocking
 
 Recorded as a criterion rather than an opinion, so it does not get re-argued from taste. The
@@ -151,31 +217,45 @@ the address is produced, and the JDK client has none: the only injection point i
 `InetAddressResolverProvider`, which replaces the resolver for the whole JVM. That is not something
 a library may do to its consumer. OkHttp's `Dns` hook is, and it is one line.
 
-What the engine costs, stated rather than hidden:
+**And it is `api`, not `implementation`.** `SempodsSession` hands back an `okhttp3.Response` and
+takes an `okhttp3.Request`; a consumer compiles against both, adds their own interceptor, shares the
+connection pool. The alternative was tried: a second vocabulary — `SempodsRequest`,
+`SempodsResponse`, `SempodsHeaders`, `SempodsBody`, a body handler, a cancellation handle — cost
+about five hundred lines, re-implemented case-insensitive multi-value headers OkHttp has had since
+version 1, and bought a consumer nothing they could not already do. What it cost them was
+everything else OkHttp offers, one method at a time, whenever someone asked.
 
-- **A third-party dependency in a Maven Central artifact.** It is `implementation`, never `api` — the engine stops at
-  `SempodsHttpTransport`, callers speak `SempodsRequest` / `SempodsResponse` / `SempodsBody`, and a
-  consumer never compiles against an OkHttp type. The dependency is real; the coupling is not.
+What that costs, stated rather than hidden:
+
+- **OkHttp's major version is part of this module's ABI.** That is the real price, and it has been
+  paid once already by others: OkHttp 5 moved the artifact from `okhttp` to `okhttp-jvm`, which
+  reached projects that had pinned the old coordinate. Square keeps binary compatibility for
+  non-alpha APIs, and the surface used here — `Request`, `Response`, `Call`, `Interceptor`,
+  `OkHttpClient.Builder` — is the oldest and most stable part of it.
 - **A version to keep**, pinned explicitly in the catalog rather than inherited from a Ktor BOM in a
   module that has no Ktor.
+- **The guard becomes a promise rather than a structure.** A consumer holding `transport.httpClient`
+  can call it directly and reach a host this library would refuse. What is kept is that they cannot
+  do it *by accident*: a client handed to `SempodsTransport.Builder.httpClient` is derived from, so
+  the `Dns` hook, the redirect policy and the deadlines are applied on top of whatever it carried.
 
 ### Two OkHttp clients in one process, on purpose
 
-A JVM running both this client and `sempods-commons-okhttp`'s holds two `OkHttpClient` instances. They are
-**not** merged, and the reason is the bullet above rather than tidiness: `implementation` is what
-makes the third-party dependency acceptable, and a constructor or factory taking an engine would
-put `okhttp3` on the compile classpath of every consumer of the published artifact and tie this
-library's ABI to an engine major version. Sharing a pool is not worth that.
+A JVM running both this client and `sempods-commons-okhttp`'s holds two `OkHttpClient` instances.
+They are still **not** merged by default, but the reason has changed with the engine reaching the
+surface: a consumer that wants one pool now says so, with
+`SempodsTransport.builder().httpClient(theirs)`, and gets a client derived from theirs rather than
+a second one beside it.
 
-Nor would it buy much. A second client costs **no threads** — `TaskRunner.INSTANCE` is a JVM-wide
+Left alone it buys little. A second client costs **no threads** — `TaskRunner.INSTANCE` is a JVM-wide
 daemon singleton every `ConnectionPool` shares, and the dispatcher's executor has `corePoolSize = 0`
 and is only ever fed by `enqueue`, which neither client uses. It saves **no sockets** either: the
 two dial disjoint hosts, pods here and the id-server, the model provider and caller-chosen media
 sources there, so a shared pool would have nothing to reuse. What is left is a builder graph and a
 connection pool object, in the low kilobytes.
 
-If injecting one is ever genuinely needed, the note in `SempodsHttpTransport` still holds: it
-arrives as an engine-neutral seam, not as the engine.
+`sempods-commons-okhttp`'s client stays separate because its consumers are the services, which
+configure their own; nothing stops a deployment handing the same one to both.
 
 ### The guard
 
@@ -188,6 +268,13 @@ layers, and neither is redundant**:
   `Dns` hook at all, so resolve-and-pin alone would let it straight through.
 - `VettingDns`, inside the connection path, vetting every resolved address. This is the layer that
   closes rebinding, because resolving and connecting become one event.
+
+Admission for a *coordinate* is a third question and asks a third entry point. `rejectPodBase` adds
+the address policy to what `SempodsPodBase` says a base URL is; `rejectCredentialedTarget` applies
+the same scheme and address rules to an endpoint that is not a base — a discovered
+`authorization_endpoint` legitimately carries a query, which a base URL may not, and `rejectTarget`
+would also pass plain `http` to any host on the internet, which is not somewhere to send a client
+secret.
 
 Plus `Proxy.NO_PROXY`, which is not a detail: with a proxy configured the *proxy* resolves the
 hostname and the DNS hook is never consulted, so a JVM system property would otherwise switch the
@@ -242,9 +329,26 @@ methods return and accept. Rio, Sail and the SPARQL-results readers stay `implem
 clients are written, not what they expose. The in-repo consumers therefore declare no RDF4J of
 their own, which is the check that the export is real: a stranger cannot be told to compensate.
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) owns the proposed
-HTTP-core/RDF split and supported consumer contract. Publication exists today; API narrowing
-for the independently embeddable services belongs to [#15](https://github.com/sempods/sempods-kotlin/issues/15).
+`:sempods-client-core` carries none of that and is the coordinate a consumer that only speaks HTTP
+takes:
+
+```kotlin
+implementation(platform("org.sempods:sempods-bom:0.2.0"))
+implementation("org.sempods:sempods-client-core")
+```
+
+That it really carries none of it is checked by `:consumer-probe:client-core`, which compiles Java
+against it across a project boundary and runs the result as a real Java 21 process —
+[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness" says what each layer of
+that checking reaches.
+
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
+groups over this core ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF and
+JSON adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), async and coroutine
+consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
+tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
+independently embeddable services belongs to
+[#15](https://github.com/sempods/sempods-kotlin/issues/15).
 
 ## Authority and deployment
 
@@ -256,6 +360,9 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
 
 ## Contract source
 
+- `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
+  `SempodsTransport`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsOperation`, and
+  `net/` for the outbound guard
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
   `SempodsAuth`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`

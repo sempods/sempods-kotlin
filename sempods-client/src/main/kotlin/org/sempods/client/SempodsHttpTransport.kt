@@ -2,24 +2,18 @@ package org.sempods.client
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import okhttp3.Headers
-import okhttp3.Interceptor
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import okio.BufferedSink
 import okio.source
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.SempodsRateLimitedException
-import org.sempods.client.net.SempodsUrlPolicy
-import org.sempods.client.net.SsrfBlockedException
+import org.sempods.client.core.SempodsTransport
+import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import java.io.InputStream
-import java.net.Proxy
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -27,77 +21,35 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * The deadlines every call inherits. Four knobs rather than one because they answer different
- * questions, and collapsing them is how a streaming read acquires a deadline it must not have:
+ * The transport the existing clients were written against, now a translation onto
+ * [SempodsTransport].
  *
- * - [connect] / [read] / [write] bound a *single* step — the TCP+TLS handshake, and the gap between
- *   two bytes in either direction. A body that keeps arriving keeps the read timeout at bay.
- * - [call] bounds the **whole** call including the body. It is the only one a peer cannot outlast
- *   by answering slowly: [read] measures the gap between two bytes, so a drip just inside it runs
- *   forever. Two minutes by default, which is what the JDK client's request timeout bounded before
- *   this transport existed — that timeout covered the body too, contrary to what an earlier
- *   revision of this comment claimed.
+ * **This is the legacy surface, and it is where the JSON helpers stayed.** [objectMapper] and
+ * [requiredText] name Jackson types, which is why the core does not have them: a consumer that
+ * wants HTTP against a pod should not resolve an object mapper to get it. They remain here because
+ * `SempodsClient`, `SempodsPodClient`, `PodWireClient` and `SempodsControlPlaneClient` use them
+ * today, and moving those onto the core is
+ * [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
+ * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
  *
- * [Duration.ZERO] on [call] means no whole-call deadline. That is a caller's choice for a genuinely
- * unbounded read, not a default: an operation that may legitimately outlast two minutes says so at
- * its own call site with [SempodsRequest.Builder.callTimeout].
+ * **What it translates, and why that is now the only reason it exists.** The core speaks OkHttp's
+ * `Request` and `Response`; this surface speaks [SempodsRequest] and [SempodsResponse], whose point
+ * was that a caller never owes a `close()`. Every call here therefore reads the body and closes the
+ * response before returning. Below it there is one connection pool, one outbound guard and one set
+ * of deadlines — the core's.
+ *
+ * **A token per request rather than a credential per session.** That is this surface's model. A
+ * consumer wanting a credential that can be replaced, decorated or refreshed builds a
+ * [org.sempods.client.core.SempodsSession] instead.
  */
-data class SempodsHttpTimeouts(
-  val connect: Duration = Duration.ofSeconds(10),
-  val read: Duration = Duration.ofSeconds(30),
-  val write: Duration = Duration.ofSeconds(30),
-  val call: Duration = Duration.ofMinutes(2),
-)
-
-/**
- * What every call against a sempods deployment shares: how a request is built, how it is sent, and
- * how a refused one becomes an exception.
- *
- * **Public because Kotlin's `internal` stops at the module boundary, not because it is an API to
- * program against.** Its consumers are the two clients — [SempodsClient] for the pod surface,
- * `SempodsControlPlaneClient` (`:sempods-control-plane-client`) for the host-level admin surface —
- * and it exists so that the two do not each carry their own copy of the decisions below. Each is a
- * decision a duplicate would silently get wrong:
- *
- * - **The trace binding.** A request built without [newRequest] ends the caller's trace, and
- *   nothing downstream reports the gap.
- * - **No redirects**, on both switches. [SempodsClient.dereference] takes URIs that came from a
- *   request, and a followed redirect would reach a host the caller never vetted — while carrying
- *   the bearer there.
- * - **One connection pool.** Every `OkHttpClient` owns a dispatcher thread pool and a pool of idle
- *   connections; minting one per client object leaks both. Everything here shares [sharedHttpClient]
- *   and varies it through `newBuilder()`, which keeps the pool and the dispatcher.
- *
- * **The engine stops here — including in this class's own signature.** Callers speak
- * [SempodsRequest] / [SempodsResponse] / [SempodsBody] and name no HTTP library; see [SempodsBody]
- * for why that boundary is drawn at the transport rather than left to the build file. There is
- * deliberately no way to hand in an engine: a constructor taking one would put `okhttp3` on a
- * consumer's compile classpath — which `implementation` says it is not on — and tie this library's
- * ABI to the engine's major version. If injecting one is ever needed, it arrives as an
- * engine-neutral seam rather than as the engine.
- *
- * **OkHttp rather than the JDK client** because SSRF resolve-and-pin needs a DNS hook, and the JDK
- * client cannot express one short of replacing the whole JVM's resolver. Blocking on purpose: on
- * Java 25 a blocking send on a virtual thread is what an async client used to buy. See
- * `docs/pod-client.md` §"The transport" for the criterion.
- */
-class SempodsHttpTransport(
+class SempodsHttpTransport @JvmOverloads constructor(
   timeouts: SempodsHttpTimeouts = SempodsHttpTimeouts(),
-  private val guard: SempodsOutboundGuard? = null,
+  guard: SempodsOutboundGuard? = null,
 ) {
 
-  private val httpClient: OkHttpClient = SHARED.newBuilder()
-    .connectTimeout(timeouts.connect)
-    .readTimeout(timeouts.read)
-    .writeTimeout(timeouts.write)
-    .callTimeout(timeouts.call)
-    .apply {
-      guard?.let {
-        dns(it.dns())
-        if (it.proxyless) proxy(Proxy.NO_PROXY)
-        if (it.rateLimiter != null) addInterceptor(rateLimitInterceptor(it))
-      }
-    }
+  private val transport: SempodsTransport = SempodsTransport.builder()
+    .guard(guard)
+    .timeouts(connect = timeouts.connect, read = timeouts.read, write = timeouts.write, call = timeouts.call)
     .build()
 
   /**
@@ -106,30 +58,20 @@ class SempodsHttpTransport(
    */
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
 
-  /** Shared by both clients so a response is parsed the same way wherever it is read. */
+  /** Shared by the clients above so a response is parsed the same way wherever it is read. */
   val objectMapper: ObjectMapper = ObjectMapper()
 
   /**
-   * Starts every request either client sends: the bearer when there is one, and the caller's W3C
-   * trace when one is bound. Each request gets its own span id; the trace id is what carries.
+   * Starts a request: the bearer when there is one, and the caller's W3C trace when one is bound.
+   * Each request gets its own span id; the trace id is what carries.
    *
    * **[token] is nullable on purpose.** A pod serves its public contexts to an unauthenticated
-   * caller (`SempodsBaseEndpoint.authenticate` treats a missing bearer as anonymous), and reading
-   * public data is the first thing anyone does with a pod they do not own. Omitting the header is
-   * therefore a supported mode, not a degraded one; what a caller may
-   * do without a token is the server's decision, expressed as a 401 or a filtered answer.
-   *
-   * Outside a request no trace is bound and no trace header is set.
+   * caller, and reading public data is the first thing anyone does with a pod they do not own.
+   * Omitting the header is therefore a supported mode; what a caller may do without a token is the
+   * server's decision, expressed as a 401 or a filtered answer.
    */
-  // TODO: an explicit `traceparent` from a caller is *appended* here, not substituted — the builder
-  //   keeps a list and `toOkHttpRequest` calls `addHeader` per entry, so a caller setting the header
-  //   after `newRequest` puts two on the wire. The two interceptor paths (`TraceparentInterceptor`,
-  //   `TraceparentClientPlugin`) leave an existing header alone, which is the behaviour
-  //   `docs/request-tracing.md` describes; this path should match it. Needs replacement semantics on
-  //   `SempodsRequest.Builder.header` and a test. No caller in the tree does it today.
+  @JvmOverloads
   fun newRequest(uri: URI, token: String? = null): SempodsRequest.Builder {
-    // `null` call timeout = whatever the transport was configured with; only an explicit
-    // `callTimeout(…)` on the builder departs from it.
     val builder = SempodsRequest.Builder(uri, null)
     token?.let { builder.header("Authorization", "Bearer $it") }
     TraceContextHolder.get()?.let { traceContext ->
@@ -139,30 +81,31 @@ class SempodsHttpTransport(
   }
 
   fun send(request: SempodsRequest): SempodsResponse<String> =
-    execute(request) { SempodsResponse(it.code, it.body.string(), headerLookup(it.headers)) }
+    execute(request) { response -> SempodsResponse(response.code, response.body.string(), response::header) }
 
   fun sendBytes(request: SempodsRequest): SempodsResponse<ByteArray> =
-    execute(request) { SempodsResponse(it.code, it.body.bytes(), headerLookup(it.headers)) }
+    execute(request) { response -> SempodsResponse(response.code, response.body.bytes(), response::header) }
 
   /**
    * Streams a response body through [read] and closes it afterwards, whatever [read] does.
    *
    * Scoped rather than returned so the body cannot outlive the call that owns it: an unclosed
    * response strands a pooled connection, and a signature that hands one out makes every call site
-   * responsible for remembering. The failure path is served by
-   * [SempodsStreamedResponse.bodyTextCapped].
+   * responsible for remembering. The core does hand one out — its callers are written for that.
    */
   fun <T> sendStreaming(request: SempodsRequest, read: (SempodsStreamedResponse) -> T): T =
-    execute(request) { read(SempodsStreamedResponse(it.code, it.body.byteStream(), headerLookup(it.headers))) }
+    execute(request) { response ->
+      read(SempodsStreamedResponse(response.code, response.body.byteStream(), response::header))
+    }
 
   /**
-   * The one shape a refused request takes. The server's own body travels with it: a pod answers
-   * scope refusals and precondition failures with a reason, and swallowing it turns every
-   * diagnosis into a server-log expedition.
+   * The one shape a refused request takes on this surface. The server's own body travels with it:
+   * a pod answers scope refusals and precondition failures with a reason, and swallowing it turns
+   * every diagnosis into a server-log expedition.
    *
-   * It travels twice — inside the message, which is written for a log line and therefore says
-   * which call failed, and on its own in [SempodsClientException.responseBody], for a caller that
-   * forwards the reason onward and must not forward this process's URLs with it.
+   * It travels twice — inside the message, written for a log line, and on its own in
+   * [SempodsClientException.responseBody], for a caller that forwards the reason onward and must
+   * not forward this process's URLs with it.
    */
   fun failure(method: String, url: URI, statusCode: Int, body: String?): SempodsClientException =
     SempodsClientException(
@@ -184,57 +127,60 @@ class SempodsHttpTransport(
     URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
 
   /** A base URL with a guaranteed trailing slash, so [URI.resolve] appends instead of replacing. */
-  fun baseWithTrailingSlash(baseUrl: URI): URI =
-    URI(baseUrl.toString().trimEnd('/') + "/")
+  fun baseWithTrailingSlash(baseUrl: URI): URI = URI(baseUrl.toString().trimEnd('/') + "/")
 
-  private fun <T> execute(request: SempodsRequest, read: (Response) -> T): T {
-    guardTarget(request.uri)
+  /**
+   * Runs one request and closes the response before returning.
+   *
+   * The core's cancellation is `Call.cancel()`; [SempodsCallSlot] binds onto it here, which is the
+   * bridge `PodIo` still needs. No authentication runs: this surface puts its bearer on the request
+   * before it arrives, so the core's session auth is not involved.
+   */
+  private fun <T> extracted(request: SempodsRequest, read: (okhttp3.Response) -> T): T {
     val call = clientFor(request.callTimeout).newCall(toOkHttpRequest(request))
     val slot = SempodsCallSlot.current()
     slot?.bind(call::cancel)
     return try {
       call.execute().use(read)
-    } catch (e: SsrfBlockedException) {
-      throw notPubliclyAddressable(request.uri, e.message ?: "blocked address", e)
     } finally {
       slot?.unbind()
     }
   }
 
   /**
-   * The address check the DNS hook structurally cannot do: an IP-literal host is never resolved, so
-   * nothing asks `VettingDns` about `http://169.254.169.254/`. Runs before the call, so a refused
-   * target produces no request at all rather than one that is merely not read.
+   * Runs one request and hands this surface's callers the failure shape they classify on.
+   *
+   * The core made every refusal of its own one type, an [java.io.IOException] beside the engine's.
+   * The callers above were written against several, and two of them decide real behaviour on the
+   * distinction: `PodFailures.isRetryablePodFailure` walks for a rate-limit or SSRF cause, and
+   * `McpEndpoint.runTool` catches [SempodsClientException] to keep this process's URLs out of a
+   * message that goes to a language model. Migrating them onto the core's shape is
+   * [#152](https://github.com/sempods/sempods-kotlin/issues/152); until then this translates.
    */
-  private fun guardTarget(uri: URI) {
-    val refusal = guard?.refuseTarget(uri) ?: return
-    throw when (refusal.kind) {
-      SempodsUrlPolicy.Refusal.Kind.SCHEME -> SempodsClientException("Not an HTTP(S) URI: '$uri'")
-      SempodsUrlPolicy.Refusal.Kind.NO_HOST -> SempodsClientException("URI has no host: '$uri'")
-      SempodsUrlPolicy.Refusal.Kind.NON_GLOBAL_HOST ->
-        notPubliclyAddressable(uri, refusal.detail, SsrfBlockedException(refusal.detail))
+  private fun <T> execute(request: SempodsRequest, read: (okhttp3.Response) -> T): T =
+    try {
+      extracted(request, read)
+    } catch (e: org.sempods.client.core.SempodsClientException) {
+      // A refusal this library made — a blocked address, a spent budget. The cause carries what a
+      // consumer classifies on, which is why it travels rather than being flattened into the text.
+      throw SempodsClientException(e.message.orEmpty(), cause = e.cause ?: e)
+    } catch (e: org.sempods.client.core.net.SsrfBlockedException) {
+      // Thrown from inside the connection path, where the resolver vets every address. It is an
+      // `UnknownHostException` so the engine treats it as a resolution failure; this surface's
+      // callers expect their own type, with the cause kept for the same classification.
+      throw SempodsClientException(
+        "Host of '${request.uri}' is not publicly addressable — ${e.message}",
+        cause = e,
+      )
+    } catch (e: IllegalArgumentException) {
+      // `Request.Builder.url` refuses a non-HTTP scheme before a call exists. The guard used to
+      // answer that one, and its callers still expect this surface's exception for it.
+      throw SempodsClientException("Not an HTTP(S) URI: '${request.uri}'", cause = e)
     }
-  }
-
-  /**
-   * One wording for both address layers, and the cause travels with it. The cause is what a caller
-   * classifies on: a blocked address means "this pod URL is wrong", never "this token is dead", and
-   * an exception that dropped its cause cannot tell the two apart.
-   */
-  private fun notPubliclyAddressable(uri: URI, reason: String, cause: Throwable) =
-    SempodsClientException("Host '${uri.host}' of '$uri' is not publicly addressable — $reason", cause = cause)
-
-  private fun rateLimitInterceptor(guard: SempodsOutboundGuard) = Interceptor { chain ->
-    val target = chain.request().url.toUri()
-    if (!guard.allows(target)) {
-      throw SempodsRateLimitedException("outbound rate limit exceeded for $target")
-    }
-    chain.proceed(chain.request())
-  }
 
   private fun clientFor(callTimeout: Duration?): OkHttpClient =
-    if (callTimeout == null) httpClient
-    else byCallTimeout.computeIfAbsent(callTimeout) { httpClient.newBuilder().callTimeout(it).build() }
+    if (callTimeout == null) transport.httpClient
+    else byCallTimeout.computeIfAbsent(callTimeout) { transport.httpClient.newBuilder().callTimeout(it).build() }
 
   private fun toOkHttpRequest(request: SempodsRequest): Request {
     val builder = Request.Builder().url(request.uri.toString())
@@ -257,8 +203,7 @@ class SempodsHttpTransport(
   /**
    * No body carries a content type. `Content-Type` is a header the call sites set explicitly, and a
    * body that also declared one would win over them — OkHttp's bridge overwrites the header from
-   * `RequestBody.contentType()` whenever that is non-null. Keeping it null is also what stops a text
-   * body from acquiring a `; charset=utf-8` suffix the pod's exact media types do not expect.
+   * `RequestBody.contentType()` whenever that is non-null.
    */
   private fun toRequestBody(body: SempodsBody): RequestBody = when (body) {
     is SempodsBody.Empty -> EMPTY_BODY
@@ -266,15 +211,9 @@ class SempodsHttpTransport(
     is SempodsBody.Stream -> SuppliedStreamBody(body.size, body.open)
   }
 
-  private fun headerLookup(headers: Headers): (String) -> String? = { headers[it] }
-
   /**
    * A body the transport may write more than once: OkHttp retransmits a request when a pooled
    * connection turns out to be stale, and [SempodsBody.Stream] promises a fresh stream per attempt.
-   * Saying so through `isOneShot() = false` is what makes that retransmit legal rather than a silent
-   * upload of zero bytes.
-   *
-   * A known [size] means a definite `Content-Length`; `-1` means chunked.
    */
   private class SuppliedStreamBody(
     private val size: Long?,
@@ -288,21 +227,7 @@ class SempodsHttpTransport(
     }
   }
 
-  companion object {
-
-    private val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody(null)
-
-    /**
-     * The one client the whole process shares — see the note on the connection pool above. Timeouts
-     * are not set here: a transport derives its own through `newBuilder()`, which keeps this pool
-     * and this dispatcher. Private, so the engine type does not reach a consumer through a factory
-     * either.
-     */
-    private val SHARED: OkHttpClient by lazy {
-      OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .build()
-    }
+  private companion object {
+    val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody(null)
   }
 }

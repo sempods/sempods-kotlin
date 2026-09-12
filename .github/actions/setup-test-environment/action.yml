@@ -4,10 +4,17 @@ description: 'Sets up Java, Docker containers, and Gradle for testing'
 runs:
   using: 'composite'
   steps:
+    # Both, and 25 last: `setup-java` points `JAVA_HOME` at the version it installs last, which is
+    # where Gradle and every compile belong. 21 is there for `:consumer-probe:client-core`, which
+    # runs the published client core as a real 21 process — the baseline its bytecode targets.
+    # A runner image happens to carry a 21 that Gradle's auto-detection would find, but a check
+    # standing on what an image happens to include is a check that goes red on an image update.
     - uses: actions/setup-java@v6
       with:
-        java-version: 25
         distribution: 'temurin'
+        java-version: |
+          21
+          25
 
     # Two overlays: the local stack, plus the test stack that adds the throwaway MongoDB on 27018
     # and the Garage the media seam's S3 half asserts against.

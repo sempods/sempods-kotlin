@@ -47,7 +47,7 @@ where "grant" is meant.
 docker compose -f deployments/local/compose.yaml -f deployments/test/compose.test.yaml up -d
 deployments/test/garage/init.sh
 
-./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata
+./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkNoMissingPomDependencies checkDocLinks checkImageMetadata checkPublishedSignatures
 ./gradlew buildHealth      # the api/implementation boundary — a separate CI job
 ```
 

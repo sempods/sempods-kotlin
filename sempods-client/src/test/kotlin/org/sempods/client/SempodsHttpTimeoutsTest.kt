@@ -1,5 +1,10 @@
 package org.sempods.client
 
+import java.io.IOException
+import java.net.URI
+import java.time.Duration
+import java.util.concurrent.TimeUnit
+import kotlin.system.measureTimeMillis
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -13,11 +18,6 @@ import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.slf4j.event.Level
-import java.io.IOException
-import java.net.URI
-import java.time.Duration
-import java.util.concurrent.TimeUnit
-import kotlin.system.measureTimeMillis
 
 /**
  * `call` against `read`, because the difference is not obvious and getting it wrong is silent

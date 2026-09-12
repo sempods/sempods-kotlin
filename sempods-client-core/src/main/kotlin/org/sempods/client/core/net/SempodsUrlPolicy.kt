@@ -1,5 +1,6 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
+import org.sempods.client.core.SempodsPodBase
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
@@ -13,8 +14,11 @@ import java.net.URI
  * different moments and the answers must not drift apart:
  *
  * - [rejectPodBase] — admission: is this a URL worth *holding a credential for*? The strictest of
- *   the three, and the only one that insists on `https` and refuses userinfo and fragments. A pod
- *   base is a coordinate a service stores, not an arbitrary document address.
+ *   the three, and the only one that also asks [SempodsPodBase] whether the URL is a base URL at
+ *   all. A pod base is a coordinate a service stores, not an arbitrary document address.
+ * - [rejectCredentialedTarget] — admission for a discovered endpoint this process dials with a
+ *   credential. The scheme and address rules of [rejectPodBase], without its form rules: an
+ *   `authorization_endpoint` legitimately carries a query, and a base URL does not.
  * - [rejectTarget] — per request, immediately before the connection. Deliberately weaker: it must
  *   pass an ordinary Linked-Data URI, which is routinely `http` and routinely carries a fragment.
  *   What it does not pass is a host that is a non-global address in any spelling.
@@ -38,25 +42,36 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
    * Admission for a pod base URL — the strict entry point. Returns `null` when acceptable,
    * otherwise a human-readable reason.
    *
-   * `https` is required because a pod base is dialled with a bearer; `http` is allowed only on a
-   * loopback host and only in the relaxed mode, which is what a self-hosted instance runs.
+   * **Two questions, asked in order.** What makes a URL a *base URL* at all is the specification's,
+   * and [SempodsPodBase.reject] owns it — scheme, query, fragment, userinfo and the path clauses.
+   * What this adds is the address policy, which is a deployment's: in the strict mode a pod base on
+   * a non-global address is refused outright, so the `http`-on-loopback the specification permits
+   * is reachable only where [allowPrivateAddresses] says loopback is somewhere this process may go.
    */
   fun rejectPodBase(podBaseUrl: String): String? {
-    val uri = runCatching { URI(podBaseUrl) }.getOrNull() ?: return "not a valid URL"
+    SempodsPodBase.reject(podBaseUrl)?.let { return it }
+    val host = runCatching { URI(podBaseUrl).host }.getOrNull() ?: return "missing host"
+    return rejectHost(host.lowercase())
+  }
+
+  /**
+   * Admission for an endpoint this process will dial **with a credential**, but which is not a base
+   * URL — a discovered `authorization_endpoint`, `token_endpoint` or `jwks_uri`.
+   *
+   * The scheme and address rules of [rejectPodBase] without its form rules. Those two are not the
+   * same question, and conflating them fails in both directions: RFC 8414 lets an authorization
+   * endpoint carry a query of its own, which a base URL may not; and [rejectTarget], which does
+   * pass a query, would also pass plain `http` to any host on the internet — not something to send
+   * a client secret over.
+   */
+  fun rejectCredentialedTarget(url: String): String? {
+    val uri = runCatching { URI(url) }.getOrNull() ?: return "not a valid URL"
     if (!uri.isAbsolute) return "must be an absolute URL"
-    if (uri.userInfo != null) return "must not contain userinfo"
-    if (uri.fragment != null) return "must not contain a fragment"
+    if (uri.rawUserInfo != null) return "must not contain userinfo"
     val scheme = uri.scheme?.lowercase() ?: return "missing scheme"
     val host = uri.host?.lowercase() ?: return "missing host"
-
-    when (scheme) {
-      "https" -> {}
-      "http" -> if (!(allowPrivateAddresses && isLoopbackHost(host))) {
-        return "http is only allowed on loopback in local mode"
-      }
-      else -> return "scheme must be https"
-    }
-
+    if (scheme != "https" && scheme != "http") return "scheme must be https"
+    if (scheme == "http" && !allowPrivateAddresses) return "http is only allowed in local mode"
     return rejectHost(host)
   }
 
@@ -103,9 +118,6 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
     val address = parseIpLiteral(host) ?: return "host is a non-canonical numeric address"
     return blockedRangeReason(address)?.let { "host is a non-global address ($it)" }
   }
-
-  private fun isLoopbackHost(host: String) =
-    isLoopbackName(host) || parseIpLiteral(host)?.isLoopbackAddress == true
 
   /** RFC 6761 reserves `localhost` and `*.localhost` for loopback. */
   private fun isLoopbackName(host: String): Boolean =

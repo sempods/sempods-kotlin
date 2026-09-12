@@ -1,4 +1,4 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
 import java.net.InetAddress
 import java.net.URI
@@ -15,6 +15,29 @@ class SsrfBlockedException(message: String) : UnknownHostException(message)
 
 /** A request refused by [OutboundRateLimiter] before it left the process. */
 class SempodsRateLimitedException(message: String) : RuntimeException(message)
+
+/**
+ * Turns a hostname into the addresses a connection may be opened to.
+ *
+ * An interface of this library's own, for two separate reasons. It is not the engine's resolver
+ * type, because a public class implementing that would put the engine on a consumer's compile
+ * classpath and make its major version part of this library's ABI. And it is not a Kotlin function
+ * type, because `(String) -> List<InetAddress>` reaches a Java caller as
+ * `kotlin.jvm.functions.Function1` and cannot declare [UnknownHostException] — which is exactly
+ * what a resolver fails with.
+ */
+fun interface SempodsHostResolver {
+
+  @Throws(UnknownHostException::class)
+  fun resolve(hostname: String): List<InetAddress>
+
+  companion object {
+
+    /** The system resolver, which is what production uses. */
+    @JvmStatic
+    fun system(): SempodsHostResolver = SempodsHostResolver { InetAddress.getAllByName(it).toList() }
+  }
+}
 
 /**
  * A budget on outbound requests, asked once per request before the connection.
@@ -51,19 +74,21 @@ fun interface OutboundRateLimiter {
  *
  * [resolve] is injectable for tests only; production uses the system resolver.
  *
- * **`internal` on purpose.** It implements the engine's resolver interface, and a public class that
- * does so would put the engine on a consumer's compile classpath — which `implementation` says it
- * is not on — and make an engine major version part of this library's ABI. What a caller needs from
- * here is [SempodsOutboundGuard.SYSTEM_RESOLVE], which is a plain function type.
+ * **`private` on purpose, and checked.** It implements the engine's resolver interface, and a class
+ * that does so and is reachable would put the engine on a consumer's compile classpath — which
+ * `implementation` says it is not on — and make an engine major version part of this library's ABI.
+ * Kotlin's `internal` is not enough for that: it is public in bytecode, so Java sees it and
+ * `checkPublishedSignatures` reports it. What a caller needs from here is [SempodsHostResolver],
+ * which names no engine type.
  */
-internal class VettingDns(
+private class VettingDns(
   private val policy: SempodsUrlPolicy,
   private val trustedHosts: Set<String> = emptySet(),
-  private val resolve: (String) -> List<InetAddress> = SempodsOutboundGuard.SYSTEM_RESOLVE,
+  private val resolver: SempodsHostResolver = SempodsHostResolver.system(),
 ) : Dns {
 
   override fun lookup(hostname: String): List<InetAddress> {
-    val addresses = resolve(hostname)
+    val addresses = resolver.resolve(hostname)
     if (addresses.isEmpty()) throw UnknownHostException("no addresses for '$hostname'")
     if (hostname.lowercase().removeSurrounding("[", "]") in trustedHosts) return addresses
     for (address in addresses) {
@@ -110,7 +135,7 @@ class SempodsOutboundGuard(
   val rateLimiter: OutboundRateLimiter? = null,
   val proxyless: Boolean = true,
   /** Test seam only; production resolves through the system. */
-  val resolve: (String) -> List<InetAddress> = SYSTEM_RESOLVE,
+  val resolver: SempodsHostResolver = SempodsHostResolver.system(),
 ) {
 
   private val trusted: Set<String> = trustedHosts.map(::normalizeHost).toSet()
@@ -137,21 +162,9 @@ class SempodsOutboundGuard(
   internal fun allows(target: URI): Boolean =
     rateLimiter == null || isTrusted(target.host) || rateLimiter.tryAcquire(target)
 
-  internal fun dns(): Dns = VettingDns(policy, trusted, resolve)
+  internal fun dns(): Dns = VettingDns(policy, trusted, resolver)
 
   private fun isTrusted(host: String?): Boolean = host != null && normalizeHost(host) in trusted
 
   private fun normalizeHost(host: String): String = host.lowercase().removeSurrounding("[", "]")
-
-  companion object {
-    /**
-     * The production resolver, as a plain function.
-     *
-     * A function type rather than the engine's resolver interface, because this is the one piece of
-     * the connect-time check a caller ever names — the adapter that implements it is `internal`, so
-     * a consumer of the published artifact never needs the engine on its compile classpath and an
-     * engine major version is not part of this library's ABI.
-     */
-    val SYSTEM_RESOLVE: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() }
-  }
 }

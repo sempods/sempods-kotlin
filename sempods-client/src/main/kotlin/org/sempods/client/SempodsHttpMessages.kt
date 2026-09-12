@@ -6,19 +6,19 @@ import java.nio.charset.StandardCharsets
 import java.time.Duration
 
 /**
- * The request/response vocabulary both clients speak, deliberately naming no HTTP engine.
+ * The request/response vocabulary the legacy clients speak.
  *
- * **Why these exist rather than the engine's own types.** [SempodsHttpTransport] is public only
- * because Kotlin's `internal` stops at the module boundary — it makes no API promise. Handing out
- * an engine's `Request`/`Response` would make one anyway: a consumer of a Maven Central artifact
- * would compile against that engine's major version, and the "no third-party dependencies" rule
- * (`docs/pod-client.md` §"The transport") would be a build-file detail rather than a
- * property of the API. Everything engine-specific therefore stops at the transport.
+ * **These are the older surface, kept because its callers are.** `:sempods-client-core` speaks
+ * OkHttp's own `Request` and `Response` now — a consumer building on it reads a response the way
+ * they read every other one. What these types still buy the clients above is the second reason
+ * they were written: an engine response is `Closeable`, and a type whose ~35 call sites each owe a
+ * `close()` is a connection leak waiting for the one site that forgets. [SempodsResponse] carries
+ * an already-read body, and the streaming case is scoped ([SempodsHttpTransport.sendStreaming]) so
+ * the response cannot outlive the block that reads it.
  *
- * The second reason is narrower and just as real: an engine response is usually `Closeable`, and a
- * type whose ~35 call sites each owe a `close()` is a connection leak waiting for the one site that
- * forgets. [SempodsResponse] carries an already-read body, and the streaming case is scoped
- * ([SempodsHttpTransport.sendStreaming]) so the response cannot outlive the block that reads it.
+ * Moving those call sites onto the core is
+ * [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
+ * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
  */
 sealed class SempodsBody {
 
