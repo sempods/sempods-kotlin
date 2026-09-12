@@ -66,7 +66,7 @@ class SempodsHttpTransportGuardTest {
   )
 
   private fun get(transport: SempodsHttpTransport, uri: URI = target) =
-    transport.send(transport.newRequest(uri).get().build())
+    transport.send(transport.newRequest(uri).GET().build())
 
   @Test
   fun `a name resolving into a blocked range is refused inside the connection path`() {
@@ -137,7 +137,7 @@ class SempodsHttpTransportGuardTest {
     // Opt-in: consumers that only reach pods they configured themselves lost nothing.
     val plain = SempodsHttpTransport()
     val uri = URI("http://127.0.0.1:${mockServer.port}/x")
-    assertEquals(200, plain.send(plain.newRequest(uri).get().build()).statusCode)
+    assertEquals(200, plain.send(plain.newRequest(uri).GET().build()).statusCode)
   }
 
   @Test
@@ -149,7 +149,7 @@ class SempodsHttpTransportGuardTest {
     listOf("127.0.0.1", "localhost").forEach { host ->
       val trusting = transport(trustedHosts = setOf(host))
       val uri = URI("http://$host:${mockServer.port}/x")
-      assertEquals(200, trusting.send(trusting.newRequest(uri).get().build()).statusCode, "for $host")
+      assertEquals(200, trusting.send(trusting.newRequest(uri).GET().build()).statusCode, "for $host")
     }
   }
 
@@ -164,17 +164,17 @@ class SempodsHttpTransportGuardTest {
     )
     val trusting = SempodsHttpTransport(guard = guard)
     val uri = URI("http://[::1]:${mockServer.port}/x")
-    assertEquals(200, trusting.send(trusting.newRequest(uri).get().build()).statusCode)
+    assertEquals(200, trusting.send(trusting.newRequest(uri).GET().build()).statusCode)
   }
 
   @Test
   fun `the exemption covers the host only — a untrusted host and a bad scheme are still refused`() {
     val trusting = transport(trustedHosts = setOf("127.0.0.1"))
     assertThrows<SempodsClientException> {
-      trusting.send(trusting.newRequest(URI("http://169.254.169.254/meta")).get().build())
+      trusting.send(trusting.newRequest(URI("http://169.254.169.254/meta")).GET().build())
     }
     val ex = assertThrows<SempodsClientException> {
-      trusting.send(trusting.newRequest(URI("file:///etc/passwd")).get().build())
+      trusting.send(trusting.newRequest(URI("file:///etc/passwd")).GET().build())
     }
     assertTrue(ex.message!!.contains("HTTP(S)"), ex.message)
   }

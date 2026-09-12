@@ -31,7 +31,9 @@ object SempodsPodBaseVectors {
   val canonicalized: List<Pair<String, String>> = listOf(
     "https://pods.example/alice/" to "https://pods.example/alice",
     "https://pods.example/pods/alice/" to "https://pods.example/pods/alice",
-    "https://pods.example/" to "https://pods.example",
+    // A pod on the host root: there is no path segment to trim, and a URL renders its empty path
+    // as `/` whatever it was written as.
+    "https://pods.example/" to "https://pods.example/",
   )
 
   /** Refused, each paired with the requirement it breaks. */

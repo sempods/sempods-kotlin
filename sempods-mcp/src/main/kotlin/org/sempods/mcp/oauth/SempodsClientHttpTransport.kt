@@ -1,7 +1,7 @@
 package org.sempods.mcp.oauth
 
 import org.sempods.auth.core.HttpTransport
-import org.sempods.client.core.SempodsBody
+import org.sempods.client.SempodsBody
 import org.sempods.client.SempodsHttpTransport
 import java.net.URI
 import java.net.URLEncoder
@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 class SempodsClientHttpTransport(private val transport: SempodsHttpTransport) : HttpTransport {
 
   override fun get(url: String): String {
-    val response = transport.send(transport.newRequest(URI(url)).get().build())
+    val response = transport.send(transport.newRequest(URI(url)).GET().build())
     check(response.statusCode == 200) { "GET $url failed: HTTP ${response.statusCode}" }
     return response.body
   }
@@ -32,8 +32,8 @@ class SempodsClientHttpTransport(private val transport: SempodsHttpTransport) : 
     // reason, and throwing before it is read discards the only thing that says what went wrong.
     return transport.send(
       transport.newRequest(URI(url))
-        .setHeader("Content-Type", "application/x-www-form-urlencoded")
-        .post(SempodsBody.text(body))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .POST(SempodsBody.text(body))
         .build(),
     ).body
   }

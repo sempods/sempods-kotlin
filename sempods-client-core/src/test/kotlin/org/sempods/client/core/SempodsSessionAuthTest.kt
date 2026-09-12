@@ -1,7 +1,6 @@
 package org.sempods.client.core
 
 import java.io.ByteArrayInputStream
-import java.net.URI
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -10,6 +9,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import okio.BufferedSink
+import okio.source
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
@@ -64,6 +68,17 @@ class SempodsSessionAuthTest {
   private fun session(pod: String, auth: SempodsRequestAuth) =
     SempodsSession.builder(SempodsPodBase.of("$origin/$pod")).transport(transport).auth(auth).build()
 
+  private fun SempodsSession.text(path: String, method: String = "GET"): Pair<Int, String> =
+    execute(newRequest(method, path).build()).use { it.code to it.body.string() }
+
+  /** A body that may be written once, for the case where a retry must not happen. */
+  private fun oneShotBody(content: String): RequestBody = object : RequestBody() {
+    private val stream = ByteArrayInputStream(content.toByteArray())
+    override fun contentType() = null
+    override fun isOneShot() = true
+    override fun writeTo(sink: BufferedSink) { stream.source().use { sink.writeAll(it) } }
+  }
+
   @Test
   fun `two sessions share a transport and never each other's credential`() {
     // The acceptance case from the issue: one pod wants an API key, the other a bearer plus a
@@ -76,8 +91,8 @@ class SempodsSessionAuthTest {
     )
     server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
 
-    a.executeText(a.newRequest("GET", "_system/contexts").build())
-    b.executeText(b.newRequest("GET", "_system/contexts").build())
+    a.text("_system/contexts")
+    b.text("_system/contexts")
 
     val toAlice = server.retrieveRecordedRequests(request().withPath("/alice/_system/contexts")).single()
     assertEquals("key-a", toAlice.getFirstHeader("X-Api-Key"))
@@ -92,22 +107,35 @@ class SempodsSessionAuthTest {
 
   @Test
   fun `a request built for one pod cannot be executed by another pod's session`() {
-    // A request is a plain object holding an absolute URI, so nothing about it remembers which
+    // A request is a plain object holding an absolute URL, so nothing about it remembers which
     // session built it. Without the check at execution time this sends bob's bearer to alice.
     val a = session("alice", SempodsRequestAuth.apiKeyHeader("X-Api-Key", "key-a"))
     val b = session("bob", SempodsRequestAuth.bearer("token-b"))
 
     val forAlice = a.newRequest("GET", "_system/contexts").build()
-    val refused = assertThrows<SempodsTransportException> { b.executeText(forAlice) }
+    val refused = assertThrows<SempodsClientException> { b.execute(forAlice) }
 
     assertTrue(refused.message!!.contains("not under this session's pod"))
     assertEquals(0, server.retrieveRecordedRequests(request()).size)
   }
 
   @Test
+  fun `authentication may set headers and nothing else`() {
+    // A mechanism that rewrote the URL would carry this session's credential to another authority.
+    // The builder is OkHttp's, so the restriction is enforced rather than typed away.
+    val moves = SempodsRequestAuth { request, _ -> request.url("$origin/bob/stolen") }
+    val a = session("alice", moves)
+
+    val refused = assertThrows<SempodsClientException> { a.text("x") }
+
+    assertTrue(refused.message!!.contains("Authentication moved the request"), refused.message)
+    assertEquals(0, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
   fun `a sibling path sharing the prefix is not under the pod`() {
     val a = session("alice", SempodsRequestAuth.bearer("token-a"))
-    assertThrows<IllegalArgumentException> { a.newRequest("GET", "../alice-archive/secret").build() }
+    assertThrows<IllegalArgumentException> { a.newRequest("GET", "../alice-archive/secret") }
   }
 
   @Test
@@ -115,7 +143,7 @@ class SempodsSessionAuthTest {
     val a = session("alice", SempodsRequestAuth.bearer("session-token"))
     server.`when`(request()).respond(response().withStatusCode(200))
 
-    a.executeText(a.newRequest("GET", "x").setHeader("Authorization", "Bearer caller-token").build())
+    a.execute(a.newRequest("GET", "x").header("Authorization", "Bearer caller-token").build()).close()
 
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals(listOf("Bearer session-token"), sent.getHeader("Authorization"))
@@ -124,11 +152,11 @@ class SempodsSessionAuthTest {
   @Test
   fun `a decorator can remove what the mechanism before it set`() {
     // Declaration order, stated so a conflict is decided rather than discovered.
-    val strip = SempodsRequestAuth { it.removeHeader("Authorization") }
+    val strip = SempodsRequestAuth { request, _ -> request.removeHeader("Authorization") }
     val a = session("alice", SempodsRequestAuth.bearer("t").andThen(strip))
     server.`when`(request()).respond(response().withStatusCode(200))
 
-    a.executeText(a.newRequest("GET", "x").build())
+    a.text("x")
 
     assertEquals("", server.retrieveRecordedRequests(request()).single().getFirstHeader("Authorization"))
   }
@@ -139,10 +167,10 @@ class SempodsSessionAuthTest {
     val a = session("alice", SempodsRequestAuth.bearer("dead"))
     server.`when`(request()).respond(response().withStatusCode(401).withBody("expired"))
 
-    val answer = a.executeText(a.newRequest("GET", "x").build())
+    val (code, body) = a.text("x")
 
-    assertEquals(401, answer.statusCode)
-    assertEquals("expired", answer.body)
+    assertEquals(401, code)
+    assertEquals("expired", body)
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -151,7 +179,7 @@ class SempodsSessionAuthTest {
     val a = session("alice", SempodsRequestAuth.anonymous())
     server.`when`(request()).respond(response().withStatusCode(401))
 
-    assertEquals(401, a.executeText(a.newRequest("GET", "x").build()).statusCode)
+    assertEquals(401, a.text("x").first)
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -164,10 +192,10 @@ class SempodsSessionAuthTest {
     server.`when`(request().withHeader("Authorization", "Bearer token-2"))
       .respond(response().withStatusCode(200).withBody("fresh"))
 
-    val answer = a.executeText(a.newRequest("GET", "x").build())
+    val (code, body) = a.text("x")
 
-    assertEquals(200, answer.statusCode)
-    assertEquals("fresh", answer.body)
+    assertEquals(200, code)
+    assertEquals("fresh", body)
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -177,9 +205,7 @@ class SempodsSessionAuthTest {
     val a = session("alice", refreshable { _ -> "token-${minted.incrementAndGet()}" })
     server.`when`(request()).respond(response().withStatusCode(401).withBody("no"))
 
-    val answer = a.executeText(a.newRequest("GET", "x").build())
-
-    assertEquals(401, answer.statusCode)
+    assertEquals(401, a.text("x").first)
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -187,55 +213,31 @@ class SempodsSessionAuthTest {
   fun `a chain of mechanisms still gets at most one extra attempt`() {
     val a = session(
       "alice",
-      refreshable { _ -> "a" }
-        .andThen(refreshable { _ -> "b" })
-        .andThen(refreshable { _ -> "c" }),
+      refreshable { _ -> "a" }.andThen(refreshable { _ -> "b" }).andThen(refreshable { _ -> "c" }),
     )
     server.`when`(request()).respond(response().withStatusCode(401))
 
-    a.executeText(a.newRequest("GET", "x").build())
+    a.text("x")
 
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
   }
 
   @Test
   fun `a one-shot body rules out the retry that a replayable one allows`() {
-    // The trade stated in SempodsBody.oneShotStream: a second attempt over a drained stream would
-    // upload nothing and be answered 200, which is worse than the 401 the caller gets here.
+    // The honest trade: a second attempt over a drained stream would upload nothing and be
+    // answered 200, which is worse than the 401 the caller gets here.
     server.`when`(request()).respond(response().withStatusCode(401))
 
     val replayable = session("alice", refreshable { _ -> "t" })
-    replayable.executeText(
-      replayable.newRequest("PUT", "x")
-        .body(SempodsBody.stream({ ByteArrayInputStream("body".toByteArray()) }, 4))
-        .build(),
-    )
+    replayable.execute(
+      replayable.newRequest("PUT", "x").method("PUT", "body".toRequestBody()).build(),
+    ).close()
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
 
     server.reset()
     server.`when`(request()).respond(response().withStatusCode(401))
     val oneShot = session("alice", refreshable { _ -> "t" })
-    oneShot.executeText(
-      oneShot.newRequest("PUT", "x")
-        .body(SempodsBody.oneShotStream({ ByteArrayInputStream("body".toByteArray()) }, 4))
-        .build(),
-    )
-    assertEquals(1, server.retrieveRecordedRequests(request()).size)
-  }
-
-  @Test
-  fun `no retry happens once the handler has been given the response`() {
-    // The ordering that makes recovery safe: a handler that already streamed half a body cannot be
-    // run again against a second one, so the challenge is read before the handler ever sees it.
-    val seen = AtomicInteger()
-    val a = session("alice", refreshable { _ -> "t" })
-    server.`when`(request()).respond(response().withStatusCode(403).withBody("denied"))
-
-    val answer = a.execute(a.newRequest("GET", "x").build(), { seen.incrementAndGet(); it.bodyText() })
-
-    assertEquals(403, answer.statusCode)
-    assertEquals("denied", answer.body)
-    assertEquals(1, seen.get())
+    oneShot.execute(oneShot.newRequest("PUT", "x").method("PUT", oneShotBody("body")).build()).close()
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -245,24 +247,22 @@ class SempodsSessionAuthTest {
     // and the attempt, so replaying the first attempt's value is structurally impossible.
     val challenges = mutableListOf<String>()
     val perAttempt = object : SempodsRequestAuth {
-      override fun apply(request: SempodsAuthRequest) {
-        request.setHeader("X-Proof", "${request.method()}:${request.uri().path}:${request.attempt()}")
+      override fun apply(request: Request.Builder, attempt: Int) {
+        request.header("X-Proof", "$attempt")
       }
 
-      override fun recover(challenge: SempodsAuthChallenge): SempodsAuthRecovery {
-        challenges += challenge.authenticateHeaders().joinToString()
-        return if (challenge.attempt == 1) SempodsAuthRecovery.retry() else SempodsAuthRecovery.none()
+      override fun recover(response: Response, attempt: Int): Boolean {
+        challenges += response.headers("WWW-Authenticate").joinToString()
+        return attempt == 1
       }
     }
     val a = session("alice", perAttempt)
-    server.`when`(request().withHeader("X-Proof", "GET:/alice/x:1"))
+    server.`when`(request().withHeader("X-Proof", "1"))
       .respond(response().withStatusCode(401).withHeader("WWW-Authenticate", "DPoP-ish nonce=\"n1\""))
-    server.`when`(request().withHeader("X-Proof", "GET:/alice/x:2"))
+    server.`when`(request().withHeader("X-Proof", "2"))
       .respond(response().withStatusCode(200).withBody("accepted"))
 
-    val answer = a.executeText(a.newRequest("GET", "x").build())
-
-    assertEquals("accepted", answer.body)
+    assertEquals("accepted", a.text("x").second)
     assertEquals(listOf("DPoP-ish nonce=\"n1\""), challenges)
   }
 
@@ -287,7 +287,7 @@ class SempodsSessionAuthTest {
 
     val pool = Executors.newFixedThreadPool(4)
     try {
-      val calls = (1..4).map { pool.submit<Int> { a.executeText(a.newRequest("GET", "x").build()).statusCode } }
+      val calls = (1..4).map { pool.submit<Int> { a.text("x").first } }
       ready.countDown()
       calls.forEach { assertEquals(200, it.get(15, TimeUnit.SECONDS)) }
     } finally {
@@ -301,14 +301,14 @@ class SempodsSessionAuthTest {
   @Test
   fun `a slow refresh on one pod does not hold up another`() {
     val blocked = CountDownLatch(1)
-    val slow = session("alice", refreshable { blocked.await(5, TimeUnit.SECONDS); "a" })
+    val slow = session("alice", refreshable { _ -> blocked.await(5, TimeUnit.SECONDS); "a" })
     val quick = session("bob", SempodsRequestAuth.bearer("b"))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
 
     val pool = Executors.newFixedThreadPool(2)
     try {
-      val held = pool.submit { slow.executeText(slow.newRequest("GET", "x").build()) }
-      assertEquals(200, quick.executeText(quick.newRequest("GET", "x").build()).statusCode)
+      val held = pool.submit { slow.text("x") }
+      assertEquals(200, quick.text("x").first)
       assertFalse(held.isDone, "the unrelated session should not have waited on the other's credential")
       blocked.countDown()
       held.get(15, TimeUnit.SECONDS)
@@ -318,56 +318,20 @@ class SempodsSessionAuthTest {
   }
 
   @Test
-  fun `a failure status reaches the handler rather than becoming an exception`() {
-    // 304, 404 and 412 are answers on the routes above this, so the core does not decide they are
-    // failures. `requireSuccessful` is where a caller asks for the throw.
+  fun `a failure status is an answer, not an exception`() {
+    // 304, 404 and 412 are answers on the routes above this. `Response.isSuccessful` is OkHttp's,
+    // and a core that threw would force every caller to read them out of a `catch`.
     val a = session("alice", SempodsRequestAuth.anonymous())
     listOf(304, 404, 412).forEach { status ->
       server.reset()
       server.`when`(request()).respond(response().withStatusCode(status).withHeader("ETag", "\"v1\""))
 
-      val answer = a.executeText(a.newRequest("GET", "x").build())
-
-      assertEquals(status, answer.statusCode)
-      assertEquals("\"v1\"", answer.header("etag"))
-      assertFalse(answer.successful)
-      assertEquals(status, assertThrows<SempodsHttpException> { answer.requireSuccessful() }.statusCode)
+      a.execute(a.newRequest("GET", "x").build()).use { response ->
+        assertEquals(status, response.code)
+        assertEquals("\"v1\"", response.header("etag"))
+        assertFalse(response.isSuccessful)
+      }
     }
-  }
-
-  @Test
-  fun `a 2xx passes requireSuccessful unchanged`() {
-    val a = session("alice", SempodsRequestAuth.anonymous())
-    server.`when`(request()).respond(response().withStatusCode(200).withBody("body"))
-
-    assertEquals("body", a.executeText(a.newRequest("GET", "x").build()).requireSuccessful().body)
-  }
-
-  @Test
-  fun `an error body is bounded when requireSuccessful reads it`() {
-    val a = session("alice", SempodsRequestAuth.anonymous())
-    server.`when`(request())
-      .respond(response().withStatusCode(500).withBody("x".repeat(SempodsHttpException.MAX_ERROR_BODY_CHARS * 2)))
-
-    val thrown = assertThrows<SempodsHttpException> {
-      a.executeText(a.newRequest("GET", "x").build()).requireSuccessful()
-    }
-
-    assertEquals(SempodsHttpException.MAX_ERROR_BODY_CHARS, thrown.responseBody!!.length)
-  }
-
-  @Test
-  fun `a decoding failure keeps its own type rather than looking like a broken connection`() {
-    val a = session("alice", SempodsRequestAuth.anonymous())
-    server.`when`(request()).respond(response().withStatusCode(200).withBody("{"))
-
-    val thrown = assertThrows<SempodsDecodingException> {
-      a.execute(a.newRequest("GET", "x").build(), { streamed ->
-        throw SempodsDecodingException("not an object", streamed.statusCode, streamed.headers)
-      })
-    }
-
-    assertEquals(200, thrown.statusCode)
   }
 
   @Test
@@ -377,7 +341,7 @@ class SempodsSessionAuthTest {
     val a = session("alice", SempodsRequestAuth.anonymous())
     server.`when`(request()).respond(response().withStatusCode(200).withBody(malformed))
 
-    assertEquals(malformed, a.executeText(a.newRequest("GET", "x").build()).body)
+    assertEquals(malformed, a.text("x").second)
   }
 
   @Test
@@ -389,11 +353,10 @@ class SempodsSessionAuthTest {
         .withHeader("Link", "<b>; rel=prev"),
     )
 
-    val answer = a.executeText(a.newRequest("GET", "x").build())
-
-    assertEquals(listOf("<a>; rel=next", "<b>; rel=prev"), answer.headers.all("link"))
-    assertNull(answer.header("X-Absent"))
-    assertFalse("X-Absent" in answer.headers)
+    a.execute(a.newRequest("GET", "x").build()).use { response ->
+      assertEquals(listOf("<a>; rel=next", "<b>; rel=prev"), response.headers("link"))
+      assertNull(response.header("X-Absent"))
+    }
   }
 
   @Test
@@ -402,9 +365,10 @@ class SempodsSessionAuthTest {
     server.`when`(request()).respond(response().withStatusCode(204).withHeader("Allow", "GET, HEAD, OPTIONS"))
 
     listOf("HEAD", "OPTIONS", "PROPFIND").forEach { verb ->
-      val answer = a.executeText(a.newRequest(verb, "x").build())
-      assertEquals(204, answer.statusCode, verb)
-      assertEquals("GET, HEAD, OPTIONS", answer.header("Allow"), verb)
+      a.execute(a.newRequest(verb, "x").build()).use { response ->
+        assertEquals(204, response.code, verb)
+        assertEquals("GET, HEAD, OPTIONS", response.header("Allow"), verb)
+      }
     }
     assertEquals(
       listOf("HEAD", "OPTIONS", "PROPFIND"),
@@ -412,3 +376,5 @@ class SempodsSessionAuthTest {
     )
   }
 }
+
+private fun String.toRequestBody() = okhttp3.RequestBody.create(null, this.toByteArray())

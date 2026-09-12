@@ -16,7 +16,7 @@ dependencies {
   // than re-spelled per service. RDF4J rides along on the runtime classpath unused — the price of
   // one client instead of two, and cheaper than the drift two guards produced.
   implementation(project(":sempods-client"))
-  // The engine-neutral request/response types and the SSRF policy moved into the core, and this
+  // The SSRF policy and the pod base rules moved into the core, and this
   // module names them directly — in the OAuth client, in the pod URL policy and in the suites that
   // build a guarded transport.
   implementation(project(":sempods-client-core"))

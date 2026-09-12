@@ -42,7 +42,7 @@ class RetryablePodFailureTest {
     { a.map { InetAddress.getByName(it) } }
 
   private fun fetch(transport: SempodsHttpTransport, url: String) =
-    transport.send(transport.newRequest(URI(url)).get().build())
+    transport.send(transport.newRequest(URI(url)).GET().build())
 
   @Test fun `a real SSRF-blocked fetch is classified as transient infra`() {
     val transport = SempodsHttpTransport(

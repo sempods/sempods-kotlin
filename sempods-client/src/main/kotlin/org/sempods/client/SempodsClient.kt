@@ -13,10 +13,6 @@ import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.Rio
-import org.sempods.client.core.SempodsBody
-import org.sempods.client.core.SempodsRequest
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsStreamedResponse
 import org.sempods.commons.net.SempodsPodRoutes
 import org.sempods.media.PodMediaSource
 import org.sempods.media.UploadedMedia
@@ -82,9 +78,9 @@ class SempodsClient(
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val query = "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <$contextUri> { ?s ?p ?o } }"
     val request = newRequest(sparqlUrl, token)
-      .setHeader("Content-Type", "application/sparql-query")
-      .setHeader("Accept", "application/n-quads")
-      .post(SempodsBody.text(query))
+      .header("Content-Type", "application/sparql-query")
+      .header("Accept", "application/n-quads")
+      .POST(SempodsBody.text(query))
       .build()
 
     transport.sendStreaming(request) { response ->
@@ -123,8 +119,8 @@ class SempodsClient(
     }
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", "application/n-quads")
-      .put(SempodsBody.bytes(body))
+      .header("Content-Type", "application/n-quads")
+      .PUT(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -161,8 +157,8 @@ class SempodsClient(
    */
   fun dereference(resourceUri: URI, token: String? = null): Model? {
     val request = newRequest(resourceUri, token)
-      .setHeader("Accept", "application/n-quads")
-      .get()
+      .header("Accept", "application/n-quads")
+      .GET()
       .build()
 
     val response = transport.sendBytes(request)
@@ -189,7 +185,7 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve("$resourcePath?context=$encodedContext")
 
     val request = newRequest(targetUrl, token)
-      .delete()
+      .DELETE()
       .build()
 
     val response = transport.send(request)
@@ -232,9 +228,9 @@ class SempodsClient(
     val body = objectMapper.writeValueAsBytes(payload)
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", "application/json")
-      .setHeader("Accept", "application/json")
-      .put(SempodsBody.bytes(body))
+      .header("Content-Type", "application/json")
+      .header("Accept", "application/json")
+      .PUT(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -253,7 +249,7 @@ class SempodsClient(
     val targetUrl = contextManagementUrl(podBaseUrl, contextUri)
 
     val request = newRequest(targetUrl, token)
-      .delete()
+      .DELETE()
       .build()
 
     val response = transport.send(request)
@@ -278,8 +274,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.CONTEXTS)
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Accept", "application/json")
-      .get()
+      .header("Accept", "application/json")
+      .GET()
       .build()
 
     val response = transport.send(request)
@@ -325,9 +321,9 @@ class SempodsClient(
   ): UploadedMedia {
     val targetUrl = mediaCollectionUrl(podBaseUrl, contextUri, filename)
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", contentType)
-      .setHeader("Accept", "application/json")
-      .post(SempodsBody.stream(body, size))
+      .header("Content-Type", contentType)
+      .header("Accept", "application/json")
+      .POST(SempodsBody.stream(size, body))
       .build()
 
     return readUploadResponse(targetUrl, transport.send(request))
@@ -355,9 +351,9 @@ class SempodsClient(
     if (filename != null) payload["filename"] = filename
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", PodMediaSource.MEDIA_TYPE)
-      .setHeader("Accept", "application/json")
-      .post(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
+      .header("Content-Type", PodMediaSource.MEDIA_TYPE)
+      .header("Accept", "application/json")
+      .POST(SempodsBody.bytes(objectMapper.writeValueAsBytes(payload)))
       .build()
 
     return readUploadResponse(targetUrl, transport.send(request))
@@ -373,7 +369,7 @@ class SempodsClient(
   fun assignMedia(podBaseUrl: URI, mediaId: String, contextUri: URI, token: String?) {
     val targetUrl = mediaUrl(podBaseUrl, mediaId, contextUri)
     val request = newRequest(targetUrl, token)
-      .put(SempodsBody.empty())
+      .PUT(SempodsBody.empty())
       .build()
 
     val response = transport.send(request)
@@ -392,7 +388,7 @@ class SempodsClient(
   fun unassignMedia(podBaseUrl: URI, mediaId: String, contextUri: URI, token: String?) {
     val targetUrl = mediaUrl(podBaseUrl, mediaId, contextUri)
     val request = newRequest(targetUrl, token)
-      .delete()
+      .DELETE()
       .build()
 
     val response = transport.send(request)
@@ -454,8 +450,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.META_DATE_MODIFIED)
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Accept", "application/json")
-      .get()
+      .header("Accept", "application/json")
+      .GET()
       .build()
 
     val response = transport.send(request)
@@ -528,9 +524,9 @@ class SempodsClient(
   fun sparqlConstruct(podBaseUrl: URI, query: String, token: String?): Model {
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val request = newRequest(sparqlUrl, token)
-      .setHeader("Content-Type", "application/sparql-query")
-      .setHeader("Accept", "application/n-quads")
-      .post(SempodsBody.text(query))
+      .header("Content-Type", "application/sparql-query")
+      .header("Accept", "application/n-quads")
+      .POST(SempodsBody.text(query))
       .build()
 
     val response = transport.sendBytes(request)
@@ -587,8 +583,8 @@ class SempodsClient(
     }
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", "application/n-quads")
-      .put(SempodsBody.bytes(body))
+      .header("Content-Type", "application/n-quads")
+      .PUT(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -624,8 +620,8 @@ class SempodsClient(
     val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, contextUris)
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Accept", "application/n-quads")
-      .get()
+      .header("Accept", "application/n-quads")
+      .GET()
       .build()
 
     val response = transport.sendBytes(request)
@@ -656,7 +652,7 @@ class SempodsClient(
     val targetUrl = systemResourceUrl(podBaseUrl, subjectUri, listOf(contextUri))
 
     val request = newRequest(targetUrl, token)
-      .delete()
+      .DELETE()
       .build()
 
     val response = transport.send(request)
@@ -703,8 +699,8 @@ class SempodsClient(
     val body = objectMapper.writeValueAsBytes(values.map(::toJsonLdValueObject))
 
     val request = newRequest(targetUrl, token)
-      .setHeader("Content-Type", "application/ld+json")
-      .put(SempodsBody.bytes(body))
+      .header("Content-Type", "application/ld+json")
+      .PUT(SempodsBody.bytes(body))
       .build()
 
     val response = transport.send(request)
@@ -746,9 +742,9 @@ class SempodsClient(
       .encodeToString("$encodedId:$encodedSecret".toByteArray(StandardCharsets.UTF_8))
 
     val request = newRequest(tokenUrl)
-      .setHeader("Authorization", "Basic $basic")
-      .setHeader("Content-Type", "application/x-www-form-urlencoded")
-      .post(SempodsBody.text("grant_type=client_credentials"))
+      .header("Authorization", "Basic $basic")
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .POST(SempodsBody.text("grant_type=client_credentials"))
       .build()
 
     val response = transport.send(request)
@@ -790,8 +786,8 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.META_DATE_MODIFIED)
 
     val request = newRequest(targetUrl)
-      .setHeader("Accept", "application/json")
-      .get()
+      .header("Accept", "application/json")
+      .GET()
       .build()
 
     val response = transport.send(request)
@@ -815,9 +811,9 @@ class SempodsClient(
   ): String {
     val sparqlUrl = sparqlQueryUrl(podBaseUrl)
     val request = newRequest(sparqlUrl, token)
-      .setHeader("Content-Type", "application/sparql-query")
-      .setHeader("Accept", accept)
-      .post(SempodsBody.text(query))
+      .header("Content-Type", "application/sparql-query")
+      .header("Accept", accept)
+      .POST(SempodsBody.text(query))
       .build()
 
     val response = transport.send(request)

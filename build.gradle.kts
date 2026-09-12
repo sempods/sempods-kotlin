@@ -293,9 +293,9 @@ subprojects {
   // without them, just worse to call.
   //
   // The second promise is the module's own **library boundary**, which differs per module: the
-  // HTTP core hides its engine and names no RDF or JSON library, while an RDF adapter is expected
-  // to name RDF4J. That is why this is a map and not a constant — when an adapter is published, it
-  // is an entry here rather than a new module somewhere.
+  // HTTP core names OkHttp on purpose and no RDF or JSON library at all, while an RDF adapter is
+  // expected to name RDF4J. That is why this is a map and not a constant — when an adapter is
+  // published, it is an entry here rather than a new module somewhere.
   //
   // Reads the compiled classes rather than the source, because what a consumer compiles against is
   // the bytecode: a Kotlin type can arrive in a signature the source never names. `javap` rather
@@ -305,9 +305,10 @@ subprojects {
   // `:consumer-probe:client-core` is the other half: this says the shape is right, that compiles
   // Java against it and runs the result.
   val forbiddenLibraries = mapOf(
+    // OkHttp is deliberately absent from this list: `SempodsSession` hands back an
+    // `okhttp3.Response` and the module declares the engine on `api`. What it still may not name is
+    // a representation library — that is the split `#116` asked for, and the only one left.
     "sempods-client-core" to mapOf(
-      "okhttp3." to "the HTTP engine",
-      "okio." to "the HTTP engine",
       "com.fasterxml.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",
       "org.apache.jena." to "an RDF library",

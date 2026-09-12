@@ -1,15 +1,16 @@
 package org.sempods.client.core
 
+import okhttp3.Request
+import okhttp3.Response
 import java.io.IOException
-import java.net.URI
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Supplies a credential, and says whether a refused one is worth re-acquiring.
  *
- * An interface rather than a Kotlin function type, and `String` rather than a parsed token: the
- * core neither knows nor parses a token format. Whoever implements this owns expiry, caching and
- * whatever endpoint mints the value.
+ * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
+ * implements this owns expiry, caching and whatever endpoint mints the value.
  */
 fun interface SempodsCredentialSupplier {
 
@@ -22,91 +23,22 @@ fun interface SempodsCredentialSupplier {
 }
 
 /**
- * The request an authentication mechanism is applied to, and the only thing it may change.
- *
- * **Headers, and nothing else.** No method, no target, no body: authentication that could move a
- * request to another authority would carry the session's credential there, and the outbound guard
- * and the pod confinement check both run before this. Header names are matched case-insensitively.
- */
-interface SempodsAuthRequest {
-
-  fun method(): String
-
-  fun uri(): URI
-
-  /** Which attempt this is, from 1. A request-bound header is regenerated for each. */
-  fun attempt(): Int
-
-  /**
-   * Milliseconds left on the whole-operation deadline, or `-1` when there is none.
-   *
-   * Exposed because acquiring a credential can block — a refresh that outlives the caller's
-   * deadline is a call that has already failed, and an implementation that cannot see the deadline
-   * would keep waiting past it.
-   */
-  fun remainingTimeoutMillis(): Long
-
-  /** Sets [name] to [value], replacing any value already on the request, caller-set or not. */
-  fun setHeader(name: String, value: String)
-
-  /** Adds another value for [name]. */
-  fun addHeader(name: String, value: String)
-
-  fun removeHeader(name: String)
-}
-
-/**
- * What a server said when it refused the credential.
- *
- * Bounded on purpose: the headers a server sends are its own, but the body is not something this
- * client reads unbounded on a failure path — [bodySnippet] stops at
- * [SempodsHttpException.MAX_ERROR_BODY_CHARS].
- */
-class SempodsAuthChallenge internal constructor(
-  val statusCode: Int,
-  val headers: SempodsHeaders,
-  val bodySnippet: String?,
-  val attempt: Int,
-) {
-  /** Every `WWW-Authenticate` value, which is the field that may legitimately repeat. */
-  fun authenticateHeaders(): List<String> = headers.all("WWW-Authenticate")
-}
-
-/**
- * Whether a mechanism believes another attempt would answer differently.
- *
- * **An opinion, not an instruction.** Only the execution layer authorizes a retry, and it refuses
- * one for a non-replayable body, after the body handler has seen data, or once the attempt budget
- * is spent. A mechanism returning [retry] on every challenge therefore cannot loop.
- */
-class SempodsAuthRecovery private constructor(val shouldRetry: Boolean) {
-
-  companion object {
-
-    @JvmStatic
-    fun none(): SempodsAuthRecovery = NONE
-
-    /** The credential has been invalidated and the next attempt will carry a different one. */
-    @JvmStatic
-    fun retry(): SempodsAuthRecovery = RETRY
-
-    private val NONE = SempodsAuthRecovery(false)
-    private val RETRY = SempodsAuthRecovery(true)
-  }
-}
-
-/**
  * How a session authenticates its requests — replaceable and decoratable without touching an
  * endpoint, a private internal or a central registration list.
  *
- * **Applied per attempt, after the request is assembled.** A header this sets replaces a
- * same-named header the caller put on the request, and it is recomputed for every attempt — which
- * is the seam a later proof-of-possession mechanism needs, where the header is bound to the
- * request and to a nonce the server just supplied.
+ * **Applied per attempt, on the request that is about to go out.** [apply] receives the builder, so
+ * a header it sets replaces a same-named header the caller put on the request, and it is recomputed
+ * for every attempt — which is the seam a later proof-of-possession mechanism needs, where the
+ * header is bound to the request and to a nonce the server just supplied.
+ *
+ * **Headers, and nothing else.** A mechanism that changed `url` would carry the session's
+ * credential to another authority; the session checks the target again afterwards and refuses the
+ * call rather than sending it. The builder is OkHttp's because this library has no reason to own a
+ * second one — the restriction is enforced, not typed away.
  *
  * **Composition.** [andThen] applies the two in declaration order. On a challenge, [recover] is
- * asked in that same order and **the first one to answer [SempodsAuthRecovery.retry] wins**; the
- * rest are not asked. However long the chain, one operation gets at most one extra attempt.
+ * asked in that same order and the first one to answer `true` wins; the rest are not asked.
+ * However long the chain, one operation gets at most one extra attempt.
  *
  * **Concurrency.** An instance is shared by every call of its session and must be safe for
  * concurrent use. [refreshable] coalesces: concurrent callers that find the credential refused make
@@ -114,21 +46,30 @@ class SempodsAuthRecovery private constructor(val shouldRetry: Boolean) {
  */
 fun interface SempodsRequestAuth {
 
+  /** Puts this mechanism's headers on [request], which is about to be sent as attempt [attempt]. */
   @Throws(IOException::class)
-  fun apply(request: SempodsAuthRequest)
+  fun apply(request: Request.Builder, attempt: Int)
 
-  /** Whether another attempt is worth making. Nothing by default — see [SempodsAuthRecovery]. */
-  fun recover(challenge: SempodsAuthChallenge): SempodsAuthRecovery = SempodsAuthRecovery.none()
+  /**
+   * Whether another attempt would answer differently, having seen the refusal.
+   *
+   * **An opinion, not an instruction.** Only the execution layer authorizes a retry, and it refuses
+   * one for a non-replayable body or once the attempt budget is spent — so a mechanism returning
+   * `true` on every challenge cannot loop. [response] is the refusal itself, headers included; its
+   * body has not been read and must not be consumed here.
+   */
+  @Throws(IOException::class)
+  fun recover(response: Response, attempt: Int): Boolean = false
 
   fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(listOf(this, next))
 
   private class Composite(val members: List<SempodsRequestAuth>) : SempodsRequestAuth {
 
-    override fun apply(request: SempodsAuthRequest) = members.forEach { it.apply(request) }
+    override fun apply(request: Request.Builder, attempt: Int) =
+      members.forEach { it.apply(request, attempt) }
 
-    override fun recover(challenge: SempodsAuthChallenge): SempodsAuthRecovery =
-      if (members.any { it.recover(challenge).shouldRetry }) SempodsAuthRecovery.retry()
-      else SempodsAuthRecovery.none()
+    override fun recover(response: Response, attempt: Int): Boolean =
+      members.any { it.recover(response, attempt) }
 
     override fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(members + next)
   }
@@ -144,7 +85,7 @@ fun interface SempodsRequestAuth {
      * the latency of a failure that was already final.
      */
     @JvmStatic
-    fun anonymous(): SempodsRequestAuth = SempodsRequestAuth { }
+    fun anonymous(): SempodsRequestAuth = SempodsRequestAuth { _, _ -> }
 
     /**
      * A credential the caller already holds.
@@ -154,12 +95,12 @@ fun interface SempodsRequestAuth {
      */
     @JvmStatic
     fun bearer(token: String): SempodsRequestAuth =
-      SempodsRequestAuth { it.setHeader("Authorization", "Bearer $token") }
+      SempodsRequestAuth { request, _ -> request.header("Authorization", "Bearer $token") }
 
     /** A fixed value in a header of the deployment's choosing. Not retried, as [bearer]. */
     @JvmStatic
     fun apiKeyHeader(name: String, value: String): SempodsRequestAuth =
-      SempodsRequestAuth { it.setHeader(name, value) }
+      SempodsRequestAuth { request, _ -> request.header(name, value) }
 
     /**
      * A bearer that can be re-acquired, and the only convenience that retries.
@@ -189,9 +130,7 @@ fun interface SempodsRequestAuth {
  * result.
  *
  * The lock is this object's, so it is per credential: a session authenticating against another pod
- * shares none of it and is never held up. Waiting for it is bounded by the caller's remaining
- * deadline, so a supplier that hangs fails the operation that was going to fail anyway rather than
- * every operation behind it.
+ * shares none of it and is never held up.
  */
 private class Refreshable(
   private val supplier: SempodsCredentialSupplier,
@@ -208,28 +147,26 @@ private class Refreshable(
   /** The generation each in-flight attempt authenticated with, so recovery replaces the right one. */
   private val attemptGeneration = ThreadLocal<Long>()
 
-  override fun apply(request: SempodsAuthRequest) {
-    val value = acquire(replacing = null, remainingMillis = request.remainingTimeoutMillis())
+  override fun apply(request: Request.Builder, attempt: Int) {
+    val value = acquire(replacing = null)
     attemptGeneration.set(generation)
-    request.setHeader(headerName, if (scheme.isEmpty()) value else "$scheme $value")
+    request.header(headerName, if (scheme.isEmpty()) value else "$scheme $value")
   }
 
-  override fun recover(challenge: SempodsAuthChallenge): SempodsAuthRecovery {
-    if (challenge.statusCode != 401) return SempodsAuthRecovery.none()
-    val refused = attemptGeneration.get() ?: return SempodsAuthRecovery.none()
-    return runCatching { acquire(replacing = refused, remainingMillis = -1) }
-      .fold({ SempodsAuthRecovery.retry() }, { SempodsAuthRecovery.none() })
+  override fun recover(response: Response, attempt: Int): Boolean {
+    if (response.code != 401) return false
+    val refused = attemptGeneration.get() ?: return false
+    return runCatching { acquire(replacing = refused) }.isSuccess
   }
 
-  private fun acquire(replacing: Long?, remainingMillis: Long): String {
+  private fun acquire(replacing: Long?): String {
     val held = credential
     if (held != null && (replacing == null || generation != replacing)) return held
 
-    val locked =
-      if (remainingMillis < 0) lock.lock().let { true }
-      else lock.tryLock(remainingMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
-    if (!locked) {
-      throw SempodsTransportException("Timed out waiting to acquire a credential.")
+    // Bounded, so a supplier that hangs fails the operation that was going to fail anyway rather
+    // than every operation behind it. The whole-call deadline is the engine's; this is the floor.
+    if (!lock.tryLock(CREDENTIAL_WAIT_SECONDS, TimeUnit.SECONDS)) {
+      throw IOException("Timed out waiting to acquire a credential.")
     }
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
@@ -239,10 +176,12 @@ private class Refreshable(
       credential = fresh
       generation += 1
       return fresh
-    } catch (e: IOException) {
-      throw SempodsTransportException("Could not acquire a credential: ${e.message}", e)
     } finally {
       lock.unlock()
     }
+  }
+
+  private companion object {
+    const val CREDENTIAL_WAIT_SECONDS = 30L
   }
 }

@@ -51,7 +51,7 @@ import org.sempods.auth.CommonsHttpTransport
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
-import org.sempods.client.core.SempodsHttpTimeouts
+import org.sempods.client.SempodsHttpTimeouts
 import org.sempods.client.SempodsHttpTransport
 import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.client.core.net.SempodsUrlPolicy
@@ -282,7 +282,7 @@ class SempodsModule : BaseModule() {
           connect = Duration.ofSeconds(5),
           read = Duration.ofSeconds(30),
           write = Duration.ofSeconds(30),
-          operation = Duration.ofSeconds(60),
+          call = Duration.ofSeconds(60),
         ),
         guard = SempodsOutboundGuard(
           policy = SempodsUrlPolicy(allowPrivateAddresses = false),

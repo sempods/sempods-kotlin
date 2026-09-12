@@ -1,6 +1,6 @@
 package org.sempods.client.core
 
-import java.net.URI
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -16,7 +16,7 @@ class SempodsPodBaseTest {
 
   @Test
   fun `a conforming base is accepted`() {
-    SempodsPodBaseVectors.accepted.forEach { assertNull(SempodsPodBase.reject(URI(it)), it) }
+    SempodsPodBaseVectors.accepted.forEach { assertNull(SempodsPodBase.reject(it), it) }
   }
 
   @Test
@@ -29,8 +29,7 @@ class SempodsPodBaseTest {
   @Test
   fun `a base the specification forbids is refused, naming the clause`() {
     SempodsPodBaseVectors.refused.forEach { (url, requirement) ->
-      val uri = runCatching { URI(url) }.getOrNull()
-      val reason = uri?.let { SempodsPodBase.reject(it) } ?: "not a valid URL"
+      val reason = SempodsPodBase.reject(url) ?: ""
       assertTrue(reason.isNotBlank(), "$url should be refused ($requirement)")
     }
   }
@@ -42,8 +41,8 @@ class SempodsPodBaseTest {
     // `https://example.org/pods/_system/contexts` — another pod's neighbour, with this pod's bearer.
     val base = SempodsPodBase.of("https://example.org/pods/alice")
     assertEquals(
-      URI("https://example.org/pods/alice/_system/contexts"),
-      base.resolve("_system/contexts"),
+      "https://example.org/pods/alice/_system/contexts",
+      base.resolve("_system/contexts").toString(),
     )
   }
 
@@ -58,22 +57,22 @@ class SempodsPodBaseTest {
   @Test
   fun `containment is by path segment, not by string prefix`() {
     val base = SempodsPodBase.of("https://pods.example/alice")
-    assertTrue(URI("https://pods.example/alice") in base)
-    assertTrue(URI("https://pods.example/alice/_system/contexts") in base)
+    assertTrue("https://pods.example/alice".toHttpUrl() in base)
+    assertTrue("https://pods.example/alice/_system/contexts".toHttpUrl() in base)
 
     // The one a `startsWith` on the text would wave through, and the reason this is a method
     // rather than a comparison at each call site.
-    assertFalse(URI("https://pods.example/alice-archive/secret") in base)
-    assertFalse(URI("https://pods.example/bob") in base)
-    assertFalse(URI("https://elsewhere.example/alice") in base)
-    assertFalse(URI("http://pods.example/alice") in base)
-    assertFalse(URI("https://pods.example:8443/alice") in base)
-    assertFalse(URI("https://pods.example/alice/../bob") in base)
+    assertFalse("https://pods.example/alice-archive/secret".toHttpUrl() in base)
+    assertFalse("https://pods.example/bob".toHttpUrl() in base)
+    assertFalse("https://elsewhere.example/alice".toHttpUrl() in base)
+    assertFalse("http://pods.example/alice".toHttpUrl() in base)
+    assertFalse("https://pods.example:8443/alice".toHttpUrl() in base)
+    assertFalse("https://pods.example/alice/../bob".toHttpUrl() in base)
   }
 
   @Test
   fun `the default port is the same port`() {
-    assertTrue(URI("https://pods.example:443/alice/x") in SempodsPodBase.of("https://pods.example/alice"))
-    assertTrue(URI("https://pods.example/alice/x") in SempodsPodBase.of("https://pods.example:443/alice"))
+    assertTrue("https://pods.example:443/alice/x".toHttpUrl() in SempodsPodBase.of("https://pods.example/alice"))
+    assertTrue("https://pods.example/alice/x".toHttpUrl() in SempodsPodBase.of("https://pods.example:443/alice"))
   }
 }

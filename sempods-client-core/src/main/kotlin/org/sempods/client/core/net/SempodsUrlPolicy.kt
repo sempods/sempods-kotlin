@@ -49,9 +49,9 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
    * is reachable only where [allowPrivateAddresses] says loopback is somewhere this process may go.
    */
   fun rejectPodBase(podBaseUrl: String): String? {
-    val uri = runCatching { URI(podBaseUrl) }.getOrNull() ?: return "not a valid URL"
-    SempodsPodBase.reject(uri)?.let { return it }
-    return rejectHost(uri.host.lowercase())
+    SempodsPodBase.reject(podBaseUrl)?.let { return it }
+    val host = runCatching { URI(podBaseUrl).host }.getOrNull() ?: return "missing host"
+    return rejectHost(host.lowercase())
   }
 
   /**

@@ -9,10 +9,17 @@ dependencies {
   // application framework along with an HTTP client.
   implementation(project(":sempods-commons"))
 
-  // `implementation`, never `api`: the engine stops at `SempodsTransport`. Callers speak
-  // `SempodsRequest`/`SempodsResponse`/`SempodsBody` and a consumer of the published artifact never
-  // compiles against an OkHttp type — see `SempodsBody` for why that boundary is drawn here.
-  implementation(libs.okhttp)
+  // `api`, and that is this module's shape rather than an oversight. `SempodsSession` hands back
+  // an `okhttp3.Response` and takes an `okhttp3.Request`; a consumer compiles against both, adds
+  // its own interceptor, shares the connection pool. Hiding the engine behind a second vocabulary
+  // cost about five hundred lines and bought a consumer nothing they could not already do — while
+  // costing them everything OkHttp offers that this library would have had to re-expose one method
+  // at a time. What this module adds is what OkHttp has no opinion about: the pod base URL rules,
+  // the SSRF guard, pod confinement and replaceable request authentication.
+  //
+  // The price is stated rather than hidden: OkHttp's major version is part of this module's ABI.
+  // `docs/pod-client.md` §"The core" carries the trade.
+  api(libs.okhttp)
 
   // No RDF4J, no Jackson, no Jena, and that is this module's reason to exist.
   // `:consumer-probe:client-core` resolves this module the way a consumer does and fails if any of

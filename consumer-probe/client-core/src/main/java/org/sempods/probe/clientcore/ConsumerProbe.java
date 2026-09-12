@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -14,29 +13,29 @@ import java.util.concurrent.TimeUnit;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import org.sempods.client.core.SempodsAuthRequest;
-import org.sempods.client.core.SempodsBodyHandler;
-import org.sempods.client.core.SempodsOperation;
+import okhttp3.Call;
+import okhttp3.Request;
+import okhttp3.Response;
+
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsRequestAuth;
-import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsTransport;
-import org.sempods.client.core.SempodsTransportException;
 
 /**
  * The client core as a Java consumer writes it.
  *
  * <p>Two things are checked here that nothing else in this build can see. The first is the
  * compilation itself: Gradle propagates only {@code api} across a project boundary, so this file's
- * classpath is a consumer's, and a Kotlin function type or a missing {@code @Throws} on the surface
- * is a compile error rather than a finding in someone else's build. The second needs the program to
- * run, which is why there is a {@code main}: the published modules promise Java 21 bytecode, and
- * {@code runOnJava21} starts a real 21 process to stand on that floor.
+ * classpath is a consumer's, and a value class, a {@code suspend} function or a missing
+ * {@code @Throws} on the surface is a compile error rather than a finding in someone else's build.
+ * The second needs the program to run, which is why there is a {@code main}: the published modules
+ * promise Java 21 bytecode, and {@code runOnJava21} starts a real 21 process to stand on that floor.
  *
- * <p>It doubles as the worked example the published API is reviewed against — custom
- * authentication, an endpoint extension, an external decoder, streaming and cancellation, written
- * the way a consumer writes them. An example that lives only in a comment stops being true quietly.
+ * <p>It doubles as the worked example the published API is reviewed against. What that example
+ * shows is mostly OkHttp — a {@code Request}, a {@code Response}, a {@code Call} to cancel — because
+ * the core hides no engine: what it adds is the pod base URL, the confinement, the outbound guard
+ * and replaceable authentication.
  *
  * <p>The server is {@code com.sun.net.httpserver} from the JDK rather than a test library, because
  * a test library here would be exactly the kind of dependency this module exists to rule out.
@@ -84,14 +83,14 @@ public final class ConsumerProbe {
     server.start();
 
     try (SempodsTransport transport = SempodsTransport.builder().build()) {
-      URI podUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/alice");
+      String podUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/alice";
       SempodsSession session = SempodsSession.builder(SempodsPodBase.of(podUrl))
           .transport(transport)
           .auth(new ApiKeyWithTenant("k-123", "tenant-a"))
           .build();
 
       rawJsonIsReturnedUnchanged(session);
-      anExternalDecoderInterpretsIt(session);
+      anExternalDecoderReadsTheStream(session);
       anEndpointExtensionReadsMultiValuedHeaders(session);
       aStreamIsReadIncrementally(session);
       cancellationReachesTheConnection(session);
@@ -115,74 +114,66 @@ public final class ConsumerProbe {
     }
 
     @Override
-    public void apply(SempodsAuthRequest request) {
-      request.setHeader("X-Api-Key", key);
-      request.setHeader("X-Tenant", tenant);
+    public void apply(Request.Builder request, int attempt) {
+      request.header("X-Api-Key", key);
+      request.header("X-Tenant", tenant);
     }
   }
 
   private static void rawJsonIsReturnedUnchanged(SempodsSession session) throws IOException {
-    SempodsResponse<String> answer =
-        session.executeText(session.newRequest("GET", "_system/contexts").build());
-    require(answer.getStatusCode() == 200, "raw JSON read answered " + answer.getStatusCode());
-    require(MALFORMED_JSON.equals(answer.getBody()),
-        "the core did not return the body unchanged: " + answer.getBody());
+    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+      require(response.code() == 200, "raw JSON read answered " + response.code());
+      require(MALFORMED_JSON.equals(response.body().string()),
+          "the core did not return the body unchanged");
+    }
   }
 
   /** An external decoder reaches nothing private, and fails rather than answering empty. */
-  private static void anExternalDecoderInterpretsIt(SempodsSession session) throws IOException {
-    SempodsBodyHandler<Integer> countingBraces = response -> {
-      String body = response.bodyText();
-      if (body.chars().filter(c -> c == '{').count() != body.chars().filter(c -> c == '}').count()) {
-        throw new IOException("unbalanced braces — this is not the document the route promises");
-      }
-      return body.length();
-    };
-    // The decoder's own IOException travels out unchanged rather than as a transport failure, which
-    // is a completely different diagnosis. This clause compiles because `execute` declares it.
-    try {
-      session.execute(session.newRequest("GET", "_system/contexts").build(), countingBraces);
-      require(false, "a decoder given malformed input reported success");
-    } catch (IOException expected) {
-      require(expected.getMessage().contains("unbalanced braces"),
-          "an external decoder's failure lost its own shape: " + expected);
+  private static void anExternalDecoderReadsTheStream(SempodsSession session) throws IOException {
+    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+      String body = response.body().string();
+      long open = body.chars().filter(c -> c == '{').count();
+      long close = body.chars().filter(c -> c == '}').count();
+      require(open != close, "the malformed document should not be balanced");
+      // A decoder that wanted to fail here throws its own IOException, and `execute` declares one —
+      // so a Java caller can catch it without an unchecked wrapper in between.
     }
   }
 
   /** An endpoint extension: any method, and every value of a header that repeats. */
   private static void anEndpointExtensionReadsMultiValuedHeaders(SempodsSession session) throws IOException {
     for (String verb : List.of("HEAD", "OPTIONS")) {
-      SempodsResponse<String> answer =
-          session.executeText(session.newRequest(verb, "_system/probe").build());
-      require(answer.getStatusCode() == 204, verb + " answered " + answer.getStatusCode());
-      require(List.of("<a>; rel=next", "<b>; rel=prev").equals(answer.getHeaders().all("link")),
-          verb + " lost a repeated header: " + answer.getHeaders().all("link"));
-      require("GET, HEAD, OPTIONS".equals(answer.header("allow")), verb + " lost Allow");
-      require("k-123".equals(answer.header("X-Saw-Api-Key")), verb + " did not carry the API key");
+      try (Response response = session.execute(session.newRequest(verb, "_system/probe").build())) {
+        require(response.code() == 204, verb + " answered " + response.code());
+        require(List.of("<a>; rel=next", "<b>; rel=prev").equals(response.headers("Link")),
+            verb + " lost a repeated header: " + response.headers("Link"));
+        require("GET, HEAD, OPTIONS".equals(response.header("Allow")), verb + " lost Allow");
+        require("k-123".equals(response.header("X-Saw-Api-Key")), verb + " did not carry the API key");
+      }
     }
   }
 
   private static void aStreamIsReadIncrementally(SempodsSession session) throws IOException {
-    SempodsResponse<String> head = session.execute(
-        session.newRequest("GET", "_system/contexts").build(),
-        response -> {
-          byte[] first = new byte[8];
-          int read = response.bodyStream().readNBytes(first, 0, first.length);
-          return new String(first, 0, read, StandardCharsets.UTF_8);
-        });
-    require(MALFORMED_JSON.startsWith(head.getBody()), "a scoped read returned " + head.getBody());
+    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+      byte[] first = new byte[8];
+      response.body().source().readFully(first);
+      String head = new String(first, StandardCharsets.UTF_8);
+      require(MALFORMED_JSON.startsWith(head), "a scoped read returned " + head);
+    }
   }
 
   private static void cancellationReachesTheConnection(SempodsSession session) throws Exception {
-    SempodsOperation operation = new SempodsOperation();
+    // `newCall` hands out the engine's own handle. Cancellation is `Call.cancel()` and nothing this
+    // library invented — it closes the socket rather than letting an await return early.
+    Call call = session.newCall(session.newRequest("GET", "_system/slow").build());
     CountDownLatch started = new CountDownLatch(1);
     CountDownLatch finished = new CountDownLatch(1);
     Throwable[] outcome = new Throwable[1];
 
     Thread caller = new Thread(() -> {
       started.countDown();
-      try {
-        session.executeText(session.newRequest("GET", "_system/slow").build(), operation);
+      try (Response ignored = call.execute()) {
+        outcome[0] = new IllegalStateException("the cancelled call returned a response");
       } catch (Throwable t) {
         outcome[0] = t;
       } finally {
@@ -192,11 +183,11 @@ public final class ConsumerProbe {
     caller.start();
     require(started.await(5, TimeUnit.SECONDS), "the cancellable call never started");
     Thread.sleep(300);
-    operation.cancel();
+    call.cancel();
 
     require(finished.await(10, TimeUnit.SECONDS), "cancelling did not end the call");
-    require(outcome[0] instanceof SempodsTransportException, "a cancelled call ended as " + outcome[0]);
-    require(operation.isCancelled(), "the operation did not report itself cancelled");
+    require(outcome[0] instanceof IOException, "a cancelled call ended as " + outcome[0]);
+    require(call.isCanceled(), "the call did not report itself cancelled");
   }
 
   private static String header(HttpExchange exchange, String name) {

@@ -17,7 +17,6 @@ import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.core.SempodsHttpTimeouts
 import org.slf4j.event.Level
 
 /**
@@ -48,7 +47,7 @@ class SempodsHttpTimeoutsTest {
   }
 
   private fun get(transport: SempodsHttpTransport) =
-    transport.send(transport.newRequest(slow).get().build())
+    transport.send(transport.newRequest(slow).GET().build())
 
   @Test
   fun `the whole-call deadline bounds an answer the read timeout would tolerate`() {
@@ -56,7 +55,7 @@ class SempodsHttpTimeoutsTest {
     // server answering slowly — or dripping just inside that gap — never trips it. Only `call`
     // bounds the total, which is why a transport a person is waiting on must set one.
     val transport = SempodsHttpTransport(
-      timeouts = SempodsHttpTimeouts(read = Duration.ofSeconds(10), operation = Duration.ofSeconds(1)),
+      timeouts = SempodsHttpTimeouts(read = Duration.ofSeconds(10), call = Duration.ofSeconds(1)),
     )
     val elapsed = measureTimeMillis {
       assertThrows<IOException> { get(transport) }
@@ -69,7 +68,7 @@ class SempodsHttpTimeoutsTest {
     // `dumpContext` streams a whole context and must not be cut off by elapsed time; the default is
     // ZERO for that reason, and this is the assertion that keeps someone from "tightening" it.
     val transport = SempodsHttpTransport(
-      timeouts = SempodsHttpTimeouts(read = Duration.ofSeconds(10), operation = Duration.ZERO),
+      timeouts = SempodsHttpTimeouts(read = Duration.ofSeconds(10), call = Duration.ZERO),
     )
     assertEquals(200, get(transport).statusCode)
   }

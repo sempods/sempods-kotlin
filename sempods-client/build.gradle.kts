@@ -36,6 +36,12 @@ dependencies {
   // `:sempods-client-core`, which declares OkHttp on `implementation`, so nothing here names one.
   api(project(":sempods-client-core"))
 
+  // Named directly because this module names it directly: the legacy surface translates its own
+  // `SempodsRequest` onto an `okhttp3.Request` and reads an `okhttp3.Response` back. It arrives
+  // through the core's `api` either way — declaring it is the repository's rule that a type you
+  // compile against is one you say you have.
+  implementation(libs.okhttp)
+
   // No logging: nothing in this module logs. A failed request is handed back rather than written
   // down — see `SempodsClientException`.
 

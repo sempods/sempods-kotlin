@@ -37,7 +37,7 @@ import org.sempods.mcp.api.mcp.WriteTools
 import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodTokenProvider
-import org.sempods.client.core.SempodsHttpTimeouts
+import org.sempods.client.SempodsHttpTimeouts
 import org.sempods.client.SempodsHttpTransport
 import org.sempods.client.core.net.OutboundRateLimiter
 import org.sempods.client.core.net.SempodsOutboundGuard
@@ -68,7 +68,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
     connect = Duration.ofSeconds(5),
     read = Duration.ofSeconds(10),
     write = Duration.ofSeconds(10),
-    operation = Duration.ofSeconds(10),
+    call = Duration.ofSeconds(10),
   )
 
   override fun configure() {

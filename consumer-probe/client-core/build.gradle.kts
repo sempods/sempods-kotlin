@@ -16,4 +16,9 @@ dependencies {
   // `implementation`, as a foreign build would write it: Gradle propagates only `api` across a
   // project boundary, so this module's compile classpath is a consumer's.
   implementation(project(":sempods-client-core"))
+
+  // As a consumer writes it. The core exports OkHttp on `api`, so this arrives without the line —
+  // but a consumer that names `Request`, `Response` and `Call` declares them, and a probe that
+  // did not would be modelling a build nobody writes.
+  implementation(libs.okhttp)
 }
