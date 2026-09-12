@@ -198,6 +198,71 @@ subprojects {
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoLoggingBinding) }
 
+  // What `:consumer-probe:client-core` asks, registered here because the Kotlin plugin that gives
+  // that project a source set is applied by this block — its own build file is evaluated first and
+  // would find no source set to read.
+  if (path == ":consumer-probe:client-core") {
+
+    // Nothing in the published core may drag an RDF store, a triple parser or an object mapper
+    // behind it. `buildHealth` cannot answer this: it advises on how a dependency is *declared* and
+    // has no notion of one being forbidden. The graph resolved here is a consumer's — the
+    // first-party modules appear as projects, and every third-party edge is what they download.
+    val runtimeClasspath = configurations.named("runtimeClasspath")
+
+    // The floor the published modules promise, applied to the probe that stands on it. Without it
+    // the probe compiles against the toolchain's 25 and a Java 21 process cannot load its own class
+    // file — and it buys a second assertion on the way: a Java 22+ API reached through the core's
+    // signatures fails to compile here rather than at a consumer's.
+    tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+
+    val checkNoForbiddenDependencies = tasks.register("checkNoForbiddenDependencies") {
+      group = "verification"
+      description = "Fails if a consumer of the client core would resolve RDF4J, Jena or Jackson."
+      doLast {
+        val forbidden = mapOf(
+          "org.eclipse.rdf4j" to "RDF4J",
+          "org.apache.jena" to "Jena",
+          "com.fasterxml.jackson" to "Jackson",
+          "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
+        )
+        val offenders = runtimeClasspath.get().incoming.resolutionResult.allComponents
+          .mapNotNull { it.id as? ModuleComponentIdentifier }
+          .map { "${it.group}:${it.module}" }
+          .filter { coordinates -> forbidden.keys.any { coordinates.startsWith(it) } }
+          .distinct().sorted()
+
+        if (offenders.isNotEmpty()) {
+          throw GradleException(
+            "A consumer of :sempods-client-core would resolve ${offenders.joinToString()}. That " +
+              "module exists so an HTTP consumer does not take an RDF store or an object mapper " +
+              "with it — see `docs/pod-client.md` §\"The core\".",
+          )
+        }
+      }
+    }
+
+    // The one place in this repository where a Java 21 process runs. Everything else builds and
+    // tests on the toolchain's 25, so `jvmTarget = JVM_21` is a setting nobody exercises — and
+    // bytecode built for 21 and only ever run on 25 is not a floor anyone has stood on.
+    val runOnJava21 = tasks.register<JavaExec>("runOnJava21") {
+      group = "verification"
+      description = "Runs the probe as a real Java 21 process, the baseline the published modules promise."
+      mainClass = "org.sempods.probe.clientcore.ConsumerProbe"
+      // The jar plus what a consumer resolves, rather than `sourceSets["main"].runtimeClasspath`:
+      // the source set is an extension of the Kotlin plugin applied further up this same block, and
+      // it does not exist yet while this task is being registered. Both of these are lazy and are
+      // resolved when the task runs, by which time it does.
+      classpath = files(tasks.named("jar"), configurations.named("runtimeClasspath"))
+      javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+      args("21")
+    }
+
+    // `test` as well as `check`: `./gradlew test` is what a developer runs on every change and what
+    // `test.yml` runs in CI, and a probe nobody runs is a probe that stops being true.
+    tasks.matching { it.name == "check" || it.name == "test" }
+      .configureEach { dependsOn(checkNoForbiddenDependencies, runOnJava21) }
+  }
+
   // The published shape of the HTTP core, asserted rather than reviewed.
   //
   // Three separate promises it makes to a Java consumer, each of which compiles perfectly inside
@@ -212,8 +277,8 @@ subprojects {
   // than a bytecode library, because it ships with the JDK that is already required to build —
   // a build-script dependency for one check is a larger commitment than the check is worth.
   //
-  // `consumer-harness/` is the other half: this says the shape is right, that says the published
-  // artifact resolves, compiles and runs.
+  // `:consumer-probe:client-core` is the other half: this says the shape is right, that compiles
+  // Java against it and runs the result.
   if (name == "sempods-client-core") {
     val classesDir = layout.buildDirectory.dir("classes/kotlin/main")
     val javapLauncher = javaToolchains.launcherFor(java.toolchain)
@@ -537,6 +602,56 @@ subprojects {
     }
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoTestLibrariesInPom) }
+
+  // The same file, read for the opposite mistake.
+  //
+  // `checkNoTestLibrariesInPom` above asks whether the `pom.withXml` block took out too little.
+  // This asks whether it took out too much, and nothing else in the build can: `buildHealth`
+  // analyses Gradle configurations and runs before a POM exists, the test suite never reads one,
+  // and every module's own compile classpath is whole whatever the POM says. Break the block's
+  // subtraction and a module publishes a POM naming none of its dependencies — green here, and a
+  // `NoClassDefFoundError` the first time a Maven consumer runs it.
+  //
+  // A Maven consumer resolves from this file alone. A Gradle consumer reads the module metadata
+  // instead, which `maven-publish` writes from the same variants and never post-processes — so the
+  // POM is the only half of a publication that can be wrong on its own.
+  val checkNoMissingPomDependencies = tasks.register("checkNoMissingPomDependencies") {
+    group = "verification"
+    description = "Fails if the published POM omits a dependency the module declares for consumers."
+    dependsOn(generatePom)
+    val pomFile = generatePom.map { it.destination }
+    val modulePath = project.path
+    doLast {
+      // `apiElements` and `runtimeElements` are the two Gradle maps onto a POM scope, so this is
+      // the same question `maven-publish` answered when it wrote the file — asked again afterwards.
+      // A Kotlin Multiplatform library is declared by its umbrella coordinate and published as the
+      // platform one — `com.squareup.okhttp3:okhttp` is written into the POM as `okhttp-jvm`.
+      // Comparing the spellings literally would report that as a missing dependency on every run.
+      fun platformNeutral(coordinates: String) = coordinates.removeSuffix("-jvm")
+
+      val expected = declaredIn("apiElements", "runtimeElements").map(::platformNeutral).toSet()
+      val published = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
+        .findAll(pomFile.get().readText())
+        .map { dependency ->
+          val block = dependency.groupValues[1]
+          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
+          platformNeutral("${tag("groupId")}:${tag("artifactId")}")
+        }
+        .toSet()
+
+      val missing = (expected - published).sorted()
+      if (missing.isNotEmpty()) {
+        throw GradleException(
+          "$modulePath declares ${missing.joinToString()} for its consumers, and its published POM " +
+            "names none of them. A Maven consumer resolves from that file alone, so what is missing " +
+            "there is missing from their classpath. The `pom.withXml` block in the root build file " +
+            "removes what the test fixtures bring and the module itself does not — check that its " +
+            "subtraction is still a subtraction.",
+        )
+      }
+    }
+  }
+  tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoMissingPomDependencies) }
 }
 
 // Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early
@@ -593,18 +708,6 @@ allprojects {
         maven {
           name = "centralBundle"
           url = rootProject.layout.buildDirectory.dir("central-bundle").get().asFile.toURI()
-        }
-
-        // Where a publication is staged to be *consumed* rather than shipped. `consumer-harness/`
-        // resolves out of this directory as an ordinary Maven repository, which is the only way to
-        // exercise what exists solely after publication: the POM, the Gradle module metadata and
-        // the jar. A file repository rather than `mavenLocal()`, because `~/.m2` holds whatever
-        // every other project on this machine has installed — a harness reading that would pass on
-        // an artifact this build never produced, and would go on passing after a module stopped
-        // being published at all.
-        maven {
-          name = "consumerHarness"
-          url = rootProject.layout.buildDirectory.dir("consumer-harness-repo").get().asFile.toURI()
         }
       }
 
@@ -665,79 +768,6 @@ allprojects {
     .configureEach { dependsOn(clearCentralBundle) }
 }
 
-// The published artifacts, consumed the way a stranger consumes them: by coordinate, out of
-// `build/consumer-harness-repo`, from a build that is not this one. What it adds over
-// `:consumer-probe:*` — which compile against `project(...)` — is everything that exists only once
-// a module is published; what it adds over `checkNoTestLibrariesInPom` is that it *resolves* those
-// files instead of reading one of them as text.
-//
-// Deliberately not wired into `check`. It republishes every module and then runs two more Gradle
-// builds, which is minutes; `./gradlew test` stays what a developer runs on every change, and
-// `.github/workflows/test.yml` gives this its own job.
-
-val consumerHarnessRepo = layout.buildDirectory.dir("consumer-harness-repo")
-
-// Gradle deploys a `-SNAPSHOT` to a `maven { }` repository the way Maven does, file URL included:
-// a timestamped file name per publish, and a `maven-metadata.xml` naming the newest. (The
-// overwrite-in-place form is `publishToMavenLocal`, which is a different publisher.) Left in place
-// the directory accumulates a set of jars per run — so a failed publish would leave yesterday's
-// artifacts resolvable and this check green on them.
-val clearConsumerHarnessRepo = tasks.register<Delete>("clearConsumerHarnessRepo") {
-  delete(consumerHarnessRepo)
-}
-
-allprojects {
-  tasks.matching { it.name.endsWith("ToConsumerHarnessRepository") }
-    .configureEach { dependsOn(clearConsumerHarnessRepo) }
-}
-
-// One entry point, sliced by `-PconsumerJdks`. CI runs the same command a developer runs, narrowed
-// to the matrix entry; locally the default is both, so a missing JDK fails with the harness's own
-// message rather than a toolchain error.
-val consumerJdks = (findProperty("consumerJdks") as String? ?: "21,25")
-  .split(",").map { it.trim() }.filter { it.isNotEmpty() }
-
-val checkPublishedArtifacts = tasks.register("checkPublishedArtifacts") {
-  group = "verification"
-  description = "Publishes every module into an isolated repository and consumes it from a separate build on each JDK."
-}
-
-consumerJdks.forEach { jdk ->
-  val consume = tasks.register<Exec>("checkPublishedArtifactsOnJdk$jdk") {
-    group = "verification"
-    description = "Compiles and runs the published-artifact consumers on JDK $jdk."
-
-    // A provider: these tasks are created while the modules are evaluated, which is after this line
-    // runs.
-    dependsOn(
-      provider {
-        subprojects.mapNotNull { it.tasks.findByName("publishAllPublicationsToConsumerHarnessRepository") }
-      },
-    )
-
-    workingDir = layout.projectDirectory.dir("consumer-harness").asFile
-
-    // `Exec` on the wrapper rather than `GradleBuild`, which runs the nested build inside this
-    // daemon and shares its services — the opposite of the claim being tested.
-    //
-    // The toolchain locations are forwarded rather than re-derived: whoever started this build
-    // already told Gradle where the JDKs are, and a nested build inherits no project property at
-    // all. They are gradle properties, so the `-D` spelling is read by nothing.
-    val forwarded = listOf("org.gradle.java.installations.fromEnv", "org.gradle.java.installations.paths")
-      .mapNotNull { name -> (findProperty(name) as String?)?.let { "-P$name=$it" } }
-
-    commandLine(
-      listOf(
-        rootProject.layout.projectDirectory.file("gradlew").asFile.absolutePath,
-        "check",
-        "-PconsumerJdk=$jdk",
-        "-PsempodsVersion=$version",
-        "-PsempodsRepository=${consumerHarnessRepo.get().asFile.absolutePath}",
-      ) + forwarded,
-    )
-  }
-  checkPublishedArtifacts.configure { dependsOn(consume) }
-}
 
 // Central validates after the upload, which is a slow way to learn that one sources jar went
 // unsigned — and it rejects the deployment whole. Same questions, asked locally first.

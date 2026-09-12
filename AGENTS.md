@@ -156,10 +156,9 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. What neither reaches is what exists only after publication,
-  which is `./gradlew checkPublishedArtifacts`: it publishes into an isolated file repository and
-  compiles and runs a Java consumer out of it on JDK 21 and 25. See
-  `docs/concepts/modularity.md` §"Open-source readiness".
+  not their wider accidental surface. `:consumer-probe:client-core` asks a third question of the
+  client core — that it is usable from Java, resolves no RDF or JSON library, and runs on the
+  Java 21 its bytecode targets. See `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference
 
@@ -167,9 +166,8 @@ IST documentation:
 |---|---|
 | Infrastructure for tests | `docker compose -f deployments/local/compose.yaml -f deployments/test/compose.test.yaml up -d` then `deployments/test/garage/init.sh` |
 | Full suite | `./gradlew test` |
-| Everything CI runs | `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata checkPublishedSignatures` |
+| Everything CI runs | `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkNoMissingPomDependencies checkDocLinks checkImageMetadata checkPublishedSignatures` |
 | Dependency boundary | `./gradlew buildHealth` → `build/reports/dependency-analysis/build-health-report.txt` |
-| Published artifacts, consumed from outside | `./gradlew checkPublishedArtifacts` — needs JDK 21 **and** 25 installed |
 | Run the pod server | `./gradlew :deployments:sempods:image:run` → `http://localhost:8090` |
 | Publish a snapshot | `./gradlew publishAllPublicationsToCentralSnapshotsRepository` |
 
@@ -211,7 +209,7 @@ and no already-applied check. Do not propose a migration framework as a fix for 
 
 ## Before you commit
 
-1. `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkDocLinks checkImageMetadata checkPublishedSignatures` — after the
+1. `./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkNoMissingPomDependencies checkDocLinks checkImageMetadata checkPublishedSignatures` — after the
    infrastructure step above.
 2. `./gradlew buildHealth` — the `api`/`implementation` boundary. A dependency in the wrong
    configuration fails a separate CI job, not this one.

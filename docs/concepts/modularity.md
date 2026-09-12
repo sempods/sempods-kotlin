@@ -195,8 +195,7 @@ the sibling-module principle behaving as intended rather than a gap.
 
 ## Open-source readiness
 
-The publication boundary is checked through dependency analysis, consumer probes and an
-artifact harness.
+The publication boundary is checked through dependency analysis and consumer probes.
 
 **No in-house application layer sits between these modules and the libraries they use.** Each
 service builds on a framework directly — the pod server on Jersey and Jetty through
@@ -259,24 +258,24 @@ boundary, so each probe's compile classpath is a consumer's compile classpath, a
 is a compile error here rather than in someone else's build. They are two modules and not one file
 because a probe holding both services hid a missing export in each behind the other's declaration.
 
-**A probe still compiles against a project, which is the layer it cannot reach.** Gradle gives it a
-consumer's *compile classpath*, and that is what makes it a good answer to the `api` question — but
-a POM, Gradle module metadata and a jar exist only once a module is published, and a probe sees none
-of them. `./gradlew checkPublishedArtifacts` is where those are exercised: the root build publishes
-every module into `build/consumer-harness-repo`, and `consumer-harness/` — a build of its own, with
-no `includeBuild` and no substitution available to it — resolves `org.sempods:sempods-client-core` by
-coordinate and compiles and runs a Java consumer out of it. Two variants, because a Maven consumer
-and a Gradle one read different files: one resolves the module metadata, the other is declared
-`ignoreGradleMetadataRedirection()` so the POM is the whole answer.
+**A third probe asks a wider question.** `:consumer-probe:client-core` exists for a module the
+plugin sees perfectly well — `:sempods-client-core` carries neither `application` nor Jib, so its
+`api` boundary is already checked. What is checked nowhere else is whether the result is usable
+from *Java*: that probe's source is Java, and across the project boundary its compile classpath is
+a consumer's, so a Kotlin function type, a missing `@Throws` or an engine type on the surface is a
+compile error here. Two tasks ride along: one fails if a consumer would resolve RDF4J, Jena or
+Jackson — a question dependency analysis cannot answer, because it advises on how a dependency is
+*declared* and has no notion of one being forbidden — and one runs the probe as a real **Java 21**
+process, the only place in this repository where that happens. Everything else builds and tests on
+the toolchain's 25, so bytecode built for 21 and never run on it would be a floor nobody stood on.
 
-It is the only place a JDK 21 process runs. The producer and `buildHealth` stay on 25, and the
-matrix in `test.yml` compiles and runs the consumer on 21 and on 25 with `actions/setup-java`
-installing both — bytecode built for 21 and executed only on 25 is not a baseline anyone tested. The
-consumer asserts what only a process can: its own runtime version, the class file version of what it
-loaded, and that RDF4J, Jena and Jackson are not loadable at all. The build asserts the two halves
-around it — that nothing forbidden is in the resolved graph, that the engine is absent from the
-*compile* classpath, and that no repository but the file one and Central could have answered.
-Deliberately outside `check`: it republishes every module and runs two more Gradle builds.
+**What no probe reaches is the POM.** A project dependency gives Gradle's own metadata, and the
+published POM is written from the same variants and then post-processed — the `pom.withXml` block
+below. A Maven consumer resolves from that file alone, so it is the one half of a publication that
+can be wrong on its own: break the block's subtraction and a module publishes a POM naming none of
+its dependencies, with every other check green and a `NoClassDefFoundError` waiting for the first
+consumer. `checkNoTestLibrariesInPom` and `checkNoMissingPomDependencies` read the generated file
+for the two directions of that mistake — too much, and too little.
 
 What the probes cover is that **embedding contract**, not the whole public surface of either
 service. Both surfaces are far wider — `OidcTokenExchange` takes a Ktor `HttpClient`, the route

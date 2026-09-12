@@ -221,8 +221,8 @@ What the engine costs, stated rather than hidden:
 - **A third-party dependency in a Maven Central artifact.** It is `implementation`, never `api` — the
   engine stops inside `:sempods-client-core`, callers speak `SempodsRequest` / `SempodsResponse` /
   `SempodsBody`, and a consumer never compiles against an OkHttp type. `checkPublishedSignatures`
-  asserts that from the bytecode and the artifact harness asserts it from a consumer's compile
-  classpath. The dependency is real; the coupling is not.
+  asserts that from the bytecode, and `:consumer-probe:client-core` asserts it from a consumer's
+  compile classpath. The dependency is real; the coupling is not.
 - **A version to keep**, pinned explicitly in the catalog rather than inherited from a Ktor BOM in a
   module that has no Ktor.
 
@@ -324,10 +324,10 @@ implementation(platform("org.sempods:sempods-bom:0.2.0"))
 implementation("org.sempods:sempods-client-core")
 ```
 
-That it really carries none of it is checked by `./gradlew checkPublishedArtifacts`, which publishes
-into an isolated file repository and compiles and runs a Java consumer out of it on JDK 21 and 25 —
-[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness" says what that adds over
-the in-repo probes.
+That it really carries none of it is checked by `:consumer-probe:client-core`, which compiles Java
+against it across a project boundary and runs the result as a real Java 21 process —
+[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness" says what each layer of
+that checking reaches.
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
 groups over this core ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF and

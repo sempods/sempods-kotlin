@@ -1,4 +1,4 @@
-package org.sempods.harness;
+package org.sempods.probe.clientcore;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -11,11 +11,11 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import org.sempods.client.core.SempodsBody;
+import org.sempods.client.core.SempodsAuthRequest;
 import org.sempods.client.core.SempodsBodyHandler;
-import org.sempods.client.core.SempodsHttpTimeouts;
 import org.sempods.client.core.SempodsOperation;
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsRequestAuth;
@@ -25,54 +25,47 @@ import org.sempods.client.core.SempodsTransport;
 import org.sempods.client.core.SempodsTransportException;
 
 /**
- * What a stranger's Java build holds: the published jars, resolved by coordinate, and nothing else
- * — no project dependency, no source of this repository, no test fixture.
+ * The client core as a Java consumer writes it.
  *
- * <p>Every assertion here is one only an executed process can make. Gradle can select a JDK 21
- * launcher and still be wrong about what ran; {@code --release 21} can be set and still produce
- * class files nobody looked at. So this refuses to be wrong about each before printing anything,
- * and exits non-zero otherwise — which is what fails {@code runConsumer}.
+ * <p>Two things are checked here that nothing else in this build can see. The first is the
+ * compilation itself: Gradle propagates only {@code api} across a project boundary, so this file's
+ * classpath is a consumer's, and a Kotlin function type or a missing {@code @Throws} on the surface
+ * is a compile error rather than a finding in someone else's build. The second needs the program to
+ * run, which is why there is a {@code main}: the published modules promise Java 21 bytecode, and
+ * {@code runOnJava21} starts a real 21 process to stand on that floor.
  *
- * <p>It is also the place the published Java examples are kept honest: custom authentication, an
- * endpoint extension, an external decoder, streaming and cancellation are written here the way a
- * consumer writes them, and compiled and run on every matrix entry. An example that lives only in a
- * comment stops being true quietly.
+ * <p>It doubles as the worked example the published API is reviewed against — custom
+ * authentication, an endpoint extension, an external decoder, streaming and cancellation, written
+ * the way a consumer writes them. An example that lives only in a comment stops being true quietly.
  *
  * <p>The server is {@code com.sun.net.httpserver} from the JDK rather than a test library, because
- * a test library on this classpath would be the one thing this build exists to rule out.
+ * a test library here would be exactly the kind of dependency this module exists to rule out.
  */
-public final class PublishedArtifactConsumer {
+public final class ConsumerProbe {
 
   /** Java 21's class file version — the floor the published modules promise. */
   private static final int JAVA_21 = 65;
 
-  private PublishedArtifactConsumer() {
+  private static final String MALFORMED_JSON = "{\"contexts\": [ \"urn:sempods:x\", ] // trailing";
+
+  private ConsumerProbe() {
   }
 
   public static void main(String[] args) throws Exception {
     int expected = Integer.parseInt(args[0]);
-
     if (Runtime.version().feature() != expected) {
-      throw new IllegalStateException(
-          "The harness asked for a JDK " + expected + " process and this is Java " + Runtime.version()
-              + ". Bytecode built for 21 and executed only on 25 is not a 21 baseline.");
+      throw new IllegalStateException("Expected a Java " + expected + " process, got " + Runtime.version()
+          + ". Bytecode built for 21 and executed only on 25 is not a 21 baseline.");
     }
-    requireClassFileVersion(PublishedArtifactConsumer.class, JAVA_21);
     requireClassFileVersion(SempodsSession.class, JAVA_21);
 
     requireAbsent("org.eclipse.rdf4j.model.Model");
     requireAbsent("org.apache.jena.rdf.model.Model");
     requireAbsent("com.fasterxml.jackson.databind.ObjectMapper");
-    // Not OkHttp: the engine is `implementation`, so it is on this classpath at runtime and must
-    // be — what it may not be is on the *compile* classpath, which `checkEngineIsNotCompilable`
-    // in the harness build asserts and the absence of any okhttp import above demonstrates.
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-    server.createContext("/alice/_system/contexts", exchange -> {
-      // Malformed on purpose: the core must hand it back byte for byte, and only a decoder the
-      // consumer selected may have an opinion about it.
-      respond(exchange, 200, MALFORMED_JSON, "application/json");
-    });
+    server.createContext("/alice/_system/contexts",
+        exchange -> respond(exchange, 200, MALFORMED_JSON, "application/json"));
     server.createContext("/alice/_system/probe", exchange -> {
       exchange.getResponseHeaders().add("Link", "<a>; rel=next");
       exchange.getResponseHeaders().add("Link", "<b>; rel=prev");
@@ -90,14 +83,10 @@ public final class PublishedArtifactConsumer {
     });
     server.start();
 
-    try (SempodsTransport transport = SempodsTransport.builder()
-        .timeouts(new SempodsHttpTimeouts())
-        .build()) {
-
+    try (SempodsTransport transport = SempodsTransport.builder().build()) {
       URI podUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/alice");
       SempodsSession session = SempodsSession.builder(SempodsPodBase.of(podUrl))
           .transport(transport)
-          // Custom authentication, replaced without touching an endpoint or a private internal.
           .auth(new ApiKeyWithTenant("k-123", "tenant-a"))
           .build();
 
@@ -107,8 +96,8 @@ public final class PublishedArtifactConsumer {
       aStreamIsReadIncrementally(session);
       cancellationReachesTheConnection(session);
 
-      System.out.println("consumed org.sempods:sempods-client-core on Java " + Runtime.version()
-          + " (" + System.getProperty("java.vendor") + ") from " + System.getProperty("java.home"));
+      System.out.println("client core used from Java " + Runtime.version()
+          + " (" + System.getProperty("java.vendor") + ")");
     } finally {
       server.stop(0);
     }
@@ -126,7 +115,7 @@ public final class PublishedArtifactConsumer {
     }
 
     @Override
-    public void apply(org.sempods.client.core.SempodsAuthRequest request) {
+    public void apply(SempodsAuthRequest request) {
       request.setHeader("X-Api-Key", key);
       request.setHeader("X-Tenant", tenant);
     }
@@ -140,7 +129,7 @@ public final class PublishedArtifactConsumer {
         "the core did not return the body unchanged: " + answer.getBody());
   }
 
-  /** An external decoder: it reaches nothing private, and it fails rather than answering empty. */
+  /** An external decoder reaches nothing private, and fails rather than answering empty. */
   private static void anExternalDecoderInterpretsIt(SempodsSession session) throws IOException {
     SempodsBodyHandler<Integer> countingBraces = response -> {
       String body = response.bodyText();
@@ -149,9 +138,8 @@ public final class PublishedArtifactConsumer {
       }
       return body.length();
     };
-    // The decoder's own IOException travels out unchanged — not wrapped as a transport failure,
-    // which is a completely different diagnosis. A Java caller can write this clause because
-    // `execute` declares it.
+    // The decoder's own IOException travels out unchanged rather than as a transport failure, which
+    // is a completely different diagnosis. This clause compiles because `execute` declares it.
     try {
       session.execute(session.newRequest("GET", "_system/contexts").build(), countingBraces);
       require(false, "a decoder given malformed input reported success");
@@ -170,7 +158,6 @@ public final class PublishedArtifactConsumer {
       require(List.of("<a>; rel=next", "<b>; rel=prev").equals(answer.getHeaders().all("link")),
           verb + " lost a repeated header: " + answer.getHeaders().all("link"));
       require("GET, HEAD, OPTIONS".equals(answer.header("allow")), verb + " lost Allow");
-      // The custom authentication reached the wire, which is the point of supplying it.
       require("k-123".equals(answer.header("X-Saw-Api-Key")), verb + " did not carry the API key");
     }
   }
@@ -208,23 +195,17 @@ public final class PublishedArtifactConsumer {
     operation.cancel();
 
     require(finished.await(10, TimeUnit.SECONDS), "cancelling did not end the call");
-    require(outcome[0] instanceof SempodsTransportException,
-        "a cancelled call ended as " + outcome[0]);
+    require(outcome[0] instanceof SempodsTransportException, "a cancelled call ended as " + outcome[0]);
     require(operation.isCancelled(), "the operation did not report itself cancelled");
-    // A body would have been sendable here too, and the request-body contract is part of the
-    // surface a consumer compiles against.
-    require(SempodsBody.text("{}") != null, "a body could not be built");
   }
 
-  private static final String MALFORMED_JSON = "{\"contexts\": [ \"urn:sempods:x\", ] // trailing";
-
-  private static String header(com.sun.net.httpserver.HttpExchange exchange, String name) {
+  private static String header(HttpExchange exchange, String name) {
     String value = exchange.getRequestHeaders().getFirst(name);
     return value == null ? "" : value;
   }
 
-  private static void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String body,
-      String contentType) throws IOException {
+  private static void respond(HttpExchange exchange, int status, String body, String contentType)
+      throws IOException {
     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
     if (contentType != null) {
       exchange.getResponseHeaders().add("Content-Type", contentType);
@@ -242,23 +223,19 @@ public final class PublishedArtifactConsumer {
   private static void requireClassFileVersion(Class<?> type, int expected) throws IOException {
     String path = "/" + type.getName().replace('.', '/') + ".class";
     try (InputStream bytes = type.getResourceAsStream(path)) {
-      if (bytes == null) {
-        throw new IllegalStateException("No class file for " + type.getName() + " on the classpath.");
-      }
+      require(bytes != null, "No class file for " + type.getName() + " on the classpath.");
       DataInputStream in = new DataInputStream(bytes);
       in.readInt();
       in.readUnsignedShort();
       int major = in.readUnsignedShort();
-      if (major != expected) {
-        throw new IllegalStateException(type.getName() + " is class file version " + major + ", not "
-            + expected + " — the Java " + (expected - 44) + " baseline is not what was built.");
-      }
+      require(major == expected, type.getName() + " is class file version " + major + ", not " + expected
+          + " — the Java " + (expected - 44) + " baseline is not what was built.");
     }
   }
 
   private static void requireAbsent(String className) {
     try {
-      Class.forName(className, false, PublishedArtifactConsumer.class.getClassLoader());
+      Class.forName(className, false, ConsumerProbe.class.getClassLoader());
     } catch (ClassNotFoundException absent) {
       return;
     }

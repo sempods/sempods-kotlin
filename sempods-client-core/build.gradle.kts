@@ -14,8 +14,9 @@ dependencies {
   // compiles against an OkHttp type — see `SempodsBody` for why that boundary is drawn here.
   implementation(libs.okhttp)
 
-  // No RDF4J, no Jackson, no Jena, and that is this module's reason to exist. `consumer-harness/`
-  // resolves the published artifact and fails if any of the three arrives transitively.
+  // No RDF4J, no Jackson, no Jena, and that is this module's reason to exist.
+  // `:consumer-probe:client-core` resolves this module the way a consumer does and fails if any of
+  // the three arrives transitively.
 
   // No logging: nothing in this module logs. A failed request is handed back rather than written
   // down — see `SempodsClientException`.

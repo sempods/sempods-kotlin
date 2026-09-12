@@ -132,6 +132,7 @@ include(
   "sempods-commons-mongo",
   "sempods-commons-okhttp",
   "consumer-probe:auth",
+  "consumer-probe:client-core",
   "consumer-probe:mcp",
   "deployments:sempods:image",
   "sempods-auth",
