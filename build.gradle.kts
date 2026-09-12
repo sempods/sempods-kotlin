@@ -270,14 +270,32 @@ subprojects {
       .configureEach { dependsOn(checkNoForbiddenDependencies, runOnJava21) }
   }
 
-  // The published shape of the HTTP core, asserted rather than reviewed.
+  // What a module promises a Java consumer, asserted rather than reviewed.
   //
-  // Three separate promises it makes to a Java consumer, each of which compiles perfectly inside
-  // this repository and fails only in someone else's build: that no HTTP engine type is on its
-  // surface, that no RDF or JSON library is, and that no callback is a Kotlin function type. The
-  // third is the one nothing else here would notice — `(SempodsStreamedResponse) -> T` reaches a
-  // Java caller as `kotlin.jvm.functions.Function1`, which they have to name and which cannot
-  // declare `IOException`, and every sibling module is Kotlin and would never see it.
+  // Two promises, and a module opts into both by appearing in the map below. The first is the
+  // **Java contract**: everything on its surface can be written in Java. Kotlin is not the problem
+  // — `List`, `Map`, a nullable return, a `data class`, a `Pair` all arrive as ordinary Java types,
+  // and forbidding them would be superstition. Three constructions genuinely cannot be called from
+  // Java, and those are what this refuses:
+  //
+  //  - a **value class** anywhere in a signature, which mangles the *method name* with a hyphen
+  //    (`takesToken-eaeRlZY`). A hyphen is not a Java identifier, so the method is unreachable —
+  //    this is what `kotlin.time.Duration` and `Result<T>` do to a signature;
+  //  - a **suspend function**, which takes a `kotlin.coroutines.Continuation`;
+  //  - a **Kotlin function type**, which arrives as `kotlin.jvm.functions.Function1` and, worse,
+  //    cannot declare a checked exception — a body handler that cannot say `throws IOException`
+  //    forces its failure into an unchecked wrapper.
+  //
+  // One part of the contract cannot be checked here and belongs in review: a member doing I/O needs
+  // `@Throws(IOException::class)`, because without it a Java caller's `catch (IOException e)` is a
+  // compile error — "never thrown in body of corresponding try statement". `@JvmOverloads` on
+  // defaulted parameters and `@JvmStatic` on a companion are the same kind of judgement: not wrong
+  // without them, just worse to call.
+  //
+  // The second promise is the module's own **library boundary**, which differs per module: the
+  // HTTP core hides its engine and names no RDF or JSON library, while an RDF adapter is expected
+  // to name RDF4J. That is why this is a map and not a constant — when an adapter is published, it
+  // is an entry here rather than a new module somewhere.
   //
   // Reads the compiled classes rather than the source, because what a consumer compiles against is
   // the bytecode: a Kotlin type can arrive in a signature the source never names. `javap` rather
@@ -286,13 +304,24 @@ subprojects {
   //
   // `:consumer-probe:client-core` is the other half: this says the shape is right, that compiles
   // Java against it and runs the result.
-  if (name == "sempods-client-core") {
+  val forbiddenLibraries = mapOf(
+    "sempods-client-core" to mapOf(
+      "okhttp3." to "the HTTP engine",
+      "okio." to "the HTTP engine",
+      "com.fasterxml.jackson." to "a JSON library",
+      "org.eclipse.rdf4j." to "an RDF library",
+      "org.apache.jena." to "an RDF library",
+    ),
+  )
+
+  forbiddenLibraries[name]?.let { libraries ->
     val classesDir = layout.buildDirectory.dir("classes/kotlin/main")
     val javapLauncher = javaToolchains.launcherFor(java.toolchain)
+    val modulePath = project.path
 
     val checkPublishedSignatures = tasks.register("checkPublishedSignatures") {
       group = "verification"
-      description = "Fails if the client core names an engine, an RDF/JSON library or a Kotlin function type in a public signature."
+      description = "Fails if $modulePath publishes a surface Java cannot call, or names a library it hides."
       dependsOn(tasks.named("classes"))
       inputs.dir(classesDir)
       doLast {
@@ -301,56 +330,49 @@ subprojects {
           .filter { it.extension == "class" }
           .map { it.relativeTo(root).path.removeSuffix(".class").replace(File.separatorChar, '.') }
           .sorted().toList()
-        if (classes.isEmpty()) throw GradleException("${project.path} compiled to no classes to inspect.")
+        if (classes.isEmpty()) throw GradleException("$modulePath compiled to no classes to inspect.")
 
         val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
         val output = providers.exec {
           commandLine(listOf(javap.absolutePath, "-public", "-classpath", root.absolutePath) + classes)
         }.standardOutput.asText.get()
 
-        val forbidden = mapOf(
-          "okhttp3." to "an HTTP engine type",
-          "okio." to "an HTTP engine type",
-          "com.fasterxml.jackson." to "a JSON library type",
-          "org.eclipse.rdf4j." to "an RDF library type",
-          "org.apache.jena." to "an RDF library type",
-          "kotlin.jvm.functions.Function" to "a Kotlin function type",
-          "kotlin.coroutines." to "a coroutine type",
-        )
-        // javap prints whatever it is handed, so a class that is not public has to be dropped
-        // here rather than left out there: a `private` nested body writer is not a surface.
-        // Likewise a name carrying `$`, which is an `internal` member Kotlin mangled on purpose —
-        // public in bytecode, and unwritable by a consumer. Those are the module's own plumbing;
-        // what this check is about is what someone can actually compile against.
+        // A member name carrying `$` is one Kotlin mangled on purpose: `internal` is public in
+        // bytecode, and the mangling is what stops a consumer naming it. Those are the module's own
+        // plumbing; this check is about the surface someone can actually write against. A `-` is
+        // the opposite — Kotlin mangles that way for a value class, and the member was meant to be
+        // public.
         val offences = mutableListOf<String>()
         var inPublicClass = false
         output.lineSequence().map { it.trimEnd() }.forEach { line ->
           val trimmed = line.trim()
-          when {
-            trimmed.startsWith("Compiled from") || trimmed.isEmpty() -> Unit
-            trimmed == "}" -> inPublicClass = false
-            !line.startsWith(" ") -> {
-              inPublicClass = trimmed.startsWith("public ")
-              if (inPublicClass && !trimmed.contains("$")) {
-                forbidden.forEach { (prefix, what) ->
-                  if (trimmed.contains(prefix)) offences += "$trimmed — $what"
-                }
-              }
-            }
-            inPublicClass && !trimmed.contains("$") ->
-              forbidden.forEach { (prefix, what) ->
-                if (trimmed.contains(prefix)) offences += "$trimmed — $what"
-              }
+          val isDeclaration = !line.startsWith(" ") && trimmed.isNotEmpty() &&
+            !trimmed.startsWith("Compiled from") && trimmed != "}"
+          if (isDeclaration) inPublicClass = trimmed.startsWith("public ")
+          if (trimmed == "}") inPublicClass = false
+          if (!inPublicClass || trimmed.isEmpty() || trimmed.contains("$")) return@forEach
+
+          val member = trimmed.substringBefore("(")
+          if (member.contains("-")) {
+            offences += "$trimmed — a value class, which mangles the method name out of Java's reach"
+          }
+          if (trimmed.contains("kotlin.coroutines.Continuation")) {
+            offences += "$trimmed — a suspend function"
+          }
+          if (trimmed.contains("kotlin.jvm.functions.Function")) {
+            offences += "$trimmed — a Kotlin function type, which cannot declare a checked exception"
+          }
+          libraries.forEach { (prefix, what) ->
+            if (trimmed.contains(prefix)) offences += "$trimmed — $what, which this module hides"
           }
         }
-        offences.sort()
 
         if (offences.isNotEmpty()) {
           throw GradleException(
-            "${project.path} must be consumable from Java with nothing but its own types on the " +
-              "surface, and these are not:\n  " + offences.distinct().joinToString("\n  ") +
-              "\nA callback belongs in a `fun interface` that can declare `IOException`; an engine, " +
-              "an RDF store or an object mapper belongs behind the boundary, not on it.",
+            "$modulePath publishes a surface a Java consumer cannot use as it stands:\n  " +
+              offences.distinct().sorted().joinToString("\n  ") +
+              "\nA callback belongs in a `fun interface` that can declare `IOException`; a value " +
+              "class, a `suspend` function and a hidden library belong behind the boundary.",
           )
         }
       }

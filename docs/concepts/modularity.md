@@ -258,6 +258,31 @@ boundary, so each probe's compile classpath is a consumer's compile classpath, a
 is a compile error here rather than in someone else's build. They are two modules and not one file
 because a probe holding both services hid a missing export in each behind the other's declaration.
 
+**What a published module promises a Java consumer.** This repository is Kotlin, and the artifacts
+are consumed from Java as well — the pod client most of all, since a specification client is what a
+foreign JVM implementation reaches for. Kotlin itself is not the problem: `List`, `Map`, a nullable
+return, a `data class` and a `Pair` all arrive as ordinary Java types, and `kotlin-stdlib` is on
+every consumer's classpath anyway because these modules are written in it. Three constructions are
+the problem, because Java cannot call them at all:
+
+| | why |
+|---|---|
+| a **value class** in a signature | Kotlin mangles the *method name* with a hyphen — `takesToken-eaeRlZY` — and a hyphen is not a Java identifier. `kotlin.time.Duration` and `Result<T>` do this to every signature they touch |
+| a **suspend function** | it takes a `kotlin.coroutines.Continuation`, which a Java caller has no way to supply |
+| a **Kotlin function type** | it arrives as `kotlin.jvm.functions.Function1`, and cannot declare a checked exception — a body handler unable to say `throws IOException` forces its failure into an unchecked wrapper |
+
+`checkPublishedSignatures` reads the compiled classes and refuses all three, module by module: a
+module opts in by appearing in the map in the root build, which also names the libraries that
+module hides — the HTTP core its engine, an RDF adapter nothing, since RDF4J is what it is for.
+Opting in is deliberate rather than global, because most modules here do not satisfy it yet and
+[#15](https://github.com/sempods/sempods-kotlin/issues/15) is where that is dealt with.
+
+One part cannot be checked and stays a review question: a member that does I/O needs
+`@Throws(IOException::class)`. Without it a Java caller's `catch (IOException e)` is a compile
+error — *never thrown in body of corresponding try statement* — so the failure a handler is meant
+to report cannot be caught. `@JvmOverloads` on defaulted parameters and `@JvmStatic` on a companion
+are the same kind of judgement: not wrong without them, only worse to call.
+
 **A third probe asks a wider question.** `:consumer-probe:client-core` exists for a module the
 plugin sees perfectly well — `:sempods-client-core` carries neither `application` nor Jib, so its
 `api` boundary is already checked. What is checked nowhere else is whether the result is usable
