@@ -423,6 +423,13 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-AUTH-064",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation MUST NOT issue a refresh token in a `client_credentials` response.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CORE-001",
       "part": "core",
       "chapter": "spec/core/index.md",
@@ -1784,7 +1791,7 @@
       "id": "SPS-MCP-031",
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
-      "summary": "Some clients treat the MCP URL itself as the protected-resource identifier.",
+      "summary": "An implementation MUST serve the pod-level Protected Resource Metadata at `GET {pod}/_system/mcp/.well-known/oauth-protected-resource`.",
       "withdrawn": false
     },
     {
