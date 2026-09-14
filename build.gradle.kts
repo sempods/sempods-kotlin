@@ -205,15 +205,23 @@ subprojects {
 
     // Nothing in the published core may drag an RDF store, a triple parser or an object mapper
     // behind it. `buildHealth` cannot answer this: it advises on how a dependency is *declared* and
-    // has no notion of one being forbidden. The graph resolved here is a consumer's — the
-    // first-party modules appear as projects, and every third-party edge is what they download.
-    val runtimeClasspath = configurations.named("runtimeClasspath")
+    // has no notion of one being forbidden. The graph resolved here is the suite's: a consumer's —
+    // the first-party modules appear as projects, and every third-party edge is what they download
+    // — plus JUnit and the logging binding every test JVM gets.
+    val testRuntimeClasspath = configurations.named("testRuntimeClasspath")
 
-    // The floor the published modules promise, applied to the probe that stands on it. Without it
-    // the probe compiles against the toolchain's 25 and a Java 21 process cannot load its own class
-    // file — and it buys a second assertion on the way: a Java 22+ API reached through the core's
-    // signatures fails to compile here rather than at a consumer's.
-    tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+    // The floor the published modules promise, and the probe stands on it twice. It compiles with
+    // `--release`, so a Java 22+ API reached through the core's signatures fails here rather than at
+    // a consumer's. And its suite runs on that JVM — the one place in this repository where a Java 21
+    // process runs. Everything else builds and tests on the toolchain's 25, so bytecode built for 21
+    // and only ever run on 25 is not a floor anyone has stood on. The suite is handed the release
+    // rather than writing it down, so the number has one owner.
+    val javaRelease = 21
+    tasks.withType<JavaCompile>().configureEach { options.release = javaRelease }
+    tasks.withType<Test>().configureEach {
+      javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(javaRelease) }
+      systemProperty("sempods.probe.javaRelease", javaRelease)
+    }
 
     val checkNoForbiddenDependencies = tasks.register("checkNoForbiddenDependencies") {
       group = "verification"
@@ -225,7 +233,7 @@ subprojects {
           "com.fasterxml.jackson" to "Jackson",
           "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
         )
-        val offenders = runtimeClasspath.get().incoming.resolutionResult.allComponents
+        val offenders = testRuntimeClasspath.get().incoming.resolutionResult.allComponents
           .mapNotNull { it.id as? ModuleComponentIdentifier }
           .map { "${it.group}:${it.module}" }
           .filter { coordinates -> forbidden.keys.any { coordinates.startsWith(it) } }
@@ -241,33 +249,9 @@ subprojects {
       }
     }
 
-    // The one place in this repository where a Java 21 process runs. Everything else builds and
-    // tests on the toolchain's 25, so `jvmTarget = JVM_21` is a setting nobody exercises — and
-    // bytecode built for 21 and only ever run on 25 is not a floor anyone has stood on.
-    val runOnJava21 = tasks.register<JavaExec>("runOnJava21") {
-      group = "verification"
-      description = "Runs the probe as a real Java 21 process, the baseline the published modules promise."
-      mainClass = "org.sempods.probe.clientcore.ConsumerProbe"
-      // The jar plus what a consumer resolves, rather than `sourceSets["main"].runtimeClasspath`:
-      // the source set is an extension of the Kotlin plugin applied further up this same block, and
-      // it does not exist yet while this task is being registered. Both of these are lazy and are
-      // resolved when the task runs, by which time it does.
-      classpath = files(tasks.named("jar"), configurations.named("runtimeClasspath"))
-      val launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
-      javaLauncher = launcher
-      args("21")
-
-      // The probe prints this too, but a `JavaExec`'s stdout does not reach an ordinary Gradle log
-      // — so the one assertion that needs a CI log to be believed would leave no trace in one.
-      doFirst {
-        logger.lifecycle("probe runtime: ${launcher.get().metadata.javaRuntimeVersion}")
-      }
-    }
-
-    // `test` as well as `check`: `./gradlew test` is what a developer runs on every change and what
-    // `test.yml` runs in CI, and a probe nobody runs is a probe that stops being true.
-    tasks.matching { it.name == "check" || it.name == "test" }
-      .configureEach { dependsOn(checkNoForbiddenDependencies, runOnJava21) }
+    // On `test` rather than `check` alone: `./gradlew test` is what a developer runs on every change
+    // and what `test.yml` runs in CI, and a probe nobody runs is a probe that stops being true.
+    tasks.named("test") { dependsOn(checkNoForbiddenDependencies) }
   }
 
   // What a module promises a Java consumer, asserted rather than reviewed.
@@ -508,8 +492,8 @@ subprojects {
   }
 
   // What this repository calls a test library, for the check further down. `libs.bundles.test` is
-  // the stack every module takes; `awaitility` and `mockServer` sit beside it because only some
-  // source sets use them, so naming the bundle alone would leave two of the five unwatched.
+  // the stack every Kotlin suite takes; the libraries beside it are the ones only some source sets
+  // declare, so naming the bundle alone would leave them unwatched.
   //
   // The logback binding is deliberately not here. It is the one thing on this list a *published*
   // module may legitimately declare — `sempods-auth` and `sempods-mcp` own a `main` and choose
@@ -518,7 +502,8 @@ subprojects {
   // `pom.withXml` block below like anything else the fixtures bring alone.
   val testLibraries = (
     catalog.findBundle("test").get().get() +
-      listOf("awaitility", "mockServer").map { catalog.findLibrary(it).get().get() }
+      listOf("awaitility", "mockServer", "junitJupiterApi", "junitJupiterParams", "junitPlatformLauncher")
+        .map { catalog.findLibrary(it).get().get() }
     )
     .map { "${it.module.group}:${it.module.name}" }
     .toSet()

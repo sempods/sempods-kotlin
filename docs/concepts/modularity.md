@@ -287,13 +287,13 @@ are the same kind of judgement: not wrong without them, only worse to call.
 **A third probe asks a wider question.** `:consumer-probe:client-core` exists for a module the
 plugin sees perfectly well — `:sempods-client-core` carries neither `application` nor Jib, so its
 `api` boundary is already checked. What is checked nowhere else is whether the result is usable
-from *Java*: that probe's source is Java, and across the project boundary its compile classpath is
-a consumer's, so a Kotlin function type, a missing `@Throws` or an engine type on the surface is a
-compile error here. Two tasks ride along: one fails if a consumer would resolve RDF4J, Jena or
-Jackson — a question dependency analysis cannot answer, because it advises on how a dependency is
-*declared* and has no notion of one being forbidden — and one runs the probe as a real **Java 21**
-process, the only place in this repository where that happens. Everything else builds and tests on
-the toolchain's 25, so bytecode built for 21 and never run on it would be a floor nobody stood on.
+from *Java*: that probe is a JUnit suite written in Java, and across the project boundary its compile
+classpath is a consumer's, so a Kotlin function type, a missing `@Throws` or an engine type on the
+surface is a compile error here. The suite runs on a **Java 21** JVM, the only one in this
+repository. Everything else builds and tests on the toolchain's 25, so bytecode built for 21 and
+never run on it would be a floor nobody stood on. One task rides along and fails if a consumer would
+resolve RDF4J, Jena or Jackson — a question dependency analysis cannot answer, because it advises on
+how a dependency is *declared* and has no notion of one being forbidden.
 
 **What no probe reaches is the POM.** A project dependency gives Gradle's own metadata, and the
 published POM is written from the same variants and then post-processed — the `pom.withXml` block
