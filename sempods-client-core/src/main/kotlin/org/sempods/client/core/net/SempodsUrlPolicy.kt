@@ -68,6 +68,8 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
     val uri = runCatching { URI(url) }.getOrNull() ?: return "not a valid URL"
     if (!uri.isAbsolute) return "must be an absolute URL"
     if (uri.rawUserInfo != null) return "must not contain userinfo"
+    // RFC 6749 §3.1 and §3.2: neither endpoint carries a fragment, and none would reach the server.
+    if (uri.rawFragment != null) return "must not contain a fragment"
     val scheme = uri.scheme?.lowercase() ?: return "missing scheme"
     val host = uri.host?.lowercase() ?: return "missing host"
     if (scheme != "https" && scheme != "http") return "scheme must be https"

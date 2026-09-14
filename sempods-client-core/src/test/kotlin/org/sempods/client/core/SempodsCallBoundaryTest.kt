@@ -1,5 +1,6 @@
 package org.sempods.client.core
 
+import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
@@ -119,6 +120,20 @@ class SempodsCallBoundaryTest : MockPodTest() {
     }
     assertEquals(1, server.retrieveRecordedRequests(request().withPath("/alice/x")).size)
     assertEquals(0, server.retrieveRecordedRequests(request().withPath("/bob/x")).size)
+  }
+
+  @Test
+  fun `a failure an interceptor throws after the answer is not resent`() {
+    server.`when`(request()).respond(response().withStatusCode(200))
+    val failingAfter = Interceptor { chain ->
+      chain.proceed(chain.request()).close()
+      throw IOException("failed after the answer")
+    }
+
+    sempodsClient { addInterceptor(failingAfter) }.closing { client ->
+      assertThrows<IOException> { client.newCall(alice().newRequest("GET", "x").build()).execute().close() }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
   @Test

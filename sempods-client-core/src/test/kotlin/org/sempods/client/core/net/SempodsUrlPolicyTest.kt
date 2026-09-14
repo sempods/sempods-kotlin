@@ -150,5 +150,6 @@ class SempodsUrlPolicyTest {
     assertNotNull(local.rejectCredentialedTarget("http://auth.example.com/token"))
     assertNotNull(strict.rejectCredentialedTarget("http://localhost:9000/token"))
     assertNull(strict.rejectCredentialedTarget("https://auth.example.com/token?tenant=a"))
+    assertNotNull(strict.rejectCredentialedTarget("https://auth.example.com/token#v2"))
   }
 }

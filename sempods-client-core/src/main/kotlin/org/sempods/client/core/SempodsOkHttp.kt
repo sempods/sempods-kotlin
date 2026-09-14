@@ -177,12 +177,26 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       }
     }
 
+    fun proceed(attempt: Attempt, authenticated: Request): Response {
+      val outer = Attempt.current.get()
+      Attempt.current.set(attempt)
+      try {
+        return chain.proceed(authenticated)
+      } finally {
+        if (outer == null) Attempt.current.remove() else Attempt.current.set(outer)
+      }
+    }
+
     fun send(): Response {
       val authenticated = acquiring { session.authenticated(request, number) }
+      val attempt = Attempt()
       return try {
-        chain.proceed(authenticated)
+        proceed(attempt, authenticated)
       } catch (failure: IOException) {
-        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
+        // Once the network answered, a failure is not a lost connection, whatever threw it.
+        if (attempt.answered || resent || call.isCanceled() ||
+          !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))
+        ) {
           throw failure
         }
         resent = true
@@ -251,6 +265,16 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
   }
 }
 
+/** The attempt a session's interceptor is sending on this thread, so [FinalTarget] can record that the network answered it. */
+private class Attempt {
+
+  var answered = false
+
+  companion object {
+    val current = ThreadLocal<Attempt?>()
+  }
+}
+
 /**
  * The pod confinement once more, as the last network interceptor installed: on the request as it is
  * about to be written, after every application interceptor and after a redirect.
@@ -265,6 +289,7 @@ private object FinalTarget : Interceptor {
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request().url)
     val response = chain.proceed(chain.request())
+    Attempt.current.get()?.answered = true
     if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
     return response.newBuilder().removeHeader("Retry-After").build()
   }
