@@ -49,7 +49,7 @@ class SempodsPodBaseTest {
   @Test
   fun `a path that would leave the pod is refused rather than resolved`() {
     val base = SempodsPodBase.of("https://pods.example/alice")
-    listOf("/etc/passwd", "../bob/secret", "a/../../bob", "a\\..\\bob", "%2e%2e/bob", "a/.%2E/../bob").forEach {
+    listOf("/etc/passwd", "../bob/secret", "a/../../bob", "a\\..\\bob", "%2e%2e/bob", "a/.%2E/../bob", "%2F..%2Fbob", "a%5c..%5c..%5cbob").forEach {
       assertThrows<IllegalArgumentException>(it) { base.resolve(it) }
     }
   }
@@ -84,6 +84,7 @@ class SempodsPodBaseTest {
     assertFalse("https://pods.example:8443/alice".toHttpUrl() in base)
     assertFalse("https://pods.example/alice/../bob".toHttpUrl() in base)
     assertFalse("https://pods.example//alice/secret".toHttpUrl() in base)
+    assertFalse("https://pods.example/alice/%2F..%2Fbob".toHttpUrl() in base)
   }
 
   @Test

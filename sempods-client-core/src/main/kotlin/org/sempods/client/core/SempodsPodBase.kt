@@ -45,9 +45,9 @@ class SempodsPodBase private constructor(
    * `HttpUrl.Builder.addPathSegment` is what encodes one segment. A query may be attached with `?`;
    * a query alone, `?view=summary`, addresses the base itself.
    *
-   * Refuses a leading slash, a dot segment and a backslash: each is a way to address something
-   * other than what the path reads as, and a session's credential travels with whatever it
-   * resolves to.
+   * Refuses a leading slash, a dot segment, a backslash and an encoded `/` or `\`: each is a way to
+   * address something other than what the path reads as, and a session's credential travels with
+   * whatever it resolves to.
    */
   fun resolve(podRelativePath: String): HttpUrl {
     require(!podRelativePath.startsWith("/")) {
@@ -55,6 +55,10 @@ class SempodsPodBase private constructor(
     }
     val path = podRelativePath.substringBefore('?').substringBefore('#')
     require(!path.contains('\\')) { "A pod-relative path must not contain a backslash: '$podRelativePath'" }
+    // `%2F` and `%5C` are separators to a server that decodes before it routes.
+    require(listOf("%2f", "%5c").none { path.contains(it, ignoreCase = true) }) {
+      "A pod-relative path must not contain an encoded '/' or '\\': '$podRelativePath'"
+    }
     // `%2e` is a dot to a URL parser, so `%2e%2e` leaves the pod as surely as `..` does.
     require(path.split('/').map { it.replace("%2e", ".", ignoreCase = true) }.none { it == "." || it == ".." }) {
       "A pod-relative path must not contain a dot segment: '$podRelativePath'"
@@ -80,9 +84,11 @@ class SempodsPodBase private constructor(
     if (!target.host.equals(url.host, ignoreCase = true)) return false
     if (target.port != url.port) return false
     // Segment-wise and with empty segments kept: `HttpUrl` has already resolved dot segments, so this
-    // compares what would actually be dialled, and `//alice` is not `/alice`.
+    // compares what would actually be dialled, and `//alice` is not `/alice`. The segments are decoded,
+    // and one holding a `/` or `\` is several to a server that decodes before it routes.
     val reached = target.pathSegments
-    return reached.size >= segments.size && reached.subList(0, segments.size) == segments
+    return reached.size >= segments.size && reached.subList(0, segments.size) == segments &&
+      reached.none { '/' in it || '\\' in it }
   }
 
   override fun equals(other: Any?): Boolean = other is SempodsPodBase && other.url == url

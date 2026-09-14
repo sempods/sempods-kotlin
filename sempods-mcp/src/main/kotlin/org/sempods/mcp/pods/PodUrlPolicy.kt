@@ -20,7 +20,7 @@ import java.net.InetAddress
 class PodUrlPolicy(allowLocal: Boolean) {
 
   /** The shared rules, exposed so the connect-time hook can take them without a second wrapper. */
-  val rules = SempodsUrlPolicy(allowPrivateAddresses = allowLocal)
+  internal val rules = SempodsUrlPolicy(allowPrivateAddresses = allowLocal)
 
   /** Returns null if acceptable, otherwise a human-readable rejection reason. */
   fun reject(podBaseUrl: String): String? = rules.rejectPodBase(podBaseUrl)
