@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.Base64
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -73,6 +74,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val accessToken = body["access_token"] as? String
     assertNotNull(accessToken, "access_token missing in $body")
     assertEquals("Bearer", body["token_type"])
+    assertFalse(body.containsKey("refresh_token"), "SPS-AUTH-033 forbids service refresh tokens")
     val expiresIn = (body["expires_in"] as Number).toLong()
     assertTrue(
       expiresIn in 1..PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
