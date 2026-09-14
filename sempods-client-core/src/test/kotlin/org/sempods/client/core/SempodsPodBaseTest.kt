@@ -62,6 +62,14 @@ class SempodsPodBaseTest {
   }
 
   @Test
+  fun `a query or a fragment alone addresses the base itself`() {
+    val base = SempodsPodBase.of("https://pods.example/alice")
+    assertEquals("https://pods.example/alice?view=summary", base.resolve("?view=summary").toString())
+    assertEquals("https://pods.example/alice#top", base.resolve("#top").toString())
+    assertEquals("https://pods.example/?view=summary", SempodsPodBase.of("https://pods.example").resolve("?view=summary").toString())
+  }
+
+  @Test
   fun `containment is by path segment, not by string prefix`() {
     val base = SempodsPodBase.of("https://pods.example/alice")
     assertTrue("https://pods.example/alice".toHttpUrl() in base)

@@ -42,7 +42,8 @@ class SempodsPodBase private constructor(
    * The absolute URL of [podRelativePath] under this base.
    *
    * [podRelativePath] is already percent-encoded by the caller — this appends, it does not encode.
-   * `HttpUrl.Builder.addPathSegment` is what encodes one segment. A query may be attached with `?`.
+   * `HttpUrl.Builder.addPathSegment` is what encodes one segment. A query may be attached with `?`;
+   * a query alone, `?view=summary`, addresses the base itself.
    *
    * Refuses a leading slash, a dot segment and a backslash: each is a way to address something
    * other than what the path reads as, and a session's credential travels with whatever it
@@ -52,13 +53,13 @@ class SempodsPodBase private constructor(
     require(!podRelativePath.startsWith("/")) {
       "A pod-relative path must not start with '/': '$podRelativePath' would address the host root."
     }
-    val path = podRelativePath.substringBefore('?')
+    val path = podRelativePath.substringBefore('?').substringBefore('#')
     require(!path.contains('\\')) { "A pod-relative path must not contain a backslash: '$podRelativePath'" }
     // `%2e` is a dot to a URL parser, so `%2e%2e` leaves the pod as surely as `..` does.
     require(path.split('/').map { it.replace("%2e", ".", ignoreCase = true) }.none { it == "." || it == ".." }) {
       "A pod-relative path must not contain a dot segment: '$podRelativePath'"
     }
-    val separator = if (podRelativePath.isEmpty()) "" else "/"
+    val separator = if (path.isEmpty()) "" else "/"
     // A pod at the host root renders as `https://pods.example/`, whose slash the separator repeats.
     return requireNotNull("${url.toString().removeSuffix("/")}$separator$podRelativePath".toHttpUrlOrNull()) {
       "'$podRelativePath' under '$url' is not a valid URL."
