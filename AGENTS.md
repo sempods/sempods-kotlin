@@ -130,7 +130,7 @@ IST documentation:
 - Naming (IST): `docs/naming.md` — the authority for how "sempods" is written in prose and
   in code, the package namespace, and the names that are frozen because a deployed host, a database
   or a published IRI depends on them
-- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF- and JSON-free core (`:sempods-client-core`) and its session, authentication, cancellation and admission contracts; the tiers above it and which one a consumer takes; the rule for what may be added at which tier; why the transport is OkHttp (SSRF resolve-and-pin needs a DNS hook the JDK client does not offer) without an OkHttp type ever reaching a consumer; and what the client deliberately is not
+- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF- and JSON-free core (`:sempods-client-core`) and its session, authentication and admission contracts; the tiers above it and which one a consumer takes; the rule for what may be added at which tier; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
 - MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
 - Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's sixteen collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
@@ -156,10 +156,9 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. `:consumer-probe:client-core` asks a third question of the
-  client core — that it is usable from Java, resolves no RDF or JSON library, and runs on the
-  Java 21 its bytecode targets — and `:consumer-probe:opentelemetry` whether OpenTelemetry's OkHttp
-  library plugs into it. See `docs/concepts/modularity.md` §"Open-source readiness".
+  not their wider accidental surface. `:consumer-probe:client-core` and
+  `:consumer-probe:opentelemetry` check the client core from outside. See
+  `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference
 
@@ -180,9 +179,7 @@ methods concurrently as well as classes, `-PtestPortBase=<n>` moves the port ran
 share a machine.
 
 Java 25 is required to build; published bytecode targets Java 21. **A JDK 21 has to be installed
-beside it**: `:consumer-probe:client-core` runs the published client core as a real 21 process, and
-`./gradlew test` fails without one rather than skipping it — the same stance the infrastructure step
-above takes.
+beside it**, or `./gradlew test` fails in `:consumer-probe:client-core`.
 
 ## What this repository deliberately does not have
 

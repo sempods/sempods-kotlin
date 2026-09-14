@@ -6,10 +6,8 @@ import java.net.InetAddress
 /**
  * Pod base-URL guard — the URL-string half of the two-layer SSRF defense.
  *
- * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client`. They were spelled out twice — here
- * and in a consumer's dereference guard — and the two drifted: this side knew `::a.b.c.d` carries a
- * routable IPv4 a prefix table does not see, that side knew about the 6to4 relay anycast and the
- * discard prefix. Neither knew the other's ranges. One table now, and both consumers get the union.
+ * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client-core`: one range table for this
+ * service's pod-base admission and a consumer's dereference guard alike.
  *
  * What survives here is the naming this service uses: [allowLocal] for the deploy-time relaxation,
  * `reject` for pod-base admission and [rejectEndpoint] for a discovered OAuth endpoint.

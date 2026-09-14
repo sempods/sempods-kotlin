@@ -187,12 +187,11 @@ checkDocLinks checkImageMetadata checkPublishedSignatures`. The two POM checks a
 fails if the published file carries a test library, the other if it omits a dependency a consumer
 needs. `checkDocLinks` walks every markdown file and fails on a relative link that points at
 nothing; `checkImageMetadata` keeps a container image from shipping without the label that says
-which commit it is; `checkPublishedSignatures` keeps a Kotlin function type or an HTTP engine off
-the surface a Java consumer compiles against.
+which commit it is; `checkPublishedSignatures` keeps what Java cannot call off the client core's
+surface.
 
-`./gradlew test` additionally runs `:consumer-probe:client-core`, which needs a **JDK 21**
-installed beside the toolchain's 25 — it runs the published client core as a real Java 21 process,
-the baseline its bytecode targets.
+`./gradlew test` also needs a **JDK 21** installed beside the toolchain's 25, for
+`:consumer-probe:client-core`; `docs/concepts/modularity.md` §"Open-source readiness" says why.
 
 Every PR completes documentation for its own diff, including partial work on a larger issue.
 A behaviour change carries its documentation in the same commit —

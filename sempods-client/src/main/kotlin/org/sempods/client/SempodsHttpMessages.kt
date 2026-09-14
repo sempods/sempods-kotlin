@@ -9,12 +9,11 @@ import java.time.Duration
  * The request/response vocabulary the legacy clients speak.
  *
  * **These are the older surface, kept because its callers are.** `:sempods-client-core` speaks
- * OkHttp's own `Request` and `Response` now — a consumer building on it reads a response the way
- * they read every other one. What these types still buy the clients above is the second reason
- * they were written: an engine response is `Closeable`, and a type whose ~35 call sites each owe a
- * `close()` is a connection leak waiting for the one site that forgets. [SempodsResponse] carries
- * an already-read body, and the streaming case is scoped ([SempodsHttpTransport.sendStreaming]) so
- * the response cannot outlive the block that reads it.
+ * OkHttp's `Request` and `Response`. What these types buy the clients above: an engine response is
+ * `Closeable`, and a type whose ~35 call sites each owe a `close()` is a connection leak waiting for
+ * the one site that forgets. [SempodsResponse] carries an already-read body, and the streaming case
+ * is scoped ([SempodsHttpTransport.sendStreaming]) so the response cannot outlive the block that
+ * reads it.
  *
  * Moving those call sites onto the core is
  * [#150](https://github.com/sempods/sempods-kotlin/issues/150) and

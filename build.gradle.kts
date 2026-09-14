@@ -198,24 +198,16 @@ subprojects {
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoLoggingBinding) }
 
-  // What `:consumer-probe:client-core` asks, registered here because the Kotlin plugin that gives
-  // that project a source set is applied by this block — its own build file is evaluated first and
-  // would find no source set to read.
+  // `:consumer-probe:client-core`, configured here because this block applies the Kotlin plugin that
+  // gives it a source set. What it checks and why: `docs/concepts/modularity.md` §"Open-source
+  // readiness".
   if (path == ":consumer-probe:client-core") {
 
-    // Nothing in the published core may drag an RDF store, a triple parser or an object mapper
-    // behind it. `buildHealth` cannot answer this: it advises on how a dependency is *declared* and
-    // has no notion of one being forbidden. The graph resolved here is the suite's: a consumer's —
-    // the first-party modules appear as projects, and every third-party edge is what they download
-    // — plus JUnit and the logging binding every test JVM gets.
+    // The suite's runtime graph is a consumer's, plus JUnit and the test logging binding.
     val testRuntimeClasspath = configurations.named("testRuntimeClasspath")
 
-    // The floor the published modules promise, and the probe stands on it twice. It compiles with
-    // `--release`, so a Java 22+ API reached through the core's signatures fails here rather than at
-    // a consumer's. And its suite runs on that JVM — the one place in this repository where a Java 21
-    // process runs. Everything else builds and tests on the toolchain's 25, so bytecode built for 21
-    // and only ever run on 25 is not a floor anyone has stood on. The suite is handed the release
-    // rather than writing it down, so the number has one owner.
+    // Compiled with `--release` and run on that JVM. The suite is handed the release, so the number
+    // has one owner.
     val javaRelease = 21
     tasks.withType<JavaCompile>().configureEach { options.release = javaRelease }
     tasks.withType<Test>().configureEach {
@@ -250,49 +242,18 @@ subprojects {
       }
     }
 
-    // On `test` rather than `check` alone: `./gradlew test` is what a developer runs on every change
-    // and what `test.yml` runs in CI, and a probe nobody runs is a probe that stops being true.
+    // On `test`, which is what a developer runs on every change and what `test.yml` runs.
     tasks.named("test") { dependsOn(checkNoForbiddenDependencies) }
   }
 
-  // What a module promises a Java consumer, asserted rather than reviewed.
+  // What a module promises a Java consumer — no value class, `suspend` function or Kotlin function
+  // type on its surface, and no library it hides. The rule and its reasons:
+  // `docs/concepts/modularity.md` §"Open-source readiness". A module opts in with an entry below.
   //
-  // Two promises, and a module opts into both by appearing in the map below. The first is the
-  // **Java contract**: everything on its surface can be written in Java. Kotlin is not the problem
-  // — `List`, `Map`, a nullable return, a `data class`, a `Pair` all arrive as ordinary Java types,
-  // and forbidding them would be superstition. Three constructions genuinely cannot be called from
-  // Java, and those are what this refuses:
-  //
-  //  - a **value class** anywhere in a signature, which mangles the *method name* with a hyphen
-  //    (`takesToken-eaeRlZY`). A hyphen is not a Java identifier, so the method is unreachable —
-  //    this is what `kotlin.time.Duration` and `Result<T>` do to a signature;
-  //  - a **suspend function**, which takes a `kotlin.coroutines.Continuation`;
-  //  - a **Kotlin function type**, which arrives as `kotlin.jvm.functions.Function1` and, worse,
-  //    cannot declare a checked exception — a body handler that cannot say `throws IOException`
-  //    forces its failure into an unchecked wrapper.
-  //
-  // One part of the contract cannot be checked here and belongs in review: a member doing I/O needs
-  // `@Throws(IOException::class)`, because without it a Java caller's `catch (IOException e)` is a
-  // compile error — "never thrown in body of corresponding try statement". `@JvmOverloads` on
-  // defaulted parameters and `@JvmStatic` on a companion are the same kind of judgement: not wrong
-  // without them, just worse to call.
-  //
-  // The second promise is the module's own **library boundary**, which differs per module: the
-  // HTTP core names OkHttp on purpose and no RDF or JSON library at all, while an RDF adapter is
-  // expected to name RDF4J. That is why this is a map and not a constant — when an adapter is
-  // published, it is an entry here rather than a new module somewhere.
-  //
-  // Reads the compiled classes rather than the source, because what a consumer compiles against is
-  // the bytecode: a Kotlin type can arrive in a signature the source never names. `javap` rather
-  // than a bytecode library, because it ships with the JDK that is already required to build —
-  // a build-script dependency for one check is a larger commitment than the check is worth.
-  //
-  // `:consumer-probe:client-core` is the other half: this says the shape is right, that compiles
-  // Java against it and runs the result.
+  // It reads the compiled classes with `javap`: a Kotlin type can reach a signature the source never
+  // names, and `javap` ships with the JDK the build already requires.
   val forbiddenLibraries = mapOf(
-    // OkHttp is deliberately absent from this list: `SempodsSession` hands out an
-    // `okhttp3.Request.Builder` and the module declares the engine on `api`. What it still may not name is
-    // a representation library — that is the split `#116` asked for, and the only one left.
+    // OkHttp is on the core's surface on purpose, so it is not listed.
     "sempods-client-core" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",

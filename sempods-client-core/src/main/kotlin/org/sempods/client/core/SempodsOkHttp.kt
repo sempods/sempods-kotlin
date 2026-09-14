@@ -31,10 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * dispatcher bounds only for `enqueue`. Timeouts, the connection pool, event listeners and further
  * interceptors stay the consumer's, set on the same builder.
  *
- * **OkHttp rather than the JDK client** because SSRF resolve-and-pin needs a DNS hook, and the JDK
- * client cannot express one short of replacing the whole JVM's resolver. Blocking on purpose: on
- * Java 25 a blocking send on a virtual thread is what an async client used to buy. See
- * `docs/pod-client.md` §"The transport" for the criterion.
+ * Why OkHttp, and why blocking: `docs/pod-client.md` §"The transport".
  */
 object SempodsOkHttp {
 

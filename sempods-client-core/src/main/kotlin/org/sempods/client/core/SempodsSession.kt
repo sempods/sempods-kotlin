@@ -36,8 +36,7 @@ import org.sempods.commons.trace.TraceContextHolder
  *
  * **This is also the extension seam.** An endpoint group, a protocol module or a consumer's own
  * route gets all of the above by building through here and running on such a client, and needs
- * nothing private. Any method token works, so HEAD, OPTIONS and an extension's own verb need no
- * change.
+ * nothing private.
  *
  * **A credential never leaves its pod.** The client checks the target against [podBase] before the
  * first attempt and once more in its last network interceptor, on the request about to be written —

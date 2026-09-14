@@ -9,7 +9,7 @@ package org.sempods.auth.core
  * transport would hand one of them another's, and `sempods-server` is the module that spent a
  * milestone shedding an inherited framework. Note that the first two run the same *library* and
  * still do not share a client, though nothing stops a deployment handing them one:
- * `:sempods-client-core` takes an `OkHttpClient` to derive from.
+ * `SempodsOkHttp.install` takes a builder derived from any `OkHttpClient`.
  *
  * What it buys is that the *flow* can live here rather than three times over: discover, redirect,
  * exchange, validate, in that order, with the checks that make each step mean something. Getting

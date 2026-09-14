@@ -20,12 +20,8 @@ class SempodsRateLimitedException(message: String) : SempodsClientException(mess
 /**
  * Turns a hostname into the addresses a connection may be opened to.
  *
- * An interface of this library's own, for two separate reasons. It is not the engine's resolver
- * type, because a public class implementing that would put the engine on a consumer's compile
- * classpath and make its major version part of this library's ABI. And it is not a Kotlin function
- * type, because `(String) -> List<InetAddress>` reaches a Java caller as
- * `kotlin.jvm.functions.Function1` and cannot declare [UnknownHostException] — which is exactly
- * what a resolver fails with.
+ * A `fun interface`, so a Java implementation can declare [UnknownHostException], which is what a
+ * resolver fails with; a Kotlin function type reaches Java as `Function1` and cannot.
  */
 fun interface SempodsHostResolver {
 
@@ -72,13 +68,6 @@ fun interface OutboundRateLimiter {
  *
  * [trustedHosts] (exact hostnames) skip the range check — see [SempodsOutboundGuard] for why the
  * decision lives there rather than here.
- *
- * **`private` on purpose, and checked.** It implements the engine's resolver interface, and a class
- * that does so and is reachable would put the engine on a consumer's compile classpath — which
- * `implementation` says it is not on — and make an engine major version part of this library's ABI.
- * Kotlin's `internal` is not enough for that: it is public in bytecode, so Java sees it and
- * `checkPublishedSignatures` reports it. What a caller needs from here is [SempodsHostResolver],
- * which names no engine type.
  */
 private class VettingDns(
   private val policy: SempodsUrlPolicy,
@@ -102,9 +91,8 @@ private class VettingDns(
 }
 
 /**
- * Everything a transport needs to refuse a request it must not make. Opt-in: a transport without
- * one behaves as it always did, which is why adding this took nothing away from consumers that dial
- * only pods they configured themselves.
+ * Everything a client needs to refuse a request it must not make. Opt-in: a client installed without
+ * one dials whatever it is given.
  *
  * Two address layers plus a budget, and the pairing is the point — see [VettingDns] for why the DNS
  * hook alone leaves IP literals uncovered, and [SempodsUrlPolicy] for why the per-request check

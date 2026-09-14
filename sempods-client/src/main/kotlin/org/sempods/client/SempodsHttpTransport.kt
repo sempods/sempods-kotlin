@@ -33,11 +33,9 @@ import java.util.concurrent.ConcurrentHashMap
  * [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
  * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
  *
- * **What it translates, and why that is now the only reason it exists.** The core speaks OkHttp's
- * `Request` and `Response`; this surface speaks [SempodsRequest] and [SempodsResponse], whose point
- * was that a caller never owes a `close()`. Every call here therefore reads the body and closes the
- * response before returning. Below it there is one connection pool, one outbound guard and one set
- * of deadlines — the core's.
+ * **It translates [SempodsRequest] and [SempodsResponse] onto OkHttp's.** A caller of this surface
+ * never owes a `close()`: every call reads the body and closes the response before returning. Below
+ * it are the core's guard and redirect policy, on one connection pool every transport shares.
  *
  * **A token per request rather than a credential per session.** That is this surface's model. A
  * consumer wanting a credential that can be replaced, decorated or refreshed builds a
