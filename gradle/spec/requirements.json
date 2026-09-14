@@ -969,6 +969,13 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-CRUD-058",
+      "part": "core",
+      "chapter": "spec/core/lod-crud.md",
+      "summary": "An implementation MAY advertise edit URLs in `Link` headers on successful resource `GET` and `HEAD` responses.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CTX-001",
       "part": "core",
       "chapter": "spec/core/contexts.md",
