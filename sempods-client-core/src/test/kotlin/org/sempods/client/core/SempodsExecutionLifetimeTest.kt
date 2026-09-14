@@ -159,7 +159,7 @@ class SempodsExecutionLifetimeTest {
     server.`when`(request()).respond(response().withStatusCode(200).withBody("body"))
 
     sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 4)).closing { client ->
-      val a = session()
+      val a = session(SempodsRequestAuth.bearer("t-1"))
       val answered = CompletableFuture<Int>()
       val holding = client.get(a)
       try {
@@ -180,6 +180,7 @@ class SempodsExecutionLifetimeTest {
       }
       assertEquals(200, answered.get(10, TimeUnit.SECONDS))
     }
+    assertEquals(2, server.retrieveRecordedRequests(request().withHeader("Authorization", "Bearer t-1")).size)
   }
 
   @Test
