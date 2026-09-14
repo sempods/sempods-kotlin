@@ -14,7 +14,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -162,11 +161,7 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
     server.`when`(request()).respond(
       response().withStatusCode(200).withBody("slow").withDelay(TimeUnit.SECONDS, 10),
     )
-    val sent = CountDownLatch(1)
-    val onTheWire = object : EventListener() {
-      override fun requestHeadersEnd(call: Call, request: Request) = sent.countDown()
-    }
-    sempodsClient { eventListener(onTheWire) }.closing { client ->
+    sempodsClient().closing { client ->
       val a = session()
       // The call is the engine's own handle, which is what cancellation is: no second vocabulary,
       // and it reaches the socket rather than merely letting an await return early.
@@ -174,7 +169,11 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
       val pool = Executors.newSingleThreadExecutor()
       try {
         val running = pool.submit<Int> { call.execute().use { it.code } }
-        assertTrue(sent.await(10, TimeUnit.SECONDS), "the request never went out")
+        // Cancelled once the pod has logged the request, not merely once it was written: a request the
+        // pod logs after this test would be counted by the next one.
+        val loggedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (server.retrieveRecordedRequests(request()).isEmpty() && System.nanoTime() < loggedBy) Thread.sleep(10)
+        assertEquals(1, server.retrieveRecordedRequests(request()).size, "the request never reached the pod")
         call.cancel()
         val thrown = assertThrows<ExecutionException> { running.get(10, TimeUnit.SECONDS) }
         assertTrue(thrown.cause is IOException, "was ${thrown.cause}")
