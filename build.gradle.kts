@@ -335,9 +335,10 @@ subprojects {
             !trimmed.startsWith("Compiled from") && trimmed != "}"
           if (isDeclaration) inPublicClass = trimmed.startsWith("public ")
           if (trimmed == "}") inPublicClass = false
-          if (!inPublicClass || trimmed.isEmpty() || trimmed.contains("$")) return@forEach
-
           val member = trimmed.substringBefore("(")
+          // The name alone, because a nested type in a signature carries a `$` as well.
+          if (!inPublicClass || trimmed.isEmpty() || member.substringAfterLast(' ').contains("$")) return@forEach
+
           if (member.contains("-")) {
             offences += "$trimmed — a value class, which mangles the method name out of Java's reach"
           }
@@ -518,6 +519,17 @@ subprojects {
     .map { "${it.group}:${it.name}" }
     .toSet()
 
+  // The `<dependency>` entries of a generated POM, as `groupId:artifactId` and `<scope>`. The file is
+  // generated, so its shape is fixed and a reader beats a parser here.
+  fun pomDependencies(pom: File): List<Pair<String, String?>> =
+    Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL).findAll(pom.readText())
+      .map { dependency ->
+        val block = dependency.groupValues[1]
+        fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
+        "${tag("groupId")}:${tag("artifactId")}" to tag("scope")
+      }
+      .toList()
+
   extensions.configure<PublishingExtension> {
     publications {
       // This also carries the test-fixtures variant where `java-test-fixtures` is applied, so a
@@ -592,17 +604,10 @@ subprojects {
     // check rather than the module whose POM is wrong.
     val modulePath = project.path
     doLast {
-      // The POM is generated, so its shape is fixed and a reader beats a parser here.
-      val offenders = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
-        .findAll(pomFile.get().readText())
-        .mapNotNull { dependency ->
-          val block = dependency.groupValues[1]
-          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
-          val coordinates = "${tag("groupId")}:${tag("artifactId")}"
-          // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
-          if (coordinates in testLibraries) "$coordinates (${tag("scope") ?: "compile"})" else null
-        }
-        .toList()
+      val offenders = pomDependencies(pomFile.get())
+        .filter { (coordinates, _) -> coordinates in testLibraries }
+        // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
+        .map { (coordinates, scope) -> "$coordinates (${scope ?: "compile"})" }
 
       if (offenders.isNotEmpty()) {
         throw GradleException(
@@ -645,14 +650,7 @@ subprojects {
       fun platformNeutral(coordinates: String) = coordinates.removeSuffix("-jvm")
 
       val expected = declaredIn("apiElements", "runtimeElements").map(::platformNeutral).toSet()
-      val published = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
-        .findAll(pomFile.get().readText())
-        .map { dependency ->
-          val block = dependency.groupValues[1]
-          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
-          platformNeutral("${tag("groupId")}:${tag("artifactId")}")
-        }
-        .toSet()
+      val published = pomDependencies(pomFile.get()).map { platformNeutral(it.first) }.toSet()
 
       val missing = (expected - published).sorted()
       if (missing.isNotEmpty()) {
@@ -782,7 +780,6 @@ allprojects {
   tasks.matching { it.name.endsWith("ToCentralBundleRepository") }
     .configureEach { dependsOn(clearCentralBundle) }
 }
-
 
 // Central validates after the upload, which is a slow way to learn that one sources jar went
 // unsigned — and it rejects the deployment whole. Same questions, asked locally first.

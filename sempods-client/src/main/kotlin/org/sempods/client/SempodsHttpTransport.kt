@@ -2,6 +2,7 @@ package org.sempods.client
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -55,7 +56,7 @@ class SempodsHttpTransport @JvmOverloads constructor(
    * request before it arrives.
    */
   private val httpClient: OkHttpClient = SempodsOkHttp.install(
-    OkHttpClient.Builder()
+    SHARED.newBuilder()
       .connectTimeout(timeouts.connect)
       .readTimeout(timeouts.read)
       .writeTimeout(timeouts.write),
@@ -65,7 +66,6 @@ class SempodsHttpTransport @JvmOverloads constructor(
     // After `install`, which would otherwise read an unset deadline and put its own in: the one this
     // surface's callers configured wins, `Duration.ZERO` included.
     .callTimeout(timeouts.call)
-    .retryOnConnectionFailure(true)
     .build()
 
   /**
@@ -103,10 +103,10 @@ class SempodsHttpTransport @JvmOverloads constructor(
   }
 
   fun send(request: SempodsRequest): SempodsResponse<String> =
-    execute(request) { response -> SempodsResponse(response.code, response.body.string(), response::header) }
+    execute(request) { response -> SempodsResponse(response.code, response.body.string(), response.headers::get) }
 
   fun sendBytes(request: SempodsRequest): SempodsResponse<ByteArray> =
-    execute(request) { response -> SempodsResponse(response.code, response.body.bytes(), response::header) }
+    execute(request) { response -> SempodsResponse(response.code, response.body.bytes(), response.headers::get) }
 
   /**
    * Streams a response body through [read] and closes it afterwards, whatever [read] does.
@@ -117,7 +117,7 @@ class SempodsHttpTransport @JvmOverloads constructor(
    */
   fun <T> sendStreaming(request: SempodsRequest, read: (SempodsStreamedResponse) -> T): T =
     execute(request) { response ->
-      read(SempodsStreamedResponse(response.code, response.body.byteStream(), response::header))
+      read(SempodsStreamedResponse(response.code, response.body.byteStream(), response.headers::get))
     }
 
   /**
@@ -152,60 +152,57 @@ class SempodsHttpTransport @JvmOverloads constructor(
   fun baseWithTrailingSlash(baseUrl: URI): URI = URI(baseUrl.toString().trimEnd('/') + "/")
 
   /**
-   * Runs one request and closes the response before returning.
+   * Runs one request, hands the response to [read] and closes it before returning.
    *
    * The core's cancellation is `Call.cancel()`; [SempodsCallSlot] binds onto it here, which is the
    * bridge `PodIo` still needs. No authentication runs: this surface puts its bearer on the request
    * before it arrives, so the core's session auth is not involved.
+   *
+   * **Sending is translated, reading is not.** The core made every refusal of its own one type, an
+   * [java.io.IOException] beside the engine's. The callers above were written against several, and
+   * two of them decide real behaviour on the distinction: `PodFailures.isRetryablePodFailure` walks
+   * for a rate-limit or SSRF cause, and `McpEndpoint.runTool` catches [SempodsClientException] to
+   * keep this process's URLs out of a message that goes to a language model. What [read] throws —
+   * this surface's own exception with its status code included — reaches the caller unchanged.
+   * Migrating the callers onto the core's shape is
+   * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
    */
-  private fun <T> extracted(request: SempodsRequest, read: (okhttp3.Response) -> T): T {
+  private fun <T> execute(request: SempodsRequest, read: (okhttp3.Response) -> T): T {
     val call = clientFor(request.callTimeout).newCall(toOkHttpRequest(request))
     val slot = SempodsCallSlot.current()
     slot?.bind(call::cancel)
-    return try {
-      call.execute().use(read)
+    try {
+      val response = try {
+        call.execute()
+      } catch (e: org.sempods.client.core.SempodsClientException) {
+        // A refusal this library made — a blocked address, a spent budget. The cause carries what a
+        // consumer classifies on, which is why it travels rather than being flattened into the text.
+        throw SempodsClientException(e.message.orEmpty(), cause = e.cause ?: e)
+      } catch (e: org.sempods.client.core.net.SsrfBlockedException) {
+        // Thrown from inside the connection path, where the resolver vets every address. It is an
+        // `UnknownHostException` so the engine treats it as a resolution failure; this surface's
+        // callers expect their own type, with the cause kept for the same classification.
+        throw SempodsClientException(
+          "Host of '${request.uri}' is not publicly addressable — ${e.message}",
+          cause = e,
+        )
+      }
+      return response.use(read)
     } finally {
       slot?.unbind()
     }
   }
-
-  /**
-   * Runs one request and hands this surface's callers the failure shape they classify on.
-   *
-   * The core made every refusal of its own one type, an [java.io.IOException] beside the engine's.
-   * The callers above were written against several, and two of them decide real behaviour on the
-   * distinction: `PodFailures.isRetryablePodFailure` walks for a rate-limit or SSRF cause, and
-   * `McpEndpoint.runTool` catches [SempodsClientException] to keep this process's URLs out of a
-   * message that goes to a language model. Migrating them onto the core's shape is
-   * [#152](https://github.com/sempods/sempods-kotlin/issues/152); until then this translates.
-   */
-  private fun <T> execute(request: SempodsRequest, read: (okhttp3.Response) -> T): T =
-    try {
-      extracted(request, read)
-    } catch (e: org.sempods.client.core.SempodsClientException) {
-      // A refusal this library made — a blocked address, a spent budget. The cause carries what a
-      // consumer classifies on, which is why it travels rather than being flattened into the text.
-      throw SempodsClientException(e.message.orEmpty(), cause = e.cause ?: e)
-    } catch (e: org.sempods.client.core.net.SsrfBlockedException) {
-      // Thrown from inside the connection path, where the resolver vets every address. It is an
-      // `UnknownHostException` so the engine treats it as a resolution failure; this surface's
-      // callers expect their own type, with the cause kept for the same classification.
-      throw SempodsClientException(
-        "Host of '${request.uri}' is not publicly addressable — ${e.message}",
-        cause = e,
-      )
-    } catch (e: IllegalArgumentException) {
-      // `Request.Builder.url` refuses a non-HTTP scheme before a call exists. The guard used to
-      // answer that one, and its callers still expect this surface's exception for it.
-      throw SempodsClientException("Not an HTTP(S) URI: '${request.uri}'", cause = e)
-    }
 
   private fun clientFor(callTimeout: Duration?): OkHttpClient =
     if (callTimeout == null) httpClient
     else byCallTimeout.computeIfAbsent(callTimeout) { httpClient.newBuilder().callTimeout(it).build() }
 
   private fun toOkHttpRequest(request: SempodsRequest): Request {
-    val builder = Request.Builder().url(request.uri.toString())
+    // `HttpUrl` is http or https and nothing else, which is the one refusal this surface's callers
+    // expect before a call exists.
+    val url = request.uri.toString().toHttpUrlOrNull()
+      ?: throw SempodsClientException("Not an HTTP(S) URI: '${request.uri}'")
+    val builder = Request.Builder().url(url)
     // `addHeader`, matching what the previous JDK builder's `header` did: each name is set once by
     // the callers here, and adding keeps a caller free to send a repeated header if one ever needs to.
     request.headers.forEach { (name, value) -> builder.addHeader(name, value) }
@@ -251,5 +248,8 @@ class SempodsHttpTransport @JvmOverloads constructor(
 
   private companion object {
     val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody(null)
+
+    /** What every transport derives its client from, so all of them share one pool and dispatcher. */
+    val SHARED: OkHttpClient by lazy { OkHttpClient() }
   }
 }

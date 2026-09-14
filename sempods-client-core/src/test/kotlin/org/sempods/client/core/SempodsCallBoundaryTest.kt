@@ -7,17 +7,10 @@ import kotlin.test.assertTrue
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.slf4j.event.Level
 
 /**
  * Every way a session's request can run past the session's interceptors, and what happens then.
@@ -26,39 +19,18 @@ import org.slf4j.event.Level
  * an interceptor that moves it, or a redirect. None of them may send the credential somewhere else,
  * and none of them may turn the request into an anonymous one without saying so.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsCallBoundaryTest {
-
-  private lateinit var server: ClientAndServer
-  private lateinit var origin: String
-
-  @BeforeAll
-  fun start() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
-    origin = "http://localhost:${server.port}"
-  }
-
-  @AfterAll
-  fun stop() = server.stop()
-
-  @BeforeEach
-  fun reset() {
-    server.reset()
-  }
+class SempodsCallBoundaryTest : MockPodTest() {
 
   private fun alice() = SempodsSession(SempodsPodBase.of("$origin/alice"), SempodsRequestAuth.bearer("token-a"))
 
   @Test
   fun `a session's request fails closed on a client without the sempods interceptors`() {
     server.`when`(request()).respond(response().withStatusCode(200))
-    val plain = OkHttpClient()
-    try {
+    OkHttpClient().closing { plain ->
       val refused = assertThrows<UnknownHostException> {
         plain.newCall(alice().newRequest("GET", "x").build()).execute().close()
       }
       assertTrue(refused.message!!.contains("sempods-session.invalid"), refused.message)
-    } finally {
-      plain.shutDown()
     }
     assertEquals(0, server.retrieveRecordedRequests(request()).size)
   }
@@ -69,12 +41,9 @@ class SempodsCallBoundaryTest {
     // request, and a client without the interceptors sends that without a credential — which the pod
     // answers the way it answers any anonymous caller.
     server.`when`(request()).respond(response().withStatusCode(200))
-    val plain = OkHttpClient()
-    try {
+    OkHttpClient().closing { plain ->
       val tagOnly = alice().newRequest("GET", "x").url("$origin/alice/x").build()
       plain.newCall(tagOnly).execute().use { assertEquals(200, it.code) }
-    } finally {
-      plain.shutDown()
     }
     assertEquals("", server.retrieveRecordedRequests(request()).single().getFirstHeader("Authorization"))
   }
@@ -86,7 +55,7 @@ class SempodsCallBoundaryTest {
     val elsewhere = listOf("$origin/bob/stolen", "http://127.0.0.1:${server.port}/alice/x")
     elsewhere.forEach { target ->
       val moving = Interceptor { chain -> chain.proceed(chain.request().newBuilder().url(target).build()) }
-      SempodsOkHttp.install(OkHttpClient.Builder().addInterceptor(moving)).build().closing { client ->
+      sempodsClient { addInterceptor(moving) }.closing { client ->
         val refused = assertThrows<SempodsClientException>(target) {
           client.newCall(alice().newRequest("GET", "x").build()).execute().close()
         }
@@ -155,11 +124,8 @@ class SempodsCallBoundaryTest {
   @Test
   fun `a builder that already carries the interceptors is refused`() {
     // Two sets would nest the retries and take two admission slots per call.
-    val once = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    try {
+    sempodsClient().closing { once ->
       assertThrows<IllegalStateException> { SempodsOkHttp.install(once.newBuilder()) }
-    } finally {
-      once.shutDown()
     }
   }
 }

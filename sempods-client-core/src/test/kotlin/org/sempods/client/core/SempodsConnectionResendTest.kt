@@ -2,11 +2,11 @@ package org.sempods.client.core
 
 import okhttp3.Call
 import okhttp3.EventListener
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okio.BufferedSink
 import java.io.BufferedInputStream
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -153,14 +153,29 @@ class SempodsConnectionResendTest {
   }
 
   @Test
-  fun `a one-shot body is not resent, even for an idempotent method`() {
-    val oneShot = object : RequestBody() {
-      override fun contentType() = null
-      override fun isOneShot() = true
-      override fun writeTo(sink: BufferedSink) {
-        sink.writeUtf8("x")
-      }
+  fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
+    val rebuilding = Interceptor { chain ->
+      val original = chain.request()
+      chain.proceed(Request.Builder().url(original.url).headers(original.headers).method(original.method, original.body).build())
     }
+    val builder = SempodsOkHttp.install(OkHttpClient.Builder())
+    builder.interceptors().add(0, rebuilding)
+
+    builder.build().closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      val query = SempodsRepeatable.mark(a.newRequest("POST", "sparql").post("SELECT * { ?s ?p ?o }".toRequestBody()))
+      client.newCall(query.build()).execute().use { assertEquals(200, it.code) }
+
+      assertEquals(2, requestHeads.size)
+      assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    }
+  }
+
+  @Test
+  fun `a one-shot body is not resent, even for an idempotent method`() {
+    val oneShot = oneShotBody("x")
     sempodsClient().closing { client ->
       val a = session()
       leaveAStaleConnection(client, a)
@@ -234,7 +249,7 @@ class SempodsConnectionResendTest {
       SSLHandshakeException("no trusted certificate"),
       SempodsClientException("refused"),
     )
-    notResent.forEach { failure -> assertFalse(ConnectionResend.allowed(failure, get), "$failure") }
-    assertTrue(ConnectionResend.allowed(SocketException("Connection reset"), get))
+    notResent.forEach { failure -> assertFalse(ConnectionResend.allowed(failure, get, repeatable = false), "$failure") }
+    assertTrue(ConnectionResend.allowed(SocketException("Connection reset"), get, repeatable = false))
   }
 }

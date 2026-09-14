@@ -2,6 +2,7 @@ package org.sempods.client.core
 
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.sempods.client.core.net.SempodsUrlPolicy
 import java.util.Locale
 
 /**
@@ -34,6 +35,8 @@ class SempodsPodBase private constructor(
   /** The canonical form: no trailing slash, no query, no fragment. */
   val url: HttpUrl,
 ) {
+
+  private val segments: List<String> = url.pathSegments.filter { it.isNotEmpty() }
 
   /**
    * The absolute URL of [podRelativePath] under this base.
@@ -75,9 +78,8 @@ class SempodsPodBase private constructor(
     if (target.port != url.port) return false
     // Segment-wise: `HttpUrl` has already resolved dot segments and rejected a backslash, so this
     // compares what would actually be dialled.
-    val base = url.pathSegments.filter { it.isNotEmpty() }
     val reached = target.pathSegments.filter { it.isNotEmpty() }
-    return reached.size >= base.size && reached.subList(0, base.size) == base
+    return reached.size >= segments.size && reached.subList(0, segments.size) == segments
   }
 
   override fun equals(other: Any?): Boolean = other is SempodsPodBase && other.url == url
@@ -102,9 +104,6 @@ class SempodsPodBase private constructor(
       val canonical = baseUrl.trimEnd('/')
       return SempodsPodBase(canonical.toHttpUrlOrNull()!!)
     }
-
-    @JvmStatic
-    fun of(baseUrl: HttpUrl): SempodsPodBase = of(baseUrl.toString())
 
     /**
      * Why [baseUrl] is not a pod base URL, or `null` when it is one.
@@ -137,13 +136,13 @@ class SempodsPodBase private constructor(
       return null
     }
 
-    /** RFC 6761 reserves `localhost` and `*.localhost` for loopback; literals are checked as such. */
+    /** A loopback name ([SempodsUrlPolicy.isLoopbackName]) or a loopback literal. */
     private fun isLoopback(host: String): Boolean {
       val bare = host.lowercase(Locale.ROOT).removeSurrounding("[", "]")
-      if (bare == "localhost" || bare.endsWith(".localhost")) return true
-      if (bare == "ip6-localhost" || bare == "ip6-loopback" || bare == "::1") return true
-      return bare.startsWith("127.") && bare.split('.').size == 4 &&
-        bare.split('.').all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
+      if (SempodsUrlPolicy.isLoopbackName(bare) || bare == "::1") return true
+      val octets = bare.split('.')
+      return octets.size == 4 && octets[0] == "127" &&
+        octets.all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
     }
   }
 }

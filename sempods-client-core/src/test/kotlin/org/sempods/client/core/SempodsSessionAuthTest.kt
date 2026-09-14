@@ -1,6 +1,5 @@
 package org.sempods.client.core
 
-import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -11,21 +10,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody
 import okhttp3.Response
-import okio.BufferedSink
-import okio.source
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.slf4j.event.Level
 
 /**
  * Who sends which credential where, and when a refused one is worth sending again.
@@ -34,29 +26,13 @@ import org.slf4j.event.Level
  * reaching the wrong pod, a retry that re-sends an empty body, a retry after the caller has already
  * been handed the answer.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsSessionAuthTest {
+class SempodsSessionAuthTest : MockPodTest() {
 
-  private lateinit var server: ClientAndServer
-  private lateinit var client: OkHttpClient
-  private lateinit var origin: String
-
-  @BeforeAll
-  fun start() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
-    origin = "http://localhost:${server.port}"
-    client = sempodsClient()
-  }
+  private val client = sempodsClient()
 
   @AfterAll
-  fun stop() {
+  fun stopClient() {
     client.shutDown()
-    server.stop()
-  }
-
-  @BeforeEach
-  fun reset() {
-    server.reset()
   }
 
   /**
@@ -72,14 +48,6 @@ class SempodsSessionAuthTest {
 
   private fun SempodsSession.text(path: String, method: String = "GET"): Pair<Int, String> =
     send(newRequest(method, path).build()).use { it.code to it.body.string() }
-
-  /** A body that may be written once, for the case where a retry must not happen. */
-  private fun oneShotBody(content: String): RequestBody = object : RequestBody() {
-    private val stream = ByteArrayInputStream(content.toByteArray())
-    override fun contentType() = null
-    override fun isOneShot() = true
-    override fun writeTo(sink: BufferedSink) { stream.source().use { sink.writeAll(it) } }
-  }
 
   @Test
   fun `two sessions share a client and never each other's credential`() {
@@ -139,12 +107,6 @@ class SempodsSessionAuthTest {
       assertTrue(refused.message!!.contains("Authentication changed the $changed of"), refused.message)
     }
     assertEquals(0, server.retrieveRecordedRequests(request()).size)
-  }
-
-  @Test
-  fun `a sibling path sharing the prefix is not under the pod`() {
-    val a = session("alice", SempodsRequestAuth.bearer("token-a"))
-    assertThrows<IllegalArgumentException> { a.newRequest("GET", "../alice-archive/secret") }
   }
 
   @Test
@@ -238,13 +200,13 @@ class SempodsSessionAuthTest {
     server.`when`(request()).respond(response().withStatusCode(401))
 
     val replayable = session("alice", refreshable { _ -> "t" })
-    send(replayable.newRequest("PUT", "x").method("PUT", "body".toRequestBody()).build()).close()
+    send(replayable.newRequest("PUT", "x").put("body".toRequestBody()).build()).close()
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
 
     server.reset()
     server.`when`(request()).respond(response().withStatusCode(401))
     val oneShot = session("alice", refreshable { _ -> "t" })
-    send(oneShot.newRequest("PUT", "x").method("PUT", oneShotBody("body")).build()).close()
+    send(oneShot.newRequest("PUT", "x").put(oneShotBody("body")).build()).close()
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -383,5 +345,3 @@ class SempodsSessionAuthTest {
     )
   }
 }
-
-private fun String.toRequestBody() = okhttp3.RequestBody.create(null, this.toByteArray())

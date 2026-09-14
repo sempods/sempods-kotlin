@@ -29,8 +29,8 @@ internal object ConnectionResend {
 
   private val IDEMPOTENT_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE")
 
-  fun allowed(failure: IOException, request: Request): Boolean {
-    if (request.method !in IDEMPOTENT_METHODS && !SempodsRepeatable.isMarked(request)) return false
+  fun allowed(failure: IOException, request: Request, repeatable: Boolean): Boolean {
+    if (request.method !in IDEMPOTENT_METHODS && !repeatable) return false
     if (request.body?.isOneShot() == true) return false
     return when (failure) {
       // A deadline: a repeat would outlast it.

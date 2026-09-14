@@ -14,20 +14,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.Response
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.slf4j.event.Level
 
 /**
  * What holds a resource, and what releases it.
@@ -36,25 +31,7 @@ import org.slf4j.event.Level
  * thread, a deadline across several attempts: each is a place where the honest answer and the
  * convenient one differ, and where being wrong shows up as a leak rather than as a failure.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsExecutionLifetimeTest {
-
-  private lateinit var server: ClientAndServer
-  private lateinit var origin: String
-
-  @BeforeAll
-  fun start() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
-    origin = "http://localhost:${server.port}"
-  }
-
-  @AfterAll
-  fun stop() = server.stop()
-
-  @BeforeEach
-  fun reset() {
-    server.reset()
-  }
+class SempodsExecutionLifetimeTest : MockPodTest() {
 
   private fun session(auth: SempodsRequestAuth = SempodsRequestAuth.anonymous()) =
     SempodsSession(SempodsPodBase.of("$origin/alice"), auth)
@@ -70,7 +47,7 @@ class SempodsExecutionLifetimeTest {
     // Buffering the whole body first would make this test pass and the streaming claim false. What
     // proves incremental delivery is reading fewer bytes than were sent and arriving before EOF.
     server.`when`(request()).respond(
-      response().withStatusCode(200).withBody("x".repeat(512 * 1024)).withDelay(TimeUnit.MILLISECONDS, 400),
+      response().withStatusCode(200).withBody("x".repeat(512 * 1024)),
     )
     sempodsClient().closing { client ->
       client.get(session(), "big").use { response ->
@@ -98,7 +75,11 @@ class SempodsExecutionLifetimeTest {
     server.`when`(request()).respond(
       response().withStatusCode(200).withBody("slow").withDelay(TimeUnit.SECONDS, 10),
     )
-    sempodsClient().closing { client ->
+    val sent = CountDownLatch(1)
+    val onTheWire = object : EventListener() {
+      override fun requestHeadersEnd(call: Call, request: Request) = sent.countDown()
+    }
+    sempodsClient { eventListener(onTheWire) }.closing { client ->
       val a = session()
       // The call is the engine's own handle, which is what cancellation is: no second vocabulary,
       // and it reaches the socket rather than merely letting an await return early.
@@ -106,7 +87,7 @@ class SempodsExecutionLifetimeTest {
       val pool = Executors.newSingleThreadExecutor()
       try {
         val running = pool.submit<Int> { call.execute().use { it.code } }
-        Thread.sleep(300)
+        assertTrue(sent.await(10, TimeUnit.SECONDS), "the request never went out")
         call.cancel()
         val thrown = assertThrows<ExecutionException> { running.get(10, TimeUnit.SECONDS) }
         assertTrue(thrown.cause is IOException, "was ${thrown.cause}")
@@ -187,6 +168,7 @@ class SempodsExecutionLifetimeTest {
   fun `waiting work is bounded rather than queued without limit`() {
     val held = CountDownLatch(1)
     val started = CountDownLatch(1)
+    val refusals = CountDownLatch(2)
     server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
 
     sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 1)).closing { client ->
@@ -209,15 +191,16 @@ class SempodsExecutionLifetimeTest {
               client.get(a).close()
             } catch (e: SempodsClientException) {
               refused.incrementAndGet()
+              refusals.countDown()
             }
           }
         }
-        Thread.sleep(500)
         // One active, one allowed to wait, and the other two told so rather than piling up.
-        assertEquals(2, refused.get())
+        assertTrue(refusals.await(10, TimeUnit.SECONDS))
 
         held.countDown()
         queued.forEach { it.get(10, TimeUnit.SECONDS) }
+        assertEquals(2, refused.get())
       } finally {
         held.countDown()
         pool.shutdownNow()
@@ -273,26 +256,6 @@ class SempodsExecutionLifetimeTest {
   }
 
   @Test
-  fun `the call deadline bounds an answer the read timeout would tolerate`() {
-    server.`when`(request()).respond(
-      response().withStatusCode(200).withBody("late").withDelay(TimeUnit.MILLISECONDS, 900),
-    )
-    sempodsClient { readTimeout(Duration.ofSeconds(10)).callTimeout(Duration.ofMillis(300)) }.closing { client ->
-      assertThrows<IOException> { client.get(session()).close() }
-    }
-  }
-
-  @Test
-  fun `a zero deadline lets a long-lived read run past what would otherwise bound it`() {
-    server.`when`(request()).respond(
-      response().withStatusCode(200).withBody("late").withDelay(TimeUnit.MILLISECONDS, 700),
-    )
-    sempodsClient { readTimeout(Duration.ofSeconds(10)).callTimeout(Duration.ZERO) }.closing { client ->
-      client.get(session()).use { assertEquals("late", it.body.string()) }
-    }
-  }
-
-  @Test
   fun `the call deadline spans the authentication retry`() {
     // Each attempt alone answers well inside the deadline; the two together do not. A deadline per
     // attempt would let the first run succeed.
@@ -330,7 +293,7 @@ class SempodsExecutionLifetimeTest {
       chain.proceed(chain.request()).also { if (it.code == 401) chain.call().cancel() }
     }
 
-    SempodsOkHttp.install(OkHttpClient.Builder().addNetworkInterceptor(cancelOnRefusal)).build().closing { client ->
+    sempodsClient { addNetworkInterceptor(cancelOnRefusal) }.closing { client ->
       val call = client.newCall(a.newRequest("GET", "x").build())
       assertThrows<IOException> { call.execute().close() }
       assertTrue(call.isCanceled())

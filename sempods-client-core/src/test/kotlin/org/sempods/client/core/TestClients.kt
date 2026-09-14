@@ -1,6 +1,9 @@
 package org.sempods.client.core
 
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import okio.BufferedSink
 
 /** A client as a consumer configures one: OkHttp's builder, with the sempods interceptors installed. */
 internal fun sempodsClient(
@@ -20,3 +23,14 @@ internal inline fun <T> OkHttpClient.closing(block: (OkHttpClient) -> T): T =
   } finally {
     shutDown()
   }
+
+/** A body that may be written once, for the cases where no further attempt may send it. */
+internal fun oneShotBody(content: String): RequestBody = object : RequestBody() {
+  override fun contentType(): MediaType? = null
+
+  override fun isOneShot() = true
+
+  override fun writeTo(sink: BufferedSink) {
+    sink.writeUtf8(content)
+  }
+}

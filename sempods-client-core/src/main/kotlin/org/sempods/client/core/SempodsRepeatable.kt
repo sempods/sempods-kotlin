@@ -1,5 +1,6 @@
 package org.sempods.client.core
 
+import okhttp3.Call
 import okhttp3.Request
 
 /**
@@ -26,5 +27,5 @@ object SempodsRepeatable {
   @JvmStatic
   fun mark(request: Request.Builder): Request.Builder = request.tag(SempodsRepeatable::class.java, SempodsRepeatable)
 
-  internal fun isMarked(request: Request): Boolean = request.tag(SempodsRepeatable::class.java) != null
+  internal fun isMarked(call: Call): Boolean = call.tag(SempodsRepeatable::class.java) != null
 }

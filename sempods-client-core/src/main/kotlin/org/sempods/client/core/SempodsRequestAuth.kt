@@ -124,11 +124,10 @@ fun interface SempodsRequestAuth {
 /**
  * The refreshable bearer, with acquisition coalesced per credential.
  *
- * **Why a generation counter rather than a flag.** Two threads whose requests are refused at the
- * same moment must produce one acquisition, not two, and the second must not then throw away the
- * value the first just obtained. Each holder remembers the generation it read; a thread asking to
- * replace generation *n* finds the work already done when the counter has moved on, and uses that
- * result.
+ * **A refusal says which credential it refused.** Threads refused at the same moment must make one
+ * acquisition between them, and none may then throw away the value another just obtained. Recovery
+ * therefore compares the header the refused request carried with the credential held now: when they
+ * differ, another thread has replaced it already, and its value is the one to send.
  *
  * The lock is this object's, so it is per credential: a session authenticating against another pod
  * shares none of it and is never held up.
@@ -143,26 +142,19 @@ private class Refreshable(
 
   @Volatile private var credential: String? = null
 
-  @Volatile private var generation: Long = 0
-
-  /** The generation each in-flight attempt authenticated with, so recovery replaces the right one. */
-  private val attemptGeneration = ThreadLocal<Long>()
-
   override fun apply(request: Request.Builder, attempt: Int) {
-    val value = acquire(replacing = null)
-    attemptGeneration.set(generation)
-    request.header(headerName, if (scheme.isEmpty()) value else "$scheme $value")
+    request.header(headerName, headerValue(acquire(refused = null)))
   }
 
   override fun recover(response: Response, attempt: Int): Boolean {
     if (response.code != 401) return false
-    val refused = attemptGeneration.get() ?: return false
-    return runCatching { acquire(replacing = refused) }.isSuccess
+    val refused = response.request.header(headerName) ?: return false
+    return runCatching { acquire(refused) }.isSuccess
   }
 
-  private fun acquire(replacing: Long?): String {
-    val held = credential
-    if (held != null && (replacing == null || generation != replacing)) return held
+  /** The credential to send: the one held, unless it is what [refused] carried. */
+  private fun acquire(refused: String?): String {
+    credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
 
     // Bounded, so a supplier that hangs fails the operation that was going to fail anyway rather
     // than every operation behind it. The whole-call deadline is the engine's; this is the floor.
@@ -171,16 +163,14 @@ private class Refreshable(
     }
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
-      val now = credential
-      if (now != null && (replacing == null || generation != replacing)) return now
-      val fresh = supplier.get(replacing != null)
-      credential = fresh
-      generation += 1
-      return fresh
+      credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
+      return supplier.get(refused != null).also { credential = it }
     } finally {
       lock.unlock()
     }
   }
+
+  private fun headerValue(credential: String): String = if (scheme.isEmpty()) credential else "$scheme $credential"
 
   private companion object {
     const val CREDENTIAL_WAIT_SECONDS = 30L

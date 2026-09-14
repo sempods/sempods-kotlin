@@ -160,7 +160,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     val first = try {
       chain.proceed(session.authenticated(request, number))
     } catch (failure: IOException) {
-      if (call.isCanceled() || !ConnectionResend.allowed(failure, request)) throw failure
+      if (call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) throw failure
       chain.proceed(session.authenticated(request, ++number))
     }
     // A body that can be written once rules another attempt out, whatever the mechanism says: the

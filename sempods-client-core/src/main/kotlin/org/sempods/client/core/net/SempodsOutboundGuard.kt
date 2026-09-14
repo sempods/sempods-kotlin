@@ -72,8 +72,6 @@ fun interface OutboundRateLimiter {
  * [trustedHosts] (exact hostnames) skip the range check — see [SempodsOutboundGuard] for why the
  * decision lives there rather than here.
  *
- * [resolve] is injectable for tests only; production uses the system resolver.
- *
  * **`private` on purpose, and checked.** It implements the engine's resolver interface, and a class
  * that does so and is reachable would put the engine on a consumer's compile classpath — which
  * `implementation` says it is not on — and make an engine major version part of this library's ABI.
@@ -83,8 +81,8 @@ fun interface OutboundRateLimiter {
  */
 private class VettingDns(
   private val policy: SempodsUrlPolicy,
-  private val trustedHosts: Set<String> = emptySet(),
-  private val resolver: SempodsHostResolver = SempodsHostResolver.system(),
+  private val trustedHosts: Set<String>,
+  private val resolver: SempodsHostResolver,
 ) : Dns {
 
   override fun lookup(hostname: String): List<InetAddress> {
@@ -100,7 +98,6 @@ private class VettingDns(
     }
     return addresses
   }
-
 }
 
 /**

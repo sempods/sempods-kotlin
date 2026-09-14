@@ -115,26 +115,22 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
     // short form (127.1), hex (0x7f000001), IPv6. A numeric host we cannot canonicalise is
     // refused outright rather than left to slip through as a name.
     if (!isNumericHost(host)) return null
-    val address = parseIpLiteral(host) ?: return "host is a non-canonical numeric address"
+    val address = runCatching { InetAddress.getByName(host.trim('[', ']')) }.getOrNull()
+      ?: return "host is a non-canonical numeric address"
     return blockedRangeReason(address)?.let { "host is a non-global address ($it)" }
   }
-
-  /** RFC 6761 reserves `localhost` and `*.localhost` for loopback. */
-  private fun isLoopbackName(host: String): Boolean =
-    host == "localhost" || host.endsWith(".localhost") ||
-      host == "ip6-localhost" || host == "ip6-loopback"
 
   private fun isNumericHost(host: String): Boolean {
     val bare = host.trim('[', ']')
     return if (bare.contains(':')) true else bare.matches(NUMERIC_IPV4)
   }
 
-  private fun parseIpLiteral(host: String): InetAddress? {
-    if (!isNumericHost(host)) return null
-    return runCatching { InetAddress.getByName(host.trim('[', ']')) }.getOrNull()
-  }
-
   companion object {
+
+    /** RFC 6761 reserves `localhost` and `*.localhost` for loopback. */
+    internal fun isLoopbackName(host: String): Boolean =
+      host == "localhost" || host.endsWith(".localhost") ||
+        host == "ip6-localhost" || host == "ip6-loopback"
 
     /**
      * IANA's IPv4 Special-Purpose Address Registry — every prefix that is not global unicast.
