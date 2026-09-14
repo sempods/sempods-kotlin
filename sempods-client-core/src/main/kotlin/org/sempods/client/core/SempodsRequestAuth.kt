@@ -31,14 +31,15 @@ fun interface SempodsCredentialSupplier {
  * for every attempt — which is the seam a later proof-of-possession mechanism needs, where the
  * header is bound to the request and to a nonce the server just supplied.
  *
- * **Headers, and nothing else.** A mechanism that changed `url` would carry the session's
- * credential to another authority; the session checks the target again afterwards and refuses the
- * call rather than sending it. The builder is OkHttp's because this library has no reason to own a
- * second one — the restriction is enforced, not typed away.
+ * **Headers, and nothing else.** A mechanism that changed the URL would carry the session's
+ * credential to another authority, and one that changed the method or the body would send a request
+ * the caller never built. The session compares all three after [apply] and refuses the call rather
+ * than sending it. The builder is OkHttp's because this library has no reason to own a second one —
+ * the restriction is enforced, not typed away.
  *
  * **Composition.** [andThen] applies the two in declaration order. On a challenge, [recover] is
  * asked in that same order and the first one to answer `true` wins; the rest are not asked.
- * However long the chain, one operation gets at most one extra attempt.
+ * However long the chain, one operation gets at most one authentication retry.
  *
  * **Concurrency.** An instance is shared by every call of its session and must be safe for
  * concurrent use. [refreshable] coalesces: concurrent callers that find the credential refused make

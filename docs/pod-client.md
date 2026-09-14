@@ -181,11 +181,14 @@ the contract:
   and the containment check runs again when a request is executed — and once more after
   authentication, since a mechanism is meant to set headers and one that rewrote the URL would carry
   the credential elsewhere.
-- **Only `execute` authorizes a retry**, at most once. A fixed bearer and an anonymous session do
-  not retry — there is nothing to re-mint. A refreshable credential does, while the body can be sent
-  again, and its acquisition is coalesced per credential. A one-shot body rules the second attempt
-  out whatever the mechanism says, because the alternative is a repeat that uploads nothing and is
-  answered 200.
+- **Only `execute` makes another attempt, and authenticates each one afresh.** OkHttp's own resend
+  is switched off, because it repeats an attempt with the headers that attempt already carried. Two
+  things earn one more, each at most once: a connection lost before any response, for an idempotent
+  method under [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2) — how a
+  pooled connection the server has closed fails — and a 401 a refreshable credential can answer,
+  with acquisition coalesced per credential. A fixed bearer and an anonymous session do not retry;
+  there is nothing to re-mint. A one-shot body rules another attempt out whatever the mechanism
+  says, because the alternative is a repeat that uploads nothing and is answered 200.
 - **Cancellation and capacity are explicit.** `Call.cancel()` is the handle — the engine's own, and
   it reaches the socket. Admission bounds active operations and waiting ones separately, because
   bounding only the active ones lets a slow server turn into unbounded memory here; a response holds

@@ -121,14 +121,22 @@ class SempodsSessionAuthTest {
 
   @Test
   fun `authentication may set headers and nothing else`() {
-    // A mechanism that rewrote the URL would carry this session's credential to another authority.
-    // The builder is OkHttp's, so the restriction is enforced rather than typed away.
-    val moves = SempodsRequestAuth { request, _ -> request.url("$origin/bob/stolen") }
-    val a = session("alice", moves)
+    // A mechanism that rewrote the URL would carry this session's credential to another authority,
+    // and one that changed the method or the body would send a request the caller never built. The
+    // builder is OkHttp's, so the restriction is enforced rather than typed away.
+    val mechanisms = mapOf(
+      "target" to SempodsRequestAuth { request, _ -> request.url("$origin/bob/stolen") },
+      "method" to SempodsRequestAuth { request, _ -> request.method("POST", request.build().body) },
+      "body" to SempodsRequestAuth { request, _ -> request.put("replaced".toRequestBody()) },
+    )
 
-    val refused = assertThrows<SempodsClientException> { a.text("x") }
-
-    assertTrue(refused.message!!.contains("Authentication moved the request"), refused.message)
+    mechanisms.forEach { (changed, mechanism) ->
+      val a = session("alice", mechanism)
+      val refused = assertThrows<SempodsClientException> {
+        a.execute(a.newRequest("PUT", "x").put("original".toRequestBody()).build()).close()
+      }
+      assertTrue(refused.message!!.contains("Authentication changed the $changed of"), refused.message)
+    }
     assertEquals(0, server.retrieveRecordedRequests(request()).size)
   }
 

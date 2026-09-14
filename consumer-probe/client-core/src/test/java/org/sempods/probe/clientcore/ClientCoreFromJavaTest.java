@@ -25,6 +25,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import okhttp3.Call;
+import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
@@ -50,9 +51,9 @@ import org.sempods.client.core.SempodsTransport;
  * this suite on a Java 21 JVM — the release it hands in as {@code sempods.probe.javaRelease}.
  *
  * <p>It doubles as the worked example the published API is reviewed against. What that example
- * shows is mostly OkHttp — a {@code Request}, a {@code Response}, a {@code Call} to cancel — because
- * the core hides no engine: what it adds is the pod base URL, the confinement, the outbound guard
- * and replaceable authentication.
+ * shows is mostly OkHttp — a {@code Request}, a {@code Response}, a {@code Call} to cancel, an
+ * interceptor for a header of the consumer's own — because the core hides no engine: what it adds
+ * is the pod base URL, the confinement, the outbound guard and replaceable authentication.
  *
  * <p>The pod is {@code com.sun.net.httpserver} from the JDK, so the classpath under test is what a
  * consumer resolves, plus JUnit.
@@ -89,6 +90,7 @@ class ClientCoreFromJavaTest {
       exchange.getResponseHeaders().add("Link", "<b>; rel=prev");
       exchange.getResponseHeaders().add("Allow", "GET, HEAD, OPTIONS");
       exchange.getResponseHeaders().add("X-Saw-Api-Key", header(exchange, "X-Api-Key"));
+      exchange.getResponseHeaders().add("X-Saw-Tracing", header(exchange, "Y-My-Tracing"));
       respond(exchange, 204, "", null);
     });
     server.createContext("/alice/_system/slow", exchange -> {
@@ -102,7 +104,12 @@ class ClientCoreFromJavaTest {
     });
     server.start();
 
-    transport = SempodsTransport.builder().build();
+    // A consumer's own tracing header rides on an interceptor of the client the transport derives
+    // from; nothing in the core has to know its name.
+    OkHttpClient withTracing = new OkHttpClient.Builder()
+        .addInterceptor(chain -> chain.proceed(chain.request().newBuilder().header("Y-My-Tracing", "trace-42").build()))
+        .build();
+    transport = SempodsTransport.builder().httpClient(withTracing).build();
     session = SempodsSession.builder(
             SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"))
         .transport(transport)
@@ -200,6 +207,14 @@ class ClientCoreFromJavaTest {
           "a repeated header lost a value");
       assertEquals("GET, HEAD, OPTIONS", response.header("Allow"));
       assertEquals("k-123", response.header("X-Saw-Api-Key"), "the custom authentication did not reach the pod");
+    }
+  }
+
+  @Test
+  void aConsumerInterceptorAddsATracingHeaderOfItsOwn() throws IOException {
+    try (Response response = session.execute(session.newRequest("GET", "_system/probe").build())) {
+      assertEquals("trace-42", response.header("X-Saw-Tracing"), "the consumer's interceptor did not run");
+      assertEquals("k-123", response.header("X-Saw-Api-Key"), "the interceptor displaced the authentication");
     }
   }
 

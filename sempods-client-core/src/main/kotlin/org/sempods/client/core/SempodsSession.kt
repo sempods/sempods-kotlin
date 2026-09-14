@@ -76,13 +76,12 @@ class SempodsSession private constructor(
    * A call for [request], authenticated for its first attempt, with no admission slot taken.
    *
    * For a caller that wants the handle before the call runs — to cancel it from another thread, or
-   * to enqueue it. **It does not retry**: authentication recovery is [execute]'s, because only a
-   * caller that holds the slot can decide a second attempt is allowed. A cancelled call fails both
-   * attempts either way, since [Call.cancel] reaches the connection.
+   * to enqueue it. **It makes one attempt**: authentication recovery and the resend after a lost
+   * connection are [execute]'s, because only a caller that holds the slot can decide a second
+   * attempt is allowed. A cancelled call fails either way, since [Call.cancel] reaches the connection.
    */
   @Throws(IOException::class)
-  fun newCall(request: Request): Call =
-    transport.httpClient.newCall(authenticated(confine(request), attempt = 1))
+  fun newCall(request: Request): Call = attempt(confine(request), number = 1)
 
   /**
    * Runs [request] and hands back the open response.
@@ -91,9 +90,11 @@ class SempodsSession private constructor(
    * be a stream the caller reads incrementally, and a wrapper that buffered it to avoid the `close`
    * would be the wrong trade for a context dump.
    *
-   * Authentication is applied per attempt. On a refusal the session's [SempodsRequestAuth] is asked
-   * whether another attempt would differ, and **only this method authorizes one** — at most once,
-   * and only while the body can be sent again.
+   * **Only this method makes another attempt, and each one is authenticated afresh.** Two things
+   * can earn one, each at most once and neither while the body cannot be sent again: a connection
+   * lost before any response arrived, for an idempotent method (RFC 9110 §9.2.2) — which is how a
+   * pooled connection the server has closed fails — and a refusal the session's [SempodsRequestAuth]
+   * expects another attempt to change.
    */
   @Throws(IOException::class)
   fun execute(request: Request): Response {
@@ -101,38 +102,52 @@ class SempodsSession private constructor(
     transport.admit()
     var slotHeld = true
     try {
-      val first = transport.httpClient.newCall(authenticated(confined, attempt = 1)).execute()
-      if (!shouldRetry(first, confined)) {
-        slotHeld = false
-        return Admitted.wrap(first, transport)
+      var number = 1
+      val first = attempt(confined, number)
+      var response = try {
+        first.execute()
+      } catch (failure: IOException) {
+        if (first.isCanceled() || !ConnectionResend.allowed(failure, confined)) throw failure
+        attempt(confined, ++number).execute()
       }
-      // The refusal is closed here rather than handed on: its body was never read, and the response
-      // the caller gets is the second attempt's.
-      first.close()
-      val second = transport.httpClient.newCall(authenticated(confined, attempt = 2)).execute()
+      if (shouldRetry(response, confined, number)) {
+        // The refusal is closed here rather than handed on: its body was never read, and the response
+        // the caller gets is the next attempt's.
+        response.close()
+        response = attempt(confined, ++number).execute()
+      }
       slotHeld = false
-      return Admitted.wrap(second, transport)
+      return Admitted.wrap(response, transport)
     } finally {
       if (slotHeld) transport.release()
     }
   }
 
-  private fun shouldRetry(response: Response, request: Request): Boolean {
-    // A body that can be written once rules a second attempt out, whatever the mechanism says: the
+  private fun attempt(request: Request, number: Int): Call =
+    transport.httpClient.newCall(authenticated(request, number))
+
+  private fun shouldRetry(response: Response, request: Request, attempt: Int): Boolean {
+    // A body that can be written once rules another attempt out, whatever the mechanism says: the
     // alternative is a repeat that sends nothing and is answered 200.
     if (request.body?.isOneShot() == true) return false
-    return auth.recover(response, attempt = 1)
+    return auth.recover(response, attempt)
   }
 
   private fun authenticated(request: Request, attempt: Int): Request {
     val builder = request.newBuilder()
     auth.apply(builder, attempt)
     val authenticated = builder.build()
-    // Asked again after authentication: a mechanism is meant to set headers, and one that rewrote
-    // the URL would carry this session's credential to another authority.
-    if (authenticated.url != request.url) {
+    // Asked again after authentication: a mechanism is meant to set headers. One that rewrote the
+    // URL would carry this session's credential to another authority, and one that changed the
+    // method or the body would send a request the caller never built, under the caller's credential.
+    val changed = listOfNotNull(
+      "target".takeIf { authenticated.url != request.url },
+      "method".takeIf { authenticated.method != request.method },
+      "body".takeIf { authenticated.body !== request.body },
+    )
+    if (changed.isNotEmpty()) {
       throw SempodsClientException(
-        "Authentication moved the request from '${request.url}' to '${authenticated.url}'. " +
+        "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} ${request.url}'. " +
           "A mechanism may set headers and nothing else.",
       )
     }

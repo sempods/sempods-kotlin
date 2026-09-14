@@ -53,6 +53,15 @@ class SempodsHttpTransport @JvmOverloads constructor(
     .build()
 
   /**
+   * The core's client with OkHttp's own resend switched back on. The core leaves a second attempt to
+   * `SempodsSession.execute`, which this surface does not go through; its callers were written
+   * against a transport that bridged a pooled connection the server had already closed. A repeat
+   * below this surface sends nothing stale, because the bearer is fixed on the request before it
+   * arrives.
+   */
+  private val httpClient: OkHttpClient = transport.httpClient.newBuilder().retryOnConnectionFailure(true).build()
+
+  /**
    * Variants for requests that override the whole-call deadline. Cached because a per-request
    * `newBuilder()` would allocate on every call; each variant still shares the pool and dispatcher.
    */
@@ -185,8 +194,8 @@ class SempodsHttpTransport @JvmOverloads constructor(
     }
 
   private fun clientFor(callTimeout: Duration?): OkHttpClient =
-    if (callTimeout == null) transport.httpClient
-    else byCallTimeout.computeIfAbsent(callTimeout) { transport.httpClient.newBuilder().callTimeout(it).build() }
+    if (callTimeout == null) httpClient
+    else byCallTimeout.computeIfAbsent(callTimeout) { httpClient.newBuilder().callTimeout(it).build() }
 
   private fun toOkHttpRequest(request: SempodsRequest): Request {
     val builder = Request.Builder().url(request.uri.toString())

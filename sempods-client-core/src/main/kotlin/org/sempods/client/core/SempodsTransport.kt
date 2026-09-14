@@ -114,9 +114,14 @@ class SempodsTransport private constructor(
     /**
      * A client to derive from, so a consumer's connection pool, cache and interceptors are shared.
      *
-     * It is derived, not adopted: the guard, the redirect policy and the deadlines below are
-     * applied on top of whatever it carries. A consumer therefore cannot lose the SSRF defence by
-     * supplying a client that has none.
+     * It is derived, not adopted: the guard, the redirect policy, the resend policy and the
+     * deadlines below are applied on top of whatever it carries. A consumer therefore cannot lose the
+     * SSRF defence by supplying a client that has none.
+     *
+     * **Its interceptors are where a consumer's own headers go** — a tracing header of their own
+     * naming, for one. They run on every attempt, after the session has confined and authenticated
+     * the request. So an interceptor that rewrites the URL takes the session's credential along: the
+     * guard still vets the new target, the pod confinement does not.
      */
     fun httpClient(client: OkHttpClient): Builder = apply { this.base = client }
 
@@ -127,8 +132,9 @@ class SempodsTransport private constructor(
 
     /**
      * The deadlines. [connect], [read] and [write] bound a single step — the handshake, and the gap
-     * between two bytes. [call] bounds the whole call including its body and any authentication
-     * retry, and is the only one a peer cannot outlast by answering slowly. [Duration.ZERO] on
+     * between two bytes. [call] bounds one attempt, its body included, and is the only one a peer
+     * cannot outlast by answering slowly. An operation [SempodsSession.execute] repeats gets it once
+     * per attempt, and a caller waiting for admission waits at most that long. [Duration.ZERO] on
      * [call] is the opt-out a long-lived stream needs.
      */
     @JvmOverloads
@@ -154,6 +160,11 @@ class SempodsTransport private constructor(
         // vetted — while carrying the bearer there.
         .followRedirects(false)
         .followSslRedirects(false)
+        // No silent resend either. OkHttp would repeat a failed attempt below the session, with the
+        // headers that attempt already carried; `SempodsSession.execute` makes that decision instead
+        // and authenticates the new attempt afresh. Trying a host's next address while connecting is
+        // not a resend and stays OkHttp's.
+        .retryOnConnectionFailure(false)
         .apply {
           guard?.let {
             dns(it.dns())
