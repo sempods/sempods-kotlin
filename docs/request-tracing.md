@@ -96,18 +96,17 @@ Three paths, because three HTTP clients are in use:
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsSession.newRequest`** (`sempods-client-core`) and **`SempodsHttpTransport.newRequest`**
-  (`sempods-client`) — OkHttp, on a client `SempodsOkHttp.install` configured rather than
-  `sempods-commons-okhttp`'s, so the interceptor above does not reach it; both set the header when
-  building a request instead. Those two are the doors: a request built any other way silently ends
-  the trace.
+- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — OkHttp, on a client
+  `SempodsOkHttp.install` configured rather than `sempods-commons-okhttp`'s, so the interceptor above
+  does not reach it; it sets the header when building a request instead. That is the door: a request
+  built any other way silently ends the trace. The core's `SempodsSession` sets none; the tracer goes
+  on the client it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
 **An explicit `traceparent` beats the ambient one on every path but the legacy transport.** The
-OkHttp interceptor and the Ktor plugin leave a request that already carries one alone, and
-`SempodsSession.newRequest` sets it with OkHttp's `header`, which replaces — a caller setting its
-own afterwards wins. `SempodsHttpTransport.newRequest` does not: its builder *appends*, so an
+OkHttp interceptor and the Ktor plugin leave a request that already carries one alone.
+`SempodsHttpTransport.newRequest` does not: its builder *appends*, so an
 explicit `traceparent` there goes out **beside** the ambient one and the receiver sees two. No
 caller in the tree does that today; the `// TODO:` sits at that `newRequest`.
 

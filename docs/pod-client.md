@@ -214,14 +214,12 @@ because the tracer goes on the consumer's own client:
   `SempodsOkHttp.install` configured derives from it and keeps the sempods interceptors. A call
   factory over a plain client fails a session's request — the placeholder host above.
 - **An instrumentation that ships as an interceptor**, or a header of the consumer's own naming, goes
-  on the same builder.
+  on the same builder. The services' own binding, `TraceparentInterceptor`, is one
+  ([`request-tracing.md`](request-tracing.md)); the core reads no ambient trace.
 
 Each attempt is a `Chain.proceed` inside the one call, and OpenTelemetry's span sits in a network
 interceptor, so a retry is a client span of its own, as OpenTelemetry's HTTP semantic conventions
-ask. `:consumer-probe:opentelemetry` checks the first path against the SDK. Inside the sempods
-services `SempodsSession.newRequest` also sets `traceparent` from `TraceContextHolder`
-([`request-tracing.md`](request-tracing.md)); an OpenTelemetry instrumentation replaces that header
-when both run.
+ask. `:consumer-probe:opentelemetry` checks the first path against the SDK.
 
 ### Two OkHttp clients in one process, on purpose
 

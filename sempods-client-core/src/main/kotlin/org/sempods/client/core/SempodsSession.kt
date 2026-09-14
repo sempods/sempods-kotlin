@@ -3,8 +3,6 @@ package org.sempods.client.core
 import okhttp3.HttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.sempods.commons.trace.TraceContext
-import org.sempods.commons.trace.TraceContextHolder
 
 /**
  * One pod and one credential. A session builds requests; an OkHttp client that
@@ -69,16 +67,12 @@ class SempodsSession @JvmOverloads constructor(
    */
   fun newRequest(method: String, podRelativePath: String): Request.Builder {
     val target = podBase.resolve(podRelativePath)
-    val builder = Request.Builder()
+    return Request.Builder()
       .url(target.newBuilder().host(SempodsOkHttp.UNBOUND_HOST).build())
       // An empty body for the verbs OkHttp requires one for, so a caller can name the method here
       // and attach the body afterwards — and so a DELETE still goes out with `Content-Length: 0`.
       .method(method, if (method in BODILESS_METHODS) null else EMPTY_BODY)
       .tag(SempodsSession::class.java, this)
-    TraceContextHolder.get()?.let { traceContext ->
-      builder.header(TraceContext.TRACEPARENT, traceContext.newChild().toHeader())
-    }
-    return builder
   }
 
   /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
