@@ -389,6 +389,18 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
+  fun `a call cancelled before it runs mints no credential`() {
+    val minted = AtomicInteger()
+    sempodsClient().closing { client ->
+      val call = client.newCall(session(counting(minted)).newRequest("GET", "x").build())
+      call.cancel()
+      assertThrows<IOException> { call.execute().close() }
+    }
+    assertEquals(0, minted.get())
+    assertEquals(0, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
   fun `a consumer's own client is derived from rather than adopted`() {
     // The redirect policy and the interceptors are applied on top of whatever is handed in, so a
     // consumer cannot lose them by supplying a client that has none.

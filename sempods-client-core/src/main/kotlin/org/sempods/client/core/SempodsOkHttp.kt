@@ -114,7 +114,7 @@ object SempodsOkHttp {
  *
  * **Every attempt is a `Chain.proceed` on the one call**, which OkHttp permits an application
  * interceptor. So `Call.timeout()` spans all of them, `Call.cancel()` reaches whichever one is
- * running, and a cancel between two attempts starts no further one.
+ * running, and a cancelled call starts no further attempt, nor the credential work for one.
  */
 private class SessionInterceptor(private val admission: AdmissionGate?) : Interceptor {
 
@@ -182,6 +182,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
 
     fun send(): Response {
+      // OkHttp looks at the cancel only below this interceptor, after the credential work.
+      if (call.isCanceled()) throw IOException("Canceled")
       val authenticated = acquiring { session.authenticated(request, number) }
       return try {
         chain.proceed(authenticated)
@@ -214,7 +216,6 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // The refusal is closed here rather than handed on: its body was never read, and the response
       // the caller gets is the next attempt's.
       first.close()
-      if (call.isCanceled()) throw IOException("Canceled")
       number++
       return slot.holdUntilClosed(send())
     } catch (failure: Throwable) {
