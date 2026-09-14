@@ -55,9 +55,10 @@ survives here has a caller behind it.
 with a coordinate fixed, so taking it removes an argument rather than adding a layer.
 `SempodsHttpTransport` sits under both. It is the legacy surface now — a token stamped on each
 request, and the JSON helpers (`objectMapper`, `requiredText`) that kept the core from being
-consumable without an object mapper. It executes through `SempodsTransport`, so there is one
-implementation of the guard, the deadlines, cancellation and admission rather than two, and it
-translates the core's transport failure back into the shapes these tiers classify on
+consumable without an object mapper. It executes on `SempodsTransport`'s client, so the guard and
+the deadlines have one implementation rather than two. It does not go through a session, so
+admission and the session's resend are the core's alone. It translates the core's transport failure
+back into the shapes these tiers classify on
 (`SempodsClientException`, carrying the server's own body). Moving the tiers themselves onto
 `SempodsSession` is [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
 [#152](https://github.com/sempods/sempods-kotlin/issues/152).
@@ -190,11 +191,12 @@ the contract:
   with acquisition coalesced per credential. A fixed bearer and an anonymous session do not retry;
   there is nothing to re-mint. A one-shot body rules another attempt out whatever the mechanism
   says, because the alternative is a repeat that uploads nothing and is answered 200.
-- **Cancellation and capacity are explicit.** `Call.cancel()` is the handle — the engine's own, and
-  it reaches the socket. Admission bounds active operations and waiting ones separately, because
-  bounding only the active ones lets a slow server turn into unbounded memory here; a response holds
-  its slot until it is closed. A caller that takes a `Call` from `newCall` and runs it themselves has
-  opted out of the budget, which is the honest consequence of handing out the engine's type.
+- **Capacity is explicit, cancellation is per call.** Admission bounds active operations and
+  waiting ones separately, because bounding only the active ones lets a slow server turn into
+  unbounded memory here; a response holds its slot until it is closed. `Call.cancel()` on a call
+  from `newCall` reaches the socket, and a caller that runs that call themselves has opted out of the
+  budget — the honest consequence of handing out the engine's type. `execute` has no cancellation
+  handle of its own; [#151](https://github.com/sempods/sempods-kotlin/issues/151) adds one.
 
 ## The transport: OkHttp, blocking
 
