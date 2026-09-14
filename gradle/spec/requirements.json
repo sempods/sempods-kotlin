@@ -563,6 +563,13 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-CORE-021",
+      "part": "core",
+      "chapter": "spec/core/index.md",
+      "summary": "A standards profile MUST be interpreted within the actors, operations and capabilities selected by the chapter's SPS requirements.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CRUD-001",
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
