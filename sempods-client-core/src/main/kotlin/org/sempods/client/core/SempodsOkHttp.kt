@@ -153,9 +153,13 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
 
   /**
    * Two things can earn another attempt, each at most once and neither while the body cannot be
-   * sent again: a connection lost before any response arrived, for an idempotent method or a request
-   * marked [SempodsRepeatable] (RFC 9110 §9.2.2) — which is how a pooled connection the server has
-   * closed fails — and a refusal the session's [SempodsRequestAuth] expects another attempt to change.
+   * sent again: a lost connection, for an idempotent method or a request marked [SempodsRepeatable]
+   * (RFC 9110 §9.2.2) — which is how a pooled connection the server has closed fails — and a refusal
+   * the session's [SempodsRequestAuth] expects another attempt to change.
+   *
+   * A lost connection is told apart by the failure's type alone. An `IOException` that an interceptor
+   * after this one throws once the response arrived looks the same, and such a request is sent again
+   * too ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    *
    * **The call holds its admission slot from before the first attempt until its response is closed**,
    * credential work included. A call made through this client from inside that work, on this thread,
@@ -177,26 +181,12 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       }
     }
 
-    fun proceed(attempt: Attempt, authenticated: Request): Response {
-      val outer = Attempt.current.get()
-      Attempt.current.set(attempt)
-      try {
-        return chain.proceed(authenticated)
-      } finally {
-        if (outer == null) Attempt.current.remove() else Attempt.current.set(outer)
-      }
-    }
-
     fun send(): Response {
       val authenticated = acquiring { session.authenticated(request, number) }
-      val attempt = Attempt()
       return try {
-        proceed(attempt, authenticated)
+        chain.proceed(authenticated)
       } catch (failure: IOException) {
-        // Once the network answered, a failure is not a lost connection, whatever threw it.
-        if (attempt.answered || resent || call.isCanceled() ||
-          !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))
-        ) {
+        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
           throw failure
         }
         resent = true
@@ -265,16 +255,6 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
   }
 }
 
-/** The attempt a session's interceptor is sending on this thread, so [FinalTarget] can record that the network answered it. */
-private class Attempt {
-
-  var answered = false
-
-  companion object {
-    val current = ThreadLocal<Attempt?>()
-  }
-}
-
 /**
  * The pod confinement once more, as the last network interceptor installed: on the request as it is
  * about to be written, after every application interceptor and after a redirect.
@@ -289,7 +269,6 @@ private object FinalTarget : Interceptor {
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request().url)
     val response = chain.proceed(chain.request())
-    Attempt.current.get()?.answered = true
     if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
     return response.newBuilder().removeHeader("Retry-After").build()
   }
