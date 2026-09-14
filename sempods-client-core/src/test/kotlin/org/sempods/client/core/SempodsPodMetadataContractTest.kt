@@ -141,6 +141,18 @@ class SempodsPodMetadataContractTest : MockPodTest() {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(ints = [201, 204, 206])
+  fun `a success the route does not list is refused like any other status`(status: Int) {
+    server.`when`(request().withPath(route)).respond(response().withStatusCode(status).withHeader("X-Request-Id", "r-$status"))
+
+    operations.forEach { (name, operation) ->
+      val failure = assertThrows<SempodsStatusException>(name) { operation(metadata()) }
+      assertEquals(status, failure.status)
+      assertEquals("r-$status", failure.headers["X-Request-Id"])
+    }
+  }
+
   @Test
   fun `over a client without the sempods interceptors nothing is sent`() {
     val plain = OkHttpClient()

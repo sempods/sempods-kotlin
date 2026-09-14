@@ -8,9 +8,9 @@ import okhttp3.Headers
  * typed result, each from the same execution.
  *
  * **[body] is null exactly for a status the operation lists as an answer outside 2xx**, such as a 404
- * for a pod that does not exist. That body is closed unread. Every 2xx has a body, an empty one
- * included. A status the operation does not list is a [SempodsStatusException], and a body it cannot
- * read a [SempodsDecodingException].
+ * for a pod that does not exist. That body is closed unread. A listed 2xx always has a body, an empty
+ * one included. A status the operation does not list, a 2xx among them, is a [SempodsStatusException],
+ * and a body it cannot read a [SempodsDecodingException].
  *
  * **The body is held in memory, and bounded**: one over 16 MiB is a [SempodsDecodingException].
  *

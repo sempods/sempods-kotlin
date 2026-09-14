@@ -21,7 +21,7 @@ class SempodsPodMetadata internal constructor(
   private val exchange: Exchange,
 ) {
 
-  /** `true` for a 2xx, `false` for a 404, decided by the status alone: the body is closed unread. */
+  /** `true` for a 200, `false` for a 404, decided by the status alone: the body is closed unread. */
   @Throws(IOException::class)
   fun exists(): Boolean = exchange.status(request(), ANSWERS) != 404
 
@@ -49,7 +49,7 @@ class SempodsPodMetadata internal constructor(
 
     const val ROUTE = "_system/meta/date-modified"
 
-    val ANSWERS = setOf(404)
+    val ANSWERS = setOf(200, 404)
 
     val DATE_MODIFIED = BodyReading<SempodsPodDateModified> { bytes, _ ->
       SempodsPodDateModified(decodeObject(bytes).stringOrNull("dateModified")?.let(::instant))

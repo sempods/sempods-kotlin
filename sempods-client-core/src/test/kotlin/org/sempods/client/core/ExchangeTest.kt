@@ -41,7 +41,7 @@ class ExchangeTest : MockPodTest() {
     // One byte, then two-byte characters, so the limit falls inside one of them.
     serve(500, "a" + "é".repeat(40 * 1024))
 
-    val failure = assertThrows<SempodsStatusException> { Exchange(client).run(get(), emptySet(), BodyReading.TEXT) }
+    val failure = assertThrows<SempodsStatusException> { Exchange(client).run(get(), setOf(200), BodyReading.TEXT) }
 
     assertEquals("a" + "é".repeat(2047) + "\uFFFD", failure.bodyExcerpt)
   }
@@ -51,7 +51,7 @@ class ExchangeTest : MockPodTest() {
     serve(500, "boom")
 
     val failure = assertThrows<SempodsStatusException> {
-      Exchange(client).run(get("x?token=abc"), emptySet(), BodyReading.TEXT)
+      Exchange(client).run(get("x?token=abc"), setOf(200), BodyReading.TEXT)
     }
 
     assertEquals("GET $origin/alice/x answered 500, which this operation does not accept.", failure.message)
@@ -66,7 +66,7 @@ class ExchangeTest : MockPodTest() {
     )
 
     val failure = assertThrows<SempodsDecodingException> {
-      Exchange(client, maxBodyBytes = 64).run(get(), emptySet(), BodyReading.TEXT)
+      Exchange(client, maxBodyBytes = 64).run(get(), setOf(200), BodyReading.TEXT)
     }
 
     assertEquals(200, failure.status)
@@ -77,7 +77,7 @@ class ExchangeTest : MockPodTest() {
   fun `a body at the limit is read whole`() {
     serve(200, "x".repeat(64))
 
-    assertEquals("x".repeat(64), Exchange(client, maxBodyBytes = 64).run(get(), emptySet(), BodyReading.TEXT).body)
+    assertEquals("x".repeat(64), Exchange(client, maxBodyBytes = 64).run(get(), setOf(200), BodyReading.TEXT).body)
   }
 
   @ParameterizedTest
@@ -97,7 +97,7 @@ class ExchangeTest : MockPodTest() {
     server.`when`(request()).respond(response().withStatusCode(200).withBody("late").withDelay(TimeUnit.SECONDS, 2))
 
     sempodsClient { callTimeout(Duration.ofMillis(200)) }.closing { impatient ->
-      val failure = assertThrows<IOException> { Exchange(impatient).run(get(), emptySet(), BodyReading.TEXT) }
+      val failure = assertThrows<IOException> { Exchange(impatient).run(get(), setOf(200), BodyReading.TEXT) }
       assertFalse(failure is SempodsResponseException, "$failure")
     }
   }
@@ -109,21 +109,21 @@ class ExchangeTest : MockPodTest() {
       val objectReading = BodyReading<ProtocolObject> { bytes, _ -> decodeObject(bytes) }
 
       serve(200, "{}")
-      exchange.run(get(), emptySet(), BodyReading.TEXT)
+      exchange.run(get(), setOf(200), BodyReading.TEXT)
       serve(404, "gone")
       exchange.run(get(), setOf(404), BodyReading.TEXT)
       serve(500, "boom")
-      assertThrows<SempodsStatusException> { exchange.run(get(), emptySet(), BodyReading.TEXT) }
+      assertThrows<SempodsStatusException> { exchange.run(get(), setOf(200), BodyReading.TEXT) }
       serve(200, "[]")
-      assertThrows<SempodsDecodingException> { exchange.run(get(), emptySet(), objectReading) }
+      assertThrows<SempodsDecodingException> { exchange.run(get(), setOf(200), objectReading) }
       serve(200, "x".repeat(65))
-      assertThrows<SempodsDecodingException> { exchange.run(get(), emptySet(), BodyReading.TEXT) }
+      assertThrows<SempodsDecodingException> { exchange.run(get(), setOf(200), BodyReading.TEXT) }
       serve(200, "never read")
-      assertEquals(200, exchange.status(get(), emptySet()))
+      assertEquals(200, exchange.status(get(), setOf(200)))
 
       // With one slot and no queue, any of the above that kept its slot would refuse this call.
       serve(200, "last")
-      assertEquals("last", exchange.run(get(), emptySet(), BodyReading.TEXT).body)
+      assertEquals("last", exchange.run(get(), setOf(200), BodyReading.TEXT).body)
     }
   }
 }

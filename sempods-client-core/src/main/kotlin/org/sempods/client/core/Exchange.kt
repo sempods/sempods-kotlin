@@ -36,6 +36,10 @@ internal class ProtocolViolation(val detail: String) : Exception(detail)
  * The one way an endpoint operation runs. Raw text, raw bytes, a typed result and an existence check
  * that reads no body all go through [execute].
  *
+ * An operation passes every status it accepts as `answers`, 2xx included. A listed 2xx carries the
+ * body, any other listed status none, and a status not listed is a [SempodsStatusException] — a 2xx
+ * as much as a 500.
+ *
  * The response is closed before a body is decoded, so its admission slot is free while the decoding
  * runs. A failure of the network, of the deadline or of the core's own policy passes through as it is.
  */
@@ -44,7 +48,7 @@ internal class Exchange(
   private val maxBodyBytes: Long = MAX_BODY_BYTES,
 ) {
 
-  /** The status of a 2xx or of a listed answer, with the body closed unread. */
+  /** The status of a listed answer, with the body closed unread. */
   fun status(request: Request, answers: Set<Int>): Int = execute(request, answers, readBody = false).status
 
   fun <T : Any> run(request: Request, answers: Set<Int>, reading: BodyReading<T>): SempodsResponse<T> {
@@ -69,14 +73,14 @@ internal class Exchange(
       val sent = response.request
       val described = "${sent.method} ${sent.url.newBuilder().query(null).fragment(null).build()}"
       when {
-        response.isSuccessful -> Answer(described, response, if (readBody) bounded(response, described) else null)
-        response.code in answers -> Answer(described, response, bytes = null)
-        else -> throw SempodsStatusException(
+        response.code !in answers -> throw SempodsStatusException(
           "$described answered ${response.code}, which this operation does not accept.",
           response.code,
           response.headers,
           excerpt(response),
         )
+        response.isSuccessful -> Answer(described, response, if (readBody) bounded(response, described) else null)
+        else -> Answer(described, response, bytes = null)
       }
     }
 
