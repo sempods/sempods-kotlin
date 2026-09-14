@@ -168,6 +168,16 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     var number = 1
     var resent = false
 
+    // Credential work knows its call, so a wait for a credential ends when the call does.
+    fun <T> acquiring(work: () -> T): T {
+      CredentialWait.call.set(call)
+      try {
+        return work()
+      } finally {
+        CredentialWait.call.remove()
+      }
+    }
+
     fun send(authenticated: Request): Response {
       slot.take()
       try {
@@ -178,7 +188,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             throw failure
           }
           resent = true
-          chain.proceed(session.authenticated(request, ++number))
+          chain.proceed(acquiring { session.authenticated(request, ++number) })
         }
       } catch (failure: Throwable) {
         slot.give()
@@ -186,7 +196,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       }
     }
 
-    val first = send(session.authenticated(request, number))
+    val first = send(acquiring { session.authenticated(request, number) })
     // A body that can be written once rules another attempt out, whatever the mechanism says: the
     // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed
     // back as it is, and OkHttp closes it and fails the call.
@@ -195,7 +205,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
     slot.give()
     val retry = try {
-      session.auth.recover(first, number)
+      acquiring { session.auth.recover(first, number) }
     } catch (failure: Throwable) {
       first.close()
       throw failure
@@ -213,7 +223,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     // the caller gets is the next attempt's.
     first.close()
     if (call.isCanceled()) throw IOException("Canceled")
-    return slot.holdUntilClosed(send(session.authenticated(request, ++number)))
+    return slot.holdUntilClosed(send(acquiring { session.authenticated(request, ++number) }))
   }
 }
 

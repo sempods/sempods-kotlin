@@ -2,6 +2,7 @@ package org.sempods.client.core
 
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -318,6 +319,29 @@ class SempodsSessionAuthTest : MockPodTest() {
       waiter.interrupt()
       val failure = outcome.get(5, TimeUnit.SECONDS)
       assertTrue(failure is InterruptedIOException, "was $failure")
+    } finally {
+      release.countDown()
+      pool.shutdownNow()
+    }
+  }
+
+  @Test
+  fun `a wait for a credential ends with the call's deadline`() {
+    val acquiring = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val a = session("alice", refreshable { _ -> acquiring.countDown(); release.await(10, TimeUnit.SECONDS); "t" })
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    val pool = Executors.newSingleThreadExecutor()
+    try {
+      pool.submit { a.text("x") }
+      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+      sempodsClient { callTimeout(Duration.ofMillis(300)) }.closing { client ->
+        val started = System.nanoTime()
+        assertThrows<IOException> { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+        val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        assertTrue(waited < 5_000, "waited ${waited}ms for a credential past a 300ms deadline")
+      }
     } finally {
       release.countDown()
       pool.shutdownNow()

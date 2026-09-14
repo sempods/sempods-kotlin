@@ -1,5 +1,6 @@
 package org.sempods.client.core
 
+import okhttp3.Call
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
@@ -121,6 +122,11 @@ fun interface SempodsRequestAuth {
   }
 }
 
+/** The call whose credential this thread is acquiring, set by the session's interceptor. */
+internal object CredentialWait {
+  val call = ThreadLocal<Call?>()
+}
+
 /**
  * The refreshable bearer, with acquisition coalesced per credential.
  *
@@ -157,15 +163,7 @@ private class Refreshable(
   private fun acquire(refused: String?): String {
     credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
 
-    // Bounded, so a supplier that hangs fails the operation that was going to fail anyway rather
-    // than every operation behind it. The whole-call deadline is the engine's; this is the floor.
-    val locked = try {
-      lock.tryLock(CREDENTIAL_WAIT_SECONDS, TimeUnit.SECONDS)
-    } catch (interrupted: InterruptedException) {
-      Thread.currentThread().interrupt()
-      throw InterruptedIOException("Interrupted while waiting to acquire a credential.")
-    }
-    if (!locked) throw IOException("Timed out waiting to acquire a credential.")
+    awaitLock()
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
       credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
@@ -175,9 +173,28 @@ private class Refreshable(
     }
   }
 
+  /**
+   * Bounded twice: by the call waiting, whose deadline cancels it, and by a floor for a caller outside
+   * a call, so a supplier that hangs fails the operations waiting on it rather than holding them.
+   */
+  private fun awaitLock() {
+    val call = CredentialWait.call.get()
+    val giveUpAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(CREDENTIAL_WAIT_SECONDS)
+    try {
+      while (!lock.tryLock(POLL_MILLIS, TimeUnit.MILLISECONDS)) {
+        if (call?.isCanceled() == true) throw IOException("Canceled while waiting to acquire a credential.")
+        if (System.nanoTime() - giveUpAt > 0) throw IOException("Timed out waiting to acquire a credential.")
+      }
+    } catch (interrupted: InterruptedException) {
+      Thread.currentThread().interrupt()
+      throw InterruptedIOException("Interrupted while waiting to acquire a credential.")
+    }
+  }
+
   private fun headerValue(credential: String): String = if (scheme.isEmpty()) credential else "$scheme $credential"
 
   private companion object {
     const val CREDENTIAL_WAIT_SECONDS = 30L
+    const val POLL_MILLIS = 20L
   }
 }

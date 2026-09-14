@@ -10,7 +10,8 @@ package org.sempods.client.core
  *
  * **It bounds every call on a client [SempodsOkHttp.install] configured**, executed or enqueued, a
  * session's or not. A call holds its slot while it sends and until its response is closed, and gives
- * it back while it acquires a credential. A caller waits for one no longer than its call deadline, and `Call.cancel()` ends the wait.
+ * it back while it acquires a credential, so a supplier can fetch through the same client; that credential
+ * work is bounded by the call's deadline rather than by these numbers. A caller waits for one no longer than its call deadline, and `Call.cancel()` ends the wait.
  */
 data class SempodsAdmission @JvmOverloads constructor(
   val maxActive: Int = 64,

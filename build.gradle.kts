@@ -298,8 +298,10 @@ subprojects {
           if (isDeclaration) inPublicClass = trimmed.startsWith("public ")
           if (trimmed == "}") inPublicClass = false
           val member = trimmed.substringBefore("(")
-          // The name alone, because a nested type in a signature carries a `$` as well.
-          if (!inPublicClass || trimmed.isEmpty() || member.substringAfterLast(' ').contains("$")) return@forEach
+          // A mangled member's simple name carries a `$`. So do a nested type in a signature and a
+          // nested class's constructor, which is named by its qualified type; neither is skipped.
+          val name = member.substringAfterLast(' ')
+          if (!inPublicClass || trimmed.isEmpty() || ('$' in name && '.' !in name)) return@forEach
 
           if (member.contains("-")) {
             offences += "$trimmed — a value class, which mangles the method name out of Java's reach"
