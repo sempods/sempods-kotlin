@@ -13,6 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.Authenticator
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -212,6 +213,19 @@ class SempodsSessionAuthTest : MockPodTest() {
     server.`when`(request()).respond(response().withStatusCode(401))
     val oneShot = session("alice", refreshable { _ -> "t" })
     send(oneShot.newRequest("PUT", "x").put(oneShotBody("body")).build()).close()
+    assertEquals(1, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
+  fun `a body a later interceptor made one-shot rules out the retry too`() {
+    // What counts is the body the attempt sent, and an interceptor after the session's may replace it.
+    server.`when`(request()).respond(response().withStatusCode(401))
+    val draining = Interceptor { chain -> chain.proceed(chain.request().newBuilder().put(oneShotBody("body")).build()) }
+
+    sempodsClient { addInterceptor(draining) }.closing { swapping ->
+      val put = session("alice", refreshable { _ -> "t" }).newRequest("PUT", "x").put("body".toRequestBody()).build()
+      swapping.newCall(put).execute().use { assertEquals(401, it.code) }
+    }
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 

@@ -200,9 +200,10 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     try {
       val first = send()
       // A body that can be written once rules another attempt out, whatever the mechanism says: the
-      // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed
-      // back as it is, and OkHttp closes it and fails the call.
-      if (first.isSuccessful || request.body?.isOneShot() == true || call.isCanceled()) {
+      // alternative is a repeat that sends nothing and is answered 200. The body is the one the attempt
+      // sent, which an interceptor after this one may have replaced. A cancelled call is handed back as
+      // it is, and OkHttp closes it and fails the call.
+      if (first.isSuccessful || first.request.body?.isOneShot() == true || call.isCanceled()) {
         return slot.holdUntilClosed(first)
       }
       val retry = try {
