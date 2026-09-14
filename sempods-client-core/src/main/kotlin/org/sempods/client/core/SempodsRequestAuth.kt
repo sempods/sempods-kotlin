@@ -12,7 +12,8 @@ import java.util.concurrent.locks.ReentrantLock
  * Supplies a credential, and says whether a refused one is worth re-acquiring.
  *
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
- * implements this owns expiry, caching and whatever endpoint mints the value.
+ * implements this owns expiry, caching, whatever endpoint mints the value and the deadline for
+ * minting it: a call's deadline cancels the call, but cannot interrupt a supplier that blocks.
  */
 fun interface SempodsCredentialSupplier {
 

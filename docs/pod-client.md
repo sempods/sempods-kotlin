@@ -171,7 +171,7 @@ Five decisions shape everything above it. Each lives in one class, whose KDoc ca
   401 a refreshable credential can answer earns one retry. `callTimeout` — two minutes when the
   builder sets none — and `Call.cancel()` cover them all.
 - **Capacity is explicit** (`SempodsAdmission`): active and waiting calls are bounded separately, for
-  every call on the client.
+  every running call on the client.
 
 ## The transport: OkHttp, blocking
 

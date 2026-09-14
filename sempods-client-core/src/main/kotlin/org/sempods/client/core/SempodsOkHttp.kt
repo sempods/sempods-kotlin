@@ -160,7 +160,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * **No credential is acquired while the call holds its admission slot.** A supplier may fetch one
    * through this same client, and would otherwise wait for the slot its own caller holds. So an
    * attempt authenticates before it takes the slot, and a refusal gives the slot back before recovery
-   * is asked.
+   * is asked; a refusal that recovery declines is handed back without taking it again.
    */
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
@@ -210,15 +210,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       first.close()
       throw failure
     }
-    if (!retry) {
-      try {
-        slot.take()
-      } catch (failure: Throwable) {
-        first.close()
-        throw failure
-      }
-      return slot.holdUntilClosed(first)
-    }
+    if (!retry) return first
     // The refusal is closed here rather than handed on: its body was never read, and the response
     // the caller gets is the next attempt's.
     first.close()

@@ -82,6 +82,44 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
+  fun `a refusal its credential does not recover reaches the caller although its slot was taken`() {
+    // The refusal gives its slot back for recovery; another call takes it before recovery declines.
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(401))
+    server.`when`(request().withPath("/alice/hold"))
+      .respond(response().withStatusCode(200).withDelay(TimeUnit.MILLISECONDS, 500))
+    val recovering = CountDownLatch(1)
+    val otherHolds = CountDownLatch(1)
+    val declining = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: Int) = Unit
+
+      override fun recover(response: Response, attempt: Int): Boolean {
+        recovering.countDown()
+        otherHolds.await(5, TimeUnit.SECONDS)
+        return false
+      }
+    }
+    val holdSeen = object : EventListener() {
+      override fun requestHeadersEnd(call: Call, request: Request) {
+        if (request.url.encodedPath.endsWith("/hold")) otherHolds.countDown()
+      }
+    }
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)) { eventListener(holdSeen) }.closing { client ->
+      val pool = Executors.newSingleThreadExecutor()
+      try {
+        val other = pool.submit<Int> {
+          recovering.await(5, TimeUnit.SECONDS)
+          client.get(session(), "hold").use { it.code }
+        }
+        client.get(session(declining)).use { assertEquals(401, it.code) }
+        assertEquals(200, other.get(10, TimeUnit.SECONDS))
+      } finally {
+        pool.shutdownNow()
+      }
+    }
+  }
+
+  @Test
   fun `a credential fetched through the same client does not wait for its caller's slot`() {
     server.`when`(request().withPath("/alice/x").withHeader("Authorization", "Bearer token-1"))
       .respond(response().withStatusCode(401))
