@@ -18,7 +18,7 @@ import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.net.SempodsOutboundGuard
+import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.client.wire.PodWireClient
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.ToolCallResult

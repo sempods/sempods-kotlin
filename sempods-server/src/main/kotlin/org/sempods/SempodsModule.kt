@@ -53,8 +53,8 @@ import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.client.SempodsHttpTimeouts
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.core.net.SempodsUrlPolicy
 import org.sempods.client.wire.PodWireClient
 import org.sempods.jaxrs.SempodsCorsFilter
 import org.sempods.jaxrs.SempodsObjectMapperResolver

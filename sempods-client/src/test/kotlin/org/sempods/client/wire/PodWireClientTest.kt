@@ -16,8 +16,8 @@ import org.mockserver.model.JsonBody
 import org.mockserver.model.MediaType
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.net.SempodsOutboundGuard
-import org.sempods.client.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.core.net.SempodsUrlPolicy
 import org.sempods.commons.utils.UriEncodingUtil
 import org.slf4j.event.Level
 import java.net.URI

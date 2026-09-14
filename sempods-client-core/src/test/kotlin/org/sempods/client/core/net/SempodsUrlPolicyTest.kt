@@ -1,4 +1,4 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -140,5 +140,16 @@ class SempodsUrlPolicyTest {
     listOf("10.0.0.1", "127.0.0.1", "::1", "169.254.169.254").forEach {
       assertNull(local.rejectAddress(addr(it)))
     }
+  }
+
+  // --- a discovered endpoint that receives a credential -------------------
+
+  @Test fun `a credentialed endpoint takes http only on loopback, and only in local mode`() {
+    assertNull(local.rejectCredentialedTarget("http://localhost:9000/token"))
+    assertNull(local.rejectCredentialedTarget("http://127.0.0.1:9000/token"))
+    assertNotNull(local.rejectCredentialedTarget("http://auth.example.com/token"))
+    assertNotNull(strict.rejectCredentialedTarget("http://localhost:9000/token"))
+    assertNull(strict.rejectCredentialedTarget("https://auth.example.com/token?tenant=a"))
+    assertNotNull(strict.rejectCredentialedTarget("https://auth.example.com/token#v2"))
   }
 }

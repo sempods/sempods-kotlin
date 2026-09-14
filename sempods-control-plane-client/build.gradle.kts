@@ -9,6 +9,11 @@ dependencies {
   // and a consumer of the pod specification adds no dependency on this module at all.
   api(project(":sempods-client"))
 
+  // Declared because compiling against `:sempods-client`'s transport reads the core's types: its
+  // constructor takes the core's guard, and its exceptions extend the core's. A type you compile
+  // against is one you say you have.
+  implementation(project(":sempods-client-core"))
+
   // Declared rather than inherited: the admin surface is plain JSON and names `JsonNode` and the
   // mapper itself. The `java.time` codecs are a registration and nothing names them.
   implementation(libs.jacksonDatabind)

@@ -96,20 +96,19 @@ Three paths, because three HTTP clients are in use:
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsHttpTransport`** (`sempods-client`) — OkHttp, but its own client rather than
-  `sempods-commons-okhttp`'s, so the interceptor above does not reach it; it sets the header in
-  `newRequest` instead. Its `newRequest(uri)` is the single door for both clients built on it — `SempodsClient`
-  and `SempodsControlPlaneClient` — and a request built any other way silently ends the trace.
+- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — OkHttp, on a client
+  `SempodsOkHttp.install` configured rather than `sempods-commons-okhttp`'s, so the interceptor above
+  does not reach it; it sets the header when building a request instead. That is the door: a request
+  built any other way silently ends the trace. The core's `SempodsSession` sets none; the tracer goes
+  on the client it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
-**An explicit `traceparent` beats the ambient one on the interceptor paths only.** The OkHttp
-interceptor and the Ktor plugin both check for the header and leave a request that already carries
-one alone. `SempodsHttpTransport` does not: `newRequest` sets the ambient header before a caller can
-add anything and the builder *appends* rather than replaces, so an explicit `traceparent` there goes
-out **beside** the ambient one and the receiver sees two. No caller in the tree does that today —
-the `// TODO:` sits at `newRequest`, because the fix is replacement semantics on the builder and a
-test, not a sentence here.
+**An explicit `traceparent` beats the ambient one on every path but the legacy transport.** The
+OkHttp interceptor and the Ktor plugin leave a request that already carries one alone.
+`SempodsHttpTransport.newRequest` does not: its builder *appends*, so an
+explicit `traceparent` there goes out **beside** the ambient one and the receiver sees two. No
+caller in the tree does that today; the `// TODO:` sits at that `newRequest`.
 
 ## Across threads
 

@@ -1,9 +1,10 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
 import java.net.InetAddress
 import java.net.URI
 import java.net.UnknownHostException
 import okhttp3.Dns
+import org.sempods.client.core.SempodsClientException
 
 /**
  * A hostname resolved into a blocked range. Subclasses [UnknownHostException] so the HTTP engine
@@ -14,7 +15,26 @@ import okhttp3.Dns
 class SsrfBlockedException(message: String) : UnknownHostException(message)
 
 /** A request refused by [OutboundRateLimiter] before it left the process. */
-class SempodsRateLimitedException(message: String) : RuntimeException(message)
+class SempodsRateLimitedException(message: String) : SempodsClientException(message)
+
+/**
+ * Turns a hostname into the addresses a connection may be opened to.
+ *
+ * A `fun interface`, so a Java implementation can declare [UnknownHostException], which is what a
+ * resolver fails with; a Kotlin function type reaches Java as `Function1` and cannot.
+ */
+fun interface SempodsHostResolver {
+
+  @Throws(UnknownHostException::class)
+  fun resolve(hostname: String): List<InetAddress>
+
+  companion object {
+
+    /** The system resolver, which is what production uses. */
+    @JvmStatic
+    fun system(): SempodsHostResolver = SempodsHostResolver { InetAddress.getAllByName(it).toList() }
+  }
+}
 
 /**
  * A budget on outbound requests, asked once per request before the connection.
@@ -48,22 +68,15 @@ fun interface OutboundRateLimiter {
  *
  * [trustedHosts] (exact hostnames) skip the range check — see [SempodsOutboundGuard] for why the
  * decision lives there rather than here.
- *
- * [resolve] is injectable for tests only; production uses the system resolver.
- *
- * **`internal` on purpose.** It implements the engine's resolver interface, and a public class that
- * does so would put the engine on a consumer's compile classpath — which `implementation` says it
- * is not on — and make an engine major version part of this library's ABI. What a caller needs from
- * here is [SempodsOutboundGuard.SYSTEM_RESOLVE], which is a plain function type.
  */
-internal class VettingDns(
+private class VettingDns(
   private val policy: SempodsUrlPolicy,
-  private val trustedHosts: Set<String> = emptySet(),
-  private val resolve: (String) -> List<InetAddress> = SempodsOutboundGuard.SYSTEM_RESOLVE,
+  private val trustedHosts: Set<String>,
+  private val resolver: SempodsHostResolver,
 ) : Dns {
 
   override fun lookup(hostname: String): List<InetAddress> {
-    val addresses = resolve(hostname)
+    val addresses = resolver.resolve(hostname)
     if (addresses.isEmpty()) throw UnknownHostException("no addresses for '$hostname'")
     if (hostname.lowercase().removeSurrounding("[", "]") in trustedHosts) return addresses
     for (address in addresses) {
@@ -75,13 +88,11 @@ internal class VettingDns(
     }
     return addresses
   }
-
 }
 
 /**
- * Everything a transport needs to refuse a request it must not make. Opt-in: a transport without
- * one behaves as it always did, which is why adding this took nothing away from consumers that dial
- * only pods they configured themselves.
+ * Everything a client needs to refuse a request it must not make. Opt-in: a client installed without
+ * one dials whatever it is given.
  *
  * Two address layers plus a budget, and the pairing is the point — see [VettingDns] for why the DNS
  * hook alone leaves IP literals uncovered, and [SempodsUrlPolicy] for why the per-request check
@@ -110,7 +121,7 @@ class SempodsOutboundGuard(
   val rateLimiter: OutboundRateLimiter? = null,
   val proxyless: Boolean = true,
   /** Test seam only; production resolves through the system. */
-  val resolve: (String) -> List<InetAddress> = SYSTEM_RESOLVE,
+  val resolver: SempodsHostResolver = SempodsHostResolver.system(),
 ) {
 
   private val trusted: Set<String> = trustedHosts.map(::normalizeHost).toSet()
@@ -137,21 +148,9 @@ class SempodsOutboundGuard(
   internal fun allows(target: URI): Boolean =
     rateLimiter == null || isTrusted(target.host) || rateLimiter.tryAcquire(target)
 
-  internal fun dns(): Dns = VettingDns(policy, trusted, resolve)
+  internal fun dns(): Dns = VettingDns(policy, trusted, resolver)
 
   private fun isTrusted(host: String?): Boolean = host != null && normalizeHost(host) in trusted
 
   private fun normalizeHost(host: String): String = host.lowercase().removeSurrounding("[", "]")
-
-  companion object {
-    /**
-     * The production resolver, as a plain function.
-     *
-     * A function type rather than the engine's resolver interface, because this is the one piece of
-     * the connect-time check a caller ever names — the adapter that implements it is `internal`, so
-     * a consumer of the published artifact never needs the engine on its compile classpath and an
-     * engine major version is not part of this library's ABI.
-     */
-    val SYSTEM_RESOLVE: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() }
-  }
 }

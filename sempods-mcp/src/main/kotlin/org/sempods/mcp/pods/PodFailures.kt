@@ -1,7 +1,7 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.net.SempodsRateLimitedException
-import org.sempods.client.net.SsrfBlockedException
+import org.sempods.client.core.net.SempodsRateLimitedException
+import org.sempods.client.core.net.SsrfBlockedException
 
 /**
  * True when the attempt failed but the connection did not — so it is worth trying again.

@@ -2,9 +2,9 @@ package org.sempods.client.wire
 
 import com.fasterxml.jackson.databind.JsonNode
 import org.sempods.client.SempodsBody
+import org.sempods.client.SempodsRequest
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.SempodsRequest
 import org.sempods.client.SempodsResponse
 import org.sempods.commons.net.SempodsPodRoutes
 import java.net.URI
