@@ -82,6 +82,23 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
+  fun `a credential fetched through the same client does not wait for its caller's slot`() {
+    server.`when`(request().withPath("/alice/x").withHeader("Authorization", "Bearer token-1"))
+      .respond(response().withStatusCode(401))
+    server.`when`(request().withPath("/token")).respond(response().withStatusCode(200).withBody("token-2"))
+    server.`when`(request().withPath("/alice/x").withHeader("Authorization", "Bearer token-2"))
+      .respond(response().withStatusCode(200))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 4)) { callTimeout(Duration.ofSeconds(5)) }.closing { client ->
+      val fetching = SempodsCredentialSupplier { force ->
+        if (!force) "token-1"
+        else client.newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+      }
+      client.get(session(SempodsRequestAuth.refreshable(fetching))).use { assertEquals(200, it.code) }
+    }
+  }
+
+  @Test
   fun `cancelling a call reaches the connection`() {
     server.`when`(request()).respond(
       response().withStatusCode(200).withBody("slow").withDelay(TimeUnit.SECONDS, 10),

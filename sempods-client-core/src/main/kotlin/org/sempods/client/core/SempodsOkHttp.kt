@@ -1,5 +1,6 @@
 package org.sempods.client.core
 
+import okhttp3.Authenticator
 import okhttp3.Call
 import okhttp3.Dns
 import okhttp3.Interceptor
@@ -72,9 +73,9 @@ object SempodsOkHttp {
    * hangs on a peer that answers slowly; a deadline already on the builder stays. `Duration.ZERO`
    * set after `install` lifts it, which is what a long-lived stream needs.
    *
-   * **OkHttp's own resend is off for a session's call**, whatever `retryOnConnectionFailure` says,
-   * because OkHttp would repeat a POST the session may not. Other calls on the client keep that
-   * setting.
+   * **OkHttp repeats nothing for a session's call**: its own resend is off whatever
+   * `retryOnConnectionFailure` says, and an `Authenticator` on the builder is not asked, because either
+   * would repeat an attempt the session did not authorize. Other calls on the client keep both.
    *
    * Refuses a builder that already carries these interceptors: two sets would nest the retries and
    * take two admission slots per call. A client derived through `newBuilder()` — OpenTelemetry's
@@ -129,7 +130,15 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             "Create the call from the request the session's newRequest built.",
         )
       }
-      return admitted(chain) { chain.proceed(request) }
+      val slot = Slot(admission, chain.call())
+      slot.take()
+      val response = try {
+        chain.proceed(request)
+      } catch (failure: Throwable) {
+        slot.give()
+        throw failure
+      }
+      return slot.holdUntilClosed(response)
     }
     val bound = session.bind(request)
     if (bound.header("Upgrade") != null) {
@@ -137,19 +146,9 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // target is confined.
       throw SempodsClientException("A session's request cannot upgrade the connection: '${bound.url}'.")
     }
-    return admitted(chain) { attempts(chain.withRetryOnConnectionFailure(false), session, bound) }
-  }
-
-  private inline fun admitted(chain: Interceptor.Chain, run: () -> Response): Response {
-    val gate = admission ?: return run()
-    gate.admit(chain.call())
-    val response = try {
-      run()
-    } catch (failure: Throwable) {
-      gate.release()
-      throw failure
-    }
-    return gate.holdUntilClosed(response)
+    // Nothing repeats below the session: no resend after a lost connection, and no follow-up by an
+    // `Authenticator` on the builder.
+    return attempts(chain.withRetryOnConnectionFailure(false).withAuthenticator(Authenticator.NONE), session, bound)
   }
 
   /**
@@ -157,34 +156,91 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * sent again: a connection lost before any response arrived, for an idempotent method or a request
    * marked [SempodsRepeatable] (RFC 9110 §9.2.2) — which is how a pooled connection the server has
    * closed fails — and a refusal the session's [SempodsRequestAuth] expects another attempt to change.
+   *
+   * **No credential is acquired while the call holds its admission slot.** A supplier may fetch one
+   * through this same client, and would otherwise wait for the slot its own caller holds. So an
+   * attempt authenticates before it takes the slot, and a refusal gives the slot back before recovery
+   * is asked.
    */
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
+    val slot = Slot(admission, call)
     var number = 1
-    // Authenticated outside the `try`: a mechanism that fails has not lost a connection.
-    val authenticated = session.authenticated(request, number)
-    val first = try {
-      chain.proceed(authenticated)
-    } catch (failure: IOException) {
-      if (call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) throw failure
-      chain.proceed(session.authenticated(request, ++number))
+    var resent = false
+
+    fun send(authenticated: Request): Response {
+      slot.take()
+      try {
+        return try {
+          chain.proceed(authenticated)
+        } catch (failure: IOException) {
+          if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
+            throw failure
+          }
+          resent = true
+          chain.proceed(session.authenticated(request, ++number))
+        }
+      } catch (failure: Throwable) {
+        slot.give()
+        throw failure
+      }
     }
+
+    val first = send(session.authenticated(request, number))
     // A body that can be written once rules another attempt out, whatever the mechanism says: the
     // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed
     // back as it is, and OkHttp closes it and fails the call.
-    if (request.body?.isOneShot() == true || call.isCanceled()) return first
+    if (first.isSuccessful || request.body?.isOneShot() == true || call.isCanceled()) {
+      return slot.holdUntilClosed(first)
+    }
+    slot.give()
     val retry = try {
       session.auth.recover(first, number)
     } catch (failure: Throwable) {
       first.close()
       throw failure
     }
-    if (!retry) return first
+    if (!retry) {
+      try {
+        slot.take()
+      } catch (failure: Throwable) {
+        first.close()
+        throw failure
+      }
+      return slot.holdUntilClosed(first)
+    }
     // The refusal is closed here rather than handed on: its body was never read, and the response
     // the caller gets is the next attempt's.
     first.close()
     if (call.isCanceled()) throw IOException("Canceled")
-    return chain.proceed(session.authenticated(request, ++number))
+    return slot.holdUntilClosed(send(session.authenticated(request, ++number)))
+  }
+}
+
+/**
+ * The admission slot of one call: taken for an attempt, given back while a credential is acquired,
+ * and handed on to the response, whose close releases it.
+ */
+private class Slot(private val gate: AdmissionGate?, private val call: Call) {
+
+  private var held = false
+
+  fun take() {
+    if (gate == null || held) return
+    gate.admit(call)
+    held = true
+  }
+
+  fun give() {
+    if (gate == null || !held) return
+    held = false
+    gate.release()
+  }
+
+  fun holdUntilClosed(response: Response): Response {
+    if (gate == null || !held) return response
+    held = false
+    return gate.holdUntilClosed(response)
   }
 }
 

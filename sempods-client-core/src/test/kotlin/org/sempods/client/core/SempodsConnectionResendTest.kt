@@ -5,6 +5,7 @@ import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.BufferedInputStream
@@ -254,6 +255,34 @@ class SempodsConnectionResendTest {
       client.newCall(post).execute().use { assertEquals(503, it.code) }
     }
     assertEquals(1, requestHeads.size, "the POST went out twice")
+  }
+
+  @Test
+  fun `an authentication retry on a dropped pooled connection gets the resend too`() {
+    // The refusal arrives on the first connection, which the server then drops; the retry meets it.
+    onConnection = { socket, index ->
+      socket.use {
+        if (readRequest(it)) {
+          val status = if (index == 1) "401 Unauthorized" else "200 OK"
+          it.getOutputStream().write("HTTP/1.1 $status\r\nContent-Length: 0\r\n\r\n".toByteArray())
+          it.getOutputStream().flush()
+        }
+      }
+    }
+    val retrying = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: Int) {
+        request.header("X-Attempt", "$attempt")
+      }
+
+      override fun recover(response: Response, attempt: Int) = response.code == 401
+    }
+    val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), retrying)
+
+    sempodsClient().closing { client ->
+      client.newCall(a.newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
+    }
+    assertEquals(2, requestHeads.size)
+    assertTrue(requestHeads[1].contains("X-Attempt: 3"), requestHeads[1])
   }
 
   @Test

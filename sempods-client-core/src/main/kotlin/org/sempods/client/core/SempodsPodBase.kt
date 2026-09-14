@@ -36,7 +36,7 @@ class SempodsPodBase private constructor(
   val url: HttpUrl,
 ) {
 
-  private val segments: List<String> = url.pathSegments.filter { it.isNotEmpty() }
+  private val segments: List<String> = url.pathSegments.dropLastWhile { it.isEmpty() }
 
   /**
    * The absolute URL of [podRelativePath] under this base.
@@ -78,9 +78,9 @@ class SempodsPodBase private constructor(
     if (target.scheme != url.scheme) return false
     if (!target.host.equals(url.host, ignoreCase = true)) return false
     if (target.port != url.port) return false
-    // Segment-wise: `HttpUrl` has already resolved dot segments and rejected a backslash, so this
-    // compares what would actually be dialled.
-    val reached = target.pathSegments.filter { it.isNotEmpty() }
+    // Segment-wise and with empty segments kept: `HttpUrl` has already resolved dot segments, so this
+    // compares what would actually be dialled, and `//alice` is not `/alice`.
+    val reached = target.pathSegments
     return reached.size >= segments.size && reached.subList(0, segments.size) == segments
   }
 

@@ -58,6 +58,7 @@ class SempodsPodBaseTest {
   fun `a pod at the host root resolves without a double slash`() {
     val root = SempodsPodBase.of("https://pods.example/")
     assertEquals("https://pods.example/_system/contexts", root.resolve("_system/contexts").toString())
+    assertTrue(root.resolve("_system/contexts") in root)
   }
 
   @Test
@@ -74,6 +75,7 @@ class SempodsPodBaseTest {
     assertFalse("http://pods.example/alice".toHttpUrl() in base)
     assertFalse("https://pods.example:8443/alice".toHttpUrl() in base)
     assertFalse("https://pods.example/alice/../bob".toHttpUrl() in base)
+    assertFalse("https://pods.example//alice/secret".toHttpUrl() in base)
   }
 
   @Test

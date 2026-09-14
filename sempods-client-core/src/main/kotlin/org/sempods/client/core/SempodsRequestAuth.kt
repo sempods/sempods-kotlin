@@ -3,6 +3,7 @@ package org.sempods.client.core
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
@@ -51,7 +52,7 @@ fun interface SempodsRequestAuth {
   fun apply(request: Request.Builder, attempt: Int)
 
   /**
-   * Whether another attempt would answer differently, having seen the refusal.
+   * Whether another attempt would answer differently, having seen a refusal — a response outside 2xx.
    *
    * **An opinion, not an instruction.** Only the execution layer authorizes a retry, and it refuses
    * one for a non-replayable body or once the attempt budget is spent — so a mechanism returning
@@ -106,7 +107,7 @@ fun interface SempodsRequestAuth {
      * A bearer that can be re-acquired, and the only convenience that retries.
      *
      * On a 401 the credential is dropped and one further attempt is made with a freshly supplied
-     * one. A refresh margin narrows the expiry race but cannot close it, because a token can be
+     * one; a supplier that fails fails the call with its exception. A refresh margin narrows the expiry race but cannot close it, because a token can be
      * rotated or revoked mid-flight — which is why recovery exists at all rather than expiry
      * handling alone.
      */
@@ -148,7 +149,8 @@ private class Refreshable(
   override fun recover(response: Response, attempt: Int): Boolean {
     if (response.code != 401) return false
     val refused = response.request.header(headerName) ?: return false
-    return runCatching { acquire(refused) }.isSuccess
+    acquire(refused)
+    return true
   }
 
   /** The credential to send: the one held, unless it is what [refused] carried. */
@@ -157,9 +159,13 @@ private class Refreshable(
 
     // Bounded, so a supplier that hangs fails the operation that was going to fail anyway rather
     // than every operation behind it. The whole-call deadline is the engine's; this is the floor.
-    if (!lock.tryLock(CREDENTIAL_WAIT_SECONDS, TimeUnit.SECONDS)) {
-      throw IOException("Timed out waiting to acquire a credential.")
+    val locked = try {
+      lock.tryLock(CREDENTIAL_WAIT_SECONDS, TimeUnit.SECONDS)
+    } catch (interrupted: InterruptedException) {
+      Thread.currentThread().interrupt()
+      throw InterruptedIOException("Interrupted while waiting to acquire a credential.")
     }
+    if (!locked) throw IOException("Timed out waiting to acquire a credential.")
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
       credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }

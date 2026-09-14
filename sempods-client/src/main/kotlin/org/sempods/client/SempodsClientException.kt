@@ -3,11 +3,10 @@ package org.sempods.client
 /**
  * What a refused request looks like to the clients on this surface.
  *
- * A subclass of [org.sempods.client.core.SempodsClientException] rather than a second hierarchy, so
- * a caller catching the core type catches this too. It keeps everything on one class, which is the
- * shape `SempodsClient` and `PodWireClient` classify on. The core has no such class to offer: it
- * hands a failure status back as the `Response` itself, and throws only for its own refusals and for
- * a network that did not answer.
+ * Unchecked, as these clients were written against: none of the methods that throw it declares it,
+ * so a checked type would break a Java caller's `catch`. It is therefore not the core's
+ * [org.sempods.client.core.SempodsClientException], which is an `IOException`. One class carries what
+ * `SempodsClient` and `PodWireClient` classify on.
  */
 class SempodsClientException @JvmOverloads constructor(
   message: String,
@@ -35,4 +34,4 @@ class SempodsClientException @JvmOverloads constructor(
    * indistinguishable, which is how a refused connection gets reported as an expired token.
    */
   cause: Throwable? = null,
-) : org.sempods.client.core.SempodsClientException(message, cause)
+) : RuntimeException(message, cause)

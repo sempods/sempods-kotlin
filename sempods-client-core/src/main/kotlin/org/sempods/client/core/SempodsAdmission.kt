@@ -9,8 +9,8 @@ package org.sempods.client.core
  * immediately, which is an answer it can act on.
  *
  * **It bounds every call on a client [SempodsOkHttp.install] configured**, executed or enqueued, a
- * session's or not. A call holds its slot across all its attempts and until its response is
- * closed. A caller waits for one no longer than its call deadline, and `Call.cancel()` ends the wait.
+ * session's or not. A call holds its slot while it sends and until its response is closed, and gives
+ * it back while it acquires a credential. A caller waits for one no longer than its call deadline, and `Call.cancel()` ends the wait.
  */
 data class SempodsAdmission @JvmOverloads constructor(
   val maxActive: Int = 64,
