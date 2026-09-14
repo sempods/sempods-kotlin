@@ -5,10 +5,9 @@ package org.sempods.client
  *
  * A subclass of [org.sempods.client.core.SempodsClientException] rather than a second hierarchy, so
  * a caller catching the core type catches this too. It keeps everything on one class, which is the
- * shape `SempodsClient` and `PodWireClient` classify on; the core splits the same information into
- * [org.sempods.client.core.SempodsHttpException] and
- * [org.sempods.client.core.SempodsTransportException], where a server that answered and a network
- * that did not are different types rather than a nullable field.
+ * shape `SempodsClient` and `PodWireClient` classify on. The core has no such class to offer: it
+ * hands a failure status back as the `Response` itself, and throws only for its own refusals and for
+ * a network that did not answer.
  */
 class SempodsClientException @JvmOverloads constructor(
   message: String,
