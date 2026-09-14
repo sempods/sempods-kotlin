@@ -14,7 +14,8 @@ import java.util.concurrent.locks.ReentrantLock
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
  * implements this owns expiry, caching, whatever endpoint mints the value and the deadline for
  * minting it: a call's deadline cancels the call, but cannot interrupt a supplier that blocks. A
- * supplier that fetches through the same client does so on the thread it is called on (`SempodsAdmission`).
+ * supplier fetching through the same client does so on the thread it is called on
+ * ([SempodsAdmission]).
  */
 fun interface SempodsCredentialSupplier {
 
@@ -110,9 +111,9 @@ fun interface SempodsRequestAuth {
      * A bearer that can be re-acquired, and the only convenience that retries.
      *
      * On a 401 the credential is dropped and one further attempt is made with a freshly supplied
-     * one; a supplier that fails fails the call with its exception. A refresh margin narrows the expiry race but cannot close it, because a token can be
-     * rotated or revoked mid-flight — which is why recovery exists at all rather than expiry
-     * handling alone.
+     * one; a supplier that fails fails the call with its exception. A refresh margin narrows the
+     * expiry race but cannot close it, because a token can be rotated or revoked mid-flight — which
+     * is why recovery exists at all rather than expiry handling alone.
      */
     @JvmStatic
     @JvmOverloads

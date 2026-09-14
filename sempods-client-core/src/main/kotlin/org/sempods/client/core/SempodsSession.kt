@@ -60,8 +60,7 @@ class SempodsSession @JvmOverloads constructor(
    * Starts a request against [podRelativePath] under this session's pod.
    *
    * [method] is any token, so HEAD, OPTIONS and a protocol extension's own verb need no change
-   * here. The path is already percent-encoded; `HttpUrl.Builder.addPathSegment` encodes one
-   * segment. A query may be attached after `?`.
+   * here. [podRelativePath] is resolved by [SempodsPodBase.resolve], which says what it may carry.
    *
    * The URL's host is the placeholder described on this class, and the request is tagged with this
    * session. No credential is attached here: the client applies one per attempt.
@@ -86,12 +85,8 @@ class SempodsSession @JvmOverloads constructor(
   }
 
   /**
-   * The check that keeps a credential with its pod.
-   *
-   * A `Request` is a plain object whose URL and `Host` header can be replaced after this session built
-   * it — by the caller, by an interceptor, by a redirect. Without this, each of those would carry this
-   * session's credential wherever the request now points: a same-host sibling path, a traversal, an
-   * outright foreign target or another server's name all arrive the same way.
+   * The check that keeps a credential with its pod: the URL and every `Host` header, either of which
+   * the caller, an interceptor or a redirect can replace after this session built the request.
    */
   internal fun confine(request: Request) {
     val target = request.url

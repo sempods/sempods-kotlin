@@ -17,8 +17,7 @@ import java.net.URI
  *   them, and the only one that also asks [SempodsPodBase] whether the URL is a base URL at
  *   all. A pod base is a coordinate a service stores, not an arbitrary document address.
  * - [rejectCredentialedTarget] — admission for a discovered endpoint this process dials with a
- *   credential. The scheme and address rules of [rejectPodBase], without its form rules: an
- *   `authorization_endpoint` legitimately carries a query, and a base URL does not.
+ *   credential.
  * - [rejectTarget] — per request, immediately before the connection. Deliberately weaker: it must
  *   pass an ordinary Linked-Data URI, which is routinely `http` and routinely carries a fragment.
  *   What it does not pass is a host that is a non-global address in any spelling.
@@ -58,17 +57,16 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
    * Admission for an endpoint this process will dial **with a credential**, but which is not a base
    * URL — a discovered `authorization_endpoint`, `token_endpoint` or `jwks_uri`.
    *
-   * The scheme and address rules of [rejectPodBase] without its form rules. Those two are not the
-   * same question, and conflating them fails in both directions: RFC 8414 lets an authorization
-   * endpoint carry a query of its own, which a base URL may not; and [rejectTarget], which does
-   * pass a query, would also pass plain `http` to any host on the internet — not something to send
-   * a client secret over.
+   * The scheme and address rules of [rejectPodBase], with an endpoint's form rules instead of a base
+   * URL's: RFC 8414 lets an authorization endpoint carry a query, which a base URL may not, and
+   * neither endpoint carries a fragment (RFC 6749 §3.1, §3.2). [rejectTarget], which also passes a
+   * query, would pass plain `http` to any host on the internet — not something to send a client
+   * secret over.
    */
   fun rejectCredentialedTarget(url: String): String? {
     val uri = runCatching { URI(url) }.getOrNull() ?: return "not a valid URL"
     if (!uri.isAbsolute) return "must be an absolute URL"
     if (uri.rawUserInfo != null) return "must not contain userinfo"
-    // RFC 6749 §3.1 and §3.2: neither endpoint carries a fragment, and none would reach the server.
     if (uri.rawFragment != null) return "must not contain a fragment"
     val scheme = uri.scheme?.lowercase() ?: return "missing scheme"
     val host = uri.host?.lowercase() ?: return "missing host"

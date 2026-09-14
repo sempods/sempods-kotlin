@@ -161,9 +161,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * after this one throws once the response arrived looks the same, and such a request is sent again
    * too ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    *
-   * **The call holds its admission slot from before the first attempt until its response is closed**,
-   * credential work included. A call made through this client from inside that work, on this thread,
-   * runs on the same slot ([CredentialWait]) instead of waiting for the one its own caller holds.
+   * The call's admission slot is held as [SempodsAdmission] describes; [CredentialWait] is how a call
+   * made from inside the credential work finds it.
    */
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
@@ -224,10 +223,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
   }
 
-  /**
-   * A call made from inside another call's credential work, on its thread and through this same
-   * admission, runs on that call's slot; through another client it needs a slot of that client's.
-   */
+  /** No gate for a call made from inside credential work through this same admission ([CredentialWait]). */
   private fun gate(): AdmissionGate? =
     if (admission != null && CredentialWait.current.get()?.admission === admission) null else admission
 }

@@ -6,7 +6,7 @@ import okhttp3.Request
 /**
  * Marks a request whose repetition has the same intended effect as sending it once, whatever its
  * method — a SPARQL query sent as POST. A client [SempodsOkHttp] configured then sends it once more
- * after a connection lost before any response, as it does for an idempotent method (RFC 9110 §9.2.2).
+ * after a lost connection, as it does for an idempotent method (RFC 9110 §9.2.2).
  *
  * ```java
  * var query = session.newRequest("POST", sparqlPath).post(queryBody);

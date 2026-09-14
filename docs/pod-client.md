@@ -166,10 +166,9 @@ Five decisions shape everything above it. Each lives in one class, whose KDoc ca
   host `sempods-session.invalid` until the client's interceptor binds it to the pod, so a plain
   `OkHttpClient` cannot resolve it and never sends it anonymously.
 - **The attempts belong to one call** (`SempodsOkHttp.install`). Each is authenticated afresh. A
-  connection lost before any response earns one resend for an idempotent method or a request marked
-  `SempodsRepeatable` ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and a
-  401 a refreshable credential can answer earns one retry. `callTimeout` — two minutes when the
-  builder sets none — and `Call.cancel()` cover them all.
+  lost connection earns one resend for an idempotent method or a request marked `SempodsRepeatable`
+  ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and a 401 a refreshable
+  credential can answer earns one retry. `callTimeout` and `Call.cancel()` cover them all.
 - **Capacity is explicit** (`SempodsAdmission`): active and waiting calls are bounded separately, for
   every running call on the client.
 
@@ -200,9 +199,8 @@ costs:
 - **The guard is as strong as the client it is installed on.** A consumer can always build a plain
   `OkHttpClient` and reach a host this library would refuse, but not by accident: a session's
   request does not resolve there. On an installed client the guard pins the resolver and the no-proxy
-  setting for every call and refuses a client that follows redirects. Interceptors run outside the
-  guard and the final confinement when they are added after `install`, so they go on the builder
-  first.
+  setting for every call and refuses a client that follows redirects; `SempodsOkHttp.install` says
+  where a consumer's own interceptors go.
 
 ### Tracing
 
