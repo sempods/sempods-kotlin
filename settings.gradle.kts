@@ -6,7 +6,7 @@
 // with `Unsupported class file major version 69`. Needs Gradle 8.11 or newer.
 plugins {
   id("com.autonomousapps.build-health") version "3.19.1"
-  id("org.jetbrains.kotlin.jvm") version "2.4.10" apply false
+  id("org.jetbrains.kotlin.jvm") version "2.4.20" apply false
 }
 
 // The api/implementation boundary, checked. `./gradlew buildHealth` writes its report to
