@@ -70,6 +70,12 @@ class SempodsHttpTransport @JvmOverloads constructor(
    * Omitting the header is therefore a supported mode; what a caller may do without a token is the
    * server's decision, expressed as a 401 or a filtered answer.
    */
+  // TODO: an explicit `traceparent` from a caller is *appended* here, not substituted — the builder
+  //   keeps a list and `toOkHttpRequest` calls `addHeader` per entry, so a caller setting the header
+  //   after `newRequest` puts two on the wire. The interceptor paths and `SempodsSession.newRequest`
+  //   leave the caller's header standing, which is what `docs/request-tracing.md` describes; this
+  //   path should match it. Needs replacement semantics on `SempodsRequest.Builder.header` and a
+  //   test. No caller in the tree does it today.
   @JvmOverloads
   fun newRequest(uri: URI, token: String? = null): SempodsRequest.Builder {
     val builder = SempodsRequest.Builder(uri, null)

@@ -99,16 +99,17 @@ Three paths, because three HTTP clients are in use:
 - **`SempodsSession.newRequest`** (`sempods-client-core`) and **`SempodsHttpTransport.newRequest`**
   (`sempods-client`) — OkHttp, but the core's own client rather than `sempods-commons-okhttp`'s, so
   the interceptor above does not reach it; both set the header when building a request instead.
-  Those two are the doors: a request built any other way — `SempodsRequest.to(uri)` directly —
+  Those two are the doors: an OkHttp `Request` built directly and handed to `SempodsSession.execute`
   silently ends the trace.
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
-**An explicit `traceparent` beats the ambient one everywhere.** The OkHttp interceptor and the Ktor
-plugin check for the header and leave a request that already carries one alone; on the client the
-ambient header is set with `SempodsRequest.Builder.setHeader`, which replaces, so a caller setting
-its own afterwards wins and the receiver sees one. `addHeader` is there for the fields that may
-legitimately repeat, and `traceparent` is not one of them.
+**An explicit `traceparent` beats the ambient one on every path but the legacy transport.** The
+OkHttp interceptor and the Ktor plugin leave a request that already carries one alone, and
+`SempodsSession.newRequest` sets it with OkHttp's `header`, which replaces — a caller setting its
+own afterwards wins. `SempodsHttpTransport.newRequest` does not: its builder *appends*, so an
+explicit `traceparent` there goes out **beside** the ambient one and the receiver sees two. No
+caller in the tree does that today; the `// TODO:` sits at that `newRequest`.
 
 ## Across threads
 
