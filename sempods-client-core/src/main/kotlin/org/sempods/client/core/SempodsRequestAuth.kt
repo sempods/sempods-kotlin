@@ -130,7 +130,11 @@ fun interface SempodsRequestAuth {
  * thread, runs on its admission slot.
  */
 internal object CredentialWait {
-  val call = ThreadLocal<Call?>()
+
+  /** The call a thread's credential work serves, and the admission whose slot that call holds. */
+  class Work(val call: Call, val admission: Any?)
+
+  val current = ThreadLocal<Work?>()
 }
 
 /**
@@ -184,7 +188,7 @@ private class Refreshable(
    * a call, so a supplier that hangs fails the operations waiting on it rather than holding them.
    */
   private fun awaitLock() {
-    val call = CredentialWait.call.get()
+    val call = CredentialWait.current.get()?.call
     val giveUpAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(CREDENTIAL_WAIT_SECONDS)
     try {
       while (!lock.tryLock(POLL_MILLIS, TimeUnit.MILLISECONDS)) {

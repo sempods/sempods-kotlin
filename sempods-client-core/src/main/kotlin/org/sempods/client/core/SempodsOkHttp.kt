@@ -168,12 +168,12 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     var resent = false
 
     fun <T> acquiring(work: () -> T): T {
-      val outer = CredentialWait.call.get()
-      CredentialWait.call.set(call)
+      val outer = CredentialWait.current.get()
+      CredentialWait.current.set(CredentialWait.Work(call, admission))
       try {
         return work()
       } finally {
-        if (outer == null) CredentialWait.call.remove() else CredentialWait.call.set(outer)
+        if (outer == null) CredentialWait.current.remove() else CredentialWait.current.set(outer)
       }
     }
 
@@ -219,8 +219,12 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
   }
 
-  /** A call made from inside another call's credential work, on its thread, runs on that call's slot. */
-  private fun gate(): AdmissionGate? = if (CredentialWait.call.get() == null) admission else null
+  /**
+   * A call made from inside another call's credential work, on its thread and through this same
+   * admission, runs on that call's slot; through another client it needs a slot of that client's.
+   */
+  private fun gate(): AdmissionGate? =
+    if (admission != null && CredentialWait.current.get()?.admission === admission) null else admission
 }
 
 /** The admission slot of one call: taken before its first attempt and handed on to its response, whose close releases it. */

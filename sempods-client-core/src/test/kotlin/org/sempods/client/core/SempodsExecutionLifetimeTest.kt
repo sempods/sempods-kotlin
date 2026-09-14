@@ -139,6 +139,25 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
+  fun `a supplier's call through another client needs a slot of that client`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("t"))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { other ->
+      val holding = other.get(session())
+      try {
+        sempodsClient().closing { client ->
+          val fetching = SempodsCredentialSupplier { _ ->
+            other.newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+          }
+          assertThrows<SempodsClientException> { client.get(session(SempodsRequestAuth.refreshable(fetching))).close() }
+        }
+      } finally {
+        holding.close()
+      }
+    }
+  }
+
+  @Test
   fun `cancelling a call reaches the connection`() {
     server.`when`(request()).respond(
       response().withStatusCode(200).withBody("slow").withDelay(TimeUnit.SECONDS, 10),
