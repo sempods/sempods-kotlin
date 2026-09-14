@@ -381,7 +381,7 @@ that checking reaches.
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
 groups over this core with typed results for the protocol's JSON
 ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF adapters
-([#150](https://github.com/sempods/sempods-kotlin/issues/150)), async and coroutine
+([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
