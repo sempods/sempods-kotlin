@@ -267,7 +267,7 @@ private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
-    session.confine(chain.request().url)
+    session.confine(chain.request())
     val response = chain.proceed(chain.request())
     if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
     return response.newBuilder().removeHeader("Retry-After").build()

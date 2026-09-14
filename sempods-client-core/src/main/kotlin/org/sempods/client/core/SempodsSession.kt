@@ -36,8 +36,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * route gets all of the above by building through here and running on such a client, and needs
  * nothing private.
  *
- * **A credential never leaves its pod.** The client checks the target against [podBase] before the
- * first attempt and once more in its last network interceptor, on the request about to be written —
+ * **A credential never leaves its pod.** The client checks the target against [podBase] — the URL,
+ * and any `Host` header, which a server that routes by name follows instead — before the first
+ * attempt and once more in its last network interceptor, on the request about to be written —
  * after every application interceptor, after a redirect, and after every network interceptor added
  * before [SempodsOkHttp.install]. An interceptor that moves the request therefore takes no credential
  * along.
@@ -80,24 +81,42 @@ class SempodsSession @JvmOverloads constructor(
     val bound =
       if (request.url.host != SempodsOkHttp.UNBOUND_HOST) request
       else request.newBuilder().url(request.url.newBuilder().host(podBase.url.host).build()).build()
-    confine(bound.url)
+    confine(bound)
     return bound
   }
 
   /**
    * The check that keeps a credential with its pod.
    *
-   * A `Request` is a plain object whose URL can be replaced after this session built it — by the
-   * caller, by an interceptor, by a redirect. Without this, each of those would carry this session's
-   * credential wherever the URL now points: a same-host sibling path, a traversal or an outright
-   * foreign target all arrive the same way.
+   * A `Request` is a plain object whose URL and `Host` header can be replaced after this session built
+   * it — by the caller, by an interceptor, by a redirect. Without this, each of those would carry this
+   * session's credential wherever the request now points: a same-host sibling path, a traversal, an
+   * outright foreign target or another server's name all arrive the same way.
    */
-  internal fun confine(target: HttpUrl) {
-    if (target in podBase) return
-    throw SempodsClientException(
-      "'$target' is not under this session's pod '$podBase'. A request built for one pod cannot " +
-        "be sent to another; build it with that pod's session.",
-    )
+  internal fun confine(request: Request) {
+    val target = request.url
+    if (target !in podBase) {
+      throw SempodsClientException(
+        "'$target' is not under this session's pod '$podBase'. A request built for one pod cannot " +
+          "be sent to another; build it with that pod's session.",
+      )
+    }
+    // OkHttp sends a `Host` the request carries in place of the URL's, and HTTP/2 makes it the
+    // `:authority`.
+    val named = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
+    if (named.isNotEmpty()) {
+      throw SempodsClientException(
+        "'Host: ${named.first()}' does not name this session's pod '$podBase'. A request cannot be " +
+          "sent to another server under this session's credential.",
+      )
+    }
+  }
+
+  /** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
+  private fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
+    val name = if (':' in target.host) "[${target.host}]" else target.host
+    return host.equals("$name:${target.port}", ignoreCase = true) ||
+      target.port == HttpUrl.defaultPort(target.scheme) && host.equals(name, ignoreCase = true)
   }
 
   internal fun authenticated(request: Request, attempt: Int): Request {

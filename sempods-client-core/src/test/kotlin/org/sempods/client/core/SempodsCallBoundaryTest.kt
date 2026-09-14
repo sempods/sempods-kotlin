@@ -122,6 +122,26 @@ class SempodsCallBoundaryTest : MockPodTest() {
   }
 
   @Test
+  fun `a Host header must name the pod, whoever sets it`() {
+    // A server that routes by name follows `Host`, not the address the connection went to.
+    val renaming = SempodsRequestAuth { request, _ -> request.header("Host", "bob.example") }
+    val byAuthentication = SempodsSession(SempodsPodBase.of("$origin/alice"), renaming)
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    sempodsClient().closing { client ->
+      val byCaller = alice().newRequest("GET", "x").header("Host", "bob.example").build()
+      listOf(byCaller, byAuthentication.newRequest("GET", "x").build()).forEach { renamed ->
+        val refused = assertThrows<SempodsClientException> { client.newCall(renamed).execute().close() }
+        assertTrue(refused.message!!.contains("does not name this session's pod"), refused.message)
+      }
+      assertEquals(0, server.retrieveRecordedRequests(request()).size)
+
+      val own = alice().newRequest("GET", "x").header("Host", "LOCALHOST:${server.port}").build()
+      client.newCall(own).execute().use { assertEquals(200, it.code) }
+    }
+  }
+
+  @Test
   fun `a builder that already carries the interceptors is refused`() {
     // Two sets would nest the retries and take two admission slots per call.
     sempodsClient().closing { once ->
