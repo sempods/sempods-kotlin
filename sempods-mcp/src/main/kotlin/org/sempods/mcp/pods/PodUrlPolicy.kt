@@ -1,18 +1,16 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.net.SempodsUrlPolicy
+import org.sempods.client.core.net.SempodsUrlPolicy
 import java.net.InetAddress
 
 /**
  * Pod base-URL guard — the URL-string half of the two-layer SSRF defense.
  *
- * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client`. They were spelled out twice — here
- * and in a consumer's dereference guard — and the two drifted: this side knew `::a.b.c.d` carries a
- * routable IPv4 a prefix table does not see, that side knew about the 6to4 relay anycast and the
- * discard prefix. Neither knew the other's ranges. One table now, and both consumers get the union.
+ * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client-core`: one range table for this
+ * service's pod-base admission and a consumer's dereference guard alike.
  *
  * What survives here is the naming this service uses: [allowLocal] for the deploy-time relaxation,
- * and `reject` for pod-base admission.
+ * `reject` for pod-base admission and [rejectEndpoint] for a discovered OAuth endpoint.
  *
  * Layer 2 (at connect time): [rejectAddress] vets every DNS-resolved address against the same
  * blocked-range set — enforced by the client's vetting resolver inside the pinned fetch path, so a
@@ -22,10 +20,17 @@ import java.net.InetAddress
 class PodUrlPolicy(allowLocal: Boolean) {
 
   /** The shared rules, exposed so the connect-time hook can take them without a second wrapper. */
-  val rules = SempodsUrlPolicy(allowPrivateAddresses = allowLocal)
+  internal val rules = SempodsUrlPolicy(allowPrivateAddresses = allowLocal)
 
   /** Returns null if acceptable, otherwise a human-readable rejection reason. */
   fun reject(podBaseUrl: String): String? = rules.rejectPodBase(podBaseUrl)
+
+  /**
+   * The same admission for a discovered OAuth endpoint, which is not a base URL: it may carry a
+   * query and a path of the deployment's choosing, and must still be reachable only over `https`
+   * or a locally permitted address, because a client secret travels to it.
+   */
+  fun rejectEndpoint(url: String): String? = rules.rejectCredentialedTarget(url)
 
   /**
    * Vets a DNS-resolved address at connect time (layer 2 — called for every

@@ -1,4 +1,4 @@
-package org.sempods.client.net
+package org.sempods.client.core.net
 
 import java.net.InetAddress
 import java.net.UnknownHostException
@@ -13,7 +13,10 @@ class VettingDnsTest {
   private val relaxed = SempodsUrlPolicy(allowPrivateAddresses = true)
 
   private fun dns(policy: SempodsUrlPolicy, vararg addresses: String) =
-    VettingDns(policy, resolve = { addresses.map { InetAddress.getByName(it) } })
+    SempodsOutboundGuard(
+      policy,
+      resolver = { addresses.map { InetAddress.getByName(it) } },
+    ).dns()
 
   @Test fun `blocked ranges are rejected at resolve time under a strict policy`() {
     val blocked = listOf(
@@ -58,11 +61,11 @@ class VettingDnsTest {
   }
 
   @Test fun `a trusted host skips the range check even under a strict policy`() {
-    val trusted = VettingDns(
+    val trusted = SempodsOutboundGuard(
       strict,
       trustedHosts = setOf("id.internal"),
-      resolve = { listOf(InetAddress.getByName("10.0.0.1")) },
-    )
+      resolver = { listOf(InetAddress.getByName("10.0.0.1")) },
+    ).dns()
     assertEquals(1, trusted.lookup("id.internal").size)
     // ...but only for the exact trusted hostname — everything else stays vetted.
     assertFailsWith<SsrfBlockedException> { trusted.lookup("pod.example") }

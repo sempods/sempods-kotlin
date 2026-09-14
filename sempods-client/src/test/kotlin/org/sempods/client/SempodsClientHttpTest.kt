@@ -27,6 +27,7 @@ import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.MediaType
 import org.slf4j.event.Level
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.time.Instant
 
@@ -429,6 +430,16 @@ class SempodsClientHttpTest {
   }
 
   // ─── media ────────────────────────────────────────────────────────────────
+
+  @Test
+  fun `dumpContext surfaces a refusal with its status code`() {
+    mockServer.`when`(request()).respond(response().withStatusCode(403).withBody("scope"))
+
+    val ex = assertThrows<SempodsClientException> {
+      client.dumpContext(baseUrl, baseUrl.resolve("_system/contexts/apps/notes/public"), "t", ByteArrayOutputStream())
+    }
+    assertEquals(403, ex.statusCode)
+  }
 
   @Test
   fun `uploadMedia POSTs the bytes with the context, the filename and a definite length`() {

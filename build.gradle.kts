@@ -35,6 +35,7 @@ val publishedModules = listOf(
   "sempods-auth",
   "sempods-auth-core",
   "sempods-client",
+  "sempods-client-core",
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",
@@ -197,6 +198,138 @@ subprojects {
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoLoggingBinding) }
 
+  // `:consumer-probe:client-core`, configured here because this block applies the Kotlin plugin that
+  // gives it a source set. What it checks and why: `docs/concepts/modularity.md` §"Open-source
+  // readiness".
+  if (path == ":consumer-probe:client-core") {
+
+    // The suite's runtime graph is a consumer's, plus JUnit and the test logging binding.
+    val testRuntimeClasspath = configurations.named("testRuntimeClasspath")
+
+    // Compiled with `--release` and run on that JVM. The suite is handed the release, so the number
+    // has one owner.
+    val javaRelease = 21
+    tasks.withType<JavaCompile>().configureEach { options.release = javaRelease }
+    tasks.withType<Test>().configureEach {
+      javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(javaRelease) }
+      systemProperty("sempods.probe.javaRelease", javaRelease)
+    }
+
+    val checkNoForbiddenDependencies = tasks.register("checkNoForbiddenDependencies") {
+      group = "verification"
+      description = "Fails if a consumer of the client core would resolve RDF4J, Jena or Jackson."
+      doLast {
+        val forbidden = mapOf(
+          "org.eclipse.rdf4j" to "RDF4J",
+          "org.apache.jena" to "Jena",
+          "com.fasterxml.jackson" to "Jackson",
+          "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
+        )
+        // Every component by its coordinates, projects included: `sempods-model` arrives here as one.
+        val offenders = testRuntimeClasspath.get().incoming.resolutionResult.allComponents
+          .mapNotNull { it.moduleVersion }
+          .map { "${it.group}:${it.name}" }
+          .filter { coordinates -> forbidden.keys.any { coordinates.startsWith(it) } }
+          .distinct().sorted()
+
+        if (offenders.isNotEmpty()) {
+          throw GradleException(
+            "A consumer of :sempods-client-core would resolve ${offenders.joinToString()}. That " +
+              "module exists so an HTTP consumer does not take an RDF store or an object mapper " +
+              "with it — see `docs/pod-client.md` §\"The core\".",
+          )
+        }
+      }
+    }
+
+    // On `test`, which is what a developer runs on every change and what `test.yml` runs.
+    tasks.named("test") { dependsOn(checkNoForbiddenDependencies) }
+  }
+
+  // What a module promises a Java consumer — no value class, `suspend` function or Kotlin function
+  // type on its surface, and no library it hides. The rule and its reasons:
+  // `docs/concepts/modularity.md` §"Open-source readiness". A module opts in with an entry below.
+  //
+  // It reads the compiled classes with `javap`: a Kotlin type can reach a signature the source never
+  // names, and `javap` ships with the JDK the build already requires.
+  val forbiddenLibraries = mapOf(
+    // OkHttp is on the core's surface on purpose, so it is not listed.
+    "sempods-client-core" to mapOf(
+      "com.fasterxml.jackson." to "a JSON library",
+      "org.eclipse.rdf4j." to "an RDF library",
+      "org.apache.jena." to "an RDF library",
+    ),
+  )
+
+  forbiddenLibraries[name]?.let { libraries ->
+    val classesDir = layout.buildDirectory.dir("classes/kotlin/main")
+    val javapLauncher = javaToolchains.launcherFor(java.toolchain)
+    val modulePath = project.path
+
+    val checkPublishedSignatures = tasks.register("checkPublishedSignatures") {
+      group = "verification"
+      description = "Fails if $modulePath publishes a surface Java cannot call, or names a library it hides."
+      dependsOn(tasks.named("classes"))
+      inputs.dir(classesDir)
+      doLast {
+        val root = classesDir.get().asFile
+        val classes = root.walkTopDown()
+          .filter { it.extension == "class" }
+          .map { it.relativeTo(root).path.removeSuffix(".class").replace(File.separatorChar, '.') }
+          .sorted().toList()
+        if (classes.isEmpty()) throw GradleException("$modulePath compiled to no classes to inspect.")
+
+        val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
+        val output = providers.exec {
+          commandLine(listOf(javap.absolutePath, "-public", "-classpath", root.absolutePath) + classes)
+        }.standardOutput.asText.get()
+
+        // A member name carrying `$` is one Kotlin mangled on purpose: `internal` is public in
+        // bytecode, and the mangling is what stops a consumer naming it. Those are the module's own
+        // plumbing; this check is about the surface someone can actually write against. A `-` is
+        // the opposite — Kotlin mangles that way for a value class, and the member was meant to be
+        // public.
+        val offences = mutableListOf<String>()
+        var inPublicClass = false
+        output.lineSequence().map { it.trimEnd() }.forEach { line ->
+          val trimmed = line.trim()
+          val isDeclaration = !line.startsWith(" ") && trimmed.isNotEmpty() &&
+            !trimmed.startsWith("Compiled from") && trimmed != "}"
+          if (isDeclaration) inPublicClass = trimmed.startsWith("public ")
+          if (trimmed == "}") inPublicClass = false
+          val member = trimmed.substringBefore("(")
+          // A mangled member's simple name carries a `$`. So do a nested type in a signature and a
+          // nested class's constructor, which is named by its qualified type; neither is skipped.
+          val name = member.substringAfterLast(' ')
+          if (!inPublicClass || trimmed.isEmpty() || ('$' in name && '.' !in name)) return@forEach
+
+          if (member.contains("-")) {
+            offences += "$trimmed — a value class, which mangles the method name out of Java's reach"
+          }
+          if (trimmed.contains("kotlin.coroutines.Continuation")) {
+            offences += "$trimmed — a suspend function"
+          }
+          if (trimmed.contains("kotlin.jvm.functions.Function")) {
+            offences += "$trimmed — a Kotlin function type, which cannot declare a checked exception"
+          }
+          libraries.forEach { (prefix, what) ->
+            if (trimmed.contains(prefix)) offences += "$trimmed — $what, which this module hides"
+          }
+        }
+
+        if (offences.isNotEmpty()) {
+          throw GradleException(
+            "$modulePath publishes a surface a Java consumer cannot use as it stands:\n  " +
+              offences.distinct().sorted().joinToString("\n  ") +
+              "\nA callback belongs in a `fun interface` that can declare `IOException`; a value " +
+              "class, a `suspend` function and a hidden library belong behind the boundary.",
+          )
+        }
+      }
+    }
+    tasks.matching { it.name == "check" }.configureEach { dependsOn(checkPublishedSignatures) }
+  }
+
   tasks.withType<JavaExec>().configureEach {
     // kotlin-logging prints `kotlin-logging: initializing... active logger factory: …` to
     // stdout on first use unless this is off. It fires from a static initializer, before any
@@ -324,8 +457,8 @@ subprojects {
   }
 
   // What this repository calls a test library, for the check further down. `libs.bundles.test` is
-  // the stack every module takes; `awaitility` and `mockServer` sit beside it because only some
-  // source sets use them, so naming the bundle alone would leave two of the five unwatched.
+  // the stack every Kotlin suite takes; the libraries beside it are the ones only some source sets
+  // declare, so naming the bundle alone would leave them unwatched.
   //
   // The logback binding is deliberately not here. It is the one thing on this list a *published*
   // module may legitimately declare — `sempods-auth` and `sempods-mcp` own a `main` and choose
@@ -334,7 +467,8 @@ subprojects {
   // `pom.withXml` block below like anything else the fixtures bring alone.
   val testLibraries = (
     catalog.findBundle("test").get().get() +
-      listOf("awaitility", "mockServer").map { catalog.findLibrary(it).get().get() }
+      listOf("awaitility", "mockServer", "junitJupiterApi", "junitJupiterParams", "junitPlatformLauncher")
+        .map { catalog.findLibrary(it).get().get() }
     )
     .map { "${it.module.group}:${it.module.name}" }
     .toSet()
@@ -348,6 +482,17 @@ subprojects {
     .flatMap { it.allDependencies }
     .map { "${it.group}:${it.name}" }
     .toSet()
+
+  // The `<dependency>` entries of a generated POM, as `groupId:artifactId` and `<scope>`. The file is
+  // generated, so its shape is fixed and a reader beats a parser here.
+  fun pomDependencies(pom: File): List<Pair<String, String?>> =
+    Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL).findAll(pom.readText())
+      .map { dependency ->
+        val block = dependency.groupValues[1]
+        fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
+        "${tag("groupId")}:${tag("artifactId")}" to tag("scope")
+      }
+      .toList()
 
   extensions.configure<PublishingExtension> {
     publications {
@@ -423,17 +568,10 @@ subprojects {
     // check rather than the module whose POM is wrong.
     val modulePath = project.path
     doLast {
-      // The POM is generated, so its shape is fixed and a reader beats a parser here.
-      val offenders = Regex("<dependency>(.*?)</dependency>", RegexOption.DOT_MATCHES_ALL)
-        .findAll(pomFile.get().readText())
-        .mapNotNull { dependency ->
-          val block = dependency.groupValues[1]
-          fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(block)?.groupValues?.get(1)
-          val coordinates = "${tag("groupId")}:${tag("artifactId")}"
-          // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
-          if (coordinates in testLibraries) "$coordinates (${tag("scope") ?: "compile"})" else null
-        }
-        .toList()
+      val offenders = pomDependencies(pomFile.get())
+        .filter { (coordinates, _) -> coordinates in testLibraries }
+        // No `<scope>` means `compile`, which is Maven's default and the worse of the two.
+        .map { (coordinates, scope) -> "$coordinates (${scope ?: "compile"})" }
 
       if (offenders.isNotEmpty()) {
         throw GradleException(
@@ -448,6 +586,49 @@ subprojects {
     }
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoTestLibrariesInPom) }
+
+  // The same file, read for the opposite mistake.
+  //
+  // `checkNoTestLibrariesInPom` above asks whether the `pom.withXml` block took out too little.
+  // This asks whether it took out too much, and nothing else in the build can: `buildHealth`
+  // analyses Gradle configurations and runs before a POM exists, the test suite never reads one,
+  // and every module's own compile classpath is whole whatever the POM says. Break the block's
+  // subtraction and a module publishes a POM naming none of its dependencies — green here, and a
+  // `NoClassDefFoundError` the first time a Maven consumer runs it.
+  //
+  // A Maven consumer resolves from this file alone. A Gradle consumer reads the module metadata
+  // instead, which `maven-publish` writes from the same variants and never post-processes — so the
+  // POM is the only half of a publication that can be wrong on its own.
+  val checkNoMissingPomDependencies = tasks.register("checkNoMissingPomDependencies") {
+    group = "verification"
+    description = "Fails if the published POM omits a dependency the module declares for consumers."
+    dependsOn(generatePom)
+    val pomFile = generatePom.map { it.destination }
+    val modulePath = project.path
+    doLast {
+      // `apiElements` and `runtimeElements` are the two Gradle maps onto a POM scope, so this is
+      // the same question `maven-publish` answered when it wrote the file — asked again afterwards.
+      // A Kotlin Multiplatform library is declared by its umbrella coordinate and published as the
+      // platform one — `com.squareup.okhttp3:okhttp` is written into the POM as `okhttp-jvm`.
+      // Comparing the spellings literally would report that as a missing dependency on every run.
+      fun platformNeutral(coordinates: String) = coordinates.removeSuffix("-jvm")
+
+      val expected = declaredIn("apiElements", "runtimeElements").map(::platformNeutral).toSet()
+      val published = pomDependencies(pomFile.get()).map { platformNeutral(it.first) }.toSet()
+
+      val missing = (expected - published).sorted()
+      if (missing.isNotEmpty()) {
+        throw GradleException(
+          "$modulePath declares ${missing.joinToString()} for its consumers, and its published POM " +
+            "names none of them. A Maven consumer resolves from that file alone, so what is missing " +
+            "there is missing from their classpath. The `pom.withXml` block in the root build file " +
+            "removes what the test fixtures bring and the module itself does not — check that its " +
+            "subtraction is still a subtraction.",
+        )
+      }
+    }
+  }
+  tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoMissingPomDependencies) }
 }
 
 // Central rejects a POM missing any of this. `allprojects`, because `sempods-bom` returns early

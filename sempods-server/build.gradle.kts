@@ -48,6 +48,9 @@ dependencies {
   // surface, so a seeding call that only works in-process fails in the test run rather than at
   // deploy time. The direction stays one-way — `:sempods-client` depends on `:sempods-model` alone.
   implementation(project(":sempods-client"))
+  // `SempodsModule` configures the outbound guard and the deadlines, both of which are the core's
+  // types now. Same rule as the line above: named directly, so declared directly.
+  implementation(project(":sempods-client-core"))
 
   // Guice and the logging facade. Neither reaches a consumer as an obligation: Guice is
   // `compileOnly` in the commons siblings, and `libs.bundles.logging` is the facade alone — the
