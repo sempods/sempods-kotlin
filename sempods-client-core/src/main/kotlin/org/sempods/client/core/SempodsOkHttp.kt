@@ -181,19 +181,18 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     fun send(authenticated: Request): Response {
       slot.take()
       try {
-        return try {
-          chain.proceed(authenticated)
-        } catch (failure: IOException) {
-          if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
-            throw failure
-          }
-          resent = true
-          chain.proceed(acquiring { session.authenticated(request, ++number) })
-        }
+        return chain.proceed(authenticated)
       } catch (failure: Throwable) {
         slot.give()
-        throw failure
+        if (failure !is IOException || resent || call.isCanceled() ||
+          !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))
+        ) {
+          throw failure
+        }
       }
+      // The resend authenticates without the slot, as every attempt does.
+      resent = true
+      return send(acquiring { session.authenticated(request, ++number) })
     }
 
     val first = send(acquiring { session.authenticated(request, number) })

@@ -172,9 +172,6 @@ class SempodsHttpTransport @JvmOverloads constructor(
     try {
       val response = try {
         call.execute()
-      } catch (e: org.sempods.client.core.net.SempodsRateLimitedException) {
-        // A spent budget passes through with its own type, as this surface's callers expect.
-        throw e
       } catch (e: org.sempods.client.core.SempodsClientException) {
         // A refusal this library made — a blocked address, a spent budget. The cause carries what a
         // consumer classifies on, which is why it travels rather than being flattened into the text.

@@ -128,7 +128,8 @@ class SempodsHttpTransportGuardTest {
   @Test
   fun `the rate limiter refuses before the request leaves`() {
     val transport = transport(allowPrivate = true, rateLimiter = { false })
-    assertThrows<SempodsRateLimitedException> { get(transport) }
+    val refused = assertThrows<SempodsClientException> { get(transport) }
+    assertInstanceOf(SempodsRateLimitedException::class.java, refused.cause)
     assertEquals(0, mockServer.retrieveRecordedRequests(request()).size)
   }
 

@@ -286,6 +286,32 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a resend authenticates without holding the admission slot`() {
+    // The mechanism fetches through the same client for the resend; a token answer closes its connection.
+    onConnection = { socket, _ ->
+      socket.use {
+        if (readRequest(it)) {
+          val close = if (requestHeads.last().startsWith("GET /token")) "Connection: close\r\n" else ""
+          it.getOutputStream().write("HTTP/1.1 200 OK\r\n${close}Content-Length: 2\r\n\r\nok".toByteArray())
+          it.getOutputStream().flush()
+        }
+      }
+    }
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 4)) { callTimeout(Duration.ofSeconds(5)) }.closing { client ->
+      val fetching = SempodsRequestAuth { request, attempt ->
+        if (attempt > 1) client.newCall(Request.Builder().url("http://127.0.0.1:${server.localPort}/token").build()).execute().close()
+        request.header("X-Attempt", "$attempt")
+      }
+      val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), fetching)
+      leaveAStaleConnection(client, a)
+
+      client.newCall(a.newRequest("PUT", "second").put("x".toRequestBody()).build()).execute().use { assertEquals(200, it.code) }
+    }
+    assertTrue(requestHeads.any { it.startsWith("GET /token") }, requestHeads.toString())
+  }
+
+  @Test
   fun `a failing authentication is not resent as a lost connection`() {
     val asked = AtomicInteger()
     val failing = SempodsRequestAuth.refreshable(
