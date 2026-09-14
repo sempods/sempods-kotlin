@@ -113,9 +113,7 @@ class ClientCoreFromJavaTest {
     OkHttpClient withTracing = new OkHttpClient.Builder()
         .addInterceptor(chain -> chain.proceed(chain.request().newBuilder().header("Y-My-Tracing", "trace-42").build()))
         .build();
-    client = SempodsOkHttp.install(withTracing.newBuilder(), null, new SempodsAdmission(64, 256))
-        .callTimeout(Duration.ofMinutes(2))
-        .build();
+    client = SempodsOkHttp.install(withTracing.newBuilder(), null, new SempodsAdmission(64, 256)).build();
     session = new SempodsSession(
         SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"),
         new ApiKeyWithTenant("k-123", "tenant-a"));
@@ -152,6 +150,13 @@ class ClientCoreFromJavaTest {
       request.header("X-Api-Key", key);
       request.header("X-Tenant", tenant);
     }
+  }
+
+  @Test
+  void aSessionRequestCarriesThePublishedPlaceholderAndTheClientTheDefaultDeadline() {
+    // What a metrics tag or an event listener sees ahead of the sempods interceptor, named from Java.
+    assertEquals(SempodsOkHttp.UNBOUND_HOST, session.newRequest("GET", "_system/contexts").build().url().host());
+    assertEquals(120_000, client.callTimeoutMillis(), "install's call deadline for a builder that carried none");
   }
 
   @Test

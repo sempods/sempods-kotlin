@@ -21,8 +21,7 @@ import org.sempods.commons.trace.TraceContextHolder
  * confinement, the authentication, the resend and the admission budget.
  *
  * ```java
- * OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()
- *     .callTimeout(Duration.ofMinutes(2))).build();
+ * OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
  * SempodsSession alice = new SempodsSession(
  *     SempodsPodBase.of("https://pods.example/alice"),
  *     SempodsRequestAuth.apiKeyHeader("X-Api-Key", key));
@@ -46,7 +45,7 @@ import org.sempods.commons.trace.TraceContextHolder
  * therefore takes no credential along.
  *
  * **A request from here cannot be sent without that policy.** Its URL carries the placeholder host
- * `sempods-session.invalid` (RFC 6761 reserves `.invalid`) in place of the pod's, and the client's
+ * [SempodsOkHttp.UNBOUND_HOST] (RFC 6761 reserves `.invalid`) in place of the pod's, and the client's
  * interceptor puts the pod's host back. A client without the interceptors — a plain `OkHttpClient`,
  * or OpenTelemetry's call factory over one — fails to resolve that name instead of sending the pod
  * an anonymous request. The price: `Request.url`, `Call.request().url` and whatever runs ahead of
@@ -71,7 +70,7 @@ class SempodsSession @JvmOverloads constructor(
   fun newRequest(method: String, podRelativePath: String): Request.Builder {
     val target = podBase.resolve(podRelativePath)
     val builder = Request.Builder()
-      .url(target.newBuilder().host(SempodsOkHttp.unboundHost).build())
+      .url(target.newBuilder().host(SempodsOkHttp.UNBOUND_HOST).build())
       // An empty body for the verbs OkHttp requires one for, so a caller can name the method here
       // and attach the body afterwards — and so a DELETE still goes out with `Content-Length: 0`.
       .method(method, if (method in BODILESS_METHODS) null else EMPTY_BODY)
@@ -85,7 +84,7 @@ class SempodsSession @JvmOverloads constructor(
   /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
   internal fun bind(request: Request): Request {
     val bound =
-      if (request.url.host != SempodsOkHttp.unboundHost) request
+      if (request.url.host != SempodsOkHttp.UNBOUND_HOST) request
       else request.newBuilder().url(request.url.newBuilder().host(podBase.url.host).build()).build()
     confine(bound.url)
     return bound

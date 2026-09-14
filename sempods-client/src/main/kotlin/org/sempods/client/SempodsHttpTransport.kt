@@ -58,11 +58,15 @@ class SempodsHttpTransport @JvmOverloads constructor(
     OkHttpClient.Builder()
       .connectTimeout(timeouts.connect)
       .readTimeout(timeouts.read)
-      .writeTimeout(timeouts.write)
-      .callTimeout(timeouts.call),
+      .writeTimeout(timeouts.write),
     guard,
     admission = null,
-  ).retryOnConnectionFailure(true).build()
+  )
+    // After `install`, which would otherwise read an unset deadline and put its own in: the one this
+    // surface's callers configured wins, `Duration.ZERO` included.
+    .callTimeout(timeouts.call)
+    .retryOnConnectionFailure(true)
+    .build()
 
   /**
    * Variants for requests that override the whole-call deadline. Cached because a per-request

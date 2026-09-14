@@ -1,7 +1,7 @@
 # Pod client — the JVM client for the pod surface (IST)
 
 What a consumer reaches for when it wants to talk to a pod it does not run: `:sempods-client-core`
-(`SempodsSession`, `SempodsTransport`, `SempodsRequestAuth`), `:sempods-client` above it
+(`SempodsSession`, `SempodsOkHttp`, `SempodsRequestAuth`), `:sempods-client` above it
 (`SempodsClient`, `SempodsPodClient`, `PodWireClient`, `SempodsHttpTransport`), and the sibling that
 speaks the host-level admin surface, `:sempods-control-plane-client` (`SempodsControlPlaneClient`).
 
@@ -55,9 +55,10 @@ survives here has a caller behind it.
 with a coordinate fixed, so taking it removes an argument rather than adding a layer.
 `SempodsHttpTransport` sits under both. It is the legacy surface now — a token stamped on each
 request, and the JSON helpers (`objectMapper`, `requiredText`) that kept the core from being
-consumable without an object mapper. It executes on `SempodsTransport`'s client, so the guard and
-the deadlines have one implementation rather than two. It does not go through a session, so
-admission and the session's resend are the core's alone. It translates the core's transport failure
+consumable without an object mapper. It runs on a client `SempodsOkHttp.install` configured, so the
+guard and the redirect policy have one implementation rather than two. It sends no session's
+requests, so the session's authentication and resend do not apply, and it installs no admission
+budget. It translates the core's transport failure
 back into the shapes these tiers classify on
 (`SempodsClientException`, carrying the server's own body). Moving the tiers themselves onto
 `SempodsSession` is [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
@@ -139,38 +140,39 @@ a representation. It resolves no RDF4J, no Jackson and no Jena, directly or tran
 from outside the build rather than asserted here,
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
-**The request and the response are OkHttp's.** There is no second vocabulary to learn: build a
-`Request`, run it, read the `Response`, close it. What this module adds is what OkHttp has no
-opinion about.
+**The request, the call and the response are OkHttp's.** There is no second vocabulary to learn:
+build an `OkHttpClient`, build a `Request`, call it, read the `Response`, close it. What this module
+adds is what OkHttp has no opinion about, and it adds it to the consumer's own client.
 
 | | |
 |---|---|
 | `SempodsPodBase` | the base URL rules, and containment |
-| `SempodsSession` | one pod and one credential over a transport; `newRequest` resolves, `execute` confines and authenticates |
+| `SempodsSession` | one pod and one credential; `newRequest` builds a request only a sempods client can send |
+| `SempodsOkHttp` | `install` puts the policy on an `OkHttpClient.Builder`: confinement, authentication per attempt, resend, admission, the guard |
 | `SempodsRequestAuth` | how a session authenticates, replaceable and decoratable |
-| `SempodsTransport` | shared connection pool, deadlines, outbound guard, admission budget |
+| `SempodsAdmission` | how many calls may run, and how many may wait |
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
 
 ```java
-var session = SempodsSession.builder(SempodsPodBase.of("https://pods.example/alice"))
-    .transport(transport)
-    .auth(SempodsRequestAuth.apiKeyHeader("X-Api-Key", key))
-    .build();
+OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
+var alice = new SempodsSession(SempodsPodBase.of("https://pods.example/alice"),
+    SempodsRequestAuth.apiKeyHeader("X-Api-Key", key));
 
-var request = session.newRequest("GET", "_system/contexts")
+var request = alice.newRequest("GET", "_system/contexts")
     .header("Accept", "application/json")
     .build();
-try (Response response = session.execute(request)) {
+try (Response response = client.newCall(request).execute()) {
   String contexts = response.body().string();
 }
 ```
 
-`newRequest` plus `execute` is also the **extension seam**: an endpoint group, a protocol module or
-a consumer's own route gets authentication, confinement, the guard, the deadlines and admission by
-using it, and needs nothing private. Any method token works, so HEAD, OPTIONS and an extension's own
-verb need no change.
+`newRequest` plus a call on such a client is also the **extension seam**: an endpoint group, a
+protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
+and admission by using it, and needs nothing private. Any method token works, so HEAD, OPTIONS and
+an extension's own verb need no change, and `execute`, `enqueue`, `cancel` and `timeout` are
+OkHttp's own.
 
-Four decisions shape everything above it. Each is one place in the code, and the KDoc there carries
+Five decisions shape everything above it. Each is one place in the code, and the KDoc there carries
 the contract:
 
 - **The core decides no route's meaning.** A failure status is an answer: 304, 404 and 412 are
@@ -179,24 +181,30 @@ the contract:
 - **A credential never leaves its pod.** `SempodsPodBase` validates the base against
   [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
   and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020),
-  and the containment check runs again when a request is executed — and once more after
-  authentication, since a mechanism is meant to set headers and one that rewrote the URL would carry
-  the credential elsewhere.
-- **Only `execute` makes another attempt, and authenticates each one afresh.** OkHttp's own resend
-  is switched off, because it repeats an attempt with the headers that attempt already carried. Two
-  things earn one more, each at most once: a connection lost before any response, for an idempotent
-  method or a POST marked `SempodsRepeatable` such as a SPARQL query, under
+  and the client confines every call twice: before the first attempt, and in its last network
+  interceptor on the request about to be written, after every other interceptor. Authentication may
+  set headers only; a changed target, method or body is refused.
+- **A session's request does not go out without that policy.** Its URL carries the placeholder host
+  `sempods-session.invalid` (`SempodsOkHttp.UNBOUND_HOST`; RFC 6761 reserves `.invalid`) until the
+  client's interceptor puts the pod's host in. On a plain `OkHttpClient` the name does not resolve;
+  without the placeholder the same call would reach the pod anonymously and be answered with the
+  public view of the data. The price: `Call.request()` and an event listener's `callStart` see the
+  placeholder, while `Response.request()` names the pod.
+- **Every attempt is authenticated afresh, inside one call.** OkHttp's own resend is off for a
+  session's call, because it repeats an attempt with the headers that attempt already carried. Two
+  things earn one more attempt, each at most once: a connection lost before any response, for an
+  idempotent method or a POST marked `SempodsRepeatable` such as a SPARQL query, under
   [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2) — how a pooled connection
-  the server has closed fails — and a 401 a refreshable credential can answer,
-  with acquisition coalesced per credential. A fixed bearer and an anonymous session do not retry;
-  there is nothing to re-mint. A one-shot body rules another attempt out whatever the mechanism
-  says, because the alternative is a repeat that uploads nothing and is answered 200.
-- **Capacity is explicit, cancellation is per call.** Admission bounds active operations and
-  waiting ones separately, because bounding only the active ones lets a slow server turn into
-  unbounded memory here; a response holds its slot until it is closed. `Call.cancel()` on a call
-  from `newCall` reaches the socket, and a caller that runs that call themselves has opted out of the
-  budget — the honest consequence of handing out the engine's type. `execute` has no cancellation
-  handle of its own; [#151](https://github.com/sempods/sempods-kotlin/issues/151) adds one.
+  the server has closed fails — and a 401 a refreshable credential can answer, with acquisition
+  coalesced per credential. A fixed bearer and an anonymous session do not retry; there is nothing
+  to re-mint. A one-shot body rules another attempt out whatever the mechanism says, because the
+  alternative is a repeat that uploads nothing and is answered 200. Because the attempts belong to
+  one call, `callTimeout` spans them all — `install` sets two minutes when the builder carries none
+  — and `Call.cancel()` ends the call wherever it is, between attempts and while it waits for
+  admission included.
+- **Capacity is explicit.** Admission bounds active calls and waiting ones separately, for every
+  call on the client, because bounding only the active ones lets a slow server turn into unbounded
+  memory here; a response holds its slot until it is closed.
 
 ## The transport: OkHttp, blocking
 
@@ -223,9 +231,9 @@ the address is produced, and the JDK client has none: the only injection point i
 `InetAddressResolverProvider`, which replaces the resolver for the whole JVM. That is not something
 a library may do to its consumer. OkHttp's `Dns` hook is, and it is one line.
 
-**And it is `api`, not `implementation`.** `SempodsSession` hands back an `okhttp3.Response` and
-takes an `okhttp3.Request`; a consumer compiles against both, adds their own interceptor, shares the
-connection pool. The alternative was tried: a second vocabulary — `SempodsRequest`,
+**And it is `api`, not `implementation`.** `SempodsOkHttp.install` configures an
+`okhttp3.OkHttpClient.Builder` and `SempodsSession` hands out an `okhttp3.Request.Builder`; a consumer
+compiles against both, calls, adds their own interceptor, shares the connection pool. The alternative was tried: a second vocabulary — `SempodsRequest`,
 `SempodsResponse`, `SempodsHeaders`, `SempodsBody`, a body handler, a cancellation handle — cost
 about five hundred lines, re-implemented case-insensitive multi-value headers OkHttp has had since
 version 1, and bought a consumer nothing they could not already do. What it cost them was
@@ -240,26 +248,28 @@ What that costs, stated rather than hidden:
   `OkHttpClient.Builder` — is the oldest and most stable part of it.
 - **A version to keep**, pinned explicitly in the catalog rather than inherited from a Ktor BOM in a
   module that has no Ktor.
-- **The guard becomes a promise rather than a structure.** A consumer holding `transport.httpClient`
-  can call it directly and reach a host this library would refuse. What is kept is that they cannot
-  do it *by accident*: a client handed to `SempodsTransport.Builder.httpClient` is derived from, so
-  the `Dns` hook, the redirect policy and the deadlines are applied on top of whatever it carried.
+- **The guard is as strong as the client it is installed on.** A consumer can always build a second,
+  plain `OkHttpClient` and reach a host this library would refuse. What is kept is that they cannot
+  do it *by accident*: a session's request does not resolve on such a client, and on an installed
+  one the guard's interceptor pins the resolver and the no-proxy setting for every call and refuses a
+  client that follows redirects, so a builder changed after `install` cannot shed them.
 
 ### Tracing
 
 The standard on the wire is [W3C Trace Context](https://www.w3.org/TR/trace-context/), and
-OpenTelemetry is the standard way a JVM produces it. The core takes a tracer in one of two places,
-and neither needs a dependency of its own:
+OpenTelemetry is the standard way a JVM produces it. The core needs a dependency for neither,
+because the tracer goes on the consumer's own client:
 
-- **`SempodsTransport.Builder.callFactory`**, for an instrumentation that wraps a client —
-  OpenTelemetry's OkHttp library, whose `createCallFactory` is handed the client the transport has
-  already configured, so the guard and the redirect and resend policy stay on. `SempodsCallFactoryDecorator`'s
-  KDoc has the line.
-- **The client handed to `SempodsTransport.Builder.httpClient`**, for one that ships as an interceptor,
-  or for a header of the consumer's own naming.
+- **OpenTelemetry's OkHttp library** wraps that client: `createCallFactory` over a client
+  `SempodsOkHttp.install` configured derives from it and keeps the sempods interceptors. A call
+  factory over a plain client fails a session's request rather than sending it — the placeholder
+  host above.
+- **An instrumentation that ships as an interceptor**, or a header of the consumer's own naming, goes
+  on the same builder.
 
-Every attempt `execute` makes is a call of its own, so a retry is a client span of its own — what
-OpenTelemetry's HTTP semantic conventions ask for. `:consumer-probe:opentelemetry` checks the first
+Each attempt is a `Chain.proceed` inside the one call, and OpenTelemetry's span sits in a network
+interceptor, so a retry is a client span of its own — what OpenTelemetry's HTTP semantic conventions
+ask for. `:consumer-probe:opentelemetry` checks the first
 path against the OpenTelemetry SDK. Inside the sempods services, `SempodsSession.newRequest` also sets
 `traceparent` from `TraceContextHolder`; [`request-tracing.md`](request-tracing.md) describes that
 binding, and an OpenTelemetry instrumentation replaces the header when both run.
@@ -269,7 +279,7 @@ binding, and an OpenTelemetry instrumentation replaces the header when both run.
 A JVM running both this client and `sempods-commons-okhttp`'s holds two `OkHttpClient` instances.
 They are still **not** merged by default, but the reason has changed with the engine reaching the
 surface: a consumer that wants one pool now says so, with
-`SempodsTransport.builder().httpClient(theirs)`, and gets a client derived from theirs rather than
+`SempodsOkHttp.install(theirs.newBuilder())`, and gets a client derived from theirs rather than
 a second one beside it.
 
 Left alone it buys little. A second client costs **no threads** — `TaskRunner.INSTANCE` is a JVM-wide
@@ -284,7 +294,7 @@ configure their own; nothing stops a deployment handing the same one to both.
 
 ### The guard
 
-`SempodsOutboundGuard` is opt-in: a transport without one dials whatever it is given, which is what
+`SempodsOutboundGuard` is opt-in: a client installed without one dials whatever it is given, which is what
 a consumer reaching only pods it configured itself already did. A guarded one gets **two address
 layers, and neither is redundant**:
 
@@ -329,7 +339,8 @@ won: the NAT64 prefixes are refused outright rather than by payload.
 
 - **The stateless `dereference` does not become pod-bound.** It takes an arbitrary foreign URI with no
   pod base and no token. That is the stateless tier, permanently.
-- **No coroutine or async surface.** A `suspend` consumer bridges at its own edge, and
+- **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a
+  `suspend` consumer bridges at its own edge, and
   `sempods-mcp`'s `PodIo` is what that costs: a virtual-thread executor, a cancel handle, and the
   caller's trace carried across the hop. Note the two things a bridge must get right, both of which
   cost a test to find — `Thread.interrupt()` does **not** unblock an OkHttp read (Okio clears the
@@ -368,8 +379,9 @@ against it across a project boundary and runs the result as a real Java 21 proce
 that checking reaches.
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups over this core ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF and
-JSON adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), async and coroutine
+groups over this core with typed results for the protocol's JSON
+([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF adapters
+([#150](https://github.com/sempods/sempods-kotlin/issues/150)), async and coroutine
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
@@ -386,7 +398,7 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
 ## Contract source
 
 - `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
-  `SempodsTransport`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsOperation`, and
+  `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`, and
   `net/` for the outbound guard
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
   `SempodsAuth`, `SempodsHttpTransport`

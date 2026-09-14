@@ -14,6 +14,7 @@ import org.sempods.client.core.net.SsrfBlockedException
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.Proxy
+import java.time.Duration
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,8 +35,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object SempodsOkHttp {
 
-  /** The host a session's request names until the session interceptor binds it to the pod. */
-  internal val unboundHost = "sempods-session.invalid"
+  /**
+   * The host a session's request carries until the session interceptor binds it to the pod.
+   *
+   * Public so that whatever sees a request ahead of that interceptor — `Call.request()`, an event
+   * listener's `callStart`, a metrics tag — can recognise it and read the pod from
+   * `Response.request()` instead.
+   */
+  const val UNBOUND_HOST: String = "sempods-session.invalid"
+
+  private val DEFAULT_CALL_TIMEOUT: Duration = Duration.ofMinutes(2)
 
   /**
    * Installs the sempods interceptors on [client] and returns it for chaining.
@@ -54,9 +63,10 @@ object SempodsOkHttp {
    * says otherwise, no proxy. The guard's interceptor pins both again for every call and refuses a
    * call on a client that follows redirects, so a builder changed after this cannot shed them.
    *
-   * **The deadline is OkHttp's.** `callTimeout` spans the whole call: the wait for admission, every
-   * attempt and the body. OkHttp's default is no deadline, so set one; `Duration.ZERO` stays the
-   * opt-out a long-lived stream needs.
+   * **The deadline is OkHttp's `callTimeout`**, and it spans the whole call: the wait for admission,
+   * every attempt and the body. `install` sets two minutes when the builder carries none, so no call
+   * hangs on a peer that answers slowly; a deadline already on the builder stays. `Duration.ZERO`
+   * set after `install` lifts it, which is what a long-lived stream needs.
    *
    * **OkHttp's own resend is off for a session's call**, whatever `retryOnConnectionFailure` says,
    * because OkHttp would repeat a POST the session may not. Other calls on the client keep that
@@ -76,6 +86,9 @@ object SempodsOkHttp {
     check(client.interceptors().none { it is SessionInterceptor }) {
       "The sempods interceptors are already installed on this client builder."
     }
+    // A deadline the builder already carries stays. The builder has no public getter for it, so a
+    // client built from it reads the value; building one starts no thread.
+    if (client.build().callTimeoutMillis == 0) client.callTimeout(DEFAULT_CALL_TIMEOUT)
     client.interceptors().add(0, SessionInterceptor(admission?.let(::AdmissionGate)))
     if (guard != null) {
       val guarding = GuardInterceptor(guard)
@@ -106,7 +119,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     // request, and the call keeps the tags it was created with.
     val session = chain.call().tag(SempodsSession::class.java)
     if (session == null) {
-      if (request.url.host == SempodsOkHttp.unboundHost) {
+      if (request.url.host == SempodsOkHttp.UNBOUND_HOST) {
         throw SempodsClientException(
           "'${request.url}' was built by a SempodsSession, but this call does not carry one. " +
             "Create the call from the request the session's newRequest built.",

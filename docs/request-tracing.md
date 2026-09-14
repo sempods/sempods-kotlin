@@ -97,10 +97,10 @@ Three paths, because three HTTP clients are in use:
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
 - **`SempodsSession.newRequest`** (`sempods-client-core`) and **`SempodsHttpTransport.newRequest`**
-  (`sempods-client`) — OkHttp, but the core's own client rather than `sempods-commons-okhttp`'s, so
-  the interceptor above does not reach it; both set the header when building a request instead.
-  Those two are the doors: an OkHttp `Request` built directly and handed to `SempodsSession.execute`
-  silently ends the trace.
+  (`sempods-client`) — OkHttp, on a client `SempodsOkHttp.install` configured rather than
+  `sempods-commons-okhttp`'s, so the interceptor above does not reach it; both set the header when
+  building a request instead. Those two are the doors: a request built any other way silently ends
+  the trace.
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
