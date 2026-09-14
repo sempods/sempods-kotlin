@@ -286,7 +286,7 @@ class SempodsConnectionResendTest {
   }
 
   @Test
-  fun `a resend authenticates without holding the admission slot`() {
+  fun `a resend's credential fetched through the same client runs on the call's slot`() {
     // The mechanism fetches through the same client for the resend; a token answer closes its connection.
     onConnection = { socket, _ ->
       socket.use {

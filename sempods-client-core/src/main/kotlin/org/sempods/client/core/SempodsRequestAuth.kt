@@ -13,7 +13,8 @@ import java.util.concurrent.locks.ReentrantLock
  *
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
  * implements this owns expiry, caching, whatever endpoint mints the value and the deadline for
- * minting it: a call's deadline cancels the call, but cannot interrupt a supplier that blocks.
+ * minting it: a call's deadline cancels the call, but cannot interrupt a supplier that blocks. A
+ * supplier that fetches through the same client does so on the thread it is called on (`SempodsAdmission`).
  */
 fun interface SempodsCredentialSupplier {
 
@@ -123,7 +124,11 @@ fun interface SempodsRequestAuth {
   }
 }
 
-/** The call whose credential this thread is acquiring, set by the session's interceptor. */
+/**
+ * The call whose credential this thread is acquiring, set by the session's interceptor. A wait for the
+ * credential lock ends with that call, and a call made through the same client meanwhile, on this
+ * thread, runs on its admission slot.
+ */
 internal object CredentialWait {
   val call = ThreadLocal<Call?>()
 }

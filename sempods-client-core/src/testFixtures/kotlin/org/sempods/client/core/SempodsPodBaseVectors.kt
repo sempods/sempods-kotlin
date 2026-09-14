@@ -44,6 +44,7 @@ object SempodsPodBaseVectors {
     "https://pods.example/alice#frag" to "SPS-CORE-019 fragment",
     "https://user:pw@pods.example/alice" to "SPS-CORE-019 userinfo",
     "http://pods.example/alice" to "SPS-CORE-019 http off loopback",
+    "https://pods.example/alice//" to "SPS-CORE-019 more than one trailing slash",
     "ftp://pods.example/alice" to "SPS-CORE-019 scheme",
     "https://pods.example/a/../b" to "SPS-CORE-020 dot segment",
     "https://pods.example/a/./b" to "SPS-CORE-020 dot segment",

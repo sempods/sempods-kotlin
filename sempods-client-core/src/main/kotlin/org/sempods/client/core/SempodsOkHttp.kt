@@ -130,7 +130,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             "Create the call from the request the session's newRequest built.",
         )
       }
-      val slot = Slot(admission, chain.call())
+      val slot = Slot(gate(), chain.call())
       slot.take()
       val response = try {
         chain.proceed(request)
@@ -157,71 +157,73 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * marked [SempodsRepeatable] (RFC 9110 §9.2.2) — which is how a pooled connection the server has
    * closed fails — and a refusal the session's [SempodsRequestAuth] expects another attempt to change.
    *
-   * **No credential is acquired while the call holds its admission slot.** A supplier may fetch one
-   * through this same client, and would otherwise wait for the slot its own caller holds. So an
-   * attempt authenticates before it takes the slot, and a refusal gives the slot back before recovery
-   * is asked; a refusal that recovery declines is handed back without taking it again.
+   * **The call holds its admission slot from before the first attempt until its response is closed**,
+   * credential work included. A call made through this client from inside that work, on this thread,
+   * runs on the same slot ([CredentialWait]) instead of waiting for the one its own caller holds.
    */
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
-    val slot = Slot(admission, call)
+    val slot = Slot(gate(), call)
     var number = 1
     var resent = false
 
-    // Credential work knows its call, so a wait for a credential ends when the call does.
     fun <T> acquiring(work: () -> T): T {
+      val outer = CredentialWait.call.get()
       CredentialWait.call.set(call)
       try {
         return work()
       } finally {
-        CredentialWait.call.remove()
+        if (outer == null) CredentialWait.call.remove() else CredentialWait.call.set(outer)
       }
     }
 
-    fun send(authenticated: Request): Response {
-      slot.take()
-      try {
-        return chain.proceed(authenticated)
-      } catch (failure: Throwable) {
-        slot.give()
-        if (failure !is IOException || resent || call.isCanceled() ||
-          !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))
-        ) {
+    fun send(): Response {
+      val authenticated = acquiring { session.authenticated(request, number) }
+      return try {
+        chain.proceed(authenticated)
+      } catch (failure: IOException) {
+        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
           throw failure
         }
+        resent = true
+        number++
+        send()
       }
-      // The resend authenticates without the slot, as every attempt does.
-      resent = true
-      return send(acquiring { session.authenticated(request, ++number) })
     }
 
-    val first = send(acquiring { session.authenticated(request, number) })
-    // A body that can be written once rules another attempt out, whatever the mechanism says: the
-    // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed
-    // back as it is, and OkHttp closes it and fails the call.
-    if (first.isSuccessful || request.body?.isOneShot() == true || call.isCanceled()) {
-      return slot.holdUntilClosed(first)
-    }
-    slot.give()
-    val retry = try {
-      acquiring { session.auth.recover(first, number) }
-    } catch (failure: Throwable) {
+    slot.take()
+    try {
+      val first = send()
+      // A body that can be written once rules another attempt out, whatever the mechanism says: the
+      // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed
+      // back as it is, and OkHttp closes it and fails the call.
+      if (first.isSuccessful || request.body?.isOneShot() == true || call.isCanceled()) {
+        return slot.holdUntilClosed(first)
+      }
+      val retry = try {
+        acquiring { session.auth.recover(first, number) }
+      } catch (failure: Throwable) {
+        first.close()
+        throw failure
+      }
+      if (!retry) return slot.holdUntilClosed(first)
+      // The refusal is closed here rather than handed on: its body was never read, and the response
+      // the caller gets is the next attempt's.
       first.close()
+      if (call.isCanceled()) throw IOException("Canceled")
+      number++
+      return slot.holdUntilClosed(send())
+    } catch (failure: Throwable) {
+      slot.give()
       throw failure
     }
-    if (!retry) return first
-    // The refusal is closed here rather than handed on: its body was never read, and the response
-    // the caller gets is the next attempt's.
-    first.close()
-    if (call.isCanceled()) throw IOException("Canceled")
-    return slot.holdUntilClosed(send(acquiring { session.authenticated(request, ++number) }))
   }
+
+  /** A call made from inside another call's credential work, on its thread, runs on that call's slot. */
+  private fun gate(): AdmissionGate? = if (CredentialWait.call.get() == null) admission else null
 }
 
-/**
- * The admission slot of one call: taken for an attempt, given back while a credential is acquired,
- * and handed on to the response, whose close releases it.
- */
+/** The admission slot of one call: taken before its first attempt and handed on to its response, whose close releases it. */
 private class Slot(private val gate: AdmissionGate?, private val call: Call) {
 
   private var held = false

@@ -10,11 +10,11 @@ package org.sempods.client.core
  *
  * **It bounds the calls running on a client [SempodsOkHttp.install] configured**, a session's or not.
  * An enqueued call first waits in OkHttp's dispatcher queue, which the dispatcher's `maxRequests` and
- * `maxRequestsPerHost` bound, not these numbers. A call holds its slot while it sends and until its
- * response is closed. It gives the slot back while it acquires a credential, so a supplier can fetch
- * through the same client, and that work is bounded by the call's deadline; a refusal its credential
- * does not recover is handed back without a slot. A caller waits for a slot no longer than its call
- * deadline, and `Call.cancel()` ends the wait.
+ * `maxRequestsPerHost` bound, not these numbers. A call holds its slot from before its first attempt
+ * until its response is closed, credential work included. A call a credential supplier makes through
+ * the same client, on the thread it was called on, runs on the slot of the call it serves; one made on
+ * another thread needs a slot of its own and can wait for it up to its deadline. A caller waits for a
+ * slot no longer than its call deadline, and `Call.cancel()` ends the wait.
  */
 data class SempodsAdmission @JvmOverloads constructor(
   val maxActive: Int = 64,

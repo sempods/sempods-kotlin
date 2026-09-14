@@ -101,9 +101,9 @@ class SempodsPodBase private constructor(
     fun of(baseUrl: String): SempodsPodBase {
       val reason = reject(baseUrl)
       require(reason == null) { "'$baseUrl' is not a usable pod base URL: $reason" }
-      // The trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
+      // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
       // and the two spellings name the same pod, so this accepts the equivalent input.
-      val canonical = baseUrl.trimEnd('/')
+      val canonical = baseUrl.removeSuffix("/")
       return SempodsPodBase(canonical.toHttpUrlOrNull()!!)
     }
 
@@ -125,6 +125,8 @@ class SempodsPodBase private constructor(
       if (afterAuthority.split('/').any { it == "." || it == ".." }) {
         return "path must not contain a dot segment (SPS-CORE-020)"
       }
+      // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
+      if ("/$afterAuthority".endsWith("//")) return "path must not end in more than one slash (SPS-CORE-019)"
 
       val url = baseUrl.toHttpUrlOrNull() ?: return "not an absolute http(s) URL"
       if (url.query != null) return "must not carry a query (SPS-CORE-019)"

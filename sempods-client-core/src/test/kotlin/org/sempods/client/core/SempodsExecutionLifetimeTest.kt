@@ -82,38 +82,40 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
-  fun `a refusal its credential does not recover reaches the caller although its slot was taken`() {
-    // The refusal gives its slot back for recovery; another call takes it before recovery declines.
-    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(401))
-    server.`when`(request().withPath("/alice/hold"))
-      .respond(response().withStatusCode(200).withDelay(TimeUnit.MILLISECONDS, 500))
-    val recovering = CountDownLatch(1)
-    val otherHolds = CountDownLatch(1)
-    val declining = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: Int) = Unit
-
-      override fun recover(response: Response, attempt: Int): Boolean {
-        recovering.countDown()
-        otherHolds.await(5, TimeUnit.SECONDS)
-        return false
+  fun `a refusal handed back holds its slot until it is closed`() {
+    server.`when`(request()).respond(response().withStatusCode(404).withBody("not here"))
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      val a = session()
+      val refusal = client.get(a)
+      try {
+        assertEquals(404, refusal.code)
+        assertThrows<SempodsClientException> { client.get(a).close() }
+      } finally {
+        refusal.close()
       }
+      client.get(a).use { assertEquals(404, it.code) }
     }
-    val holdSeen = object : EventListener() {
-      override fun requestHeadersEnd(call: Call, request: Request) {
-        if (request.url.encodedPath.endsWith("/hold")) otherHolds.countDown()
-      }
-    }
+  }
 
-    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)) { eventListener(holdSeen) }.closing { client ->
+  @Test
+  fun `a slow credential occupies its call's slot, so waiting stays bounded`() {
+    val acquiring = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val slow = SempodsRequestAuth.refreshable(
+      SempodsCredentialSupplier { _ -> acquiring.countDown(); release.await(10, TimeUnit.SECONDS); "t" },
+    )
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
       val pool = Executors.newSingleThreadExecutor()
       try {
-        val other = pool.submit<Int> {
-          recovering.await(5, TimeUnit.SECONDS)
-          client.get(session(), "hold").use { it.code }
-        }
-        client.get(session(declining)).use { assertEquals(401, it.code) }
-        assertEquals(200, other.get(10, TimeUnit.SECONDS))
+        val first = pool.submit<Int> { client.get(session(slow)).use { it.code } }
+        assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+        assertThrows<SempodsClientException> { client.get(session()).close() }
+        release.countDown()
+        assertEquals(200, first.get(10, TimeUnit.SECONDS))
       } finally {
+        release.countDown()
         pool.shutdownNow()
       }
     }
