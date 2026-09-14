@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
@@ -37,19 +38,19 @@ import org.slf4j.event.Level
 class SempodsSessionAuthTest {
 
   private lateinit var server: ClientAndServer
-  private lateinit var transport: SempodsTransport
+  private lateinit var client: OkHttpClient
   private lateinit var origin: String
 
   @BeforeAll
   fun start() {
     server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
     origin = "http://localhost:${server.port}"
-    transport = SempodsTransport.builder().build()
+    client = sempodsClient()
   }
 
   @AfterAll
   fun stop() {
-    transport.close()
+    client.shutDown()
     server.stop()
   }
 
@@ -65,11 +66,12 @@ class SempodsSessionAuthTest {
   private fun refreshable(supplier: (Boolean) -> String) =
     SempodsRequestAuth.refreshable(SempodsCredentialSupplier { supplier(it) })
 
-  private fun session(pod: String, auth: SempodsRequestAuth) =
-    SempodsSession.builder(SempodsPodBase.of("$origin/$pod")).transport(transport).auth(auth).build()
+  private fun session(pod: String, auth: SempodsRequestAuth) = SempodsSession(SempodsPodBase.of("$origin/$pod"), auth)
+
+  private fun send(request: Request): Response = client.newCall(request).execute()
 
   private fun SempodsSession.text(path: String, method: String = "GET"): Pair<Int, String> =
-    execute(newRequest(method, path).build()).use { it.code to it.body.string() }
+    send(newRequest(method, path).build()).use { it.code to it.body.string() }
 
   /** A body that may be written once, for the case where a retry must not happen. */
   private fun oneShotBody(content: String): RequestBody = object : RequestBody() {
@@ -80,10 +82,10 @@ class SempodsSessionAuthTest {
   }
 
   @Test
-  fun `two sessions share a transport and never each other's credential`() {
+  fun `two sessions share a client and never each other's credential`() {
     // The acceptance case from the issue: one pod wants an API key, the other a bearer plus a
     // header of its own. What is being checked is not that each works — it is that neither header
-    // appears on the other pod's request, although both ran through one transport.
+    // appears on the other pod's request, although both ran through one client.
     val a = session("alice", SempodsRequestAuth.apiKeyHeader("X-Api-Key", "key-a"))
     val b = session(
       "bob",
@@ -106,14 +108,13 @@ class SempodsSessionAuthTest {
   }
 
   @Test
-  fun `a request built for one pod cannot be executed by another pod's session`() {
-    // A request is a plain object holding an absolute URL, so nothing about it remembers which
-    // session built it. Without the check at execution time this sends bob's bearer to alice.
-    val a = session("alice", SempodsRequestAuth.apiKeyHeader("X-Api-Key", "key-a"))
+  fun `a request built for one pod cannot be sent to another pod`() {
+    // A request is a plain object whose URL can be replaced after the session built it, and the
+    // session travels with it. Without the check at execution time this sends bob's bearer to alice.
     val b = session("bob", SempodsRequestAuth.bearer("token-b"))
 
-    val forAlice = a.newRequest("GET", "_system/contexts").build()
-    val refused = assertThrows<SempodsClientException> { b.execute(forAlice) }
+    val movedToAlice = b.newRequest("GET", "_system/contexts").url("$origin/alice/_system/contexts").build()
+    val refused = assertThrows<SempodsClientException> { send(movedToAlice) }
 
     assertTrue(refused.message!!.contains("not under this session's pod"))
     assertEquals(0, server.retrieveRecordedRequests(request()).size)
@@ -133,7 +134,7 @@ class SempodsSessionAuthTest {
     mechanisms.forEach { (changed, mechanism) ->
       val a = session("alice", mechanism)
       val refused = assertThrows<SempodsClientException> {
-        a.execute(a.newRequest("PUT", "x").put("original".toRequestBody()).build()).close()
+        send(a.newRequest("PUT", "x").put("original".toRequestBody()).build()).close()
       }
       assertTrue(refused.message!!.contains("Authentication changed the $changed of"), refused.message)
     }
@@ -151,7 +152,7 @@ class SempodsSessionAuthTest {
     val a = session("alice", SempodsRequestAuth.bearer("session-token"))
     server.`when`(request()).respond(response().withStatusCode(200))
 
-    a.execute(a.newRequest("GET", "x").header("Authorization", "Bearer caller-token").build()).close()
+    send(a.newRequest("GET", "x").header("Authorization", "Bearer caller-token").build()).close()
 
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals(listOf("Bearer session-token"), sent.getHeader("Authorization"))
@@ -237,15 +238,13 @@ class SempodsSessionAuthTest {
     server.`when`(request()).respond(response().withStatusCode(401))
 
     val replayable = session("alice", refreshable { _ -> "t" })
-    replayable.execute(
-      replayable.newRequest("PUT", "x").method("PUT", "body".toRequestBody()).build(),
-    ).close()
+    send(replayable.newRequest("PUT", "x").method("PUT", "body".toRequestBody()).build()).close()
     assertEquals(2, server.retrieveRecordedRequests(request()).size)
 
     server.reset()
     server.`when`(request()).respond(response().withStatusCode(401))
     val oneShot = session("alice", refreshable { _ -> "t" })
-    oneShot.execute(oneShot.newRequest("PUT", "x").method("PUT", oneShotBody("body")).build()).close()
+    send(oneShot.newRequest("PUT", "x").method("PUT", oneShotBody("body")).build()).close()
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
   }
 
@@ -334,7 +333,7 @@ class SempodsSessionAuthTest {
       server.reset()
       server.`when`(request()).respond(response().withStatusCode(status).withHeader("ETag", "\"v1\""))
 
-      a.execute(a.newRequest("GET", "x").build()).use { response ->
+      send(a.newRequest("GET", "x").build()).use { response ->
         assertEquals(status, response.code)
         assertEquals("\"v1\"", response.header("etag"))
         assertFalse(response.isSuccessful)
@@ -361,7 +360,7 @@ class SempodsSessionAuthTest {
         .withHeader("Link", "<b>; rel=prev"),
     )
 
-    a.execute(a.newRequest("GET", "x").build()).use { response ->
+    send(a.newRequest("GET", "x").build()).use { response ->
       assertEquals(listOf("<a>; rel=next", "<b>; rel=prev"), response.headers("link"))
       assertNull(response.header("X-Absent"))
     }
@@ -373,7 +372,7 @@ class SempodsSessionAuthTest {
     server.`when`(request()).respond(response().withStatusCode(204).withHeader("Allow", "GET, HEAD, OPTIONS"))
 
     listOf("HEAD", "OPTIONS", "PROPFIND").forEach { verb ->
-      a.execute(a.newRequest(verb, "x").build()).use { response ->
+      send(a.newRequest(verb, "x").build()).use { response ->
         assertEquals(204, response.code, verb)
         assertEquals("GET, HEAD, OPTIONS", response.header("Allow"), verb)
       }

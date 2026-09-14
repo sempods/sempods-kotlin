@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test
 /**
  * The resend this surface keeps.
  *
- * The core switched OkHttp's own resend off and moved the decision into `SempodsSession.execute`.
- * This surface does not go through a session, so without its own client a pooled connection the
+ * The core switches OkHttp's own resend off for a session's call and decides the resend itself.
+ * This surface does not go through a session, so without OkHttp's resend a pooled connection the
  * server had closed would fail every caller that still speaks it — including the POSTs it sent
  * before the core existed.
  */

@@ -9,7 +9,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import okio.source
-import org.sempods.client.core.SempodsTransport
+import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
@@ -21,8 +21,8 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * The transport the existing clients were written against, now a translation onto
- * [SempodsTransport].
+ * The transport the existing clients were written against, now a translation onto an OkHttp client
+ * [SempodsOkHttp] configured.
  *
  * **This is the legacy surface, and it is where the JSON helpers stayed.** [objectMapper] and
  * [requiredText] name Jackson types, which is why the core does not have them: a consumer that
@@ -47,19 +47,22 @@ class SempodsHttpTransport @JvmOverloads constructor(
   guard: SempodsOutboundGuard? = null,
 ) {
 
-  private val transport: SempodsTransport = SempodsTransport.builder()
-    .guard(guard)
-    .timeouts(connect = timeouts.connect, read = timeouts.read, write = timeouts.write, call = timeouts.call)
-    .build()
-
   /**
-   * The core's client with OkHttp's own resend switched back on. The core leaves a second attempt to
-   * `SempodsSession.execute`, which this surface does not go through; its callers were written
-   * against a transport that bridged a pooled connection the server had already closed. A repeat
-   * below this surface sends nothing stale, because the bearer is fixed on the request before it
-   * arrives.
+   * The core's guard, redirect policy and deadlines, with OkHttp's own resend left on and no admission
+   * budget. The core's resend rule applies to a session's calls, which this surface does not make;
+   * its callers were written against a transport that bridged a pooled connection the server had
+   * already closed. A repeat below this surface sends nothing stale, because the bearer is fixed on the
+   * request before it arrives.
    */
-  private val httpClient: OkHttpClient = transport.httpClient.newBuilder().retryOnConnectionFailure(true).build()
+  private val httpClient: OkHttpClient = SempodsOkHttp.install(
+    OkHttpClient.Builder()
+      .connectTimeout(timeouts.connect)
+      .readTimeout(timeouts.read)
+      .writeTimeout(timeouts.write)
+      .callTimeout(timeouts.call),
+    guard,
+    admission = null,
+  ).retryOnConnectionFailure(true).build()
 
   /**
    * Variants for requests that override the whole-call deadline. Cached because a per-request

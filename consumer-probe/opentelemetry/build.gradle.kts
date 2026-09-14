@@ -2,8 +2,8 @@
 //
 // A probe of its own rather than a case in `:consumer-probe:client-core`, whose classpath is kept to
 // what a consumer of the core resolves plus JUnit: the SDK and the instrumentation are exactly the
-// dependencies that probe must not have. This one asks whether the published seam —
-// `SempodsTransport.Builder.callFactory` — takes OpenTelemetry's OkHttp library as it ships.
+// dependencies that probe must not have. This one asks whether a client `SempodsOkHttp.install`
+// configured takes OpenTelemetry's OkHttp library as it ships — its `createCallFactory` over that client.
 
 dependencies {
   // `testImplementation` for the `implementation` a foreign build would write: Gradle propagates

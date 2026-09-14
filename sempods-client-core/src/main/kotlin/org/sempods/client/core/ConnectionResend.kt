@@ -12,9 +12,10 @@ import javax.net.ssl.SSLException
 /**
  * Whether an attempt that lost its connection may be sent once more.
  *
- * OkHttp would decide this on its own, below the session, and repeat the attempt with the headers it
- * already carried — harmless for a fixed bearer, wrong for a header bound to one attempt.
- * [SempodsTransport] switches that off, so the case it covered is covered here: a pooled connection
+ * OkHttp would decide this on its own, below the session's interceptor, and repeat the attempt with
+ * the headers it already carried — harmless for a fixed bearer, wrong for a header bound to one
+ * attempt, and a duplicate write for a POST. [SempodsOkHttp] switches that off for a session's call,
+ * so the case it covered is covered here: a pooled connection
  * the server has already closed. The next request on it fails with `Connection reset` before the
  * server reads a byte, and without a second attempt every idle timeout on the far side would reach a
  * caller as a failed request.

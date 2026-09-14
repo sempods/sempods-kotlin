@@ -33,8 +33,8 @@ fun interface SempodsCredentialSupplier {
  *
  * **Headers, and nothing else.** A mechanism that changed the URL would carry the session's
  * credential to another authority, and one that changed the method or the body would send a request
- * the caller never built. The session compares all three after [apply] and refuses the call rather
- * than sending it. The builder is OkHttp's because this library has no reason to own a second one —
+ * the caller never built. The client's session interceptor compares all three after [apply] and
+ * refuses the call rather than sending it. The builder is OkHttp's because this library has no reason to own a second one —
  * the restriction is enforced, not typed away.
  *
  * **Composition.** [andThen] applies the two in declaration order. On a challenge, [recover] is

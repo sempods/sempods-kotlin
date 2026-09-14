@@ -1,54 +1,61 @@
 package org.sempods.client.core
 
-import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
-import java.io.IOException
 
 /**
- * One pod, one credential, and the transport they run on.
+ * One pod and one credential. A session builds requests; an OkHttp client that
+ * [SempodsOkHttp.install] configured runs them.
  *
- * A session is cheap: it holds a validated [SempodsPodBase], a [SempodsRequestAuth] and a reference
- * to a [SempodsTransport] that other sessions may share. An application serving many pods builds
- * one per pod and owns its own lookup — where the pods come from is not a question a library about
- * a pod addressed by its own URL can answer.
+ * A session is cheap and holds no connection: a validated [SempodsPodBase] and a
+ * [SempodsRequestAuth]. An application serving many pods builds one per pod and owns its own
+ * lookup — where the pods come from is not a question a library about a pod addressed by its own
+ * URL can answer. Any number of sessions share one client.
  *
- * **The request and the response are OkHttp's.** There is no wrapper to learn: build a
- * [Request.Builder] with [newRequest], run it with [execute], read the [Response] the way every
- * OkHttp response is read — and close it, which `try`-with-resources or Kotlin's `use` does.
+ * **The request, the call and the response are OkHttp's.** [newRequest] hands back a
+ * `Request.Builder` tagged with this session, and `client.newCall(request)` is the operation — so
+ * `execute`, `enqueue`, `cancel` and `timeout` are OkHttp's own, and each of them carries the
+ * confinement, the authentication, the resend and the admission budget.
  *
  * ```java
- * var session = SempodsSession.builder(SempodsPodBase.of("https://pods.example/alice"))
- *     .transport(transport)
- *     .auth(SempodsRequestAuth.apiKeyHeader("X-Api-Key", key))
- *     .build();
+ * OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()
+ *     .callTimeout(Duration.ofMinutes(2))).build();
+ * SempodsSession alice = new SempodsSession(
+ *     SempodsPodBase.of("https://pods.example/alice"),
+ *     SempodsRequestAuth.apiKeyHeader("X-Api-Key", key));
  *
- * var request = session.newRequest("GET", "_system/contexts")
+ * Request request = alice.newRequest("GET", "_system/contexts")
  *     .header("Accept", "application/json")
  *     .build();
- * try (Response response = session.execute(request)) {
+ * try (Response response = client.newCall(request).execute()) {
  *   String contexts = response.body().string();
  * }
  * ```
  *
  * **This is also the extension seam.** An endpoint group, a protocol module or a consumer's own
- * route gets authentication, target confinement, the outbound guard, the deadlines and admission by
- * building and running through here, and needs nothing private. Any method token works, so HEAD,
- * OPTIONS and an extension's own verb need no change.
+ * route gets all of the above by building through here and running on such a client, and needs
+ * nothing private. Any method token works, so HEAD, OPTIONS and an extension's own verb need no
+ * change.
  *
- * **A credential never leaves its pod.** [newRequest] resolves against this session's base, and
- * [execute] checks the target again — so a request assembled through one session and executed
- * through another is refused rather than sent with the wrong credential. The same check runs after
- * authentication, so a mechanism that rewrote the URL cannot carry the credential elsewhere.
+ * **A credential never leaves its pod.** The client checks the target against [podBase] before the
+ * first attempt and once more in its network interceptor, on the request about to be written — after
+ * every application interceptor and after a redirect. An interceptor that moves the request
+ * therefore takes no credential along.
+ *
+ * **A request from here cannot be sent without that policy.** Its URL carries the placeholder host
+ * `sempods-session.invalid` (RFC 6761 reserves `.invalid`) in place of the pod's, and the client's
+ * interceptor puts the pod's host back. A client without the interceptors — a plain `OkHttpClient`,
+ * or OpenTelemetry's call factory over one — fails to resolve that name instead of sending the pod
+ * an anonymous request. The price: `Request.url`, `Call.request().url` and whatever runs ahead of
+ * the interceptor show the placeholder; `Response.request().url` and everything below it show the
+ * pod.
  */
-class SempodsSession private constructor(
+class SempodsSession @JvmOverloads constructor(
   val podBase: SempodsPodBase,
-  val transport: SempodsTransport,
-  private val auth: SempodsRequestAuth,
+  internal val auth: SempodsRequestAuth = SempodsRequestAuth.anonymous(),
 ) {
 
   /**
@@ -58,82 +65,49 @@ class SempodsSession private constructor(
    * here. The path is already percent-encoded; `HttpUrl.Builder.addPathSegment` encodes one
    * segment. A query may be attached after `?`.
    *
-   * No credential is attached here. [SempodsRequestAuth] applies one per attempt, in [execute].
+   * The URL's host is the placeholder described on this class, and the request is tagged with this
+   * session. No credential is attached here: the client applies one per attempt.
    */
   fun newRequest(method: String, podRelativePath: String): Request.Builder {
+    val target = podBase.resolve(podRelativePath)
     val builder = Request.Builder()
-      .url(podBase.resolve(podRelativePath))
+      .url(target.newBuilder().host(SempodsOkHttp.unboundHost).build())
       // An empty body for the verbs OkHttp requires one for, so a caller can name the method here
       // and attach the body afterwards — and so a DELETE still goes out with `Content-Length: 0`.
       .method(method, if (method in BODILESS_METHODS) null else EMPTY_BODY)
+      .tag(SempodsSession::class.java, this)
     TraceContextHolder.get()?.let { traceContext ->
       builder.header(TraceContext.TRACEPARENT, traceContext.newChild().toHeader())
     }
     return builder
   }
 
-  /**
-   * A call for [request], authenticated for its first attempt, with no admission slot taken.
-   *
-   * For a caller that wants the handle before the call runs — to cancel it from another thread, or
-   * to enqueue it. **It makes one attempt**: authentication recovery and the resend after a lost
-   * connection are [execute]'s, because only a caller that holds the slot can decide a second
-   * attempt is allowed. A cancelled call fails either way, since [Call.cancel] reaches the connection.
-   */
-  @Throws(IOException::class)
-  fun newCall(request: Request): Call = attempt(confine(request), number = 1)
-
-  /**
-   * Runs [request] and hands back the open response.
-   *
-   * **The caller closes it.** That is OkHttp's contract and this does not soften it: the body may
-   * be a stream the caller reads incrementally, and a wrapper that buffered it to avoid the `close`
-   * would be the wrong trade for a context dump.
-   *
-   * **Only this method makes another attempt, and each one is authenticated afresh.** Two things
-   * can earn one, each at most once and neither while the body cannot be sent again: a connection
-   * lost before any response arrived, for an idempotent method or a request marked
-   * [SempodsRepeatable] (RFC 9110 §9.2.2) — which is how a pooled connection the server has closed
-   * fails — and a refusal the session's [SempodsRequestAuth] expects another attempt to change.
-   */
-  @Throws(IOException::class)
-  fun execute(request: Request): Response {
-    val confined = confine(request)
-    transport.admit()
-    var slotHeld = true
-    try {
-      var number = 1
-      val first = attempt(confined, number)
-      var response = try {
-        first.execute()
-      } catch (failure: IOException) {
-        if (first.isCanceled() || !ConnectionResend.allowed(failure, confined)) throw failure
-        attempt(confined, ++number).execute()
-      }
-      if (shouldRetry(response, confined, number)) {
-        // The refusal is closed here rather than handed on: its body was never read, and the response
-        // the caller gets is the next attempt's.
-        response.close()
-        response = attempt(confined, ++number).execute()
-      }
-      slotHeld = false
-      return Admitted.wrap(response, transport)
-    } finally {
-      if (slotHeld) transport.release()
-    }
+  /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
+  internal fun bind(request: Request): Request {
+    val bound =
+      if (request.url.host != SempodsOkHttp.unboundHost) request
+      else request.newBuilder().url(request.url.newBuilder().host(podBase.url.host).build()).build()
+    confine(bound.url)
+    return bound
   }
 
-  private fun attempt(request: Request, number: Int): Call =
-    transport.callFactory.newCall(authenticated(request, number))
-
-  private fun shouldRetry(response: Response, request: Request, attempt: Int): Boolean {
-    // A body that can be written once rules another attempt out, whatever the mechanism says: the
-    // alternative is a repeat that sends nothing and is answered 200.
-    if (request.body?.isOneShot() == true) return false
-    return auth.recover(response, attempt)
+  /**
+   * The check that keeps a credential with its pod.
+   *
+   * A `Request` is a plain object whose URL can be replaced after this session built it — by the
+   * caller, by an interceptor, by a redirect. Without this, each of those would carry this session's
+   * credential wherever the URL now points: a same-host sibling path, a traversal or an outright
+   * foreign target all arrive the same way.
+   */
+  internal fun confine(target: HttpUrl) {
+    if (target in podBase) return
+    throw SempodsClientException(
+      "'$target' is not under this session's pod '$podBase'. A request built for one pod cannot " +
+        "be sent to another; build it with that pod's session.",
+    )
   }
 
-  private fun authenticated(request: Request, attempt: Int): Request {
+  internal fun authenticated(request: Request, attempt: Int): Request {
     val builder = request.newBuilder()
     auth.apply(builder, attempt)
     val authenticated = builder.build()
@@ -154,92 +128,10 @@ class SempodsSession private constructor(
     return authenticated
   }
 
-  /**
-   * The check that keeps a credential with its pod.
-   *
-   * A `Request` is a plain object holding an absolute URL, so nothing about it remembers which
-   * session built it. Without this, handing one to another session's [execute] would send that
-   * session's credential to this pod — a same-host sibling path, a traversal or an outright foreign
-   * target all arrive the same way.
-   */
-  private fun confine(request: Request): Request {
-    if (request.url in podBase) return request
-    throw SempodsClientException(
-      "'${request.url}' is not under this session's pod '$podBase'. A request built for one pod " +
-        "cannot be executed by the session of another; build it with that session's newRequest.",
-    )
-  }
+  private companion object {
 
-  class Builder internal constructor(private val podBase: SempodsPodBase) {
-    private var transport: SempodsTransport? = null
-    private var auth: SempodsRequestAuth = SempodsRequestAuth.anonymous()
+    val BODILESS_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE")
 
-    /**
-     * The transport to run on. Sessions that share one share its connection pool and its admission
-     * budget; the caller owns its lifetime. Without this a transport is built for this session
-     * alone, and closing it is then the caller's job either way.
-     */
-    fun transport(transport: SempodsTransport): Builder = apply { this.transport = transport }
-
-    fun auth(auth: SempodsRequestAuth): Builder = apply { this.auth = auth }
-
-    fun build(): SempodsSession =
-      SempodsSession(podBase, transport ?: SempodsTransport.builder().build(), auth)
-  }
-
-  companion object {
-
-    private val BODILESS_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE")
-
-    private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
-
-    @JvmStatic
-    fun builder(podBase: SempodsPodBase): Builder = Builder(podBase)
-
-    @JvmStatic
-    fun builder(podBaseUrl: HttpUrl): Builder = Builder(SempodsPodBase.of(podBaseUrl))
-
-    @JvmStatic
-    fun builder(podBaseUrl: String): Builder = Builder(SempodsPodBase.of(podBaseUrl))
-  }
-}
-
-/**
- * Holds an admission slot until the response body is closed.
- *
- * The bytes are still arriving while a caller reads them and the connection is still held, so
- * releasing the slot when the status line arrived would let an unbounded number of half-read
- * responses exist under a limit that says otherwise. Wrapping the body is how a `close()` the
- * caller already owes becomes the release.
- */
-private object Admitted {
-
-  fun wrap(response: Response, transport: SempodsTransport): Response {
-    val body = response.body
-    return response.newBuilder()
-      .body(ReleasingBody(body, transport))
-      .build()
-  }
-
-  private class ReleasingBody(
-    private val delegate: okhttp3.ResponseBody,
-    private val transport: SempodsTransport,
-  ) : okhttp3.ResponseBody() {
-
-    private val released = java.util.concurrent.atomic.AtomicBoolean(false)
-
-    override fun contentType() = delegate.contentType()
-
-    override fun contentLength() = delegate.contentLength()
-
-    override fun source() = delegate.source()
-
-    override fun close() {
-      try {
-        delegate.close()
-      } finally {
-        if (released.compareAndSet(false, true)) transport.release()
-      }
-    }
+    val EMPTY_BODY = ByteArray(0).toRequestBody(null)
   }
 }

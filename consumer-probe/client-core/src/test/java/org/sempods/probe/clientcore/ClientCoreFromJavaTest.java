@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -25,6 +26,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import okhttp3.Call;
+import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -35,10 +37,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsRequestAuth;
 import org.sempods.client.core.SempodsSession;
-import org.sempods.client.core.SempodsTransport;
 
 /**
  * The client core as a Java consumer writes it.
@@ -51,9 +54,10 @@ import org.sempods.client.core.SempodsTransport;
  * this suite on a Java 21 JVM — the release it hands in as {@code sempods.probe.javaRelease}.
  *
  * <p>It doubles as the worked example the published API is reviewed against. What that example
- * shows is mostly OkHttp — a {@code Request}, a {@code Response}, a {@code Call} to cancel, an
- * interceptor for a header of the consumer's own — because the core hides no engine: what it adds
- * is the pod base URL, the confinement, the outbound guard and replaceable authentication.
+ * shows is mostly OkHttp — a builder, a {@code Request}, a {@code Response}, a {@code Call} to
+ * execute, enqueue or cancel, an interceptor for a header of the consumer's own — because the core
+ * hides no engine: what it adds is the pod base URL, the confinement, the outbound guard and
+ * replaceable authentication, installed on the consumer's client.
  *
  * <p>The pod is {@code com.sun.net.httpserver} from the JDK, so the classpath under test is what a
  * consumer resolves, plus JUnit.
@@ -70,7 +74,7 @@ class ClientCoreFromJavaTest {
 
   private static ExecutorService handlers;
   private static HttpServer server;
-  private static SempodsTransport transport;
+  private static OkHttpClient client;
   private static SempodsSession session;
 
   @BeforeAll
@@ -104,24 +108,25 @@ class ClientCoreFromJavaTest {
     });
     server.start();
 
-    // A consumer's own tracing header rides on an interceptor of the client the transport derives
-    // from; nothing in the core has to know its name.
+    // A consumer's own tracing header rides on an interceptor of their own client. The sempods
+    // interceptors go on a client derived from it; nothing in the core has to know the header's name.
     OkHttpClient withTracing = new OkHttpClient.Builder()
         .addInterceptor(chain -> chain.proceed(chain.request().newBuilder().header("Y-My-Tracing", "trace-42").build()))
         .build();
-    transport = SempodsTransport.builder().httpClient(withTracing).build();
-    session = SempodsSession.builder(
-            SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"))
-        .transport(transport)
-        .auth(new ApiKeyWithTenant("k-123", "tenant-a"))
+    client = SempodsOkHttp.install(withTracing.newBuilder(), null, new SempodsAdmission(64, 256))
+        .callTimeout(Duration.ofMinutes(2))
         .build();
+    session = new SempodsSession(
+        SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"),
+        new ApiKeyWithTenant("k-123", "tenant-a"));
   }
 
   @AfterAll
   static void stopPod() {
     SLOW_REQUEST_RELEASED.countDown();
-    if (transport != null) {
-      transport.close();
+    if (client != null) {
+      client.dispatcher().executorService().shutdown();
+      client.connectionPool().evictAll();
     }
     if (server != null) {
       server.stop(0);
@@ -178,7 +183,7 @@ class ClientCoreFromJavaTest {
 
   @Test
   void returnsRawJsonUnchanged() throws IOException {
-    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+    try (Response response = client.newCall(session.newRequest("GET", "_system/contexts").build()).execute()) {
       assertEquals(200, response.code());
       assertEquals(MALFORMED_JSON, response.body().string(), "the core did not return the body unchanged");
     }
@@ -187,7 +192,7 @@ class ClientCoreFromJavaTest {
   /** An external decoder reaches nothing private, and fails rather than answering empty. */
   @Test
   void anExternalDecoderReadsTheStream() throws IOException {
-    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+    try (Response response = client.newCall(session.newRequest("GET", "_system/contexts").build()).execute()) {
       String body = response.body().string();
       long open = body.chars().filter(c -> c == '{').count();
       long close = body.chars().filter(c -> c == '}').count();
@@ -201,7 +206,7 @@ class ClientCoreFromJavaTest {
   @ParameterizedTest
   @ValueSource(strings = {"HEAD", "OPTIONS"})
   void anEndpointExtensionReadsMultiValuedHeaders(String method) throws IOException {
-    try (Response response = session.execute(session.newRequest(method, "_system/probe").build())) {
+    try (Response response = client.newCall(session.newRequest(method, "_system/probe").build()).execute()) {
       assertEquals(204, response.code());
       assertEquals(List.of("<a>; rel=next", "<b>; rel=prev"), response.headers("Link"),
           "a repeated header lost a value");
@@ -212,15 +217,34 @@ class ClientCoreFromJavaTest {
 
   @Test
   void aConsumerInterceptorAddsATracingHeaderOfItsOwn() throws IOException {
-    try (Response response = session.execute(session.newRequest("GET", "_system/probe").build())) {
+    try (Response response = client.newCall(session.newRequest("GET", "_system/probe").build()).execute()) {
       assertEquals("trace-42", response.header("X-Saw-Tracing"), "the consumer's interceptor did not run");
       assertEquals("k-123", response.header("X-Saw-Api-Key"), "the interceptor displaced the authentication");
     }
   }
 
   @Test
+  void anEnqueuedCallCarriesTheSameAuthentication() throws Exception {
+    CompletableFuture<String> sawKey = new CompletableFuture<>();
+    client.newCall(session.newRequest("GET", "_system/probe").build()).enqueue(new Callback() {
+      @Override
+      public void onFailure(Call call, IOException failure) {
+        sawKey.completeExceptionally(failure);
+      }
+
+      @Override
+      public void onResponse(Call call, Response response) {
+        try (response) {
+          sawKey.complete(response.header("X-Saw-Api-Key"));
+        }
+      }
+    });
+    assertEquals("k-123", sawKey.get(5, TimeUnit.SECONDS), "the enqueued call went out without the authentication");
+  }
+
+  @Test
   void readsAStreamIncrementally() throws IOException {
-    try (Response response = session.execute(session.newRequest("GET", "_system/contexts").build())) {
+    try (Response response = client.newCall(session.newRequest("GET", "_system/contexts").build()).execute()) {
       byte[] first = new byte[8];
       response.body().source().readFully(first);
       String head = new String(first, StandardCharsets.UTF_8);
@@ -230,9 +254,9 @@ class ClientCoreFromJavaTest {
 
   @Test
   void cancellationReachesTheConnection() throws IOException, InterruptedException {
-    // `newCall` hands out the engine's own handle. Cancellation is `Call.cancel()` and nothing this
-    // library invented — it closes the socket rather than letting an await return early.
-    Call call = session.newCall(session.newRequest("GET", "_system/slow").build());
+    // The call is OkHttp's own handle. Cancellation is `Call.cancel()` and nothing this library
+    // invented — it closes the socket rather than letting an await return early.
+    Call call = client.newCall(session.newRequest("GET", "_system/slow").build());
     CompletableFuture<Response> running = CompletableFuture.supplyAsync(() -> {
       try {
         return call.execute();

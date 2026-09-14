@@ -289,8 +289,8 @@ subprojects {
   // `:consumer-probe:client-core` is the other half: this says the shape is right, that compiles
   // Java against it and runs the result.
   val forbiddenLibraries = mapOf(
-    // OkHttp is deliberately absent from this list: `SempodsSession` hands back an
-    // `okhttp3.Response` and the module declares the engine on `api`. What it still may not name is
+    // OkHttp is deliberately absent from this list: `SempodsSession` hands out an
+    // `okhttp3.Request.Builder` and the module declares the engine on `api`. What it still may not name is
     // a representation library — that is the split `#116` asked for, and the only one left.
     "sempods-client-core" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",

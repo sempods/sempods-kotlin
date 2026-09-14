@@ -1,9 +1,11 @@
 package org.sempods.probe.opentelemetry;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,6 +26,8 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 
+import okhttp3.Call;
+import okhttp3.OkHttpClient;
 import okhttp3.Response;
 
 import org.junit.jupiter.api.AfterAll;
@@ -31,14 +35,15 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import org.sempods.client.core.SempodsOkHttp;
+import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsRequestAuth;
 import org.sempods.client.core.SempodsSession;
-import org.sempods.client.core.SempodsTransport;
 
 /**
  * The client core traced by OpenTelemetry's OkHttp library, wired the way that library's README
- * wires any OkHttp client — through {@code createCallFactory}, handed to the transport's
- * {@code callFactory} seam.
+ * wires any OkHttp client — {@code createCallFactory} over a client the sempods interceptors are
+ * installed on.
  *
  * <p>What is asserted is the standard rather than the library: a client span per attempt, parented
  * under the caller's span, and a W3C {@code traceparent} on the wire that names that client span.
@@ -49,10 +54,12 @@ class OpenTelemetryLibraryTest {
   private static final List<String> TRACEPARENTS = new CopyOnWriteArrayList<>();
   private static final AtomicInteger PROTECTED_CALLS = new AtomicInteger();
   private static final AttributeKey<Long> STATUS = AttributeKey.longKey("http.response.status_code");
+  private static final AttributeKey<String> SERVER_ADDRESS = AttributeKey.stringKey("server.address");
 
   private static OpenTelemetrySdk openTelemetry;
   private static HttpServer server;
-  private static SempodsTransport transport;
+  private static OkHttpClient client;
+  private static Call.Factory calls;
   private static String pod;
 
   @BeforeAll
@@ -73,17 +80,17 @@ class OpenTelemetryLibraryTest {
     server.start();
     pod = "http://127.0.0.1:" + server.getAddress().getPort() + "/alice";
 
-    // The decorator receives the client the transport has already configured, so the one
-    // OpenTelemetry derives from it keeps the guard, the redirect policy and the deadlines.
-    transport = SempodsTransport.builder()
-        .callFactory(client -> OkHttpTelemetry.create(openTelemetry).createCallFactory(client))
-        .build();
+    // OpenTelemetry derives its own client from this one, so it keeps the sempods interceptors and
+    // the redirect policy, and puts its own interceptors around them.
+    client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
+    calls = OkHttpTelemetry.create(openTelemetry).createCallFactory(client);
   }
 
   @AfterAll
   static void stop() {
-    if (transport != null) {
-      transport.close();
+    if (client != null) {
+      client.dispatcher().executorService().shutdown();
+      client.connectionPool().evictAll();
     }
     if (server != null) {
       server.stop(0);
@@ -102,11 +109,11 @@ class OpenTelemetryLibraryTest {
 
   @Test
   void aCallInsideASpanBecomesItsChildAndCarriesAW3cTraceparent() throws IOException {
-    SempodsSession session = SempodsSession.builder(pod).transport(transport).build();
+    SempodsSession session = new SempodsSession(SempodsPodBase.of(pod));
 
     Span parent = openTelemetry.getTracer("probe").spanBuilder("parent").startSpan();
     try (Scope ignored = parent.makeCurrent();
-        Response response = session.execute(session.newRequest("GET", "ok").build())) {
+        Response response = calls.newCall(session.newRequest("GET", "ok").build()).execute()) {
       assertEquals(204, response.code());
     } finally {
       parent.end();
@@ -117,6 +124,8 @@ class OpenTelemetryLibraryTest {
     SpanData client = clients.get(0);
     assertEquals(parent.getSpanContext().getTraceId(), client.getTraceId());
     assertEquals(parent.getSpanContext().getSpanId(), client.getParentSpanId());
+    // Below the session's interceptor, so the span names the pod rather than the placeholder.
+    assertEquals("127.0.0.1", client.getAttributes().get(SERVER_ADDRESS));
     // Version 00, the trace, and the client span as the parent the server sees. Of the flags only the
     // sampled bit is asserted, because OpenTelemetry sets further ones.
     assertEquals(1, TRACEPARENTS.size());
@@ -129,12 +138,11 @@ class OpenTelemetryLibraryTest {
 
   @Test
   void anAuthenticationRetryIsASpanOfItsOwn() throws IOException {
-    SempodsSession session = SempodsSession.builder(pod)
-        .transport(transport)
-        .auth(SempodsRequestAuth.refreshable(forceRefresh -> forceRefresh ? "fresh" : "stale"))
-        .build();
+    SempodsSession session = new SempodsSession(
+        SempodsPodBase.of(pod),
+        SempodsRequestAuth.refreshable(forceRefresh -> forceRefresh ? "fresh" : "stale"));
 
-    try (Response response = session.execute(session.newRequest("GET", "protected").build())) {
+    try (Response response = calls.newCall(session.newRequest("GET", "protected").build()).execute()) {
       assertEquals(204, response.code());
     }
 
@@ -143,12 +151,33 @@ class OpenTelemetryLibraryTest {
   }
 
   @Test
-  void theInstrumentedClientKeepsTheTransportsRedirectPolicy() throws IOException {
-    SempodsSession session = SempodsSession.builder(pod).transport(transport).build();
+  void theInstrumentedClientKeepsTheRedirectPolicy() throws IOException {
+    SempodsSession session = new SempodsSession(SempodsPodBase.of(pod));
 
-    try (Response response = session.execute(session.newRequest("GET", "moved").build())) {
+    try (Response response = calls.newCall(session.newRequest("GET", "moved").build()).execute()) {
       assertEquals(302, response.code(), "a followed redirect would have left the pod");
     }
+  }
+
+  @Test
+  void aCallFactoryOverAClientWithoutTheSempodsInterceptorsFailsClosed() {
+    OkHttpClient plain = new OkHttpClient();
+    Call.Factory unguarded = OkHttpTelemetry.create(openTelemetry).createCallFactory(plain);
+    SempodsSession session = new SempodsSession(SempodsPodBase.of(pod), SempodsRequestAuth.bearer("token"));
+    try {
+      assertThrows(UnknownHostException.class,
+          () -> unguarded.newCall(session.newRequest("GET", "ok").build()).execute().close(),
+          "a session's request went out through a factory without the sempods interceptors");
+    } finally {
+      plain.dispatcher().executorService().shutdown();
+      plain.connectionPool().evictAll();
+    }
+
+    assertEquals(List.of(), TRACEPARENTS, "the request reached the pod");
+    // OpenTelemetry records the failure as a connection-error span, and that span names the placeholder.
+    List<SpanData> clients = clientSpans();
+    assertEquals(1, clients.size());
+    assertEquals("sempods-session.invalid", clients.get(0).getAttributes().get(SERVER_ADDRESS));
   }
 
   private static List<SpanData> clientSpans() {
