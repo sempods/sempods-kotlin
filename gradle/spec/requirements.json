@@ -433,7 +433,7 @@
       "id": "SPS-CORE-002",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "Every normative statement in this specification carries a requirement identifier of the form `SPS-<AREA>-<NNN>`.",
+      "summary": "Every normative statement authored by sempods MUST carry a requirement identifier of the form `SPS-<AREA>-<NNN>`; without one it is not normative.",
       "withdrawn": false
     },
     {
