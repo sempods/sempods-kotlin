@@ -563,6 +563,13 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-CORE-021",
+      "part": "core",
+      "chapter": "spec/core/index.md",
+      "summary": "A standards profile MUST be interpreted within the actors, operations and capabilities selected by the chapter's SPS requirements.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CRUD-001",
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
@@ -959,6 +966,13 @@
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "A slot `GET` MUST support `include_contexts` with the same meaning it has on a resource read ([`SPS-CRUD-022`](#SPS-CRUD-022)): default is the merged value array, and `true` switches to the named-graph form grouped by source context.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CRUD-058",
+      "part": "core",
+      "chapter": "spec/core/lod-crud.md",
+      "summary": "An implementation MAY advertise edit URLs in `Link` headers on successful resource `GET` and `HEAD` responses.",
       "withdrawn": false
     },
     {
