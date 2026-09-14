@@ -134,6 +134,7 @@ include(
   "consumer-probe:auth",
   "consumer-probe:client-core",
   "consumer-probe:mcp",
+  "consumer-probe:opentelemetry",
   "deployments:sempods:image",
   "sempods-auth",
   "sempods-auth-core",

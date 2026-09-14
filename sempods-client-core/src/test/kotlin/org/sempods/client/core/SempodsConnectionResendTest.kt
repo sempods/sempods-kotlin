@@ -116,6 +116,20 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a POST marked repeatable is resent like an idempotent request`() {
+    SempodsTransport.builder().build().use { transport ->
+      val a = session(transport)
+      leaveAStaleConnection(a)
+
+      val query = SempodsRepeatable.mark(a.newRequest("POST", "sparql").post("SELECT * { ?s ?p ?o }".toRequestBody()))
+      a.execute(query.build()).use { assertEquals(200, it.code) }
+
+      assertEquals(2, requestHeads.size)
+      assertTrue(requestHeads[1].startsWith("POST") && requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    }
+  }
+
+  @Test
   fun `a one-shot body is not resent, even for an idempotent method`() {
     val oneShot = object : RequestBody() {
       override fun contentType() = null

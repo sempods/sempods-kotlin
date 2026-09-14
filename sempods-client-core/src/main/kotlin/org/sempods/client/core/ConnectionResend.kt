@@ -19,16 +19,17 @@ import javax.net.ssl.SSLException
  * server reads a byte, and without a second attempt every idle timeout on the far side would reach a
  * caller as a failed request.
  *
- * **Idempotent methods only**, because RFC 9110 §9.2.2 allows an automatic repeat for those alone: a
- * client cannot tell a connection lost before the server read the request from one lost after the
- * server acted on it, and for a POST the second is a duplicate write.
+ * **Idempotent methods, and requests marked [SempodsRepeatable]**, because RFC 9110 §9.2.2 allows an
+ * automatic repeat for those alone: a client cannot tell a connection lost before the server read
+ * the request from one lost after the server acted on it, and for a POST the second is a duplicate
+ * write — unless the caller knows the request is safe, which is what the mark says.
  */
 internal object ConnectionResend {
 
   private val IDEMPOTENT_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE")
 
   fun allowed(failure: IOException, request: Request): Boolean {
-    if (request.method !in IDEMPOTENT_METHODS) return false
+    if (request.method !in IDEMPOTENT_METHODS && !SempodsRepeatable.isMarked(request)) return false
     if (request.body?.isOneShot() == true) return false
     return when (failure) {
       // A deadline: a repeat would outlast it.

@@ -92,9 +92,9 @@ class SempodsSession private constructor(
    *
    * **Only this method makes another attempt, and each one is authenticated afresh.** Two things
    * can earn one, each at most once and neither while the body cannot be sent again: a connection
-   * lost before any response arrived, for an idempotent method (RFC 9110 §9.2.2) — which is how a
-   * pooled connection the server has closed fails — and a refusal the session's [SempodsRequestAuth]
-   * expects another attempt to change.
+   * lost before any response arrived, for an idempotent method or a request marked
+   * [SempodsRepeatable] (RFC 9110 §9.2.2) — which is how a pooled connection the server has closed
+   * fails — and a refusal the session's [SempodsRequestAuth] expects another attempt to change.
    */
   @Throws(IOException::class)
   fun execute(request: Request): Response {
@@ -124,7 +124,7 @@ class SempodsSession private constructor(
   }
 
   private fun attempt(request: Request, number: Int): Call =
-    transport.httpClient.newCall(authenticated(request, number))
+    transport.callFactory.newCall(authenticated(request, number))
 
   private fun shouldRetry(response: Response, request: Request, attempt: Int): Boolean {
     // A body that can be written once rules another attempt out, whatever the mechanism says: the

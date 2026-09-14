@@ -57,6 +57,11 @@ data class SempodsAdmission @JvmOverloads constructor(
 class SempodsTransport private constructor(
   /** The configured engine. Shared by every session on this transport. */
   val httpClient: OkHttpClient,
+  /**
+   * What sessions create their calls with: [httpClient] itself, or what a
+   * [SempodsCallFactoryDecorator] made of it.
+   */
+  val callFactory: okhttp3.Call.Factory,
   internal val admission: SempodsAdmission,
 ) : AutoCloseable {
 
@@ -106,6 +111,7 @@ class SempodsTransport private constructor(
     private var base: OkHttpClient? = null
     private var guard: SempodsOutboundGuard? = null
     private var admission = SempodsAdmission()
+    private var decorator: SempodsCallFactoryDecorator? = null
     private var connect = Duration.ofSeconds(10)
     private var read = Duration.ofSeconds(30)
     private var write = Duration.ofSeconds(30)
@@ -129,6 +135,12 @@ class SempodsTransport private constructor(
     fun guard(guard: SempodsOutboundGuard?): Builder = apply { this.guard = guard }
 
     fun admission(admission: SempodsAdmission): Builder = apply { this.admission = admission }
+
+    /**
+     * How sessions create their calls from the configured client. An instrumentation that wraps a
+     * client, such as OpenTelemetry's OkHttp library, goes here; see [SempodsCallFactoryDecorator].
+     */
+    fun callFactory(decorator: SempodsCallFactoryDecorator?): Builder = apply { this.decorator = decorator }
 
     /**
      * The deadlines. [connect], [read] and [write] bound a single step — the handshake, and the gap
@@ -173,7 +185,7 @@ class SempodsTransport private constructor(
           }
         }
         .build()
-      return SempodsTransport(client, admission)
+      return SempodsTransport(client, decorator?.decorate(client) ?: client, admission)
     }
   }
 

@@ -295,6 +295,11 @@ never run on it would be a floor nobody stood on. One task rides along and fails
 resolve RDF4J, Jena or Jackson — a question dependency analysis cannot answer, because it advises on
 how a dependency is *declared* and has no notion of one being forbidden.
 
+**A fourth probe wires OpenTelemetry.** `:consumer-probe:opentelemetry` hands OpenTelemetry's OkHttp
+library to `SempodsTransport.Builder.callFactory` and reads the spans back from the SDK: a client
+span per attempt, and a W3C `traceparent` naming it on the wire. It is a module of its own because
+the SDK and the instrumentation are what the client-core probe's classpath must not contain.
+
 **What no probe reaches is the POM.** A project dependency gives Gradle's own metadata, and the
 published POM is written from the same variants and then post-processed — the `pom.withXml` block
 below. A Maven consumer resolves from that file alone, so it is the one half of a publication that

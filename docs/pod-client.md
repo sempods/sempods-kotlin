@@ -184,8 +184,9 @@ the contract:
 - **Only `execute` makes another attempt, and authenticates each one afresh.** OkHttp's own resend
   is switched off, because it repeats an attempt with the headers that attempt already carried. Two
   things earn one more, each at most once: a connection lost before any response, for an idempotent
-  method under [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2) — how a
-  pooled connection the server has closed fails — and a 401 a refreshable credential can answer,
+  method or a POST marked `SempodsRepeatable` such as a SPARQL query, under
+  [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2) — how a pooled connection
+  the server has closed fails — and a 401 a refreshable credential can answer,
   with acquisition coalesced per credential. A fixed bearer and an anonymous session do not retry;
   there is nothing to re-mint. A one-shot body rules another attempt out whatever the mechanism
   says, because the alternative is a repeat that uploads nothing and is answered 200.
@@ -241,6 +242,25 @@ What that costs, stated rather than hidden:
   can call it directly and reach a host this library would refuse. What is kept is that they cannot
   do it *by accident*: a client handed to `SempodsTransport.Builder.httpClient` is derived from, so
   the `Dns` hook, the redirect policy and the deadlines are applied on top of whatever it carried.
+
+### Tracing
+
+The standard on the wire is [W3C Trace Context](https://www.w3.org/TR/trace-context/), and
+OpenTelemetry is the standard way a JVM produces it. The core takes a tracer in one of two places,
+and neither needs a dependency of its own:
+
+- **`SempodsTransport.Builder.callFactory`**, for an instrumentation that wraps a client —
+  OpenTelemetry's OkHttp library, whose `createCallFactory` is handed the client the transport has
+  already configured, so the guard and the redirect and resend policy stay on. `SempodsCallFactoryDecorator`'s
+  KDoc has the line.
+- **The client handed to `SempodsTransport.Builder.httpClient`**, for one that ships as an interceptor,
+  or for a header of the consumer's own naming.
+
+Every attempt `execute` makes is a call of its own, so a retry is a client span of its own — what
+OpenTelemetry's HTTP semantic conventions ask for. `:consumer-probe:opentelemetry` checks the first
+path against the OpenTelemetry SDK. Inside the sempods services, `SempodsSession.newRequest` also sets
+`traceparent` from `TraceContextHolder`; [`request-tracing.md`](request-tracing.md) describes that
+binding, and an OpenTelemetry instrumentation replaces the header when both run.
 
 ### Two OkHttp clients in one process, on purpose
 
