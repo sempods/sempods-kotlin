@@ -1,13 +1,19 @@
 package org.sempods.probe.clientcore;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -23,9 +29,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsDecodingException;
 import org.sempods.client.core.SempodsOkHttp;
+import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
+import org.sempods.client.core.SempodsPodDateModified;
 import org.sempods.client.core.SempodsRequestAuth;
+import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 
 /**
@@ -60,6 +70,10 @@ class ClientCoreFromJavaTest {
       exchange.sendResponseHeaders(204, -1);
       exchange.close();
     });
+    server.createContext("/alice/_system/meta/date-modified",
+        exchange -> json(exchange, 200, "{\"dateModified\":\"2026-05-20T10:15:30Z\",\"unknown\":[1]}"));
+    server.createContext("/bob/_system/meta/date-modified", exchange -> json(exchange, 404, ""));
+    server.createContext("/carol/_system/meta/date-modified", exchange -> json(exchange, 200, "{\"dateModified\":42}"));
     server.start();
 
     // A consumer's own header rides on an interceptor of their own client; the sempods interceptors
@@ -116,7 +130,7 @@ class ClientCoreFromJavaTest {
       "org.apache.jena.rdf.model.Model",
       "com.fasterxml.jackson.databind.ObjectMapper",
   })
-  void resolvesNoRdfOrJsonLibrary(String className) {
+  void resolvesNoRdfLibraryOrJackson2(String className) {
     assertThrows(ClassNotFoundException.class,
         () -> Class.forName(className, false, ClientCoreFromJavaTest.class.getClassLoader()),
         className + " is on this consumer's runtime classpath");
@@ -133,6 +147,44 @@ class ClientCoreFromJavaTest {
       assertEquals(204, response.code());
       assertEquals("k-123", response.header("X-Saw-Api-Key"), "the authentication did not reach the pod");
       assertEquals("trace-42", response.header("X-Saw-Tracing"), "the consumer's interceptor did not run");
+    }
+  }
+
+  @Test
+  void readsPodMetadataRawAndTypedFromJava() throws IOException {
+    SempodsPod alice = pod("alice");
+    assertTrue(alice.metadata().exists());
+
+    SempodsResponse<SempodsPodDateModified> typed = alice.metadata().dateModified();
+    assertEquals(200, typed.getStatus());
+    assertEquals("application/json", typed.getHeaders().get("Content-Type"));
+    assertEquals(Instant.parse("2026-05-20T10:15:30Z"), typed.getBody().getDateModified());
+
+    SempodsResponse<String> text = alice.metadata().dateModifiedJson();
+    SempodsResponse<byte[]> bytes = alice.metadata().dateModifiedBytes();
+    assertEquals("{\"dateModified\":\"2026-05-20T10:15:30Z\",\"unknown\":[1]}", text.getBody());
+    assertEquals(text.getBody(), new String(bytes.getBody(), StandardCharsets.UTF_8));
+
+    SempodsPod bob = pod("bob");
+    assertFalse(bob.metadata().exists());
+    assertNull(bob.metadata().dateModified().getBody());
+
+    SempodsDecodingException refused =
+        assertThrows(SempodsDecodingException.class, () -> pod("carol").metadata().dateModified());
+    assertEquals(200, refused.getStatus());
+  }
+
+  private static SempodsPod pod(String name) {
+    SempodsPodBase base = SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/" + name);
+    return new SempodsPod(new SempodsSession(base), client);
+  }
+
+  private static void json(HttpExchange exchange, int status, String body) throws IOException {
+    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    exchange.getResponseHeaders().add("Content-Type", "application/json");
+    exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(bytes);
     }
   }
 

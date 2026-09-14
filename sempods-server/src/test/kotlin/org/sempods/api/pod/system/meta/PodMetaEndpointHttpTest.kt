@@ -4,11 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsSession
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.okhttp.TestHttpClient
+import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PodMetaEndpointHttpTest : SempodsIntegrationTest() {
 
@@ -44,5 +51,25 @@ class PodMetaEndpointHttpTest : SempodsIntegrationTest() {
     val response = get("does-not-exist-pod")
 
     assertEquals(404, response.statusCode)
+  }
+
+  /** The client core against the served route, so the route string the core carries cannot drift from this one. */
+  @Test
+  fun `the client core reads existence and dateModified from this route`() {
+    val pod = sempodsTestFactory.newPod()
+    val stamp = Instant.parse("2026-05-20T10:15:30.123Z")
+    podDao.updateLastModifiedAt(name = pod.name, lastModifiedAt = stamp)
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    fun metadata(podName: String) =
+      SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")), client).metadata()
+
+    try {
+      assertTrue(metadata(pod.name).exists())
+      assertEquals(stamp, metadata(pod.name).dateModified().body?.dateModified)
+      assertFalse(metadata("does-not-exist-pod").exists())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
   }
 }

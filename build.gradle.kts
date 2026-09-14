@@ -217,26 +217,29 @@ subprojects {
 
     val checkNoForbiddenDependencies = tasks.register("checkNoForbiddenDependencies") {
       group = "verification"
-      description = "Fails if a consumer of the client core would resolve RDF4J, Jena or Jackson."
+      description = "Fails if a consumer of the client core would resolve RDF4J, Jena, Jackson 2 or the legacy DTOs."
       doLast {
         val forbidden = mapOf(
           "org.eclipse.rdf4j" to "RDF4J",
           "org.apache.jena" to "Jena",
-          "com.fasterxml.jackson" to "Jackson",
+          "com.fasterxml.jackson" to "Jackson 2",
           "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
         )
+        // Jackson 3's databind depends on the 2.x annotations, which kept their coordinates and carry
+        // no mapper. Jackson 3 itself, `tools.jackson`, is the core's own.
+        val allowed = setOf("com.fasterxml.jackson.core:jackson-annotations")
         // Every component by its coordinates, projects included: `sempods-model` arrives here as one.
         val offenders = testRuntimeClasspath.get().incoming.resolutionResult.allComponents
           .mapNotNull { it.moduleVersion }
           .map { "${it.group}:${it.name}" }
-          .filter { coordinates -> forbidden.keys.any { coordinates.startsWith(it) } }
+          .filter { coordinates -> coordinates !in allowed && forbidden.keys.any { coordinates.startsWith(it) } }
           .distinct().sorted()
 
         if (offenders.isNotEmpty()) {
           throw GradleException(
             "A consumer of :sempods-client-core would resolve ${offenders.joinToString()}. That " +
-              "module exists so an HTTP consumer does not take an RDF store or an object mapper " +
-              "with it — see `docs/pod-client.md` §\"The core\".",
+              "module exists so an HTTP consumer does not take an RDF store or a second JSON stack " +
+              "with it — see `docs/pod-client.md` §\"Consumable as an artifact\".",
           )
         }
       }
@@ -256,6 +259,7 @@ subprojects {
     // OkHttp is on the core's surface on purpose, so it is not listed.
     "sempods-client-core" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
+      "tools.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",
       "org.apache.jena." to "an RDF library",
     ),
