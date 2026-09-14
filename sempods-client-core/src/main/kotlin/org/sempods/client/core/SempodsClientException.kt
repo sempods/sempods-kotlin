@@ -8,7 +8,7 @@ import java.io.IOException
  * An [IOException], because that is what every caller of an OkHttp `Call` already handles and what
  * the engine itself throws — a second hierarchy beside it would only make a `catch` clause longer.
  * What it marks is a refusal that came from *here*: a target outside the session's pod, an address
- * the outbound guard rejected, an admission budget that was spent, an authentication mechanism that
+ * the outbound guard rejected, a spent admission or outbound budget, an authentication mechanism that
  * tried to move the request.
  *
  * A server that answered is not an exception at all. `Response.isSuccessful`, the status and the

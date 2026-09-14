@@ -7,6 +7,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
+import okio.BufferedSource
+import okio.ForwardingSource
+import okio.buffer
 import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.client.core.net.SempodsRateLimitedException
 import org.sempods.client.core.net.SempodsUrlPolicy
@@ -57,7 +60,11 @@ object SempodsOkHttp {
    * - **The last application interceptor**, with a [guard]: the per-request address check and the
    *   outbound budget, on the URL the interceptors before it produced.
    * - **The last network interceptor** confines a session's call again, on the request about to be
-   *   written. A network interceptor added after this one sees the authenticated request.
+   *   written, and keeps OkHttp from repeating a session's `503` on its own.
+   *
+   * **The consumer's own interceptors go on the builder before this.** An application interceptor
+   * added afterwards runs after the guard's address check, and a network interceptor added afterwards
+   * after the final confinement.
    *
    * It also switches redirects off, and with a [guard] sets the guard's resolver and, unless the guard
    * says otherwise, no proxy. The guard's interceptor pins both again for every call and refuses a
@@ -157,8 +164,10 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
     var number = 1
+    // Authenticated outside the `try`: a mechanism that fails has not lost a connection.
+    val authenticated = session.authenticated(request, number)
     val first = try {
-      chain.proceed(session.authenticated(request, number))
+      chain.proceed(authenticated)
     } catch (failure: IOException) {
       if (call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) throw failure
       chain.proceed(session.authenticated(request, ++number))
@@ -183,14 +192,21 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
 }
 
 /**
- * The pod confinement once more, as the last network interceptor: on the request as it is about to
- * be written, after every application interceptor and after a redirect.
+ * The pod confinement once more, as the last network interceptor installed: on the request as it is
+ * about to be written, after every application interceptor and after a redirect.
+ *
+ * It also takes `Retry-After: 0` off a session's `503`. OkHttp repeats such an answer by itself,
+ * below the session's interceptor, for any method, a one-shot body included, and with this attempt's
+ * credential; without the header the caller gets the `503` and decides.
  */
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
-    chain.call().tag(SempodsSession::class.java)?.confine(chain.request().url)
-    return chain.proceed(chain.request())
+    val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
+    session.confine(chain.request().url)
+    val response = chain.proceed(chain.request())
+    if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
+    return response.newBuilder().removeHeader("Retry-After").build()
   }
 }
 
@@ -240,28 +256,51 @@ private class AdmissionGate(private val limits: SempodsAdmission) {
    *
    * The bytes are still arriving while a caller reads them and the connection is still held, so
    * releasing the slot when the status line arrived would let an unbounded number of half-read
-   * responses exist under a limit that says otherwise. Wrapping the body is how a `close()` the
-   * caller already owes becomes the release.
+   * responses exist under a limit that says otherwise. The release rides on every close OkHttp counts
+   * as closing the body: `Response.close()`, and the source that `string()`, `bytes()` and a closed
+   * `byteStream()` close.
+   *
+   * A `101` is released at once: the connection now belongs to a WebSocket, which never closes the
+   * upgrade response.
    */
-  fun holdUntilClosed(response: Response): Response =
-    response.newBuilder().body(ReleasingBody(response.body)).build()
+  fun holdUntilClosed(response: Response): Response {
+    if (response.code == 101) {
+      release()
+      return response
+    }
+    return response.newBuilder().body(ReleasingBody(response.body)).build()
+  }
 
   private inner class ReleasingBody(private val delegate: ResponseBody) : ResponseBody() {
 
     private val released = AtomicBoolean(false)
 
+    private val releasingSource: BufferedSource = object : ForwardingSource(delegate.source()) {
+      override fun close() {
+        try {
+          super.close()
+        } finally {
+          releaseOnce()
+        }
+      }
+    }.buffer()
+
     override fun contentType() = delegate.contentType()
 
     override fun contentLength() = delegate.contentLength()
 
-    override fun source() = delegate.source()
+    override fun source() = releasingSource
 
     override fun close() {
       try {
         delegate.close()
       } finally {
-        if (released.compareAndSet(false, true)) release()
+        releaseOnce()
       }
+    }
+
+    private fun releaseOnce() {
+      if (released.compareAndSet(false, true)) release()
     }
   }
 

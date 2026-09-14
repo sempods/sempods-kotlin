@@ -239,6 +239,39 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a 503 asking for an immediate retry goes out once and reaches the caller`() {
+    // OkHttp repeats a `503` with `Retry-After: 0` by itself, below the session's interceptor.
+    onConnection = { socket, _ ->
+      socket.use {
+        if (readRequest(it)) {
+          it.getOutputStream().write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\n\r\n".toByteArray())
+          it.getOutputStream().flush()
+        }
+      }
+    }
+    sempodsClient().closing { client ->
+      val post = session().newRequest("POST", "x").post("x".toRequestBody()).build()
+      client.newCall(post).execute().use { assertEquals(503, it.code) }
+    }
+    assertEquals(1, requestHeads.size, "the POST went out twice")
+  }
+
+  @Test
+  fun `a failing authentication is not resent as a lost connection`() {
+    val asked = AtomicInteger()
+    val failing = SempodsRequestAuth.refreshable(
+      SempodsCredentialSupplier { asked.incrementAndGet(); throw IOException("token endpoint answered 500") },
+    )
+    val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), failing)
+
+    sempodsClient().closing { client ->
+      assertThrows<IOException> { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+    }
+    assertEquals(1, asked.get())
+    assertEquals(0, connections.get())
+  }
+
+  @Test
   fun `a deadline, a refused connection or a refusal of this library's own is not resent`() {
     val get = Request.Builder().url("http://127.0.0.1/alice/x").build()
     val notResent = listOf(

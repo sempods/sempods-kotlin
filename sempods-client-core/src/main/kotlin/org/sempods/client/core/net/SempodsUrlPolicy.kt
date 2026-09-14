@@ -10,11 +10,11 @@ import java.net.URI
  * makes, because a caller that takes a URL from somewhere else is a caller that can be pointed at
  * `169.254.169.254`.
  *
- * **Three entry points, one rule set**, because the same address question is asked at three
- * different moments and the answers must not drift apart:
+ * **One rule set behind four entry points**, because the same address question is asked at
+ * admission, per request and at connect time, and the answers must not drift apart:
  *
  * - [rejectPodBase] — admission: is this a URL worth *holding a credential for*? The strictest of
- *   the three, and the only one that also asks [SempodsPodBase] whether the URL is a base URL at
+ *   them, and the only one that also asks [SempodsPodBase] whether the URL is a base URL at
  *   all. A pod base is a coordinate a service stores, not an arbitrary document address.
  * - [rejectCredentialedTarget] — admission for a discovered endpoint this process dials with a
  *   credential. The scheme and address rules of [rejectPodBase], without its form rules: an
@@ -71,7 +71,9 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
     val scheme = uri.scheme?.lowercase() ?: return "missing scheme"
     val host = uri.host?.lowercase() ?: return "missing host"
     if (scheme != "https" && scheme != "http") return "scheme must be https"
-    if (scheme == "http" && !allowPrivateAddresses) return "http is only allowed in local mode"
+    if (scheme == "http" && !(allowPrivateAddresses && isLoopbackHost(host))) {
+      return "http is only allowed on loopback in local mode"
+    }
     return rejectHost(host)
   }
 
@@ -119,6 +121,10 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
       ?: return "host is a non-canonical numeric address"
     return blockedRangeReason(address)?.let { "host is a non-global address ($it)" }
   }
+
+  private fun isLoopbackHost(host: String): Boolean =
+    isLoopbackName(host) ||
+      (isNumericHost(host) && runCatching { InetAddress.getByName(host.trim('[', ']')) }.getOrNull()?.isLoopbackAddress == true)
 
   private fun isNumericHost(host: String): Boolean {
     val bare = host.trim('[', ']')

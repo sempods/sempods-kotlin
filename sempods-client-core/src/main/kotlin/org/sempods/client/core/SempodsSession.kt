@@ -40,9 +40,10 @@ import org.sempods.commons.trace.TraceContextHolder
  * change.
  *
  * **A credential never leaves its pod.** The client checks the target against [podBase] before the
- * first attempt and once more in its network interceptor, on the request about to be written — after
- * every application interceptor and after a redirect. An interceptor that moves the request
- * therefore takes no credential along.
+ * first attempt and once more in its last network interceptor, on the request about to be written —
+ * after every application interceptor, after a redirect, and after every network interceptor added
+ * before [SempodsOkHttp.install]. An interceptor that moves the request therefore takes no credential
+ * along.
  *
  * **A request from here cannot be sent without that policy.** Its URL carries the placeholder host
  * [SempodsOkHttp.UNBOUND_HOST] (RFC 6761 reserves `.invalid`) in place of the pod's, and the client's

@@ -30,10 +30,8 @@ dependencies {
   api(libs.jacksonDatabind)
   runtimeOnly(libs.jackson)
 
-  // `api`, because this module's surface is the core's: `SempodsHttpTransport` hands back a
-  // `SempodsResponse` and takes a `SempodsRequest`, and a consumer compiling against those needs
-  // them declared here rather than inherited. The engine is not among them — it stops inside
-  // `:sempods-client-core`, which declares OkHttp on `implementation`, so nothing here names one.
+  // `api`, because this module's signatures name the core's types: `SempodsHttpTransport` takes a
+  // `SempodsOutboundGuard`, and this module's `SempodsClientException` extends the core's.
   api(project(":sempods-client-core"))
 
   // Named directly because this module names it directly: the legacy surface translates its own

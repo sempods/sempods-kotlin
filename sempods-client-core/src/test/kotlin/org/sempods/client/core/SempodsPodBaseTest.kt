@@ -49,9 +49,15 @@ class SempodsPodBaseTest {
   @Test
   fun `a path that would leave the pod is refused rather than resolved`() {
     val base = SempodsPodBase.of("https://pods.example/alice")
-    listOf("/etc/passwd", "../bob/secret", "a/../../bob", "a\\..\\bob").forEach {
+    listOf("/etc/passwd", "../bob/secret", "a/../../bob", "a\\..\\bob", "%2e%2e/bob", "a/.%2E/../bob").forEach {
       assertThrows<IllegalArgumentException>(it) { base.resolve(it) }
     }
+  }
+
+  @Test
+  fun `a pod at the host root resolves without a double slash`() {
+    val root = SempodsPodBase.of("https://pods.example/")
+    assertEquals("https://pods.example/_system/contexts", root.resolve("_system/contexts").toString())
   }
 
   @Test

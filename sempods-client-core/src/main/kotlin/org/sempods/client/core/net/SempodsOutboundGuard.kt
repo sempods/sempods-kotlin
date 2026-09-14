@@ -4,6 +4,7 @@ import java.net.InetAddress
 import java.net.URI
 import java.net.UnknownHostException
 import okhttp3.Dns
+import org.sempods.client.core.SempodsClientException
 
 /**
  * A hostname resolved into a blocked range. Subclasses [UnknownHostException] so the HTTP engine
@@ -14,7 +15,7 @@ import okhttp3.Dns
 class SsrfBlockedException(message: String) : UnknownHostException(message)
 
 /** A request refused by [OutboundRateLimiter] before it left the process. */
-class SempodsRateLimitedException(message: String) : RuntimeException(message)
+class SempodsRateLimitedException(message: String) : SempodsClientException(message)
 
 /**
  * Turns a hostname into the addresses a connection may be opened to.

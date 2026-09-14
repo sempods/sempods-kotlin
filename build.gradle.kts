@@ -233,9 +233,10 @@ subprojects {
           "com.fasterxml.jackson" to "Jackson",
           "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
         )
+        // Every component by its coordinates, projects included: `sempods-model` arrives here as one.
         val offenders = testRuntimeClasspath.get().incoming.resolutionResult.allComponents
-          .mapNotNull { it.id as? ModuleComponentIdentifier }
-          .map { "${it.group}:${it.module}" }
+          .mapNotNull { it.moduleVersion }
+          .map { "${it.group}:${it.name}" }
           .filter { coordinates -> forbidden.keys.any { coordinates.startsWith(it) } }
           .distinct().sorted()
 

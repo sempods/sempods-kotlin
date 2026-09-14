@@ -54,11 +54,13 @@ class SempodsPodBase private constructor(
     }
     val path = podRelativePath.substringBefore('?')
     require(!path.contains('\\')) { "A pod-relative path must not contain a backslash: '$podRelativePath'" }
-    require(path.split('/').none { it == "." || it == ".." }) {
+    // `%2e` is a dot to a URL parser, so `%2e%2e` leaves the pod as surely as `..` does.
+    require(path.split('/').map { it.replace("%2e", ".", ignoreCase = true) }.none { it == "." || it == ".." }) {
       "A pod-relative path must not contain a dot segment: '$podRelativePath'"
     }
     val separator = if (podRelativePath.isEmpty()) "" else "/"
-    return requireNotNull("$url$separator$podRelativePath".toHttpUrlOrNull()) {
+    // A pod at the host root renders as `https://pods.example/`, whose slash the separator repeats.
+    return requireNotNull("${url.toString().removeSuffix("/")}$separator$podRelativePath".toHttpUrlOrNull()) {
       "'$podRelativePath' under '$url' is not a valid URL."
     }
   }

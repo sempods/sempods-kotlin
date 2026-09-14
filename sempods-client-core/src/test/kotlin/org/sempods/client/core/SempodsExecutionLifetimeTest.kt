@@ -71,6 +71,17 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
   }
 
   @Test
+  fun `a body read with string() releases its slot without closing the response`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("payload"))
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      val a = session()
+      // `string()` closes the body's source, which OkHttp counts as closing the body.
+      repeat(3) { assertEquals("payload", client.get(a).body.string()) }
+      client.get(a).use { assertEquals(200, it.code) }
+    }
+  }
+
+  @Test
   fun `cancelling a call reaches the connection`() {
     server.`when`(request()).respond(
       response().withStatusCode(200).withBody("slow").withDelay(TimeUnit.SECONDS, 10),

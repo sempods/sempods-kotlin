@@ -141,4 +141,14 @@ class SempodsUrlPolicyTest {
       assertNull(local.rejectAddress(addr(it)))
     }
   }
+
+  // --- a discovered endpoint that receives a credential -------------------
+
+  @Test fun `a credentialed endpoint takes http only on loopback, and only in local mode`() {
+    assertNull(local.rejectCredentialedTarget("http://localhost:9000/token"))
+    assertNull(local.rejectCredentialedTarget("http://127.0.0.1:9000/token"))
+    assertNotNull(local.rejectCredentialedTarget("http://auth.example.com/token"))
+    assertNotNull(strict.rejectCredentialedTarget("http://localhost:9000/token"))
+    assertNull(strict.rejectCredentialedTarget("https://auth.example.com/token?tenant=a"))
+  }
 }
