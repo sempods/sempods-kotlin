@@ -334,11 +334,12 @@ data class PutPodContextRequest(
  * specification's `Context` schema (sempods-spec `openapi/sempods-core.yaml`), plus `source` and
  * `createdAt`, which the schema does not define.
  *
- * The IRI goes out twice: as the schema's `contextUri`, and as `context_iri`, which the legacy client
- * and the MCP instructions still read and #152 removes. The Kotlin property keeps its published name
+ * The IRI goes out twice, as the schema's `contextUri` and as `context_iri`, which the legacy client and
+ * the MCP instructions read, and either name is read. The Kotlin property keeps its published name
  * [contextIri], so a compiled consumer of this class keeps linking.
  */
 data class PodContextResponse(
+  @JsonAlias("contextUri")
   @field:JsonProperty("context_iri")
   val contextIri: String,
 
@@ -365,9 +366,8 @@ data class PodContextResponse(
  * The `GET _system/contexts` listing: the specification's `ContextList` schema.
  *
  * [legacyPodBaseUrl] and [legacyWritableContexts] repeat [podBaseUrl] and [writableContexts] under the
- * names the legacy client and the MCP instructions still read; #152 removes them, and the aliases that
- * read those names too. `READ_ONLY`, because a mapper reading this class back would otherwise take a
- * collection getter for a setter.
+ * names the legacy client and the MCP instructions read, and either name is read. `READ_ONLY`, because a
+ * mapper reading this class back would otherwise take a collection getter for a setter.
  */
 data class PodContextsListResponse(
   @JsonAlias("pod_base_url")
@@ -397,6 +397,7 @@ data class PodContextsListResponse(
  * contradict it.
  */
 data class PutPodContextResponse(
+  @JsonAlias("contextUri")
   @field:JsonProperty("context_iri")
   val contextIri: String,
 
