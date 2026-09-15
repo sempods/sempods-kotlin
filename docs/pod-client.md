@@ -1,9 +1,8 @@
 # Pod client — the JVM client for the pod surface (IST)
 
-What a consumer reaches for when it wants to talk to a pod it does not run: `:sempods-client-core`
-(`SempodsSession`, `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPod`), `:sempods-client` above it
-(`SempodsClient`, `SempodsPodClient`, `PodWireClient`, `SempodsHttpTransport`), and the sibling that
-speaks the host-level admin surface, `:sempods-control-plane-client` (`SempodsControlPlaneClient`).
+What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
+`:sempods-client-core`, `:sempods-client` above it, and the sibling that speaks the host-level admin
+surface, `:sempods-control-plane-client`.
 
 This document is the *shape* of those clients — what tiers they have, how a caller supplies a
 credential, what they are built on, and the rules that decide what may be added. The **routes** they
@@ -134,8 +133,6 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsRequestAuth` | how a session authenticates, replaceable and decoratable |
 | `SempodsAdmission` | how many calls may run, and how many may wait |
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
-| `SempodsPod` | a session and the `Call.Factory` that runs it, with the endpoint groups on it |
-| `SempodsResponse` | an operation's answer: status, headers, and the body as text, bytes or a typed result |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -154,11 +151,8 @@ try (Response response = client.newCall(request).execute()) {
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
 and admission by using it, and needs nothing private.
 
-Five decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
+Four decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
 
-- **A call decides no route's meaning** (`SempodsClientException`). It hands back every status and
-  the body as it was sent, malformed or not; what a status means on a route, the endpoint operation
-  decides (§"Endpoint groups").
 - **A credential never leaves its pod** (`SempodsPodBase`, `SempodsSession`). The base is validated
   against [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
   and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020);
@@ -176,27 +170,18 @@ Five decisions shape everything above it. Each lives in one class, whose KDoc ca
 
 ### Endpoint groups
 
-`SempodsPod` hangs the groups off one session and the `Call.Factory` that runs it, so a client
-wrapped by OpenTelemetry serves as well as the client itself. A group is built on the extension seam
-above and adds no credential, executor or retry.
+`SempodsPod` carries the endpoint groups, built on the extension seam above. Every operation offers
+a typed result and the raw body, and both run the same call:
 
 ```java
 var pod = new SempodsPod(alice, client);
-boolean known = pod.metadata().exists();
 SempodsResponse<SempodsPodDateModified> typed = pod.metadata().dateModified();
 SempodsResponse<String> raw = pod.metadata().dateModifiedJson();
 ```
 
-Every operation of a group offers its typed result and the raw body side by side, and both run one
-execution. §"Growing the surface" is the rule for the tiers of `:sempods-client`.
-
-- **An operation lists its answers.** A 404 from `metadata()` is a response without a body; a status
-  it does not list is a `SempodsStatusException`, with the status, the headers and an excerpt of the
-  body.
-- **A body that is not the route's document is a `SempodsDecodingException`**, never a `false`, an
-  empty result or a success. Unknown members are ignored.
-- **No message quotes a body**, because a body can carry a credential. A decoding failure says where
-  instead: a JSON Pointer, or a line and column.
+A status the route does not list, or a body that is not the route's document, is an exception that
+keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
+tiers of `:sempods-client`.
 
 ## The transport: OkHttp, blocking
 
@@ -306,9 +291,8 @@ methods return and accept. Rio, Sail and the SPARQL-results readers stay `implem
 consumers declare no RDF4J of their own, which is the check that the export is real.
 
 `:sempods-client-core` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
-Jena or Jackson 2, directly or transitively. The protocol's JSON it reads with Jackson 3, on
-`implementation` and in no public signature — the library RDF4J 6 already brings, under a package of
-its own beside Jackson 2:
+Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
+public signature names:
 
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.2.0"))
@@ -337,8 +321,8 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
 ## Contract source
 
 - `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
-  `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`, `SempodsPod` with
-  its groups and `SempodsResponse`, and `net/` for the outbound guard
+  `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`, and
+  `net/` for the outbound guard
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
   `SempodsAuth`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`

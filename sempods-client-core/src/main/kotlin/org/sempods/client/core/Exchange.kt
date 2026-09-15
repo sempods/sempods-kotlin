@@ -36,9 +36,7 @@ internal class ProtocolViolation(val detail: String) : Exception(detail)
  * The one way an endpoint operation runs. Raw text, raw bytes, a typed result and an existence check
  * that reads no body all go through [execute].
  *
- * An operation passes every status it accepts as `answers`, 2xx included. A listed 2xx carries the
- * body, any other listed status none, and a status not listed is a [SempodsStatusException] — a 2xx
- * as much as a 500.
+ * `answers` are every status the operation accepts, 2xx included ([SempodsResponse]).
  *
  * The response is closed before a body is decoded, so its admission slot is free while the decoding
  * runs. A failure of the network, of the deadline or of the core's own policy passes through as it is.

@@ -270,9 +270,8 @@ not, because Java cannot call them at all:
 | a **Kotlin function type** | it arrives as `kotlin.jvm.functions.Function1`, and cannot declare a checked exception — a body handler unable to say `throws IOException` forces its failure into an unchecked wrapper |
 
 `checkPublishedSignatures` reads the compiled classes and refuses all three. A module opts in with
-an entry in the root build that also names the libraries it hides — the client core no RDF library
-and no Jackson type; OkHttp is on its surface on purpose. Most modules do not satisfy the rule yet,
-and [#15](https://github.com/sempods/sempods-kotlin/issues/15) owns that.
+an entry in the root build that also names the libraries it hides. Most modules do not satisfy the
+rule yet, and [#15](https://github.com/sempods/sempods-kotlin/issues/15) owns that.
 
 One part cannot be checked and stays a review question: a member that does I/O needs
 `@Throws(IOException::class)`. Without it a Java caller's `catch (IOException e)` is a compile
@@ -285,7 +284,7 @@ is a JUnit suite written in Java; across the project boundary its compile classp
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a
 **Java 21** JVM, the only one in this repository: bytecode built for 21 and only ever run on 25 would
 be a floor nobody stood on. Beside it, `checkNoForbiddenDependencies` fails if a consumer would
-resolve RDF4J, Jena, Jackson 2 or the legacy DTOs — a question dependency analysis cannot answer,
+resolve a library the core excludes — a question dependency analysis cannot answer,
 because it advises on how a dependency is *declared* and has no notion of one being forbidden.
 
 **A fourth probe wires OpenTelemetry.** `:consumer-probe:opentelemetry` wraps a client

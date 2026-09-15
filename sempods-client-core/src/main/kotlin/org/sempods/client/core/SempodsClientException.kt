@@ -12,9 +12,8 @@ import java.io.IOException
  * mechanism that tried to move the request. And, from an endpoint operation, an answer outside that
  * operation's contract ([SempodsResponseException]).
  *
- * A call never throws for a status. `Response.isSuccessful`, the status and the headers are OkHttp's,
- * and an endpoint operation lists which statuses are answers on its route — a 404 for a pod that does
- * not exist is one ([SempodsResponse]).
+ * A call never throws for a status; which statuses an endpoint operation accepts, [SempodsResponse]
+ * says.
  */
 open class SempodsClientException @JvmOverloads constructor(
   message: String,
