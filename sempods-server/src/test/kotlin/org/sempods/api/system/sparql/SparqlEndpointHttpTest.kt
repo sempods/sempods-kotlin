@@ -3,6 +3,16 @@ package org.sempods.api.system.sparql
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.client.core.SempodsContextSelection
+import org.sempods.client.core.SempodsGraphFormat
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsPodSparql
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsSparqlTermKind
+import org.sempods.client.core.SempodsStatusException
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
@@ -10,7 +20,9 @@ import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
+import okhttp3.OkHttpClient
 import org.eclipse.rdf4j.model.Model
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.net.URI
@@ -483,5 +495,95 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
       model.isEmpty(),
       "A present-but-blank dataset param must fail closed, not widen back to the whole readable set",
     )
+  }
+
+  /** The client core against the served route, so what the core sends and reads cannot drift from it. */
+  private fun <T> withSparql(podName: String, auth: SempodsRequestAuth, block: (SempodsPodSparql) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client).sparql())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core reads a pod's public data, typed and raw`() {
+    val pod = sempodsTestFactory.newPod()
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    sempodsTestFactory.seedEvent(
+      pod = pod.name,
+      eventUri = eventUri,
+      context = sempodsTestFactory.publicContextUri(pod.name),
+      name = "public-event-${TestUtil.randomId()}",
+    )
+    val privateContextUri = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/private")
+    podContextsDao.create(podId = checkNotNull(pod.id), contextUri = privateContextUri.toString(), label = null, description = null, createdBy = "test")
+
+    withSparql(pod.name, SempodsRequestAuth.anonymous()) { sparql ->
+      val subjects = assertNotNull(sparql.select("SELECT ?s WHERE { ?s ?p ?o }").body).column("s")
+      assertTrue(subjects.any { it.kind == SempodsSparqlTermKind.IRI && it.value == eventUri.toString() }, "$subjects")
+
+      val objects = assertNotNull(sparql.select("SELECT ?o WHERE { <$eventUri> ?p ?o }").body).column("o")
+      assertTrue(objects.any { it.kind == SempodsSparqlTermKind.LITERAL }, "$objects")
+
+      assertEquals(true, sparql.ask("ASK { <$eventUri> ?p ?o }").body)
+      val quads = assertNotNull(sparql.graphText("CONSTRUCT WHERE { <$eventUri> ?p ?o }", SempodsGraphFormat.N_QUADS).body)
+      assertTrue(quads.contains("<$eventUri>"), quads)
+      val jsonLd = sparql.graphBytes("CONSTRUCT WHERE { <$eventUri> ?p ?o }", SempodsGraphFormat.JSON_LD)
+      assertTrue(jsonLd.headers["Content-Type"].orEmpty().startsWith("application/ld+json"), "${jsonLd.headers}")
+
+      val unreadable = SempodsContextSelection.of(privateContextUri.toString())
+      assertEquals(emptyList(), assertNotNull(sparql.select("SELECT ?s WHERE { ?s ?p ?o }", unreadable).body).solutions)
+    }
+  }
+
+  @Test
+  fun `the client core narrows a query to a selection, and an empty selection matches nothing`() {
+    val pod = sempodsTestFactory.newPod()
+    val rootContextUri = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks")
+    val childContextUri = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks/child")
+    listOf(rootContextUri, childContextUri).forEach { uri ->
+      podContextsDao.create(podId = checkNotNull(pod.id), contextUri = uri.toString(), label = null, description = null, createdBy = "test")
+    }
+    val rootEventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = rootEventUri, context = rootContextUri, name = "root-event-${TestUtil.randomId()}")
+    val childEventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = childEventUri, context = childContextUri, name = "child-event-${TestUtil.randomId()}")
+    val token = mintScopedToken(pod.name, listOf("${rootContextUri}#manage"))
+
+    withSparql(pod.name, SempodsRequestAuth.bearer(token)) { sparql ->
+      fun subjects(selection: SempodsContextSelection) =
+        assertNotNull(sparql.select("SELECT DISTINCT ?s WHERE { ?s ?p ?o }", selection).body).column("s").map { it.value }.toSet()
+
+      val child = SempodsContextSelection.of(childContextUri.toString())
+      assertTrue(childEventUri.toString() in subjects(child))
+      assertFalse(rootEventUri.toString() in subjects(child))
+      assertEquals(
+        listOf(childContextUri.toString()),
+        assertNotNull(sparql.select("SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }", child).body).column("g").map { it.value },
+      )
+      assertTrue(subjects(SempodsContextSelection.readable()).containsAll(setOf(rootEventUri.toString(), childEventUri.toString())))
+
+      val none = SempodsContextSelection.none()
+      assertEquals(emptySet(), subjects(none))
+      assertEquals(false, sparql.ask("ASK { ?s ?p ?o }", none).body)
+      assertEquals(true, sparql.ask("ASK {}", none).body)
+    }
+  }
+
+  @Test
+  fun `the client core surfaces a refused query and a refused credential with their status`() {
+    val pod = sempodsTestFactory.newPod()
+
+    withSparql(pod.name, SempodsRequestAuth.anonymous()) { sparql ->
+      assertEquals(400, assertThrows<SempodsStatusException> { sparql.resultsJson("INSERT DATA { <urn:a> <urn:b> <urn:c> }") }.status)
+    }
+    withSparql(pod.name, SempodsRequestAuth.bearer("not-a-real-jwt")) { sparql ->
+      val refused = assertThrows<SempodsStatusException> { sparql.ask("ASK {}") }
+      assertEquals(401, refused.status)
+      assertNotNull(refused.headers["WWW-Authenticate"])
+    }
   }
 }

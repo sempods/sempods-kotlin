@@ -154,6 +154,21 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a SPARQL query through the pod's group is resent once, as the repeatable request it is`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      val answer = SempodsPod(a, client).sparql().resultsJson("ASK {}", SempodsContextSelection.none())
+
+      assertEquals(200, answer.status)
+      assertEquals(2, requestHeads.size)
+      assertTrue(requestHeads[1].startsWith("POST /alice/_system/sparql/query?default-graph-uri= "), requestHeads[1])
+      assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    }
+  }
+
+  @Test
   fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
     val rebuilding = Interceptor { chain ->
       val original = chain.request()

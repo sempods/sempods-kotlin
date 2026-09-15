@@ -27,8 +27,15 @@ class SempodsPod(
   val calls: Call.Factory,
 ) {
 
-  private val metadataGroup = SempodsPodMetadata(session, Exchange(calls))
+  private val exchange = Exchange(calls)
+
+  private val metadataGroup = SempodsPodMetadata(session, exchange)
+
+  private val sparqlGroup = SempodsPodSparql(session, exchange)
 
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup
+
+  /** SPARQL queries against the pod: typed SELECT and ASK results, and every result as the pod sent it. */
+  fun sparql(): SempodsPodSparql = sparqlGroup
 }

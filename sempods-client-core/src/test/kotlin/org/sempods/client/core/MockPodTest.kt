@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.TestInstance
 import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
+import org.mockserver.model.HttpRequest
 import org.slf4j.event.Level
 
 /** One MockServer standing in for the pods of a test class, reset before each test. */
@@ -30,4 +31,9 @@ abstract class MockPodTest {
   fun resetServer() {
     server.reset()
   }
+
+  /** The header names a request carries beyond those OkHttp adds to any request it frames. */
+  protected fun HttpRequest.headersBeyondTransport(): Set<String> =
+    headerList.map { it.name.value.lowercase() }.toSet() -
+      setOf("host", "connection", "accept-encoding", "user-agent", "content-length")
 }
