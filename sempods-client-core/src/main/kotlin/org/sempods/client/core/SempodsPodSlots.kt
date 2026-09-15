@@ -81,15 +81,19 @@ class SempodsPodSlots internal constructor(
   ): SempodsResponse<ByteArray> =
     operations.writeAt("PUT", ResourceAddress.SystemRoute.slotPath(subjectUri, predicateUri), values, JSON_LD, options, PUT_ANSWERS)
 
-  /** Adds [values], a JSON-LD value object or an array of them (SPS-CRUD-049), to the slot in the target context. */
+  /**
+   * Adds [value], one JSON-LD value object, to the slot in the target context: an IRI as `{"@id": …}`, or a
+   * literal with `@value` and an optional `@language` or `@type` (SPS-CRUD-049). Several values in one
+   * request are undefined until sempods/sempods-spec#6, and the reference server answers them with `400`.
+   */
   @Throws(IOException::class)
   fun add(
     subjectUri: String,
     predicateUri: String,
-    values: SempodsContent,
+    value: SempodsContent,
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> =
-    operations.writeAt("POST", ResourceAddress.SystemRoute.slotPath(subjectUri, predicateUri), values, JSON_LD, options, ADD_ANSWERS)
+    operations.writeAt("POST", ResourceAddress.SystemRoute.slotPath(subjectUri, predicateUri), value, JSON_LD, options, ADD_ANSWERS)
 
   /** Removes every value of the slot in the target context. */
   @Throws(IOException::class)
