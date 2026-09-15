@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
 /**
- * The listing class as JSON, through the server's own mapper: both spellings written, and a listing in
- * the earlier spelling still read.
+ * The context response classes as JSON, through the server's own mapper: both spellings written, and
+ * either spelling read.
  */
 class PodContextsResponseJsonTest {
 
@@ -39,6 +39,32 @@ class PodContextsResponseJsonTest {
       """"createdAt":"2026-05-20T10:15:30Z"}],"writable_contexts":["$tasks"]}"""
 
     assertEquals(listing, jsonUtil.read(earlier, PodContextsListResponse::class.java))
+  }
+
+  @Test
+  fun `a listing in the specification's member names alone reads the same`() {
+    val specified = """{"podBaseUrl":"https://pods.example/alice","authenticated":false,""" +
+      """"contexts":[{"contextUri":"$tasks","permissions":["read"],"source":"public","public":true,""" +
+      """"createdAt":"2026-05-20T10:15:30Z"}],"writableContexts":["$tasks"]}"""
+
+    assertEquals(listing, jsonUtil.read(specified, PodContextsListResponse::class.java))
+  }
+
+  @Test
+  fun `a create answer reads its IRI under either name and writes both`() {
+    val created = PutPodContextResponse(
+      contextIri = tasks,
+      label = "Tasks",
+      description = null,
+      public = false,
+      createdAt = "2026-05-20T10:15:30Z",
+    )
+
+    listOf("contextUri", "context_iri").forEach { name ->
+      val body = """{"$name":"$tasks","label":"Tasks","public":false,"createdAt":"2026-05-20T10:15:30Z"}"""
+      assertEquals(created, jsonUtil.read(body, PutPodContextResponse::class.java), name)
+    }
+    assertEquals(setOf("contextUri", "context_iri", "label", "public", "createdAt"), jsonUtil.read(jsonUtil.write(created)).keys)
   }
 
   @Test
