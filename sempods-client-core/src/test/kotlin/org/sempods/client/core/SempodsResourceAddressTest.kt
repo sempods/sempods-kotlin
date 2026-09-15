@@ -134,4 +134,24 @@ class SempodsResourceAddressTest {
     }
     assertEquals("_system/resources/bm90IGFuIElSSQ", ResourceAddress.SystemRoute.path("not an IRI"))
   }
+
+  @Test
+  fun `a slot and an edge extend the subject's route by one base64url segment each`() {
+    assertEquals(
+      "_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ/aHR0cDovL3htbG5zLmNvbS9mb2FmLzAuMS9rbm93cw",
+      ResourceAddress.SystemRoute.slotPath("did:web:bob.example", "http://xmlns.com/foaf/0.1/knows"),
+    )
+    assertEquals(
+      "_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ/aHR0cHM6Ly9zY2hlbWEub3JnL2NoaWxkcmVu/aHR0cHM6Ly9leGFtcGxlLm9yZy_DvA",
+      ResourceAddress.SystemRoute.edgePath("did:web:bob.example", "https://schema.org/children", "https://example.org/ü"),
+    )
+    assertEquals(
+      "A predicate IRI must not be blank.",
+      assertThrows<IllegalArgumentException> { ResourceAddress.SystemRoute.slotPath("did:web:bob.example", " ") }.message,
+    )
+    assertEquals(
+      "A target IRI must not be blank.",
+      assertThrows<IllegalArgumentException> { ResourceAddress.SystemRoute.edgePath("did:web:bob.example", "https://schema.org/name", "") }.message,
+    )
+  }
 }
