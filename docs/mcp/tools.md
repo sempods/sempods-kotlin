@@ -46,23 +46,30 @@ permission level on each. The contract is:
 
 ```json
 {
+  "podBaseUrl": "https://<host>/<pod>",
   "pod_base_url": "https://<host>/<pod>",
   "authenticated": true,
   "contexts": [
     {
-      "context_iri": "https://<host>/<pod>/tasks",
+      "contextUri": "https://<host>/<pod>/_system/contexts/tasks",
+      "context_iri": "https://<host>/<pod>/_system/contexts/tasks",
       "permissions": ["read", "write"],
       "source": "grant"
     },
     {
-      "context_iri": "https://<host>/<pod>/events/public",
+      "contextUri": "https://<host>/<pod>/_system/contexts/events/public",
+      "context_iri": "https://<host>/<pod>/_system/contexts/events/public",
       "permissions": ["read"],
       "source": "public"
     }
   ],
-  "writable_contexts": ["https://<host>/<pod>/tasks"]
+  "writableContexts": ["https://<host>/<pod>/_system/contexts/tasks"],
+  "writable_contexts": ["https://<host>/<pod>/_system/contexts/tasks"]
 }
 ```
+
+`podBaseUrl`, `contextUri` and `writableContexts` are the specification's names (its `ContextList`
+and `Context` schemas). `pod_base_url`, `context_iri` and `writable_contexts` carry the same values.
 
 `source` indicates where a context's effective permissions come from:
 `grant` (a direct per-context grant), `manage` (covered by a

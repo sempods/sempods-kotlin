@@ -297,7 +297,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, anonymous.statusCode, "body=${anonymous.responseBody}")
     assertEquals(
       listOf(contextUri(pod.name, "defaults/asked-for")),
-      jsonUtil.read(anonymous.responseBody, PodContextsListResponse::class.java).contexts.map { it.contextIri },
+      jsonUtil.read(anonymous.responseBody, PodContextsListResponse::class.java).contexts.map { it.contextUri },
       "only the context whose creation asked for `public` may be anonymously visible",
     )
   }
@@ -541,8 +541,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, listResponse.statusCode)
     val payload = jsonUtil.read(listResponse.responseBody, PodContextsListResponse::class.java)
     // Only the context matching the token scopes is visible
-    assertTrue(payload.contexts.any { it.contextIri.endsWith(publicContext) })
-    assertTrue(payload.contexts.none { it.contextIri.endsWith(appContext) })
+    assertTrue(payload.contexts.any { it.contextUri.endsWith(publicContext) })
+    assertTrue(payload.contexts.none { it.contextUri.endsWith(appContext) })
   }
 
   @Test
@@ -563,11 +563,101 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode)
     val payload = jsonUtil.read(response.responseBody, PodContextsListResponse::class.java)
-    val item = payload.contexts.firstOrNull { it.contextIri.endsWith(contextPath) }
+    val item = payload.contexts.firstOrNull { it.contextUri.endsWith(contextPath) }
     assertNotNull(item, "Expected context '$contextPath' in response, got: ${payload.contexts}")
     assertEquals(listOf("read", "write"), item.permissions, "permissions must mirror token scopes")
     assertEquals("grant", item.source, "direct read/write grant should be sourced as 'grant'")
     assertTrue(payload.writableContexts.any { it.endsWith(contextPath) }, "writable_contexts must include the write-granted context")
+  }
+
+  /**
+   * The member names are the specification's `ContextList` and `Context` schemas (sempods-spec
+   * `openapi/sempods-core.yaml`), with the earlier names beside them for the readers #152 moves.
+   * Read from the JSON itself: the response classes map either spelling to the same property.
+   */
+  @Test
+  fun `the listing names its members as the specification does, with the earlier names beside them`() {
+    val pod = sempodsTestFactory.newPod(createPublicContext = false)
+    val contextPath = "test/member-names"
+    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = contextPath)
+    val context = contextUri(pod.name, contextPath)
+    val token = mintScopedToken(pod.name, listOf("$context#read", "$context#write"))
+
+    val response = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+
+    assertEquals(200, response.statusCode, "body=${response.responseBody}")
+    val listing = objectMapper.readTree(response.responseBody)
+    assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}", listing.path("podBaseUrl").asText())
+    assertEquals(listing.path("podBaseUrl"), listing.path("pod_base_url"))
+    assertEquals(listOf(context), listing.path("writableContexts").map { it.asText() })
+    assertEquals(listing.path("writableContexts"), listing.path("writable_contexts"))
+    val entry = listing.path("contexts").single()
+    assertEquals(context, entry.path("contextUri").asText())
+    assertEquals(entry.path("contextUri"), entry.path("context_iri"))
+    assertEquals(listOf("read", "write"), entry.path("permissions").map { it.asText() })
+    assertTrue(entry.path("public").isBoolean, "body=${response.responseBody}")
+  }
+
+  @Test
+  fun `an anonymous listing carries the same names, and is not authenticated`() {
+    val pod = sempodsTestFactory.newPod()
+    val publicContext = sempodsTestFactory.publicContextUri(pod.name).toString()
+
+    val response = http.prepareGet(contextsBaseUrl(pod.name)).execute()
+
+    assertEquals(200, response.statusCode, "body=${response.responseBody}")
+    val listing = objectMapper.readTree(response.responseBody)
+    assertTrue(listing.path("authenticated").isBoolean, "body=${response.responseBody}")
+    assertFalse(listing.path("authenticated").booleanValue())
+    assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}", listing.path("podBaseUrl").asText())
+    assertEquals(listing.path("podBaseUrl"), listing.path("pod_base_url"))
+    assertTrue(listing.path("writableContexts").isArray, "body=${response.responseBody}")
+    assertEquals(listing.path("writableContexts"), listing.path("writable_contexts"))
+    val entry = listing.path("contexts").single()
+    assertEquals(publicContext, entry.path("contextUri").asText())
+    assertEquals(entry.path("contextUri"), entry.path("context_iri"))
+  }
+
+  @Test
+  fun `a context read at its own IRI carries contextUri, with context_iri beside it`() {
+    val pod = sempodsTestFactory.newPod()
+    val contextPath = "apps/example/tasks"
+    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = contextPath)
+    val context = contextUri(pod.name, contextPath)
+    val token = mintScopedToken(pod.name, listOf("$context#read"))
+
+    val response = http.prepareGet(contextManageUrl(pod.name, contextPath))
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+
+    assertEquals(200, response.statusCode, "body=${response.responseBody}")
+    val entry = objectMapper.readTree(response.responseBody)
+    assertEquals(context, entry.path("contextUri").asText())
+    assertEquals(entry.path("contextUri"), entry.path("context_iri"))
+  }
+
+  @Test
+  fun `put answers 201 and then 200 with contextUri, with context_iri beside it`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val contextPath = "apps/example/tasks"
+
+    listOf(201, 200).forEach { expected ->
+      val response = http.preparePut(contextManageUrl(pod.name, contextPath))
+        .addHeader("Content-Type", "application/json")
+        .addHeader("Authorization", "Bearer $ownerToken")
+        .setBody("{}")
+        .execute()
+
+      assertEquals(expected, response.statusCode, "body=${response.responseBody}")
+      val entry = objectMapper.readTree(response.responseBody)
+      assertEquals(contextUri(pod.name, contextPath), entry.path("contextUri").asText())
+      assertEquals(entry.path("contextUri"), entry.path("context_iri"))
+      assertTrue(entry.path("permissions").isMissingNode, "the create answer states no permissions")
+    }
   }
 
   @Test
@@ -599,7 +689,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode)
     val payload = jsonUtil.read(response.responseBody, PodContextsListResponse::class.java)
-    val byContext = payload.contexts.associateBy { it.contextIri }
+    val byContext = payload.contexts.associateBy { it.contextUri }
 
     val rootItem = assertNotNull(byContext[contextUri(pod.name, rootPath)], "root context must be listed")
     assertEquals(listOf("manage", "read", "write"), rootItem.permissions.sorted())
@@ -614,7 +704,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertTrue(
       byContext[contextUri(pod.name, siblingPath)] == null,
-      "sibling-prefix context must NOT be visible to a `${rootPath}#manage` token (got ${payload.contexts.map { it.contextIri }})"
+      "sibling-prefix context must NOT be visible to a `${rootPath}#manage` token (got ${payload.contexts.map { it.contextUri }})"
     )
   }
 

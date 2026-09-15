@@ -289,7 +289,7 @@ class PodContextsEndpoint @Inject constructor(
 
   private fun PodContextDbo.toResponse(entry: ContextPermissionEntry): PodContextResponse {
     return PodContextResponse(
-      contextIri = contextUri,
+      contextUri = contextUri,
       permissions = entry.permissions,
       source = entry.source.value,
       label = label,
@@ -301,7 +301,7 @@ class PodContextsEndpoint @Inject constructor(
 
   private fun PodContextDbo.toPutResponse(): PutPodContextResponse {
     return PutPodContextResponse(
-      contextIri = contextUri,
+      contextUri = contextUri,
       label = label,
       description = description,
       public = isPublic,
@@ -329,13 +329,15 @@ data class PutPodContextRequest(
 //   delete) plus a `public` checkbox in the consent UI's newContexts flow.
 
 /**
- * One context entry in the `GET _system/contexts` listing. Mirrors the MCP `list_contexts`
- * shape (`context_iri`, `permissions`, `source`) plus REST-only metadata (`label`,
- * `description`, `public`, `createdAt`).
+ * One context, in the `GET _system/contexts` listing and at `GET _system/contexts/{path}`: the
+ * specification's `Context` schema (sempods-spec `openapi/sempods-core.yaml`), plus `source` and
+ * `createdAt`, which the schema does not define.
+ *
+ * [legacyContextIri] is [contextUri] under the name the legacy client and the MCP instructions still
+ * read; #152 removes it.
  */
 data class PodContextResponse(
-  @field:JsonProperty("context_iri")
-  val contextIri: String,
+  val contextUri: String,
 
   val permissions: List<String>,
 
@@ -350,24 +352,45 @@ data class PodContextResponse(
   val public: Boolean = false,
 
   val createdAt: String,
-)
+) {
 
+  @get:JsonProperty("context_iri", access = JsonProperty.Access.READ_ONLY)
+  val legacyContextIri: String get() = contextUri
+}
+
+/**
+ * The `GET _system/contexts` listing: the specification's `ContextList` schema.
+ *
+ * [legacyPodBaseUrl] and [legacyWritableContexts] repeat [podBaseUrl] and [writableContexts] under the
+ * names the legacy client and the MCP instructions still read; #152 removes them. `READ_ONLY`, because
+ * a mapper reading this class back would otherwise take a collection getter for a setter.
+ */
 data class PodContextsListResponse(
-  @field:JsonProperty("pod_base_url")
   val podBaseUrl: String,
 
   val authenticated: Boolean,
 
   val contexts: List<PodContextResponse>,
 
-  @field:JsonProperty("writable_contexts")
   val writableContexts: List<String>,
-)
+) {
 
-/** Response for `PUT _system/contexts/{path}` — the created/existing context's metadata. */
+  @get:JsonProperty("pod_base_url", access = JsonProperty.Access.READ_ONLY)
+  val legacyPodBaseUrl: String get() = podBaseUrl
+
+  @get:JsonProperty("writable_contexts", access = JsonProperty.Access.READ_ONLY)
+  val legacyWritableContexts: List<String> get() = writableContexts
+}
+
+/**
+ * Response for `PUT _system/contexts/{path}`: the created or existing context, in the members of the
+ * specification's `Context` schema this route can state.
+ *
+ * No `permissions`: the listing does not report the authority an owner holds, so a value here would
+ * contradict it. [legacyContextIri] is [contextUri] under its earlier name; #152 removes it.
+ */
 data class PutPodContextResponse(
-  @field:JsonProperty("context_iri")
-  val contextIri: String,
+  val contextUri: String,
 
   @field:[JsonProperty JsonInclude(JsonInclude.Include.NON_EMPTY)]
   val label: String?,
@@ -378,4 +401,8 @@ data class PutPodContextResponse(
   val public: Boolean = false,
 
   val createdAt: String,
-)
+) {
+
+  @get:JsonProperty("context_iri", access = JsonProperty.Access.READ_ONLY)
+  val legacyContextIri: String get() = contextUri
+}
