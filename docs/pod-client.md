@@ -191,13 +191,12 @@ A status the route does not list, or a body that is not the route's document, is
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
 tiers of `:sempods-client`.
 
-**A read can be narrowed to contexts, and a write names its context.** Both are optional. A query
-carries the selection as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how),
-which a pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
+**A read can be narrowed to contexts, and a write names its context.** The selection is optional. A
+query carries it as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how), which a
+pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
 one that ignores them answers from everything the session may read, and a client cannot tell which
-kind it faces. A resource read carries it as `context` parameters, and a write its one target
-context; `SempodsPodResources` and `SempodsWriteOptions` say what an empty selection and a missing
-context do.
+kind it faces. A resource read carries it as `context` parameters, and `SempodsPodResources` says
+what an empty one does. Every write takes its target context in `SempodsWriteOptions`.
 
 ## The transport: OkHttp, blocking
 

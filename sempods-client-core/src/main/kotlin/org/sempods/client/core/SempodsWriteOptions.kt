@@ -9,27 +9,26 @@ package org.sempods.client.core
  * resources.patch(iri, patch, SempodsWriteOptions.inContext(tasks).withIfMatch(etag));
  * ```
  *
- * **The context is the caller's to name.** With one, the write sends exactly one `context` parameter;
- * without one, it sends none, and the pod decides. Today's specification asks every write for one
- * (SPS-CRUD-007), and the reference server answers a write without it with `400`.
+ * **Every write names its target context**, sent as exactly one `context` parameter (SPS-CRUD-007).
  *
  * **Tags are sent exactly as given.** Which tag a pod accepts as a write's validator is #149's to
  * settle; this type only carries it.
  */
 class SempodsWriteOptions private constructor(
-  /** The IRI of the context the write targets, as the pod gave it; null sends no `context` parameter. */
-  val contextUri: String?,
+  /** The IRI of the context the write targets, as the pod gave it. */
+  val contextUri: String,
   /** An entity tag sent as `If-Match`; null sends none. */
   val ifMatch: String?,
   /** An entity tag, or `*`, sent as `If-None-Match`; null sends none. */
   val ifNoneMatch: String?,
 ) {
 
-  /** @throws IllegalArgumentException for a blank IRI; null removes the context. */
-  fun withContext(contextUri: String?): SempodsWriteOptions {
-    require(contextUri == null || contextUri.isNotBlank()) { "A context IRI must not be blank; pass null to send none." }
-    return SempodsWriteOptions(contextUri, ifMatch, ifNoneMatch)
+  init {
+    require(contextUri.isNotBlank()) { "A context IRI must not be blank: every write names its target context." }
   }
+
+  /** The same conditions, for a write into [contextUri]. @throws IllegalArgumentException for a blank IRI. */
+  fun withContext(contextUri: String): SempodsWriteOptions = SempodsWriteOptions(contextUri, ifMatch, ifNoneMatch)
 
   /** @throws IllegalArgumentException for a blank tag; null removes the condition. */
   fun withIfMatch(entityTag: String?): SempodsWriteOptions {
@@ -56,14 +55,8 @@ class SempodsWriteOptions private constructor(
 
   companion object {
 
-    private val DEFAULTS = SempodsWriteOptions(contextUri = null, ifMatch = null, ifNoneMatch = null)
-
-    /** No context, unconditional. */
+    /** A write into [contextUri], unconditional. @throws IllegalArgumentException for a blank IRI. */
     @JvmStatic
-    fun defaults(): SempodsWriteOptions = DEFAULTS
-
-    /** [contextUri] as the target, unconditional. */
-    @JvmStatic
-    fun inContext(contextUri: String): SempodsWriteOptions = DEFAULTS.withContext(contextUri)
+    fun inContext(contextUri: String): SempodsWriteOptions = SempodsWriteOptions(contextUri, ifMatch = null, ifNoneMatch = null)
   }
 }

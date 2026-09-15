@@ -29,7 +29,7 @@ import java.io.IOException
  * | [patch], [delete] | `200`, `204`, `404`; `412` only when conditional |
  *
  * A `404` on [patch] or [delete] means nothing of the resource is in that context, or no such context
- * (SPS-CRUD-010). [SempodsWriteOptions] says what a write without a context gets.
+ * (SPS-CRUD-010).
  *
  * **A read with [SempodsContextSelection.none] sends nothing.** A read route cannot be asked for no
  * context: it drops an empty `context` parameter and answers from every readable one. The core
@@ -65,29 +65,26 @@ class SempodsPodResources internal constructor(
   ): SempodsResponse<ByteArray> = operations.read(resourceUri, format, options, BodyReading.BYTES)
 
   /** Replaces the resource's statements in the target context with [content], sent as [format] (SPS-CRUD-031). */
-  @JvmOverloads
   @Throws(IOException::class)
   fun put(
     resourceUri: String,
     format: SempodsGraphFormat,
     content: SempodsContent,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.put(resourceUri, format, content, options)
 
   /** Applies [mergePatch], `application/merge-patch+json`, to the resource in the target context (SPS-CRUD-035). */
-  @JvmOverloads
   @Throws(IOException::class)
   fun patch(
     resourceUri: String,
     mergePatch: SempodsContent,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.patch(resourceUri, mergePatch, options)
 
   /** Removes the resource's statements in the target context (SPS-CRUD-039). */
-  @JvmOverloads
   @Throws(IOException::class)
   fun delete(
     resourceUri: String,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.delete(resourceUri, options)
 }

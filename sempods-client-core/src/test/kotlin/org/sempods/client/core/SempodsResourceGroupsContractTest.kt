@@ -141,20 +141,16 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `leaving the format and the options out reads JSON-LD of what the session may read, and writes without context or condition`() {
+  fun `leaving the format and the options out reads JSON-LD of what the session may read, unconditionally`() {
     answer(200, jsonLd)
     val pod = pod()
 
     pod.resources().getText(event)
     pod.subjects().getBytes(event)
-    pod.resources().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of("{}"))
-    pod.subjects().patch(event, SempodsContent.of("{}"))
-    pod.resources().delete(event)
 
-    assertEquals(listOf("application/ld+json", "application/ld+json", null, null, null), sent.map { it.headers["Accept"] })
+    assertEquals(listOf("application/ld+json", "application/ld+json"), sent.map { it.headers["Accept"] })
     sent.forEach {
       assertNull(it.url.encodedQuery)
-      assertNull(it.headers["If-Match"])
       assertNull(it.headers["If-None-Match"])
     }
   }
@@ -293,9 +289,9 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
     val copied = SempodsContent.of(given)
     given.fill(0)
 
-    group.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(text), SempodsWriteOptions.defaults())
-    group.put(event, SempodsGraphFormat.N_QUADS, copied, SempodsWriteOptions.defaults())
-    group.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(ByteArrayInputStream(text.toByteArray())), SempodsWriteOptions.defaults())
+    group.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(text), inTasks)
+    group.put(event, SempodsGraphFormat.N_QUADS, copied, inTasks)
+    group.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(ByteArrayInputStream(text.toByteArray())), inTasks)
 
     assertEquals(listOf("PUT", "PUT", "PUT"), sent.map { it.method })
     assertEquals(listOf(group.path, group.path, group.path), sent.map { it.url.encodedPath })
@@ -315,8 +311,8 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
     val group = group(name)
     val patch = """{"https://schema.org/name":null}"""
 
-    group.patch(event, SempodsContent.of(patch), SempodsWriteOptions.defaults())
-    group.delete(event, SempodsWriteOptions.defaults())
+    group.patch(event, SempodsContent.of(patch), inTasks)
+    group.delete(event, inTasks)
 
     val (patched, deleted) = sent.toList()
     assertEquals("PATCH", patched.method)
@@ -330,17 +326,17 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
 
   @ParameterizedTest
   @ValueSource(strings = [RESOURCES, SUBJECTS])
-  fun `a write sends one context parameter with a context and none without, and its conditions as given`(name: String) {
+  fun `a write sends its target context as one context parameter, and its conditions as given`(name: String) {
     answer(204)
     val group = group(name)
     val inAwkward = SempodsWriteOptions.inContext(awkward)
 
     group.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of("{}"), inAwkward.withIfNoneMatch("*"))
     group.patch(event, SempodsContent.of("{}"), inAwkward.withIfMatch("\"abc-jsonld\""))
-    group.delete(event, SempodsWriteOptions.defaults().withIfMatch("W/\"x\"").withIfNoneMatch("\"y\""))
+    group.delete(event, inAwkward.withIfMatch("W/\"x\"").withIfNoneMatch("\"y\""))
 
     val (put, patch, delete) = sent.toList()
-    listOf(put, patch).forEach {
+    listOf(put, patch, delete).forEach {
       assertEquals(listOf(awkward), it.url.queryParameterValues("context"))
       assertEquals(setOf("context"), it.url.queryParameterNames)
       assertNotSentRaw(it.url)
@@ -349,7 +345,6 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
     assertNull(put.headers["If-Match"])
     assertEquals("\"abc-jsonld\"", patch.headers["If-Match"])
     assertNull(patch.headers["If-None-Match"])
-    assertNull(delete.url.encodedQuery)
     assertEquals("W/\"x\"", delete.headers["If-Match"])
     assertEquals("\"y\"", delete.headers["If-None-Match"])
   }
@@ -445,9 +440,9 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
   fun `the operations authenticate as the session does and add no credential of their own`() {
     answer(200, jsonLd)
 
-    group(RESOURCES).delete(event, SempodsWriteOptions.defaults())
+    group(RESOURCES).delete(event, inTasks)
     group(SUBJECTS, SempodsRequestAuth.apiKeyHeader("X-Api-Key", "key-a")).getText(event, SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults())
-    group(RESOURCES, SempodsRequestAuth.bearer("token-b")).patch(event, SempodsContent.of("{}"), SempodsWriteOptions.defaults())
+    group(RESOURCES, SempodsRequestAuth.bearer("token-b")).patch(event, SempodsContent.of("{}"), inTasks)
 
     val (anonymous, apiKey, bearer) = server.retrieveRecordedRequests(request()).toList()
     assertEquals(emptySet(), anonymous.headersBeyondTransport())

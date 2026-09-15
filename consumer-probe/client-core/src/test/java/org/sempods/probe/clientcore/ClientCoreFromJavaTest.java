@@ -291,16 +291,16 @@ class ClientCoreFromJavaTest {
     assertEquals(0, created.getBody().length);
 
     byte[] quads = "<urn:x> <https://schema.org/name> \"One\" .\n".getBytes(StandardCharsets.UTF_8);
-    assertEquals("null", resources.put(event, SempodsGraphFormat.N_QUADS, SempodsContent.of(quads)).getHeaders().get("X-Saw-Query"));
+    assertEquals("context=https%3A%2F%2Fpods.example%2Falice%2F_system%2Fcontexts%2Ftasks",
+        resources.put(event, SempodsGraphFormat.N_QUADS, SempodsContent.of(quads), inTasks).getHeaders().get("X-Saw-Query"));
     SempodsResponse<byte[]> streamed = resources.put(event, SempodsGraphFormat.N_QUADS,
         SempodsContent.of(new ByteArrayInputStream(quads)), inTasks);
     assertEquals(String.valueOf(quads.length), streamed.getHeaders().get("X-Saw-Body-Length"));
 
     assertEquals("application/merge-patch+json",
-        resources.patch(event, SempodsContent.of("{}")).getHeaders().get("X-Saw-Content-Type"));
+        resources.patch(event, SempodsContent.of("{}"), inTasks).getHeaders().get("X-Saw-Content-Type"));
     assertEquals("\"v1\"",
         resources.patch(event, SempodsContent.of("{}"), inTasks.withIfMatch("\"v1\"")).getHeaders().get("X-Saw-If-Match"));
-    assertEquals(204, resources.delete(event).getStatus());
     assertEquals(204, resources.delete(event, inTasks).getStatus());
 
     SempodsPodSubjects subjects = alice.subjects();
@@ -311,11 +311,8 @@ class ClientCoreFromJavaTest {
     assertEquals(200, subjects.getBytes(bob).getStatus());
     assertEquals(200, subjects.getBytes(bob, SempodsGraphFormat.N_QUADS).getStatus());
     assertEquals(200, subjects.getBytes(bob, SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults()).getStatus());
-    assertEquals(201, subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("{}")).getStatus());
     assertEquals(201, subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of(quads), inTasks).getStatus());
-    assertEquals(204, subjects.patch(bob, SempodsContent.of("{}")).getStatus());
     assertEquals(204, subjects.patch(bob, SempodsContent.of("{}"), inTasks).getStatus());
-    assertEquals(204, subjects.delete(bob).getStatus());
     assertEquals(204, subjects.delete(bob, inTasks).getStatus());
 
     int before = resourceRequests.get();
@@ -326,6 +323,8 @@ class ClientCoreFromJavaTest {
     assertEquals(before, resourceRequests.get(), "none() sent a request");
 
     assertThrows(IllegalArgumentException.class, () -> resources.getText(bob));
+    assertThrows(IllegalArgumentException.class, () -> SempodsWriteOptions.inContext(" "));
+    assertThrows(NullPointerException.class, () -> SempodsWriteOptions.inContext(null));
     assertThrows(NullPointerException.class, () -> resources.getText(event, SempodsGraphFormat.JSON_LD, null));
   }
 

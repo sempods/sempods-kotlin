@@ -22,7 +22,6 @@ import org.sempods.client.core.SempodsPodBase
 import org.sempods.client.core.SempodsReadOptions
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
-import org.sempods.client.core.SempodsStatusException
 import org.sempods.client.core.SempodsWriteOptions
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
@@ -2126,19 +2125,6 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       assertNull(stale.body)
       assertEquals(412, resources.put(eventUri.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), inTasks.withIfNoneMatch("*")).status)
       assertTrue(resources.getText(eventUri.toString()).body.orEmpty().contains("live"))
-    }
-  }
-
-  @Test
-  fun `a write through the client core without a context is refused with 400`() {
-    val pod = sempodsTestFactory.newPod()
-    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
-    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = eventUri, context = writeContextUri, name = "kept")
-
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      assertEquals(400, assertFailsWith<SempodsStatusException> { core.resources().delete(eventUri.toString()) }.status)
-      assertTrue(core.resources().getText(eventUri.toString()).body.orEmpty().contains("kept"))
     }
   }
 

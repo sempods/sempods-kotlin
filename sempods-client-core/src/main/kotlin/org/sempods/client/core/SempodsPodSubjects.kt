@@ -42,29 +42,26 @@ class SempodsPodSubjects internal constructor(
   ): SempodsResponse<ByteArray> = operations.read(subjectUri, format, options, BodyReading.BYTES)
 
   /** Replaces the subject's statements in the target context with [content], sent as [format]. */
-  @JvmOverloads
   @Throws(IOException::class)
   fun put(
     subjectUri: String,
     format: SempodsGraphFormat,
     content: SempodsContent,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.put(subjectUri, format, content, options)
 
   /** Applies [mergePatch], `application/merge-patch+json`, to the subject in the target context. */
-  @JvmOverloads
   @Throws(IOException::class)
   fun patch(
     subjectUri: String,
     mergePatch: SempodsContent,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.patch(subjectUri, mergePatch, options)
 
   /** Removes the subject's statements in the target context. */
-  @JvmOverloads
   @Throws(IOException::class)
   fun delete(
     subjectUri: String,
-    options: SempodsWriteOptions = SempodsWriteOptions.defaults(),
+    options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.delete(subjectUri, options)
 }

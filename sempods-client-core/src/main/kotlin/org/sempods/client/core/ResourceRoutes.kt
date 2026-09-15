@@ -114,7 +114,7 @@ internal class ResourceOperations(
   ): SempodsResponse<ByteArray> {
     val path = address.path(iri)
     val url = session.podBase.resolve(path).newBuilder()
-    options.contextUri?.let { url.addQueryParameter(CONTEXT, it) }
+    url.addQueryParameter(CONTEXT, options.contextUri)
     val request = session.newRequest(method, target(path, url))
     if (content != null && mediaType != null) request.method(method, content.requestBody(mediaType.toMediaType()))
     options.ifMatch?.let { request.header("If-Match", it) }

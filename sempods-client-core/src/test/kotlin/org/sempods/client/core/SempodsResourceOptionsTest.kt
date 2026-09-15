@@ -51,33 +51,36 @@ class SempodsResourceOptionsTest {
   }
 
   @Test
-  fun `write options carry an optional target context and their tags as given`() {
-    val defaults = SempodsWriteOptions.defaults()
-    val conditional = SempodsWriteOptions.inContext("urn:tasks").withIfMatch("\"abc-jsonld\"").withIfNoneMatch("*")
+  fun `write options carry their target context and their tags as given`() {
+    val unconditional = SempodsWriteOptions.inContext("urn:tasks")
+    val conditional = unconditional.withIfMatch("\"abc-jsonld\"").withIfNoneMatch("*")
 
-    assertNull(defaults.contextUri)
-    assertNull(defaults.ifMatch)
-    assertNull(defaults.ifNoneMatch)
-    assertFalse(defaults.isConditional)
-    assertEquals("urn:tasks", conditional.contextUri)
+    assertEquals("urn:tasks", unconditional.contextUri)
+    assertNull(unconditional.ifMatch)
+    assertNull(unconditional.ifNoneMatch)
+    assertFalse(unconditional.isConditional)
     assertEquals("\"abc-jsonld\"", conditional.ifMatch)
     assertEquals("*", conditional.ifNoneMatch)
     assertTrue(conditional.isConditional)
-    assertFalse(SempodsWriteOptions.inContext("urn:tasks").isConditional)
-    assertEquals(defaults, conditional.withContext(null).withIfMatch(null).withIfNoneMatch(null))
-    assertEquals(conditional.hashCode(), SempodsWriteOptions.defaults().withIfNoneMatch("*").withIfMatch("\"abc-jsonld\"").withContext("urn:tasks").hashCode())
+    assertEquals("urn:notes", conditional.withContext("urn:notes").contextUri)
+    assertEquals("*", conditional.withContext("urn:notes").ifNoneMatch)
+    assertEquals(unconditional, conditional.withIfMatch(null).withIfNoneMatch(null))
+    assertEquals(
+      conditional.hashCode(),
+      SempodsWriteOptions.inContext("urn:notes").withIfNoneMatch("*").withIfMatch("\"abc-jsonld\"").withContext("urn:tasks").hashCode(),
+    )
     assertEquals("SempodsWriteOptions(contextUri=urn:tasks, ifMatch=\"abc-jsonld\", ifNoneMatch=*)", conditional.toString())
   }
 
   @ParameterizedTest
   @ValueSource(strings = ["", " ", "\t"])
-  fun `a blank context or tag is refused, and null removes it`(blank: String) {
-    listOf<() -> Any>({ SempodsWriteOptions.inContext(blank) }, { SempodsWriteOptions.defaults().withContext(blank) }).forEach {
-      assertEquals("A context IRI must not be blank; pass null to send none.", assertThrows<IllegalArgumentException> { it() }.message)
+  fun `a blank context or tag is refused, and null removes a tag`(blank: String) {
+    listOf<() -> Any>({ SempodsWriteOptions.inContext(blank) }, { SempodsWriteOptions.inContext("urn:tasks").withContext(blank) }).forEach {
+      assertEquals("A context IRI must not be blank: every write names its target context.", assertThrows<IllegalArgumentException> { it() }.message)
     }
     listOf<() -> Any>(
-      { SempodsWriteOptions.defaults().withIfMatch(blank) },
-      { SempodsWriteOptions.defaults().withIfNoneMatch(blank) },
+      { SempodsWriteOptions.inContext("urn:tasks").withIfMatch(blank) },
+      { SempodsWriteOptions.inContext("urn:tasks").withIfNoneMatch(blank) },
       { SempodsReadOptions.defaults().withIfNoneMatch(blank) },
     ).forEach {
       assertEquals("An entity tag must not be blank; pass null to send none.", assertThrows<IllegalArgumentException> { it() }.message)
