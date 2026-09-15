@@ -89,13 +89,12 @@ The rule that keeps a layered client from multiplying its method count by the nu
 
 The System-layer resource route is what that test looks like when it is applied. `putSubject`,
 `getSubject` and `deleteSubject` reach `{pod}/_system/resources/{b64url(iri)}` from the stateless
-tier and from nowhere else. They are named for the *subject* rather than the resource because that
-is the difference the route makes: it addresses by IRI instead of by a path under the pod base, so a
-subject the pod does not host is first-class here and refused by `putResource`, which keeps the LOD
-names. The bound tier grew nothing, because the consumer that asked for them mints a token per
-tenant and takes the stateless tier anyway — and `SempodsPodClient.delete` still clears an external
-subject predicate by predicate through `putSlot`, which `deleteSubject` could replace in one request
-whenever that tier has a caller for it.
+tier and from nowhere else; the bound tier grew nothing, because the consumer that asked for them
+mints a token per tenant and takes the stateless tier anyway. The core draws the same line between
+two groups, `resources()` and `subjects()` (§"Endpoint groups"). `SempodsPodClient.delete` still
+clears an external subject predicate by predicate through `putSlot`; one `subjects().delete` per
+context replaces that loop when the tiers move onto the core
+([#152](https://github.com/sempods/sempods-kotlin/issues/152)).
 
 The raw passthrough is not a concession. [`concepts/modularity.md`](concepts/modularity.md) §"The service contract is
 semantic, not a facade over RDF" forbids a method whose *name* encodes an app's question — a
@@ -180,16 +179,25 @@ SempodsResponse<String> raw = pod.metadata().dateModifiedJson();
 
 SempodsSparqlResults rows = pod.sparql().select("SELECT ?s WHERE { ?s ?p ?o }").getBody();
 boolean any = pod.sparql().ask("ASK { ?s ?p ?o }", SempodsContextSelection.of(tasks)).getBody();
+
+pod.resources().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), SempodsWriteOptions.inContext(tasks));
+String bob = pod.subjects().getText("did:web:bob.example").getBody();
 ```
+
+`resources()` reaches an IRI under the pod by its own path, `subjects()` any IRI through the System
+route; both read, replace, merge-patch and delete.
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
 tiers of `:sempods-client`.
 
-**A query can be narrowed to contexts.** The selection is optional and travels as the SPARQL
-Protocol's dataset parameters (`SempodsPodSparql` says how), which a pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
+**A read can be narrowed to contexts, and a write names its context.** Both are optional. A query
+carries the selection as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how),
+which a pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
 one that ignores them answers from everything the session may read, and a client cannot tell which
-kind it faces.
+kind it faces. A resource read carries it as `context` parameters, and a write its one target
+context; `SempodsPodResources` and `SempodsWriteOptions` say what an empty selection and a missing
+context do.
 
 ## The transport: OkHttp, blocking
 
@@ -311,7 +319,7 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata and SPARQL ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+groups beyond pod metadata, SPARQL, resources and subjects ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
 adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the

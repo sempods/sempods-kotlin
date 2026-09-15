@@ -169,6 +169,50 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a read, a PUT and a DELETE through the resource groups are resent once`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      val pod = SempodsPod(a, client)
+      val event = "http://127.0.0.1:${server.localPort}/alice/events/1"
+      val inTasks = SempodsWriteOptions.inContext("urn:tasks")
+      listOf<Pair<String, () -> SempodsResponse<*>>>(
+        "GET /alice/events/1 " to { pod.resources().getText(event) },
+        "PUT /alice/_system/resources/" to { pod.subjects().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of("{}"), inTasks) },
+        "DELETE /alice/events/1?context=urn%3Atasks " to { pod.resources().delete(event, inTasks) },
+      ).forEach { (head, operation) ->
+        leaveAStaleConnection(client, a)
+        requestHeads.clear()
+
+        assertEquals(200, operation().status)
+
+        assertEquals(1, requestHeads.size, "the attempt on the dropped connection never reached the server")
+        assertTrue(requestHeads[0].startsWith(head) && requestHeads[0].contains("X-Attempt: 2"), requestHeads[0])
+      }
+    }
+  }
+
+  @Test
+  fun `a PATCH and a write with stream content through the resource groups are not resent`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      val pod = SempodsPod(a, client)
+      val event = "http://127.0.0.1:${server.localPort}/alice/events/1"
+      val inTasks = SempodsWriteOptions.inContext("urn:tasks")
+      listOf<() -> SempodsResponse<*>>(
+        { pod.resources().patch(event, SempodsContent.of("{}"), inTasks) },
+        { pod.subjects().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of("{}".byteInputStream()), inTasks) },
+      ).forEach { operation ->
+        leaveAStaleConnection(client, a)
+        requestHeads.clear()
+
+        assertThrows<IOException> { operation() }
+
+        assertTrue(requestHeads.isEmpty(), requestHeads.toString())
+      }
+    }
+  }
+
+  @Test
   fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
     val rebuilding = Interceptor { chain ->
       val original = chain.request()

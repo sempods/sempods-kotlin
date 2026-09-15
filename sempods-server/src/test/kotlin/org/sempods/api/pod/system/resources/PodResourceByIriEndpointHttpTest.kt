@@ -7,6 +7,15 @@ import org.sempods.SempodsModule
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.okhttp.TestHttpClient
+import okhttp3.OkHttpClient
+import org.sempods.client.core.SempodsContent
+import org.sempods.client.core.SempodsGraphFormat
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsWriteOptions
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.net.URLEncoder
@@ -273,5 +282,61 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
 
     val response = put(resourceUrl(pod.name, frank), token, """{"@id":"$frank","$schemaName":"Frank"}""")
     assertEquals(400, response.statusCode)
+  }
+
+  // ── The client core against this route ──────────────────────────────────────────
+
+
+  private fun <T> withCorePod(podName: String, auth: SempodsRequestAuth, block: (SempodsPod) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client))
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core creates, patches and deletes a did subject through the System route`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "privat")
+    val bob = "did:web:bob.example"
+    val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val subjects = core.subjects()
+
+      val created = subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","$schemaName":"Bob"}"""), inPrivat)
+      assertEquals(201, created.status)
+      assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ", created.headers["Location"])
+      val createTag = assertNotNull(created.headers["ETag"])
+      assertTrue(subjects.getText(bob).body.orEmpty().contains("Bob"))
+
+      val patched = subjects.patch(bob, SempodsContent.of("""{"@id":"$bob","$schemaJobTitle":"Engineer"}"""), inPrivat.withIfMatch(createTag))
+      assertEquals(204, patched.status)
+      assertNotNull(patched.headers["ETag"])
+      assertTrue(subjects.getText(bob).body.orEmpty().contains("Engineer"))
+
+      assertEquals(204, subjects.delete(bob, inPrivat).status)
+      assertEquals(404, subjects.getText(bob).status)
+    }
+  }
+
+  @Test
+  fun `the strict decoder takes the client core's segment where the standard alphabet would differ`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "privat")
+    val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      listOf("urn:x:ab~", "https://example.org/ü").forEach { iri ->
+        val created = core.subjects().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$iri","$schemaName":"Awkward"}"""), inPrivat)
+        assertEquals(201, created.status, iri)
+        val read = core.subjects().getText(iri)
+        assertEquals(200, read.status, iri)
+        assertTrue(read.body.orEmpty().contains("Awkward"), iri)
+      }
+    }
   }
 }
