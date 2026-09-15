@@ -14,6 +14,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -29,6 +31,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsContext;
+import org.sempods.client.core.SempodsContextCreate;
+import org.sempods.client.core.SempodsContextList;
+import org.sempods.client.core.SempodsContextPermission;
 import org.sempods.client.core.SempodsDecodingException;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
@@ -56,6 +62,7 @@ class ClientCoreFromJavaTest {
   private static final int RELEASE = Integer.getInteger("sempods.probe.javaRelease", 0);
 
   private static HttpServer server;
+  private static final AtomicInteger creations = new AtomicInteger();
   private static OkHttpClient client;
 
   @BeforeAll
@@ -74,6 +81,25 @@ class ClientCoreFromJavaTest {
         exchange -> json(exchange, 200, "{\"dateModified\":\"2026-05-20T10:15:30Z\",\"unknown\":[1]}"));
     server.createContext("/bob/_system/meta/date-modified", exchange -> json(exchange, 404, ""));
     server.createContext("/carol/_system/meta/date-modified", exchange -> json(exchange, 200, "{\"dateModified\":42}"));
+    // Echoes what arrived in X-Saw-* headers: the credentials on every request, and a creation's body.
+    server.createContext("/alice/_system/contexts", exchange -> {
+      String path = exchange.getRequestURI().getPath();
+      exchange.getResponseHeaders().add("X-Saw-Authorization", seen(exchange, "Authorization"));
+      exchange.getResponseHeaders().add("X-Saw-Gateway", seen(exchange, "X-Gateway"));
+      if (exchange.getRequestMethod().equals("PUT")) {
+        exchange.getResponseHeaders().add("X-Saw-Body", new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        exchange.getResponseHeaders().add("X-Saw-Content-Type", seen(exchange, "Content-Type"));
+        json(exchange, creations.getAndIncrement() == 0 ? 201 : 200, "{\"contextUri\":\"" + base("") + path + "\"}");
+      } else if (path.equals("/alice/_system/contexts")) {
+        String tasks = base("alice") + "/_system/contexts/tasks";
+        json(exchange, 200, "{\"podBaseUrl\":\"" + base("alice") + "\",\"authenticated\":true,\"contexts\":[{\"contextUri\":\""
+            + tasks + "\",\"public\":false,\"permissions\":[\"read\",\"write\"],\"source\":\"grant\"}],\"writableContexts\":[\""
+            + tasks + "\"]}");
+      } else {
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
+      }
+    });
     server.start();
 
     // A consumer's own header rides on an interceptor of their own client; the sempods interceptors
@@ -174,9 +200,63 @@ class ClientCoreFromJavaTest {
     assertEquals(200, refused.getStatus());
   }
 
+  @Test
+  void listsAndCreatesContextsRawAndTypedFromJava() throws IOException {
+    SempodsPod alice = pod("alice");
+    String tasks = base("alice") + "/_system/contexts/tasks";
+
+    SempodsResponse<SempodsContextList> listed = alice.contexts().list();
+    assertEquals(200, listed.getStatus());
+    SempodsContext context = listed.getBody().getContexts().get(0);
+    assertEquals(tasks, context.getContextUri());
+    assertEquals(Boolean.FALSE, context.getPublic());
+    assertTrue(context.getPermissions().contains(SempodsContextPermission.WRITE));
+    assertEquals(List.of(tasks), listed.getBody().getWritableContexts());
+    assertTrue(alice.contexts().listJson().getBody().contains("\"source\":\"grant\""));
+
+    SempodsResponse<SempodsContext> created =
+        alice.contexts().create(tasks, SempodsContextCreate.fields().withLabel("Tasks").withPublic(false));
+    assertEquals(201, created.getStatus());
+    assertEquals("{\"label\":\"Tasks\",\"public\":false}", created.getHeaders().get("X-Saw-Body"));
+    assertEquals("application/json", created.getHeaders().get("X-Saw-Content-Type"));
+    assertEquals(tasks, created.getBody().getContextUri());
+    assertEquals(200, alice.contexts().createBytes(tasks).getStatus());
+
+    assertThrows(IllegalArgumentException.class, () -> alice.contexts().create(base("bob") + "/_system/contexts/tasks"));
+  }
+
+  @Test
+  void aContextRouteWrittenInJavaCarriesComposedAuthentication() throws IOException {
+    SempodsSession session = new SempodsSession(SempodsPodBase.of(base("alice")),
+        SempodsRequestAuth.bearer("t-1").andThen(SempodsRequestAuth.apiKeyHeader("X-Gateway", "g-1")));
+    SempodsPod alice = new SempodsPod(session, client);
+
+    SempodsResponse<String> listed = alice.contexts().listJson();
+    assertEquals("Bearer t-1", listed.getHeaders().get("X-Saw-Authorization"));
+    assertEquals("g-1", listed.getHeaders().get("X-Saw-Gateway"));
+
+    Request extension = alice.getSession().newRequest("GET", "_system/contexts/tasks/shape").build();
+    try (Response response = alice.getCalls().newCall(extension).execute()) {
+      assertEquals(204, response.code());
+      assertEquals("Bearer t-1", response.header("X-Saw-Authorization"));
+      assertEquals("g-1", response.header("X-Saw-Gateway"));
+    }
+
+    SempodsPod keyOnly = new SempodsPod(new SempodsSession(SempodsPodBase.of(base("alice")), new ApiKey()), client);
+    assertEquals("none", keyOnly.contexts().listJson().getHeaders().get("X-Saw-Authorization"));
+  }
+
   private static SempodsPod pod(String name) {
-    SempodsPodBase base = SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/" + name);
-    return new SempodsPod(new SempodsSession(base), client);
+    return new SempodsPod(new SempodsSession(SempodsPodBase.of(base(name))), client);
+  }
+
+  private static String base(String name) {
+    return "http://127.0.0.1:" + server.getAddress().getPort() + (name.isEmpty() ? "" : "/" + name);
+  }
+
+  private static String seen(HttpExchange exchange, String name) {
+    String value = exchange.getRequestHeaders().getFirst(name);
+    return value == null ? "none" : value;
   }
 
   private static void json(HttpExchange exchange, int status, String body) throws IOException {
