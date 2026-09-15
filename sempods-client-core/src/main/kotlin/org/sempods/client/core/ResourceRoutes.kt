@@ -53,20 +53,30 @@ internal sealed class ResourceAddress {
     }
   }
 
-  /** `_system/resources/{b64url(iri)}`, for an IRI of any scheme (SPS-CRUD-003, SPS-CRUD-005). */
+  /**
+   * `_system/resources/{b64url(iri)}`, for an IRI of any scheme (SPS-CRUD-003, SPS-CRUD-005), and the slot
+   * and edge routes below it (SPS-CRUD-041, SPS-CRUD-042).
+   */
   object SystemRoute : ResourceAddress() {
 
-    override fun path(iri: String): String {
-      require(iri.isNotBlank()) { "A subject IRI must not be blank." }
-      return "_system/resources/${segment(iri)}"
-    }
+    override fun path(iri: String): String = "_system/resources/${segment(iri, "subject")}"
+
+    /** `_system/resources/{b64url(subject)}/{b64url(predicate)}`. */
+    fun slotPath(subjectUri: String, predicateUri: String): String = "${path(subjectUri)}/${segment(predicateUri, "predicate")}"
+
+    /** The slot path, then `/{b64url(target)}`. */
+    fun edgePath(subjectUri: String, predicateUri: String, targetUri: String): String =
+      "${slotPath(subjectUri, predicateUri)}/${segment(targetUri, "target")}"
 
     /** base64url without padding over the IRI's UTF-8 bytes (RFC 4648 §5). */
-    fun segment(iri: String): String = Base64.getUrlEncoder().withoutPadding().encodeToString(iri.toByteArray(Charsets.UTF_8))
+    private fun segment(iri: String, role: String): String {
+      require(iri.isNotBlank()) { "A $role IRI must not be blank." }
+      return Base64.getUrlEncoder().withoutPadding().encodeToString(iri.toByteArray(Charsets.UTF_8))
+    }
   }
 }
 
-/** The operations both resource groups offer, run against one [address]. */
+/** Reads and writes at a path under the pod: by IRI through [address] for the resource groups, by path for slots. */
 internal class ResourceOperations(
   private val session: SempodsSession,
   private val exchange: Exchange,
@@ -83,6 +93,25 @@ internal class ResourceOperations(
     require(!(format == SempodsGraphFormat.N_QUADS && options.includeContexts)) {
       "include_contexts groups JSON-LD by context; N-Quads already carries each statement's context (SPS-CRUD-028)."
     }
+    return readAt(path, format.mediaType, options, reading)
+  }
+
+  fun put(iri: String, format: SempodsGraphFormat, content: SempodsContent, options: SempodsWriteOptions) =
+    writeAt("PUT", address.path(iri), content, format.mediaType, options, PUT)
+
+  fun patch(iri: String, mergePatch: SempodsContent, options: SempodsWriteOptions) =
+    writeAt("PATCH", address.path(iri), mergePatch, MERGE_PATCH, options, PATCH_OR_DELETE)
+
+  fun delete(iri: String, options: SempodsWriteOptions) =
+    writeAt("DELETE", address.path(iri), content = null, mediaType = null, options, PATCH_OR_DELETE)
+
+  /** A `GET` of [path] asking for [accept]. A selection of no context is answered here, without a request. */
+  fun <T : Any> readAt(
+    path: String,
+    accept: String,
+    options: SempodsReadOptions,
+    reading: BodyReading<T>,
+  ): SempodsResponse<T> {
     if (options.selection.isRestricted && options.selection.contextUris.isEmpty()) {
       // A read route drops an empty `context` and answers from every readable context, so nothing is
       // sent: the answer is the absence the pod gives when nothing is visible (SPS-CRUD-017).
@@ -91,28 +120,20 @@ internal class ResourceOperations(
     val url = session.podBase.resolve(path).newBuilder()
     options.selection.contextUris.forEach { url.addQueryParameter(CONTEXT, it) }
     if (options.includeContexts) url.addQueryParameter(INCLUDE_CONTEXTS, "true")
-    val request = session.newRequest("GET", target(path, url)).header("Accept", format.mediaType)
+    val request = session.newRequest("GET", target(path, url)).header("Accept", accept)
     options.ifNoneMatch?.let { request.header("If-None-Match", it) }
     return exchange.run(request.build(), if (options.ifNoneMatch != null) READ_CONDITIONAL else READ, reading)
   }
 
-  fun put(iri: String, format: SempodsGraphFormat, content: SempodsContent, options: SempodsWriteOptions) =
-    write("PUT", iri, content, format.mediaType, options, PUT)
-
-  fun patch(iri: String, mergePatch: SempodsContent, options: SempodsWriteOptions) =
-    write("PATCH", iri, mergePatch, MERGE_PATCH, options, PATCH_OR_DELETE)
-
-  fun delete(iri: String, options: SempodsWriteOptions) = write("DELETE", iri, content = null, mediaType = null, options, PATCH_OR_DELETE)
-
-  private fun write(
+  /** A write to [path] in the options' context. [answers] gains `412` when the write is conditional. */
+  fun writeAt(
     method: String,
-    iri: String,
+    path: String,
     content: SempodsContent?,
     mediaType: String?,
     options: SempodsWriteOptions,
     answers: Set<Int>,
   ): SempodsResponse<ByteArray> {
-    val path = address.path(iri)
     val url = session.podBase.resolve(path).newBuilder()
     url.addQueryParameter(CONTEXT, options.contextUri)
     val request = session.newRequest(method, target(path, url))

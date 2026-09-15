@@ -182,10 +182,12 @@ boolean any = pod.sparql().ask("ASK { ?s ?p ?o }", SempodsContextSelection.of(ta
 
 pod.resources().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), SempodsWriteOptions.inContext(tasks));
 String bob = pod.subjects().getText("did:web:bob.example").getBody();
+pod.slots().add("did:web:bob.example", knows, SempodsContent.of(carolRef), SempodsWriteOptions.inContext(tasks));
 ```
 
 `resources()` reaches an IRI under the pod by its own path, `subjects()` any IRI through the System
-route; both read, replace, merge-patch and delete.
+route; both read, replace, merge-patch and delete. `slots()` works on the values of one predicate of a
+subject: read, replace, add, clear, and remove one IRI value through its edge.
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
@@ -195,8 +197,8 @@ tiers of `:sempods-client`.
 query carries it as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how), which a
 pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
 one that ignores them answers from everything the session may read, and a client cannot tell which
-kind it faces. A resource read carries it as `context` parameters, and `SempodsPodResources` says
-what an empty one does. Every write takes its target context in `SempodsWriteOptions`.
+kind it faces. A resource or slot read carries it as `context` parameters, and `SempodsPodResources`
+says what an empty one does. Every write takes its target context in `SempodsWriteOptions`.
 
 ## The transport: OkHttp, blocking
 
@@ -318,7 +320,7 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata, SPARQL, resources and subjects ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+groups beyond pod metadata, SPARQL, resources, subjects and slots ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
 adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the

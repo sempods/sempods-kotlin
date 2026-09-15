@@ -43,6 +43,7 @@ import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsPodDateModified;
 import org.sempods.client.core.SempodsPodResources;
+import org.sempods.client.core.SempodsPodSlots;
 import org.sempods.client.core.SempodsPodSparql;
 import org.sempods.client.core.SempodsPodSubjects;
 import org.sempods.client.core.SempodsReadOptions;
@@ -115,6 +116,20 @@ class ClientCoreFromJavaTest {
       echo.add("X-Saw-If-Match", header(exchange, "If-Match"));
       echo.add("X-Saw-If-None-Match", header(exchange, "If-None-Match"));
       echo.add("X-Saw-Body-Length", String.valueOf(body.length));
+      int segments = exchange.getRequestURI().getRawPath().split("/").length;
+      if (exchange.getRequestURI().getRawPath().startsWith("/alice/_system/resources/") && segments >= 6) {
+        // A slot (subject and predicate segments) or an edge (a target segment more), answered as today's pod does.
+        switch (exchange.getRequestMethod()) {
+          case "GET" -> json(exchange, 200, "[{\"@id\":\"urn:x\"}]");
+          case "PUT" -> {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+          }
+          case "POST" -> json(exchange, 201, "{\"outcome\":\"created\"}");
+          default -> json(exchange, 200, segments >= 7 ? "{\"outcome\":\"removed\"}" : "{\"outcome\":\"cleared\"}");
+        }
+        return;
+      }
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           echo.add("ETag", "\"v1\"");
@@ -326,6 +341,38 @@ class ClientCoreFromJavaTest {
     assertThrows(IllegalArgumentException.class, () -> SempodsWriteOptions.inContext(" "));
     assertThrows(NullPointerException.class, () -> SempodsWriteOptions.inContext(null));
     assertThrows(NullPointerException.class, () -> resources.getText(event, SempodsGraphFormat.JSON_LD, null));
+  }
+
+  @Test
+  void readsAndWritesSlotsFromJava() throws IOException {
+    SempodsPodSlots slots = pod("alice").slots();
+    String bob = "did:web:bob.example";
+    String knows = "http://xmlns.com/foaf/0.1/knows";
+    SempodsWriteOptions inTasks = SempodsWriteOptions.inContext("https://pods.example/alice/_system/contexts/tasks");
+
+    SempodsResponse<String> values = slots.getJson(bob, knows);
+    assertEquals("[{\"@id\":\"urn:x\"}]", values.getBody());
+    assertEquals("/alice/_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ/aHR0cDovL3htbG5zLmNvbS9mb2FmLzAuMS9rbm93cw",
+        values.getHeaders().get("X-Saw-Path"));
+    assertEquals(200, slots.getJson(bob, knows, SempodsReadOptions.of(SempodsContextSelection.of("urn:c")).withIncludeContexts(true)).getStatus());
+    assertEquals(200, slots.getBytes(bob, knows).getStatus());
+    assertEquals(200, slots.getBytes(bob, knows, SempodsReadOptions.defaults()).getStatus());
+
+    SempodsResponse<byte[]> replaced = slots.put(bob, knows, SempodsContent.of("[]"), inTasks.withIfMatch("\"v1\""));
+    assertEquals(204, replaced.getStatus());
+    assertEquals("application/ld+json", replaced.getHeaders().get("X-Saw-Content-Type"));
+    assertEquals("\"v1\"", replaced.getHeaders().get("X-Saw-If-Match"));
+
+    SempodsResponse<byte[]> added = slots.add(bob, knows, SempodsContent.of("{\"@id\":\"urn:x\"}"), inTasks);
+    assertEquals(201, added.getStatus());
+    assertEquals("{\"outcome\":\"created\"}", new String(added.getBody(), StandardCharsets.UTF_8));
+
+    assertEquals("{\"outcome\":\"cleared\"}", new String(slots.clear(bob, knows, inTasks).getBody(), StandardCharsets.UTF_8));
+    SempodsResponse<byte[]> removed = slots.removeEdge(bob, knows, "urn:x", inTasks);
+    assertEquals("{\"outcome\":\"removed\"}", new String(removed.getBody(), StandardCharsets.UTF_8));
+    assertTrue(removed.getHeaders().get("X-Saw-Path").endsWith("/dXJuOng"), removed.getHeaders().get("X-Saw-Path"));
+
+    assertThrows(IllegalArgumentException.class, () -> slots.removeEdge(bob, knows, "urn:x", inTasks.withIfMatch("\"v1\"")));
   }
 
   private static SempodsPod pod(String name) {

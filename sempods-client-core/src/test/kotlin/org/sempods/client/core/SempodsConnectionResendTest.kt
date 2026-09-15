@@ -213,6 +213,36 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a slot read, put, clear and edge removal are resent once, and an add is not`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      val slots = SempodsPod(a, client).slots()
+      val bob = "did:web:bob.example"
+      val inTasks = SempodsWriteOptions.inContext("urn:tasks")
+      val slotRoute = "/alice/_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ/"
+      listOf<Pair<String, () -> SempodsResponse<*>>>(
+        "GET $slotRoute" to { slots.getJson(bob, "urn:p") },
+        "PUT $slotRoute" to { slots.put(bob, "urn:p", SempodsContent.of("[]"), inTasks) },
+        "DELETE $slotRoute" to { slots.clear(bob, "urn:p", inTasks) },
+        "DELETE $slotRoute" to { slots.removeEdge(bob, "urn:p", "urn:o", inTasks) },
+      ).forEach { (head, operation) ->
+        leaveAStaleConnection(client, a)
+        requestHeads.clear()
+
+        assertEquals(200, operation().status)
+
+        assertEquals(1, requestHeads.size, "the attempt on the dropped connection never reached the server")
+        assertTrue(requestHeads[0].startsWith(head) && requestHeads[0].contains("X-Attempt: 2"), requestHeads[0])
+      }
+
+      leaveAStaleConnection(client, a)
+      requestHeads.clear()
+      assertThrows<IOException> { slots.add(bob, "urn:p", SempodsContent.of("{}"), inTasks) }
+      assertTrue(requestHeads.isEmpty(), requestHeads.toString())
+    }
+  }
+
+  @Test
   fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
     val rebuilding = Interceptor { chain ->
       val original = chain.request()
