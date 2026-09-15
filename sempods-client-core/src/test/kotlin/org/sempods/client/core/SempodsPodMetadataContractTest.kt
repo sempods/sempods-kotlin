@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import org.mockserver.model.HttpRequest
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -48,11 +47,6 @@ class SempodsPodMetadataContractTest : MockPodTest() {
     headers.forEach { (name, value) -> response.withHeader(name, value) }
     server.`when`(request().withPath(route)).respond(response)
   }
-
-  /** The header names a request carries beyond those OkHttp adds to any request it frames. */
-  private fun HttpRequest.headersBeyondTransport(): Set<String> =
-    headerList.map { it.name.value.lowercase() }.toSet() -
-      setOf("host", "connection", "accept-encoding", "user-agent", "content-length")
 
   @ParameterizedTest
   @ValueSource(strings = ["exists", "dateModified", "dateModifiedJson", "dateModifiedBytes"])

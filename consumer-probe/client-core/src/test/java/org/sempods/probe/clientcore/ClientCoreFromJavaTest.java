@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -29,14 +30,19 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsContextSelection;
 import org.sempods.client.core.SempodsDecodingException;
+import org.sempods.client.core.SempodsGraphFormat;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsPodDateModified;
+import org.sempods.client.core.SempodsPodSparql;
 import org.sempods.client.core.SempodsRequestAuth;
 import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
+import org.sempods.client.core.SempodsSparqlResults;
+import org.sempods.client.core.SempodsSparqlTermKind;
 
 /**
  * The client core as a Java consumer writes it, checked for what only a Java build and JVM can see.
@@ -74,6 +80,20 @@ class ClientCoreFromJavaTest {
         exchange -> json(exchange, 200, "{\"dateModified\":\"2026-05-20T10:15:30Z\",\"unknown\":[1]}"));
     server.createContext("/bob/_system/meta/date-modified", exchange -> json(exchange, 404, ""));
     server.createContext("/carol/_system/meta/date-modified", exchange -> json(exchange, 200, "{\"dateModified\":42}"));
+    // Echoes the query string and the Content-Type, and answers by the format asked for.
+    server.createContext("/alice/_system/sparql/query", exchange -> {
+      String query = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().add("X-Saw-Query", String.valueOf(exchange.getRequestURI().getRawQuery()));
+      exchange.getResponseHeaders().add("X-Saw-Content-Type", header(exchange, "Content-Type"));
+      if (header(exchange, "Accept").equals("application/n-quads")) {
+        json(exchange, 200, "<https://pods.example/alice/events/1> <https://schema.org/name> \"One\" .\n");
+      } else if (query.startsWith("ASK")) {
+        json(exchange, 200, "{\"head\":{},\"boolean\":true}");
+      } else {
+        json(exchange, 200, "{\"head\":{\"vars\":[\"s\"]},\"results\":{\"bindings\":"
+            + "[{\"s\":{\"type\":\"uri\",\"value\":\"https://pods.example/alice/events/1\"}}]}}");
+      }
+    });
     server.start();
 
     // A consumer's own header rides on an interceptor of their own client; the sempods interceptors
@@ -172,6 +192,32 @@ class ClientCoreFromJavaTest {
     SempodsDecodingException refused =
         assertThrows(SempodsDecodingException.class, () -> pod("carol").metadata().dateModified());
     assertEquals(200, refused.getStatus());
+  }
+
+  @Test
+  void queriesSparqlRawAndTypedFromJava() throws IOException {
+    SempodsPodSparql sparql = pod("alice").sparql();
+
+    SempodsResponse<SempodsSparqlResults> selected = sparql.select("SELECT ?s WHERE { ?s ?p ?o }");
+    assertEquals("null", selected.getHeaders().get("X-Saw-Query"));
+    assertEquals("application/sparql-query", selected.getHeaders().get("X-Saw-Content-Type"));
+    assertEquals(List.of("s"), selected.getBody().getVariables());
+    assertEquals(SempodsSparqlTermKind.IRI, selected.getBody().getSolutions().get(0).get("s").getKind());
+
+    SempodsResponse<Boolean> asked = sparql.ask("ASK { ?s ?p ?o }", SempodsContextSelection.none());
+    assertEquals(Boolean.TRUE, asked.getBody());
+    assertEquals("default-graph-uri=", asked.getHeaders().get("X-Saw-Query"));
+
+    String tasks = "https://pods.example/alice/_system/contexts/tasks";
+    String narrowed = sparql.resultsJson("ASK { ?s ?p ?o }", SempodsContextSelection.of(List.of(tasks)))
+        .getHeaders().get("X-Saw-Query");
+    assertTrue(narrowed.startsWith("default-graph-uri=") && narrowed.contains("&named-graph-uri="), narrowed);
+
+    String quads = sparql.graphText("CONSTRUCT WHERE { ?s ?p ?o }", SempodsGraphFormat.N_QUADS).getBody();
+    assertTrue(quads.contains("<https://pods.example/alice/events/1>"), quads);
+
+    assertEquals(SempodsContextSelection.of(), SempodsContextSelection.none());
+    assertThrows(NullPointerException.class, () -> sparql.select("SELECT * WHERE { ?s ?p ?o }", null));
   }
 
   private static SempodsPod pod(String name) {

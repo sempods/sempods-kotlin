@@ -103,7 +103,7 @@ semantic, not a facade over RDF" forbids a method whose *name* encodes an app's 
 rule's positive form: the app's rules stay in its query text, and what the client offers is the
 endpoint. What a pod will accept is bounded on the server rather than by convention:
 `SparqlQueryService` rejects every Update form and refuses `SERVICE` anywhere in the algebra, which
-is also what makes a query safe to re-run under the 401 retry.
+is also what makes a query safe to re-run under the 401 retry and after a lost connection.
 
 **Why the bound tier still carries a raw `sparqlSelect` today:** there is no typed result to replace
 it with. `SparqlResult` (`org.sempods.spec`) carries matched IRIs plus the model behind them, and
@@ -170,18 +170,26 @@ Four decisions shape everything above it. Each lives in one class, whose KDoc ca
 
 ### Endpoint groups
 
-`SempodsPod` carries the endpoint groups, built on the extension seam above. Every operation offers
-a typed result and the raw body, and both run the same call:
+`SempodsPod` carries the endpoint groups, built on the extension seam above. Every operation returns
+the raw body, and a typed result where the core reads the route's document; both run the same call:
 
 ```java
 var pod = new SempodsPod(alice, client);
 SempodsResponse<SempodsPodDateModified> typed = pod.metadata().dateModified();
 SempodsResponse<String> raw = pod.metadata().dateModifiedJson();
+
+SempodsSparqlResults rows = pod.sparql().select("SELECT ?s WHERE { ?s ?p ?o }").getBody();
+boolean any = pod.sparql().ask("ASK { ?s ?p ?o }", SempodsContextSelection.of(tasks)).getBody();
 ```
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
 tiers of `:sempods-client`.
+
+**A query can be narrowed to contexts.** The selection is optional and travels as the SPARQL
+Protocol's dataset parameters (`SempodsPodSparql` says how), which a pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
+one that ignores them answers from everything the session may read, and a client cannot tell which
+kind it faces.
 
 ## The transport: OkHttp, blocking
 
@@ -303,7 +311,7 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+groups beyond pod metadata and SPARQL ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
 adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
