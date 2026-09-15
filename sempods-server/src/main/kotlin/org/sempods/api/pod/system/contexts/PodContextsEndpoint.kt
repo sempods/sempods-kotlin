@@ -1,5 +1,6 @@
 package org.sempods.api.pod.system.contexts
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
@@ -364,16 +365,19 @@ data class PodContextResponse(
  * The `GET _system/contexts` listing: the specification's `ContextList` schema.
  *
  * [legacyPodBaseUrl] and [legacyWritableContexts] repeat [podBaseUrl] and [writableContexts] under the
- * names the legacy client and the MCP instructions still read; #152 removes them. `READ_ONLY`, because
- * a mapper reading this class back would otherwise take a collection getter for a setter.
+ * names the legacy client and the MCP instructions still read; #152 removes them, and the aliases that
+ * read those names too. `READ_ONLY`, because a mapper reading this class back would otherwise take a
+ * collection getter for a setter.
  */
 data class PodContextsListResponse(
+  @JsonAlias("pod_base_url")
   val podBaseUrl: String,
 
   val authenticated: Boolean,
 
   val contexts: List<PodContextResponse>,
 
+  @JsonAlias("writable_contexts")
   val writableContexts: List<String>,
 ) {
 
