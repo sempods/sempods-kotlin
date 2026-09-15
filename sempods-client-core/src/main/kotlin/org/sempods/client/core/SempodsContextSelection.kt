@@ -12,7 +12,7 @@ import java.util.Collections
  * ```
  *
  * **A selection only narrows.** A context the session may not read is dropped by the pod, and a
- * selection whose contexts are all dropped matches nothing (SPS-SPARQL-012, SPS-SPARQL-013).
+ * selection whose contexts are all dropped matches nothing (SPS-SPARQL-012, SPS-SPARQL-013, SPS-CRUD-015).
  *
  * **Empty is not omitted.** `of()` with nothing in it is [none], so a computed list that turned out
  * empty never reads more than it asked for. An operation takes the selection as an optional

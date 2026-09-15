@@ -1,6 +1,6 @@
 package org.sempods.client.core
 
-/** The formats a pod answers a CONSTRUCT or DESCRIBE query in (SPS-SPARQL-016), sent as `Accept`. */
+/** The graph formats a pod answers in — a CONSTRUCT or DESCRIBE query (SPS-SPARQL-016), a resource (SPS-CRUD-026) — sent as `Accept`. */
 enum class SempodsGraphFormat(
   /** The media type asked for. */
   val mediaType: String,

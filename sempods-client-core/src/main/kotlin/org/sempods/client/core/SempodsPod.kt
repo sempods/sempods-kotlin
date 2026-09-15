@@ -33,9 +33,19 @@ class SempodsPod(
 
   private val sparqlGroup = SempodsPodSparql(session, exchange)
 
+  private val resourcesGroup = SempodsPodResources(ResourceOperations(session, exchange, ResourceAddress.LodPath(session.podBase)))
+
+  private val subjectsGroup = SempodsPodSubjects(ResourceOperations(session, exchange, ResourceAddress.SystemRoute))
+
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup
 
   /** SPARQL queries against the pod: typed SELECT and ASK results, and every result as the pod sent it. */
   fun sparql(): SempodsPodSparql = sparqlGroup
+
+  /** Resources the pod hosts, at their own addresses. */
+  fun resources(): SempodsPodResources = resourcesGroup
+
+  /** Any subject by its IRI, through the System route. */
+  fun subjects(): SempodsPodSubjects = subjectsGroup
 }

@@ -12,6 +12,17 @@ import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.getAll
+import okhttp3.OkHttpClient
+import org.sempods.client.core.SempodsContent
+import org.sempods.client.core.SempodsContextSelection
+import org.sempods.client.core.SempodsGraphFormat
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsReadOptions
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsWriteOptions
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
@@ -23,7 +34,9 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -2039,6 +2052,147 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
         response.headers.getAll("Link").orEmpty().none { it.contains("edit-slot") },
         "GET must not emit per-predicate edit-slot Link headers (Accept=$accept), got: ${response.headers.getAll("Link")}",
       )
+    }
+  }
+
+  // ── The client core against this route ──────────────────────────────────────────
+
+
+  private fun <T> withCorePod(podName: String, auth: SempodsRequestAuth, block: (SempodsPod) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client))
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core creates, reads, patches and deletes a resource at its own address`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId()).toString()
+    val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
+    val jsonLd = """{"@id":"$eventUri","https://schema.org/name":"fresh-name"}"""
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val resources = core.resources()
+
+      val created = resources.put(eventUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
+      assertEquals(201, created.status)
+      assertEquals(eventUri, created.headers["Location"])
+      assertNull(created.headers["ETag"])
+      assertEquals(200, resources.put(eventUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks).status)
+
+      val read = resources.getText(eventUri)
+      assertEquals(200, read.status)
+      assertTrue(read.body.orEmpty().contains("fresh-name"), read.body)
+      val tag = assertNotNull(read.headers["ETag"])
+      assertTrue(read.headers.values("Vary").any { vary -> vary.split(",").any { it.trim().equals("Accept", ignoreCase = true) } })
+      assertTrue(resources.getText(eventUri, SempodsGraphFormat.N_QUADS).body.orEmpty().contains("\"fresh-name\""))
+      val unchanged = resources.getBytes(eventUri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults().withIfNoneMatch(tag))
+      assertEquals(304, unchanged.status)
+      assertNull(unchanged.body)
+
+      assertEquals(204, resources.patch(eventUri, SempodsContent.of("""{"https://schema.org/name":"patched-name"}"""), inTasks).status)
+      assertTrue(resources.getText(eventUri).body.orEmpty().contains("patched-name"))
+
+      assertEquals(204, resources.delete(eventUri, inTasks).status)
+      assertEquals(404, resources.getText(eventUri).status)
+      assertEquals(404, resources.delete(eventUri, inTasks).status)
+    }
+  }
+
+  @Test
+  fun `the client core gets 412 for a stale If-Match and for If-None-Match star on an existing resource`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = eventUri, context = writeContextUri, name = "live")
+    val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
+    val nQuads = "<$eventUri> <https://schema.org/name> \"second\" <$writeContextUri> .\n"
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val resources = core.resources()
+
+      val stale = resources.patch(
+        eventUri.toString(),
+        SempodsContent.of("""{"https://schema.org/name":"new"}"""),
+        inTasks.withIfMatch("\"definitely-not-the-current-tag\""),
+      )
+      assertEquals(412, stale.status)
+      assertNull(stale.body)
+      assertEquals(412, resources.put(eventUri.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), inTasks.withIfNoneMatch("*")).status)
+      assertTrue(resources.getText(eventUri.toString()).body.orEmpty().contains("live"))
+    }
+  }
+
+  @Test
+  fun `the client core narrows a read to selected contexts, groups it by context, and answers none itself`() {
+    val pod = sempodsTestFactory.newPod()
+    val (ctxA, _) = createContextWithToken(pod, "ctx-a")
+    val (ctxB, _) = createContextWithToken(pod, "ctx-b")
+    val tokenAB = mintScopedToken(podName = pod.name, scopes = listOf("${ctxA}#read", "${ctxB}#read"))
+    val resourceUri = URI("${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob")
+    val vf = SimpleValueFactory.getInstance()
+    val model = LinkedHashModel()
+    model.add(resourceUri.toIri(), vf.createIRI("https://schema.org/name"), vf.createLiteral("In A"), ctxA.toIri())
+    model.add(resourceUri.toIri(), vf.createIRI("https://schema.org/description"), vf.createLiteral("In B"), ctxB.toIri())
+    podFacade.putResourceModel(podName = pod.name, resourceUri = resourceUri, model = model)
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(tokenAB)) { core ->
+      val resources = core.resources()
+      val iri = resourceUri.toString()
+
+      val onlyA = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString())))
+      assertEquals(200, onlyA.status)
+      assertTrue(onlyA.body.orEmpty().contains("In A"), onlyA.body)
+      assertFalse(onlyA.body.orEmpty().contains("In B"), onlyA.body)
+
+      val both = SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString(), ctxB.toString())).withIncludeContexts(true)
+      val grouped = resources.getText(iri, SempodsGraphFormat.JSON_LD, both).body.orEmpty()
+      assertTrue(grouped.contains(ctxA.toString()) && grouped.contains(ctxB.toString()), grouped)
+
+      val unknown = SempodsContextSelection.of("${SempodsModule.config.apiBaseUrl}${pod.name}/not-a-real-context")
+      val fromPod = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(unknown))
+      assertEquals(404, fromPod.status)
+      assertTrue(fromPod.headers.size > 0, "the pod's 404 carries its headers")
+
+      val none = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(SempodsContextSelection.none()))
+      assertEquals(404, none.status)
+      assertEquals(0, none.headers.size, "none() is answered without a request")
+    }
+  }
+
+  @Test
+  fun `an awkward IRI under the pod reads the same through both groups, and one its path cannot carry through subjects`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
+    val base = "${SempodsModule.config.apiBaseUrl}${pod.name}"
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      listOf("$base/notes/grüße", "$base/notes/a!\$&'()*+,=:@-._~b").forEach { iri ->
+        val jsonLd = """{"@id":"$iri","https://schema.org/name":"Grüße ✓"}"""
+
+        val created = core.resources().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
+        assertEquals(201, created.status, iri)
+
+        val viaAddress = core.resources().getBytes(iri)
+        val viaSubjects = core.subjects().getBytes(iri)
+        assertEquals(200, viaAddress.status, iri)
+        assertContentEquals(viaAddress.body, viaSubjects.body, iri)
+        assertEquals(viaAddress.headers["ETag"], viaSubjects.headers["ETag"], iri)
+        assertTrue(String(assertNotNull(viaSubjects.body), Charsets.UTF_8).contains("Grüße ✓"), iri)
+      }
+
+      // The pod would cut this path at `;` and address `notes/a`.
+      val cut = "$base/notes/a;b"
+      assertFailsWith<IllegalArgumentException> { core.resources().getText(cut) }
+      val jsonLd = """{"@id":"$cut","https://schema.org/name":"Semicolon"}"""
+      assertEquals(201, core.subjects().put(cut, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks).status)
+      assertTrue(core.subjects().getText(cut).body.orEmpty().contains("Semicolon"))
     }
   }
 }
