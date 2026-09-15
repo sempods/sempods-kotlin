@@ -33,8 +33,10 @@ import java.io.IOException
  * replaces the outcome bodies and the `201`/`200` distinction with it, and this group reads such a pod
  * unchanged.
  *
- * **[removeEdge] takes no condition.** The pod ignores one on an edge (SPS-CRUD-054), so a tag in its
- * options is an [IllegalArgumentException] and nothing is sent.
+ * **[removeEdge] takes no condition.** The pod ignores `If-Match` on an edge (SPS-CRUD-054), and a
+ * condition there has nothing to test: the removal names one statement, and its outcome is the same
+ * whether or not it was there. A tag in either field of its options is an [IllegalArgumentException],
+ * and nothing is sent.
  *
  * A read's selection, `include_contexts` (SPS-CRUD-057) and [SempodsContextSelection.none] behave as on
  * [SempodsPodResources]. A slot read in exactly one context carries an `ETag`, one spanning several
@@ -115,7 +117,7 @@ class SempodsPodSlots internal constructor(
   ): SempodsResponse<ByteArray> {
     val path = ResourceAddress.SystemRoute.edgePath(subjectUri, predicateUri, targetUri)
     require(!options.isConditional) {
-      "An edge removal takes no condition, because the pod ignores one (SPS-CRUD-054); leave If-Match and If-None-Match unset."
+      "An edge removal takes no condition: the pod ignores If-Match there (SPS-CRUD-054); leave If-Match and If-None-Match unset."
     }
     return operations.writeAt("DELETE", path, content = null, mediaType = null, options, CLEAR_OR_REMOVE_ANSWERS)
   }

@@ -281,8 +281,10 @@ stricter reading won, so the NAT64 prefixes are refused outright.
 
 - **Not two clients.** The JSON-LD wire layer and the RDF tiers are two layers of one client
   (§"Two representations, three bindings"). `sempods-mcp` keeps only `PodIo`, the bridge; the tool
-  calls live in `:sempods-mcp-core`, where both MCP surfaces read them, and route knowledge is shared
-  through `org.sempods.commons.net.SempodsPodRoutes`.
+  calls live in `:sempods-mcp-core`, where both MCP surfaces read them. The two layers read their
+  routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own theirs;
+  `SempodsPodRoutesParityTest` holds the shared ones equal until #152 moves the layers onto the core
+  and removes their copies.
 - **The stateless `dereference` does not become pod-bound.** It takes an arbitrary foreign URI with no
   pod base and no token. That is the stateless tier, permanently.
 - **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a

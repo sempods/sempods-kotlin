@@ -235,7 +235,7 @@ class SempodsPodSlotsContractTest : MockPodTest() {
     listOf(inContacts.withIfMatch("\"s1\""), inContacts.withIfNoneMatch("*")).forEach { conditional ->
       val refused = assertThrows<IllegalArgumentException> { slots().removeEdge(bob, knows, target, conditional) }
       assertEquals(
-        "An edge removal takes no condition, because the pod ignores one (SPS-CRUD-054); leave If-Match and If-None-Match unset.",
+        "An edge removal takes no condition: the pod ignores If-Match there (SPS-CRUD-054); leave If-Match and If-None-Match unset.",
         refused.message,
       )
     }
