@@ -1,9 +1,8 @@
 # Pod client — the JVM client for the pod surface (IST)
 
-What a consumer reaches for when it wants to talk to a pod it does not run: `:sempods-client-core`
-(`SempodsSession`, `SempodsOkHttp`, `SempodsRequestAuth`), `:sempods-client` above it
-(`SempodsClient`, `SempodsPodClient`, `PodWireClient`, `SempodsHttpTransport`), and the sibling that
-speaks the host-level admin surface, `:sempods-control-plane-client` (`SempodsControlPlaneClient`).
+What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
+`:sempods-client-core`, `:sempods-client` above it, and the sibling that speaks the host-level admin
+surface, `:sempods-control-plane-client`.
 
 This document is the *shape* of those clients — what tiers they have, how a caller supplies a
 credential, what they are built on, and the rules that decide what may be added. The **routes** they
@@ -121,7 +120,7 @@ the pagination question above.
 
 ## The core: a pod, a credential, and OkHttp
 
-`:sempods-client-core` is the pod's HTTP surface without a representation (§"Consumable as an
+`:sempods-client-core` is the pod's HTTP surface without an RDF representation (§"Consumable as an
 artifact"). The request, the call and the response are OkHttp's: build an `OkHttpClient`, build a
 `Request`, call it, read the `Response`, close it. What this module adds is what OkHttp has no
 opinion about, and it adds it to the consumer's own client.
@@ -152,11 +151,8 @@ try (Response response = client.newCall(request).execute()) {
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
 and admission by using it, and needs nothing private.
 
-Five decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
+Four decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
 
-- **The core decides no route's meaning** (`SempodsClientException`). A failure status is an answer
-  — 304, 404 and 412 are outcomes on the routes above — and a body arrives as it was sent, malformed
-  or not.
 - **A credential never leaves its pod** (`SempodsPodBase`, `SempodsSession`). The base is validated
   against [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
   and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020);
@@ -171,6 +167,21 @@ Five decisions shape everything above it. Each lives in one class, whose KDoc ca
   credential can answer earns one retry. `callTimeout` and `Call.cancel()` cover them all.
 - **Capacity is explicit** (`SempodsAdmission`): active and waiting calls are bounded separately, for
   every running call on the client.
+
+### Endpoint groups
+
+`SempodsPod` carries the endpoint groups, built on the extension seam above. Every operation offers
+a typed result and the raw body, and both run the same call:
+
+```java
+var pod = new SempodsPod(alice, client);
+SempodsResponse<SempodsPodDateModified> typed = pod.metadata().dateModified();
+SempodsResponse<String> raw = pod.metadata().dateModifiedJson();
+```
+
+A status the route does not list, or a body that is not the route's document, is an exception that
+keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
+tiers of `:sempods-client`.
 
 ## The transport: OkHttp, blocking
 
@@ -280,7 +291,8 @@ methods return and accept. Rio, Sail and the SPARQL-results readers stay `implem
 consumers declare no RDF4J of their own, which is the check that the export is real.
 
 `:sempods-client-core` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
-Jena or Jackson, directly or transitively:
+Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
+public signature names:
 
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.2.0"))
@@ -291,9 +303,8 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups over this core with typed results for the protocol's JSON
-([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF adapters
-([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
+groups beyond pod metadata ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to

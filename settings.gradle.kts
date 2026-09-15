@@ -26,11 +26,16 @@ dependencyAnalysis {
     // `rdf4j-model-api` or `jackson-datatype-jsr310` with `jackson-databind`: those three splits
     // are visible, and correcting them is why this plugin is here.
 
-    // `core` and `annotations` are how `jackson-databind` is packaged.
+    // `core` and `annotations` are how `jackson-databind` is packaged, and Jackson 3 is packaged the
+    // same way under `tools.jackson`.
     bundle("jackson") {
       primary("com.fasterxml.jackson.core:jackson-databind")
       includeDependency("com.fasterxml.jackson.core:jackson-core")
       includeDependency("com.fasterxml.jackson.core:jackson-annotations")
+    }
+    bundle("jackson3") {
+      primary("tools.jackson.core:jackson-databind")
+      includeDependency("tools.jackson.core:jackson-core")
     }
 
     // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in the
