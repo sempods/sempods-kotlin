@@ -177,11 +177,18 @@ a typed result and the raw body, and both run the same call:
 var pod = new SempodsPod(alice, client);
 SempodsResponse<SempodsPodDateModified> typed = pod.metadata().dateModified();
 SempodsResponse<String> raw = pod.metadata().dateModifiedJson();
+
+SempodsContextList visible = pod.contexts().list().getBody();
+pod.contexts().create(contextIri, SempodsContextCreate.fields().withLabel("Tasks"));
 ```
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
 tiers of `:sempods-client`.
+
+**The session is the binding.** A group answers what the session's credential may see, so
+`contexts().list()` on a session without a pod credential lists the public contexts
+(`SempodsPodContexts`).
 
 ## The transport: OkHttp, blocking
 
@@ -303,7 +310,7 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+groups beyond pod metadata and contexts ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
 adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the

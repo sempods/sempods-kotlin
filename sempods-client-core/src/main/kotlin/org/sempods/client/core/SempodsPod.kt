@@ -27,8 +27,15 @@ class SempodsPod(
   val calls: Call.Factory,
 ) {
 
-  private val metadataGroup = SempodsPodMetadata(session, Exchange(calls))
+  private val exchange = Exchange(calls)
+
+  private val metadataGroup = SempodsPodMetadata(session, exchange)
+
+  private val contextsGroup = SempodsPodContexts(session, exchange)
 
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup
+
+  /** The contexts this session can see, and creating one. */
+  fun contexts(): SempodsPodContexts = contextsGroup
 }

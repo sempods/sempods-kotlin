@@ -10,11 +10,20 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.client.core.SempodsContextCreate
+import org.sempods.client.core.SempodsContextPermission
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsPodContexts
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsSession
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
+import okhttp3.OkHttpClient
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import java.net.URI
@@ -706,6 +715,66 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       byContext[contextUri(pod.name, siblingPath)] == null,
       "sibling-prefix context must NOT be visible to a `${rootPath}#manage` token (got ${payload.contexts.map { it.contextIri }})"
     )
+  }
+
+  /** The client core against the served routes, so the names and routes the core reads cannot drift from these. */
+  private fun <T> withContexts(podName: String, auth: SempodsRequestAuth, block: (SempodsPodContexts) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")
+    try {
+      return block(SempodsPod(SempodsSession(base, auth), client).contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core creates a context, then finds it, at the IRI this endpoint answers with`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val tasks = contextUri(pod.name, "apps/example/tasks")
+    val open = contextUri(pod.name, "apps/example/open")
+    val label = "Tâches \"öffentlich\" \\ ✓"
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      val created = contexts.create(tasks)
+      assertEquals(201, created.status)
+      assertEquals(tasks, created.body?.contextUri)
+      assertEquals(false, created.body?.public)
+
+      val again = contexts.create(tasks, SempodsContextCreate.fields().withPublic(true))
+      assertEquals(200, again.status)
+      assertEquals(false, again.body?.public, "an existing context is left unchanged")
+
+      val labelled = contexts.create(open, SempodsContextCreate.fields().withLabel(label).withPublic(true))
+      assertEquals(201, labelled.status)
+      assertEquals(label, labelled.body?.label)
+      assertEquals(true, labelled.body?.public)
+    }
+  }
+
+  @Test
+  fun `the client core lists what its session sees`() {
+    val pod = sempodsTestFactory.newPod()
+    val contextPath = "test/core-listing"
+    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = contextPath)
+    val context = contextUri(pod.name, contextPath)
+    val token = mintScopedToken(pod.name, listOf("$context#read", "$context#write"))
+
+    val scoped = withContexts(pod.name, SempodsRequestAuth.bearer(token)) { assertNotNull(it.list().body) }
+    assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}", scoped.podBaseUrl)
+    assertEquals(
+      setOf(SempodsContextPermission.READ, SempodsContextPermission.WRITE),
+      scoped.contexts.single { it.contextUri == context }.permissions,
+    )
+    assertEquals(listOf(context), scoped.writableContexts)
+
+    val anonymous = withContexts(pod.name, SempodsRequestAuth.anonymous()) { assertNotNull(it.list().body) }
+    assertEquals(false, anonymous.authenticated)
+    assertEquals(listOf(sempodsTestFactory.publicContextUri(pod.name).toString()), anonymous.contexts.map { it.contextUri })
+    assertEquals(emptyList(), anonymous.writableContexts)
   }
 
   @Test
