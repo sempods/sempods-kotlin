@@ -3,17 +3,17 @@ package org.sempods.client.core
 import java.io.IOException
 
 /**
- * What this library refuses, as opposed to what the network does.
+ * What the sempods layer reports, as opposed to what the network does.
  *
  * An [IOException], because that is what every caller of an OkHttp `Call` already handles and what
  * the engine itself throws — a second hierarchy beside it would only make a `catch` clause longer.
- * What it marks is a refusal that came from *here*: a target outside the session's pod, an address
- * the outbound guard rejected, a spent admission or outbound budget, an authentication mechanism that
- * tried to move the request.
+ * It marks two things. A refusal that came from *here*: a target outside the session's pod, an
+ * address the outbound guard rejected, a spent admission or outbound budget, an authentication
+ * mechanism that tried to move the request. And, from an endpoint operation, an answer outside that
+ * operation's contract ([SempodsResponseException]).
  *
- * A server that answered is not an exception at all. `Response.isSuccessful`, the status and the
- * headers are OkHttp's, and 304, 404 and 412 are answers on the routes above this rather than
- * failures — a core that threw would force every caller to read them out of a `catch`.
+ * A call never throws for a status; which statuses an endpoint operation accepts, [SempodsResponse]
+ * says.
  */
 open class SempodsClientException @JvmOverloads constructor(
   message: String,

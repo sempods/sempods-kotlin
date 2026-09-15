@@ -34,7 +34,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  *
  * **This is also the extension seam.** An endpoint group, a protocol module or a consumer's own
  * route gets all of the above by building through here and running on such a client, and needs
- * nothing private.
+ * nothing private. [SempodsPod]'s groups are built on exactly that.
  *
  * **A credential never leaves its pod.** The client checks the target against [podBase] — the URL,
  * and any `Host` header, which a server that routes by name follows instead — before the first
