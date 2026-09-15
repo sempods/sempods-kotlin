@@ -572,8 +572,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
   /**
    * The member names are the specification's `ContextList` and `Context` schemas (sempods-spec
-   * `openapi/sempods-core.yaml`), with the earlier names beside them for the readers #152 moves.
-   * Read from the JSON itself: the response classes map either spelling to the same property.
+   * `openapi/sempods-core.yaml`), with the earlier names beside them. Read from the JSON itself: the
+   * response classes map either spelling to the same property.
    */
   @Test
   fun `the listing names its members as the specification does, with the earlier names beside them`() {
