@@ -306,7 +306,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, anonymous.statusCode, "body=${anonymous.responseBody}")
     assertEquals(
       listOf(contextUri(pod.name, "defaults/asked-for")),
-      jsonUtil.read(anonymous.responseBody, PodContextsListResponse::class.java).contexts.map { it.contextUri },
+      jsonUtil.read(anonymous.responseBody, PodContextsListResponse::class.java).contexts.map { it.contextIri },
       "only the context whose creation asked for `public` may be anonymously visible",
     )
   }
@@ -550,8 +550,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, listResponse.statusCode)
     val payload = jsonUtil.read(listResponse.responseBody, PodContextsListResponse::class.java)
     // Only the context matching the token scopes is visible
-    assertTrue(payload.contexts.any { it.contextUri.endsWith(publicContext) })
-    assertTrue(payload.contexts.none { it.contextUri.endsWith(appContext) })
+    assertTrue(payload.contexts.any { it.contextIri.endsWith(publicContext) })
+    assertTrue(payload.contexts.none { it.contextIri.endsWith(appContext) })
   }
 
   @Test
@@ -572,7 +572,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode)
     val payload = jsonUtil.read(response.responseBody, PodContextsListResponse::class.java)
-    val item = payload.contexts.firstOrNull { it.contextUri.endsWith(contextPath) }
+    val item = payload.contexts.firstOrNull { it.contextIri.endsWith(contextPath) }
     assertNotNull(item, "Expected context '$contextPath' in response, got: ${payload.contexts}")
     assertEquals(listOf("read", "write"), item.permissions, "permissions must mirror token scopes")
     assertEquals("grant", item.source, "direct read/write grant should be sourced as 'grant'")
@@ -698,7 +698,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode)
     val payload = jsonUtil.read(response.responseBody, PodContextsListResponse::class.java)
-    val byContext = payload.contexts.associateBy { it.contextUri }
+    val byContext = payload.contexts.associateBy { it.contextIri }
 
     val rootItem = assertNotNull(byContext[contextUri(pod.name, rootPath)], "root context must be listed")
     assertEquals(listOf("manage", "read", "write"), rootItem.permissions.sorted())
@@ -713,7 +713,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertTrue(
       byContext[contextUri(pod.name, siblingPath)] == null,
-      "sibling-prefix context must NOT be visible to a `${rootPath}#manage` token (got ${payload.contexts.map { it.contextUri }})"
+      "sibling-prefix context must NOT be visible to a `${rootPath}#manage` token (got ${payload.contexts.map { it.contextIri }})"
     )
   }
 

@@ -289,7 +289,7 @@ class PodContextsEndpoint @Inject constructor(
 
   private fun PodContextDbo.toResponse(entry: ContextPermissionEntry): PodContextResponse {
     return PodContextResponse(
-      contextUri = contextUri,
+      contextIri = contextUri,
       permissions = entry.permissions,
       source = entry.source.value,
       label = label,
@@ -301,7 +301,7 @@ class PodContextsEndpoint @Inject constructor(
 
   private fun PodContextDbo.toPutResponse(): PutPodContextResponse {
     return PutPodContextResponse(
-      contextUri = contextUri,
+      contextIri = contextUri,
       label = label,
       description = description,
       public = isPublic,
@@ -333,11 +333,13 @@ data class PutPodContextRequest(
  * specification's `Context` schema (sempods-spec `openapi/sempods-core.yaml`), plus `source` and
  * `createdAt`, which the schema does not define.
  *
- * [legacyContextIri] is [contextUri] under the name the legacy client and the MCP instructions still
- * read; #152 removes it.
+ * The IRI goes out twice: as the schema's `contextUri`, and as `context_iri`, which the legacy client
+ * and the MCP instructions still read and #152 removes. The Kotlin property keeps its published name
+ * [contextIri], so a compiled consumer of this class keeps linking.
  */
 data class PodContextResponse(
-  val contextUri: String,
+  @field:JsonProperty("context_iri")
+  val contextIri: String,
 
   val permissions: List<String>,
 
@@ -354,8 +356,8 @@ data class PodContextResponse(
   val createdAt: String,
 ) {
 
-  @get:JsonProperty("context_iri", access = JsonProperty.Access.READ_ONLY)
-  val legacyContextIri: String get() = contextUri
+  @get:JsonProperty("contextUri", access = JsonProperty.Access.READ_ONLY)
+  val contextUri: String get() = contextIri
 }
 
 /**
@@ -384,13 +386,15 @@ data class PodContextsListResponse(
 
 /**
  * Response for `PUT _system/contexts/{path}`: the created or existing context, in the members of the
- * specification's `Context` schema this route can state.
+ * specification's `Context` schema this route can state, with the IRI under both names as in
+ * [PodContextResponse].
  *
  * No `permissions`: the listing does not report the authority an owner holds, so a value here would
- * contradict it. [legacyContextIri] is [contextUri] under its earlier name; #152 removes it.
+ * contradict it.
  */
 data class PutPodContextResponse(
-  val contextUri: String,
+  @field:JsonProperty("context_iri")
+  val contextIri: String,
 
   @field:[JsonProperty JsonInclude(JsonInclude.Include.NON_EMPTY)]
   val label: String?,
@@ -403,6 +407,6 @@ data class PutPodContextResponse(
   val createdAt: String,
 ) {
 
-  @get:JsonProperty("context_iri", access = JsonProperty.Access.READ_ONLY)
-  val legacyContextIri: String get() = contextUri
+  @get:JsonProperty("contextUri", access = JsonProperty.Access.READ_ONLY)
+  val contextUri: String get() = contextIri
 }
