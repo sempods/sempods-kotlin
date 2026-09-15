@@ -4,6 +4,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.Collections
 
 /**
  * SPARQL against a pod: `POST {pod}/_system/sparql/query` with the query as `application/sparql-query`
@@ -135,19 +136,22 @@ class SempodsPodSparql internal constructor(
     val RESULTS = BodyReading<SempodsSparqlResults> { bytes, _ ->
       val document = decodeObject(bytes)
       val variables = document.nested("head").strings("vars")
+      // Indexed once, and shared by every solution: the pod decides how many variables there are, and
+      // a lookup that scans them per binding is quadratic within the body limit.
+      val positions = HashMap<String, Int>(variables.size * 2)
       variables.forEachIndexed { index, variable ->
-        if (variables.indexOf(variable) != index) throw ProtocolViolation("/head/vars/$index: repeats an earlier variable")
+        if (positions.putIfAbsent(variable, index) != null) throw ProtocolViolation("/head/vars/$index: repeats an earlier variable")
       }
+      val declared = Collections.unmodifiableSet(positions.keys)
       val solutions = document.nested("results").objects("bindings").mapIndexed { row, solution ->
         val bindings = LinkedHashMap<String, SempodsSparqlTerm>()
         solution.names().forEach { name ->
-          val declared = variables.indexOf(name)
-          if (declared < 0) throw solution.violation("binds a variable not in /head/vars")
-          bindings[name] = term(solution.nestedNamed(name, "/results/bindings/$row, the binding of /head/vars/$declared"))
+          val position = positions[name] ?: throw solution.violation("binds a variable not in /head/vars")
+          bindings[name] = term(solution.nestedNamed(name, "/results/bindings/$row, the binding of /head/vars/$position"))
         }
-        SempodsSparqlSolution(variables, bindings)
+        SempodsSparqlSolution(declared, bindings)
       }
-      SempodsSparqlResults(variables, solutions)
+      SempodsSparqlResults(variables, declared, solutions)
     }
 
     fun term(binding: ProtocolObject): SempodsSparqlTerm {

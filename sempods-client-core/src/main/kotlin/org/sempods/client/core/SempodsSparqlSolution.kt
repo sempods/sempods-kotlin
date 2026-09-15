@@ -4,7 +4,7 @@ import java.util.Collections
 
 /** One row of a SELECT result: the terms its variables are bound to. */
 class SempodsSparqlSolution internal constructor(
-  private val variables: List<String>,
+  private val variables: Set<String>,
   bindings: Map<String, SempodsSparqlTerm>,
 ) {
 

@@ -77,6 +77,14 @@ class ProtocolJsonTest {
     )
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = ["""{"a":1} {}""", """{"a":1}]""", """{} []"""])
+  fun `content after the document is refused as malformed`(json: String) {
+    val violation = assertThrows<ProtocolViolation> { document(json) }
+
+    assertTrue(violation.detail.startsWith("malformed JSON at line 1, column "), violation.detail)
+  }
+
   @Test
   fun `a document that is not one object says what it found`() {
     assertEquals(

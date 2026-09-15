@@ -1,5 +1,6 @@
 package org.sempods.client.core
 
+import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -7,6 +8,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -92,6 +94,22 @@ class SempodsSparqlResultsDecodingTest : MockPodTest() {
 
     assertThrows<IllegalArgumentException> { results.column("typo") }
     assertThrows<IllegalArgumentException> { results.solutions.single()["typo"] }
+  }
+
+  /** The pod decides how many variables and solutions there are; reading them must stay linear in that. */
+  @Test
+  fun `a result with a hundred thousand variables and solutions reads in linear time`() {
+    val count = 100_000
+    val vars = (0 until count).joinToString(",", "[", "]") { "\"v$it\"" }
+    val bindings = (0 until count).joinToString(",", "[", "]") { """{"v$it":{"type":"literal","value":"x"}}""" }
+    answer(results(vars, bindings))
+
+    val results = assertTimeoutPreemptively(Duration.ofSeconds(10)) { assertNotNull(sparql().select("SELECT * WHERE { ?s ?p ?o }").body) }
+
+    assertEquals(count, results.variables.size)
+    assertEquals(count, results.solutions.size)
+    val column = assertTimeoutPreemptively(Duration.ofSeconds(10)) { results.column("v${count - 1}") }
+    assertEquals(listOf("x"), column.map { it.value })
   }
 
   @ParameterizedTest

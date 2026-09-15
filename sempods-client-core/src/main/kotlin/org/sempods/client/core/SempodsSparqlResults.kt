@@ -8,6 +8,7 @@ import java.util.Collections
  */
 class SempodsSparqlResults internal constructor(
   variables: List<String>,
+  private val declared: Set<String>,
   solutions: List<SempodsSparqlSolution>,
 ) {
 
@@ -22,7 +23,7 @@ class SempodsSparqlResults internal constructor(
    * @throws IllegalArgumentException for a name that is not a declared variable.
    */
   fun column(variable: String): List<SempodsSparqlTerm> {
-    require(variable in variables) { "'$variable' is not a variable of this result: ${variables.size} were declared." }
+    require(variable in declared) { "'$variable' is not a variable of this result: ${variables.size} were declared." }
     return solutions.mapNotNull { it[variable] }
   }
 
