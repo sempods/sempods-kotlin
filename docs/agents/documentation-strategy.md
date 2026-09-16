@@ -89,8 +89,9 @@ moved.
 owes its caller. Markdown stays high-level and links the code path.
 
 **5. In code, the public declaration owns the contract.** Its KDoc states it once: a type's for the type,
-a function's or property's for that member. A private function, a helper or an inline comment gives only
-its own reason and links the owner. Cases go in a list or a table, one row per case:
+a function's or property's for that member. A private function, a helper or an inline comment links the
+public contract and states only what is its own, such as a lock it expects held. Cases go in a list or a
+table, one row per case:
 
 | Case | What the caller gets |
 |---|---|
