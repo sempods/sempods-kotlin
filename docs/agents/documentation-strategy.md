@@ -89,12 +89,13 @@ moved.
 owes its caller. Markdown stays high-level and links the code path.
 
 **5. In code, the public type owns the contract.** Its KDoc states it once. A private function, a helper
-or an inline comment gives only its own reason and links the owner. Cases go in a list or a table:
+or an inline comment gives only its own reason and links the owner. Cases go in a list or a table, one
+row per case:
 
-| The server | The caller gets |
+| Case | What the caller gets |
 |---|---|
-| answers `503` with `Retry-After: 0` | the `503`, without that header |
-| answers `407` over a direct connection | a `ProtocolException` |
+| the first case | its outcome |
+| the second case | its outcome |
 
 **6. This repository is public.** Nothing strategic, commercial or personal, in issues and proposals
 too. Technical plans are public; private planning stays private.
