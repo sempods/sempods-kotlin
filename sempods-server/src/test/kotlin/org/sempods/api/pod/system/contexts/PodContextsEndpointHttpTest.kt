@@ -736,6 +736,34 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a context named in a caller's own language is created, read and removed through the core`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    // `SPS-CTX-009`: a freely chosen name that breaks no structural rule. The path carries it
+    // percent-encoded and the endpoint takes it back decoded, so the IRI is the one the pod stored.
+    val iri = contextUri(pod.name, "grüße/例")
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      assertEquals(201, contexts.create(iri).status)
+    }
+    assertNotNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = iri))
+
+    val reader = mintScopedToken(pod.name, listOf("$iri#read"))
+    withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
+      val read = contexts.getText(iri)
+      assertEquals(200, read.status, read.body)
+      assertEquals(iri, objectMapper.readTree(read.body).path("@id").asText())
+      assertTrue(ids(objectMapper.readTree(contexts.listText().body), "${SD_NS}namedGraph").contains(iri))
+    }
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      assertEquals(204, contexts.delete(iri).status)
+    }
+    assertNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = iri))
+  }
+
+  @Test
   fun `the client core reads the catalogue its session sees, and nothing beyond it`() {
     val pod = sempodsTestFactory.newPod()
     val path = "test/core-listing"

@@ -116,6 +116,9 @@ class SempodsResourceAddressTest {
     assertEquals("_system/contexts/tasks", registry.path("https://pods.example/alice/_system/contexts/tasks"))
     assertEquals("_system/contexts/apps/example/tasks", registry.path("https://pods.example/alice/_system/contexts/apps/example/tasks"))
     assertEquals("_system/contexts/a!\$&'()*+,=:@-._~b", registry.path("https://pods.example/alice/_system/contexts/a!\$&'()*+,=:@-._~b"))
+    // What a context is named is the pod's to say (SPS-CTX-009); the path carries it percent-encoded.
+    assertEquals("_system/contexts/gr%C3%BC%C3%9Fe", registry.path("https://pods.example/alice/_system/contexts/grüße"))
+    assertEquals("_system/contexts/apps/%E4%BE%8B/a", registry.path("https://pods.example/alice/_system/contexts/apps/例/a"))
     assertEquals(
       "_system/contexts/tasks",
       ResourceAddress.RegistryPath(SempodsPodBase.of("https://example.org/pods/alice/")).path("https://example.org/pods/alice/_system/contexts/tasks"),
@@ -134,8 +137,8 @@ class SempodsResourceAddressTest {
     assertEquals(outside, reason("did:web:bob.example"))
     assertEquals("names no context under 'https://pods.example/alice/_system/contexts/'", reason("https://pods.example/alice/_system/contexts/"))
     assertEquals("has a query or a fragment, which a context IRI cannot carry", reason("https://pods.example/alice/_system/contexts/a?b"))
-    // The pod reads this path back decoded, so `%`, `;` and anything outside ASCII name another context, or none.
-    listOf("a%20b" to 45, "a;b" to 45, "grüße" to 46).forEach { (path, position) ->
+    // The pod reads this path back decoded, so `%` and `;` would name another context, or none.
+    listOf("a%20b" to 45, "a;b" to 45, "a b" to 45).forEach { (path, position) ->
       assertEquals(
         "has a character at position $position that a context path cannot carry as it is",
         reason("https://pods.example/alice/_system/contexts/$path"),

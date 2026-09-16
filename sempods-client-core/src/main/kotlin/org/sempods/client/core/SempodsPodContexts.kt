@@ -45,10 +45,12 @@ import java.io.IOException
  * `rdfs:seeAlso`. Those are read and written through [SempodsPodSubjects], in whatever context they
  * live in.
  *
- * **[create] takes the IRI as the pod gave it** (SPS-CTX-005, SPS-CTX-023): it is the route as well as
- * the identity, and this client composes neither. One that does not lie under this pod's
- * `_system/contexts/`, or that carries a query, a fragment, an empty or a dot segment, or a character
- * the path cannot carry as it is, is an [IllegalArgumentException], and nothing is sent.
+ * **Every operation takes the IRI as the pod gave it** (SPS-CTX-005, SPS-CTX-023): it is the route as
+ * well as the identity, and this client composes neither. What a context may be named is the pod's to
+ * say (SPS-CTX-009) — `grüße` travels percent-encoded and arrives as it was written. What is refused
+ * is an IRI that could not be addressed as itself: one outside this pod's `_system/contexts/`, or
+ * carrying a query, a fragment, a percent-encoded octet, a `;`, an empty or a dot segment. That is an
+ * [IllegalArgumentException], and nothing is sent.
  *
  * **After a connection lost before an answer**, a read, [create] and [delete] are sent once more, as
  * any `GET`, `PUT` and `DELETE` are. A creation whose answer was lost that way reports `200`, because

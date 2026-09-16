@@ -55,9 +55,11 @@ internal sealed class ResourceAddress {
    * `_system/contexts/{path}`, where a context's IRI **is** the route that manages it (SPS-CTX-005).
    *
    * The IRI is taken as the pod gave it and the prefix cut off, so nothing here composes one
-   * (SPS-CTX-023). What the pod could not read back as it went out is refused: it takes this path
-   * decoded and builds the context IRI from it, so a percent-encoded octet, a `;` (#181) or a byte
-   * outside ASCII would name another context, or none at all (SPS-CTX-013).
+   * (SPS-CTX-023). **What a context may be named is the pod's to say** (SPS-CTX-009): this refuses
+   * only what could not be addressed as itself, because the pod takes this path decoded and builds
+   * the IRI from it — a percent-encoded octet, a `;` (#181), an empty or a dot segment would name
+   * another context, or none at all (SPS-CTX-013). Anything else travels percent-encoded and arrives
+   * as it was written, `grüße` included.
    */
   class RegistryPath(private val podBase: SempodsPodBase) : ResourceAddress() {
 
@@ -66,8 +68,9 @@ internal sealed class ResourceAddress {
     override fun path(iri: String): String {
       val reason = reject(iri)
       require(reason == null) { "'$iri' $reason." }
-      // Every character the rule admits reaches the pod as it is, so there is nothing left to encode.
-      return "$CATALOGUE/${iri.substring(namespace.length)}"
+      val url = podBase.url.newBuilder().addPathSegments(CATALOGUE)
+      iri.substring(namespace.length).split('/').forEach { url.addPathSegment(it) }
+      return url.build().encodedPath.substring(podBase.url.encodedPath.removeSuffix("/").length + 1)
     }
 
     /** Why [iri] is no context of this pod, or null when it is one. */
@@ -78,7 +81,7 @@ internal sealed class ResourceAddress {
       val path = iri.substring(namespace.length)
       if (path.isEmpty()) return "names no context under '$namespace'"
       if ('?' in path || '#' in path) return "has a query or a fragment, which a context IRI cannot carry"
-      val unfit = path.indexOfFirst { it != '/' && it !in PATH_CHARACTERS }
+      val unfit = path.indexOfFirst { it.code < 0x80 && it != '/' && it !in PATH_CHARACTERS }
       if (unfit >= 0) {
         return "has a character at position ${namespace.length + unfit} that a context path cannot carry as it is"
       }
