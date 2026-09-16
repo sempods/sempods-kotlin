@@ -432,6 +432,9 @@ subprojects {
         // `PodTokenRateLimiterTest`'s subject, where the budget is stated per case.
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_PER_MINUTE", 60)
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST", 60)
+        // Off the default of 96, so the consent dialog test can tell a configured number from one
+        // written into the template. 30 is not whole days, which the dialog then has to say in hours.
+        environment("SEMPODS_SESSION_CONNECTION_IDLE_HOURS", 30)
       }
     }
   }

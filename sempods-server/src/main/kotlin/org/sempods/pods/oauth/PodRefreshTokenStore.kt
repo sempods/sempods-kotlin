@@ -6,7 +6,9 @@ import com.mongodb.client.model.Filters
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import org.sempods.SempodsCollections
+import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
+import java.time.Duration
 import java.time.Instant
 
 /** A refresh token of this pod server, with the owner already resolved. */
@@ -24,10 +26,15 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions"
  *   states.
  */
-class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionName: String) {
+class PodRefreshTokenStore internal constructor(
+  db: MongoDatabase,
+  collectionName: String,
+  config: SempodsConfig,
+) {
 
   @Inject
-  internal constructor(db: MongoDatabase) : this(db, SempodsCollections.OAUTH_REFRESH_TOKENS)
+  internal constructor(db: MongoDatabase, config: SempodsConfig) :
+    this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config)
 
   /**
    * @param podId the pod the token is good for, and the key everything bulk-revoking starts from.
@@ -63,28 +70,48 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   )
 
   /**
-   * Which lifetime a family was minted under, as this server's consent control decides it, and how
-   * long each one lives.
+   * Which lifetime a family was minted under, as this server's consent control decides it.
    *
    * The class is stored on every row as [RefreshTokenStore.Token.kind] and inherited by each
    * rotation, so a rotation reads the terms off the credential rather than off the consent decision
    * — that document is the person's to edit, and a durable family a withdrawal has not yet swept
    * would otherwise be read as a session family: the short window **and** an escape from the
-   * withdrawal.
-   *
-   * The numbers are this server's. RFC 10017 §6.3.2.3 requires a maximum lifetime or an idle expiry
-   * and fixes neither, and says an authorization server MAY set different policies for
-   * browser-based applications.
-   *
-   * @param idleSeconds how long a family survives unused. Every rotation renews it, which is what
-   *   makes it an idle window rather than a life.
-   * @param absoluteSeconds the family's outer bound, fixed when it is seeded and never moved again.
-   *   Without one a family that rotates daily never ends, which RFC 10017 §6.3.2.3 rules out: a
-   *   rotation may not extend the new token's lifetime beyond the initial token's.
+   * withdrawal. How long each class lives is [termsOf]'s answer.
    */
-  internal enum class Lifetime(val kind: String, val idleSeconds: Long, val absoluteSeconds: Long) {
-    SESSION("session", 12L * 60 * 60, 7L * 24 * 60 * 60),
-    DURABLE("durable", 90L * 24 * 60 * 60, 180L * 24 * 60 * 60),
+  internal enum class Lifetime(val kind: String) {
+    SESSION("session"),
+    DURABLE("durable"),
+  }
+
+  /**
+   * How long a family of one [Lifetime] lives.
+   *
+   * The numbers are the deployment's ([SempodsConfig.sessionConnectionIdleHours] and the three beside
+   * it). RFC 10017 §6.3.2.3 requires a maximum lifetime or an idle expiry and fixes neither, and says
+   * an authorization server MAY set different policies for browser-based applications.
+   *
+   * @param idle how long a family survives unused. Every rotation renews it, which is what makes it
+   *   an idle window rather than a life.
+   * @param absolute the family's outer bound, fixed when it is seeded and never moved again. Without
+   *   one a family that rotates daily never ends, which RFC 10017 §6.3.2.3 rules out: a rotation may
+   *   not extend the new token's lifetime beyond the initial token's.
+   */
+  internal class Terms(val idle: Duration, val absolute: Duration)
+
+  private val sessionTerms = Terms(
+    idle = Duration.ofHours(config.sessionConnectionIdleHours.toLong()),
+    absolute = Duration.ofDays(config.sessionConnectionAbsoluteDays.toLong()),
+  )
+
+  private val durableTerms = Terms(
+    idle = Duration.ofDays(config.durableConnectionIdleDays.toLong()),
+    absolute = Duration.ofDays(config.durableConnectionAbsoluteDays.toLong()),
+  )
+
+  /** The terms a family of [lifetime] is seeded and rotated on, and the ones the consent dialog names. */
+  internal fun termsOf(lifetime: Lifetime): Terms = when (lifetime) {
+    Lifetime.SESSION -> sessionTerms
+    Lifetime.DURABLE -> durableTerms
   }
 
   /**
@@ -118,21 +145,24 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
     webId: String,
     scopes: Set<String>,
     lifetime: Lifetime,
-  ): RefreshTokenStore.Issued<Owner> = store.issueNewFamily(
-    owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
-    scopes = scopes,
-    kind = lifetime.kind,
-    endsAt = Instant.now().plusSeconds(lifetime.absoluteSeconds),
-    ttlSeconds = lifetime.idleSeconds,
-  )
+  ): RefreshTokenStore.Issued<Owner> {
+    val terms = termsOf(lifetime)
+    return store.issueNewFamily(
+      owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
+      scopes = scopes,
+      kind = lifetime.kind,
+      endsAt = Instant.now().plus(terms.absolute),
+      ttlSeconds = terms.idle.seconds,
+    )
+  }
 
   /**
    * The successor in an existing family, on that family's own idle window, and **under a deadline
    * where the family reaches this without one**.
    *
    * The window comes from [lifetimeOf] and not from the store's default, or a session family would
-   * rotate on a ninety-day TTL: the clamp would hold it to its seven-day deadline and it would never
-   * expire from disuse at all.
+   * rotate on a ninety-day TTL: the clamp would hold it to its own deadline and it would never expire
+   * from disuse at all.
    *
    * The deadline is the predecessor's own expiry — the only one such a family demonstrably has, and
    * taking it extends nothing, because the clamp then hands the successor that same instant. At this
@@ -151,7 +181,7 @@ class PodRefreshTokenStore internal constructor(db: MongoDatabase, collectionNam
   ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(
     previous = previous.copy(endsAt = previous.endsAt ?: previous.expiresAt),
     scopes = scopes,
-    ttlSeconds = lifetimeOf(previous).idleSeconds,
+    ttlSeconds = termsOf(lifetimeOf(previous)).idle.seconds,
   )
 
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)

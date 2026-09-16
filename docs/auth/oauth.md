@@ -240,8 +240,12 @@ is issued a refresh token, and the answer picks the family's terms.
 
 | | idle window | absolute ceiling |
 |---|---|---|
-| unticked | 12 h | 7 days |
-| ticked | 90 days | 180 days |
+| unticked | `SEMPODS_SESSION_CONNECTION_IDLE_HOURS` (default 96) | `SEMPODS_SESSION_CONNECTION_ABSOLUTE_DAYS` (default 7) |
+| ticked | `SEMPODS_DURABLE_CONNECTION_IDLE_DAYS` (default 90) | `SEMPODS_DURABLE_CONNECTION_ABSOLUTE_DAYS` (default 180) |
+
+The numbers are the deployment's, and the consent page names the configured
+ones. The server refuses to start where a value is not positive or an idle
+window exceeds its ceiling.
 
 Both classes end. An app that syncs daily and has been connected
 indefinitely re-authorizes on a schedule from here on, which is a
@@ -303,9 +307,9 @@ tokens are SHA-256 hashed at rest.
 
 A family carries the terms it was minted under, and a rotation inherits
 them rather than deciding them again. Each class has its own idle window
-— 12 h for a family minted without the tick, 90 days with it — and a
-rotation renews that window rather than the family's life.
-`PodRefreshTokenStore.Lifetime` holds the numbers,
+(the table under [`offline_access`](#offline_access)), and a rotation
+renews that window rather than the family's life.
+`PodRefreshTokenStore.termsOf` holds the numbers,
 `RefreshTokenStore.issueInFamily` the inheritance, RFC 10017 §6.3.2.3 the
 requirement behind it: a rotation may not extend the new token's lifetime
 beyond the initial token's where the family has a preestablished

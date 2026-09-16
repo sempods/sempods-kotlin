@@ -594,6 +594,17 @@ class SempodsModule : BaseModule() {
     internal const val TOKEN_RATE_LIMIT_ADDRESS_BURST_ENV_VARIABLE = "SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST"
 
     /**
+     * How long a connection lives — see [SempodsConfig.sessionConnectionIdleHours].
+     *
+     * `CONNECTION` in the name because the pod has a second session, the sign-in cookie
+     * (`PodTokenIssuer.SESSION_TTL_SECONDS`), and `SEMPODS_SESSION_IDLE_HOURS` would read as that one.
+     */
+    internal const val SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE = "SEMPODS_SESSION_CONNECTION_IDLE_HOURS"
+    internal const val SESSION_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE = "SEMPODS_SESSION_CONNECTION_ABSOLUTE_DAYS"
+    internal const val DURABLE_CONNECTION_IDLE_DAYS_ENV_VARIABLE = "SEMPODS_DURABLE_CONNECTION_IDLE_DAYS"
+    internal const val DURABLE_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE = "SEMPODS_DURABLE_CONNECTION_ABSOLUTE_DAYS"
+
+    /**
      * What a deployment that sets nothing gets.
      *
      * Named rather than written into [config] as literals so `SempodsConfigTest` can pin them.
@@ -654,6 +665,23 @@ class SempodsModule : BaseModule() {
      */
     internal const val DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_PER_MINUTE = 100
     internal const val DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_BURST = 1000
+
+    /**
+     * 96 hours unused and 7 days at most, for a connection the person left unticked.
+     *
+     * 96 hours covers a long weekend: somebody who last used an app on Friday at 18:00 opens it again
+     * after a public holiday on Tuesday at 09:00, 87 hours later, without signing in. The idle window
+     * bounds how long a stolen refresh token that nobody rotates stays usable, and four days is
+     * accepted because every client of a pod is a proof of concept today. A token bound to a key
+     * removes that reason, and a longer window for such connections is
+     * [#146](https://github.com/sempods/sempods-kotlin/issues/146).
+     */
+    internal const val DEFAULT_SESSION_CONNECTION_IDLE_HOURS = 96
+    internal const val DEFAULT_SESSION_CONNECTION_ABSOLUTE_DAYS = 7
+
+    /** 90 days unused and 180 days at most, for a connection the person ticked. */
+    internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
+    internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
 
     /**
      * The pod server's configuration, read once from the environment.
@@ -727,6 +755,22 @@ class SempodsModule : BaseModule() {
         tokenRateLimitAddressBurst = Env.int(
           TOKEN_RATE_LIMIT_ADDRESS_BURST_ENV_VARIABLE,
           default = if (Env.isDevelopment) 0 else DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_BURST,
+        ),
+        sessionConnectionIdleHours = Env.int(
+          SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE,
+          default = DEFAULT_SESSION_CONNECTION_IDLE_HOURS,
+        ),
+        sessionConnectionAbsoluteDays = Env.int(
+          SESSION_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE,
+          default = DEFAULT_SESSION_CONNECTION_ABSOLUTE_DAYS,
+        ),
+        durableConnectionIdleDays = Env.int(
+          DURABLE_CONNECTION_IDLE_DAYS_ENV_VARIABLE,
+          default = DEFAULT_DURABLE_CONNECTION_IDLE_DAYS,
+        ),
+        durableConnectionAbsoluteDays = Env.int(
+          DURABLE_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE,
+          default = DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS,
         ),
       )
     }

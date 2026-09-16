@@ -810,6 +810,8 @@ class PodAuthEndpoint @Inject constructor(
     val disconnectAvailable = holdsAnything(podDbo, normalizedClientId, identity)
 
     val consentAction = "${config.apiBaseUrl}${podDbo.name}/_system/auth/authorize/consent"
+    val sessionTerms = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.SESSION)
+    val durableTerms = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.DURABLE)
     val html = templateRenderer.render(
       "consent", mapOf(
         "consentAction" to consentAction,
@@ -852,6 +854,10 @@ class PodAuthEndpoint @Inject constructor(
         "publicReadPreselected" to publicReadPreselected,
         "publicReadScope" to PUBLIC_READ_SCOPE,
         "durablePreselected" to durablePreselected,
+        "sessionIdle" to durationInWords(sessionTerms.idle),
+        "sessionAbsolute" to durationInWords(sessionTerms.absolute),
+        "durableIdle" to durationInWords(durableTerms.idle),
+        "durableAbsolute" to durationInWords(durableTerms.absolute),
         "disconnectAvailable" to disconnectAvailable,
       ))
     return Response.ok(html, MediaType.TEXT_HTML).build()
@@ -2417,6 +2423,17 @@ class PodAuthEndpoint @Inject constructor(
       "invalid_client: this pod holds no registration for that client_id. It was removed, it " +
           "expired, or it belongs to a different pod. Register again at the registration_endpoint " +
           "and restart authorization."
+
+    /**
+     * A connection's term as the consent dialog says it: in days where it is whole days, in hours
+     * otherwise — "4 days", "30 hours". The configuration states every term in whole hours or days.
+     */
+    internal fun durationInWords(duration: Duration): String {
+      val hours = duration.toHours()
+      return if (hours % 24 == 0L) counted(hours / 24, "day") else counted(hours, "hour")
+    }
+
+    private fun counted(count: Long, unit: String): String = if (count == 1L) "1 $unit" else "$count ${unit}s"
   }
 }
 

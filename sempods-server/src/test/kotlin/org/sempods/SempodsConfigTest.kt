@@ -78,7 +78,53 @@ class SempodsConfigTest {
     assertEquals(0, withoutOpinion.tokenRateLimitBurst)
     assertEquals(0, withoutOpinion.tokenRateLimitAddressPerMinute)
     assertEquals(0, withoutOpinion.tokenRateLimitAddressBurst)
+    // How long a connection lives, which the consent dialog promises the person;
+    // `DEFAULT_SESSION_CONNECTION_IDLE_HOURS` says why 96. The type carries the same numbers, since
+    // a lifetime has no "off" to fall back to.
+    assertEquals(96, SempodsModule.DEFAULT_SESSION_CONNECTION_IDLE_HOURS)
+    assertEquals(7, SempodsModule.DEFAULT_SESSION_CONNECTION_ABSOLUTE_DAYS)
+    assertEquals(90, SempodsModule.DEFAULT_DURABLE_CONNECTION_IDLE_DAYS)
+    assertEquals(180, SempodsModule.DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS)
+    assertEquals(96, withoutOpinion.sessionConnectionIdleHours)
+    assertEquals(7, withoutOpinion.sessionConnectionAbsoluteDays)
+    assertEquals(90, withoutOpinion.durableConnectionIdleDays)
+    assertEquals(180, withoutOpinion.durableConnectionAbsoluteDays)
   }
+
+  /** The boot-time refusal [SempodsConfig.sessionConnectionIdleHours] states. */
+  @Test
+  fun `a connection term that is not positive, or an idle window past its ceiling, is refused`() {
+    assertFailsWith<IllegalArgumentException> { connectionConfig(sessionIdleHours = 0) }
+    assertFailsWith<IllegalArgumentException> { connectionConfig(sessionAbsoluteDays = -1) }
+    assertFailsWith<IllegalArgumentException> { connectionConfig(durableIdleDays = 0) }
+    assertFailsWith<IllegalArgumentException> { connectionConfig(durableAbsoluteDays = -180) }
+
+    // The session pair compares hours with days: seven days are 168 hours.
+    val inverted = assertFailsWith<IllegalArgumentException> { connectionConfig(sessionIdleHours = 169) }
+    assertTrue("sessionConnectionIdleHours" in inverted.message.orEmpty(), inverted.message.orEmpty())
+    assertFailsWith<IllegalArgumentException> { connectionConfig(durableIdleDays = 181) }
+
+    // A window as long as its ceiling is a family that ends at its deadline whether used or not.
+    assertEquals(168, connectionConfig(sessionIdleHours = 168).sessionConnectionIdleHours)
+    assertEquals(180, connectionConfig(durableIdleDays = 180).durableConnectionIdleDays)
+  }
+
+  private fun connectionConfig(
+    sessionIdleHours: Int = 96,
+    sessionAbsoluteDays: Int = 7,
+    durableIdleDays: Int = 90,
+    durableAbsoluteDays: Int = 180,
+  ) = SempodsConfig(
+    httpPort = 8090,
+    apiBaseUrl = "https://example.org/",
+    mongoUrl = "mongodb://localhost:27018",
+    mongoDb = "pods",
+    oauthErrorDocBase = null,
+    sessionConnectionIdleHours = sessionIdleHours,
+    sessionConnectionAbsoluteDays = sessionAbsoluteDays,
+    durableConnectionIdleDays = durableIdleDays,
+    durableConnectionAbsoluteDays = durableAbsoluteDays,
+  )
 
   /**
    * The documented off switch has to turn the whole endpoint off, not half of it.

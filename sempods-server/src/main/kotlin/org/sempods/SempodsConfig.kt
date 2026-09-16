@@ -124,6 +124,26 @@ data class SempodsConfig(
   val tokenRateLimitAddressBurst: Int = 0,
 
   /**
+   * How long a connection the person left unticked in the consent dialog survives unused, in hours.
+   * Every refresh renews it.
+   *
+   * This and the next three are the terms of the two refresh-token families
+   * (`PodRefreshTokenStore.termsOf`), and the consent dialog names them. Each has to be positive,
+   * and each idle window has to fit inside its ceiling: an inverted pair would boot and be clamped
+   * to the shorter number at every mint.
+   */
+  val sessionConnectionIdleHours: Int = SempodsModule.DEFAULT_SESSION_CONNECTION_IDLE_HOURS,
+
+  /** The unticked connection's outer bound, in days, fixed when it is minted. */
+  val sessionConnectionAbsoluteDays: Int = SempodsModule.DEFAULT_SESSION_CONNECTION_ABSOLUTE_DAYS,
+
+  /** How long a connection the person ticked survives unused, in days. */
+  val durableConnectionIdleDays: Int = SempodsModule.DEFAULT_DURABLE_CONNECTION_IDLE_DAYS,
+
+  /** The ticked connection's outer bound, in days. */
+  val durableConnectionAbsoluteDays: Int = SempodsModule.DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS,
+
+  /**
    * The browser origins allowed to send credentialed requests, handed to `SempodsCorsFilter`.
    *
    * Derived from [apiBaseUrl] by default, which is what an application config and a CORS filter
@@ -164,6 +184,22 @@ data class SempodsConfig(
       "tokenRateLimitPerMinute=0 turns this endpoint's limit off, so tokenRateLimitAddressPerMinute " +
           "must be 0 too, but it is $tokenRateLimitAddressPerMinute. Set both to 0 to turn the " +
           "limit off, or give the per-client tier a positive rate."
+    }
+    require(sessionConnectionIdleHours > 0 && sessionConnectionAbsoluteDays > 0) {
+      "sessionConnectionIdleHours and sessionConnectionAbsoluteDays must be positive, got " +
+          "$sessionConnectionIdleHours hours and $sessionConnectionAbsoluteDays days"
+    }
+    require(sessionConnectionIdleHours <= sessionConnectionAbsoluteDays * 24L) {
+      "sessionConnectionIdleHours ($sessionConnectionIdleHours) must not exceed " +
+          "sessionConnectionAbsoluteDays ($sessionConnectionAbsoluteDays days, ${sessionConnectionAbsoluteDays * 24L} hours)"
+    }
+    require(durableConnectionIdleDays > 0 && durableConnectionAbsoluteDays > 0) {
+      "durableConnectionIdleDays and durableConnectionAbsoluteDays must be positive, got " +
+          "$durableConnectionIdleDays and $durableConnectionAbsoluteDays days"
+    }
+    require(durableConnectionIdleDays <= durableConnectionAbsoluteDays) {
+      "durableConnectionIdleDays ($durableConnectionIdleDays) must not exceed " +
+          "durableConnectionAbsoluteDays ($durableConnectionAbsoluteDays)"
     }
   }
 
