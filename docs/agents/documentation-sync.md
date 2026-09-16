@@ -57,8 +57,9 @@ Apply the writing rules. In particular, ask in this order:
 
 ## 4. KDoc
 
-Every changed public signature: does its KDoc still describe the contract — nullability, units,
-ownership, what an implementation owes its caller? Field-level detail lives here, not in markdown.
+For every public declaration whose signature or behavior changed, check its owning KDoc under
+[rule 5](documentation-strategy.md#the-writing-rules): nullability, units, ownership and what an
+implementation owes its caller. Field-level detail lives in KDoc.
 
 ## 5. Weight
 
