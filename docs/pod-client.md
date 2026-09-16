@@ -139,7 +139,7 @@ var alice = new SempodsSession(SempodsPodBase.of("https://pods.example/alice"),
     SempodsRequestAuth.apiKeyHeader("X-Api-Key", key));
 
 var request = alice.newRequest("GET", "_system/contexts")
-    .header("Accept", "application/json")
+    .header("Accept", "application/ld+json")
     .build();
 try (Response response = client.newCall(request).execute()) {
   String contexts = response.body().string();

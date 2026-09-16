@@ -62,10 +62,16 @@ class PodWireClient(
 
   // --- reads ---------------------------------------------------------------
 
-  /** `GET {pod}/_system/contexts` → `{ contexts[], writable_contexts[], … }`. */
+  /**
+   * `GET {pod}/_system/contexts` → the caller's catalogue as canonical JSON-LD (`SPS-CTX-033`), or
+   * the `{ contexts[], writable_contexts[], … }` envelope from a pod that has not migrated yet.
+   *
+   * Handed on as it arrived, like every answer here; `ContextCatalogue` in `:sempods-mcp-core` is
+   * what turns either shape into the tool's.
+   */
   fun listContexts(podBaseUrl: URI, token: String?): JsonNode {
     val url = route(podBaseUrl, SempodsPodRoutes.CONTEXTS)
-    return jsonOrFail("list_contexts", url, get(url, token, accept = JSON))
+    return jsonOrFail("list_contexts", url, get(url, token, accept = "$JSON_LD, $JSON"))
   }
 
   /**

@@ -246,6 +246,36 @@ class SempodsClientHttpTest {
   }
 
   @Test
+  fun `listContexts reads the catalogue's members when the pod answers RDF`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val ctxB = baseUrl.resolve("_system/contexts/apps/notes/private")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(
+            """
+            <$catalogue> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/sparql-service-description#GraphCollection> .
+            <$catalogue> <http://www.w3.org/ns/sparql-service-description#namedGraph> <$ctxA> .
+            <$catalogue> <https://schema.sempods.org/readableContext> <$ctxA> .
+            <$catalogue> <https://schema.sempods.org/readableContext> <$ctxB> .
+            """.trimIndent(),
+          ),
+      )
+
+    // `ctxB` is only named in a rights relation: the members are what `sd:namedGraph` points at.
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
   fun `listContexts returns empty list when the listing has no contexts`() {
     mockServer
       .`when`(request().withMethod("GET").withPath("/alice/_system/contexts"))

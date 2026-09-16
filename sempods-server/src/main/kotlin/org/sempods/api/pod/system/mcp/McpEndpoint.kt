@@ -128,10 +128,11 @@ class McpEndpoint @Inject constructor(
 
       else -> {
         val lines = contexts.entries.map { entry ->
-          // `source` is the pod's own word for why a context is visible; `public` means the caller
-          // sees it without a grant, and that is worth saying rather than showing a bare "read".
-          val perm = if (entry.source == "public") "read (public)" else entry.permissions.joinToString(" + ")
-          "    - ${entry.contextIri}  →  $perm"
+          // What the caller may do, and no longer why: the registry catalogue states rights as three
+          // direct relations (`SPS-CTX-033`), so the provenance the old envelope carried as `source`
+          // is not on the wire any more. Reading it from the registry instead would be the second
+          // path into the pod this method exists to avoid.
+          "    - ${entry.contextIri}  →  ${entry.permissions.joinToString(" + ")}"
         }
         "- Contexts:\n" + lines.joinToString("\n")
       }
@@ -302,7 +303,6 @@ class McpEndpoint @Inject constructor(
   private data class InstructionContext(
     val contextIri: String,
     val permissions: List<String>,
-    val source: String,
   )
 
   /**
@@ -326,7 +326,6 @@ class McpEndpoint @Inject constructor(
           InstructionContext(
             contextIri = iri,
             permissions = node.path("permissions").mapNotNull { it.takeIf { p -> p.isTextual }?.asText() },
-            source = node.path("source").takeIf { it.isTextual }?.asText().orEmpty(),
           )
         },
         writableContexts = body.path("writable_contexts").mapNotNull { it.takeIf { c -> c.isTextual }?.asText() },
