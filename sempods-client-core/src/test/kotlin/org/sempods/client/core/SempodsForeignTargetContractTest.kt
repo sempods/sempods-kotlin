@@ -329,6 +329,23 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
+  fun `a credentialed call is held to its origin even when an interceptor already carries the same header`() {
+    answer(200, "ok")
+    val sameHeaderAhead = client.newBuilder().apply {
+      interceptors().add(0, Interceptor { chain -> chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer t-1").build()) })
+      interceptors().add(Interceptor { chain ->
+        val request = chain.request()
+        chain.proceed(request.newBuilder().url(request.url.newBuilder().host("127.0.0.1").build()).build())
+      })
+    }.build()
+
+    assertThrows<SempodsClientException> {
+      SempodsForeignTarget(sameHeaderAhead).getText(card, "text/turtle", SempodsRequestAuth.bearer("t-1"))
+    }
+    assertTrue(recorded().isEmpty(), "the bearer went nowhere, though applying it changed no header")
+  }
+
+  @Test
   fun `a Host naming another authority is refused for a credentialed call`() {
     answer(200, "ok")
 

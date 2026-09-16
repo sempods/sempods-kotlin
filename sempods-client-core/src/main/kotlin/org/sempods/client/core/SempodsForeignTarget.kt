@@ -23,9 +23,10 @@ import java.io.OutputStream
  *
  * **Not a session and not an endpoint group.** There is no pod base, and nothing is inherited from one:
  * a credential goes with the call that names it and with no other, and the client's own
- * `Authenticator` and `CookieJar` do not answer for these calls. A call that carries a credential is
- * held to the origin it names, as a session's is to its pod: an interceptor that moves it elsewhere is
- * refused on the request about to be written. The target is whatever URI a call passes, so one
+ * `Authenticator` and `CookieJar` do not answer for these calls. A call given any mechanism but
+ * [SempodsRequestAuth.anonymous] is held to the origin it names, as a session's is to its pod: an
+ * interceptor that moves it elsewhere, before the credential is applied or after, is refused before
+ * anything is written. The target is whatever URI a call passes, so one
  * instance serves any number of them.
  *
  * **The guard is the client's, and it is opt-in.** On a client installed with a
@@ -92,8 +93,8 @@ class SempodsForeignTarget internal constructor(
    * `308`, each as a `GET`. `300`, `304`, `305` and `306` are answers — `305` names a proxy the server
    * chose, which is never taken.
    *
-   * A `Location` is resolved against the URL that answered — the request as the server received it, after
-   * whatever an interceptor on the client made of it. A redirect with no `Location` or with two, one that
+   * A `Location` is resolved against the URL that answered ([SempodsResponse.url]), after whatever an
+   * interceptor on the client made of the request's URL. A redirect with no `Location` or with two, one that
    * does not resolve to an http or https URL, one carrying userinfo, one back to a URL this call has
    * already asked or been answered from, and the one that would exceed the budget, are the answer. An https target may redirect to http; the hop that does leaves the origin, so it goes on
    * without a credential, but its answer travels in the clear.
@@ -183,7 +184,12 @@ class SempodsForeignTarget internal constructor(
 
   /** The request for one hop. Its credential is applied by the call itself, inside the call's slot and deadline. */
   private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request =
-    Request.Builder().url(target).get().header("Accept", accept).tag(ForeignCall::class.java, ForeignCall(target, credential)).build()
+    Request.Builder()
+      .url(target)
+      .get()
+      .header("Accept", accept)
+      .tag(ForeignCall::class.java, ForeignCall(target, credential?.takeUnless { it === SempodsRequestAuth.anonymous() }))
+      .build()
 
   companion object {
 
@@ -226,8 +232,8 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
 
 /**
  * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, the URL it was
- * built for, the mechanism that authenticates it, and — once that mechanism has put anything on it — the
- * origin that was for.
+ * built for, and the mechanism that authenticates it — null for [SempodsRequestAuth.anonymous]. A call
+ * with a mechanism is held to the origin it was built for.
  */
 internal class ForeignCall(private val named: HttpUrl, private val auth: SempodsRequestAuth?) {
 
@@ -241,14 +247,13 @@ internal class ForeignCall(private val named: HttpUrl, private val auth: Sempods
    */
   @Throws(IOException::class)
   fun authenticate(request: Request): Request {
-    val authenticated = auth?.authenticate(request, attempt = 1) ?: return request
-    // A call the mechanism left as it was carries nothing an interceptor could take elsewhere.
-    if (authenticated.headers == request.headers) return request
-    // What it put on the request is for the origin the caller named. An interceptor ahead of this one may
-    // already have moved the request, and the credential does not follow it there.
+    val mechanism = auth ?: return request
+    // A call given a mechanism is held to the origin the caller named, whatever the mechanism puts on it —
+    // a header an interceptor ahead of this one already set to the same value included. That interceptor
+    // may also have moved the request, and the credential does not follow it there.
     if (!sameOrigin(request.url, named)) throw movedAway(request.url)
     credentialedFor = named
-    return authenticated
+    return mechanism.authenticate(request, attempt = 1)
   }
 
   /**

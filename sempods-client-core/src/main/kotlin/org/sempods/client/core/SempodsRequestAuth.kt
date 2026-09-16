@@ -117,9 +117,14 @@ fun interface SempodsRequestAuth {
      * bearer, and reading public data is what a consumer that owns no pod does. A 401 is
      * deliberately not retried: there is nothing to re-mint, so a second attempt would only double
      * the latency of a failure that was already final.
+     *
+     * Always the same instance: a [SempodsForeignTarget] call given anything else is one that carries a
+     * credential.
      */
     @JvmStatic
-    fun anonymous(): SempodsRequestAuth = SempodsRequestAuth { _, _ -> }
+    fun anonymous(): SempodsRequestAuth = ANONYMOUS
+
+    private val ANONYMOUS = SempodsRequestAuth { _, _ -> }
 
     /**
      * A credential the caller already holds.
