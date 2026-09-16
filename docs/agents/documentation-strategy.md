@@ -88,9 +88,9 @@ moved.
 **4. Field-level contracts live in KDoc**: what a field means, what may be null, what an implementation
 owes its caller. Markdown stays high-level and links the code path.
 
-**5. In code, the public type owns the contract.** Its KDoc states it once. A private function, a helper
-or an inline comment gives only its own reason and links the owner. Cases go in a list or a table, one
-row per case:
+**5. In code, the public declaration owns the contract.** Its KDoc states it once: a type's for the type,
+a function's or property's for that member. A private function, a helper or an inline comment gives only
+its own reason and links the owner. Cases go in a list or a table, one row per case:
 
 | Case | What the caller gets |
 |---|---|

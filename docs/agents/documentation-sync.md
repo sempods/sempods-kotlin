@@ -84,8 +84,8 @@ Over what is left:
   map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
   exactly one copy.
 - Does a field's KDoc repeat what the class KDoc says? The field wins (rule 4).
-- Does a private function, a helper or an inline comment restate a public type's contract? Link the
-  owner (rule 5).
+- Does a private function, a helper or an inline comment restate a public declaration's contract? Link
+  the owner (rule 5).
 - Does anything explain why something was **not** changed? That is the commit message's job.
 - Did the change delete anything? One that only adds has not looked (rule 11).
 
