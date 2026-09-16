@@ -161,7 +161,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * send the consumer's cookies. A client that follows redirects is refused, because OkHttp would carry
    * the call's credential wherever a redirect points and strip only `Authorization` on the way.
    *
-   * **OkHttp repeats nothing for it**, because every status is the call's answer: a `408` would be sent
+   * **OkHttp repeats nothing for it** but a `421` on a connection it shared with another host (#160),
+   * because every status is the call's answer: a `408` would be sent
    * again under `retryOnConnectionFailure`, so that is off, and the one resend a `GET` may have after a
    * connection lost before an answer is made here, as it is for a session ([ConnectionResend]). The same
    * request goes out again; its credential is not asked twice. [FinalTarget] takes a `503`'s
