@@ -186,7 +186,7 @@ pod.slots().add("did:web:bob.example", knows, SempodsContent.of(carolRef), Sempo
 
 pod.contexts().create(tasks, SempodsContextCreate.fields().withLabel("Tasks"));
 String catalogue = pod.contexts().listText().getBody();
-pod.contexts().exportTo(tasks, Files.newOutputStream(dump));
+try (OutputStream dump = Files.newOutputStream(path)) { pod.contexts().exportTo(tasks, dump); }
 ```
 
 `resources()` reaches an IRI under the pod by its own path, `subjects()` any IRI through the System
