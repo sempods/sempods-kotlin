@@ -10,10 +10,12 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 
-/** The path each group sends for an IRI, and the IRIs a resource's own address cannot carry. */
+/** The path each group sends for an IRI, and the IRIs an address cannot carry. */
 class SempodsResourceAddressTest {
 
   private val alice = ResourceAddress.LodPath(SempodsPodBase.of("https://pods.example/alice"))
+
+  private val registry = ResourceAddress.RegistryPath(SempodsPodBase.of("https://pods.example/alice"))
 
   @Test
   fun `a resource's path is its IRI's path under the pod, encoded where it is not ASCII`() {
@@ -107,6 +109,45 @@ class SempodsResourceAddressTest {
     assertEquals("lies in the pod's reserved '.well-known' area (SPS-CRUD-004)", reason("https://pods.example/alice/.well-known"))
     assertEquals("has a dot segment", reason("https://pods.example/alice/a/../b"))
     assertEquals("has an empty segment", reason("https://pods.example/alice/a//b"))
+  }
+
+  @Test
+  fun `a context's path is its IRI under the pod's context namespace`() {
+    assertEquals("_system/contexts/tasks", registry.path("https://pods.example/alice/_system/contexts/tasks"))
+    assertEquals("_system/contexts/apps/example/tasks", registry.path("https://pods.example/alice/_system/contexts/apps/example/tasks"))
+    assertEquals("_system/contexts/a!\$&'()*+,=:@-._~b", registry.path("https://pods.example/alice/_system/contexts/a!\$&'()*+,=:@-._~b"))
+    // What a context is named is the pod's to say (SPS-CTX-009); the path carries it percent-encoded.
+    assertEquals("_system/contexts/gr%C3%BC%C3%9Fe", registry.path("https://pods.example/alice/_system/contexts/grüße"))
+    assertEquals("_system/contexts/apps/%E4%BE%8B/a", registry.path("https://pods.example/alice/_system/contexts/apps/例/a"))
+    assertEquals(
+      "_system/contexts/tasks",
+      ResourceAddress.RegistryPath(SempodsPodBase.of("https://example.org/pods/alice/")).path("https://example.org/pods/alice/_system/contexts/tasks"),
+    )
+  }
+
+  @Test
+  fun `each refusal says why the IRI is no context of this pod`() {
+    fun reason(iri: String) = assertThrows<IllegalArgumentException> { registry.path(iri) }.message.orEmpty().removePrefix("'$iri' ").removeSuffix(".")
+
+    val outside = "is not a context of the pod 'https://pods.example/alice', whose contexts lie under " +
+      "'https://pods.example/alice/_system/contexts/' (SPS-CTX-004)"
+    assertEquals(outside, reason("https://pods.example/bob/_system/contexts/tasks"))
+    assertEquals(outside, reason("https://pods.example/alice/_system/contexts"))
+    assertEquals(outside, reason("https://pods.example/alice/events/1"))
+    assertEquals(outside, reason("did:web:bob.example"))
+    assertEquals("names no context under 'https://pods.example/alice/_system/contexts/'", reason("https://pods.example/alice/_system/contexts/"))
+    assertEquals("has a query or a fragment, which a context IRI cannot carry", reason("https://pods.example/alice/_system/contexts/a?b"))
+    // The pod reads this path back decoded, so `%` and `;` would name another context, or none.
+    listOf("a%20b" to 45, "a;b" to 45, "a b" to 45).forEach { (path, position) ->
+      assertEquals(
+        "has a character at position $position that a context path cannot carry as it is",
+        reason("https://pods.example/alice/_system/contexts/$path"),
+      )
+    }
+    assertEquals("has an empty segment", reason("https://pods.example/alice/_system/contexts/tasks/"))
+    assertEquals("has an empty segment", reason("https://pods.example/alice/_system/contexts/a//b"))
+    assertEquals("has a dot segment", reason("https://pods.example/alice/_system/contexts/a/../b"))
+    assertEquals("has a dot segment", reason("https://pods.example/alice/_system/contexts/./a"))
   }
 
   @ParameterizedTest

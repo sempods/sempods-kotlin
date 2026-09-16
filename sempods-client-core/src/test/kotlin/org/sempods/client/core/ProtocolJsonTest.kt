@@ -101,4 +101,15 @@ class ProtocolJsonTest {
     assertFalse("secret" in violation.detail, violation.detail)
     assertNull(violation.cause)
   }
+
+  @Test
+  fun `an object is written in the order its members were put in, and escaped`() {
+    assertEquals("{}", String(encodeObject(emptyMap())))
+    assertEquals(
+      """{"label":"T\u00e2ches \"\u00f6ffentlich\" \\ \u2713","public":true}""".replace("\\u00e2", "â")
+        .replace("\\u00f6", "ö").replace("\\u2713", "✓"),
+      String(encodeObject(linkedMapOf("label" to "Tâches \"öffentlich\" \\ ✓", "public" to true))),
+    )
+    assertEquals("""{"public":false,"label":""}""", String(encodeObject(linkedMapOf("public" to false, "label" to ""))))
+  }
 }

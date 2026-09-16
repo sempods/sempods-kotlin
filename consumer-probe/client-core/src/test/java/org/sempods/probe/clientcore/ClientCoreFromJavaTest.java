@@ -35,12 +35,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
 import org.sempods.client.core.SempodsContent;
+import org.sempods.client.core.SempodsContextCreate;
 import org.sempods.client.core.SempodsContextSelection;
 import org.sempods.client.core.SempodsDecodingException;
 import org.sempods.client.core.SempodsGraphFormat;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
+import org.sempods.client.core.SempodsPodContexts;
 import org.sempods.client.core.SempodsPodDateModified;
 import org.sempods.client.core.SempodsPodResources;
 import org.sempods.client.core.SempodsPodSlots;
@@ -74,6 +76,7 @@ class ClientCoreFromJavaTest {
   private static HttpServer server;
   private static OkHttpClient client;
   private static final AtomicInteger resourceRequests = new AtomicInteger();
+  private static final AtomicInteger creations = new AtomicInteger();
 
   @BeforeAll
   static void startPod() throws IOException {
@@ -146,6 +149,24 @@ class ClientCoreFromJavaTest {
         }
       }
     };
+    server.createContext("/alice/_system/contexts", exchange -> {
+      byte[] body = exchange.getRequestBody().readAllBytes();
+      Headers echo = exchange.getResponseHeaders();
+      echo.add("X-Saw-Path", exchange.getRequestURI().getRawPath());
+      echo.add("X-Saw-Accept", header(exchange, "Accept"));
+      echo.add("X-Saw-If-None-Match", header(exchange, "If-None-Match"));
+      echo.add("X-Saw-Content-Type", header(exchange, "Content-Type"));
+      echo.add("X-Saw-Body", new String(body, StandardCharsets.UTF_8));
+      if (exchange.getRequestMethod().equals("PUT")) {
+        json(exchange, creations.getAndIncrement() == 0 ? 201 : 200,
+            "{\"@id\":\"" + base("") + exchange.getRequestURI().getRawPath() + "\"}");
+      } else if (exchange.getRequestMethod().equals("DELETE")) {
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
+      } else {
+        json(exchange, 200, "{\"@id\":\"" + base("") + exchange.getRequestURI().getRawPath() + "\"}");
+      }
+    });
     server.createContext("/alice/events/", resource);
     server.createContext("/alice/_system/resources/", resource);
     server.start();
@@ -375,9 +396,54 @@ class ClientCoreFromJavaTest {
     assertThrows(IllegalArgumentException.class, () -> slots.removeEdge(bob, knows, "urn:x", inTasks.withIfMatch("\"v1\"")));
   }
 
+  @Test
+  void readsAndCreatesContextsFromJava() throws IOException {
+    SempodsPodContexts contexts = pod("alice").contexts();
+    String tasks = base("alice") + "/_system/contexts/apps/example/tasks";
+
+    SempodsResponse<String> catalogue = contexts.listText();
+    assertEquals(200, catalogue.getStatus());
+    assertEquals("/alice/_system/contexts", catalogue.getHeaders().get("X-Saw-Path"));
+    assertEquals("application/ld+json", catalogue.getHeaders().get("X-Saw-Accept"));
+    assertEquals(200, contexts.listBytes().getStatus());
+
+    SempodsResponse<byte[]> quads = contexts.listBytes(SempodsGraphFormat.N_QUADS, "\"c1\"");
+    assertEquals("application/n-quads", quads.getHeaders().get("X-Saw-Accept"));
+    assertEquals("\"c1\"", quads.getHeaders().get("X-Saw-If-None-Match"));
+
+    SempodsResponse<String> description = contexts.getText(tasks);
+    assertEquals("/alice/_system/contexts/apps/example/tasks", description.getHeaders().get("X-Saw-Path"));
+    assertEquals(200, contexts.getBytes(tasks, SempodsGraphFormat.N_QUADS).getStatus());
+    assertEquals(200, contexts.getText(tasks, SempodsGraphFormat.JSON_LD, "\"c1\"").getStatus());
+
+    SempodsResponse<byte[]> created =
+        contexts.create(tasks, SempodsContextCreate.fields().withLabel("Tasks").withPublic(true));
+    assertEquals(201, created.getStatus());
+    assertEquals("{\"label\":\"Tasks\",\"public\":true}", created.getHeaders().get("X-Saw-Body"));
+    assertEquals("application/json", created.getHeaders().get("X-Saw-Content-Type"));
+    assertEquals("application/ld+json", created.getHeaders().get("X-Saw-Accept"));
+    assertTrue(new String(created.getBody(), StandardCharsets.UTF_8).contains(tasks));
+
+    // The same `PUT` again: the context is there, and the pod says so with 200 (SPS-CTX-016).
+    assertEquals(200, contexts.create(tasks).getStatus());
+    assertEquals("{}", contexts.create(tasks, SempodsContextCreate.json("{}"), SempodsGraphFormat.N_QUADS)
+        .getHeaders().get("X-Saw-Body"));
+
+    SempodsResponse<byte[]> removed = contexts.delete(tasks);
+    assertEquals(204, removed.getStatus());
+    assertEquals(0, removed.getBody().length);
+
+    assertThrows(IllegalArgumentException.class, () -> contexts.create(base("bob") + "/_system/contexts/tasks"));
+    assertThrows(IllegalArgumentException.class, () -> contexts.getText(base("alice") + "/events/1"));
+  }
+
   private static SempodsPod pod(String name) {
-    SempodsPodBase base = SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/" + name);
-    return new SempodsPod(new SempodsSession(base), client);
+    return new SempodsPod(new SempodsSession(SempodsPodBase.of(base(name))), client);
+  }
+
+  private static String base(String name) {
+    String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+    return name.isEmpty() ? origin : origin + "/" + name;
   }
 
   private static void json(HttpExchange exchange, int status, String body) throws IOException {
