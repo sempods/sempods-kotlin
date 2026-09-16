@@ -2,6 +2,7 @@ package org.sempods.client.core
 
 import okhttp3.Call
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.io.IOException
@@ -76,10 +77,10 @@ class SempodsForeignTarget internal constructor(
    * `308`, each as a `GET`. `300`, `304`, `305` and `306` are answers — `305` names a proxy the server
    * chose, which is never taken.
    *
-   * A `Location` is resolved against the URL that answered, relative or not. A redirect with no
-   * `Location` or with two, one that does not resolve to an http or https URL, one carrying userinfo,
-   * one back to a URL this call already asked, and the one that would exceed the budget, are the
-   * answer. An https target may redirect to http; the hop that does leaves the origin, so it goes on
+   * A `Location` is resolved against the URL that answered — the request as the server received it, after
+   * whatever an interceptor on the client made of it. A redirect with no `Location` or with two, one that
+   * does not resolve to an http or https URL, one carrying userinfo, one back to a URL this call has
+   * already asked or been answered from, and the one that would exceed the budget, are the answer. An https target may redirect to http; the hop that does leaves the origin, so it goes on
    * without a credential, but its answer travels in the clear.
    */
   fun followingRedirects(maxRedirects: Int): SempodsForeignTarget {
@@ -145,13 +146,18 @@ class SempodsForeignTarget internal constructor(
     val named = targetOf(uri)
     var target = named
     var credential: SempodsRequestAuth? = auth
-    val asked = mutableSetOf(target)
+    val seen = mutableSetOf<HttpUrl>()
     var redirects = 0
     while (true) {
+      seen += target
       val answer = send(request(target, accept, credential))
+      // An interceptor on the client may have moved the request, and what the server received is what its
+      // `Location` is relative to. A chain that comes back to a URL it asked, or was answered from, is a loop.
+      val answered = answer.url.toHttpUrl()
+      seen += answered
       if (redirects == maxRedirects) return answer
-      val next = redirectTarget(answer, target) ?: return answer
-      if (!asked.add(next)) return answer
+      val next = redirectTarget(answer, answered) ?: return answer
+      if (next in seen) return answer
       // Once the chain leaves the origin the caller named, no hop is the caller's to authenticate — not
       // even one that comes back: that URL was chosen by a server the credential was never meant for.
       if (!sameOrigin(next, named)) credential = null

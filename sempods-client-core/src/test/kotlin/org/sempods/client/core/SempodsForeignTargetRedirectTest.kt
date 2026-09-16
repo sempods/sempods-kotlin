@@ -116,6 +116,40 @@ class SempodsForeignTargetRedirectTest : MockPodTest() {
     assertEquals(1, asked().size)
   }
 
+  /** A client whose own interceptor sends one exact path somewhere else, as a failover or a mirror would. */
+  private fun moving(from: String, to: String) = sempodsClient {
+    addInterceptor { chain ->
+      val request = chain.request()
+      val moved = if (request.url.encodedPath == from) request.newBuilder().url(request.url.newBuilder().encodedPath(to).build()).build() else request
+      chain.proceed(moved)
+    }
+  }
+
+  @Test
+  fun `a Location is resolved against the URL that answered, after an interceptor moved the request`() {
+    redirect("/mirror/42", 303, "doc")
+    end("/mirror/doc", "the mirror's document")
+    end("/id/doc", "a document the mirror never pointed to")
+
+    moving(from = "/id/42", to = "/mirror/42").closing { client ->
+      val answered = SempodsForeignTarget(client).followingRedirects(5).getText("$origin/id/42", "text/turtle")
+
+      assertEquals("the mirror's document", answered.body)
+      assertEquals("$origin/mirror/doc", answered.url)
+    }
+    assertEquals(listOf("/mirror/42", "/mirror/doc"), asked().map { it.path.value })
+  }
+
+  @Test
+  fun `a chain that points back to the URL an interceptor moved is a loop`() {
+    redirect("/mirror/1", 302, "/id/1")
+
+    moving(from = "/id/1", to = "/mirror/1").closing { client ->
+      assertEquals(302, SempodsForeignTarget(client).followingRedirects(20).getText("$origin/id/1", "text/turtle").status)
+    }
+    assertEquals(1, asked().size, "the URL it points to was asked already, under the name the caller gave it")
+  }
+
   @Test
   fun `the budget ends the chain at its last redirect`() {
     (1..4).forEach { redirect("/r$it", 302, "/r${it + 1}") }
