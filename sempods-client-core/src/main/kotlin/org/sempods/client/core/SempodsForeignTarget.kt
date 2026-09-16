@@ -242,8 +242,11 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
     return authenticated
   }
 
-  /** The `Retry-After` values taken off a `503` so that OkHttp does not send the request again by itself. */
-  fun withhold(values: List<String>) {
+  /**
+   * The `Retry-After` values taken off the latest exchange's `503` so that OkHttp does not send the request
+   * again by itself, or null when that exchange's answer kept its headers.
+   */
+  fun withhold(values: List<String>?) {
     withheldRetryAfter = values
   }
 

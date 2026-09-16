@@ -158,6 +158,31 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
+  fun `a Retry-After withheld from one exchange is not given to a later exchange's answer`() {
+    server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("the second answer"))
+    // A consumer's own interceptor that asks once more after a 503, which is its business to do.
+    val retrying = sempodsClient {
+      addInterceptor { chain ->
+        val first = chain.proceed(chain.request())
+        if (first.code != 503) {
+          first
+        } else {
+          first.close()
+          chain.proceed(chain.request())
+        }
+      }
+    }
+
+    retrying.closing { client ->
+      val answered = SempodsForeignTarget(client).getText(card, "text/turtle")
+      assertEquals(200, answered.status)
+      assertNull(answered.headers["Retry-After"], "the server sent none with this answer")
+    }
+    assertEquals(2, recorded().size)
+  }
+
+  @Test
   fun `a 408 is the answer, not a reason to ask again`() {
     server.`when`(request(), Times.once()).respond(response().withStatusCode(408))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))

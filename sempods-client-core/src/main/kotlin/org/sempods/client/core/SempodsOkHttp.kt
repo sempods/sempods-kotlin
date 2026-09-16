@@ -319,8 +319,9 @@ private object FinalTarget : Interceptor {
       foreign.confine(chain.request())
       val response = chain.proceed(chain.request())
       val quiet = withoutImmediateRepeat(response)
-      // Withheld only from OkHttp's decision below the session interceptor: the foreign call gives it back.
-      if (quiet !== response) foreign.withhold(response.headers.values("Retry-After"))
+      // Withheld only from OkHttp's decision below the session interceptor, and recorded for every exchange,
+      // so what the foreign call gives back belongs to the last answer and not to one before it.
+      foreign.withhold(if (quiet !== response) response.headers.values("Retry-After") else null)
       return quiet
     }
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
