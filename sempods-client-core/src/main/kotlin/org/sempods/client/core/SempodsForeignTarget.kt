@@ -5,7 +5,6 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
-import okhttp3.Response
 import java.io.IOException
 import java.io.OutputStream
 
@@ -38,10 +37,11 @@ import java.io.OutputStream
  *
  * **Every status is an answer.** This library knows no contract of a foreign server's and classifies
  * nothing: a `404`, a `303` and a `500` come back as a [SempodsResponse] with their headers, `Location`
- * included — and so do a `408` and a `503` asking to be repeated at once, which OkHttp would otherwise
- * send again by itself. Outside 2xx the body is closed unread, so a foreign error document never
- * reaches the caller. What is sent again is a request whose connection was lost before any answer,
- * once, as for a session's `GET`.
+ * included, and a `408` is an answer too. So is a `503` asking to be repeated at once, which comes back
+ * without its `Retry-After: 0`: OkHttp acts on that header by itself, below every interceptor of this
+ * library, so it is taken off, as it is for a session's call. Outside 2xx the body is closed unread,
+ * so a foreign error document never reaches the caller. What is sent again is a request whose
+ * connection was lost before any answer, once, as for a session's `GET`.
  *
  * **A redirect is the caller's to follow, unless [followingRedirects] takes it.** Following sends each
  * hop as a call of its own, so the guard vets each. It ends at the first redirect it cannot or may not
@@ -225,9 +225,6 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
   @Volatile
   private var credentialedFor: HttpUrl? = null
 
-  @Volatile
-  private var withheldRetryAfter: List<String>? = null
-
   /**
    * [request] with this call's credential, applied once as the first attempt. The session interceptor asks
    * this after the call has its admission slot, so credential work is inside the slot and under the deadline,
@@ -240,20 +237,6 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
     // was carries nothing an interceptor could take elsewhere.
     if (authenticated.headers != request.headers) credentialedFor = request.url
     return authenticated
-  }
-
-  /**
-   * The `Retry-After` values taken off the latest exchange's `503` so that OkHttp does not send the request
-   * again by itself, or null when that exchange's answer kept its headers.
-   */
-  fun withhold(values: List<String>?) {
-    withheldRetryAfter = values
-  }
-
-  /** [response] as the server sent it: with any `Retry-After` withheld from OkHttp's decision put back. */
-  fun restored(response: Response): Response {
-    val values = withheldRetryAfter ?: return response
-    return response.newBuilder().removeHeader("Retry-After").apply { values.forEach { addHeader("Retry-After", it) } }.build()
   }
 
   /**

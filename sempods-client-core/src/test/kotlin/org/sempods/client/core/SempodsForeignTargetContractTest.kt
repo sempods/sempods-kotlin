@@ -153,33 +153,8 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     val answered = SempodsForeignTarget(client).getText(card, "text/turtle")
 
     assertEquals(503, answered.status)
-    assertEquals("0", answered.headers["Retry-After"], "the server's instruction reaches the caller, only OkHttp does not act on it")
+    assertNull(answered.headers["Retry-After"], "taken off so that OkHttp does not act on it, as for a session")
     assertEquals(1, recorded().size)
-  }
-
-  @Test
-  fun `a Retry-After withheld from one exchange is not given to a later exchange's answer`() {
-    server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
-    server.`when`(request()).respond(response().withStatusCode(200).withBody("the second answer"))
-    // A consumer's own interceptor that asks once more after a 503, which is its business to do.
-    val retrying = sempodsClient {
-      addInterceptor { chain ->
-        val first = chain.proceed(chain.request())
-        if (first.code != 503) {
-          first
-        } else {
-          first.close()
-          chain.proceed(chain.request())
-        }
-      }
-    }
-
-    retrying.closing { client ->
-      val answered = SempodsForeignTarget(client).getText(card, "text/turtle")
-      assertEquals(200, answered.status)
-      assertNull(answered.headers["Retry-After"], "the server sent none with this answer")
-    }
-    assertEquals(2, recorded().size)
   }
 
   @Test

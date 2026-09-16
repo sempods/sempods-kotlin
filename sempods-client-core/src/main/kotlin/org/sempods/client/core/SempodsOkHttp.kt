@@ -164,8 +164,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * **OkHttp repeats nothing for it**, because every status is the call's answer: a `408` would be sent
    * again under `retryOnConnectionFailure`, so that is off, and the one resend a `GET` may have after a
    * connection lost before an answer is made here, as it is for a session ([ConnectionResend]). The same
-   * request goes out again; its credential is not asked twice. [FinalTarget] keeps a `503` from asking to
-   * be repeated.
+   * request goes out again; its credential is not asked twice. [FinalTarget] takes a `503`'s
+   * `Retry-After: 0` off, as for a session.
    *
    * The credential work runs in the call's slot and under its deadline.
    */
@@ -196,7 +196,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       slot.give()
       throw failure
     }
-    return slot.holdUntilClosed(foreign.restored(response))
+    return slot.holdUntilClosed(response)
   }
 
   /**
@@ -308,21 +308,14 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
  *
  * It also takes `Retry-After: 0` off a session's or a foreign target's `503`. OkHttp repeats such an
  * answer by itself, below the session's interceptor, for any method, a one-shot body included, and with
- * this attempt's credential; without the header the caller gets the `503` and decides. A foreign
- * target's caller gets the header back once OkHttp has decided ([ForeignCall.restored]); a session's
- * does not.
+ * this attempt's credential; without the header the caller gets the `503` and decides.
  */
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
     chain.call().tag(ForeignCall::class.java)?.let { foreign ->
       foreign.confine(chain.request())
-      val response = chain.proceed(chain.request())
-      val quiet = withoutImmediateRepeat(response)
-      // Withheld only from OkHttp's decision below the session interceptor, and recorded for every exchange,
-      // so what the foreign call gives back belongs to the last answer and not to one before it.
-      foreign.withhold(if (quiet !== response) response.headers.values("Retry-After") else null)
-      return quiet
+      return withoutImmediateRepeat(chain.proceed(chain.request()))
     }
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request())
