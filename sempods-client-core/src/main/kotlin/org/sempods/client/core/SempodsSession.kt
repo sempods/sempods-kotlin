@@ -107,13 +107,6 @@ class SempodsSession @JvmOverloads constructor(
     }
   }
 
-  /** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
-  private fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
-    val name = if (':' in target.host) "[${target.host}]" else target.host
-    return host.equals("$name:${target.port}", ignoreCase = true) ||
-      target.port == HttpUrl.defaultPort(target.scheme) && host.equals(name, ignoreCase = true)
-  }
-
   internal fun authenticated(request: Request, attempt: Int): Request = auth.authenticate(request, attempt)
 
   private companion object {
@@ -122,4 +115,11 @@ class SempodsSession @JvmOverloads constructor(
 
     val EMPTY_BODY = ByteArray(0).toRequestBody(null)
   }
+}
+
+/** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
+internal fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
+  val name = if (':' in target.host) "[${target.host}]" else target.host
+  return host.equals("$name:${target.port}", ignoreCase = true) ||
+    target.port == HttpUrl.defaultPort(target.scheme) && host.equals(name, ignoreCase = true)
 }

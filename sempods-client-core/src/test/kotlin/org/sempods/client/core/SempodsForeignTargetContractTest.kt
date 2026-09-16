@@ -238,6 +238,44 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
+  fun `an interceptor that moves a credentialed call to another origin is refused before it is written`() {
+    answer(200, "ok")
+    val failover = sempodsClient {
+      addInterceptor { chain ->
+        val request = chain.request()
+        chain.proceed(request.newBuilder().url(request.url.newBuilder().host("127.0.0.1").build()).build())
+      }
+    }
+
+    failover.closing { client ->
+      val refused = assertThrows<SempodsClientException> {
+        SempodsForeignTarget(client).getText("$card?access_token=secret", "text/turtle", SempodsRequestAuth.bearer("t-1"))
+      }
+      assertTrue(refused.message!!.contains("127.0.0.1"), refused.message)
+      assertFalse(refused.message!!.contains("secret"), refused.message)
+      assertTrue(recorded().isEmpty(), "nothing was written, the credential least of all")
+
+      // Without a credential there is nothing to take along, and where the request goes is the interceptor's say.
+      assertEquals("ok", SempodsForeignTarget(client).getText(card, "text/turtle").body)
+      assertEquals("127.0.0.1:${server.port}", recorded().single().getFirstHeader("Host"))
+    }
+  }
+
+  @Test
+  fun `a Host naming another authority is refused for a credentialed call`() {
+    answer(200, "ok")
+
+    sempodsClient { addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("Host", "evil.example").build()) } }
+      .closing { client ->
+        assertThrows<SempodsClientException> {
+          SempodsForeignTarget(client).getText(card, "text/turtle", SempodsRequestAuth.apiKeyHeader("X-Api-Key", "k-1"))
+        }
+      }
+
+    assertTrue(recorded().isEmpty())
+  }
+
+  @Test
   fun `a reader's own failure reaches the caller as it is`() {
     answer(200, "ok")
     val mine = IOException("the disk is full")

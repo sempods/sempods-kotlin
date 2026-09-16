@@ -22,8 +22,10 @@ import java.io.OutputStream
  *
  * **Not a session and not an endpoint group.** There is no pod base, and nothing is inherited from one:
  * a credential goes with the call that names it and with no other, and the client's own
- * `Authenticator` and `CookieJar` do not answer for these calls. The target is whatever URI a call
- * passes, so one instance serves any number of them.
+ * `Authenticator` and `CookieJar` do not answer for these calls. A call that carries a credential is
+ * held to the origin it names, as a session's is to its pod: an interceptor that moves it elsewhere is
+ * refused on the request about to be written. The target is whatever URI a call passes, so one
+ * instance serves any number of them.
  *
  * **The guard is the client's, and it is opt-in.** On a client installed with a
  * [net.SempodsOutboundGuard], every call — and every hop of a followed redirect — is vetted before it
@@ -159,13 +161,12 @@ class SempodsForeignTarget internal constructor(
   }
 
   private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request {
-    val plain = Request.Builder()
-      .url(target)
-      .get()
-      .header("Accept", accept)
-      .tag(SempodsForeignTarget::class.java, this)
-      .build()
-    return credential?.authenticate(plain, attempt = 1) ?: plain
+    val plain = Request.Builder().url(target).get().header("Accept", accept).build()
+    val authenticated = credential?.authenticate(plain, attempt = 1) ?: plain
+    // Whatever a mechanism put on the request is held to the origin it was put there for; a call that
+    // carries nothing of it has nothing an interceptor could take elsewhere.
+    val credentialed = authenticated.headers != plain.headers
+    return authenticated.newBuilder().tag(ForeignCall::class.java, ForeignCall(target.takeIf { credentialed })).build()
   }
 
   companion object {
@@ -206,3 +207,31 @@ private fun redirectTarget(answer: SempodsResponse<*>, sent: HttpUrl): HttpUrl? 
 /** Scheme, host and port, as the parsed URL spells them: `:80` and no port are one origin. */
 private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
   one.scheme == other.scheme && one.host == other.host && one.port == other.port
+
+/**
+ * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, and — when it
+ * carries a credential — the origin that credential was applied for.
+ */
+internal class ForeignCall(private val credentialedFor: HttpUrl?) {
+
+  /**
+   * Throws when [request], as it is about to be written, would take this call's credential to another
+   * authority: a URL an interceptor moved, or a `Host` it named, which OkHttp sends in place of the URL's.
+   */
+  fun confine(request: Request) {
+    val origin = credentialedFor ?: return
+    val target = request.url
+    if (!sameOrigin(target, origin)) {
+      throw SempodsClientException(
+        "'${target.newBuilder().query(null).fragment(null).build()}' is not the origin this call's credential was " +
+          "applied for. An interceptor that moves a foreign target's request cannot take its credential along.",
+      )
+    }
+    val named = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
+    if (named.isNotEmpty()) {
+      throw SempodsClientException(
+        "'Host: ${named.first()}' does not name the origin this call's credential was applied for.",
+      )
+    }
+  }
+}

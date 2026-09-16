@@ -133,7 +133,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             "Create the call from the request the session's newRequest built.",
         )
       }
-      val proceeding = if (chain.call().tag(SempodsForeignTarget::class.java) != null) foreign(chain) else chain
+      val proceeding = if (chain.call().tag(ForeignCall::class.java) != null) foreign(chain) else chain
       val slot = Slot(gate(), chain.call())
       slot.take()
       val response = try {
@@ -275,7 +275,8 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
 
 /**
  * The pod confinement once more, as the last network interceptor installed: on the request as it is
- * about to be written, after every application interceptor and after a redirect.
+ * about to be written, after every application interceptor and after a redirect. A credentialed
+ * [SempodsForeignTarget] call is held to its origin here the same way ([ForeignCall.confine]).
  *
  * It also takes `Retry-After: 0` off a session's `503`. OkHttp repeats such an answer by itself,
  * below the session's interceptor, for any method, a one-shot body included, and with this attempt's
@@ -284,6 +285,10 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
+    chain.call().tag(ForeignCall::class.java)?.let { foreign ->
+      foreign.confine(chain.request())
+      return chain.proceed(chain.request())
+    }
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request())
     val response = chain.proceed(chain.request())
