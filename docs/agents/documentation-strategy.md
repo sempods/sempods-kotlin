@@ -90,11 +90,13 @@ moved.
 **4. Field-level contracts live in KDoc**: what a field means, what may be null, what an implementation
 owes its caller. Markdown stays high-level and links the code path.
 
-**5. In code, the public declaration owns the contract.** Document each contract once, in the KDoc
-of the type, function or property that defines it. Overrides link to the member on the interface or
-base class. Helpers, private functions and inline comments also link to the owner and describe only
-their own requirements, such as a lock the caller must hold. A constructor property's `@property`
-tag on the type counts as that property's KDoc.
+**5. In code, the defining declaration owns the contract.** Document each public API contract once,
+in the KDoc of the type, function or property that defines it. Inherited contracts stay on the
+interface or base member. An unchanged override needs no KDoc. An override with additional behavior
+documents that behavior and links the inherited contract. Private and internal declarations own
+their local contracts, such as a lock the caller must hold. Helpers and comments link a public
+contract only when discussing it. A constructor property's `@property` tag on the type counts as
+that property's KDoc.
 
 Put multiple cases in a list or table. For example, a lookup method could document:
 

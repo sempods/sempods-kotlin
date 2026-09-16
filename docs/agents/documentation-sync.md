@@ -87,7 +87,8 @@ Over what is left:
   exactly one copy.
 - Does a field's KDoc repeat what the class KDoc says? The field wins (rule 4).
 - Does an override, a private function, a helper or an inline comment restate a public declaration's
-  contract? Link the owner (rule 5).
+  contract? Link the owner when discussing that contract. Keep private contracts local and leave
+  unchanged overrides without KDoc (rule 5).
 - Does anything explain why something was **not** changed? That is the commit message's job.
 - Did the change make any text redundant? Remove it; keep necessary explanations and examples (rule 11).
 
