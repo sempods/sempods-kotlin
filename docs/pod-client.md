@@ -183,11 +183,17 @@ boolean any = pod.sparql().ask("ASK { ?s ?p ?o }", SempodsContextSelection.of(ta
 pod.resources().put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), SempodsWriteOptions.inContext(tasks));
 String bob = pod.subjects().getText("did:web:bob.example").getBody();
 pod.slots().add("did:web:bob.example", knows, SempodsContent.of(carolRef), SempodsWriteOptions.inContext(tasks));
+
+pod.contexts().create(tasks, SempodsContextCreate.fields().withLabel("Tasks"));
+String catalogue = pod.contexts().listText().getBody();
 ```
 
 `resources()` reaches an IRI under the pod by its own path, `subjects()` any IRI through the System
 route; both read, replace, merge-patch and delete. `slots()` works on the values of one predicate of a
-subject: read, replace, add, clear, and remove one IRI value through its edge.
+subject: read, replace, add, clear, and remove one IRI value through its edge. `contexts()` reads the
+registry — the catalogue a session sees, and what the registry holds for one context — and creates or
+removes a context at the IRI the pod gave. Those answers are RDF, and this module reads none of it: they arrive
+as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads.
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
@@ -322,7 +328,7 @@ implementation("org.sempods:sempods-client-core")
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata, SPARQL, resources, subjects and slots ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
+groups beyond pod metadata, SPARQL, resources, subjects, slots and contexts ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
 adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
 consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the

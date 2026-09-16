@@ -51,6 +51,9 @@ internal interface ProtocolObject {
 /** [bytes] as one JSON object, or a [ProtocolViolation]. */
 internal fun decodeObject(bytes: ByteArray): ProtocolObject = ProtocolJson.decodeObject(bytes)
 
+/** [members] as one JSON object, in their order. A value is a `String` or a `Boolean`. */
+internal fun encodeObject(members: Map<String, Any>): ByteArray = ProtocolJson.encodeObject(members)
+
 /**
  * The one place this module names Jackson, and in no declaration that is public in bytecode:
  * `checkPublishedSignatures` reads the class files, where `internal` is public.
@@ -85,6 +88,8 @@ private object ProtocolJson {
     if (root == null || !root.isObject) throw document.expected("an object", root)
     return TreeObject(root, document)
   }
+
+  fun encodeObject(members: Map<String, Any>): ByteArray = mapper.writeValueAsBytes(members)
 
   fun unreadable(failure: JacksonException): String {
     val what = if (failure is StreamConstraintsException) "JSON beyond this client's read limits" else "malformed JSON"

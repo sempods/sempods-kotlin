@@ -83,6 +83,23 @@ class SempodsPodRoutesParityTest {
   }
 
   @Test
+  fun `the catalogue and a context go where SempodsPodRoutes points`() {
+    val contexts = pod().contexts()
+    val tasks = "http://localhost:${server.port}/alice/${SempodsPodRoutes.CONTEXT_PATH_PREFIX}apps/example/tasks"
+
+    contexts.listText()
+    contexts.getText(tasks)
+    contexts.create(tasks)
+
+    assertEquals(
+      listOf(SempodsPodRoutes.CONTEXTS, "${SempodsPodRoutes.CONTEXT_PATH_PREFIX}apps/example/tasks").let {
+        listOf(it[0], it[1], it[1]).map { route -> "/alice/$route" }
+      },
+      paths,
+    )
+  }
+
+  @Test
   fun `pod metadata and SPARQL go where SempodsPodRoutes points`() {
     pod().metadata().dateModifiedJson()
     pod().sparql().resultsJson("ASK {}")
