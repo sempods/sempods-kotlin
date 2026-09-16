@@ -962,6 +962,11 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(406, profiled.statusCode, profiled.responseBody)
 
+    // A parameter written after the weight is an accept extension, and names no representation.
+    val extended = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json;q=1;foo=bar")
+    assertEquals(200, extended.statusCode, extended.responseBody)
+    assertTrue(extended.contentType.orEmpty().startsWith("application/ld+json"), extended.contentType)
+
     // A parameter the representations do carry keeps matching.
     val charset = registryGet(contextsBaseUrl(pod.name), token, "application/json;charset=utf-8")
     assertEquals(200, charset.statusCode, charset.responseBody)

@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.contexts
 
 import jakarta.ws.rs.core.MediaType
+import org.sempods.commons.jaxrs.AcceptNegotiation
 
 /** What a registry route answers with, and the media type it says so with. */
 internal enum class RegistryFormat(val contentType: String) {
@@ -24,17 +25,15 @@ internal enum class RegistryFormat(val contentType: String) {
 }
 
 /**
- * Which representation a registry request gets, by RFC 9110 §12.5.1: the most specific range that
- * matches a representation decides its quality, the highest quality wins, and `q=0` excludes.
+ * Which representation a registry request gets, and in which order this route prefers them.
  *
- * **Why this is not `Request.selectVariant`.** An `Accept` that pairs a wildcard range with
- * `application/ld+json;q=0` gets JSON-LD out of the container's own selection: the wildcard matches
- * and the exclusion beside it goes unapplied, so the caller is handed the one representation they
- * refused. `PodContextsEndpointHttpTest` pins both halves of the rule.
+ * The rule is RFC 9110 §12.5.1 and lives in [AcceptNegotiation], where it is tested on its own: the
+ * most specific range that names a representation decides its quality, the highest quality wins,
+ * `q=0` excludes, and a parameter written after `q` is an accept extension that names nothing.
  *
- * `null` means nothing this route produces is acceptable, and the caller answers `406`. Jersey
- * usually refuses such a request while it matches, before any method runs, which is what
- * `SPS-CTX-037` needs on `PUT`; this covers the request it admits anyway.
+ * `null` means the caller accepts none of these, and the route answers `406` — on `PUT` before
+ * anything is written, which is what `SPS-CTX-037` needs. Jersey usually refuses such a request
+ * while it matches, before any method runs.
  *
  * Deliberately not `GraphResultNegotiation`: that one serves `_system/find` and the SPARQL graph
  * results, where `application/json` is *not* accepted and the refusal is documented behaviour
@@ -42,56 +41,12 @@ internal enum class RegistryFormat(val contentType: String) {
  */
 internal object ContextRegistryNegotiation {
 
-  /** In the order this route prefers them, which is what a caller expressing no preference gets. */
-  fun select(acceptable: List<MediaType>): RegistryFormat? {
-    if (acceptable.isEmpty()) return RegistryFormat.JSON_LD
-    return RegistryFormat.entries
-      .map { format -> format to quality(acceptable, MediaType.valueOf(format.contentType)) }
-      .filter { (_, quality) -> quality > 0.0 }
-      // `maxByOrNull` keeps the first of equal values, so a tie falls to this route's own order.
-      .maxByOrNull { (_, quality) -> quality }
-      ?.first
+  /** In the order this route prefers them, each with what its body carries: UTF-8. */
+  private val REPRESENTATIONS: List<MediaType> =
+    RegistryFormat.entries.map { MediaType.valueOf("${it.contentType};charset=utf-8") }
+
+  fun select(accept: String?): RegistryFormat? {
+    val chosen = AcceptNegotiation.select(accept, REPRESENTATIONS) ?: return null
+    return RegistryFormat.entries.first { it.contentType.equals("${chosen.type}/${chosen.subtype}", ignoreCase = true) }
   }
-
-  /** The quality of the most specific range that names [type], or `0.0` when none does. */
-  private fun quality(acceptable: List<MediaType>, type: MediaType): Double {
-    val range = acceptable.filter { names(it, type) }.minByOrNull { specificity(it) } ?: return 0.0
-    return range.parameters["q"]?.toDoubleOrNull() ?: 1.0
-  }
-
-  /**
-   * Whether [range] names [type]: its type and subtype, and every parameter it carries beyond `q`.
-   *
-   * A range that names a parameter this route's representations do not have — a JSON-LD `profile`,
-   * say — names something else, so it neither selects a representation nor excludes one. Without
-   * that, `application/ld+json;profile="…"` beside `application/ld+json;q=0` would hand the caller
-   * the plain representation their second range refused.
-   */
-  private fun names(range: MediaType, type: MediaType): Boolean {
-    if (!range.isCompatible(type)) return false
-    return range.parameters.none { (name, value) ->
-      !name.equals(QUALITY, ignoreCase = true) && !value.equals(REPRESENTATION_PARAMETERS[name.lowercase()], ignoreCase = true)
-    }
-  }
-
-  /**
-   * What every representation of this route carries beyond its media type, so a range that names it
-   * still matches. The bodies are UTF-8: JSON by RFC 8259 §8.1, N-Quads by its own grammar.
-   */
-  private val REPRESENTATION_PARAMETERS = mapOf("charset" to "utf-8")
-
-  /** How narrowly a range names a type: wildcards widen it, parameters beyond `q` narrow it. */
-  private fun specificity(range: MediaType): Int {
-    val wildcard = when {
-      range.isWildcardType -> 2
-      range.isWildcardSubtype -> 1
-      else -> 0
-    }
-    return wildcard * PARAMETER_HEADROOM - range.parameters.keys.count { !it.equals(QUALITY, ignoreCase = true) }
-  }
-
-  private const val QUALITY = "q"
-
-  /** More parameters than this on one range would have to widen it, which no `Accept` does. */
-  private const val PARAMETER_HEADROOM = 8
 }

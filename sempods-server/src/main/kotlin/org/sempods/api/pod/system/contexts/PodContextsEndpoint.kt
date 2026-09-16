@@ -90,7 +90,7 @@ class PodContextsEndpoint @Inject constructor(
   ): Response {
     // Negotiated before anything is written: Jersey has already answered an unsatisfiable `Accept`
     // with 406 during matching, so no context comes into existence for one (`SPS-CTX-037`).
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
     val podDbo = fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
@@ -177,7 +177,7 @@ class PodContextsEndpoint @Inject constructor(
     // Authorization and the normal status come first, the precondition last: a caller whose read was
     // revoked gets the same 404 an unregistered path gets, never a 304 off the tag they still hold
     // (`SPS-CTX-035`).
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.describe(row = dbo, podBaseUrl = podBaseUrl)
     return registryRead(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
   }
@@ -203,7 +203,7 @@ class PodContextsEndpoint @Inject constructor(
     )
 
     val rows = podContextsDao.fetchByPod(podId)
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
