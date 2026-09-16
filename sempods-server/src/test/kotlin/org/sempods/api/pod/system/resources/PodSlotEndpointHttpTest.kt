@@ -8,12 +8,25 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.commons.okhttp.TestHttpClient
+import okhttp3.OkHttpClient
+import org.sempods.client.core.SempodsContent
+import org.sempods.client.core.SempodsContextSelection
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsReadOptions
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsResponse
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsWriteOptions
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -854,5 +867,118 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       "removed",
       objectMapper.readValue(resp.responseBody, Map::class.java)["outcome"],
     )
+  }
+
+  // ── The client core against these routes ────────────────────────────────────
+
+  private fun <T> withCorePod(podName: String, auth: SempodsRequestAuth, block: (SempodsPod) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client))
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  private fun SempodsResponse<ByteArray>.text(): String = String(assertNotNull(body), Charsets.UTF_8)
+
+  @Test
+  fun `the client core adds, reads, removes and clears slot values with the pod's outcomes`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val dave = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/dave"
+    val inContacts = SempodsWriteOptions.inContext(contextUri.toString())
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val slots = core.slots()
+
+      val created = slots.add(bob, schemaChildren, SempodsContent.of("""{"@id":"$carol"}"""), inContacts)
+      assertEquals(201, created.status)
+      assertEquals("""{"outcome":"created"}""", created.text())
+      val location = created.headers["Location"].orEmpty()
+      assertTrue(location.endsWith("/${UriEncodingUtil.encodeUriToUrlSafeBase64(URI.create(carol))}"), location)
+      assertNotNull(created.headers["ETag"])
+      assertEquals("""{"outcome":"already_present"}""", slots.add(bob, schemaChildren, SempodsContent.of("""{"@id":"$carol"}"""), inContacts).text())
+      assertEquals(201, slots.add(bob, schemaChildren, SempodsContent.of("""{"@id":"$dave"}"""), inContacts).status)
+
+      val inOne = slots.getJson(bob, schemaChildren, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+      assertEquals(200, inOne.status)
+      assertNotNull(inOne.headers["ETag"], "a read in one context carries its tag")
+      assertTrue(inOne.body.orEmpty().contains(carol) && inOne.body.orEmpty().contains(dave), inOne.body)
+      assertNull(slots.getJson(bob, schemaChildren).headers["ETag"], "a read without a selection carries none")
+
+      assertEquals("""{"outcome":"removed"}""", slots.removeEdge(bob, schemaChildren, carol, inContacts).text())
+      assertEquals("""{"outcome":"already_absent"}""", slots.removeEdge(bob, schemaChildren, carol, inContacts).text())
+
+      val cleared = slots.clear(bob, schemaChildren, inContacts)
+      assertEquals("""{"outcome":"cleared"}""", cleared.text())
+      assertNotNull(cleared.headers["ETag"])
+      assertEquals("""{"outcome":"already_empty"}""", slots.clear(bob, schemaChildren, inContacts).text())
+      assertEquals(404, slots.getJson(bob, schemaChildren).status)
+    }
+  }
+
+  @Test
+  fun `the client core replaces a slot under its conditions and gets 412 for a stale tag or an occupied slot`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val inContacts = SempodsWriteOptions.inContext(contextUri.toString())
+    val stale = inContacts.withIfMatch("\"definitely-not-the-current-tag\"")
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val slots = core.slots()
+
+      val first = slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"Bob"}]"""), inContacts.withIfNoneMatch("*"))
+      assertEquals(204, first.status)
+      val tag = assertNotNull(first.headers["ETag"])
+      assertEquals(204, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"Bob Smith"}]"""), inContacts.withIfMatch(tag)).status)
+
+      assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"stale"}]"""), stale).status)
+      assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"again"}]"""), inContacts.withIfNoneMatch("*")).status)
+      assertEquals(412, slots.clear(bob, schemaName, stale).status)
+      assertFailsWith<IllegalArgumentException> { slots.removeEdge(bob, schemaName, carol, stale) }
+
+      val read = slots.getJson(bob, schemaName, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+      assertTrue(read.body.orEmpty().contains("Bob Smith"), read.body)
+    }
+  }
+
+  @Test
+  fun `the client core reaches an external subject's slot and groups a read by context`() {
+    val pod = sempodsTestFactory.newPod()
+    val (ctxA, tokenA) = createContextWithToken(pod, "ctx-a")
+    val (ctxB, tokenB) = createContextWithToken(pod, "ctx-b")
+    val tokenAB = mintScopedToken(
+      podName = pod.name,
+      scopes = listOf("${ctxA}#read", "${ctxA}#write", "${ctxB}#read", "${ctxB}#write"),
+    )
+    val bobDid = "did:web:bob.example"
+    val foafKnows = "http://xmlns.com/foaf/0.1/knows"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val dave = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/dave"
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(tokenA)) { core ->
+      val added = core.slots().add(bobDid, foafKnows, SempodsContent.of("""{"@id":"$carol"}"""), SempodsWriteOptions.inContext(ctxA.toString()))
+      assertEquals(201, added.status)
+    }
+    withCorePod(pod.name, SempodsRequestAuth.bearer(tokenB)) { core ->
+      val added = core.slots().add(bobDid, foafKnows, SempodsContent.of("""{"@id":"$dave"}"""), SempodsWriteOptions.inContext(ctxB.toString()))
+      assertEquals(201, added.status)
+    }
+    withCorePod(pod.name, SempodsRequestAuth.bearer(tokenAB)) { core ->
+      val both = SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString(), ctxB.toString())).withIncludeContexts(true)
+      val grouped = core.slots().getJson(bobDid, foafKnows, both).body.orEmpty()
+      assertTrue(listOf(ctxA.toString(), ctxB.toString(), carol, dave).all { it in grouped }, grouped)
+
+      val onlyB = core.slots().getJson(bobDid, foafKnows, SempodsReadOptions.of(SempodsContextSelection.of(ctxB.toString()))).body.orEmpty()
+      assertTrue(dave in onlyB && carol !in onlyB, onlyB)
+
+      assertEquals(0, core.slots().getJson(bobDid, foafKnows, SempodsReadOptions.of(SempodsContextSelection.none())).headers.size)
+    }
   }
 }

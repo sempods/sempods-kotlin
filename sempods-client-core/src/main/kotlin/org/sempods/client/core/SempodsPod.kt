@@ -35,7 +35,11 @@ class SempodsPod(
 
   private val resourcesGroup = SempodsPodResources(ResourceOperations(session, exchange, ResourceAddress.LodPath(session.podBase)))
 
-  private val subjectsGroup = SempodsPodSubjects(ResourceOperations(session, exchange, ResourceAddress.SystemRoute))
+  private val systemOperations = ResourceOperations(session, exchange, ResourceAddress.SystemRoute)
+
+  private val subjectsGroup = SempodsPodSubjects(systemOperations)
+
+  private val slotsGroup = SempodsPodSlots(systemOperations)
 
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup
@@ -48,4 +52,7 @@ class SempodsPod(
 
   /** Any subject by its IRI, through the System route. */
   fun subjects(): SempodsPodSubjects = subjectsGroup
+
+  /** The values of one predicate on a subject, and single IRI values through their edges. */
+  fun slots(): SempodsPodSlots = slotsGroup
 }
