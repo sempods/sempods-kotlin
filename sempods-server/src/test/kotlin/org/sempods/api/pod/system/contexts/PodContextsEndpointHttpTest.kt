@@ -947,10 +947,25 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, preferred.statusCode, preferred.responseBody)
     assertTrue(preferred.contentType.orEmpty().startsWith("application/ld+json"), preferred.contentType)
 
-    // A wildcard beside an exclusion: `*/*` would match JSON-LD, and `q=0` says it is unacceptable.
+    // A wildcard beside an exclusion: the wildcard would match JSON-LD, and `q=0` says it is
+    // unacceptable.
     val excluded = registryGet(contextsBaseUrl(pod.name), token, "*/*, application/ld+json;q=0")
     assertEquals(200, excluded.statusCode, excluded.responseBody)
     assertFalse(excluded.contentType.orEmpty().startsWith("application/ld+json"), excluded.contentType)
+
+    // A profile this route does not produce names something else, so what is left excludes
+    // everything and the honest answer is a refusal.
+    val profiled = registryGet(
+      contextsBaseUrl(pod.name),
+      token,
+      "application/ld+json;profile=\"https://example.org/profile\", application/ld+json;q=0, application/n-quads;q=0, application/json;q=0",
+    )
+    assertEquals(406, profiled.statusCode, profiled.responseBody)
+
+    // A parameter the representations do carry keeps matching.
+    val charset = registryGet(contextsBaseUrl(pod.name), token, "application/json;charset=utf-8")
+    assertEquals(200, charset.statusCode, charset.responseBody)
+    assertEquals("true", charset.headers.get("Deprecation"))
   }
 
   @Test

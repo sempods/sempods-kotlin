@@ -53,16 +53,45 @@ internal object ContextRegistryNegotiation {
       ?.first
   }
 
-  /** The quality of the most specific range that matches [type], or `0.0` when none does. */
+  /** The quality of the most specific range that names [type], or `0.0` when none does. */
   private fun quality(acceptable: List<MediaType>, type: MediaType): Double {
-    val range = acceptable.filter { it.isCompatible(type) }.minByOrNull { specificity(it) } ?: return 0.0
+    val range = acceptable.filter { names(it, type) }.minByOrNull { specificity(it) } ?: return 0.0
     return range.parameters["q"]?.toDoubleOrNull() ?: 1.0
   }
 
-  /** How narrowly a range names a type: an exact type beats a subtype wildcard, which beats a full wildcard. */
-  private fun specificity(range: MediaType): Int = when {
-    range.isWildcardType -> 2
-    range.isWildcardSubtype -> 1
-    else -> 0
+  /**
+   * Whether [range] names [type]: its type and subtype, and every parameter it carries beyond `q`.
+   *
+   * A range that names a parameter this route's representations do not have — a JSON-LD `profile`,
+   * say — names something else, so it neither selects a representation nor excludes one. Without
+   * that, `application/ld+json;profile="…"` beside `application/ld+json;q=0` would hand the caller
+   * the plain representation their second range refused.
+   */
+  private fun names(range: MediaType, type: MediaType): Boolean {
+    if (!range.isCompatible(type)) return false
+    return range.parameters.none { (name, value) ->
+      !name.equals(QUALITY, ignoreCase = true) && !value.equals(REPRESENTATION_PARAMETERS[name.lowercase()], ignoreCase = true)
+    }
   }
+
+  /**
+   * What every representation of this route carries beyond its media type, so a range that names it
+   * still matches. The bodies are UTF-8: JSON by RFC 8259 §8.1, N-Quads by its own grammar.
+   */
+  private val REPRESENTATION_PARAMETERS = mapOf("charset" to "utf-8")
+
+  /** How narrowly a range names a type: wildcards widen it, parameters beyond `q` narrow it. */
+  private fun specificity(range: MediaType): Int {
+    val wildcard = when {
+      range.isWildcardType -> 2
+      range.isWildcardSubtype -> 1
+      else -> 0
+    }
+    return wildcard * PARAMETER_HEADROOM - range.parameters.keys.count { !it.equals(QUALITY, ignoreCase = true) }
+  }
+
+  private const val QUALITY = "q"
+
+  /** More parameters than this on one range would have to widen it, which no `Accept` does. */
+  private const val PARAMETER_HEADROOM = 8
 }
