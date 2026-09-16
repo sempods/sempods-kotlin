@@ -45,7 +45,9 @@ import java.io.OutputStream
  * over an HTTP/2 connection it shares with another host, which it sends once more over one of its own
  * when that server answers `421` (RFC 9110 §15.5.20). That answer is about the connection OkHttp
  * chose, not about the target, and it is repeated for a session's call alike
- * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
+ * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)). One status never comes back: a `407`
+ * from a server reached directly, which only a proxy may send (RFC 9110 §15.5.8), and which OkHttp
+ * refuses as a `ProtocolException` — for a session's call as well.
  *
  * **A redirect is the caller's to follow, unless [followingRedirects] takes it.** Following sends each
  * hop as a call of its own, so the guard vets each. It ends at the first redirect it cannot or may not
