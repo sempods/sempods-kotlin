@@ -133,11 +133,19 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             "Create the call from the request the session's newRequest built.",
         )
       }
-      val proceeding = if (chain.call().tag(ForeignCall::class.java) != null) foreign(chain) else chain
+      val foreign = chain.call().tag(ForeignCall::class.java)
+      val proceeding = if (foreign != null) foreign(chain) else chain
       val slot = Slot(gate(), chain.call())
       slot.take()
       val response = try {
-        proceeding.proceed(request)
+        val sent = if (foreign == null) {
+          request
+        } else {
+          // Credential work for a foreign target is the call's, as a session's is: in its slot, under its deadline.
+          if (chain.call().isCanceled()) throw IOException("Canceled")
+          foreign.authenticate(request)
+        }
+        proceeding.proceed(sent)
       } catch (failure: Throwable) {
         slot.give()
         throw failure

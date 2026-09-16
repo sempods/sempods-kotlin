@@ -45,12 +45,15 @@ import java.io.OutputStream
  * origin the caller named: the first hop that leaves it goes on without one, and so does every hop
  * after it, wherever it points. [SempodsResponse.url] names the URL that answered.
  *
- * **What a call holds.** [getText] and [getBytes] read at most 16 MiB and free the admission slot before
- * they decode. [getStream] and [getTo] have no limit — the body is a foreign server's, so the reader is
- * its only bound — and hold the slot until the reader is done ([SempodsBodyReader]). The client's
- * deadline applies per call, so a followed chain may take one deadline per hop, and a budget on the
- * guard is charged per hop. OkHttp's own resend after a lost connection stays on for these calls; each
- * is a `GET`.
+ * **What a call holds.** The credential is applied inside the call, in its admission slot and under its
+ * deadline. A mechanism that fetches a token through this same client needs a slot of its own for that
+ * fetch, so under a budget of one it waits until the deadline
+ * ([#161](https://github.com/sempods/sempods-kotlin/issues/161)). [getText] and [getBytes] read at most
+ * 16 MiB and free the slot before they decode. [getStream] and [getTo] have no limit — the body is a
+ * foreign server's, so the reader is its only bound — and hold the slot until the reader is done
+ * ([SempodsBodyReader]). The deadline applies per call, so a followed chain may take one deadline per hop,
+ * and a budget on the guard is charged per hop. OkHttp's own resend after a lost connection stays on for
+ * these calls; each is a `GET`.
  *
  * **Only `GET`.** A caller that needs another method, a condition or a call to cancel builds an
  * `okhttp3.Request` and runs it on the same client, where the guard applies all the same.
@@ -166,14 +169,9 @@ class SempodsForeignTarget internal constructor(
     }
   }
 
-  private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request {
-    val plain = Request.Builder().url(target).get().header("Accept", accept).build()
-    val authenticated = credential?.authenticate(plain, attempt = 1) ?: plain
-    // Whatever a mechanism put on the request is held to the origin it was put there for; a call that
-    // carries nothing of it has nothing an interceptor could take elsewhere.
-    val credentialed = authenticated.headers != plain.headers
-    return authenticated.newBuilder().tag(ForeignCall::class.java, ForeignCall(target.takeIf { credentialed })).build()
-  }
+  /** The request for one hop. Its credential is applied by the call itself, inside the call's slot and deadline. */
+  private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request =
+    Request.Builder().url(target).get().header("Accept", accept).tag(ForeignCall::class.java, ForeignCall(credential)).build()
 
   companion object {
 
@@ -215,10 +213,28 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
   one.scheme == other.scheme && one.host == other.host && one.port == other.port
 
 /**
- * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, and — when it
- * carries a credential — the origin that credential was applied for.
+ * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, the mechanism
+ * that authenticates it, and — once that mechanism has put anything on it — the origin it was put there
+ * for.
  */
-internal class ForeignCall(private val credentialedFor: HttpUrl?) {
+internal class ForeignCall(private val auth: SempodsRequestAuth?) {
+
+  @Volatile
+  private var credentialedFor: HttpUrl? = null
+
+  /**
+   * [request] with this call's credential, applied once as the first attempt. The session interceptor asks
+   * this after the call has its admission slot, so credential work is inside the slot and under the deadline,
+   * as a session's is.
+   */
+  @Throws(IOException::class)
+  fun authenticate(request: Request): Request {
+    val authenticated = auth?.authenticate(request, attempt = 1) ?: return request
+    // What a mechanism put on the request is held to the origin it was put there for; a call it left as it
+    // was carries nothing an interceptor could take elsewhere.
+    if (authenticated.headers != request.headers) credentialedFor = request.url
+    return authenticated
+  }
 
   /**
    * Throws when [request], as it is about to be written, would take this call's credential to another

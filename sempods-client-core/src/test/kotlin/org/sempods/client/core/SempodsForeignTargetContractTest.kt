@@ -3,7 +3,11 @@ package org.sempods.client.core
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertContentEquals
@@ -273,6 +277,46 @@ class SempodsForeignTargetContractTest : MockPodTest() {
       }
 
     assertTrue(recorded().isEmpty())
+  }
+
+  @Test
+  fun `credential work holds the call's admission slot`() {
+    answer(200, "ok")
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val slow = SempodsRequestAuth { request, _ ->
+      entered.countDown()
+      release.await(5, TimeUnit.SECONDS)
+      request.header("Authorization", "Bearer fetched")
+    }
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { narrow ->
+      val first = Executors.newSingleThreadExecutor().let { pool ->
+        pool.submit<SempodsResponse<String>> { SempodsForeignTarget(narrow).getText(card, "text/turtle", slow) }.also { pool.shutdown() }
+      }
+      assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+      // The one slot is taken while the credential is still being fetched.
+      assertThrows<SempodsClientException> { SempodsForeignTarget(narrow).getText(card, "text/turtle") }
+
+      release.countDown()
+      assertEquals(200, first.get(5, TimeUnit.SECONDS).status)
+    }
+  }
+
+  @Test
+  fun `a credential that arrives after the deadline gets no deadline of its own`() {
+    answer(200, "ok")
+    val late = SempodsRequestAuth { request, _ ->
+      Thread.sleep(600)
+      request.header("Authorization", "Bearer late")
+    }
+
+    sempodsClient { callTimeout(Duration.ofMillis(200)) }.closing { impatient ->
+      assertThrows<IOException> { SempodsForeignTarget(impatient).getText(card, "text/turtle", late) }
+    }
+
+    assertTrue(recorded().isEmpty(), "the deadline ran out while the credential was fetched, so nothing was sent")
   }
 
   @Test
