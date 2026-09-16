@@ -290,7 +290,10 @@ class SempodsClient(
     if (response.statusCode / 100 != 2) {
       throw transport.failure("GET", targetUrl, response.statusCode, response.body.toString(StandardCharsets.UTF_8))
     }
-    if (response.header("Content-Type").orEmpty().startsWith("application/n-quads")) {
+    // Type and subtype are case-insensitive (RFC 9110 §8.3.1), and the parameters are not this
+    // reading's business.
+    val mediaType = response.header("Content-Type").orEmpty().substringBefore(';').trim()
+    if (mediaType.equals("application/n-quads", ignoreCase = true)) {
       return Rio.parse(ByteArrayInputStream(response.body), RDFFormat.NQUADS)
         .filter { it.predicate.stringValue() == SD_NAMED_GRAPH }
         .mapNotNull { (it.`object` as? IRI)?.stringValue()?.let(::URI) }

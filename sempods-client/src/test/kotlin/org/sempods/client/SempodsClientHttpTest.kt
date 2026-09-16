@@ -276,6 +276,28 @@ class SempodsClientHttpTest {
   }
 
   @Test
+  fun `listContexts reads N-Quads however the pod spells the media type`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          // Type and subtype are case-insensitive, so a pod may spell them this way.
+          .withHeader("Content-Type", "Application/N-Quads; charset=utf-8")
+          .withBody("<$catalogue> <http://www.w3.org/ns/sparql-service-description#namedGraph> <$ctxA> .\n"),
+      )
+
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
   fun `listContexts reads a JSON-LD catalogue a conforming pod answers as application slash json`() {
     val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
     val catalogue = baseUrl.resolve("_system/contexts")
