@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -303,6 +304,28 @@ class SempodsForeignTargetContractTest : MockPodTest() {
       assertEquals("ok", SempodsForeignTarget(client).getText(card, "text/turtle").body)
       assertEquals("127.0.0.1:${server.port}", recorded().single().getFirstHeader("Host"))
     }
+  }
+
+  @Test
+  fun `an interceptor ahead of the session's that moves a credentialed call is refused, not authenticated for the new origin`() {
+    answer(200, "ok")
+    // Added after install, at the front: it runs before the credential is applied.
+    val ahead = client.newBuilder().apply {
+      interceptors().add(0, Interceptor { chain ->
+        val request = chain.request()
+        chain.proceed(request.newBuilder().url(request.url.newBuilder().host("127.0.0.1").build()).build())
+      })
+    }.build()
+
+    val refused = assertThrows<SempodsClientException> {
+      SempodsForeignTarget(ahead).getText(card, "text/turtle", SempodsRequestAuth.bearer("t-1"))
+    }
+    assertTrue(refused.message!!.contains("127.0.0.1"), refused.message)
+    assertTrue(recorded().isEmpty(), "nothing was written, the credential least of all")
+
+    // Without a credential the request goes wherever that interceptor sends it.
+    assertEquals("ok", SempodsForeignTarget(ahead).getText(card, "text/turtle").body)
+    assertEquals("127.0.0.1:${server.port}", recorded().single().getFirstHeader("Host"))
   }
 
   @Test

@@ -181,7 +181,7 @@ class SempodsForeignTarget internal constructor(
 
   /** The request for one hop. Its credential is applied by the call itself, inside the call's slot and deadline. */
   private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request =
-    Request.Builder().url(target).get().header("Accept", accept).tag(ForeignCall::class.java, ForeignCall(credential)).build()
+    Request.Builder().url(target).get().header("Accept", accept).tag(ForeignCall::class.java, ForeignCall(target, credential)).build()
 
   companion object {
 
@@ -223,11 +223,11 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
   one.scheme == other.scheme && one.host == other.host && one.port == other.port
 
 /**
- * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, the mechanism
- * that authenticates it, and — once that mechanism has put anything on it — the origin it was put there
- * for.
+ * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, the URL it was
+ * built for, the mechanism that authenticates it, and — once that mechanism has put anything on it — the
+ * origin that was for.
  */
-internal class ForeignCall(private val auth: SempodsRequestAuth?) {
+internal class ForeignCall(private val named: HttpUrl, private val auth: SempodsRequestAuth?) {
 
   @Volatile
   private var credentialedFor: HttpUrl? = null
@@ -240,9 +240,12 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
   @Throws(IOException::class)
   fun authenticate(request: Request): Request {
     val authenticated = auth?.authenticate(request, attempt = 1) ?: return request
-    // What a mechanism put on the request is held to the origin it was put there for; a call it left as it
-    // was carries nothing an interceptor could take elsewhere.
-    if (authenticated.headers != request.headers) credentialedFor = request.url
+    // A call the mechanism left as it was carries nothing an interceptor could take elsewhere.
+    if (authenticated.headers == request.headers) return request
+    // What it put on the request is for the origin the caller named. An interceptor ahead of this one may
+    // already have moved the request, and the credential does not follow it there.
+    if (!sameOrigin(request.url, named)) throw movedAway(request.url)
+    credentialedFor = named
     return authenticated
   }
 
@@ -253,12 +256,7 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
   fun confine(request: Request) {
     val origin = credentialedFor ?: return
     val target = request.url
-    if (!sameOrigin(target, origin)) {
-      throw SempodsClientException(
-        "'${target.newBuilder().query(null).fragment(null).build()}' is not the origin this call's credential was " +
-          "applied for. An interceptor that moves a foreign target's request cannot take its credential along.",
-      )
-    }
+    if (!sameOrigin(target, origin)) throw movedAway(target)
     val named = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
     if (named.isNotEmpty()) {
       throw SempodsClientException(
@@ -266,4 +264,9 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
       )
     }
   }
+
+  private fun movedAway(target: HttpUrl) = SempodsClientException(
+    "'${target.newBuilder().query(null).fragment(null).build()}' is not the origin the caller named for this call's " +
+      "credential. An interceptor that moves a foreign target's request cannot take its credential along.",
+  )
 }
