@@ -9,8 +9,8 @@ import java.io.IOException
 import java.io.OutputStream
 
 /**
- * A URI outside any pod, read over a client [SempodsOkHttp.install] configured — its transport, its
- * guard, its deadline and its admission budget — and with no pod's credential.
+ * Reads a URI outside any pod over a client [SempodsOkHttp.install] configured: its transport, guard,
+ * deadline and admission, without a pod's credential.
  *
  * ```java
  * SempodsForeignTarget foreign = new SempodsForeignTarget(client);
@@ -21,55 +21,37 @@ import java.io.OutputStream
  * String answeredBy = document.getUrl();
  * ```
  *
- * **Not a session and not an endpoint group.** There is no pod base, and nothing is inherited from one:
- * a credential goes with the call that names it and with no other, and the client's own
- * `Authenticator` and `CookieJar` do not answer for these calls. A call given any mechanism but
- * [SempodsRequestAuth.anonymous] is held to the origin it names, as a session's is to its pod: an
- * interceptor that moves it elsewhere, before the credential is applied or after, is refused before
- * anything is written. The target is whatever URI a call passes, so one
- * instance serves any number of them.
+ * **The credential belongs to one call.** A call carries only the [SempodsRequestAuth] passed to it; the
+ * client's `Authenticator` and `CookieJar` do not answer for it. A call with any mechanism but
+ * [SempodsRequestAuth.anonymous] is held to the origin it names: an interceptor that moves it elsewhere
+ * is refused before anything is written.
  *
- * **The guard is the client's, and it is opt-in.** On a client installed with a
- * [net.SempodsOutboundGuard], every call — and every hop of a followed redirect — is vetted before it
- * connects; one installed without dials whatever it is given. This is the component most likely to be
- * handed a URI from someone else's request, so install one. A name that resolves into a blocked range
- * fails with [net.SsrfBlockedException], an address literal with a [SempodsClientException] caused by
- * one. On a client `install` did not configure, none of this applies.
+ * **Install a guard.** This call is the one most likely to get a URI from someone else's request, and a
+ * client without a [net.SempodsOutboundGuard] dials any address. With one, a name that resolves into a
+ * blocked range fails with [net.SsrfBlockedException], an address literal with a
+ * [SempodsClientException] caused by one.
  *
- * **Every status is an answer.** This library knows no contract of a foreign server's and classifies
- * nothing: a `404`, a `303` and a `500` come back as a [SempodsResponse] with their headers, `Location`
- * included, and a `408` is an answer too. So is a `503` asking to be repeated at once, which comes back
- * without its `Retry-After: 0`: OkHttp acts on that header by itself, below every interceptor of this
- * library, so it is taken off, as it is for a session's call. Outside 2xx the body is closed unread,
- * so a foreign error document never reaches the caller. What is sent again is a request whose
- * connection was lost before any answer, once, as for a session's `GET` — and a request OkHttp sent
- * over an HTTP/2 connection it shares with another host, which it sends once more over one of its own
- * when that server answers `421` (RFC 9110 §15.5.20). That answer is about the connection OkHttp
- * chose, not about the target, and it is repeated for a session's call alike
- * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)). One status never comes back: a `407`
- * from a server reached directly, which only a proxy may send (RFC 9110 §15.5.8), and which OkHttp
- * refuses as a `ProtocolException` — for a session's call as well.
+ * **Every status is an answer**, with its headers, and outside 2xx without a body. OkHttp works below
+ * this library's interceptors, and changes that in these cases:
  *
- * **A redirect is the caller's to follow, unless [followingRedirects] takes it.** Following sends each
- * hop as a call of its own, so the guard vets each. It ends at the first redirect it cannot or may not
- * take, and that redirect is the answer; only the client's policy throws. The credential stays with the
- * origin the caller named: the first hop that leaves it goes on without one, and so does every hop
- * after it, wherever it points. [SempodsResponse.url] names the URL that answered.
+ * | The server | The caller gets |
+ * |---|---|
+ * | answers `503` with `Retry-After: 0` | the `503`, without that header |
+ * | drops the connection before any answer | the answer to one resend |
+ * | answers `421` over an HTTP/2 connection OkHttp shares with another host | the answer to OkHttp's resend over its own connection ([#160](https://github.com/sempods/sempods-kotlin/issues/160)) |
+ * | answers `407` over a direct connection, where only a proxy may send one | a `ProtocolException` |
  *
- * **What a call holds.** The credential is applied inside the call, in its admission slot and under its
- * deadline, with two limits a session's call does not have — both of them
- * [#161](https://github.com/sempods/sempods-kotlin/issues/161)'s to lift. A mechanism that fetches a
- * token through this same client needs a slot of its own for that fetch, so under a budget of one it
- * waits until the deadline. And a call waiting while another refreshes a shared
- * [SempodsRequestAuth.refreshable] credential does not see its own cancellation, so it waits up to that
- * credential's 30 seconds, holding its slot. [getText] and [getBytes] read at most
- * 16 MiB and free the slot before they decode. [getStream] and [getTo] have no limit — the body is a
- * foreign server's, so the reader is its only bound — and hold the slot until the reader is done
- * ([SempodsBodyReader]). The deadline applies per call, so a followed chain may take one deadline per hop,
- * and a budget on the guard is charged per hop.
+ * **A redirect is the caller's to follow**, unless [followingRedirects] follows it.
  *
- * **Only `GET`.** A caller that needs another method, a condition or a call to cancel builds an
- * `okhttp3.Request` and runs it on the same client, where the guard applies all the same.
+ * **Limits.**
+ * - [getText] and [getBytes] read at most 16 MiB. [getStream] and [getTo] have no limit and hold the
+ *   admission slot until the reader returns.
+ * - The deadline and the guard's budget apply per call, and so per redirect hop.
+ * - The credential is applied inside the call's slot and deadline, but without the thread-local a
+ *   session's call uses ([#161](https://github.com/sempods/sempods-kotlin/issues/161)). A token fetched
+ *   through this same client needs a slot of its own, and a call waiting for another to refresh a shared
+ *   [SempodsRequestAuth.refreshable] credential does not see its cancellation for up to 30 seconds.
+ * - Only `GET`. For anything else, build an `okhttp3.Request` and run it on the same client.
  */
 class SempodsForeignTarget internal constructor(
   /** What runs the calls: a client [SempodsOkHttp.install] configured, or a factory over one. */
@@ -89,15 +71,18 @@ class SempodsForeignTarget internal constructor(
   private val exchange = Exchange(calls, maxBodyBytes)
 
   /**
-   * The same target, following up to [maxRedirects] redirects per call: `301`, `302`, `303`, `307` and
-   * `308`, each as a `GET`. `300`, `304`, `305` and `306` are answers — `305` names a proxy the server
-   * chose, which is never taken.
+   * This target, following up to [maxRedirects] redirects per call: `301`, `302`, `303`, `307` and `308`,
+   * each as a `GET` and a call of its own that the guard vets. [SempodsResponse.url] names the last URL.
    *
-   * A `Location` is resolved against the URL that answered ([SempodsResponse.url]), after whatever an
-   * interceptor on the client made of the request's URL. A redirect with no `Location` or with two, one that
-   * does not resolve to an http or https URL, one carrying userinfo, one back to a URL this call has
-   * already asked or been answered from, and the one that would exceed the budget, are the answer. An https target may redirect to http; the hop that does leaves the origin, so it goes on
-   * without a credential, but its answer travels in the clear.
+   * The redirect itself is the answer when
+   * - it has no `Location`, or two;
+   * - its `Location` resolves to no http or https URL, or carries userinfo;
+   * - it points to a URL this call already asked or was answered from;
+   * - the budget is spent.
+   *
+   * `300`, `304`, `305` and `306` are always answers. The credential is dropped at the first hop that
+   * leaves the origin the caller named, and stays dropped if a later hop returns. An https target that
+   * redirects to http goes on without it, but in the clear.
    */
   fun followingRedirects(maxRedirects: Int): SempodsForeignTarget {
     require(maxRedirects in 1..MAX_REDIRECTS) { "A redirect budget is between 1 and $MAX_REDIRECTS, not $maxRedirects." }
@@ -105,11 +90,10 @@ class SempodsForeignTarget internal constructor(
   }
 
   /**
-   * [uri] as the text it answered with, asking for [accept] and authenticated by [auth] for this call
-   * alone.
+   * [uri] as text, asking for [accept], with [auth] for this call only.
    *
-   * [accept] is sent as it is — one media type, or a list with weights — and has no default: nothing
-   * says what a foreign server offers, so a wildcard is something a caller writes.
+   * [accept] goes out as given, for example `text/turtle` or `text/turtle, application/ld+json;q=0.9`. It
+   * has no default: a caller who takes anything writes the wildcard.
    */
   @JvmOverloads
   @Throws(IOException::class)
@@ -167,22 +151,20 @@ class SempodsForeignTarget internal constructor(
     while (true) {
       seen += target
       val answer = send(request(target, accept, credential))
-      // An interceptor on the client may have moved the request, and what the server received is what its
-      // `Location` is relative to. A chain that comes back to a URL it asked, or was answered from, is a loop.
+      // Relative to the URL that answered: an interceptor may have moved the request.
       val answered = answer.url.toHttpUrl()
       seen += answered
       if (redirects == maxRedirects) return answer
       val next = redirectTarget(answer, answered) ?: return answer
       if (next in seen) return answer
-      // Once the chain leaves the origin the caller named, no hop is the caller's to authenticate — not
-      // even one that comes back: that URL was chosen by a server the credential was never meant for.
+      // For good: a hop back at the named origin was still chosen by another server.
       if (!sameOrigin(next, named)) credential = null
       target = next
       redirects++
     }
   }
 
-  /** The request for one hop. Its credential is applied by the call itself, inside the call's slot and deadline. */
+  /** The request for one hop; the session interceptor applies its credential ([ForeignCall]). */
   private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request =
     Request.Builder()
       .url(target)
@@ -231,34 +213,28 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
   one.scheme == other.scheme && one.host == other.host && one.port == other.port
 
 /**
- * What a [SempodsForeignTarget]'s call tells the client's interceptors: that it is one, the URL it was
- * built for, and the mechanism that authenticates it — null for [SempodsRequestAuth.anonymous]. A call
- * with a mechanism is held to the origin it was built for.
+ * What a [SempodsForeignTarget] call tells the client's interceptors: the URL it was built for, and its
+ * mechanism, null for [SempodsRequestAuth.anonymous].
  */
 internal class ForeignCall(private val named: HttpUrl, private val auth: SempodsRequestAuth?) {
 
   @Volatile
   private var credentialedFor: HttpUrl? = null
 
-  /**
-   * [request] with this call's credential, applied once as the first attempt. The session interceptor asks
-   * this after the call has its admission slot, so credential work is inside the slot and under the deadline,
-   * as a session's is.
-   */
+  /** [request] with this call's credential, applied as the first attempt. */
   @Throws(IOException::class)
   fun authenticate(request: Request): Request {
     val mechanism = auth ?: return request
-    // A call given a mechanism is held to the origin the caller named, whatever the mechanism puts on it —
-    // a header an interceptor ahead of this one already set to the same value included. That interceptor
-    // may also have moved the request, and the credential does not follow it there.
+    // Checked before the mechanism runs, whatever it will set: an interceptor ahead of this one may have
+    // moved the request already.
     if (!sameOrigin(request.url, named)) throw movedAway(request.url)
     credentialedFor = named
     return mechanism.authenticate(request, attempt = 1)
   }
 
   /**
-   * Throws when [request], as it is about to be written, would take this call's credential to another
-   * authority: a URL an interceptor moved, or a `Host` it named, which OkHttp sends in place of the URL's.
+   * Throws when [request], about to be written, names another authority than the credential's: by its URL,
+   * or by a `Host` header, which OkHttp sends in place of the URL's.
    */
   fun confine(request: Request) {
     val origin = credentialedFor ?: return

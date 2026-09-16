@@ -76,9 +76,8 @@ object SempodsOkHttp {
    *
    * **OkHttp repeats nothing for a session's call**: its own resend is off whatever
    * `retryOnConnectionFailure` says, and an `Authenticator` on the builder is not asked, because either
-   * would repeat an attempt the session did not authorize. A [SempodsForeignTarget]'s call keeps neither
-   * either, nor the builder's `CookieJar`: its one resend is made by the core. Other calls on the client
-   * keep both.
+   * would repeat an attempt the session did not authorize. A [SempodsForeignTarget] call keeps neither;
+   * other calls on the client keep both.
    *
    * Refuses a builder that already carries these interceptors: two sets would nest the retries and
    * take two admission slots per call. A client derived through `newBuilder()` — OpenTelemetry's
@@ -156,19 +155,10 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
   }
 
   /**
-   * A [SempodsForeignTarget]'s call, which inherits nothing from the builder it runs on: an `Authenticator`
-   * there would answer the target's challenge with the consumer's own credential, and a `CookieJar` would
-   * send the consumer's cookies. A client that follows redirects is refused, because OkHttp would carry
-   * the call's credential wherever a redirect points and strip only `Authorization` on the way.
-   *
-   * **OkHttp repeats nothing for it** but a `421` on a connection it shared with another host (#160),
-   * because every status is the call's answer: a `408` would be sent
-   * again under `retryOnConnectionFailure`, so that is off, and the one resend a `GET` may have after a
-   * connection lost before an answer is made here, as it is for a session ([ConnectionResend]). The same
-   * request goes out again; its credential is not asked twice. [FinalTarget] takes a `503`'s
-   * `Retry-After: 0` off, as for a session.
-   *
-   * The credential work runs in the call's slot and under its deadline.
+   * A [SempodsForeignTarget] call, as that class describes it. `retryOnConnectionFailure` is off because
+   * OkHttp would also repeat a `408` under it, so the one resend a `GET` keeps after a lost connection is
+   * made here ([ConnectionResend]). A client that follows redirects is refused: OkHttp would take the
+   * credential along and strip only `Authorization`.
    */
   private fun foreignCall(chain: Interceptor.Chain, foreign: ForeignCall, request: Request): Response {
     if (chain.followRedirects) {

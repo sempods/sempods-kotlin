@@ -147,7 +147,7 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a 503 asking to be repeated at once is the answer, not a reason to ask again`() {
+  fun `a 503 asking to be repeated at once is the answer`() {
     server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
 
@@ -159,7 +159,7 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a 408 is the answer, not a reason to ask again`() {
+  fun `a 408 is the answer`() {
     server.`when`(request(), Times.once()).respond(response().withStatusCode(408))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
 
@@ -300,14 +300,14 @@ class SempodsForeignTargetContractTest : MockPodTest() {
       assertFalse(refused.message!!.contains("secret"), refused.message)
       assertTrue(recorded().isEmpty(), "nothing was written, the credential least of all")
 
-      // Without a credential there is nothing to take along, and where the request goes is the interceptor's say.
+      // An anonymous call goes wherever the interceptor sends it.
       assertEquals("ok", SempodsForeignTarget(client).getText(card, "text/turtle").body)
       assertEquals("127.0.0.1:${server.port}", recorded().single().getFirstHeader("Host"))
     }
   }
 
   @Test
-  fun `an interceptor ahead of the session's that moves a credentialed call is refused, not authenticated for the new origin`() {
+  fun `an interceptor ahead of the session's that moves a credentialed call is refused`() {
     answer(200, "ok")
     // Added after install, at the front: it runs before the credential is applied.
     val ahead = client.newBuilder().apply {
@@ -323,7 +323,7 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     assertTrue(refused.message!!.contains("127.0.0.1"), refused.message)
     assertTrue(recorded().isEmpty(), "nothing was written, the credential least of all")
 
-    // Without a credential the request goes wherever that interceptor sends it.
+    // An anonymous call goes wherever the interceptor sends it.
     assertEquals("ok", SempodsForeignTarget(ahead).getText(card, "text/turtle").body)
     assertEquals("127.0.0.1:${server.port}", recorded().single().getFirstHeader("Host"))
   }

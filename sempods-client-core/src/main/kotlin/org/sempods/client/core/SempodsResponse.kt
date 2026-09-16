@@ -19,10 +19,9 @@ import okhttp3.Headers
  */
 class SempodsResponse<T : Any> internal constructor(
   /**
-   * The URL that answered, without a fragment: the one asked, or after followed redirects
-   * ([SempodsForeignTarget.followingRedirects]) the last one. An answer made without a request, such as
-   * the absence a read of no context gets, names the URL it would have asked. It is the request's URL as
-   * sent; a `Host` header an interceptor set in place of that URL's authority is not reflected in it.
+   * The URL of the request this answers, without a fragment; after followed redirects
+   * ([SempodsForeignTarget.followingRedirects]), the last one. A `Host` an interceptor set is not reflected.
+   * An answer made without a request names the URL it would have asked.
    */
   val url: String,
   val status: Int,
