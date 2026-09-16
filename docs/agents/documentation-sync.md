@@ -57,9 +57,10 @@ Apply the writing rules. In particular, ask in this order:
 
 ## 4. KDoc
 
-For every public declaration whose signature or behavior changed, check its owning KDoc under
-[rule 5](documentation-strategy.md#the-writing-rules): nullability, units, ownership and what an
-implementation owes its caller. Field-level detail lives in KDoc.
+Check the owning KDoc and comments for every contract affected by signature or behavior changes,
+including public APIs and private or internal contracts. Follow
+[rule 5](documentation-strategy.md#the-writing-rules) for ownership. Check nullability, units,
+ownership and what an implementation owes its caller. Field-level detail lives in KDoc.
 
 ## 5. Weight
 
@@ -86,7 +87,8 @@ Over what is left:
 - Did anything land in an `AGENTS.md`? Name the document that owns it. Where the answer is the
   map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
   exactly one copy.
-- Does a field's KDoc repeat what the class KDoc says? The field wins (rule 4).
+- Is a property's contract documented more than once? Keep one owner under rule 5; a type's
+  `@property` tag already documents that property.
 - Does an override, a private function, a helper or an inline comment restate a public declaration's
   contract? Link the owner when discussing that contract. Keep private contracts local and leave
   unchanged overrides without KDoc (rule 5).

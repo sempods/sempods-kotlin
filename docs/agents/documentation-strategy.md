@@ -218,8 +218,8 @@ behaviour change is not finished until, **in the same change**:
 
 - the affected IST documentation is correct — or has been cut, because the logic now follows the
   standard (rule 3);
-- the owning KDoc for every public declaration whose signature or behavior changed is correct
-  (rule 5);
+- the KDoc and comments for affected contracts are correct at their owners, including public APIs
+  and private or internal contracts (rule 5);
 - the PR records acceptance progress, checks and documentation evidence, with issue linkage under
   [Issue planning](#issue-planning) or the
   [automated dependency-update exception](#automated-dependency-updates) or
