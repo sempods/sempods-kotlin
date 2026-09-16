@@ -13,6 +13,13 @@ internal const val MAX_BODY_BYTES: Long = 16L * 1024 * 1024
 /** How much of a refused answer's body a [SempodsStatusException] keeps. */
 internal const val ERROR_EXCERPT_BYTES: Long = 4L * 1024
 
+/**
+ * Every status an answer can carry, for an operation that classifies none: a foreign target's contract
+ * is not this library's to know. OkHttp reads any three digits, so a set ending at 599 would still refuse
+ * one.
+ */
+internal val EVERY_STATUS: Set<Int> = (0..999).toSet()
+
 /** How an operation reads a body that has already left the connection. */
 internal fun interface BodyReading<T : Any> {
 
@@ -60,15 +67,15 @@ internal class Exchange(
     calls.newCall(request).execute().use { response ->
       refuseUnlisted(response, answers)
       if (!response.isSuccessful) {
-        SempodsResponse(response.code, response.headers, body = null)
+        SempodsResponse(answered(response), response.code, response.headers, body = null)
       } else {
-        SempodsResponse(response.code, response.headers, reader.read(response.body.byteStream()))
+        SempodsResponse(answered(response), response.code, response.headers, reader.read(response.body.byteStream()))
       }
     }
 
   fun <T : Any> run(request: Request, answers: Set<Int>, reading: BodyReading<T>): SempodsResponse<T> {
     val answer = execute(request, answers, readBody = true)
-    val bytes = answer.bytes ?: return SempodsResponse(answer.status, answer.headers, body = null)
+    val bytes = answer.bytes ?: return SempodsResponse(answer.url, answer.status, answer.headers, body = null)
     val body = try {
       reading.read(bytes, answer.contentType)
     } catch (violation: ProtocolViolation) {
@@ -78,7 +85,7 @@ internal class Exchange(
         answer.headers,
       )
     }
-    return SempodsResponse(answer.status, answer.headers, body)
+    return SempodsResponse(answer.url, answer.status, answer.headers, body)
   }
 
   private fun execute(request: Request, answers: Set<Int>, readBody: Boolean): Answer =
@@ -107,6 +114,9 @@ internal class Exchange(
    * The request the pod received, whose URL names the pod's host; no query, which is where a caller's
    * parameters would be.
    */
+  /** The URL the response came from — after every follow-up OkHttp made — without a fragment. */
+  private fun answered(response: Response): String = response.request.url.newBuilder().fragment(null).build().toString()
+
   private fun described(response: Response): String {
     val sent = response.request
     return "${sent.method} ${sent.url.newBuilder().query(null).fragment(null).build()}"
@@ -132,7 +142,8 @@ internal class Exchange(
       ""
     }
 
-  private class Answer(val described: String, response: Response, val bytes: ByteArray?) {
+  private inner class Answer(val described: String, response: Response, val bytes: ByteArray?) {
+    val url: String = answered(response)
     val status: Int = response.code
     val headers: Headers = response.headers
     val contentType: MediaType? = response.body.contentType()

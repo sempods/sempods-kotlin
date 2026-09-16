@@ -9,6 +9,35 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
+ * [request] with this mechanism applied for [attempt], refused when the mechanism changed anything but
+ * headers.
+ *
+ * Asked again after authentication: a mechanism is meant to set headers. One that rewrote the URL would
+ * carry the credential to another authority, and one that changed the method or the body would send a
+ * request the caller never built, under the caller's credential. The message names the URL without its
+ * query, where a caller's own token may be.
+ */
+@Throws(IOException::class)
+internal fun SempodsRequestAuth.authenticate(request: Request, attempt: Int): Request {
+  val builder = request.newBuilder()
+  apply(builder, attempt)
+  val authenticated = builder.build()
+  val changed = listOfNotNull(
+    "target".takeIf { authenticated.url != request.url },
+    "method".takeIf { authenticated.method != request.method },
+    "body".takeIf { authenticated.body !== request.body },
+  )
+  if (changed.isNotEmpty()) {
+    val described = request.url.newBuilder().query(null).fragment(null).build()
+    throw SempodsClientException(
+      "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} $described'. " +
+        "A mechanism may set headers and nothing else.",
+    )
+  }
+  return authenticated
+}
+
+/**
  * Supplies a credential, and says whether a refused one is worth re-acquiring.
  *
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever

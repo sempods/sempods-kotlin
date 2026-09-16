@@ -18,6 +18,12 @@ import okhttp3.Headers
  * `Content-Type` included.
  */
 class SempodsResponse<T : Any> internal constructor(
+  /**
+   * The URL that answered, without a fragment: the one asked, or after followed redirects
+   * ([SempodsForeignTarget.followingRedirects]) the last one. An answer made without a request, such as
+   * the absence a read of no context gets, names the URL it would have asked.
+   */
+  val url: String,
   val status: Int,
   val headers: Headers,
   val body: T?,

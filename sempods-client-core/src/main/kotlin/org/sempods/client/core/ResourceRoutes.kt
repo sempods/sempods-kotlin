@@ -160,7 +160,7 @@ internal class ResourceOperations(
     if (options.selection.isRestricted && options.selection.contextUris.isEmpty()) {
       // A read route drops an empty `context` and answers from every readable context, so nothing is
       // sent: the answer is the absence the pod gives when nothing is visible (SPS-CRUD-017).
-      return SempodsResponse(404, Headers.headersOf(), body = null)
+      return SempodsResponse(session.podBase.resolve(path).toString(), 404, Headers.headersOf(), body = null)
     }
     val url = session.podBase.resolve(path).newBuilder()
     options.selection.contextUris.forEach { url.addQueryParameter(CONTEXT, it) }

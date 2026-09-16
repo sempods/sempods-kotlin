@@ -40,6 +40,7 @@ import org.sempods.client.core.SempodsContent;
 import org.sempods.client.core.SempodsContextCreate;
 import org.sempods.client.core.SempodsContextSelection;
 import org.sempods.client.core.SempodsDecodingException;
+import org.sempods.client.core.SempodsForeignTarget;
 import org.sempods.client.core.SempodsGraphFormat;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
@@ -168,6 +169,18 @@ class ClientCoreFromJavaTest {
       } else {
         json(exchange, 200, "{\"@id\":\"" + base("") + exchange.getRequestURI().getRawPath() + "\"}");
       }
+    });
+    // A server that is no pod: it echoes what a foreign target sent, and redirects one path to another.
+    server.createContext("/elsewhere/card", exchange -> {
+      exchange.getResponseHeaders().add("X-Saw-Accept", header(exchange, "Accept"));
+      exchange.getResponseHeaders().add("X-Saw-Authorization", header(exchange, "Authorization"));
+      json(exchange, 200, "<https://bob.example/#me> <http://xmlns.com/foaf/0.1/name> \"Bob\" .");
+    });
+    server.createContext("/elsewhere/missing", exchange -> json(exchange, 404, "no such card"));
+    server.createContext("/elsewhere/moved", exchange -> {
+      exchange.getResponseHeaders().add("Location", "/elsewhere/card");
+      exchange.sendResponseHeaders(303, -1);
+      exchange.close();
     });
     server.createContext("/alice/events/", resource);
     server.createContext("/alice/_system/resources/", resource);
@@ -460,6 +473,40 @@ class ClientCoreFromJavaTest {
     assertSame(mine, assertThrows(IOException.class, () -> contexts.export(tasks, body -> {
       throw mine;
     })));
+  }
+
+  @Test
+  void dereferencesAForeignUriFromJava() throws IOException {
+    SempodsForeignTarget foreign = new SempodsForeignTarget(client);
+    String card = base("elsewhere") + "/card";
+
+    SempodsResponse<String> anonymous = foreign.getText(card, "application/n-quads");
+    assertEquals(200, anonymous.getStatus());
+    assertEquals("application/n-quads", anonymous.getHeaders().get("X-Saw-Accept"));
+    assertEquals("", anonymous.getHeaders().get("X-Saw-Authorization"));
+    assertEquals(card, anonymous.getUrl());
+
+    SempodsResponse<byte[]> named = foreign.getBytes(card, "application/n-quads", SempodsRequestAuth.bearer("t-1"));
+    assertEquals("Bearer t-1", named.getHeaders().get("X-Saw-Authorization"));
+    assertTrue(new String(named.getBody(), StandardCharsets.UTF_8).contains("Bob"));
+
+    assertEquals(named.getBody().length, foreign.getStream(card, "*/*", InputStream::readAllBytes).getBody().length);
+    ByteArrayOutputStream copied = new ByteArrayOutputStream();
+    assertEquals(named.getBody().length, foreign.getTo(card, "*/*", copied).getBody().longValue());
+    assertEquals(named.getBody().length, copied.size());
+
+    SempodsResponse<String> missing = foreign.getText(base("elsewhere") + "/missing", "text/turtle");
+    assertEquals(404, missing.getStatus());
+    assertNull(missing.getBody());
+
+    String moved = base("elsewhere") + "/moved";
+    assertEquals(303, foreign.getText(moved, "text/turtle").getStatus());
+    SempodsResponse<String> followed = foreign.followingRedirects(3).getText(moved, "text/turtle");
+    assertEquals(200, followed.getStatus());
+    assertEquals(card, followed.getUrl());
+    assertEquals(20, SempodsForeignTarget.MAX_REDIRECTS);
+
+    assertThrows(IllegalArgumentException.class, () -> foreign.getText("file:///etc/passwd", "text/turtle"));
   }
 
   private static SempodsPod pod(String name) {
