@@ -178,17 +178,20 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
   fun `none sends nothing and answers 404 without headers or body, whatever else the read asks`(name: String) {
     answer(200, jsonLd)
     val group = group(name)
+    // Each with the URL the read would have asked, its query included.
     val nothing = listOf(
-      SempodsReadOptions.of(SempodsContextSelection.none()),
-      SempodsReadOptions.of(SempodsContextSelection.of(emptyList())),
-      SempodsReadOptions.of(SempodsContextSelection.none()).withIncludeContexts(true).withIfNoneMatch("\"v1\""),
+      SempodsReadOptions.of(SempodsContextSelection.none()) to "$origin${group.path}",
+      SempodsReadOptions.of(SempodsContextSelection.of(emptyList())) to "$origin${group.path}",
+      SempodsReadOptions.of(SempodsContextSelection.none()).withIncludeContexts(true).withIfNoneMatch("\"v1\"") to
+        "$origin${group.path}?include_contexts=true",
     )
 
-    nothing.forEach { options ->
+    nothing.forEach { (options, url) ->
       listOf(group.getText(event, SempodsGraphFormat.JSON_LD, options), group.getBytes(event, SempodsGraphFormat.JSON_LD, options)).forEach {
         assertEquals(404, it.status)
         assertEquals(0, it.headers.size)
         assertNull(it.body)
+        assertEquals(url, it.url)
       }
     }
 

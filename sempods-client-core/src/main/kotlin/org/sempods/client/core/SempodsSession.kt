@@ -107,33 +107,7 @@ class SempodsSession @JvmOverloads constructor(
     }
   }
 
-  /** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
-  private fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
-    val name = if (':' in target.host) "[${target.host}]" else target.host
-    return host.equals("$name:${target.port}", ignoreCase = true) ||
-      target.port == HttpUrl.defaultPort(target.scheme) && host.equals(name, ignoreCase = true)
-  }
-
-  internal fun authenticated(request: Request, attempt: Int): Request {
-    val builder = request.newBuilder()
-    auth.apply(builder, attempt)
-    val authenticated = builder.build()
-    // Asked again after authentication: a mechanism is meant to set headers. One that rewrote the
-    // URL would carry this session's credential to another authority, and one that changed the
-    // method or the body would send a request the caller never built, under the caller's credential.
-    val changed = listOfNotNull(
-      "target".takeIf { authenticated.url != request.url },
-      "method".takeIf { authenticated.method != request.method },
-      "body".takeIf { authenticated.body !== request.body },
-    )
-    if (changed.isNotEmpty()) {
-      throw SempodsClientException(
-        "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} ${request.url}'. " +
-          "A mechanism may set headers and nothing else.",
-      )
-    }
-    return authenticated
-  }
+  internal fun authenticated(request: Request, attempt: Int): Request = auth.authenticate(request, attempt)
 
   private companion object {
 
@@ -141,4 +115,11 @@ class SempodsSession @JvmOverloads constructor(
 
     val EMPTY_BODY = ByteArray(0).toRequestBody(null)
   }
+}
+
+/** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
+internal fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
+  val name = if (':' in target.host) "[${target.host}]" else target.host
+  return host.equals("$name:${target.port}", ignoreCase = true) ||
+    target.port == HttpUrl.defaultPort(target.scheme) && host.equals(name, ignoreCase = true)
 }
