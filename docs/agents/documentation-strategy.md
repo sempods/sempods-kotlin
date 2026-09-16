@@ -71,6 +71,8 @@ has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents tha
 
 ## The writing rules
 
+These rules apply to documentation, KDoc and code comments.
+
 ### What goes in
 
 **1. Maintained documentation is IST.** It describes what the code does today; where document and
@@ -88,23 +90,27 @@ moved.
 **4. Field-level contracts live in KDoc**: what a field means, what may be null, what an implementation
 owes its caller. Markdown stays high-level and links the code path.
 
-**5. In code, the public declaration owns the contract.** Its KDoc states it once: a type's for the type,
-a function's or property's for that member, and an interface's or base class's member for its overrides.
-A constructor property's `@property` tag on the type counts as its own KDoc. Where an override, a private
-function, a helper or an inline comment has something to say, it links that contract and states only what
-is its own, such as a lock it expects held. Cases go in a list or a table, one row per case:
+**5. In code, the public declaration owns the contract.** Document each contract once, in the KDoc
+of the type, function or property that defines it. Overrides link to the member on the interface or
+base class. Helpers, private functions and inline comments also link to the owner and describe only
+their own requirements, such as a lock the caller must hold. A constructor property's `@property`
+tag on the type counts as that property's KDoc.
+
+Put multiple cases in a list or table. For example, a lookup method could document:
 
 | Case | What the caller gets |
 |---|---|
-| the first case | its outcome |
-| the second case | its outcome |
+| The key exists | The stored value |
+| The key is missing | `null` |
 
 **6. This repository is public.** Nothing strategic, commercial or personal, in issues and proposals
 too. Technical plans are public; private planning stays private.
 
 ### How it reads
 
-**7. Short, direct, plain.** Take the shortest wording that is still correct.
+**7. Short, direct, plain.** Use familiar words and short sentences, with one main point per sentence.
+Keep the detail readers need to understand and use the contract. For example: "Returns `null` when
+the key is missing."
 
 - **Name a standard:** "Authorization Code + PKCE", "RFC 9728 metadata". Its spec explains the
   mechanism.
@@ -126,10 +132,10 @@ day it is written, and wrong somewhere else later.
 reader would otherwise undo the decision: *why the HTTP client is OkHttp* (its `Dns` hook is where SSRF
 resolve-and-pin lives) belongs, *which pull request changed it* does not.
 
-**11. Length is a budget.** A change rewrites the paragraph it touches, a review fix included:
-`X. And since Y, also Z.` leaves the stale half where a reader meets it first. Adding a paragraph means
-looking for one to delete. A document may grow where something true was missing; a section that has
-doubled gets cut.
+**11. Length is a budget.** Replace outdated text when behavior changes, including in review fixes.
+For example, replace "Retries twice" with "Retries three times" when the retry limit changes.
+When adding a paragraph, look for text it makes redundant. When a section grows substantially,
+review it for repetition and unnecessary detail. Keep explanations and examples readers need.
 
 ## Issue planning
 

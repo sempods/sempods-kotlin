@@ -62,8 +62,8 @@ ownership, what an implementation owes its caller? Field-level detail lives here
 
 ## 5. Weight
 
-The steps above ask whether what you wrote is **true**. This one asks what it costs. Rules 7, 9 and
-11 are the authority; these are the probes.
+Check documentation, KDoc and comments for clarity, useful examples and repetition
+(rules 7–11).
 
 ```bash
 git diff HEAD | grep -cE "^\+\s*(\*|//)"                    # comment lines added
@@ -80,6 +80,8 @@ choosing the owner and making the rest point there.
 
 Over what is left:
 
+- Can each sentence be understood on first reading? Split dense sentences and use familiar words.
+- Does a reader have to derive an important consequence? Show a concrete case and its outcome (rule 8).
 - Did anything land in an `AGENTS.md`? Name the document that owns it. Where the answer is the
   map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
   exactly one copy.
@@ -87,7 +89,7 @@ Over what is left:
 - Does an override, a private function, a helper or an inline comment restate a public declaration's
   contract? Link the owner (rule 5).
 - Does anything explain why something was **not** changed? That is the commit message's job.
-- Did the change delete anything? One that only adds has not looked (rule 11).
+- Did the change make any text redundant? Remove it; keep necessary explanations and examples (rule 11).
 
 ## 6. Issue and PR completion
 
