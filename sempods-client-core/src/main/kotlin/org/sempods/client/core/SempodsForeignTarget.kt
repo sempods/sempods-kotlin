@@ -37,7 +37,10 @@ import java.io.OutputStream
  *
  * **Every status is an answer.** This library knows no contract of a foreign server's and classifies
  * nothing: a `404`, a `303` and a `500` come back as a [SempodsResponse] with their headers, `Location`
- * included. Outside 2xx the body is closed unread, so a foreign error document never reaches the caller.
+ * included — and so do a `408` and a `503` asking to be repeated at once, which OkHttp would otherwise
+ * send again by itself. Outside 2xx the body is closed unread, so a foreign error document never
+ * reaches the caller. What is sent again is a request whose connection was lost before any answer,
+ * once, as for a session's `GET`.
  *
  * **A redirect is the caller's to follow, unless [followingRedirects] takes it.** Following sends each
  * hop as a call of its own, so the guard vets each. It ends at the first redirect it cannot or may not
@@ -52,8 +55,7 @@ import java.io.OutputStream
  * 16 MiB and free the slot before they decode. [getStream] and [getTo] have no limit — the body is a
  * foreign server's, so the reader is its only bound — and hold the slot until the reader is done
  * ([SempodsBodyReader]). The deadline applies per call, so a followed chain may take one deadline per hop,
- * and a budget on the guard is charged per hop. OkHttp's own resend after a lost connection stays on for
- * these calls; each is a `GET`.
+ * and a budget on the guard is charged per hop.
  *
  * **Only `GET`.** A caller that needs another method, a condition or a call to cancel builds an
  * `okhttp3.Request` and runs it on the same client, where the guard applies all the same.

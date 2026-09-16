@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.mockserver.matchers.Times
+import org.mockserver.model.HttpError
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -141,6 +143,41 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     assertEquals("$origin/elsewhere", answered.headers["Location"])
     assertNull(answered.body)
     assertEquals(1, recorded().size, "nothing is followed without the opt-in")
+  }
+
+  @Test
+  fun `a 503 asking to be repeated at once is the answer, not a reason to ask again`() {
+    server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
+
+    assertEquals(503, SempodsForeignTarget(client).getText(card, "text/turtle").status)
+    assertEquals(1, recorded().size)
+  }
+
+  @Test
+  fun `a 408 is the answer, not a reason to ask again`() {
+    server.`when`(request(), Times.once()).respond(response().withStatusCode(408))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
+
+    assertEquals(408, SempodsForeignTarget(client).getText(card, "text/turtle").status)
+    assertEquals(1, recorded().size)
+  }
+
+  @Test
+  fun `a connection lost before any answer is sent once more, with the credential it had`() {
+    server.`when`(request(), Times.once()).error(HttpError.error().withDropConnection(true))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("the answer"))
+    val applied = AtomicInteger()
+    val counting = SempodsRequestAuth { request, _ ->
+      applied.incrementAndGet()
+      request.header("Authorization", "Bearer t-1")
+    }
+
+    val answered = SempodsForeignTarget(client).getText(card, "text/turtle", counting)
+
+    assertEquals("the answer", answered.body)
+    assertEquals(1, applied.get(), "the same request goes out again; its credential is not asked twice")
+    assertEquals("Bearer t-1", recorded().last().getFirstHeader("Authorization"))
   }
 
   /** An output stream the caller owns, which records whether it was closed. */

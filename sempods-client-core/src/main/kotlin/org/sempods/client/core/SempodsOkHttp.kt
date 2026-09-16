@@ -76,9 +76,9 @@ object SempodsOkHttp {
    *
    * **OkHttp repeats nothing for a session's call**: its own resend is off whatever
    * `retryOnConnectionFailure` says, and an `Authenticator` on the builder is not asked, because either
-   * would repeat an attempt the session did not authorize. Other calls on the client keep both — except
-   * that a [SempodsForeignTarget]'s call is not answered by the builder's `Authenticator` or `CookieJar`
-   * either.
+   * would repeat an attempt the session did not authorize. A [SempodsForeignTarget]'s call keeps neither
+   * either, nor the builder's `CookieJar`: its one resend is made by the core. Other calls on the client
+   * keep both.
    *
    * Refuses a builder that already carries these interceptors: two sets would nest the retries and
    * take two admission slots per call. A client derived through `newBuilder()` — OpenTelemetry's
@@ -133,19 +133,11 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
             "Create the call from the request the session's newRequest built.",
         )
       }
-      val foreign = chain.call().tag(ForeignCall::class.java)
-      val proceeding = if (foreign != null) foreign(chain) else chain
+      chain.call().tag(ForeignCall::class.java)?.let { foreign -> return foreignCall(chain, foreign, request) }
       val slot = Slot(gate(), chain.call())
       slot.take()
       val response = try {
-        val sent = if (foreign == null) {
-          request
-        } else {
-          // Credential work for a foreign target is the call's, as a session's is: in its slot, under its deadline.
-          if (chain.call().isCanceled()) throw IOException("Canceled")
-          foreign.authenticate(request)
-        }
-        proceeding.proceed(sent)
+        chain.proceed(request)
       } catch (failure: Throwable) {
         slot.give()
         throw failure
@@ -164,19 +156,47 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
   }
 
   /**
-   * A [SempodsForeignTarget]'s call inherits nothing from the builder it runs on: an `Authenticator` there
-   * would answer the target's challenge with the consumer's own credential, and a `CookieJar` would send
-   * the consumer's cookies. A client that follows redirects is refused, because OkHttp would then carry
+   * A [SempodsForeignTarget]'s call, which inherits nothing from the builder it runs on: an `Authenticator`
+   * there would answer the target's challenge with the consumer's own credential, and a `CookieJar` would
+   * send the consumer's cookies. A client that follows redirects is refused, because OkHttp would carry
    * the call's credential wherever a redirect points and strip only `Authorization` on the way.
+   *
+   * **OkHttp repeats nothing for it**, because every status is the call's answer: a `408` would be sent
+   * again under `retryOnConnectionFailure`, so that is off, and the one resend a `GET` may have after a
+   * connection lost before an answer is made here, as it is for a session ([ConnectionResend]). The same
+   * request goes out again; its credential is not asked twice. [FinalTarget] keeps a `503` from asking to
+   * be repeated.
+   *
+   * The credential work runs in the call's slot and under its deadline.
    */
-  private fun foreign(chain: Interceptor.Chain): Interceptor.Chain {
+  private fun foreignCall(chain: Interceptor.Chain, foreign: ForeignCall, request: Request): Response {
     if (chain.followRedirects) {
       throw SempodsClientException(
         "A client that follows redirects cannot dereference a foreign target: a redirect would take the " +
           "call's credential with it. SempodsForeignTarget.followingRedirects follows them one vetted call at a time.",
       )
     }
-    return chain.withAuthenticator(Authenticator.NONE).withCookieJar(CookieJar.NO_COOKIES)
+    val call = chain.call()
+    val quiet = chain
+      .withAuthenticator(Authenticator.NONE)
+      .withCookieJar(CookieJar.NO_COOKIES)
+      .withRetryOnConnectionFailure(false)
+    val slot = Slot(gate(), call)
+    slot.take()
+    val response = try {
+      if (call.isCanceled()) throw IOException("Canceled")
+      val sent = foreign.authenticate(request)
+      try {
+        quiet.proceed(sent)
+      } catch (failure: IOException) {
+        if (call.isCanceled() || !ConnectionResend.allowed(failure, sent, repeatable = false)) throw failure
+        quiet.proceed(sent)
+      }
+    } catch (failure: Throwable) {
+      slot.give()
+      throw failure
+    }
+    return slot.holdUntilClosed(response)
   }
 
   /**
@@ -286,20 +306,24 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
  * about to be written, after every application interceptor and after a redirect. A credentialed
  * [SempodsForeignTarget] call is held to its origin here the same way ([ForeignCall.confine]).
  *
- * It also takes `Retry-After: 0` off a session's `503`. OkHttp repeats such an answer by itself,
- * below the session's interceptor, for any method, a one-shot body included, and with this attempt's
- * credential; without the header the caller gets the `503` and decides.
+ * It also takes `Retry-After: 0` off a session's or a foreign target's `503`. OkHttp repeats such an
+ * answer by itself, below the session's interceptor, for any method, a one-shot body included, and with
+ * this attempt's credential; without the header the caller gets the `503` and decides.
  */
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
     chain.call().tag(ForeignCall::class.java)?.let { foreign ->
       foreign.confine(chain.request())
-      return chain.proceed(chain.request())
+      return withoutImmediateRepeat(chain.proceed(chain.request()))
     }
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request())
-    val response = chain.proceed(chain.request())
+    return withoutImmediateRepeat(chain.proceed(chain.request()))
+  }
+
+  /** [response] without the `Retry-After: 0` that has OkHttp send a `503`'s request again below this interceptor. */
+  private fun withoutImmediateRepeat(response: Response): Response {
     if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
     return response.newBuilder().removeHeader("Retry-After").build()
   }
