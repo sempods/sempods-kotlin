@@ -3,13 +3,15 @@ package org.sempods.client.core
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
+import org.sempods.client.core.net.SempodsOutboundGuard
 import okio.BufferedSink
 
 /** A client as a consumer configures one: OkHttp's builder, with the sempods interceptors installed. */
 internal fun sempodsClient(
   admission: SempodsAdmission? = SempodsAdmission(),
+  guard: SempodsOutboundGuard? = null,
   configure: OkHttpClient.Builder.() -> Unit = {},
-): OkHttpClient = SempodsOkHttp.install(OkHttpClient.Builder().apply(configure), admission = admission).build()
+): OkHttpClient = SempodsOkHttp.install(OkHttpClient.Builder().apply(configure), guard, admission).build()
 
 /** OkHttp's own shutdown: the dispatcher's threads and the pooled connections. */
 internal fun OkHttpClient.shutDown() {

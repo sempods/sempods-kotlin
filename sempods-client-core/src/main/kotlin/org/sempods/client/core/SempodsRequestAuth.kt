@@ -9,6 +9,30 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
+ * [request] with this mechanism applied for [attempt]; refused when it changed more than headers
+ * ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a token may be.
+ */
+@Throws(IOException::class)
+internal fun SempodsRequestAuth.authenticate(request: Request, attempt: Int): Request {
+  val builder = request.newBuilder()
+  apply(builder, attempt)
+  val authenticated = builder.build()
+  val changed = listOfNotNull(
+    "target".takeIf { authenticated.url != request.url },
+    "method".takeIf { authenticated.method != request.method },
+    "body".takeIf { authenticated.body !== request.body },
+  )
+  if (changed.isNotEmpty()) {
+    val described = request.url.newBuilder().query(null).fragment(null).build()
+    throw SempodsClientException(
+      "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} $described'. " +
+        "A mechanism may set headers and nothing else.",
+    )
+  }
+  return authenticated
+}
+
+/**
  * Supplies a credential, and says whether a refused one is worth re-acquiring.
  *
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
@@ -88,9 +112,14 @@ fun interface SempodsRequestAuth {
      * bearer, and reading public data is what a consumer that owns no pod does. A 401 is
      * deliberately not retried: there is nothing to re-mint, so a second attempt would only double
      * the latency of a failure that was already final.
+     *
+     * Always the same instance: a [SempodsForeignTarget] call given anything else is one that carries a
+     * credential.
      */
     @JvmStatic
-    fun anonymous(): SempodsRequestAuth = SempodsRequestAuth { _, _ -> }
+    fun anonymous(): SempodsRequestAuth = ANONYMOUS
+
+    private val ANONYMOUS = SempodsRequestAuth { _, _ -> }
 
     /**
      * A credential the caller already holds.

@@ -132,6 +132,7 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsRequestAuth` | how a session authenticates, replaceable and decoratable |
 | `SempodsAdmission` | how many calls may run, and how many may wait |
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
+| `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -211,6 +212,20 @@ pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods
 one that ignores them answers from everything the session may read, and a client cannot tell which
 kind it faces. A resource or slot read carries it as `context` parameters, and `SempodsPodResources`
 says what an empty one does. Every write takes its target context in `SempodsWriteOptions`.
+
+### A foreign URI
+
+A URI no pod serves is read through `SempodsForeignTarget`, on the same client and outside `SempodsPod`:
+
+```java
+var foreign = new SempodsForeignTarget(client);
+SempodsResponse<String> card = foreign.getText("https://bob.example/profile", "text/turtle");
+SempodsResponse<byte[]> doc = foreign.followingRedirects(5).getBytes(id, "application/n-quads", SempodsRequestAuth.bearer(token));
+```
+
+It keeps the client's guard, deadline and admission, and nothing a session holds; its KDoc has the
+contract. It is the call most likely to get a URI from someone else's request, so install the guard
+(§"The guard").
 
 ## The transport: OkHttp, blocking
 
@@ -297,8 +312,8 @@ stricter reading won, so the NAT64 prefixes are refused outright.
   routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own theirs;
   `SempodsPodRoutesParityTest` holds the shared ones equal until #152 moves the layers onto the core
   and removes their copies.
-- **The stateless `dereference` does not become pod-bound.** It takes an arbitrary foreign URI with no
-  pod base and no token. That is the stateless tier, permanently.
+- **A foreign URI stays unbound.** `SempodsClient.dereference` and `SempodsForeignTarget` take no pod
+  base (§"A foreign URI").
 - **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a
   `suspend` consumer bridges at its own edge, and `sempods-mcp`'s `PodIo` is what that costs: a
   virtual-thread executor, a cancel handle, and the caller's trace carried across the hop. Two things
@@ -352,8 +367,8 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
 ## Contract source
 
 - `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
-  `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`, and
-  `net/` for the outbound guard
+  `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
+  `SempodsForeignTarget`, and `net/` for the outbound guard
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
   `SempodsAuth`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`
