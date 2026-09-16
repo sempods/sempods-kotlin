@@ -928,6 +928,25 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `negotiation follows the quality values, and a representation excluded at zero is not sent`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+
+    val preferred = registryGet(contextsBaseUrl(pod.name), token, "application/n-quads;q=0.5, application/ld+json")
+    assertEquals(200, preferred.statusCode, preferred.responseBody)
+    assertTrue(preferred.contentType.orEmpty().startsWith("application/ld+json"), preferred.contentType)
+
+    // A wildcard beside an exclusion: `*/*` would match JSON-LD, and `q=0` says it is unacceptable.
+    val excluded = registryGet(contextsBaseUrl(pod.name), token, "*/*, application/ld+json;q=0")
+    assertEquals(200, excluded.statusCode, excluded.responseBody)
+    assertFalse(excluded.contentType.orEmpty().startsWith("application/ld+json"), excluded.contentType)
+  }
+
+  @Test
   fun `every refusal of the registry carries its cache isolation`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)

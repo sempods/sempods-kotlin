@@ -86,18 +86,18 @@ class PodContextsEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("contextPath") contextPath: String,
     @Context httpHeaders: HttpHeaders,
-    request: PutPodContextRequest?,
+    body: PutPodContextRequest?,
   ): Response {
     // Negotiated before anything is written: Jersey has already answered an unsatisfiable `Accept`
     // with 406 during matching, so no context comes into existence for one (`SPS-CTX-037`).
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes)
+    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
     val podDbo = fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
     requireCreatableContextPathOrThrow(ContextPathRules.normalize(contextPath))
     val createdBy = authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
     val podId = checkNotNull(podDbo.id)
-    val body = request ?: PutPodContextRequest()
+    val fields = body ?: PutPodContextRequest()
 
     val existing = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
     if (existing != null) {
@@ -110,10 +110,10 @@ class PodContextsEndpoint @Inject constructor(
     val created = podContextsDao.create(
       podId = podId,
       contextUri = contextUri.toString(),
-      label = body.label?.trim()?.ifBlank { null },
-      description = body.description?.trim()?.ifBlank { null },
+      label = fields.label?.trim()?.ifBlank { null },
+      description = fields.description?.trim()?.ifBlank { null },
       createdBy = createdBy,
-      isPublic = body.public,
+      isPublic = fields.public,
     )
     if (created == null) {
       // Race: another caller created the same row between the existence check inside `create`
@@ -177,7 +177,7 @@ class PodContextsEndpoint @Inject constructor(
     // Authorization and the normal status come first, the precondition last: a caller whose read was
     // revoked gets the same 404 an unregistered path gets, never a 304 off the tag they still hold
     // (`SPS-CTX-035`).
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes)
+    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
     val model = PodContextRegistryRdf.describe(row = dbo, podBaseUrl = podBaseUrl)
     return registryRead(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
   }
@@ -203,7 +203,7 @@ class PodContextsEndpoint @Inject constructor(
     )
 
     val rows = podContextsDao.fetchByPod(podId)
-    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes)
+    val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes) ?: return notAcceptable()
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
@@ -394,6 +394,12 @@ class PodContextsEndpoint @Inject constructor(
     }
     return builder
   }
+
+  /** Nothing this route produces is acceptable. On `PUT` this is reached before anything is written. */
+  private fun notAcceptable(): Response = Response.status(Response.Status.NOT_ACCEPTABLE)
+    .entity("the context registry answers application/ld+json, application/n-quads or application/json")
+    .type(MediaType.TEXT_PLAIN)
+    .build()
 
   /** Hidden and absent are one answer, down to the headers and the missing validator (`SPS-CTX-035`). */
   private fun unknownContext(): WebApplicationException = WebApplicationException(

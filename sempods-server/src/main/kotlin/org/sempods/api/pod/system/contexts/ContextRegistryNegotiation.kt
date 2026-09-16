@@ -24,11 +24,17 @@ internal enum class RegistryFormat(val contentType: String) {
 }
 
 /**
- * Which representation a registry request gets.
+ * Which representation a registry request gets, by RFC 9110 §12.5.1: the most specific range that
+ * matches a representation decides its quality, the highest quality wins, and `q=0` excludes.
  *
- * Jersey has already answered a request that accepts none of the three with `406` during matching,
- * which is what `SPS-CTX-037` asks for on `PUT`: the method never runs, so nothing is created. This
- * only picks the writer, and a request that names nothing gets JSON-LD.
+ * **Why this is not `Request.selectVariant`.** An `Accept` that pairs a wildcard range with
+ * `application/ld+json;q=0` gets JSON-LD out of the container's own selection: the wildcard matches
+ * and the exclusion beside it goes unapplied, so the caller is handed the one representation they
+ * refused. `PodContextsEndpointHttpTest` pins both halves of the rule.
+ *
+ * `null` means nothing this route produces is acceptable, and the caller answers `406`. Jersey
+ * usually refuses such a request while it matches, before any method runs, which is what
+ * `SPS-CTX-037` needs on `PUT`; this covers the request it admits anyway.
  *
  * Deliberately not `GraphResultNegotiation`: that one serves `_system/find` and the SPARQL graph
  * results, where `application/json` is *not* accepted and the refusal is documented behaviour
@@ -36,12 +42,27 @@ internal enum class RegistryFormat(val contentType: String) {
  */
 internal object ContextRegistryNegotiation {
 
-  fun select(acceptable: List<MediaType>): RegistryFormat {
-    acceptable.forEach { accepted ->
-      RegistryFormat.entries.forEach { format ->
-        if (accepted.isCompatible(MediaType.valueOf(format.contentType))) return format
-      }
-    }
-    return RegistryFormat.JSON_LD
+  /** In the order this route prefers them, which is what a caller expressing no preference gets. */
+  fun select(acceptable: List<MediaType>): RegistryFormat? {
+    if (acceptable.isEmpty()) return RegistryFormat.JSON_LD
+    return RegistryFormat.entries
+      .map { format -> format to quality(acceptable, MediaType.valueOf(format.contentType)) }
+      .filter { (_, quality) -> quality > 0.0 }
+      // `maxByOrNull` keeps the first of equal values, so a tie falls to this route's own order.
+      .maxByOrNull { (_, quality) -> quality }
+      ?.first
+  }
+
+  /** The quality of the most specific range that matches [type], or `0.0` when none does. */
+  private fun quality(acceptable: List<MediaType>, type: MediaType): Double {
+    val range = acceptable.filter { it.isCompatible(type) }.minByOrNull { specificity(it) } ?: return 0.0
+    return range.parameters["q"]?.toDoubleOrNull() ?: 1.0
+  }
+
+  /** How narrowly a range names a type: an exact type beats a subtype wildcard, which beats a full wildcard. */
+  private fun specificity(range: MediaType): Int = when {
+    range.isWildcardType -> 2
+    range.isWildcardSubtype -> 1
+    else -> 0
   }
 }
