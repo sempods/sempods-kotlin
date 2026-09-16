@@ -223,6 +223,35 @@ class ToolCatalogTest {
   }
 
   @Test
+  fun `an empty filter array is rejected, and the schema says so`() {
+    // Downstream `[]` reads as no filter, which would widen the read to every readable context.
+    val filters = listOf(
+      Triple("sparql_select", """"query":"ASK {}"""", "context_iri"),
+      Triple("sparql_graph", """"query":"CONSTRUCT WHERE {}"""", "context_iri"),
+      Triple("find", """"text":"x"""", "context_iri"),
+      Triple("find", """"text":"x"""", "type"),
+      Triple("get_resource", """"resource_iri":"https://x"""", "context_iri"),
+      Triple("get_property_values", """"subject_iri":"https://x/s","predicate_iri":"https://x/p"""", "context_iri"),
+    )
+    for (variant in ToolVariant.entries) {
+      val catalog = ToolCatalog.of(variant)
+      for ((tool, required, field) in filters) {
+        assertEquals(
+          "argument '$field' must not be an empty array (omit it for no filter)",
+          catalog.validate(tool, args("""{$required,"$field":[]}""")),
+          "$variant $tool",
+        )
+      }
+      val bounded = allTools(catalog).flatMap { tool ->
+        tool.inputSchema.properties.filterValues { it.minItems == 1 }.keys.map { tool.name to it }
+      }
+      assertEquals(filters.map { (tool, _, field) -> tool to field }.toSet(), bounded.toSet(), variant.name)
+    }
+    // `targets: []` selects no pod, as documented.
+    assertNull(ToolCatalog.of(ToolVariant.MULTI_POD).validate("list_contexts", args("""{"targets":[]}""")))
+  }
+
+  @Test
   fun `an explicit null for an optional argument is rejected, not treated as absent`() {
     // null for a filter-like argument must not fall through to "no filter".
     for (variant in ToolVariant.entries) {

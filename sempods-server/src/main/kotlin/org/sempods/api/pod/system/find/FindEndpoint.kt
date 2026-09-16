@@ -147,8 +147,7 @@ class FindEndpoint @Inject constructor(
     // Optional context downscope. `rawContexts == null` = absent → pod-wide within the readable
     // ceiling. A present list is fail-closed: blank-only (`contexts:[]` / `[""]`) resolves to an
     // empty scope (→ empty result), NOT pod-wide; otherwise `requested ∩ readable` with
-    // unknown/unreadable contexts silently dropped. Mirrors the MCP find tool's semantics and the
-    // LOD read routes.
+    // unknown/unreadable contexts silently dropped. Mirrors the LOD read routes.
     val contextFilter = rawContexts?.let { raw ->
       val cleaned = raw.filter { it.isNotBlank() }
       if (cleaned.isEmpty()) {
