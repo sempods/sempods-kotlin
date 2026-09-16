@@ -90,9 +90,9 @@ owes its caller. Markdown stays high-level and links the code path.
 
 **5. In code, the public declaration owns the contract.** Its KDoc states it once: a type's for the type,
 a function's or property's for that member, and an interface's or base class's member for its overrides.
-Where an override, a private function, a helper or an inline comment has something to say, it links that
-contract and states only what is its own, such as a lock it expects held. Cases go in a list or a table,
-one row per case:
+A constructor property's `@property` tag on the type counts as its own KDoc. Where an override, a private
+function, a helper or an inline comment has something to say, it links that contract and states only what
+is its own, such as a lock it expects held. Cases go in a list or a table, one row per case:
 
 | Case | What the caller gets |
 |---|---|
