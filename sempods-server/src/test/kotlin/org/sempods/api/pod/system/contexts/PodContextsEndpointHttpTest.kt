@@ -903,6 +903,56 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(before.headers.get("ETag"), after.headers.get("ETag"))
   }
 
+  @Test
+  fun `the transitional envelope carries no validator, so a condition on it changes nothing`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+
+    val legacy = registryGet(contextManageUrl(pod.name, path), token, "application/json")
+    assertEquals(200, legacy.statusCode, legacy.responseBody)
+    // The envelope states the caller's own permissions, which the registry's RDF does not: a tag
+    // hashed from that model would stay put while this body moved.
+    assertNull(legacy.headers.get("ETag"))
+
+    val conditional = http.prepareGet(contextManageUrl(pod.name, path))
+      .addHeader("Accept", "application/json")
+      .addHeader("If-None-Match", "\"any-tag-a-caller-kept\"")
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+
+    assertEquals(200, conditional.statusCode, "the transitional shape offers no conditional read")
+  }
+
+  @Test
+  fun `every refusal of the registry carries its cache isolation`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+
+    val unknownPod = registryGet(
+      "${SempodsModule.config.apiBaseUrl}pod-that-never-existed/_system/contexts",
+      null,
+      "application/ld+json",
+    )
+    val unsatisfiable = registryGet(contextsBaseUrl(pod.name), null, "text/turtle")
+    val refusedBearer = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer not-a-token")
+      .execute()
+
+    assertEquals(406, unsatisfiable.statusCode, unsatisfiable.responseBody)
+    assertEquals(401, refusedBearer.statusCode, refusedBearer.responseBody)
+    listOf(unknownPod, unsatisfiable, refusedBearer).forEach { response ->
+      assertTrue(response.statusCode >= 400, "a refusal, not a ${response.statusCode}")
+      // `SPS-CTX-036` covers errors, and these three are built where no registry method runs.
+      assertEquals("no-store", response.headers.get("Cache-Control"), "status ${response.statusCode}")
+      assertEquals("Accept, Authorization", response.headers.get("Vary"), "status ${response.statusCode}")
+    }
+  }
+
   private companion object {
 
     const val SD_NS = "http://www.w3.org/ns/sparql-service-description#"

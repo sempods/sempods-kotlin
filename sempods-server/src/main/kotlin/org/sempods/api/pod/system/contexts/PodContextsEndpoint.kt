@@ -179,13 +179,7 @@ class PodContextsEndpoint @Inject constructor(
     // (`SPS-CTX-035`).
     val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes)
     val model = PodContextRegistryRdf.describe(row = dbo, podBaseUrl = podBaseUrl)
-    val tag = registryTag(model = model, format = format)
-    evaluatePreconditions(tag)?.let { return registryHeaders(Response.fromResponse(it), format).build() }
-
-    val builder = Response.ok(registryEntity(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) })
-      .type(format.contentType)
-      .tag(tag)
-    return registryHeaders(builder, format).build()
+    return registryRead(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
   }
 
   @GET
@@ -211,10 +205,7 @@ class PodContextsEndpoint @Inject constructor(
     val rows = podContextsDao.fetchByPod(podId)
     val format = ContextRegistryNegotiation.select(httpHeaders.acceptableMediaTypes)
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
-    val tag = registryTag(model = model, format = format)
-    evaluatePreconditions(tag)?.let { return registryHeaders(Response.fromResponse(it), format).build() }
-
-    val entity = registryEntity(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
+    return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",
         authenticated = credentials.oauthClientId != null,
@@ -222,7 +213,6 @@ class PodContextsEndpoint @Inject constructor(
         writableContexts = effective.writableContexts,
       )
     }
-    return registryHeaders(Response.ok(entity).type(format.contentType).tag(tag), format).build()
   }
 
   @DELETE
@@ -353,7 +343,26 @@ class PodContextsEndpoint @Inject constructor(
       .type(format.contentType)
     // No `ETag` here: `SPS-CTX-037` gives a write no validator, and a tag would invite an `If-Match`
     // this route does not evaluate.
-    return registryHeaders(builder, format).build()
+    return deprecationHeaders(builder, format).build()
+  }
+
+  /**
+   * A registry read: the representation, its validator and the conditional answer.
+   *
+   * **The transitional envelope carries no validator.** It states the caller's own permissions,
+   * which the registry RDF does not, so a tag hashed from the model would stay put while the
+   * envelope changed — and a replayed `If-None-Match` would answer `304` for a body that moved. It
+   * gets what this route gave before the registry became RDF: no tag, no conditional read, until
+   * [#184](https://github.com/sempods/sempods-kotlin/issues/184) removes the shape.
+   */
+  private fun registryRead(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Response {
+    if (format == RegistryFormat.LEGACY_JSON) {
+      return deprecationHeaders(Response.ok(legacy()).type(format.contentType), format).build()
+    }
+    val tag = registryTag(model = model, format = format)
+    evaluatePreconditions(tag)?.let { return deprecationHeaders(Response.fromResponse(it), format).build() }
+    val entity = registryEntity(format, model, subject) { legacy() }
+    return deprecationHeaders(Response.ok(entity).type(format.contentType).tag(tag), format).build()
   }
 
   private fun registryEntity(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Any =
@@ -374,13 +383,11 @@ class PodContextsEndpoint @Inject constructor(
     createContentTypeAwareEntityTag(ResourceValidator.compute(model), format.contentType)
 
   /**
-   * `Cache-Control: no-store` on every answer of this route, `SPS-CTX-036`'s own sufficient
-   * strategy: a registry answer, an error among them, holds what one caller may see at one moment,
-   * and a stored one cannot be checked against the next caller's authorization.
+   * What the transitional envelope owes on its own. `Cache-Control` and `Vary` belong to the whole
+   * route and are set by [ContextRegistryCacheFilter], which also reaches the answers no method here
+   * builds.
    */
-  private fun registryHeaders(builder: Response.ResponseBuilder, format: RegistryFormat): Response.ResponseBuilder {
-    builder.header(HttpHeaders.VARY, "Accept, Authorization")
-      .header(HttpHeaders.CACHE_CONTROL, "no-store")
+  private fun deprecationHeaders(builder: Response.ResponseBuilder, format: RegistryFormat): Response.ResponseBuilder {
     if (format == RegistryFormat.LEGACY_JSON) {
       builder.header("Deprecation", "true")
         .header(HttpHeaders.LINK, "<$DEPRECATION_ISSUE>; rel=\"deprecation\"")
@@ -390,10 +397,7 @@ class PodContextsEndpoint @Inject constructor(
 
   /** Hidden and absent are one answer, down to the headers and the missing validator (`SPS-CTX-035`). */
   private fun unknownContext(): WebApplicationException = WebApplicationException(
-    registryHeaders(
-      Response.status(404).entity("unknown context").type(MediaType.TEXT_PLAIN),
-      RegistryFormat.JSON_LD,
-    ).build()
+    Response.status(404).entity("unknown context").type(MediaType.TEXT_PLAIN).build()
   )
 
   private companion object {
