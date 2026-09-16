@@ -877,6 +877,13 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       objectMapper.readTree(again.responseBody).path(RDFS_LABEL).single().path("@value").asText(),
       "a repeated create implies no metadata update",
     )
+
+    // `SPS-CTX-037` asks the create to answer the description a read would give, down to
+    // `dcterms:created` — which a row handed back before it was stored would get wrong.
+    val reader = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+    val read = registryGet(contextManageUrl(pod.name, path), reader, "application/ld+json")
+    assertEquals(200, read.statusCode, read.responseBody)
+    assertEquals(created.responseBody, read.responseBody)
   }
 
   @Test
