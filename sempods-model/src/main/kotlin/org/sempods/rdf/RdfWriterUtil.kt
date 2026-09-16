@@ -139,6 +139,22 @@ object RdfWriterUtil {
   }
 
   /**
+   * Which canonical JSON-LD shape [toCanonicalJsonLdEntry] renders.
+   *
+   * The two differ in exactly two details, and both are the registry's: `SPS-CTX-031` requires
+   * `@type` to be an array of absolute IRIs, and `SPS-CTX-032` requires the registry's Boolean to be
+   * a native JSON boolean. The LOD shape keeps a single type as a bare string and every literal as a
+   * typed string, because it doubles as the `PATCH` patch document.
+   */
+  enum class CanonicalJsonLd {
+    /** LOD-layer reads and `PATCH` round-trips. */
+    LOD,
+
+    /** The context registry's descriptions and catalogues. */
+    REGISTRY,
+  }
+
+  /**
    * Render a model as the **canonical** JSON-LD object used by LOD-layer reads and `PATCH`
    * round-trips:
    *
@@ -155,23 +171,11 @@ object RdfWriterUtil {
    * `SPS-CRUD-023` (sempods-spec).
    *
    * [shape] picks the two details the context registry spells differently — see [CanonicalJsonLd].
+   * `@JvmOverloads` keeps the two-argument method this module published before that parameter
+   * existed: a Kotlin default is a source convenience, and a consumer compiled against the old
+   * signature calls the method that was there.
    */
-  /**
-   * Which canonical JSON-LD shape [toCanonicalJsonLdEntry] renders.
-   *
-   * The two differ in exactly two details, and both are the registry's: `SPS-CTX-031` requires
-   * `@type` to be an array of absolute IRIs, and `SPS-CTX-032` requires the registry's Boolean to be
-   * a native JSON boolean. The LOD shape keeps a single type as a bare string and every literal as a
-   * typed string, because it doubles as the `PATCH` patch document.
-   */
-  enum class CanonicalJsonLd {
-    /** LOD-layer reads and `PATCH` round-trips. */
-    LOD,
-
-    /** The context registry's descriptions and catalogues. */
-    REGISTRY,
-  }
-
+  @JvmOverloads
   fun toCanonicalJsonLdEntry(
     model: Model,
     resource: Resource,

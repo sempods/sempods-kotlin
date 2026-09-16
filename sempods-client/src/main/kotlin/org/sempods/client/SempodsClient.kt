@@ -278,10 +278,11 @@ class SempodsClient(
 
     val request = newRequest(targetUrl, token)
       // The catalogue is RDF (`SPS-CTX-033`), and its members are what `sd:namedGraph` points at.
-      // `application/json` is the other half of the pair: a pod that has not migrated yet answers the
-      // JSON envelope there, and reading both is what lets this client face either pod. The envelope
-      // half goes with #184.
-      .header("Accept", "application/n-quads, application/json")
+      // N-Quads is asked for first, because `application/json` is two different bodies: a conforming
+      // pod answers JSON-LD there (`SPS-CTX-031`), one that has not migrated answers its JSON
+      // envelope. The quality values say which body this client would rather have; the reading below
+      // takes whichever arrives. The envelope half goes with #184.
+      .header("Accept", "application/n-quads, application/ld+json;q=0.9, application/json;q=0.5")
       .GET()
       .build()
 
@@ -295,11 +296,16 @@ class SempodsClient(
         .mapNotNull { (it.`object` as? IRI)?.stringValue()?.let(::URI) }
         .distinct()
     }
-    val contexts = objectMapper.readTree(response.body).path("contexts")
-    if (!contexts.isArray) return emptyList()
-    return contexts.mapNotNull { node ->
-      node.path("context_iri").takeIf { it.isTextual }?.asText()?.let(::URI)
+    val body = objectMapper.readTree(response.body)
+    val envelope = body.path("contexts")
+    if (envelope.isArray) {
+      return envelope.mapNotNull { node ->
+        node.path("context_iri").takeIf { it.isTextual }?.asText()?.let(::URI)
+      }
     }
+    return body.path(SD_NAMED_GRAPH).mapNotNull { member ->
+      member.path("@id").takeIf { it.isTextual }?.asText()?.let(::URI)
+    }.distinct()
   }
 
   // ─── media (`{pod}/_system/media/…`) ──────────────────────────────────────────

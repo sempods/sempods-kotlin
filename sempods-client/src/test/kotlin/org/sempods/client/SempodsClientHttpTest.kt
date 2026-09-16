@@ -276,6 +276,30 @@ class SempodsClientHttpTest {
   }
 
   @Test
+  fun `listContexts reads a JSON-LD catalogue a conforming pod answers as application slash json`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          // `SPS-CTX-031` makes this media type an alias of JSON-LD, so a conforming pod may pick it.
+          .withContentType(MediaType.APPLICATION_JSON)
+          .withBody(
+            """{"@id":"$catalogue","@type":["http://www.w3.org/ns/sparql-service-description#GraphCollection"],"http://www.w3.org/ns/sparql-service-description#namedGraph":[{"@id":"$ctxA"}]}""",
+          ),
+      )
+
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
   fun `listContexts returns empty list when the listing has no contexts`() {
     mockServer
       .`when`(request().withMethod("GET").withPath("/alice/_system/contexts"))
