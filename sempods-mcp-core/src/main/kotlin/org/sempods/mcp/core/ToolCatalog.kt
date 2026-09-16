@@ -99,6 +99,11 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
             }
           }
         }
+        // And `[]` once more: downstream an empty filter reads as none.
+        val minItems = declared.minItems
+        if (minItems != null && node.size() < minItems) {
+          return "argument '$field' must not be an empty array (omit it for no filter)"
+        }
       }
     }
     for (req in schema.required) {
@@ -282,7 +287,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
             "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol " +
               "dataset). Omit to query across every readable context of $scope. Unknown or unreadable " +
               "contexts are dropped; if none remain readable, the query returns no results — it does not " +
-              "fall back to the whole pod.",
+              "fall back to the whole pod. An empty array is refused.",
+            minItems = 1,
           ),
         ),
         required = listOf("query"),
@@ -307,7 +313,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
             "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol " +
               "dataset). Omit to query across every readable context of $scope. Unknown or unreadable " +
               "contexts are dropped; if none remain readable, the result graph is empty — it does not " +
-              "fall back to the whole pod.",
+              "fall back to the whole pod. An empty array is refused.",
+            minItems = 1,
           ),
         ),
         required = listOf("query"),
@@ -323,11 +330,17 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
           "over hand-written SPARQL when you don't know the exact predicates.",
         properties = mapOf(
           "text" to prop("string", "Required search text. Whitespace-split, case-insensitive; a resource matches when one of its literals contains all tokens. Whitespace-only is rejected."),
-          "type" to stringArray("Optional array of rdf:type IRIs (OR-combined): only resources of one of these types are returned. Omit for an unconstrained text search."),
+          "type" to stringArray(
+            "Optional array of rdf:type IRIs (OR-combined): only resources of one of these types are returned. " +
+              "Omit for an unconstrained text search. An empty array is refused.",
+            minItems = 1,
+          ),
           "context_iri" to stringArray(
             "Optional array of context IRIs to restrict the search to (a downscope within the contexts " +
               "you may read; use values from `list_contexts`). Omit to search across every readable " +
-              "context of $scope. Unknown or unreadable contexts are silently ignored.",
+              "context of $scope. Unknown or unreadable contexts are silently ignored. An empty array is " +
+              "refused.",
+            minItems = 1,
           ),
           "include_contexts" to prop(
             "boolean",
@@ -358,7 +371,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
           "context_iri" to stringArray(
             "Optional array of context IRIs to downscope the read to. Omit to union across every " +
               "readable context of $scope. Unknown or unreadable contexts are silently ignored; if none " +
-              "remain, the answer is a not-visible error.",
+              "remain, the answer is a not-visible error. An empty array is refused.",
+            minItems = 1,
           ),
           "include_contexts" to prop(
             "boolean",
@@ -383,7 +397,11 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         properties = mapOf(
           "subject_iri" to prop("string", "Absolute IRI of the subject (local or external)."),
           "predicate_iri" to prop("string", "Absolute IRI of the predicate (e.g. https://schema.org/children)."),
-          "context_iri" to stringArray("Optional array of context IRIs to downscope the slot read to. A slot `etag` is returned only when exactly one readable context remains and values are visible."),
+          "context_iri" to stringArray(
+            "Optional array of context IRIs to downscope the slot read to. A slot `etag` is returned only " +
+              "when exactly one readable context remains and values are visible. An empty array is refused.",
+            minItems = 1,
+          ),
         ),
         required = listOf("subject_iri", "predicate_iri"),
       ),
@@ -585,8 +603,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
 private fun prop(type: String, description: String) = PropertySchema(type = type, description = description)
 
 /** A `string[]` argument — the element type is declared so [ToolCatalog.validate] can enforce it. */
-private fun stringArray(description: String) =
-  PropertySchema(type = "array", description = description, items = ItemsSchema("string"))
+private fun stringArray(description: String, minItems: Int? = null) =
+  PropertySchema(type = "array", description = description, items = ItemsSchema("string"), minItems = minItems)
 
 /** An `object[]` argument. Same reason as [stringArray]: an array without `items` says nothing. */
 private fun objectArray(description: String) =

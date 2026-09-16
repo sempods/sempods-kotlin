@@ -331,4 +331,13 @@ class ReadToolsIntegrationTest {
     assertTrue("must be an absolute IRI" in result.content[0].text!!, result.content[0].text!!)
     verify(exactly = 1) { auditLog.toolCall(user, profile, "get_resource", emptyList(), "error", "invalid_arguments") }
   }
+
+  @Test
+  fun `an empty context_iri is a tool error before any pod is asked`() = runBlocking {
+    // Unlike `targets: []`: downstream an empty downscope reads as none, so it is refused in front.
+    val result = readTools.dispatch("sparql_select", mapper.readTree("""{"query":"ASK {}","context_iri":[]}"""), session)
+    assertEquals(true, result.isError)
+    assertTrue("argument 'context_iri' must not be an empty array" in result.content[0].text!!, result.content[0].text!!)
+    verify(exactly = 1) { auditLog.toolCall(user, profile, "sparql_select", emptyList(), "error", "invalid_arguments") }
+  }
 }

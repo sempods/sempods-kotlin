@@ -54,10 +54,10 @@ still also scope with `GRAPH`/`FROM` inside the query.
 
 Argument schemas are **enforced server-side** (`ToolCatalog.validate`, shared): unknown arguments
 (`additionalProperties: false`), missing required arguments, wrong-typed arguments (e.g.
-`context_iri` as a string, `limit` as a string), and **string arrays with a non-string or blank
-element** (e.g. `targets: [5]`) are all rejected as a tool error — never silently dropped, which
-could otherwise widen a read beyond what the caller asked for (a dropped `targets`/`context_iri`
-filter would fail open to "all pods" / "no filter"). The **absolute-IRI rule under the write table
+`context_iri` as a string, `limit` as a string), **string arrays with a non-string or blank
+element** (e.g. `targets: [5]`), and an **empty `context_iri` or `type`** are all rejected as a tool
+error — never silently dropped, which could otherwise widen a read beyond what the caller asked for (a
+dropped `targets`/`context_iri` filter would fail open to "all pods" / "no filter"). The **absolute-IRI rule under the write table
 below applies to the reads too**: `resource_iri`, `subject_iri`, `predicate_iri`, and every element
 of `context_iri` / `type`, refused before any pod is contacted.
 

@@ -111,10 +111,12 @@ data class PropertySchema(
   /**
    * Element type of an `array` property, and null for every other type.
    *
-   * Last so that a scalar property still serializes as `{type, description}` — the shape the
-   * pod-immanent MCP has always sent.
+   * After `description` so that a scalar property still serializes as `{type, description}` — the
+   * shape the pod-immanent MCP has always sent.
    */
   val items: ItemsSchema? = null,
+  /** The fewest elements an `array` property takes, and null for no lower bound. */
+  val minItems: Int? = null,
 )
 
 /** The element schema of an array property. Carries a type and nothing else: no nesting is used. */

@@ -33,10 +33,11 @@
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of this pod. Unknown or unreadable contexts are dropped; if none remain readable, the query returns no results — it does not fall back to the whole pod.",
+        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of this pod. Unknown or unreadable contexts are dropped; if none remain readable, the query returns no results — it does not fall back to the whole pod. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       }
     },
     "required" : [ "query" ],
@@ -54,10 +55,11 @@
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of this pod. Unknown or unreadable contexts are dropped; if none remain readable, the result graph is empty — it does not fall back to the whole pod.",
+        "description" : "Optional array of context IRIs to restrict the query to (applied as the SPARQL-protocol dataset). Omit to query across every readable context of this pod. Unknown or unreadable contexts are dropped; if none remain readable, the result graph is empty — it does not fall back to the whole pod. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       }
     },
     "required" : [ "query" ],
@@ -75,17 +77,19 @@
       },
       "type" : {
         "type" : "array",
-        "description" : "Optional array of rdf:type IRIs (OR-combined): only resources of one of these types are returned. Omit for an unconstrained text search.",
+        "description" : "Optional array of rdf:type IRIs (OR-combined): only resources of one of these types are returned. Omit for an unconstrained text search. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to restrict the search to (a downscope within the contexts you may read; use values from `list_contexts`). Omit to search across every readable context of this pod. Unknown or unreadable contexts are silently ignored.",
+        "description" : "Optional array of context IRIs to restrict the search to (a downscope within the contexts you may read; use values from `list_contexts`). Omit to search across every readable context of this pod. Unknown or unreadable contexts are silently ignored. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       },
       "include_contexts" : {
         "type" : "boolean",
@@ -111,10 +115,11 @@
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to downscope the read to. Omit to union across every readable context of this pod. Unknown or unreadable contexts are silently ignored; if none remain, the answer is a not-visible error.",
+        "description" : "Optional array of context IRIs to downscope the read to. Omit to union across every readable context of this pod. Unknown or unreadable contexts are silently ignored; if none remain, the answer is a not-visible error. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       },
       "include_contexts" : {
         "type" : "boolean",
@@ -140,10 +145,11 @@
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to downscope the slot read to. A slot `etag` is returned only when exactly one readable context remains and values are visible.",
+        "description" : "Optional array of context IRIs to downscope the slot read to. A slot `etag` is returned only when exactly one readable context remains and values are visible. An empty array is refused.",
         "items" : {
           "type" : "string"
-        }
+        },
+        "minItems" : 1
       }
     },
     "required" : [ "subject_iri", "predicate_iri" ],
