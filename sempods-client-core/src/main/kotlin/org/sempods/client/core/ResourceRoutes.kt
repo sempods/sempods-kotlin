@@ -157,14 +157,14 @@ internal class ResourceOperations(
     options: SempodsReadOptions,
     reading: BodyReading<T>,
   ): SempodsResponse<T> {
-    if (options.selection.isRestricted && options.selection.contextUris.isEmpty()) {
-      // A read route drops an empty `context` and answers from every readable context, so nothing is
-      // sent: the answer is the absence the pod gives when nothing is visible (SPS-CRUD-017).
-      return SempodsResponse(session.podBase.resolve(path).toString(), 404, Headers.headersOf(), body = null)
-    }
     val url = session.podBase.resolve(path).newBuilder()
     options.selection.contextUris.forEach { url.addQueryParameter(CONTEXT, it) }
     if (options.includeContexts) url.addQueryParameter(INCLUDE_CONTEXTS, "true")
+    if (options.selection.isRestricted && options.selection.contextUris.isEmpty()) {
+      // A read route drops an empty `context` and answers from every readable context, so nothing is
+      // sent: the answer is the absence the pod gives when nothing is visible (SPS-CRUD-017).
+      return SempodsResponse(url.build().toString(), 404, Headers.headersOf(), body = null)
+    }
     val request = session.newRequest("GET", target(path, url)).header("Accept", accept)
     options.ifNoneMatch?.let { request.header("If-None-Match", it) }
     return exchange.run(request.build(), if (options.ifNoneMatch != null) READ_CONDITIONAL else READ, reading)

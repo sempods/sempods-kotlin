@@ -196,7 +196,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       slot.give()
       throw failure
     }
-    return slot.holdUntilClosed(response)
+    return slot.holdUntilClosed(foreign.restored(response))
   }
 
   /**
@@ -308,14 +308,20 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
  *
  * It also takes `Retry-After: 0` off a session's or a foreign target's `503`. OkHttp repeats such an
  * answer by itself, below the session's interceptor, for any method, a one-shot body included, and with
- * this attempt's credential; without the header the caller gets the `503` and decides.
+ * this attempt's credential; without the header the caller gets the `503` and decides. A foreign
+ * target's caller gets the header back once OkHttp has decided ([ForeignCall.restored]); a session's
+ * does not.
  */
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
     chain.call().tag(ForeignCall::class.java)?.let { foreign ->
       foreign.confine(chain.request())
-      return withoutImmediateRepeat(chain.proceed(chain.request()))
+      val response = chain.proceed(chain.request())
+      val quiet = withoutImmediateRepeat(response)
+      // Withheld only from OkHttp's decision below the session interceptor: the foreign call gives it back.
+      if (quiet !== response) foreign.withhold(response.headers.values("Retry-After"))
+      return quiet
     }
     val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
     session.confine(chain.request())

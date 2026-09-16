@@ -5,6 +5,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
+import okhttp3.Response
 import java.io.IOException
 import java.io.OutputStream
 
@@ -224,6 +225,9 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
   @Volatile
   private var credentialedFor: HttpUrl? = null
 
+  @Volatile
+  private var withheldRetryAfter: List<String>? = null
+
   /**
    * [request] with this call's credential, applied once as the first attempt. The session interceptor asks
    * this after the call has its admission slot, so credential work is inside the slot and under the deadline,
@@ -236,6 +240,17 @@ internal class ForeignCall(private val auth: SempodsRequestAuth?) {
     // was carries nothing an interceptor could take elsewhere.
     if (authenticated.headers != request.headers) credentialedFor = request.url
     return authenticated
+  }
+
+  /** The `Retry-After` values taken off a `503` so that OkHttp does not send the request again by itself. */
+  fun withhold(values: List<String>) {
+    withheldRetryAfter = values
+  }
+
+  /** [response] as the server sent it: with any `Retry-After` withheld from OkHttp's decision put back. */
+  fun restored(response: Response): Response {
+    val values = withheldRetryAfter ?: return response
+    return response.newBuilder().removeHeader("Retry-After").apply { values.forEach { addHeader("Retry-After", it) } }.build()
   }
 
   /**

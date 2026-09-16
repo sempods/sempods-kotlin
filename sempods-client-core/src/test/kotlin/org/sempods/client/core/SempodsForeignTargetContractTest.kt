@@ -150,7 +150,10 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
 
-    assertEquals(503, SempodsForeignTarget(client).getText(card, "text/turtle").status)
+    val answered = SempodsForeignTarget(client).getText(card, "text/turtle")
+
+    assertEquals(503, answered.status)
+    assertEquals("0", answered.headers["Retry-After"], "the server's instruction reaches the caller, only OkHttp does not act on it")
     assertEquals(1, recorded().size)
   }
 
