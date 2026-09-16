@@ -62,13 +62,13 @@ ownership, what an implementation owes its caller? Field-level detail lives here
 
 ## 5. Weight
 
-The steps above ask whether what you wrote is **true**. This one asks what it costs. Rules 3 and 9
-are the authority; these are the probes.
+The steps above ask whether what you wrote is **true**. This one asks what it costs. Rules 7, 9 and
+11 are the authority; these are the probes.
 
 ```bash
 git diff HEAD | grep -cE "^\+\s*(\*|//)"                    # comment lines added
 git diff HEAD | grep -vE "^\+\+\+|^\+\s*(\*|//)" | grep -cE "^\+\s*\S"   # code lines added
-git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 3 antithesis
+git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 7 antithesis
 git grep -n --untracked '<a phrase from each rationale added>' -- '*.md' '*.kt' '*.kts'   # a second owner
 ```
 
@@ -83,9 +83,11 @@ Over what is left:
 - Did anything land in an `AGENTS.md`? Name the document that owns it. Where the answer is the
   map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
   exactly one copy.
-- Does a field's KDoc repeat what the class KDoc says? The field wins (rule 6).
+- Does a field's KDoc repeat what the class KDoc says? The field wins (rule 4).
+- Does a private function, a helper or an inline comment restate a public type's contract? Link the
+  owner (rule 5).
 - Does anything explain why something was **not** changed? That is the commit message's job.
-- Did the change delete anything? One that only adds has not looked (rule 9).
+- Did the change delete anything? One that only adds has not looked (rule 11).
 
 ## 6. Issue and PR completion
 

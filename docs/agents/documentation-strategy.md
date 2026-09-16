@@ -66,73 +66,67 @@ phase history — goes where a reader of that subject would look, which is never
 work here, and the map links to it. Filed into the map instead, it is out of reach of the reader
 who needs it — and where the document carries it too, the map is the copy nobody updates.
 
-The writing rules below bind it like any other file, and rule 9 bites hardest: a module map that
+The writing rules below bind it like any other file, and rule 11 bites hardest: a module map that
 has outgrown the root `AGENTS.md` is not thorough, it is a pile of documents that were never filed.
 
 ## The writing rules
 
-**1. Maintained documentation is IST.** It describes what the code does today. Where this
-implementation's documentation and code disagree, the document is a bug. Protocol requirements
-remain owned by [sempods-spec](https://github.com/sempods/sempods-spec); an implementation fact is
-not authority to change that contract.
+### What goes in
 
-**2. Make proposed status explicit.** New targets belong in issues or clearly marked proposals.
-Keep them separate from current documentation; a title alone never establishes implemented status.
+**1. Maintained documentation is IST.** It describes what the code does today; where document and
+code disagree, the document is the bug. The protocol belongs to
+[sempods-spec](https://github.com/sempods/sempods-spec), and an implementation fact does not change it.
 
-**3. Short, direct, plain.** Take the shortest wording that is still correct.
+**2. A proposal says it is one.** New targets live in issues or in a document marked as proposed, apart
+from current documentation. A title alone never makes something implemented.
 
-- **Name a standard, do not re-explain it.** "Authorization Code + PKCE", "RFC 9728 metadata". A
-  reader who needs the mechanism has the RFC; one who does not is skipping the paragraph.
-- **Say what the thing is**, not what it is not, and drop the rhetorical shape. `Correct the
-  pod-connect flow documentation` — not `Describe the flow as what it does, not as what it still
-  needs`. Holds for headings, sentences and commit subjects alike. What it targets is negation used
-  as rhetoric; a real prohibition stays as it is, because the `never` in an invariant and the
-  `MUST NOT` it enforces are already the shortest correct wording.
-- **One owner per fact.** Where the same reason is wanted in a second place, point at the first.
-  Every copy is correct the day it is written, which is how six of them accumulate — and how the
-  reason gets corrected in one place and left wrong in five.
-- **No history, no decision log**, no "this used to be X" — that is what the commit message is for.
-  The one exception is a rationale a future reader needs in order not to undo it: *why the HTTP
-  client is OkHttp* (its `Dns` hook is where SSRF resolve-and-pin lives; the JDK client offers
-  none) belongs in the document. *Which pull request changed it* does not.
-- **A change rewrites the paragraph, it does not append to it.** Where a statement stops being
-  true, replace the prose that carried it — and the comment, which rules 4 and 5 bind the same way.
-  Writing the correction after it — `X. And since Y, also Z.` — leaves the stale half as the first
-  thing a reader meets and the current rule as something they assemble. This is the one a review
-  catches late, because each added clause is correct on its own.
+**3. Document deviations only.** A Guice module bound the usual way, a DAO reading the usual
+shape, an endpoint doing what its verb says — none of it gets a paragraph or a comment. When a special
+case becomes the norm, delete its explanation, prose and comments alike; the commit message says what
+moved.
 
-**4. Logic that follows the standard needs no documentation at all.** Document the deviation, not
-the norm. A Guice module bound the ordinary way, a DAO that reads and writes the ordinary document
-shape, an endpoint that does what its verb says — none of it earns a paragraph. This applies to code
-comments exactly as it applies to markdown.
+**4. Field-level contracts live in KDoc**: what a field means, what may be null, what an implementation
+owes its caller. Markdown stays high-level and links the code path.
 
-**5. When a logic becomes standard, its documentation shrinks or goes.** A special case that gets
-folded into the normal path takes its explanation with it — the prose and the comments both.
-Deleting documentation is a correct change, not a loss, and a pull request that removes a section
-because the code stopped being unusual needs no apology. The failure mode is not keeping the old
-text but *replacing* it: an explanation of why the thing is now ordinary is a longer way of writing
-nothing, and one that also records the history rule 3 rules out. The change deletes; the commit
-message carries what moved.
+**5. In code, the public type owns the contract.** Its KDoc states it once. A private function, a helper
+or an inline comment gives only its own reason and links the owner. Cases go in a list or a table:
 
-**6. Field-level contracts live in KDoc.** Markdown stays high-level and links to the code path.
-Most files here already open with a KDoc block; that is where a reader looks for what a field means,
-what may be null, and what an implementation owes its caller.
+| The server | The caller gets |
+|---|---|
+| answers `503` with `Retry-After: 0` | the `503`, without that header |
+| answers `407` over a direct connection | a `ProtocolException` |
 
-**7. This repository is public.** Nothing strategic, commercial or personal goes into it, including
-public issues and proposals. Technical plans are public; private planning stays private.
+**6. This repository is public.** Nothing strategic, commercial or personal, in issues and proposals
+too. Technical plans are public; private planning stays private.
 
-**8. Show the case.** Where a rule has a consequence a reader would have to derive, write the
-consequence out instead of qualifying the rule — two profiles connecting one pod, and what the
-second connect costs the first, in
+### How it reads
+
+**7. Short, direct, plain.** Take the shortest wording that is still correct.
+
+- **Name a standard:** "Authorization Code + PKCE", "RFC 9728 metadata". Its spec explains the
+  mechanism.
+- **Say what a thing is:** `Correct the pod-connect flow documentation`, not `Describe the flow as
+  what it does, not as what it still needs`. This holds for headings, sentences, test names and commit
+  subjects. A real prohibition stays: `never` and `MUST NOT` are already the shortest wording.
+
+**8. Show the case.** Write out the consequence a reader would otherwise have to derive — two profiles
+connecting one pod, and what the second connect costs the first, in
 [`../concepts/hosted-mcp.md`](../concepts/hosted-mcp.md#connecting-a-pod-oauth). One concrete case
-is shorter than the paragraph of hedging it replaces, and it is the half a reader remembers. It
-lives in the document that owns the fact (rule 3).
+replaces a paragraph of hedging.
 
-**9. Length is a budget, not an entitlement.** Add a paragraph, look for one to delete — usually
-the one the new paragraph made redundant — and treat a section that has doubled since it was
-written as one to cut rather than extend. A document may still grow where it was missing something
-true; what it may not do is drift into a novel, because nobody reads the novel and what nobody
-reads stops being true.
+### How it stays short
+
+**9. One owner per fact.** Where a fact is wanted a second time, link its owner. Every copy is right the
+day it is written, and wrong somewhere else later.
+
+**10. No history.** "This used to be X" belongs in the commit message. Keep a rationale only where a
+reader would otherwise undo the decision: *why the HTTP client is OkHttp* (its `Dns` hook is where SSRF
+resolve-and-pin lives) belongs, *which pull request changed it* does not.
+
+**11. Length is a budget.** A change rewrites the paragraph it touches, a review fix included:
+`X. And since Y, also Z.` leaves the stale half where a reader meets it first. Adding a paragraph means
+looking for one to delete. A document may grow where something true was missing; a section that has
+doubled gets cut.
 
 ## Issue planning
 
@@ -212,7 +206,7 @@ Every PR completes documentation for its own diff, even when the issue spans sev
 behaviour change is not finished until, **in the same change**:
 
 - the affected IST documentation is correct — or has been cut, because the logic now follows the
-  standard (rules 4 and 5);
+  standard (rule 3);
 - the KDoc on any changed interface or DTO is correct;
 - the PR records acceptance progress, checks and documentation evidence, with issue linkage under
   [Issue planning](#issue-planning) or the
@@ -230,7 +224,7 @@ behaviour change is not finished until, **in the same change**:
   exactly why it is the one that gets forgotten;
 - the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
 - nothing you wrote gives a fact a second owner, and what the change made redundant is gone
-  (rules 3 and 9). This is the one that fails quietly, because every copy reads correctly on its
+  (rules 9 and 11). This is the one that fails quietly, because every copy reads correctly on its
   own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught;
 - nothing you added to an `AGENTS.md` is a fact some document owns (§"Instruction files are
   maps"). This one fails quietly too, and for the opposite reason: there is only one copy, so no
