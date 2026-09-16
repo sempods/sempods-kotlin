@@ -41,7 +41,8 @@ class SempodsPod(
 
   private val slotsGroup = SempodsPodSlots(systemOperations)
 
-  private val contextsGroup = SempodsPodContexts(ResourceOperations(session, exchange, ResourceAddress.RegistryPath(session.podBase)))
+  private val contextsGroup =
+    SempodsPodContexts(ResourceOperations(session, exchange, ResourceAddress.RegistryPath(session.podBase)), sparqlGroup)
 
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup
@@ -58,6 +59,6 @@ class SempodsPod(
   /** The values of one predicate on a subject, and single IRI values through their edges. */
   fun slots(): SempodsPodSlots = slotsGroup
 
-  /** The contexts a session sees, what the registry holds for one, and creating one. */
+  /** The contexts a session sees, what the registry holds for one, creating one, and exporting what is in one. */
   fun contexts(): SempodsPodContexts = contextsGroup
 }

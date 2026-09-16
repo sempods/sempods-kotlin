@@ -4,6 +4,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.OutputStream
 import java.util.Collections
 
 /**
@@ -33,8 +34,8 @@ import java.util.Collections
  * **Every answer but `200` is a [SempodsStatusException]** — a malformed, refused or empty query `400`,
  * a refused credential `401`, a format the query cannot produce `406` — and its message quotes neither
  * the query nor the selection. **A body is read into memory, up to 16 MiB**; a larger one is a
- * [SempodsDecodingException]. A graph too large for that is read through [SempodsSession.newRequest] and
- * [SempodsRepeatable] on the same client.
+ * [SempodsDecodingException]. A graph too large for that is what [graphStream] and [graphTo] are for:
+ * they hand it over as it arrives, with no limit.
  */
 class SempodsPodSparql internal constructor(
   private val session: SempodsSession,
@@ -98,6 +99,37 @@ class SempodsPodSparql internal constructor(
     format: SempodsGraphFormat,
     selection: SempodsContextSelection = SempodsContextSelection.readable(),
   ): SempodsResponse<ByteArray> = exchange.run(request(query, format.mediaType, selection), ANSWERS, BodyReading.BYTES)
+
+  /**
+   * A CONSTRUCT or DESCRIBE query's graph in [format], read by [reader] while it arrives.
+   *
+   * The one read here that is not bounded by 16 MiB, for a graph that does not fit in memory — a
+   * context export is the case it was written for ([SempodsPodContexts.export]).
+   * [SempodsBodyReader] says what the stream's lifetime is and what a reader that stops early does.
+   */
+  @JvmOverloads
+  @Throws(IOException::class)
+  fun <T : Any> graphStream(
+    query: String,
+    format: SempodsGraphFormat,
+    reader: SempodsBodyReader<T>,
+    selection: SempodsContextSelection = SempodsContextSelection.readable(),
+  ): SempodsResponse<T> = exchange.stream(request(query, format.mediaType, selection), ANSWERS, reader)
+
+  /**
+   * The same graph, written to [out] while it arrives; the body is the number of bytes written.
+   *
+   * **[out] is the caller's**: this writes to it and neither flushes nor closes it, whether the
+   * transfer ends or fails.
+   */
+  @JvmOverloads
+  @Throws(IOException::class)
+  fun graphTo(
+    query: String,
+    format: SempodsGraphFormat,
+    out: OutputStream,
+    selection: SempodsContextSelection = SempodsContextSelection.readable(),
+  ): SempodsResponse<Long> = graphStream(query, format, { body -> body.copyTo(out) }, selection)
 
   private fun resultsRequest(query: String, selection: SempodsContextSelection) = request(query, RESULTS_JSON, selection)
 
