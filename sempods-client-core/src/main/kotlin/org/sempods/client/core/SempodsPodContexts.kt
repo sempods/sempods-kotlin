@@ -1,6 +1,7 @@
 package org.sempods.client.core
 
 import java.io.IOException
+import java.io.OutputStream
 
 /**
  * A pod's contexts: the catalogue at `{pod}/_system/contexts`, a context's own description at its
@@ -35,6 +36,7 @@ import java.io.IOException
  * | [listText], [listBytes], [getText], [getBytes] | `200`; `404` without a body; `304` without a body only with an entity tag |
  * | [create] | `201` for a context this call created, `200` for one that was already there (SPS-CTX-016) |
  * | [delete] | `204`; `404`; `409` for the last context the caller can see (SPS-CTX-029) |
+ * | [exportTo], [export] | `200`, streamed; every other status is a [SempodsStatusException] |
  *
  * A context the session cannot see answers exactly as one that was never registered: `404`, with no
  * body and no validator.
@@ -58,6 +60,7 @@ import java.io.IOException
  */
 class SempodsPodContexts internal constructor(
   private val operations: ResourceOperations,
+  private val sparql: SempodsPodSparql,
 ) {
 
   /** The catalogue as the text the pod sent, in [format], unchanged from [ifNoneMatch] with `304`. */
@@ -129,6 +132,44 @@ class SempodsPodContexts internal constructor(
   @Throws(IOException::class)
   fun delete(contextUri: String): SempodsResponse<ByteArray> =
     operations.deleteAt(operations.pathOf(contextUri), REMOVED)
+
+  /**
+   * Everything the session may read in [contextUri], written to [out] as [format] while it arrives;
+   * the body is the number of bytes written.
+   *
+   * `CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <contextUri> { ?s ?p ?o } }` over the pod's SPARQL route,
+   * which is where a pod's graph comes from — the registry route answers what the registry holds
+   * about a context, not what is in it. The query names the graph and sends no dataset parameters, so
+   * a pod that does not narrow by them (SPS-SPARQL-011) answers the same graph as one that does, and
+   * a context this session cannot read comes back empty rather than refused.
+   *
+   * **[out] is the caller's**: this writes to it and neither flushes nor closes it, whether the export
+   * ends or fails. Nothing is buffered, so a context of any size passes; [SempodsBodyReader] says what
+   * a reader of the stream itself may do, and what the call holds while it runs.
+   */
+  @JvmOverloads
+  @Throws(IOException::class)
+  fun exportTo(
+    contextUri: String,
+    out: OutputStream,
+    format: SempodsGraphFormat = SempodsGraphFormat.N_QUADS,
+  ): SempodsResponse<Long> = sparql.graphTo(exportQuery(contextUri), format, out)
+
+  /** The same export, handed to [reader] as it arrives. */
+  @JvmOverloads
+  @Throws(IOException::class)
+  fun <T : Any> export(
+    contextUri: String,
+    reader: SempodsBodyReader<T>,
+    format: SempodsGraphFormat = SempodsGraphFormat.N_QUADS,
+  ): SempodsResponse<T> = sparql.graphStream(exportQuery(contextUri), format, reader)
+
+  private fun exportQuery(contextUri: String): String {
+    // The same rule that decides whether this is a context of this pod at all. What it admits is what
+    // a SPARQL `IRIREF` carries, so the IRI goes into the query as it is and closes no `<…>` early.
+    operations.pathOf(contextUri)
+    return "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <$contextUri> { ?s ?p ?o } }"
+  }
 
   /** A registry read's one option, carried in the type every read shares. */
   private fun read(ifNoneMatch: String?): SempodsReadOptions = SempodsReadOptions.defaults().withIfNoneMatch(ifNoneMatch)

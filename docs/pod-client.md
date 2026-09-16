@@ -186,6 +186,7 @@ pod.slots().add("did:web:bob.example", knows, SempodsContent.of(carolRef), Sempo
 
 pod.contexts().create(tasks, SempodsContextCreate.fields().withLabel("Tasks"));
 String catalogue = pod.contexts().listText().getBody();
+try (OutputStream dump = Files.newOutputStream(path)) { pod.contexts().exportTo(tasks, dump); }
 ```
 
 `resources()` reaches an IRI under the pod by its own path, `subjects()` any IRI through the System
@@ -194,6 +195,11 @@ subject: read, replace, add, clear, and remove one IRI value through its edge. `
 registry — the catalogue a session sees, and what the registry holds for one context — and creates or
 removes a context at the IRI the pod gave. Those answers are RDF, and this module reads none of it: they arrive
 as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads.
+
+**An answer is read into memory, up to 16 MiB — an export is not.** `contexts().exportTo` writes everything in
+one context to a stream the caller owns while it arrives, and `contexts().export` hands the body to a
+`SempodsBodyReader` for the lifetime of the call. It is a `CONSTRUCT` over `sparql()`, which is where a pod's
+graph comes from; `sparql().graphStream` and `graphTo` are the same read for a query of the caller's own.
 
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the

@@ -4,6 +4,7 @@ import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import org.junit.jupiter.api.AfterAll
@@ -103,6 +104,59 @@ class ExchangeTest : MockPodTest() {
   }
 
   @Test
+  fun `a streamed body passes the limit the buffered one is bounded by`() {
+    serve(200, "x".repeat(65))
+
+    val streamed = Exchange(client, maxBodyBytes = 64).stream(get(), setOf(200), { it.readBytes() })
+
+    assertEquals(65, streamed.body?.size)
+  }
+
+  @Test
+  fun `a streamed read hands over the stream and closes it afterwards`() {
+    serve(200, "quads")
+
+    val taken = Exchange(client).stream(get(), setOf(200), { body -> body })
+
+    // The stream is the response's, and the response ends with the call: what a reader keeps is dead.
+    assertFails { checkNotNull(taken.body).read() }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = [304, 404])
+  fun `a listed answer outside 2xx never reaches the reader`(status: Int) {
+    server.`when`(request()).respond(response().withStatusCode(status).withHeader("ETag", "\"v7\"").withBody("nothing"))
+
+    val answer = Exchange(client).stream(get(), setOf(status), { error("the reader saw a $status") })
+
+    assertEquals(status, answer.status)
+    assertEquals("\"v7\"", answer.headers["ETag"])
+    assertNull(answer.body)
+  }
+
+  @Test
+  fun `a streamed read refuses an unlisted status the way a buffered one does`() {
+    serve(500, "boom")
+
+    val failure = assertThrows<SempodsStatusException> {
+      Exchange(client).stream(get(), setOf(200), { error("the reader saw a 500") })
+    }
+
+    assertEquals(500, failure.status)
+    assertEquals("boom", failure.bodyExcerpt)
+  }
+
+  @Test
+  fun `a reader's own failure reaches the caller as it is`() {
+    serve(200, "quads")
+    val mine = IOException("the file system said no")
+
+    val failure = assertThrows<IOException> { Exchange(client).stream(get(), setOf(200), { throw mine }) }
+
+    assertEquals(mine, failure, "a reader's failure is the caller's own, not wrapped")
+  }
+
+  @Test
   fun `every way an operation ends gives its admission slot back`() {
     sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { narrow ->
       val exchange = Exchange(narrow, maxBodyBytes = 64)
@@ -120,6 +174,12 @@ class ExchangeTest : MockPodTest() {
       assertThrows<SempodsDecodingException> { exchange.run(get(), setOf(200), BodyReading.TEXT) }
       serve(200, "never read")
       assertEquals(200, exchange.status(get(), setOf(200)))
+      serve(200, "streamed")
+      exchange.stream(get(), setOf(200), { it.readBytes() })
+      serve(200, "half read")
+      exchange.stream(get(), setOf(200), { it.read() })
+      serve(200, "unread")
+      assertThrows<IOException> { exchange.stream(get(), setOf(200), { throw IOException("stop") }) }
 
       // With one slot and no queue, any of the above that kept its slot would refuse this call.
       serve(200, "last")

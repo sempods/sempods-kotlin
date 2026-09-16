@@ -186,6 +186,27 @@ class SempodsPodContextsContractTest : MockPodTest() {
     }
   }
 
+  @Test
+  fun `an export asks the pod's SPARQL route for everything in the context`() {
+    val quads = "<urn:s> <urn:p> <urn:o> .\n"
+    answer(200, quads)
+    val written = java.io.ByteArrayOutputStream()
+
+    val exported = contexts().exportTo(tasks, written)
+    contexts().export(tasks, { body -> body.readBytes() }, SempodsGraphFormat.JSON_LD)
+
+    val (export, asJsonLd) = sent.toList()
+    assertEquals("POST", export.method)
+    assertEquals("/alice/_system/sparql/query", export.url.encodedPath)
+    assertEquals(null, export.url.encodedQuery, "the query names the graph, so no dataset parameter does")
+    assertEquals("application/sparql-query", export.headers["Content-Type"])
+    assertEquals("application/n-quads", export.headers["Accept"])
+    assertEquals("CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <$tasks> { ?s ?p ?o } }", String(export.body!!))
+    assertEquals("application/ld+json", asJsonLd.headers["Accept"])
+    assertEquals(quads.length.toLong(), exported.body)
+    assertEquals(quads, written.toString(Charsets.UTF_8))
+  }
+
   @ParameterizedTest
   @ValueSource(
     strings = [
@@ -213,6 +234,7 @@ class SempodsPodContextsContractTest : MockPodTest() {
     assertThrows<IllegalArgumentException> { contexts().getText(named) }
     assertThrows<IllegalArgumentException> { contexts().getBytes(named, SempodsGraphFormat.N_QUADS) }
     assertThrows<IllegalArgumentException> { contexts().delete(named) }
+    assertThrows<IllegalArgumentException> { contexts().exportTo(named, java.io.ByteArrayOutputStream()) }
     assertTrue(sent.isEmpty(), "nothing is sent for '$named'")
   }
 

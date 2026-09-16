@@ -39,7 +39,8 @@ internal class ProtocolViolation(val detail: String) : Exception(detail)
  * `answers` are every status the operation accepts, 2xx included ([SempodsResponse]).
  *
  * The response is closed before a body is decoded, so its admission slot is free while the decoding
- * runs. A failure of the network, of the deadline or of the core's own policy passes through as it is.
+ * runs. [stream] is the exception, and says why. A failure of the network, of the deadline or of the
+ * core's own policy passes through as it is.
  */
 internal class Exchange(
   private val calls: Call.Factory,
@@ -48,6 +49,22 @@ internal class Exchange(
 
   /** The status of a listed answer, with the body closed unread. */
   fun status(request: Request, answers: Set<Int>): Int = execute(request, answers, readBody = false).status
+
+  /**
+   * A listed answer whose body [reader] reads from the connection, inside the response's lifetime.
+   *
+   * Nothing is buffered and no limit applies: the reader sees the bytes as they arrive. A listed
+   * answer outside 2xx does not reach it — that body is closed unread, as it is for [run].
+   */
+  fun <T : Any> stream(request: Request, answers: Set<Int>, reader: SempodsBodyReader<T>): SempodsResponse<T> =
+    calls.newCall(request).execute().use { response ->
+      refuseUnlisted(response, answers)
+      if (!response.isSuccessful) {
+        SempodsResponse(response.code, response.headers, body = null)
+      } else {
+        SempodsResponse(response.code, response.headers, reader.read(response.body.byteStream()))
+      }
+    }
 
   fun <T : Any> run(request: Request, answers: Set<Int>, reading: BodyReading<T>): SempodsResponse<T> {
     val answer = execute(request, answers, readBody = true)
@@ -66,21 +83,34 @@ internal class Exchange(
 
   private fun execute(request: Request, answers: Set<Int>, readBody: Boolean): Answer =
     calls.newCall(request).execute().use { response ->
-      // The request the pod received, whose URL names the pod's host; no query, which is where a
-      // caller's parameters would be.
-      val sent = response.request
-      val described = "${sent.method} ${sent.url.newBuilder().query(null).fragment(null).build()}"
-      when {
-        response.code !in answers -> throw SempodsStatusException(
-          "$described answered ${response.code}, which this operation does not accept.",
-          response.code,
-          response.headers,
-          excerpt(response),
-        )
-        response.isSuccessful -> Answer(described, response, if (readBody) bounded(response, described) else null)
-        else -> Answer(described, response, bytes = null)
+      refuseUnlisted(response, answers)
+      val described = described(response)
+      if (response.isSuccessful) {
+        Answer(described, response, if (readBody) bounded(response, described) else null)
+      } else {
+        Answer(described, response, bytes = null)
       }
     }
+
+  /** Throws unless [response] carries one of [answers], keeping what arrived of the refused body. */
+  private fun refuseUnlisted(response: Response, answers: Set<Int>) {
+    if (response.code in answers) return
+    throw SempodsStatusException(
+      "${described(response)} answered ${response.code}, which this operation does not accept.",
+      response.code,
+      response.headers,
+      excerpt(response),
+    )
+  }
+
+  /**
+   * The request the pod received, whose URL names the pod's host; no query, which is where a caller's
+   * parameters would be.
+   */
+  private fun described(response: Response): String {
+    val sent = response.request
+    return "${sent.method} ${sent.url.newBuilder().query(null).fragment(null).build()}"
+  }
 
   private fun bounded(response: Response, described: String): ByteArray {
     val source = response.body.source()

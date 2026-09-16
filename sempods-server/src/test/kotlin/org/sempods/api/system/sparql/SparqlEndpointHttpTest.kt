@@ -8,6 +8,7 @@ import org.sempods.client.core.SempodsGraphFormat
 import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.SempodsPod
 import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsPodContexts
 import org.sempods.client.core.SempodsPodSparql
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
@@ -25,6 +26,7 @@ import org.eclipse.rdf4j.model.Model
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -505,6 +507,46 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
     } finally {
       client.dispatcher.executorService.shutdown()
       client.connectionPool.evictAll()
+    }
+  }
+
+  /** The context group's export, which is a CONSTRUCT over this route rather than a route of its own. */
+  private fun <T> withContexts(podName: String, auth: SempodsRequestAuth, block: (SempodsPodContexts) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client).contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core exports one context over this route, and nothing of the next`() {
+    val pod = sempodsTestFactory.newPod()
+    val podId = checkNotNull(pod.id)
+    val tasks = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks")
+    val notes = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/notes")
+    listOf(tasks, notes).forEach {
+      podContextsDao.create(podId = podId, contextUri = it.toString(), label = null, description = null, createdBy = "test")
+    }
+    val token = mintScopedToken(pod.name, listOf(tasks, notes).flatMap { listOf("$it#read", "$it#write") })
+    val exported = sempodsTestFactory.seedEvent(pod = pod.name, context = tasks, name = "exported")
+    val other = sempodsTestFactory.seedEvent(pod = pod.name, context = notes, name = "not exported")
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(token)) { contexts ->
+      val out = ByteArrayOutputStream()
+      val written = contexts.exportTo(tasks.toString(), out)
+
+      assertEquals(200, written.status)
+      val quads = out.toString(Charsets.UTF_8)
+      assertEquals(quads.toByteArray(Charsets.UTF_8).size.toLong(), written.body)
+      assertTrue(quads.contains("<$exported>"), quads)
+      assertFalse(quads.contains("$other"), "the query names one graph: $quads")
+      // A CONSTRUCT answers triples, so the export carries no context of its own to re-import from.
+      quads.lines().filter { it.isNotBlank() }.forEach { line ->
+        assertTrue(Regex("<[^>]*>").findAll(line).count() <= 3, line)
+      }
     }
   }
 

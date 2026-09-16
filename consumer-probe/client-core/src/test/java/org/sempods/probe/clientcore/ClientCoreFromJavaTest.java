@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -435,6 +437,29 @@ class ClientCoreFromJavaTest {
 
     assertThrows(IllegalArgumentException.class, () -> contexts.create(base("bob") + "/_system/contexts/tasks"));
     assertThrows(IllegalArgumentException.class, () -> contexts.getText(base("alice") + "/events/1"));
+  }
+
+  @Test
+  void exportsAContextAsAStreamFromJava() throws IOException {
+    SempodsPodContexts contexts = pod("alice").contexts();
+    String tasks = base("alice") + "/_system/contexts/tasks";
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+    SempodsResponse<Long> written = contexts.exportTo(tasks, out);
+    assertEquals(200, written.getStatus());
+    assertEquals("null", written.getHeaders().get("X-Saw-Query"), "the query names the graph, not a dataset parameter");
+    assertTrue(out.toString(StandardCharsets.UTF_8).contains("https://schema.org/name"), out.toString(StandardCharsets.UTF_8));
+    assertEquals(out.size(), written.getBody().longValue());
+
+    SempodsResponse<byte[]> read = contexts.export(tasks, body -> body.readAllBytes());
+    assertEquals(out.size(), read.getBody().length);
+    assertEquals(200, contexts.export(tasks, InputStream::readAllBytes, SempodsGraphFormat.JSON_LD).getStatus());
+
+    // The reader may fail the way a caller's own code fails: a checked IOException, unwrapped.
+    IOException mine = new IOException("the file system said no");
+    assertSame(mine, assertThrows(IOException.class, () -> contexts.export(tasks, body -> {
+      throw mine;
+    })));
   }
 
   private static SempodsPod pod(String name) {
