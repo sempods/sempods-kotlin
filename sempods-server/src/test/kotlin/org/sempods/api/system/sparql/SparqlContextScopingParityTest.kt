@@ -25,7 +25,7 @@ import kotlin.test.assertEquals
  * The guarantee is currently *structural* (shared code). This test is defense-in-depth: for one
  * fixed pod state it drives both surfaces with the same requested contexts and asserts they return
  * the same visibility — no downscope, a proper subset, an unreadable context, and a present-but-blank
- * request (which must fail closed on both, never widen back to the whole pod).
+ * or present-but-empty request (which must fail closed on both, never widen back to the whole pod).
  */
 class SparqlContextScopingParityTest : SempodsIntegrationTest() {
 
@@ -57,12 +57,13 @@ class SparqlContextScopingParityTest : SempodsIntegrationTest() {
     val token = mintScopedToken(pod.name, listOf("${contextA}#read", "${contextB}#read"))
     val unreadable = "$base/ctx-nope"
 
-    // scenario -> (requested contexts, expected A visible, expected B visible)
+    // scenario -> (requested contexts, null for none; expected A visible, expected B visible)
     val scenarios = listOf(
-      Triple("no downscope", emptyList<String>(), true to true),
+      Triple("no downscope", null, true to true),
       Triple("downscope to A", listOf(contextA.toString()), true to false),
       Triple("unreadable context", listOf(unreadable), false to false),
       Triple("present-but-blank", listOf("", " "), false to false),
+      Triple("present-but-empty", emptyList<String>(), false to false),
     )
 
     for ((label, requested, expected) in scenarios) {
@@ -89,14 +90,17 @@ class SparqlContextScopingParityTest : SempodsIntegrationTest() {
   private fun visibility(body: String, eventA: URI, eventB: URI): Pair<Boolean, Boolean> =
     body.contains(eventA.toString()) to body.contains(eventB.toString())
 
-  /** REST surface: each requested context is sent as both `default-graph-uri` and `named-graph-uri`. */
-  private fun restGraphBody(podName: String, token: String, contextIris: List<String>): String {
+  /**
+   * REST surface: each requested context is sent as both `default-graph-uri` and `named-graph-uri`;
+   * an empty list as both parameters without a value.
+   */
+  private fun restGraphBody(podName: String, token: String, contextIris: List<String>?): String {
     val request = http.preparePost("${SempodsModule.config.apiBaseUrl}$podName/_system/sparql/query")
       .addHeader("Content-Type", "application/sparql-query")
       .addHeader("Accept", "application/n-quads")
       .addHeader("Authorization", "Bearer $token")
       .setBody(graphQuery)
-    contextIris.forEach { iri ->
+    contextIris?.ifEmpty { listOf("") }?.forEach { iri ->
       request.addQueryParam("default-graph-uri", iri)
       request.addQueryParam("named-graph-uri", iri)
     }
@@ -105,10 +109,10 @@ class SparqlContextScopingParityTest : SempodsIntegrationTest() {
     return response.responseBody
   }
 
-  /** MCP surface: the same requested contexts as the `context_iri` argument (omitted when empty). */
-  private fun mcpGraphBody(podName: String, token: String, contextIris: List<String>): String {
+  /** MCP surface: the same requested contexts as the `context_iri` argument (omitted when null). */
+  private fun mcpGraphBody(podName: String, token: String, contextIris: List<String>?): String {
     val arguments: Map<String, Any> =
-      if (contextIris.isEmpty()) mapOf("query" to graphQuery)
+      if (contextIris == null) mapOf("query" to graphQuery)
       else mapOf("query" to graphQuery, "context_iri" to contextIris)
     val request = mapOf(
       "jsonrpc" to "2.0",

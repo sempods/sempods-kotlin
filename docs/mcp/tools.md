@@ -144,8 +144,8 @@ Arguments:
 - `text: string` (required) — whitespace-only is rejected.
 - `type: string[]` (optional) — `rdf:type` IRIs, **OR-combined**: only
   resources of one of these types are returned. Fail-closed — a malformed
-  `type` (not an array of strings) is a tool error, never silently
-  dropped. The *general* predicate filter is a deferred extension.
+  or empty `type` (not a non-empty array of strings) is a tool error, never
+  silently dropped. The *general* predicate filter is a deferred extension.
 - `context_iri: string[]` (optional) — read downscope: restrict the search
   to these contexts, within what the caller may read (`list_contexts`).
   Omit to search across all readable contexts. `{requested} ∩ readable`;
@@ -214,8 +214,9 @@ A slot with no values is an answer, not a failure: `values` is `[]` and
 there is no `isError`.
 
 `context_iri` shape note: all read-side MCP downscope filters use the
-array form. Write tools use `context_iri: string` because every write
-targets exactly one context.
+array form, and an empty array is a tool error: omit the argument to read
+every readable context. Write tools use `context_iri: string` because every
+write targets exactly one context.
 
 `context_iri` ↔ HTTP naming: the read-side `context_iri[]` is the MCP
 spelling of the same read-downscope the HTTP API exposes as the repeatable
@@ -223,8 +224,7 @@ spelling of the same read-downscope the HTTP API exposes as the repeatable
 `contexts` JSON field (`POST /_system/find`). MCP keeps one name
 (`context_iri`) across all read tools for consistency; the REST surface keeps
 its query-parameter / body-field conventions. Same semantics either way:
-`{requested} ∩ readable`, unknown/unreadable contexts silently dropped,
-present-but-empty → empty result (never a broadening to pod-wide).
+`{requested} ∩ readable`, unknown/unreadable contexts silently dropped.
 
 ### `create_resource` (write)
 

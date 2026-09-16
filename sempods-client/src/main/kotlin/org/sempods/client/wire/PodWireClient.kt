@@ -80,7 +80,8 @@ class PodWireClient(
    * [contextIris] narrows the query's dataset and can only ever narrow it: each requested context
    * is sent as **both** `default-graph-uri` and `named-graph-uri` (SPARQL 1.1 protocol) so a
    * narrowed query keeps the same reach *within* those contexts as an un-narrowed one, and the pod
-   * applies `{requested} ∩ readable`, dropping silently what the bearer may not see.
+   * applies `{requested} ∩ readable`, dropping silently what the bearer may not see. An empty list
+   * sends no dataset, so the query reads every readable context.
    */
   fun sparqlSelect(podBaseUrl: URI, query: String, contextIris: List<URI> = emptyList(), token: String?): JsonNode =
     sparql(podBaseUrl, query, contextIris, accept = SPARQL_RESULTS, op = "sparql_select", token = token)

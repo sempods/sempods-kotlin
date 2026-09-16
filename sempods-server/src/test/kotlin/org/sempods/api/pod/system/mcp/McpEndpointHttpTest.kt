@@ -470,6 +470,17 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       blankOnly.contains(eventA.toString()) || blankOnly.contains(eventB.toString()),
       "a refused downscope must not answer with data: $blankOnly",
     )
+
+    // An empty array is refused for the same reason.
+    for ((tool, emptyQuery) in listOf("sparql_graph" to query, "sparql_select" to "SELECT ?s WHERE { ?s ?p ?o }")) {
+      val empty = toolCall(pod.name, token, tool, mapOf("query" to emptyQuery, "context_iri" to emptyList<String>()))
+      assertTrue(empty.contains("\"isError\":true"), "$tool: an empty context_iri must be refused: $empty")
+      assertTrue(empty.contains("argument 'context_iri' must not be an empty array"), "$tool: the refusal should say why: $empty")
+      assertFalse(
+        empty.contains(eventA.toString()) || empty.contains(eventB.toString()),
+        "$tool: a refused downscope must not answer with data: $empty",
+      )
+    }
   }
 
   @Test
@@ -792,6 +803,17 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       blankOnly.contains(eventA.toString()) || blankOnly.contains(eventB.toString()),
       "a refused downscope must not answer with data: $blankOnly",
     )
+
+    // An empty array is refused too, for either filter.
+    for (field in listOf("context_iri", "type")) {
+      val empty = toolCall(pod.name, token, "find", mapOf("text" to needle, field to emptyList<String>()))
+      assertTrue(empty.contains("\"isError\":true"), "an empty $field must be refused: $empty")
+      assertTrue(empty.contains("argument '$field' must not be an empty array"), "the refusal should say why: $empty")
+      assertFalse(
+        empty.contains(eventA.toString()) || empty.contains(eventB.toString()),
+        "a refused $field must not answer with data: $empty",
+      )
+    }
   }
 
   @Test
@@ -1368,7 +1390,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `get_resource context_iri array downscopes and blank-only array matches nothing`() {
+  fun `get_resource context_iri array downscopes and a blank-only or empty array is refused`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val alice = "https://example.org/people/alice"
@@ -1391,6 +1413,14 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "context_iri" to listOf("", " "),
     ))
     assertTrue(blankOnly.contains("\"isError\":true"), "blank-only downscope must not broaden to visible resource: $blankOnly")
+
+    val empty = toolCall(pod.name, token, "get_resource", mapOf(
+      "resource_iri" to alice,
+      "context_iri" to emptyList<String>(),
+    ))
+    assertTrue(empty.contains("\"isError\":true"), "an empty downscope must not broaden to visible resource: $empty")
+    assertTrue(empty.contains("argument 'context_iri' must not be an empty array"), "the refusal should say why: $empty")
+    assertFalse(empty.contains("Alice"), "a refused downscope must not answer with the resource: $empty")
   }
 
   @Test
@@ -1471,7 +1501,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `get_property_values context_iri array downscopes and blank-only array matches nothing`() {
+  fun `get_property_values context_iri array downscopes and a blank-only or empty array is refused`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val alice = "https://example.org/people/alice"
@@ -1504,6 +1534,15 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(blankOnly.contains("\"isError\":true"), "a blank context_iri entry must be refused: $blankOnly")
     assertTrue(blankOnly.contains("context_iri"), "the refusal should name the argument: $blankOnly")
     assertFalse(blankOnly.contains("Alice"), "a refused downscope must not answer with the slot: $blankOnly")
+
+    val empty = toolCall(pod.name, token, "get_property_values", mapOf(
+      "subject_iri" to alice,
+      "predicate_iri" to name,
+      "context_iri" to emptyList<String>(),
+    ))
+    assertTrue(empty.contains("\"isError\":true"), "an empty context_iri must be refused: $empty")
+    assertTrue(empty.contains("argument 'context_iri' must not be an empty array"), "the refusal should say why: $empty")
+    assertFalse(empty.contains("Alice"), "a refused downscope must not answer with the slot: $empty")
   }
 
   @Test
