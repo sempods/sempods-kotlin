@@ -246,6 +246,82 @@ class SempodsClientHttpTest {
   }
 
   @Test
+  fun `listContexts reads the catalogue's members when the pod answers RDF`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val ctxB = baseUrl.resolve("_system/contexts/apps/notes/private")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(
+            """
+            <$catalogue> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/sparql-service-description#GraphCollection> .
+            <$catalogue> <http://www.w3.org/ns/sparql-service-description#namedGraph> <$ctxA> .
+            <$catalogue> <https://schema.sempods.org/readableContext> <$ctxA> .
+            <$catalogue> <https://schema.sempods.org/readableContext> <$ctxB> .
+            """.trimIndent(),
+          ),
+      )
+
+    // `ctxB` is only named in a rights relation: the members are what `sd:namedGraph` points at.
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
+  fun `listContexts reads N-Quads however the pod spells the media type`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          // Type and subtype are case-insensitive, so a pod may spell them this way.
+          .withHeader("Content-Type", "Application/N-Quads; charset=utf-8")
+          .withBody("<$catalogue> <http://www.w3.org/ns/sparql-service-description#namedGraph> <$ctxA> .\n"),
+      )
+
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
+  fun `listContexts reads a JSON-LD catalogue a conforming pod answers as application slash json`() {
+    val ctxA = baseUrl.resolve("_system/contexts/apps/notes/public")
+    val catalogue = baseUrl.resolve("_system/contexts")
+    mockServer
+      .`when`(
+        request()
+          .withMethod("GET")
+          .withPath("/alice/_system/contexts")
+          .withHeader("Authorization", "Bearer t"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          // `SPS-CTX-031` makes this media type an alias of JSON-LD, so a conforming pod may pick it.
+          .withContentType(MediaType.APPLICATION_JSON)
+          .withBody(
+            """{"@id":"$catalogue","@type":["http://www.w3.org/ns/sparql-service-description#GraphCollection"],"http://www.w3.org/ns/sparql-service-description#namedGraph":[{"@id":"$ctxA"}]}""",
+          ),
+      )
+
+    assertEquals(listOf(ctxA), client.listContexts(podBaseUrl = baseUrl, token = "t"))
+  }
+
+  @Test
   fun `listContexts returns empty list when the listing has no contexts`() {
     mockServer
       .`when`(request().withMethod("GET").withPath("/alice/_system/contexts"))

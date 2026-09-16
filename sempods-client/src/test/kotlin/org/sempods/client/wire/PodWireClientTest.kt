@@ -67,6 +67,14 @@ class PodWireClientTest {
   }
 
   @Test
+  fun `list_contexts asks for the catalogue, and for the shape a pod that has not migrated answers`() {
+    client.listContexts(pod, "at-1")
+
+    val recorded = server.retrieveRecordedRequests(request().withPath("/pod/_system/contexts")).last()
+    assertEquals("application/ld+json, application/json", recorded.getFirstHeader("Accept"))
+  }
+
+  @Test
   fun `sparql_select posts the query with the sparql-query content type and no dataset params`() {
     val body = client.sparqlSelect(pod, "SELECT * WHERE { ?s ?p ?o }", token = "at-1")
     assertTrue(body["results"]["bindings"].isArray)

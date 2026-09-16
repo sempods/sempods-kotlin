@@ -139,6 +139,22 @@ object RdfWriterUtil {
   }
 
   /**
+   * Which canonical JSON-LD shape [toCanonicalJsonLdEntry] renders.
+   *
+   * The two differ in exactly two details, and both are the registry's: `SPS-CTX-031` requires
+   * `@type` to be an array of absolute IRIs, and `SPS-CTX-032` requires the registry's Boolean to be
+   * a native JSON boolean. The LOD shape keeps a single type as a bare string and every literal as a
+   * typed string, because it doubles as the `PATCH` patch document.
+   */
+  enum class CanonicalJsonLd {
+    /** LOD-layer reads and `PATCH` round-trips. */
+    LOD,
+
+    /** The context registry's descriptions and catalogues. */
+    REGISTRY,
+  }
+
+  /**
    * Render a model as the **canonical** JSON-LD object used by LOD-layer reads and `PATCH`
    * round-trips:
    *
@@ -153,8 +169,18 @@ object RdfWriterUtil {
    *
    * This is the only shape the LOD-layer `PATCH` endpoint accepts as patch document; see
    * `SPS-CRUD-023` (sempods-spec).
+   *
+   * [shape] picks the two details the context registry spells differently — see [CanonicalJsonLd].
+   * `@JvmOverloads` keeps the two-argument method this module published before that parameter
+   * existed: a Kotlin default is a source convenience, and a consumer compiled against the old
+   * signature calls the method that was there.
    */
-  fun toCanonicalJsonLdEntry(model: Model, resource: Resource): MutableMap<String, Any> {
+  @JvmOverloads
+  fun toCanonicalJsonLdEntry(
+    model: Model,
+    resource: Resource,
+    shape: CanonicalJsonLd = CanonicalJsonLd.LOD,
+  ): MutableMap<String, Any> {
     val entry = linkedMapOf<String, Any>()
     entry["@id"] = resource.stringValue()
 
@@ -166,7 +192,7 @@ object RdfWriterUtil {
     val typeIris = flattened.getStatements(resource, RDF.TYPE, null)
       .mapNotNull { (it.`object` as? IRI)?.stringValue() }
     if (typeIris.isNotEmpty()) {
-      entry["@type"] = if (typeIris.size == 1) typeIris.single() else typeIris
+      entry["@type"] = if (shape == CanonicalJsonLd.LOD && typeIris.size == 1) typeIris.single() else typeIris
     }
 
     flattened.getStatements(resource, null, null).forEach { stmt ->
@@ -174,11 +200,12 @@ object RdfWriterUtil {
       val predicateKey = stmt.predicate.stringValue()
       val valueObject: Map<String, Any> = when (val obj = stmt.`object`) {
         is Literal -> {
-          val map = linkedMapOf<String, Any>("@value" to obj.label)
+          val booleanValue = shape == CanonicalJsonLd.REGISTRY && obj.datatype == XSD.BOOLEAN
+          val map = linkedMapOf<String, Any>("@value" to if (booleanValue) obj.booleanValue() else obj.label)
           val lang = obj.language.orElse(null)
           if (lang != null) {
             map["@language"] = lang
-          } else if (obj.datatype != null && obj.datatype.stringValue() != XSD.STRING.stringValue()) {
+          } else if (!booleanValue && obj.datatype != null && obj.datatype.stringValue() != XSD.STRING.stringValue()) {
             map["@type"] = obj.datatype.stringValue()
           }
           map

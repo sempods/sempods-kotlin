@@ -1,10 +1,12 @@
 package org.sempods.api.pod.system.contexts
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.commons.net.SempodsVocabulary
 import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
@@ -21,6 +23,7 @@ import java.net.URI
 import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -153,10 +156,12 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
     val response = http.prepareGet(contextManageUrl(pod.name, "apps/example/tasks"))
+      .addHeader("Accept", "application/json")
       .addHeader("Authorization", "Bearer $oauthToken")
       .execute()
 
     assertEquals(200, response.statusCode, "body=${response.responseBody}")
+    assertEquals("true", response.headers.get("Deprecation"), "the envelope is the transitional shape")
     assertTrue(response.responseBody.contains(contextIri), response.responseBody)
     assertTrue(response.responseBody.contains("\"label\":\"Tasks\""), response.responseBody)
     // The registry answers for what the context *is*; third-party statements about the IRI are
@@ -217,6 +222,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     val response = http.preparePut(contextManageUrl(pod.name, "apps/example/tasks"))
       .addHeader("Content-Type", "application/json")
+      .addHeader("Accept", "application/json")
       .addHeader("Authorization", "Bearer $ownerToken")
       .setBody("""{"label":"Tasks"}""")
       .execute()
@@ -275,6 +281,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     fun put(contextPath: String, body: String?): TestHttpResponse {
       val request = http.preparePut(contextManageUrl(pod.name, contextPath))
         .addHeader("Content-Type", "application/json")
+        .addHeader("Accept", "application/json")
         .addHeader("Authorization", "Bearer $ownerToken")
       body?.let { request.setBody(it) }
       return request.execute()
@@ -293,7 +300,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertCreated(put("defaults/no-body", null), public = false, what = "no body at all")
     assertCreated(put("defaults/asked-for", """{"public":true}"""), public = true, what = "explicit public:true")
 
-    val anonymous = http.prepareGet(contextsBaseUrl(pod.name)).execute()
+    val anonymous = http.prepareGet(contextsBaseUrl(pod.name)).addHeader("Accept", "application/json").execute()
     assertEquals(200, anonymous.statusCode, "body=${anonymous.responseBody}")
     assertEquals(
       listOf(contextUri(pod.name, "defaults/asked-for")),
@@ -535,6 +542,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val oauthToken = mintScopedToken(pod.name, listOf(readScope))
 
     val listResponse = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/json")
       .addHeader("Authorization", "Bearer $oauthToken")
       .execute()
 
@@ -558,6 +566,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val oauthToken = mintScopedToken(pod.name, listOf(readScope, writeScope))
 
     val response = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/json")
       .addHeader("Authorization", "Bearer $oauthToken")
       .execute()
 
@@ -594,6 +603,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val oauthToken = mintScopedToken(pod.name, listOf(manageScope))
 
     val response = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/json")
       .addHeader("Authorization", "Bearer $oauthToken")
       .execute()
 
@@ -656,5 +666,343 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val authHeader = response.headers.get("WWW-Authenticate")
     assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
     assertTrue(authHeader.contains("/.well-known/oauth-protected-resource"))
+  }
+
+  // ── The registry as RDF (`SPS-CTX-031` … `SPS-CTX-037`) ─────────────────────────
+
+  private fun registryGet(url: String, token: String?, accept: String): TestHttpResponse {
+    val request = http.prepareGet(url).addHeader("Accept", accept)
+    token?.let { request.addHeader("Authorization", "Bearer $it") }
+    return request.execute()
+  }
+
+  private fun ids(body: JsonNode, predicate: String): List<String> = body.path(predicate).map { it.path("@id").asText() }
+
+  @Test
+  fun `the catalogue and a description answer canonical JSON-LD, and the same RDF as N-Quads`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val iri = contextUri(pod.name, path)
+    val token = mintScopedToken(pod.name, listOf("$iri#read", "$iri#write"))
+
+    val catalogue = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json")
+    assertEquals(200, catalogue.statusCode, catalogue.responseBody)
+    assertTrue(catalogue.contentType.orEmpty().startsWith("application/ld+json"), catalogue.contentType)
+    val listing = objectMapper.readTree(catalogue.responseBody)
+    assertEquals(contextsBaseUrl(pod.name), listing.path("@id").asText())
+    assertEquals(listOf("${SD_NS}GraphCollection"), listing.path("@type").map { it.asText() })
+    assertEquals(listOf(iri), ids(listing, "${SD_NS}namedGraph"))
+    assertEquals(listOf(iri), ids(listing, SempodsVocabulary.READABLE_CONTEXT))
+    assertEquals(listOf(iri), ids(listing, SempodsVocabulary.WRITABLE_CONTEXT))
+    assertTrue(listing.path(SempodsVocabulary.MANAGEABLE_CONTEXT).isMissingNode, catalogue.responseBody)
+
+    val description = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
+    assertEquals(200, description.statusCode, description.responseBody)
+    val context = objectMapper.readTree(description.responseBody)
+    assertEquals(iri, context.path("@id").asText())
+    assertEquals(listOf("${SD_NS}NamedGraph"), context.path("@type").map { it.asText() })
+    assertEquals(listOf(iri), ids(context, "${SD_NS}name"))
+    val public = context.path(SempodsVocabulary.PUBLIC).single().path("@value")
+    assertTrue(public.isBoolean, "the registry's flag is a JSON boolean: ${description.responseBody}")
+    assertFalse(public.asBoolean())
+    assertEquals(
+      "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/" +
+        UriEncodingUtil.encodeUriToUrlSafeBase64(URI.create(iri)),
+      ids(context, "http://www.w3.org/2000/01/rdf-schema#seeAlso").single(),
+    )
+    assertTrue(context.path(SempodsVocabulary.READABLE_CONTEXT).isMissingNode, "a description states no caller right")
+
+    val quads = registryGet(contextManageUrl(pod.name, path), token, "application/n-quads")
+    assertEquals(200, quads.statusCode, quads.responseBody)
+    assertTrue(quads.contentType.orEmpty().startsWith("application/n-quads"), quads.contentType)
+    val lines = quads.responseBody.lines().filter { it.isNotBlank() }
+    assertTrue(lines.any { it.contains("${SD_NS}NamedGraph") }, quads.responseBody)
+    lines.forEach { line ->
+      assertTrue(Regex("<[^>]*>").findAll(line).count() <= 3, "the registry's RDF is the default graph: $line")
+    }
+  }
+
+  @Test
+  fun `a request that names no type gets JSON-LD, and application slash json still gets the deprecated envelope`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/example/tasks")
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/example/tasks")}#read"))
+
+    val bare = http.prepareGet(contextsBaseUrl(pod.name)).addHeader("Authorization", "Bearer $token").execute()
+    assertEquals(200, bare.statusCode, bare.responseBody)
+    assertTrue(bare.contentType.orEmpty().startsWith("application/ld+json"), bare.contentType)
+    assertNull(bare.headers.get("Deprecation"))
+    assertEquals("Accept, Authorization", bare.headers.get("Vary"))
+    assertEquals("no-store", bare.headers.get("Cache-Control"))
+
+    val legacy = registryGet(contextsBaseUrl(pod.name), token, "application/json")
+    assertEquals(200, legacy.statusCode, legacy.responseBody)
+    assertEquals("true", legacy.headers.get("Deprecation"))
+    assertTrue(legacy.headers.get("Link").orEmpty().contains("issues/184"), legacy.headers.get("Link"))
+    assertTrue(objectMapper.readTree(legacy.responseBody).path("contexts").isArray, legacy.responseBody)
+  }
+
+  @Test
+  fun `an unsatisfiable Accept is refused, and a create refused for one leaves no context behind`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val path = "apps/example/turtle"
+
+    val refused = http.preparePut(contextManageUrl(pod.name, path))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Accept", "text/turtle")
+      .addHeader("Authorization", "Bearer $ownerToken")
+      .setBody("{}")
+      .execute()
+
+    assertEquals(406, refused.statusCode, refused.responseBody)
+    assertNull(
+      podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri(pod.name, path)),
+      "a create the pod could not answer must not have written",
+    )
+    assertEquals(406, registryGet(contextsBaseUrl(pod.name), ownerToken, "text/turtle").statusCode)
+  }
+
+  @Test
+  fun `a registry read carries a strong validator per representation, and never answers 304 without the authorization behind it`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val iri = contextUri(pod.name, path)
+    val token = mintScopedToken(pod.name, listOf("$iri#read"))
+
+    val first = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
+    val tag = assertNotNull(first.headers.get("ETag"), "a registry read carries its validator")
+    assertFalse(tag.startsWith("W/"), tag)
+    assertNotEquals(
+      tag,
+      registryGet(contextManageUrl(pod.name, path), token, "application/n-quads").headers.get("ETag"),
+      "two representations never share a tag",
+    )
+
+    val unchanged = http.prepareGet(contextManageUrl(pod.name, path))
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("If-None-Match", tag)
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    assertEquals(304, unchanged.statusCode, unchanged.responseBody)
+    assertEquals("no-store", unchanged.headers.get("Cache-Control"))
+
+    // The same context and the same tag, held by a caller who may not read it: the pod establishes
+    // its authorization before it evaluates the condition, so the answer is the absence.
+    val stranger = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/example/other")}#read"))
+    val revoked = http.prepareGet(contextManageUrl(pod.name, path))
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("If-None-Match", tag)
+      .addHeader("Authorization", "Bearer $stranger")
+      .execute()
+    assertEquals(404, revoked.statusCode, revoked.responseBody)
+    assertNull(revoked.headers.get("ETag"))
+  }
+
+  @Test
+  fun `a context the caller cannot see answers exactly as one that was never registered`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/example/private")
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/example/mine")
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/example/mine")}#read"))
+
+    val hidden = registryGet(contextManageUrl(pod.name, "apps/example/private"), token, "application/ld+json")
+    val absent = registryGet(contextManageUrl(pod.name, "apps/example/never"), token, "application/ld+json")
+
+    listOf(hidden, absent).forEach { response ->
+      assertEquals(404, response.statusCode, response.responseBody)
+      assertEquals("unknown context", response.responseBody)
+      assertNull(response.headers.get("ETag"))
+      assertEquals("no-store", response.headers.get("Cache-Control"))
+    }
+    assertEquals(hidden.contentType, absent.contentType)
+  }
+
+  @Test
+  fun `a caller who sees no context still gets the collection`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = "apps/example/private")
+    // A token whose only scope names a context that was never registered: nothing is visible to it,
+    // where an anonymous caller would still see the pod's public context.
+    val stranger = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/example/never")}#read"))
+
+    val response = registryGet(contextsBaseUrl(pod.name), stranger, "application/ld+json")
+
+    assertEquals(200, response.statusCode, response.responseBody)
+    val body = objectMapper.readTree(response.responseBody)
+    assertEquals(contextsBaseUrl(pod.name), body.path("@id").asText())
+    assertEquals(listOf("${SD_NS}GraphCollection"), body.path("@type").map { it.asText() })
+    assertEquals(2, body.size(), "an empty catalogue is its identity and its type: ${response.responseBody}")
+  }
+
+  @Test
+  fun `a create answers the registry description, and a repeat answers the unchanged one`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val path = "apps/example/tasks"
+    fun put(label: String) = http.preparePut(contextManageUrl(pod.name, path))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer $ownerToken")
+      .setBody("""{"label":"$label"}""")
+      .execute()
+
+    val created = put("Tasks")
+    assertEquals(201, created.statusCode, created.responseBody)
+    val body = objectMapper.readTree(created.responseBody)
+    assertEquals(contextUri(pod.name, path), body.path("@id").asText())
+    assertEquals("Tasks", body.path(RDFS_LABEL).single().path("@value").asText())
+    assertNull(created.headers.get("ETag"), "a write carries no validator of its own")
+
+    val again = put("Renamed")
+    assertEquals(200, again.statusCode, again.responseBody)
+    assertEquals(
+      "Tasks",
+      objectMapper.readTree(again.responseBody).path(RDFS_LABEL).single().path("@value").asText(),
+      "a repeated create implies no metadata update",
+    )
+
+    // `SPS-CTX-037` asks the create to answer the description a read would give, down to
+    // `dcterms:created` — which a row handed back before it was stored would get wrong.
+    val reader = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+    val read = registryGet(contextManageUrl(pod.name, path), reader, "application/ld+json")
+    assertEquals(200, read.statusCode, read.responseBody)
+    assertEquals(created.responseBody, read.responseBody)
+  }
+
+  @Test
+  fun `ordinary statements about a context IRI change neither the registry's answer nor its validator`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val iri = contextUri(pod.name, path)
+    val token = mintScopedToken(pod.name, listOf("$iri#read", "$iri#write"))
+    val before = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
+
+    val b64 = UriEncodingUtil.encodeUriToUrlSafeBase64(URI.create(iri))
+    val claim = http.preparePut("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/$b64?context=$iri")
+      .addHeader("Content-Type", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"@id":"$iri","${SempodsVocabulary.PUBLIC}":[{"@value":true}]}""")
+      .execute()
+    assertTrue(claim.statusCode in 200..201, "the claim is an ordinary write; body=${claim.responseBody}")
+
+    val after = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
+    assertEquals(before.responseBody, after.responseBody, "the registry answers for what it holds")
+    assertEquals(before.headers.get("ETag"), after.headers.get("ETag"))
+  }
+
+  @Test
+  fun `the transitional envelope carries no validator, so a condition on it changes nothing`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+
+    val legacy = registryGet(contextManageUrl(pod.name, path), token, "application/json")
+    assertEquals(200, legacy.statusCode, legacy.responseBody)
+    // The envelope states the caller's own permissions, which the registry's RDF does not: a tag
+    // hashed from that model would stay put while this body moved.
+    assertNull(legacy.headers.get("ETag"))
+
+    val conditional = http.prepareGet(contextManageUrl(pod.name, path))
+      .addHeader("Accept", "application/json")
+      .addHeader("If-None-Match", "\"any-tag-a-caller-kept\"")
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+
+    assertEquals(200, conditional.statusCode, "the transitional shape offers no conditional read")
+  }
+
+  @Test
+  fun `negotiation follows the quality values, and a representation excluded at zero is not sent`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val path = "apps/example/tasks"
+    createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
+    val token = mintScopedToken(pod.name, listOf("${contextUri(pod.name, path)}#read"))
+
+    val preferred = registryGet(contextsBaseUrl(pod.name), token, "application/n-quads;q=0.5, application/ld+json")
+    assertEquals(200, preferred.statusCode, preferred.responseBody)
+    assertTrue(preferred.contentType.orEmpty().startsWith("application/ld+json"), preferred.contentType)
+
+    // A wildcard beside an exclusion: the wildcard would match JSON-LD, and `q=0` says it is
+    // unacceptable.
+    val excluded = registryGet(contextsBaseUrl(pod.name), token, "*/*, application/ld+json;q=0")
+    assertEquals(200, excluded.statusCode, excluded.responseBody)
+    assertFalse(excluded.contentType.orEmpty().startsWith("application/ld+json"), excluded.contentType)
+
+    // A profile this route does not produce names something else, so what is left excludes
+    // everything and the honest answer is a refusal.
+    val profiled = registryGet(
+      contextsBaseUrl(pod.name),
+      token,
+      "application/ld+json;profile=\"https://example.org/profile\", application/ld+json;q=0, application/n-quads;q=0, application/json;q=0",
+    )
+    assertEquals(406, profiled.statusCode, profiled.responseBody)
+
+    // A parameter written after the weight is an accept extension, and names no representation.
+    val extended = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json;q=1;foo=bar")
+    assertEquals(200, extended.statusCode, extended.responseBody)
+    assertTrue(extended.contentType.orEmpty().startsWith("application/ld+json"), extended.contentType)
+
+    // A parameter the representations do carry keeps matching.
+    val charset = registryGet(contextsBaseUrl(pod.name), token, "application/json;charset=utf-8")
+    assertEquals(200, charset.statusCode, charset.responseBody)
+    assertEquals("true", charset.headers.get("Deprecation"))
+  }
+
+  @Test
+  fun `every refusal of the registry carries its cache isolation`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+
+    val unknownPod = registryGet(
+      "${SempodsModule.config.apiBaseUrl}pod-that-never-existed/_system/contexts",
+      null,
+      "application/ld+json",
+    )
+    val unsatisfiable = registryGet(contextsBaseUrl(pod.name), null, "text/turtle")
+    val refusedBearer = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer not-a-token")
+      .execute()
+
+    assertEquals(406, unsatisfiable.statusCode, unsatisfiable.responseBody)
+    assertEquals(401, refusedBearer.statusCode, refusedBearer.responseBody)
+    listOf(unknownPod, unsatisfiable, refusedBearer).forEach { response ->
+      assertTrue(response.statusCode >= 400, "a refusal, not a ${response.statusCode}")
+      // `SPS-CTX-036` covers errors, and these three are built where no registry method runs.
+      assertEquals("no-store", response.headers.get("Cache-Control"), "status ${response.statusCode}")
+      assertEquals("Accept, Authorization", response.headers.get("Vary"), "status ${response.statusCode}")
+    }
+  }
+
+  private companion object {
+
+    const val SD_NS = "http://www.w3.org/ns/sparql-service-description#"
+
+    const val RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
   }
 }

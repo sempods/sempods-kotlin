@@ -15,6 +15,8 @@ import org.sempods.commons.mongo.putNotNull
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * Persistence for [PodContextDbo] — the registry of a pod's contexts.
@@ -77,6 +79,10 @@ class PodContextsDao internal constructor(db: MongoDatabase, collectionName: Str
       label = label,
       description = description,
       isPublic = isPublic,
+      // Truncated because a BSON date holds milliseconds: the row handed back here is the row that
+      // was stored, so a create answers the same `dcterms:created` a later read does
+      // (`SPS-CTX-037`).
+      createdAt = Instant.now().truncatedTo(ChronoUnit.MILLIS),
       createdBy = createdBy,
     )
     return try {

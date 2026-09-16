@@ -112,7 +112,7 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
 
       // --- reads: `context_iri` is a downscope the pod intersects with what the bearer may read ---
 
-      "list_contexts" -> call { pod, token -> wire.listContexts(pod, token) }
+      "list_contexts" -> call { pod, token -> ContextCatalogue.toToolPayload(wire.listContexts(pod, token)) }
 
       "sparql_select", "sparql_graph" -> {
         val query = ToolArguments.string(arguments, "query")

@@ -1186,6 +1186,55 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-CTX-031",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "Successful GET responses for L and C MUST represent registry RDF using the canonical JSON-LD shape and content negotiation of [`SPS-CRUD-023`](lod-crud.md#SPS-CRUD-023), [`SPS-CRUD-024`](lod-crud.md#SPS-CRUD-024), [`SPS-CRUD-026`](lod-crud.md#SPS-CRUD-026) and [`SPS-CRUD-027`](lod-crud.md#SPS-CRUD-027).",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-032",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "A Context description MUST identify C as `sd:NamedGraph`, have exactly one `sd:name` equal to C, and have exactly one Boolean `sps:public` expressing its registry public-read setting, using a native JSON Boolean value in JSON-LD.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-033",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "A catalogue MUST identify L as `sd:GraphCollection` and link every registered Context visible to this caller with `sd:namedGraph`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-034",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "The catalogue relationships MUST report the requesting client's current effective read, write and manage permissions under [`grants`](grants.md), including implied modes, delegation limits and applicable public read.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-035",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "Successful registry and catalogue GET responses MUST supply strong ETags and support `If-None-Match` under RFC 9110.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-036",
+      "part": "core",
+      "chapter": "spec/core/contexts.md",
+      "summary": "Registry responses, including errors, MUST NOT be reused across caller/client authorization contexts or without current authorization.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CTX-037",
+      "part": "context-management",
+      "chapter": "spec/modules/context-management.md",
+      "summary": "Successful Context PUT responses (`200` and `201`) MUST return the registry RDF description defined by [`SPS-CTX-031`](../core/contexts.md#SPS-CTX-031) and [`SPS-CTX-032`](../core/contexts.md#SPS-CTX-032), using their content negotiation and [`SPS-CTX-036`](../core/contexts.md#SPS-CTX-036)'s cache isolation.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-FIND-001",
       "part": "core",
       "chapter": "spec/core/find.md",

@@ -13,6 +13,11 @@ enum class GraphResultFormat(val contentType: String, val rdfFormat: RDFFormat) 
   N_QUADS("application/n-quads", RDFFormat.NQUADS),
 }
 
+/**
+ * Quality values play no part here: the first compatible range wins.
+ * [org.sempods.commons.jaxrs.AcceptNegotiation] reads them, and
+ * [#189](https://github.com/sempods/sempods-kotlin/issues/189) moves these routes onto it.
+ */
 object GraphResultNegotiation {
 
   private val JSON_LD_MEDIA_TYPE = MediaType.valueOf("application/ld+json")

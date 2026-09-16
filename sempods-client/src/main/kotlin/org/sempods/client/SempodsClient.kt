@@ -9,6 +9,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.Base64
+import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.rio.RDFFormat
@@ -263,9 +264,11 @@ class SempodsClient(
 
   /**
    * GETs `{pod}/_system/contexts` and returns the canonical URIs of the contexts
-   * the bearer can see. The server filters the listing by the token's effective
-   * permissions (`PodContextsEndpoint.list`), so a `<root>#manage` service token
-   * sees the contexts under its sandbox — which is what a provisioned app needs.
+   * the bearer can see — the catalogue's members. The server filters it by the
+   * token's effective permissions (`PodContextsEndpoint.list`), so a `<root>#manage`
+   * service token sees the contexts under its sandbox — which is what a provisioned
+   * app needs. What the caller may *do* with each is in the catalogue's RDF and is
+   * not read here; `SempodsPodClient` has no caller for it.
    *
    * [SempodsPodClient.contexts] is the bound form, answering with a set; order is not
    * significant here either. Any non-2xx throws [SempodsClientException].
@@ -274,19 +277,38 @@ class SempodsClient(
     val targetUrl = podBaseUrl.resolve(SempodsPodRoutes.CONTEXTS)
 
     val request = newRequest(targetUrl, token)
-      .header("Accept", "application/json")
+      // The catalogue is RDF (`SPS-CTX-033`), and its members are what `sd:namedGraph` points at.
+      // N-Quads is asked for first, because `application/json` is two different bodies: a conforming
+      // pod answers JSON-LD there (`SPS-CTX-031`), one that has not migrated answers its JSON
+      // envelope. The quality values say which body this client would rather have; the reading below
+      // takes whichever arrives. The envelope half goes with #184.
+      .header("Accept", "application/n-quads, application/ld+json;q=0.9, application/json;q=0.5")
       .GET()
       .build()
 
-    val response = transport.send(request)
+    val response = transport.sendBytes(request)
     if (response.statusCode / 100 != 2) {
-      throw transport.failure("GET", targetUrl, response.statusCode, response.body)
+      throw transport.failure("GET", targetUrl, response.statusCode, response.body.toString(StandardCharsets.UTF_8))
     }
-    val contexts = objectMapper.readTree(response.body).path("contexts")
-    if (!contexts.isArray) return emptyList()
-    return contexts.mapNotNull { node ->
-      node.path("context_iri").takeIf { it.isTextual }?.asText()?.let(::URI)
+    // Type and subtype are case-insensitive (RFC 9110 §8.3.1), and the parameters are not this
+    // reading's business.
+    val mediaType = response.header("Content-Type").orEmpty().substringBefore(';').trim()
+    if (mediaType.equals("application/n-quads", ignoreCase = true)) {
+      return Rio.parse(ByteArrayInputStream(response.body), RDFFormat.NQUADS)
+        .filter { it.predicate.stringValue() == SD_NAMED_GRAPH }
+        .mapNotNull { (it.`object` as? IRI)?.stringValue()?.let(::URI) }
+        .distinct()
     }
+    val body = objectMapper.readTree(response.body)
+    val envelope = body.path("contexts")
+    if (envelope.isArray) {
+      return envelope.mapNotNull { node ->
+        node.path("context_iri").takeIf { it.isTextual }?.asText()?.let(::URI)
+      }
+    }
+    return body.path(SD_NAMED_GRAPH).mapNotNull { member ->
+      member.path("@id").takeIf { it.isTextual }?.asText()?.let(::URI)
+    }.distinct()
   }
 
   // ─── media (`{pod}/_system/media/…`) ──────────────────────────────────────────
@@ -890,3 +912,9 @@ data class ServiceTokenResponse(
   val expiresInSeconds: Long,
   val scope: String?,
 )
+
+/**
+ * `sd:namedGraph` — what a context catalogue lists its members with (`SPS-CTX-033`). Spelled out
+ * here because this module declares no RDF4J vocabulary artifact.
+ */
+private const val SD_NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"

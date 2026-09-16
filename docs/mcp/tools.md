@@ -46,31 +46,30 @@ permission level on each. The contract is:
 
 ```json
 {
-  "pod_base_url": "https://<host>/<pod>",
-  "authenticated": true,
   "contexts": [
     {
       "context_iri": "https://<host>/<pod>/tasks",
-      "permissions": ["read", "write"],
-      "source": "grant"
+      "permissions": ["read", "write"]
     },
     {
       "context_iri": "https://<host>/<pod>/events/public",
-      "permissions": ["read"],
-      "source": "public"
+      "permissions": ["read"]
     }
   ],
   "writable_contexts": ["https://<host>/<pod>/tasks"]
 }
 ```
 
-`source` indicates where a context's effective permissions come from:
-`grant` (a direct per-context grant), `manage` (covered by a
-`<root>#manage` grant via the slash-delimited rule), or `public` (a
-public context, read-only, no explicit grant). Permissions are resolved
-server-side per request from the grant store — they are not derived from
-token scopes — so REST `GET /{pod}/_system/contexts` and this tool always
-return the same effective set.
+The pod answers `GET /{pod}/_system/contexts` as RDF (`SPS-CTX-033`): a
+collection whose members are the contexts this caller may see, with
+`readableContext`, `writableContext` and `manageableContext` relations
+for what they may do. `ContextCatalogue` in `:sempods-mcp-core` maps that
+onto the shape above, so a model reads one shape whatever the pod
+answers. Permissions are resolved server-side per request from the grant
+store — they are not derived from token scopes — so the route and this
+tool always return the same effective set. Where a right comes from
+(a direct grant, a `<root>#manage` grant, or a public context) is no
+longer part of the answer.
 
 Models are instructed to call this **first** before any write tool —
 `writable_contexts` is the authoritative list of valid `context_iri`

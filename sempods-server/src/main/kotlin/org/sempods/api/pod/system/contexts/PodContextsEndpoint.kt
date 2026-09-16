@@ -16,8 +16,17 @@ import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.core.EntityTag
+import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.StreamingOutput
+import org.eclipse.rdf4j.model.IRI
+import org.eclipse.rdf4j.model.Model
+import org.eclipse.rdf4j.model.util.Values
+import org.sempods.pods.ResourceValidator
+import org.sempods.rdf.RdfWriterUtil
 import java.net.URI
 
 /**
@@ -32,6 +41,14 @@ import java.net.URI
  * slash-delimited rule (`SPS-GRANT-007` (sempods-spec)) — the same rule the
  * write enforcer applies, shared through
  * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope].
+ *
+ * **The registry answers RDF.** `GET` at the catalogue and at a context IRI produce canonical
+ * JSON-LD by default and N-Quads on request (`SPS-CTX-031`), a successful `PUT` answers the created
+ * or existing context's description (`SPS-CTX-037`), and every answer carries a strong validator and
+ * `Cache-Control: no-store` (`SPS-CTX-035`, `SPS-CTX-036`). `application/json` still answers the JSON
+ * envelopes this route used to, which `SPS-CTX-031` rules out and
+ * [#184](https://github.com/sempods/sempods-kotlin/issues/184) removes; a response carrying them says
+ * so with `Deprecation: true`.
  *
  * The `{path...}` segment **is** the context IRI's path: the API path
  * `{pod}/_system/contexts/apps/notes/public` manages the context whose
@@ -64,33 +81,39 @@ class PodContextsEndpoint @Inject constructor(
 
   @PUT
   @Path("{contextPath: .+}")
+  @Produces("application/ld+json", "application/json", "application/n-quads")
   fun put(
     @PathParam("pod") pod: String,
     @PathParam("contextPath") contextPath: String,
-    request: PutPodContextRequest?,
+    @Context httpHeaders: HttpHeaders,
+    body: PutPodContextRequest?,
   ): Response {
+    // Negotiated before anything is written: Jersey has already answered an unsatisfiable `Accept`
+    // with 406 during matching, so no context comes into existence for one (`SPS-CTX-037`).
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
+    val podBaseUrl = "${config.apiBaseUrl}${pod}/"
     val podDbo = fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
     requireCreatableContextPathOrThrow(ContextPathRules.normalize(contextPath))
     val createdBy = authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
     val podId = checkNotNull(podDbo.id)
-    val body = request ?: PutPodContextRequest()
+    val fields = body ?: PutPodContextRequest()
 
     val existing = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
     if (existing != null) {
       // PUT is idempotent: an existing context is a no-op. Field-level updates
       // (label/description/public toggle) are intentionally out of scope here;
       // see the in-file TODO below for the owner-facing visibility toggle.
-      return Response.ok(existing.toPutResponse()).build()
+      return contextResponse(status = 200, row = existing, format = format, podBaseUrl = podBaseUrl)
     }
 
     val created = podContextsDao.create(
       podId = podId,
       contextUri = contextUri.toString(),
-      label = body.label?.trim()?.ifBlank { null },
-      description = body.description?.trim()?.ifBlank { null },
+      label = fields.label?.trim()?.ifBlank { null },
+      description = fields.description?.trim()?.ifBlank { null },
       createdBy = createdBy,
-      isPublic = body.public,
+      isPublic = fields.public,
     )
     if (created == null) {
       // Race: another caller created the same row between the existence check inside `create`
@@ -100,9 +123,9 @@ class PodContextsEndpoint @Inject constructor(
         ?: throw WebApplicationException(
           Response.status(500).entity("unexpected create failure for $contextUri").type("text/plain").build()
         )
-      return Response.ok(won.toPutResponse()).build()
+      return contextResponse(status = 200, row = won, format = format, podBaseUrl = podBaseUrl)
     }
-    return Response.status(201).entity(created.toPutResponse()).build()
+    return contextResponse(status = 201, row = created, format = format, podBaseUrl = podBaseUrl)
   }
 
   /**
@@ -128,9 +151,11 @@ class PodContextsEndpoint @Inject constructor(
   //  `PodResourceEndpoint` when the path does not name a registered context.
   @GET
   @Path("{contextPath: .+}")
+  @Produces("application/ld+json", "application/json", "application/n-quads")
   fun get(
     @PathParam("pod") pod: String,
     @PathParam("contextPath") contextPath: String,
+    @Context httpHeaders: HttpHeaders,
   ): Response {
     val credentials = authenticate(pod)
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
@@ -138,9 +163,7 @@ class PodContextsEndpoint @Inject constructor(
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
 
     val dbo = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
-      ?: throw WebApplicationException(
-        Response.status(404).entity("unknown context").type("text/plain").build()
-      )
+      ?: throw unknownContext()
 
     val effective = contextPermissionResolver.describeEffectivePermissions(
       effectiveScopes = credentials.oauthScopes,
@@ -149,16 +172,21 @@ class PodContextsEndpoint @Inject constructor(
       podBaseUrl = podBaseUrl,
     )
     val entry = effective.byContext[dbo.contextUri]
-      ?: throw WebApplicationException(
-        Response.status(404).entity("unknown context").type("text/plain").build()
-      )
+      ?: throw unknownContext()
 
-    return Response.ok(dbo.toResponse(entry)).build()
+    // Authorization and the normal status come first, the precondition last: a caller whose read was
+    // revoked gets the same 404 an unregistered path gets, never a 304 off the tag they still hold
+    // (`SPS-CTX-035`).
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
+    val model = PodContextRegistryRdf.describe(row = dbo, podBaseUrl = podBaseUrl)
+    return registryRead(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
   }
 
   @GET
+  @Produces("application/ld+json", "application/json", "application/n-quads")
   fun list(
     @PathParam("pod") pod: String,
+    @Context httpHeaders: HttpHeaders,
   ): Response {
     val credentials = authenticate(pod)
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
@@ -174,17 +202,17 @@ class PodContextsEndpoint @Inject constructor(
       podBaseUrl = podBaseUrl,
     )
 
-    val contexts = podContextsDao.fetchByPod(podId)
-      .mapNotNull { dbo -> effective.byContext[dbo.contextUri]?.let { dbo.toResponse(it) } }
-
-    return Response.ok(
+    val rows = podContextsDao.fetchByPod(podId)
+    val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
+    val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
+    return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",
         authenticated = credentials.oauthClientId != null,
-        contexts = contexts,
+        contexts = rows.mapNotNull { dbo -> effective.byContext[dbo.contextUri]?.let { dbo.toResponse(it) } },
         writableContexts = effective.writableContexts,
       )
-    ).build()
+    }
   }
 
   @DELETE
@@ -200,9 +228,7 @@ class PodContextsEndpoint @Inject constructor(
     authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
     val podId = checkNotNull(podDbo.id)
     if (!podContextsDao.exists(podId = podId, contextUri = contextUri.toString())) {
-      throw WebApplicationException(
-        Response.status(404).entity("unknown context").type("text/plain").build()
-      )
+      throw unknownContext()
     }
     podFacade.removeContext(podName = pod, context = contextUri)
     return Response.noContent().build()
@@ -308,6 +334,82 @@ class PodContextsEndpoint @Inject constructor(
       createdAt = createdAt.toString(),
     )
   }
+
+  /** A created or existing context, as its registry description (`SPS-CTX-037`). */
+  private fun contextResponse(status: Int, row: PodContextDbo, format: RegistryFormat, podBaseUrl: String): Response {
+    val model = PodContextRegistryRdf.describe(row = row, podBaseUrl = podBaseUrl)
+    val builder = Response.status(status)
+      .entity(registryEntity(format, model, Values.iri(row.contextUri)) { row.toPutResponse() })
+      .type(format.contentType)
+    // No `ETag` here: `SPS-CTX-037` gives a write no validator, and a tag would invite an `If-Match`
+    // this route does not evaluate.
+    return deprecationHeaders(builder, format).build()
+  }
+
+  /**
+   * A registry read: the representation, its validator and the conditional answer.
+   *
+   * **The transitional envelope carries no validator.** It states the caller's own permissions,
+   * which the registry RDF does not, so a tag hashed from the model would stay put while the
+   * envelope changed — and a replayed `If-None-Match` would answer `304` for a body that moved. It
+   * gets what this route gave before the registry became RDF: no tag, no conditional read, until
+   * [#184](https://github.com/sempods/sempods-kotlin/issues/184) removes the shape.
+   */
+  private fun registryRead(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Response {
+    if (format == RegistryFormat.LEGACY_JSON) {
+      return deprecationHeaders(Response.ok(legacy()).type(format.contentType), format).build()
+    }
+    val tag = registryTag(model = model, format = format)
+    evaluatePreconditions(tag)?.let { return deprecationHeaders(Response.fromResponse(it), format).build() }
+    val entity = registryEntity(format, model, subject) { legacy() }
+    return deprecationHeaders(Response.ok(entity).type(format.contentType).tag(tag), format).build()
+  }
+
+  private fun registryEntity(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Any =
+    when (format) {
+      RegistryFormat.JSON_LD -> RdfWriterUtil.toCanonicalJsonLdEntry(model, subject, RdfWriterUtil.CanonicalJsonLd.REGISTRY)
+      RegistryFormat.N_QUADS -> StreamingOutput { out -> RdfWriterUtil.streamNQuads(out, model) }
+      RegistryFormat.LEGACY_JSON -> legacy()
+    }
+
+  /**
+   * The representation's strong validator (`SPS-CTX-035`).
+   *
+   * Hashed over exactly the triples that go out, so it changes when membership, rights or metadata
+   * change and stays put when the graph does — the registry's view of a context is what it
+   * validates. [createContentTypeAwareEntityTag] keeps the three representations apart.
+   */
+  private fun registryTag(model: Model, format: RegistryFormat): EntityTag =
+    createContentTypeAwareEntityTag(ResourceValidator.compute(model), format.contentType)
+
+  /**
+   * What the transitional envelope owes on its own. `Cache-Control` and `Vary` belong to the whole
+   * route and are set by [ContextRegistryCacheFilter], which also reaches the answers no method here
+   * builds.
+   */
+  private fun deprecationHeaders(builder: Response.ResponseBuilder, format: RegistryFormat): Response.ResponseBuilder {
+    if (format == RegistryFormat.LEGACY_JSON) {
+      builder.header("Deprecation", "true")
+        .header(HttpHeaders.LINK, "<$DEPRECATION_ISSUE>; rel=\"deprecation\"")
+    }
+    return builder
+  }
+
+  /** Nothing this route produces is acceptable. On `PUT` this is reached before anything is written. */
+  private fun notAcceptable(): Response = Response.status(Response.Status.NOT_ACCEPTABLE)
+    .entity("the context registry answers application/ld+json, application/n-quads or application/json")
+    .type(MediaType.TEXT_PLAIN)
+    .build()
+
+  /** Hidden and absent are one answer, down to the headers and the missing validator (`SPS-CTX-035`). */
+  private fun unknownContext(): WebApplicationException = WebApplicationException(
+    Response.status(404).entity("unknown context").type(MediaType.TEXT_PLAIN).build()
+  )
+
+  private companion object {
+
+    const val DEPRECATION_ISSUE = "https://github.com/sempods/sempods-kotlin/issues/184"
+  }
 }
 
 data class PutPodContextRequest(
@@ -329,9 +431,12 @@ data class PutPodContextRequest(
 //   delete) plus a `public` checkbox in the consent UI's newContexts flow.
 
 /**
- * One context entry in the `GET _system/contexts` listing. Mirrors the MCP `list_contexts`
- * shape (`context_iri`, `permissions`, `source`) plus REST-only metadata (`label`,
- * `description`, `public`, `createdAt`).
+ * One context entry in the transitional `application/json` listing. Mirrors the MCP `list_contexts`
+ * shape (`context_iri`, `permissions`, `source`) plus REST-only metadata (`label`, `description`,
+ * `public`, `createdAt`).
+ *
+ * `SPS-CTX-033` states a caller's rights as RDF relations instead, so this type and its two siblings
+ * go with [#184](https://github.com/sempods/sempods-kotlin/issues/184).
  */
 data class PodContextResponse(
   @field:JsonProperty("context_iri")

@@ -39,6 +39,7 @@ import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.pod.resources.PodResourceWriteService
 import org.sempods.api.pod.system.ai.semweb.PodAiSemWebEndpoint
 import org.sempods.api.pod.system.auth.*
+import org.sempods.api.pod.system.contexts.ContextRegistryCacheFilter
 import org.sempods.api.pod.system.contexts.PodContextsEndpoint
 import org.sempods.api.pod.system.find.FindEndpoint
 import org.sempods.api.pod.system.mcp.McpEndpoint
@@ -212,6 +213,9 @@ class SempodsModule : BaseModule() {
 
       AdminPodsEndpoint::class.java,
       PodContextsEndpoint::class.java,
+      // A provider rather than an endpoint: it puts the registry's cache isolation on the answers
+      // no registry method builds (`SPS-CTX-036`).
+      ContextRegistryCacheFilter::class.java,
       PodAuthEndpoint::class.java,
       PodOAuthMetadataEndpoint::class.java,
       RootOAuthMetadataEndpoint::class.java,
