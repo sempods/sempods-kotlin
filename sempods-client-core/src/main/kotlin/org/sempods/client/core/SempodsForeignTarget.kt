@@ -54,9 +54,12 @@ import java.io.OutputStream
  * after it, wherever it points. [SempodsResponse.url] names the URL that answered.
  *
  * **What a call holds.** The credential is applied inside the call, in its admission slot and under its
- * deadline. A mechanism that fetches a token through this same client needs a slot of its own for that
- * fetch, so under a budget of one it waits until the deadline
- * ([#161](https://github.com/sempods/sempods-kotlin/issues/161)). [getText] and [getBytes] read at most
+ * deadline, with two limits a session's call does not have — both of them
+ * [#161](https://github.com/sempods/sempods-kotlin/issues/161)'s to lift. A mechanism that fetches a
+ * token through this same client needs a slot of its own for that fetch, so under a budget of one it
+ * waits until the deadline. And a call waiting while another refreshes a shared
+ * [SempodsRequestAuth.refreshable] credential does not see its own cancellation, so it waits up to that
+ * credential's 30 seconds, holding its slot. [getText] and [getBytes] read at most
  * 16 MiB and free the slot before they decode. [getStream] and [getTo] have no limit — the body is a
  * foreign server's, so the reader is its only bound — and hold the slot until the reader is done
  * ([SempodsBodyReader]). The deadline applies per call, so a followed chain may take one deadline per hop,
