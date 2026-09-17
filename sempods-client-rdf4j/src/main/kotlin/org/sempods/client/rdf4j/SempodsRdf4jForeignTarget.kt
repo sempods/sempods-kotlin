@@ -20,10 +20,12 @@ import java.io.IOException
  *
  * **The formats are the caller's, in order of preference.** `Accept` names the first without a
  * `q`-value and each one after it strictly lower, in thousandths (RFC 9110 §12.4.2), so a list holds at
- * most 1000 formats. The answer's `Content-Type` picks the parser among them. An
+ * most 1000 formats. In [getModel] the answer's `Content-Type` picks the parser among them, and an
  * answer in a format not asked for, or without a `Content-Type`, is a
- * [org.sempods.client.core.SempodsDecodingException]. Turtle, N-Quads, N-Triples and JSON-LD come with
- * this module; any other format needs its RDF4J parser on the classpath, and one without is an
+ * [org.sempods.client.core.SempodsDecodingException]. [getStream] parses as the one format it was given,
+ * whatever the answer says it is: a reader sees no headers, and by the time the type could be read the
+ * handler would hold statements already. Turtle, N-Quads, N-Triples and JSON-LD come with this module;
+ * any other format needs its RDF4J parser on the classpath, and one without is an
  * [IllegalArgumentException] before anything is sent.
  *
  * **A remote JSON-LD context is loaded for [getModel]**, through [target] — its guard, its redirects,
@@ -72,6 +74,9 @@ class SempodsRdf4jForeignTarget(
   /**
    * [uri] parsed as [format] into [handler] while it arrives; the body is the number of statements handed
    * on. Relative IRIs resolve against [uri]: a stream is read before a redirect's final URL is known to it.
+   *
+   * **[format] is what the body is read as**, whatever `Content-Type` the answer carries — a server that
+   * ignores `Accept` is not caught here. [getModel] is the read that picks its parser by the answer.
    *
    * What [handler] throws, and an `IOException` of the connection, reach the caller as they are. A body
    * that does not parse is a [org.sempods.client.core.SempodsDecodingException], after the statements

@@ -120,6 +120,17 @@ class SempodsRdf4jForeignTargetTest : MockPodTest() {
   }
 
   @Test
+  fun `a stream parses as the format it was given, whatever the answer says it is`() {
+    serve("/untyped-stream", 200, "text/plain", "<#me> <$foafName> \"Bob\" .")
+    val handled = LinkedHashModel()
+
+    val count = foreign.getStream("$origin/untyped-stream", RDFFormat.TURTLE, StatementCollector(handled))
+
+    assertEquals(1L, count.body)
+    assertEquals(setOf(iri("$origin/untyped-stream#me")), handled.subjects())
+  }
+
+  @Test
   fun `a remote context is loaded through the same client, without the document's credential`() {
     serve("/doc", 200, "application/ld+json", """{"@context": "$origin/context.jsonld", "@id": "$origin/doc#me", "name": "Bob"}""")
     serve("/context.jsonld", 200, "application/ld+json", """{"@context": {"name": "$foafName"}}""")
