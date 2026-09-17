@@ -188,10 +188,10 @@ class McpEndpoint @Inject constructor(
       - `sparql_select` returns SPARQL-Results-JSON (rows, variable bindings). Use it to
         DISCOVER what is in the pod (types, predicates, counts).
       - `sparql_graph` runs CONSTRUCT or DESCRIBE and returns JSON-LD.
-      - `get_resource` fetches one KNOWN resource as canonical JSON-LD plus an `etag`. Prefer
-        it over SPARQL when you already have the IRI and intend to edit — the `etag` feeds
-        `update_resource`/`delete_resource`'s `if_match`. Optional `include_contexts=true`
-        returns the per-context (provenance) form.
+      - `get_resource` fetches one KNOWN resource as canonical JSON-LD. Prefer it over SPARQL
+        when you already have the IRI and intend to edit: read with `context_iri` naming the one
+        context you will write, and its `etag` feeds `update_resource`/`delete_resource`'s
+        `if_match`. Optional `include_contexts=true` returns the per-context (provenance) form.
       - `get_property_values` reads one slot `(subject, predicate)` and, for a single
         context, returns a slot `etag` for the property-value tools' `if_match`.
       - For provenance-sensitive reads ("which context did this triple come from?") use
@@ -276,10 +276,10 @@ class McpEndpoint @Inject constructor(
       CONDITIONAL WRITES — `if_match`:
       - `update_resource`, `delete_resource`, `add_property_value`, `set_property_values`,
         and `clear_property_values` accept an optional `if_match` string. Get the ETag from a
-        prior read — `get_resource` for whole resources, `get_property_values` (single
-        context) for slots — or from the `etag` returned by the create/update and
-        property-value write tools (`delete_resource` consumes an `if_match` but returns no
-        `etag` — the resource is gone). Surrounding quotes / a `W/` prefix are tolerated.
+        read of the context you write — `get_resource` or `get_property_values` with
+        `context_iri` naming exactly that context — or, for slots, from the `etag` the
+        property-value write tools return. Resource writes return no `etag`: read again.
+        Surrounding quotes are optional.
       - On mismatch the tool surfaces an `isError: true` precondition result. Re-read the
         current state and decide.
       - Omitting `if_match` is the default — writes go through unconditionally.

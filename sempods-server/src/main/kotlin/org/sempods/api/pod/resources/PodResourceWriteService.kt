@@ -20,8 +20,8 @@ import org.eclipse.rdf4j.rio.RDFFormat
 import java.net.URI
 
 /**
- * Shared write path for pod resources, used by [PodResourceEndpoint] (HTTP REST) and
- * [org.sempods.api.pod.system.mcp.McpEndpoint] (MCP write tools).
+ * Shared write path for pod resources, used by [PodResourceEndpoint] (canonical LOD path) and
+ * [org.sempods.api.pod.system.resources.PodSystemResourcesEndpoint] (b64-IRI route).
  *
  * All methods throw [WebApplicationException] or [ApiException] with a meaningful 4xx
  * status when preconditions fail, so callers can translate to their transport's error shape
@@ -51,6 +51,9 @@ class PodResourceWriteService @Inject constructor(
    * `PUT /{pod}/{resourcePath}` semantics. Returns [PutResourceOutcome.CREATED] when the
    * target context contained no statements for the resource before this call, otherwise
    * [PutResourceOutcome.UPDATED].
+   *
+   * [conditions] are evaluated against the resource's statements in [contextUri] alone, so
+   * `If-None-Match: *` creates it there even when another context already holds it.
    */
   fun putResource(
     pod: String,
@@ -59,19 +62,21 @@ class PodResourceWriteService @Inject constructor(
     contentTypeHeader: String?,
     body: String,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): PutResourceOutcome {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    val preExisting = podFacade.loadResourceStatementsInContext(
+      podName = pod,
+      resourceUri = resourceUri,
+      contextUri = contextUri,
+    )
+    conditions.requireHold(RepresentationTags.resourceWriteTarget(preExisting, contextUri))
     val inputModel = parseRequestModelOrThrow(contentTypeHeader, body)
     validateReplacementModelOrThrow(
       model = inputModel,
       resourceUri = resourceUri,
       targetContextUri = contextUri,
       allowEmptyModel = false,
-    )
-    val preExisting = podFacade.loadResourceStatementsInContext(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
     )
     val existedBefore = preExisting.isNotEmpty()
     podFacade.patchResource(
@@ -104,6 +109,7 @@ class PodResourceWriteService @Inject constructor(
     contextUri: URI,
     body: String,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
 
@@ -119,6 +125,7 @@ class PodResourceWriteService @Inject constructor(
         hint = "use create_resource to create it",
       )
     }
+    conditions.requireHold(RepresentationTags.resourceWriteTarget(existingStatements, contextUri))
 
     val patch = parseStrictPatchOrThrow(body, resourceUri)
     val currentDocument = objectMapper.valueToTree<JsonNode>(
@@ -158,15 +165,25 @@ class PodResourceWriteService @Inject constructor(
 
   /**
    * Remove the resource from [contextUri]. Returns true if something was deleted. Throws 404 if
-   * the resource does not exist in that context.
+   * the resource does not exist in that context, whatever [conditions] say.
    */
   fun deleteResource(
     pod: String,
     resourceUri: URI,
     contextUri: URI,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    val existing = podFacade.loadResourceStatementsInContext(
+      podName = pod,
+      resourceUri = resourceUri,
+      contextUri = contextUri,
+    )
+    if (existing.isEmpty()) {
+      PodResourceErrors.throwResourceNotFoundInContext(resourceUri = resourceUri, contextUri = contextUri)
+    }
+    conditions.requireHold(RepresentationTags.resourceWriteTarget(existing, contextUri))
     val changed = podFacade.deleteFromContext(
       podName = pod,
       resourceUri = resourceUri,

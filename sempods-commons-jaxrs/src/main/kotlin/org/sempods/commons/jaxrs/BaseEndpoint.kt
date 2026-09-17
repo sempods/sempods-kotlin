@@ -63,22 +63,6 @@ open class BaseEndpoint {
       val request = currentRequestContext().request
       val response = request.evaluatePreconditions(entityTag)
       if (response == null) return null
-
-      // Jetty's GzipHandler appends "--gzip" to the ETag it emits on a
-      // compressed response (RFC 9110 §8.8.3 — different Content-Encoding
-      // values are different representations). Clients echo that exact
-      // tag back in If-Match on the subsequent write. Since the handler
-      // strips the suffix only on its own GET path (the write response
-      // has no body to compress), the application sees a raw
-      // `If-Match: "X--gzip"` while it computes `"X"` — a guaranteed 412.
-      // Re-evaluate against the suffixed variant so writes succeed when
-      // the client played back exactly the tag we handed out.
-      val ifMatch = currentRequestContext().getHeaderString("If-Match")
-      if (ifMatch != null && ifMatch.contains("--gzip\"")) {
-        val gzipTag = EntityTag("${entityTag.value}--gzip")
-        if (request.evaluatePreconditions(gzipTag) == null) return null
-      }
-
       return response.tag(entityTag).build()
     } catch (e: Exception) {
       // happens if the request sends an invalid If-None-Match header, which Jersey quotes back

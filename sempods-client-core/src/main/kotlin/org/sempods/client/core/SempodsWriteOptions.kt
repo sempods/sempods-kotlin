@@ -11,8 +11,10 @@ package org.sempods.client.core
  *
  * **Every write names its target context**, sent as exactly one `context` parameter (SPS-CRUD-007).
  *
- * **Tags are sent exactly as given.** Which tag a pod accepts as a write's validator is #149's to
- * settle; this type only carries it.
+ * **Tags are sent exactly as given.** A tag identifies the representation it came with, and a write
+ * replaces what one context holds, so the tag to send is one from a read selected to that context —
+ * `SempodsReadOptions.of(SempodsContextSelection.of(tasks))`. A read of every readable context is a
+ * different representation, and its tag does not validate the write.
  */
 class SempodsWriteOptions private constructor(
   /** The IRI of the context the write targets, as the pod gave it. */

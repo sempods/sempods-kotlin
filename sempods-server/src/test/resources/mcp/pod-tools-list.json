@@ -105,7 +105,7 @@
   }
 }, {
   "name" : "get_resource",
-  "description" : "Fetch the whole-resource view of a KNOWN resource_iri as canonical JSON-LD from this pod, together with its `etag`. Use this before `update_resource` / `delete_resource` to read the current state AND obtain the `etag` to pass back as `if_match` for a safe read-modify-write (lost-update protection). `resource_iri` may be local or external (`did:`, `urn:`, foreign `https://…`).\n\nReturns `{ \"resource_iri\": \"…\", \"etag\": \"…\", \"jsonld\": <canonical JSON-LD> }`. Pass the `etag` verbatim to `update_resource.if_match`. Prefer this over hand-written SPARQL when you already know the resource IRI. Where the resource has no visible statements, the answer is a not-visible error rather than an empty document.",
+  "description" : "Fetch the whole-resource view of a KNOWN resource_iri as canonical JSON-LD from this pod. Before `update_resource` / `delete_resource`, read it with `context_iri` naming exactly the context you will write: the answer then carries an `etag` to pass back as `if_match` in that context, for a safe read-modify-write (lost-update protection). `resource_iri` may be local or external (`did:`, `urn:`, foreign `https://…`).\n\nReturns `{ \"resource_iri\": \"…\", \"etag\"?: \"…\", \"jsonld\": <canonical JSON-LD> }`. Pass the `etag` verbatim. Prefer this over hand-written SPARQL when you already know the resource IRI. Where the resource has no visible statements, the answer is a not-visible error rather than an empty document.",
   "inputSchema" : {
     "type" : "object",
     "properties" : {
@@ -115,7 +115,7 @@
       },
       "context_iri" : {
         "type" : "array",
-        "description" : "Optional array of context IRIs to downscope the read to. Omit to union across every readable context of this pod. Unknown or unreadable contexts are silently ignored; if none remain, the answer is a not-visible error. An empty array is refused.",
+        "description" : "Optional array of context IRIs to downscope the read to. Omit to union across every readable context of this pod. Unknown or unreadable contexts are silently ignored; if none remain, the answer is a not-visible error. An `etag` is returned only when this names exactly one context. An empty array is refused.",
         "items" : {
           "type" : "string"
         },
@@ -123,7 +123,7 @@
       },
       "include_contexts" : {
         "type" : "boolean",
-        "description" : "Optional: when true, return the named-graph form (statements grouped by context) instead of the merged canonical document. The returned `etag` is the same write-precondition tag either way — it does not describe the named-graph representation — so it stays usable for `if_match`."
+        "description" : "Optional: when true, return the named-graph form (statements grouped by context) instead of the merged canonical document. Its `etag` is just as usable for `if_match`."
       }
     },
     "required" : [ "resource_iri" ],
@@ -201,7 +201,7 @@
       },
       "if_match" : {
         "type" : "string",
-        "description" : "Optional ETag for lost-update protection: pass the `etag` returned by `get_resource` (or by a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional patch."
+        "description" : "Optional ETag for lost-update protection: pass the `etag` from `get_resource` read with `context_iri` set to this call's context. Returns a precondition error if the resource changed there since then. Omit for an unconditional patch."
       }
     },
     "required" : [ "context_iri", "resource_iri", "jsonld_patch" ],
@@ -223,7 +223,7 @@
       },
       "if_match" : {
         "type" : "string",
-        "description" : "Optional ETag for lost-update protection: pass the `etag` from `get_resource` (or a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional delete."
+        "description" : "Optional ETag for lost-update protection: pass the `etag` from `get_resource` read with `context_iri` set to this call's context. Returns a precondition error if the resource changed there since then. Omit for an unconditional delete."
       }
     },
     "required" : [ "context_iri", "resource_iri" ],

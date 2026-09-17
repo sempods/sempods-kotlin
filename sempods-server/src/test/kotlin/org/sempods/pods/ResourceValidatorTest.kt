@@ -42,4 +42,12 @@ class ResourceValidatorTest {
     val b = LinkedHashModel().apply { add(s, name, Values.literal("A"), otherCtx) }
     assertNotEquals(ResourceValidator.compute(a), ResourceValidator.compute(b), "context is part of the validator")
   }
+
+  @Test
+  fun `a scope changes the hash, and no scope is the statements alone`() {
+    val a = LinkedHashModel().apply { add(s, name, Values.literal("A"), ctx) }
+    assertEquals(ResourceValidator.compute(a), ResourceValidator.compute(a, ""))
+    assertNotEquals(ResourceValidator.compute(a), ResourceValidator.compute(a, "context $ctx"))
+    assertNotEquals(ResourceValidator.compute(LinkedHashModel(), "slot a"), ResourceValidator.compute(LinkedHashModel(), "slot b"))
+  }
 }

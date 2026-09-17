@@ -126,13 +126,6 @@ reads while a write holds the lock, and a reader sees a consistent snapshot (SNA
 matching `rdf:type` ∧ optional statement in one of the contexts); `findReferencingResources` returns
 the subjects of the non-`rdf:type` edges pointing at the object in a context.
 
-**ETag validator.** The HTTP ETag is a strong **content hash** over the resource's own-subject
-statements (`ResourceValidator`, served by `SempodsFacade.getResourceValidator` →
-`PodRepository.fetchResourceValidator`). It is deterministic (blank nodes are forbidden, so sorting
-the per-statement N-Quads canonicalizes), resource-snapshot grained (any change to any context bumps
-it), and needs no MongoDB read. `SlotETagComputer` and the MCP `if_match` mirrors take the validator
-as the anchor.
-
 Domain listings such as `findEvents` are not a sempods concern: they live in the consuming
 application as SPARQL-native queries over the pod — sempods exposes only generic SPARQL.
 

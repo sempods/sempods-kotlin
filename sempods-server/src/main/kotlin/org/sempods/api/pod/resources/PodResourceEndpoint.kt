@@ -22,7 +22,6 @@ import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.EntityTag
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.StreamingOutput
@@ -61,7 +60,6 @@ class PodResourceEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
-    evaluateWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     val outcome = podResourceWriteService.putResource(
       pod = pod,
@@ -70,6 +68,7 @@ class PodResourceEndpoint @Inject constructor(
       contentTypeHeader = contentTypeHeader,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     val auditOutcome = when (outcome) {
       PodResourceWriteService.PutResourceOutcome.CREATED -> "created"
@@ -99,7 +98,6 @@ class PodResourceEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
-    evaluateWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     podResourceWriteService.mergePatchResource(
       pod = pod,
@@ -107,6 +105,7 @@ class PodResourceEndpoint @Inject constructor(
       contextUri = contextUri,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logLodAudit("patched", pod, resourceUri, contextUri, credentials)
     return Response.status(204).build()
@@ -124,13 +123,13 @@ class PodResourceEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
-    evaluateWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     podResourceWriteService.deleteResource(
       pod = pod,
       resourceUri = resourceUri,
       contextUri = contextUri,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logLodAudit("deleted", pod, resourceUri, contextUri, credentials)
     return Response.status(204).build()
@@ -150,17 +149,16 @@ class PodResourceEndpoint @Inject constructor(
     val credentials = authenticate(pod)
     val resourceUri = buildResourceUri(pod, resourcePath)
 
-    // Resolve visibility and load the visible representation BEFORE any ETag / precondition handling.
-    // A caller who cannot see the resource (it lives only in unreadable contexts, or does not exist)
+    // Resolve visibility and load the visible representation BEFORE any precondition handling. A
+    // caller who cannot see the resource (it lives only in unreadable contexts, or does not exist)
     // must get 404 here — otherwise a conditional request would short-circuit to 304 (If-None-Match)
-    // or 412 (If-Match) and leak the resource's existence and its content-hash fingerprint, bypassing
-    // the read sandbox. The validator/tag is global across contexts, so it must never be exposed to a
-    // caller without a confirmed visible representation.
-    val visibleContexts = podResourceReadService.resolveVisibleContexts(pod, credentials, contextParams)
-    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, visibleContexts)
+    // or 412 (If-Match) and leak the resource's existence, bypassing the read sandbox.
+    val scope = podResourceReadService.resolveReadScope(pod, credentials, contextParams)
+    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, scope.visible)
 
-    val entityTag = entityTag(pod, resourceUri, "application/ld+json", includeContexts)
-    evaluatePreconditions(entityTag)?.let { return varyOnAccept(it.toResponseBuilder()).build() }
+    val form = if (includeContexts) RepresentationTags.Form.JSON_LD_WITH_CONTEXTS else RepresentationTags.Form.JSON_LD
+    val entityTag = RepresentationTags.resource(model, scope.selection, form)
+    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     val body = if (includeContexts) {
       RdfWriterUtil.toJsonLdNamedGraphs(model = model, resource = resourceUri.toIri())
@@ -173,8 +171,7 @@ class PodResourceEndpoint @Inject constructor(
         resource = resourceUri.toIri(),
       )
     }
-    val builder = Response.ok(body).tag(entityTag)
-    return varyOnAccept(builder).build()
+    return Response.ok(body).tag(entityTag).revalidatedPrivately().build()
   }
 
   @GET
@@ -189,19 +186,17 @@ class PodResourceEndpoint @Inject constructor(
     val credentials = authenticate(pod)
     val resourceUri = buildResourceUri(pod, resourcePath)
 
-    // Visibility 404 before any ETag / precondition handling — see getEntry for the rationale
-    // (a conditional request must not leak existence of a resource in an unreadable context).
-    val visibleContexts = podResourceReadService.resolveVisibleContexts(pod, credentials, contextParams)
-    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, visibleContexts)
+    // Visibility 404 before any precondition handling — see getEntry for the rationale.
+    val scope = podResourceReadService.resolveReadScope(pod, credentials, contextParams)
+    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, scope.visible)
 
-    val entityTag = entityTag(pod, resourceUri, "application/n-quads")
-    evaluatePreconditions(entityTag)?.let { return varyOnAccept(it.toResponseBuilder()).build() }
+    val entityTag = RepresentationTags.resource(model, scope.selection, RepresentationTags.Form.N_QUADS)
+    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     val streamingOutput = StreamingOutput { out ->
       RdfWriterUtil.streamNQuads(model = model, outputStream = out)
     }
-    val builder = Response.ok(streamingOutput).tag(entityTag)
-    return varyOnAccept(builder).build()
+    return Response.ok(streamingOutput).tag(entityTag).revalidatedPrivately().build()
   }
 
   // HEAD is automatically routed to the matching @GET handler by JAX-RS, which discards the
@@ -272,46 +267,6 @@ class PodResourceEndpoint @Inject constructor(
       throw WebApplicationException(Response.status(404).build())
     }
   }
-
-  private fun entityTag(pod: String, resourceUri: URI, contentType: String, includeContexts: Boolean = false): EntityTag {
-    val baseValue = podResourceReadService.resourceTagBaseValue(pod, resourceUri, includeContexts)
-    return createContentTypeAwareEntityTag(baseValue, contentType)
-  }
-
-  /**
-   * Pre-write conditional check honoring `If-Match` and `If-None-Match` per RFC 7232.
-   *
-   * - Existing resource (`getResourceValidator != null`): compare client preconditions against the
-   *   strong validator (content hash) computed from the store.
-   * - Non-existent resource: use JAX-RS no-arg `evaluatePreconditions` so `If-None-Match: *`
-   *   passes (create-or-fail semantics for PUT) and `If-Match: <tag>` fails (precondition
-   *   on a non-existent representation can never be met).
-   *
-   * Returns the response to send back on a precondition failure, or `null` if the call may
-   * proceed. The validator is global (across contexts) because LOD identity is global; the
-   * subsequent write still targets exactly one context.
-   */
-  private fun evaluateWritePreconditionsOrNull(pod: String, resourceUri: URI): Response? {
-    val validator = podResourceReadService.resourceWriteValidator(pod, resourceUri)
-    return if (validator != null) {
-      val tag = createContentTypeAwareEntityTag(
-        validator,
-        "application/ld+json",
-      )
-      evaluatePreconditions(tag)
-    } else {
-      try {
-        currentRequestContext().request.evaluatePreconditions()?.build()
-      } catch (_: Exception) {
-        null
-      }
-    }
-  }
-
-  private fun varyOnAccept(builder: Response.ResponseBuilder): Response.ResponseBuilder =
-    builder.header(HttpHeaders.VARY, HttpHeaders.ACCEPT)
-
-  private fun Response.toResponseBuilder(): Response.ResponseBuilder = Response.fromResponse(this)
 
   /**
    * Audit line for LOD-layer writes. Counterpart to `[mcp/audit]` (see

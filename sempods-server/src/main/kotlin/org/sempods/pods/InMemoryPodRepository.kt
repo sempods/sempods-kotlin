@@ -66,13 +66,6 @@ internal class InMemoryPodRepository(
     }
   }
 
-  override fun fetchResourceValidator(uri: URI): String? {
-    return withConnection { conn ->
-      val model = readResource(conn, uri.toIri())
-      if (model.isEmpty()) null else ResourceValidator.compute(model)
-    }
-  }
-
   /**
    * Existence, evaluated over the store with the semantics the MongoDB query had: the resource has at least
    * one own-subject statement, AND (if [types] given) at least one matching `rdf:type`, AND (if

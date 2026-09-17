@@ -7,6 +7,8 @@ import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
+import org.sempods.api.pod.resources.RepresentationTags
+import org.sempods.api.pod.resources.WriteConditions
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.WebApplicationException
@@ -21,12 +23,12 @@ import java.net.URI
 
 /**
  * Shared write path for the LOD-CRUD **System layer** slot operations, used by
- * [PodSystemResourcesEndpoint] (HTTP) and the slot-flavored MCP tools (`add_property_value`,
- * `set_property_values`, `remove_property_value`, `clear_property_values`).
+ * [PodSystemResourcesEndpoint].
  *
  * Layered on top of [PodFacade]'s slot methods; this service handles transport-level
  * concerns: parse JSON-LD value objects into RDF [Value]s, validate the `?context=`
- * parameter, run the `<ctx>#write` / `<root>#manage` authorization check.
+ * parameter, run the `<ctx>#write` / `<root>#manage` authorization check, then evaluate the
+ * write's [WriteConditions] against the slot in the write context.
  */
 class PodSlotWriteService @Inject constructor(
   private val podFacade: PodFacade,
@@ -73,6 +75,10 @@ class PodSlotWriteService @Inject constructor(
     )
   }
 
+  /** The slot's statements in [contextUri] alone — what a write there replaces, and what its tag describes. */
+  fun slotInContext(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): Model =
+    podFacade.getSlot(podName = pod, subjectUri = subjectUri, predicateUri = predicateUri, contexts = listOf(contextUri))
+
   fun replaceSlot(
     pod: String,
     subjectUri: URI,
@@ -80,8 +86,10 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     body: String,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
     val values = parseSlotBodyAsArrayOrThrow(body)
     return podFacade.replaceSlot(
       podName = pod,
@@ -99,8 +107,10 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     body: String,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): SlotAddResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
     val value = parseSingleValueOrThrow(body)
     val outcome = podFacade.addSlotValue(
       podName = pod,
@@ -151,14 +161,32 @@ class PodSlotWriteService @Inject constructor(
     predicateUri: URI,
     contextUri: URI,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
     return podFacade.clearSlot(
       podName = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
       contextUri = contextUri,
     )
+  }
+
+  /**
+   * `If-None-Match: *` holds while the slot is empty in [contextUri] (`SPS-CRUD-053`); a tag holds
+   * while it describes the slot there. Statements of other predicates and other contexts do not
+   * enter either.
+   */
+  private fun requireConditions(
+    conditions: WriteConditions,
+    pod: String,
+    subjectUri: URI,
+    predicateUri: URI,
+    contextUri: URI,
+  ) {
+    val current = slotInContext(pod, subjectUri, predicateUri, contextUri)
+    conditions.requireHold(RepresentationTags.slotWriteTarget(current, subjectUri, predicateUri, contextUri))
   }
 
   // -- body parsing --

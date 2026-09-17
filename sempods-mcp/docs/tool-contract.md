@@ -103,13 +103,12 @@ Every read tool returns a single text content block carrying:
   error (`isError: true` with a text message), not a per-pod entry.
 
 `result` shapes: `list_contexts` → the pod context document; `sparql_select` → SPARQL-Results-JSON;
-`sparql_graph`/`find` → JSON-LD; `get_resource` → `{ resource_iri, etag, jsonld }`;
+`sparql_graph`/`find` → JSON-LD; `get_resource` → `{ resource_iri, etag?, jsonld }`;
 `get_property_values` → `{ subject_iri, predicate_iri, values, etag? }` (the key is omitted, never
 null, when there is no single validator — and an empty slot is `values: []`, not the pod's 404).
 
-`get_resource`'s `etag` is the **write-precondition** tag in both representations, which under
-`include_contexts` costs a second read: HTTP hands out the validator of the representation it just
-served, and the named-graph one carries a `-contexts` marker that `if_match` refuses.
+Both reads return an `etag` only when `context_iri` names exactly one context: the tag of that read
+is the one a write to that context can send back as `if_match`.
 
 ## Provenance
 

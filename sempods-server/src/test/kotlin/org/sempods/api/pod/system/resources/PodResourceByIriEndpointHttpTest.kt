@@ -9,10 +9,12 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.okhttp.TestHttpClient
 import okhttp3.OkHttpClient
 import org.sempods.client.core.SempodsContent
+import org.sempods.client.core.SempodsContextSelection
 import org.sempods.client.core.SempodsGraphFormat
 import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.SempodsPod
 import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsReadOptions
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsWriteOptions
@@ -22,6 +24,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -76,10 +79,11 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(body)
       .execute()
 
-  private fun patch(url: String, token: String, body: String) =
+  private fun patch(url: String, token: String, body: String, ifMatch: String? = null) =
     http.prepare("PATCH", url)
       .addHeader("Content-Type", "application/merge-patch+json")
       .addHeader("Authorization", "Bearer $token")
+      .apply { ifMatch?.let { addHeader("If-Match", it) } }
       .setBody(body)
       .execute()
 
@@ -111,21 +115,21 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       location.endsWith("/${UriEncodingUtil.encodeUriToUrlSafeBase64(URI.create(alice))}"),
       "Location must point at the b64 route, was: $location",
     )
-    // The 201 must echo the post-write precondition ETag, byte-identical to a follow-up GET, so a
-    // writer can chain a conditional write without an intervening read.
-    val createTag = assertNotNull(created.headers.get("ETag"), "PUT 201 must echo the post-write ETag")
-    assertEquals(createTag, get(url, token).headers.get("ETag"), "echoed create ETag must be the GET precondition tag")
+    // No ETag on a write, as on the canonical route: what is stored is not the body that was sent
+    // (`SPS-CRUD-030`). The validator comes from a read of the same context.
+    assertNull(created.headers.get("ETag"), "PUT 201 must not claim an ETag")
+    val createTag = assertNotNull(get(url, token).headers.get("ETag"))
 
-    // MERGE-PATCH (adds a property, keeps name)
-    val patched = patch(url, token, """{"@id":"$alice","$schemaJobTitle":"Engineer"}""")
+    // MERGE-PATCH under that tag (adds a property, keeps name)
+    val patched = patch(url, token, """{"@id":"$alice","$schemaJobTitle":"Engineer"}""", ifMatch = createTag)
     assertEquals(204, patched.statusCode)
-    val patchTag = assertNotNull(patched.headers.get("ETag"), "PATCH 204 must echo the post-patch ETag")
+    assertNull(patched.headers.get("ETag"), "PATCH 204 must not claim an ETag")
 
     val afterPatch = get(url, token)
     assertEquals(200, afterPatch.statusCode)
     assertTrue(afterPatch.responseBody.contains("Alice"), "name must survive the merge-patch")
     assertTrue(afterPatch.responseBody.contains("Engineer"), "patched property must be present")
-    assertEquals(patchTag, afterPatch.headers.get("ETag"), "echoed patch ETag must be the GET precondition tag")
+    assertEquals(412, patch(url, token, """{"@id":"$alice","$schemaName":"Eve"}""", ifMatch = createTag).statusCode)
 
     // DELETE
     assertEquals(204, delete(url, token).statusCode)
@@ -310,12 +314,11 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       val created = subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","$schemaName":"Bob"}"""), inPrivat)
       assertEquals(201, created.status)
       assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ", created.headers["Location"])
-      val createTag = assertNotNull(created.headers["ETag"])
-      assertTrue(subjects.getText(bob).body.orEmpty().contains("Bob"))
+      val read = subjects.getText(bob, options = SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+      assertTrue(read.body.orEmpty().contains("Bob"))
 
-      val patched = subjects.patch(bob, SempodsContent.of("""{"@id":"$bob","$schemaJobTitle":"Engineer"}"""), inPrivat.withIfMatch(createTag))
+      val patched = subjects.patch(bob, SempodsContent.of("""{"@id":"$bob","$schemaJobTitle":"Engineer"}"""), inPrivat.withIfMatch(read.headers["ETag"]))
       assertEquals(204, patched.status)
-      assertNotNull(patched.headers["ETag"])
       assertTrue(subjects.getText(bob).body.orEmpty().contains("Engineer"))
 
       assertEquals(204, subjects.delete(bob, inPrivat).status)

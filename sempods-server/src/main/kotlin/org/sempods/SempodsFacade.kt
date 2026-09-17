@@ -14,7 +14,6 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
-import java.net.URI
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import org.bson.types.ObjectId
@@ -103,16 +102,6 @@ class SempodsFacade @Inject constructor(
     }
     podDao.delete(pod)
     podIdCache.clear()
-  }
-
-  /**
-   * Strong ETag validator (content hash) for a resource, read from the store, or null if the
-   * resource — or the pod — does not exist. The validator is global
-   * across contexts (LOD identity is global); see [org.sempods.pods.ResourceValidator].
-   */
-  internal fun getResourceValidator(pod: String, resourceUri: URI): String? {
-    val repo = podRepositoryCacheProvider.get().get(pod) ?: return null
-    return repo.fetchResourceValidator(resourceUri)
   }
 
   companion object {

@@ -20,12 +20,6 @@ interface PodRepository {
   /** Read only the statements for a resource within a specific context. */
   fun getResource(uri: URI, context: URI): Model?
 
-  /**
-   * A strong ETag validator for the resource (a content hash over its own-subject statements), or
-   * null if the resource does not exist. See [ResourceValidator].
-   */
-  fun fetchResourceValidator(uri: URI): String?
-
   /** Write a resource model. Returns true if the store was modified (an isomorphic write is a no-op). */
   fun putResource(uri: URI, model: Model): Boolean
 

@@ -323,26 +323,6 @@ class PodFacade @Inject constructor(
   }
 
   /**
-   * Cardinality check for one slot in one context: are there zero statements
-   * `(subject, predicate, *)` in [contextUri]? Used by the System-layer endpoint to drive
-   * `If-None-Match: *` (slot-as-resource semantics — empty slot ≙ "does not exist") before
-   * an upstream conditional write.
-   */
-  internal fun isSlotEmpty(
-    podName: String,
-    subjectUri: URI,
-    predicateUri: URI,
-    contextUri: URI,
-  ): Boolean {
-    val repo = getRepository(podName)
-    val mergedModel = repo.getResource(subjectUri) ?: return true
-    val subjectIri = subjectUri.toIri()
-    val predicateIri = predicateUri.toIri()
-    val contextIri = contextUri.toIri()
-    return !mergedModel.getStatements(subjectIri, predicateIri, null, contextIri).any()
-  }
-
-  /**
    * Replace all statements `(subject, predicate, *)` in [contextUri] with [newSlotStatements].
    * Other predicates of the subject in this context AND every statement of the subject in
    * other contexts remain untouched. Returns `true` if the store was modified.

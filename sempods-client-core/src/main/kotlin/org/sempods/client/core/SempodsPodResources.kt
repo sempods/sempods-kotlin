@@ -9,7 +9,8 @@ import java.io.IOException
  * ```java
  * SempodsPodResources resources = pod.resources();
  * resources.put(event, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), SempodsWriteOptions.inContext(tasks));
- * SempodsResponse<String> read = resources.getText(event);
+ * SempodsResponse<String> read = resources.getText(event, SempodsGraphFormat.JSON_LD,
+ *     SempodsReadOptions.of(SempodsContextSelection.of(tasks)));
  * resources.patch(event, SempodsContent.of(patch), SempodsWriteOptions.inContext(tasks).withIfMatch(read.getHeaders().get("ETag")));
  * ```
  *
