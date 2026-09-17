@@ -13,8 +13,9 @@ import java.util.Collections
  * A SELECT query's result in RDF4J values: the declared variables, and one [BindingSet] per solution, in
  * the order the pod sent them.
  *
- * Every binding set names every declared variable; one a solution leaves unbound has no binding there.
- * The result is held in memory, and can be read as often as needed.
+ * A binding set names only the variables its solution binds, in declaration order, as RDF4J's own result
+ * parsers build it; [variables] names them all. The result is held in memory, and can be read as often as
+ * needed.
  */
 class SempodsRdf4jSelectResults internal constructor(
   variables: List<String>,
@@ -39,7 +40,8 @@ class SempodsRdf4jSelectResults internal constructor(
 internal fun selectResultsOf(results: SempodsSparqlResults): SempodsRdf4jSelectResults {
   val variables = results.variables
   val bindingSets = results.solutions.map { solution ->
-    ListBindingSet(variables, variables.map { variable -> solution.bindings[variable]?.let(::valueOf) })
+    val bound = variables.filter { it in solution.bindings }
+    ListBindingSet(bound, bound.map { valueOf(solution.bindings.getValue(it)) })
   }
   return SempodsRdf4jSelectResults(variables, bindingSets)
 }

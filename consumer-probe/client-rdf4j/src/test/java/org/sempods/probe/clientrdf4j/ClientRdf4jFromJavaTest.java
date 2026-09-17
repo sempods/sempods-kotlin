@@ -175,6 +175,7 @@ class ClientRdf4jFromJavaTest {
     BindingSet row = results.getBindingSets().get(0);
     assertEquals(Values.iri("urn:s"), row.getValue("s"));
     assertFalse(row.hasBinding("o"));
+    assertEquals(Set.of("s"), row.getBindingNames());
   }
 
   @Test

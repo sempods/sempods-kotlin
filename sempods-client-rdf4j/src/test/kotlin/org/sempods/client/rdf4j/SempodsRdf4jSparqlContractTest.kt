@@ -64,7 +64,7 @@ class SempodsRdf4jSparqlContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a SELECT result keeps its variables and every term, and leaves an unbound variable without a binding`() {
+  fun `a SELECT result keeps its variables and every term, and a row names only the variables it binds`() {
     answer(
       """
       {"head": {"vars": ["s", "name", "count", "note", "anon"]},
@@ -88,7 +88,9 @@ class SempodsRdf4jSparqlContractTest : MockPodTest() {
     assertEquals(literal("042", XSD.INTEGER), bob.getValue("count"))
     assertEquals(literal("plain"), bob.getValue("note"))
     assertEquals("b1", assertIs<BNode>(bob.getValue("anon")).id)
-    assertEquals(results.variables.toSet(), carol.bindingNames)
+    assertEquals(listOf("s", "name", "count", "note", "anon"), bob.bindingNames.toList())
+    assertEquals(setOf("s"), carol.bindingNames)
+    assertEquals(1, carol.size())
     assertFalse(carol.hasBinding("name"))
     assertNull(carol.getValue("name"))
   }
