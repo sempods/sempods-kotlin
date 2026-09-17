@@ -24,7 +24,8 @@ import java.io.IOException
  * answer in a format not asked for, or without a `Content-Type`, is a
  * [org.sempods.client.core.SempodsDecodingException]. [getStream] parses as the one format it was given,
  * whatever the answer says it is: a reader sees no headers, and by the time the type could be read the
- * handler would hold statements already. Turtle, N-Quads, N-Triples and JSON-LD come with this module;
+ * handler would hold statements already
+ * ([#225](https://github.com/sempods/sempods-kotlin/issues/225)). Turtle, N-Quads, N-Triples and JSON-LD come with this module;
  * any other format needs its RDF4J parser on the classpath, and one without is an
  * [IllegalArgumentException] before anything is sent.
  *
@@ -76,7 +77,10 @@ class SempodsRdf4jForeignTarget(
    * on. Relative IRIs resolve against [uri]: a stream is read before a redirect's final URL is known to it.
    *
    * **[format] is what the body is read as**, whatever `Content-Type` the answer carries — a server that
-   * ignores `Accept` is not caught here. [getModel] is the read that picks its parser by the answer.
+   * ignores `Accept` is not caught here, and a redirect's final URL is not the base either. [getModel] is
+   * the read that picks its parser by the answer and resolves against the URL that answered; a streamed
+   * read sees neither until the core hands a reader its answer
+   * ([#225](https://github.com/sempods/sempods-kotlin/issues/225)).
    *
    * What [handler] throws, and an `IOException` of the connection, reach the caller as they are. A body
    * that does not parse is a [org.sempods.client.core.SempodsDecodingException], after the statements

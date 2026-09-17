@@ -276,7 +276,8 @@ Model profile = rdfForeign.getModel("https://bob.example/profile", List.of(RDFFo
 ```
 
 `Accept` lists the formats in the caller's order, and for a model the answer's `Content-Type` picks the
-parser; a stream parses as the one format it was given.
+parser; a stream parses as the one format it was given, because a reader sees no headers
+([#225](https://github.com/sempods/sempods-kotlin/issues/225)).
 Turtle, N-Quads, N-Triples and JSON-LD come with the module. **A remote JSON-LD context is loaded
 through the same foreign target, anonymously and at most ten per document**, so the guard and admission
 hold for it too. A stream loads none, because its call still holds the admission slot.
