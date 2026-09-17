@@ -68,7 +68,8 @@ class SempodsFacade @Inject constructor(
     // unknown pod is a no-op by contract, and a name that is not a pod name never becomes one.
     logger.info { "Delete pod ${LogSafeText.of(pod)}" }
     podIdCache.clear()
-    getPodId(pod = pod)?.let { podId ->
+    val podId = getPodId(pod = pod)
+    if (podId != null) {
       // Security-sensitive rows first: tokens, DCR rows and statically-registered
       // service-client credentials so a stale session or client cannot keep any
       // handle on data that's about to disappear. The in-memory RDF cache is
@@ -76,7 +77,6 @@ class SempodsFacade @Inject constructor(
       // PodRepositoryCache).
       refreshTokenStore.deleteByPod(podId)
       consentDecisionStore.deleteByPod(podId)
-      signOutStore.deleteByPod(podId)
       dynamicClientRegistrationDao.deleteByPod(podId)
       podServiceClientDao.deleteByPod(podId)
       podServiceAuditLogDao.deleteByPod(podId)
@@ -104,6 +104,10 @@ class SempodsFacade @Inject constructor(
       podWebIdGrantsDao.deleteByPod(podId)
     }
     podDao.delete(pod)
+    // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
+    // resolved and its grants stood, a token or session its person had signed out of would be
+    // accepted again for that moment.
+    podId?.let(signOutStore::deleteByPod)
     podIdCache.clear()
   }
 
