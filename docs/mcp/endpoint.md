@@ -125,9 +125,7 @@ shared module and the cut between them are in
 
 Stated rather than discovered:
 
-- **A tool call is two HTTP requests, not one** — three for
-  `get_resource` with `include_contexts=true`, which needs a second read
-  for the write-precondition `ETag` (see [`tools.md`](tools.md)).
+- **A tool call is two HTTP requests, not one.**
 - **The reverse proxy is in the path.** A proxy outage takes the MCP
   surface down while the pod itself is up.
 - **The deployment must be able to reach itself** under the address it

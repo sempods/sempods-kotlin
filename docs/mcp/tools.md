@@ -166,10 +166,10 @@ The full request/response contract lives in
 ### `get_resource` (read)
 
 Fetch the pod's whole-resource view of a **known** `resource_iri` as
-canonical JSON-LD, together with its `etag`. This is the read half of a
-safe read-modify-write: pass the returned `etag` to
-`update_resource` / `delete_resource` as `if_match`. Prefer it over
-hand-written SPARQL when the IRI is known. `resource_iri` may be local or
+canonical JSON-LD. Read with `context_iri` naming the one context you will
+write and it is the read half of a safe read-modify-write: pass the returned
+`etag` to `update_resource` / `delete_resource` in that context as
+`if_match`. Prefer it over hand-written SPARQL when the IRI is known. `resource_iri` may be local or
 external (same rule as `create_resource`; only the pod's own `_system` /
 `.well-known` area is excluded). 404-style tool error if no statements are
 visible.
@@ -179,22 +179,18 @@ Arguments:
 - `context_iri: string[]` (optional) — restrict to one or more contexts;
   omit to union across readable contexts.
 - `include_contexts: boolean` (optional) — return the named-graph
-  (provenance) form instead of the merged canonical document. The `etag` is
-  returned either way (see below).
+  (provenance) form instead of the merged canonical document.
 
-Returns `{ "resource_iri", "etag", "jsonld" }`. The `etag` is always the
-**write-precondition tag** — the canonical `application/ld+json` validator
-— regardless of `include_contexts`, because that is the value
-`update_resource` / `delete_resource` expect for `if_match`. It equals the
-HTTP `ETag` for the default (canonical) representation; note it does **not**
-equal the HTTP named-graph ETag (which carries a `-contexts` suffix) when
-`include_contexts=true`. So conditional writes interoperate cross-transport
-on the canonical representation.
+Returns `{ "resource_iri", "etag"?, "jsonld" }`, the `etag` being the pod's
+HTTP `ETag` for that read. It is present only when `context_iri` names
+exactly one context, because a write names one context and only the tag of a
+read of that context validates it. Two cases:
 
-Holding that promise costs a second read under `include_contexts=true`:
-HTTP hands out the validator of the representation it just served, so the
-canonical one is fetched separately. It is the only tool call that makes
-more than one request to the pod.
+- `context_iri: ["…/contacts"]`, then `update_resource` in `…/contacts` with
+  that `etag`: succeeds unless the resource changed in `…/contacts`, whatever
+  happened in other contexts. The named-graph form's `etag` works the same.
+- No `context_iri`: no `etag`. The union of every readable context is not
+  what any write replaces.
 
 ### `get_property_values` (read)
 
@@ -254,11 +250,11 @@ Schema-level guard: `additionalProperties: false`. Conforming MCP
 clients reject hallucinated extra fields (observed: ChatGPT inventing a
 `statements` array) before the call leaves the wire.
 
-Returns (the `etag` is the resource's new validator — feed it straight
-into a follow-up `update_resource.if_match` without a separate read):
+Returns (no `etag`: the pod stores the RDF parsed from the body, so a
+follow-up conditional write reads again):
 
 ```json
-{ "context_iri": "...", "resource_iri": "...", "status": 201, "etag": "..." }
+{ "context_iri": "...", "resource_iri": "...", "status": 201 }
 ```
 
 `status` is the pod's own HTTP status (`201` created, `200` replaced).
@@ -294,10 +290,9 @@ property-value tools below instead of `update_resource`.
 
 Arguments: `context_iri`, `resource_iri`, `jsonld_patch`. `resource_iri`
 may be local or external, same as `create_resource`. Optional `if_match`
-(ETag without quotes / `W/` prefix) → tool error if the resource changed.
-Get the `etag` from `get_resource` or from a prior `create_resource` /
-`update_resource` result. Returns the write shape above, with `status`
-`200` and the resource's new validator as `etag`.
+(quotes optional) → tool error if the resource changed in this context.
+Get the `etag` from `get_resource` with `context_iri` set to this call's
+context. Returns the write shape above, with `status` `204`.
 
 ### `delete_resource` (write)
 
@@ -305,9 +300,9 @@ Remove a resource from a consented context. Same scope rule as
 `create_resource`.
 
 Arguments: `context_iri`, `resource_iri` (local or external, same as
-`create_resource`). Optional `if_match` (ETag from `get_resource` or a
-prior write) makes the delete conditional → precondition error if the
-resource changed since then.
+`create_resource`). Optional `if_match` (ETag from `get_resource` read
+in this context) makes the delete conditional → precondition error if the
+resource changed there since then.
 
 ### System-layer property-value tools (write)
 

@@ -1304,9 +1304,15 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "jsonld" to mapOf("@id" to alice, "https://schema.org/name" to "Alice"),
     ))
 
-    val payload = toolPayload(toolCall(pod.name, token, "get_resource", mapOf("resource_iri" to alice)))
+    val union = toolPayload(toolCall(pod.name, token, "get_resource", mapOf("resource_iri" to alice)))
+    assertFalse("etag" in union, "a read of every context validates no write, so it carries no etag: $union")
+
+    val payload = toolPayload(toolCall(pod.name, token, "get_resource", mapOf(
+      "resource_iri" to alice,
+      "context_iri" to listOf(contextUri.toString()),
+    )))
     assertEquals(alice, payload["resource_iri"])
-    val etag = assertNotNull(payload["etag"] as? String, "get_resource must return an etag")
+    val etag = assertNotNull(payload["etag"] as? String, "a read of one context must return an etag")
     assertTrue(objectMapper.writeValueAsString(payload["jsonld"]).contains("Alice"), "jsonld must carry the data")
 
     // The returned etag must satisfy update_resource's if_match.
@@ -1424,7 +1430,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `write tools return an etag in their result`() {
+  fun `slot write tools return an etag, resource write tools do not`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val alice = "https://example.org/people/alice"
@@ -1434,7 +1440,16 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "resource_iri" to alice,
       "jsonld" to mapOf("@id" to alice, "https://schema.org/name" to "Alice"),
     )))
-    assertNotNull(created["etag"] as? String, "create_resource result must carry an etag")
+    // What the pod stored is not the body that was sent, so the write names no tag (`SPS-CRUD-030`).
+    assertFalse("etag" in created, "create_resource result must not carry an etag: $created")
+
+    val added = toolPayload(toolCall(pod.name, token, "add_property_value", mapOf(
+      "context_iri" to contextUri.toString(),
+      "subject_iri" to alice,
+      "predicate_iri" to "https://schema.org/knows",
+      "value" to mapOf("@id" to "https://example.org/people/bob"),
+    )))
+    assertNotNull(added["etag"] as? String, "a slot write echoes the slot's tag (`SPS-CRUD-052`): $added")
   }
 
   @Test
@@ -1599,7 +1614,10 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "jsonld" to mapOf("@id" to alice, "https://schema.org/name" to "Alice"),
     ))
     val etag = assertNotNull(
-      toolPayload(toolCall(pod.name, token, "get_resource", mapOf("resource_iri" to alice)))["etag"] as? String,
+      toolPayload(toolCall(pod.name, token, "get_resource", mapOf(
+        "resource_iri" to alice,
+        "context_iri" to listOf(contextUri.toString()),
+      )))["etag"] as? String,
     )
 
     // Stale tag → rejected.
@@ -1639,7 +1657,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `get_resource etag is the write-precondition tag regardless of include_contexts`() {
+  fun `a get_resource etag from the named-graph form drives update_resource too`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val alice = "https://example.org/people/alice"
@@ -1649,12 +1667,19 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "jsonld" to mapOf("@id" to alice, "https://schema.org/name" to "Alice"),
     ))
 
-    val canonical = toolPayload(toolCall(pod.name, token, "get_resource", mapOf("resource_iri" to alice)))["etag"]
-    val withContexts = toolPayload(toolCall(pod.name, token, "get_resource", mapOf(
+    val withContexts = assertNotNull(toolPayload(toolCall(pod.name, token, "get_resource", mapOf(
       "resource_iri" to alice,
+      "context_iri" to listOf(contextUri.toString()),
       "include_contexts" to true,
-    )))["etag"]
-    assertEquals(canonical, withContexts, "etag must be the same write-precondition tag for both representations")
+    )))["etag"] as? String)
+
+    val ok = toolCall(pod.name, token, "update_resource", mapOf(
+      "context_iri" to contextUri.toString(),
+      "resource_iri" to alice,
+      "jsonld_patch" to mapOf("https://schema.org/jobTitle" to listOf(mapOf("@value" to "Engineer"))),
+      "if_match" to withContexts,
+    ))
+    assertFalse(ok.contains("\"isError\":true"), "the named-graph tag of the same context must validate the write: $ok")
   }
 
   // ─── R4-spike-followup: discovery stubs + _meta redaction ─────────────────

@@ -2,13 +2,12 @@ package org.sempods.api.pod.system.resources
 
 import com.google.inject.Inject
 import org.sempods.commons.utils.UriEncodingUtil
-import org.sempods.SempodsFacade
-import org.sempods.SempodsModule
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.pod.resources.PodResourceWriteService
+import org.sempods.api.pod.resources.RepresentationTags
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
@@ -43,21 +42,18 @@ import java.net.URI
  * (`did:web:bob.example`, `urn:isbn:...`, etc.). The System layer is the only path through which
  * external URIs can be addressed.
  *
- * Conditional writes (Iteration 2):
- * - `GET` emits a strong `ETag` derived from the subject resource's `dateModified` and the
- *   slot identity `(subject, predicate, context)`. Multi-context reads (`?context=` repeated)
- *   omit the `ETag` since the representation is a union of multiple snapshots.
- * - `PUT` honors `If-Match` (412 on mismatch) and `If-None-Match: *` with slot-as-resource
- *   semantics: pass iff the slot has zero triples in the target context.
- * - `POST` honors `If-Match` optionally; without the header the request remains unconditional.
- * - Whole-slot `DELETE` honors `If-Match` optionally.
- * - Single-edge `DELETE` is always unconditional (idempotent — present or not).
+ * Conditional requests on slots (`SPS-CRUD-050` to `SPS-CRUD-054`), with tags from [RepresentationTags]:
+ * - A `GET` in exactly one context carries a strong `ETag` over the slot's statements there, and
+ *   answers a matching `If-None-Match` with `304`. A read spanning several contexts carries none.
+ * - `PUT` honors `If-Match` and `If-None-Match: *` (the slot is empty in the target context);
+ *   `POST` and whole-slot `DELETE` honor `If-Match` when given. [PodSlotWriteService] evaluates
+ *   them once the write is authorized.
+ * - Single-edge `DELETE` ignores both.
  */
 @Path("{pod}/_system/resources")
 class PodSystemResourcesEndpoint @Inject constructor(
   private val podSlotWriteService: PodSlotWriteService,
   private val podContextWriteAuthorizer: PodContextWriteAuthorizer,
-  private val sempodsFacade: SempodsFacade,
   private val podResourceWriteService: PodResourceWriteService,
   private val podResourceReadService: PodResourceReadService,
   podFacade: PodFacade,
@@ -98,19 +94,18 @@ class PodSystemResourcesEndpoint @Inject constructor(
       // Empty result — silent on unreadable / unknown contexts (no topology leak per spec).
       return Response.status(404).build()
     }
+    // A tag only for a read in exactly one context (`SPS-CRUD-050`, `SPS-CRUD-051`).
+    val entityTag = requestedContexts?.singleOrNull()
+      ?.let { RepresentationTags.slot(slotModel, subjectUri, predicateUri, it, includeContexts) }
+    entityTag?.let { tag ->
+      evaluatePreconditions(tag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
+    }
     val body = if (includeContexts) {
       RdfWriterUtil.toJsonLdNamedGraphs(model = slotModel, resource = subjectUri.toIri())
     } else {
       renderSlotAsJsonLdArray(slotModel, subjectUri, predicateUri)
     }
-    val builder = Response.ok(body)
-    // ETag only on single-context reads — multi-context (or no `?context=`) reads return a
-    // union representation that no single tag can validate (per Iter-2 design).
-    val singleContext = requestedContexts?.singleOrNull()
-    if (singleContext != null) {
-      builder.tag(entityTag(pod, subjectUri, predicateUri, singleContext))
-    }
-    return builder.build()
+    return Response.ok(body).tag(entityTag).revalidatedPrivately().build()
   }
 
   @PUT
@@ -129,20 +124,18 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val predicateUri = decodeUriSegmentOrThrow(predicateB64, "predicate")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    evaluateSlotWritePreconditionsOrNull(pod, subjectUri, predicateUri, contextUri)
-      ?.let { return it }
-
-    podSlotWriteService.replaceSlot(
+    val tag = podSlotWriteService.replaceSlot(
       pod = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
       contextUri = contextUri,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logSlotAudit("set", pod, subjectUri, predicateUri, contextUri, credentials)
     return Response.status(204)
-      .tag(entityTag(pod, subjectUri, predicateUri, contextUri))
+      .tag(tag)
       .build()
   }
 
@@ -162,12 +155,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val predicateUri = decodeUriSegmentOrThrow(predicateB64, "predicate")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    // POST is unconditional by default; `If-Match` is honored when provided (no-op without it).
-    // `If-None-Match: *` is not part of the POST contract but harmless if a client sets it —
-    // the helper enforces slot-as-resource semantics either way.
-    evaluateSlotWritePreconditionsOrNull(pod, subjectUri, predicateUri, contextUri)
-      ?.let { return it }
-
     val result = podSlotWriteService.addSlotValue(
       pod = pod,
       subjectUri = subjectUri,
@@ -175,6 +162,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
       contextUri = contextUri,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     // TODO: consider in-memory burst grouping for repeated `add` calls on the same
     //  `(pod, subject, predicate, context)` so the audit stream stays readable when an
@@ -184,7 +172,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
       PodFacade.SlotAddOutcome.ALREADY_PRESENT -> "already_present"
     }
     logSlotAudit("add", pod, subjectUri, predicateUri, contextUri, credentials, result = auditResult)
-    val postWriteTag = entityTag(pod, subjectUri, predicateUri, contextUri)
+    val postWriteTag = result.tag
     // The status already separates the two outcomes (201 created / 200 already present), and the
     // body says it again in the vocabulary the caller asked in. Same reasoning as `removeSlotEdge`
     // below, and the reason it is worth the repetition: a caller that reads this route through a
@@ -226,16 +214,13 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val predicateUri = decodeUriSegmentOrThrow(predicateB64, "predicate")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    // Whole-slot DELETE honors `If-Match` when provided (no-op without it).
-    evaluateSlotWritePreconditionsOrNull(pod, subjectUri, predicateUri, contextUri)
-      ?.let { return it }
-
-    val cleared = podSlotWriteService.clearSlot(
+    val (cleared, clearedTag) = podSlotWriteService.clearSlot(
       pod = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
       contextUri = contextUri,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logSlotAudit(
       outcome = "clear",
@@ -246,9 +231,8 @@ class PodSystemResourcesEndpoint @Inject constructor(
       credentials = credentials,
       result = if (cleared) "cleared" else "already_empty",
     )
-    // Echo the post-clear (now-empty) slot tag so clients can chain a conditional retry
-    // without an extra GET. Tag is deterministic from `dateModified` + identity, so it is
-    // well-defined even though the slot is now empty.
+    // Echo the post-clear (now-empty) slot tag, as `SPS-CRUD-052` asks. It hashes the slot's
+    // identity as well as its statements, so an empty slot has one, and a next `If-Match` may name it.
     //
     // `200` with `{"outcome": …}` rather than a bare `204`, for the reason `removeSlotEdge` gives
     // below and which applies here word for word: clearing is idempotent, so the status alone cannot
@@ -257,7 +241,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     // "done" and could not tell "done" from "there was nothing to do". RFC 9110 §9.3.5 blesses the
     // representation; the tag rides along on it unchanged.
     return Response.status(200)
-      .tag(entityTag(pod, subjectUri, predicateUri, contextUri))
+      .tag(clearedTag)
       .entity(outcomeBody(if (cleared) "cleared" else "already_empty"))
       .type(MediaType.APPLICATION_JSON)
       .build()
@@ -333,10 +317,10 @@ class PodSystemResourcesEndpoint @Inject constructor(
   // IRIs outside the pod namespace, for which the canonical LOD path
   // (`PodResourceEndpoint`, `{pod}/{resourcePath}`) has no route at all.
   //
-  // Writes delegate to the shared LOD write path ([PodResourceWriteService]); reads and the
-  // ETag base flow through the shared [PodResourceReadService]. Context rules, conditional
-  // writes, the canonical JSON-LD representation, and the ETag validator are therefore
-  // byte-identical to the canonical path, so a pod-owned IRI has one identity across both
+  // Writes delegate to the shared LOD write path ([PodResourceWriteService]); reads flow through the
+  // shared [PodResourceReadService] and [RepresentationTags]. Context rules, conditional writes,
+  // the canonical JSON-LD representation, and the ETag are therefore byte-identical to the
+  // canonical path, so a pod-owned IRI has one identity across both
   // routes — which is `SPS-CRUD-002`, and `SPS-CRUD-001` for why the identity is the LOD IRI and
   // this is only an operations address. The verb set this route owes is `SPS-CRUD-040`.
 
@@ -353,20 +337,21 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val credentials = authenticate(pod)
     val resourceUri = decodeUriSegmentOrThrow(resourceB64, "resource")
 
-    // Visibility 404 BEFORE any ETag / precondition handling — a conditional request must not
-    // leak the existence (and content-hash) of a resource the caller cannot read.
-    val visibleContexts = podResourceReadService.resolveVisibleContexts(pod, credentials, contextParams)
-    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, visibleContexts)
+    // Visibility 404 BEFORE any precondition handling — a conditional request must not leak the
+    // existence of a resource the caller cannot read.
+    val scope = podResourceReadService.resolveReadScope(pod, credentials, contextParams)
+    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, scope.visible)
 
-    val entityTag = resourceEntityTag(pod, resourceUri, "application/ld+json", includeContexts)
-    evaluatePreconditions(entityTag)?.let { return varyOnAccept(Response.fromResponse(it)).build() }
+    val form = if (includeContexts) RepresentationTags.Form.JSON_LD_WITH_CONTEXTS else RepresentationTags.Form.JSON_LD
+    val entityTag = RepresentationTags.resource(model, scope.selection, form)
+    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     val body = if (includeContexts) {
       RdfWriterUtil.toJsonLdNamedGraphs(model = model, resource = resourceUri.toIri())
     } else {
       RdfWriterUtil.toCanonicalJsonLdEntry(model = model, resource = resourceUri.toIri())
     }
-    return varyOnAccept(Response.ok(body).tag(entityTag)).build()
+    return Response.ok(body).tag(entityTag).revalidatedPrivately().build()
   }
 
   @GET
@@ -380,16 +365,16 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val credentials = authenticate(pod)
     val resourceUri = decodeUriSegmentOrThrow(resourceB64, "resource")
 
-    val visibleContexts = podResourceReadService.resolveVisibleContexts(pod, credentials, contextParams)
-    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, visibleContexts)
+    val scope = podResourceReadService.resolveReadScope(pod, credentials, contextParams)
+    val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, scope.visible)
 
-    val entityTag = resourceEntityTag(pod, resourceUri, "application/n-quads", includeContexts = false)
-    evaluatePreconditions(entityTag)?.let { return varyOnAccept(Response.fromResponse(it)).build() }
+    val entityTag = RepresentationTags.resource(model, scope.selection, RepresentationTags.Form.N_QUADS)
+    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     val streamingOutput = StreamingOutput { out ->
       RdfWriterUtil.streamNQuads(model = model, outputStream = out)
     }
-    return varyOnAccept(Response.ok(streamingOutput).tag(entityTag)).build()
+    return Response.ok(streamingOutput).tag(entityTag).revalidatedPrivately().build()
   }
 
   // HEAD is auto-routed to the matching @GET by JAX-RS (body discarded). We declare @HEAD
@@ -446,7 +431,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = decodeUriSegmentOrThrow(resourceB64, "resource")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
-    evaluateResourceWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     val outcome = podResourceWriteService.putResource(
       pod = pod,
@@ -455,23 +439,23 @@ class PodSystemResourcesEndpoint @Inject constructor(
       contentTypeHeader = contentTypeHeader,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     val auditOutcome = when (outcome) {
       PodResourceWriteService.PutResourceOutcome.CREATED -> "created"
       PodResourceWriteService.PutResourceOutcome.UPDATED -> "replaced"
     }
     logResourceAudit(auditOutcome, pod, resourceUri, contextUri, credentials)
-    // Echo the post-write ETag (canonical JSON-LD precondition tag, identical to GET) so a writer
-    // gets the new validator back directly instead of having to re-read for a follow-up If-Match.
-    val postWriteTag = resourceEntityTag(pod, resourceUri, "application/ld+json", includeContexts = false)
+    // No ETag, on either route: the stored representation is not the body that was sent
+    // (`SPS-CRUD-030`, RFC 9110 §9.3.4).
     return when (outcome) {
       PodResourceWriteService.PutResourceOutcome.CREATED -> {
         // The canonical path does not exist for external IRIs, so Location points at the b64 route.
         val location = "/${pod}/_system/resources/${resourceB64}"
-        Response.status(201).header("Location", location).tag(postWriteTag).build()
+        Response.status(201).header("Location", location).build()
       }
 
-      PodResourceWriteService.PutResourceOutcome.UPDATED -> Response.status(200).tag(postWriteTag).build()
+      PodResourceWriteService.PutResourceOutcome.UPDATED -> Response.status(200).build()
     }
   }
 
@@ -488,7 +472,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = decodeUriSegmentOrThrow(resourceB64, "resource")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
-    evaluateResourceWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     podResourceWriteService.mergePatchResource(
       pod = pod,
@@ -496,11 +479,10 @@ class PodSystemResourcesEndpoint @Inject constructor(
       contextUri = contextUri,
       body = body,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logResourceAudit("patched", pod, resourceUri, contextUri, credentials)
-    // Echo the post-patch ETag so the next conditional write needs no intervening read (as for PUT).
-    val postWriteTag = resourceEntityTag(pod, resourceUri, "application/ld+json", includeContexts = false)
-    return Response.status(204).tag(postWriteTag).build()
+    return Response.status(204).build()
   }
 
   @DELETE
@@ -514,13 +496,13 @@ class PodSystemResourcesEndpoint @Inject constructor(
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = decodeUriSegmentOrThrow(resourceB64, "resource")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
-    evaluateResourceWritePreconditionsOrNull(pod, resourceUri)?.let { return it }
 
     podResourceWriteService.deleteResource(
       pod = pod,
       resourceUri = resourceUri,
       contextUri = contextUri,
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logResourceAudit("deleted", pod, resourceUri, contextUri, credentials)
     return Response.status(204).build()
@@ -566,41 +548,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
     rawContexts: List<String>?,
   ): URI = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, rawContexts)
 
-  // -- whole-resource (b64-IRI) helpers --
-
-  /**
-   * Strong ETag for a whole resource, byte-identical to the canonical LOD path: same shared
-   * validator base ([PodResourceReadService.resourceTagBaseValue]) wrapped by the same
-   * content-type-aware tag builder. This is the cross-route conditional-write parity guarantee.
-   */
-  private fun resourceEntityTag(
-    pod: String, resourceUri: URI, contentType: String, includeContexts: Boolean,
-  ): EntityTag {
-    val baseValue = podResourceReadService.resourceTagBaseValue(pod, resourceUri, includeContexts)
-    return createContentTypeAwareEntityTag(baseValue, contentType)
-  }
-
-  /**
-   * Pre-write `If-Match` / `If-None-Match` check for whole-resource writes — identical semantics
-   * to `PodResourceEndpoint.evaluateWritePreconditionsOrNull`. The validator is global (LOD
-   * identity is global); the subsequent write still targets exactly one context.
-   */
-  private fun evaluateResourceWritePreconditionsOrNull(pod: String, resourceUri: URI): Response? {
-    val validator = podResourceReadService.resourceWriteValidator(pod, resourceUri)
-    return if (validator != null) {
-      evaluatePreconditions(createContentTypeAwareEntityTag(validator, "application/ld+json"))
-    } else {
-      try {
-        currentRequestContext().request.evaluatePreconditions()?.build()
-      } catch (_: Exception) {
-        null
-      }
-    }
-  }
-
-  private fun varyOnAccept(builder: Response.ResponseBuilder): Response.ResponseBuilder =
-    builder.header(HttpHeaders.VARY, HttpHeaders.ACCEPT)
-
   /**
    * Resource-level audit line. Uses the SAME `[lod/audit]` marker as the canonical LOD path
    * (see [org.sempods.api.pod.resources.PodResourceEndpoint]) so resource-level writes stay
@@ -641,51 +588,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
       "[slot/audit] outcome=$outcome$resultPart pod='$pod' subject='$subjectUri' " +
           "predicate='$predicateUri' context='$contextUri' " +
           "client_id='${credentials.oauthClientId ?: "(anon)"}'$extraPart"
-    }
-  }
-
-  /**
-   * Strong ETag for a slot, deterministic in `(resource-validator, subject, predicate, context)`.
-   *
-   * The validator (content hash of the subject resource) anchors the tag to the subject's revision
-   * (Resource-Snapshot semantics — any change to the subject in any slot or context invalidates this
-   * tag). The slot-identity triple makes two slots of the same subject distinguishable.
-   *
-   * A not-yet-existing subject (no validator) falls back to `"0"` for the anchor — the hash remains
-   * deterministic and stable for an `If-None-Match: *` create flow.
-   */
-  private fun entityTag(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): EntityTag {
-    val tagValue = SlotETagComputer.compute(
-      resourceValidator = sempodsFacade.getResourceValidator(pod, subjectUri),
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-    )
-    return EntityTag(tagValue)
-  }
-
-  /**
-   * Pre-write conditional check honoring `If-Match` and `If-None-Match: *` per RFC 7232.
-   *
-   * Slot-as-resource semantics:
-   * - Empty slot (no triples `(subject, predicate, *)` in [contextUri]) → use JAX-RS no-arg
-   *   `evaluatePreconditions` so `If-None-Match: *` passes (create flow) and
-   *   `If-Match: <tag>` fails (no representation to match).
-   * - Non-empty slot → delegate to the inherited [evaluatePreconditions] helper so the
-   *   `If-Match` comparison tolerates Jetty's `--gzip` ETag suffix (see BaseEndpoint).
-   */
-  private fun evaluateSlotWritePreconditionsOrNull(
-    pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI,
-  ): Response? {
-    val empty = podFacade.isSlotEmpty(pod, subjectUri, predicateUri, contextUri)
-    return try {
-      if (empty) {
-        currentRequestContext().request.evaluatePreconditions()?.build()
-      } else {
-        evaluatePreconditions(entityTag(pod, subjectUri, predicateUri, contextUri))
-      }
-    } catch (_: Exception) {
-      null
     }
   }
 

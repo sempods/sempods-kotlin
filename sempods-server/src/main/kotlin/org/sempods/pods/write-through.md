@@ -26,7 +26,10 @@ the write path does not change. Each declares a `Durability` — at most one may
 ## Write flow (`InMemoryPodRepository`)
 
 `putResource`, `removeFromContext`, `removeContext`, `deleteResource` are thin store-mutation
-blocks run through one `doWork` helper, serialized per pod by a write lock. The block declares
+blocks run through one `doWork` helper, serialized per pod by a write lock. `exclusively` holds the
+same lock around a caller's read, decision and write, which is how `PodFacade` keeps a
+read-modify-write of one subject from dropping a concurrent one, and how a write precondition is
+evaluated against the state the write replaces. The block declares
 nothing about *which* resources it touches — the captured statement delta is the single source
 for the changed-resource set, the change events, and the rollback undo log:
 
@@ -125,13 +128,6 @@ reads while a write holds the lock, and a reader sees a consistent snapshot (SNA
 `existsResource` keeps the semantics the former MongoDB `$in` query had (resource exists ∧ optional
 matching `rdf:type` ∧ optional statement in one of the contexts); `findReferencingResources` returns
 the subjects of the non-`rdf:type` edges pointing at the object in a context.
-
-**ETag validator.** The HTTP ETag is a strong **content hash** over the resource's own-subject
-statements (`ResourceValidator`, served by `SempodsFacade.getResourceValidator` →
-`PodRepository.fetchResourceValidator`). It is deterministic (blank nodes are forbidden, so sorting
-the per-statement N-Quads canonicalizes), resource-snapshot grained (any change to any context bumps
-it), and needs no MongoDB read. `SlotETagComputer` and the MCP `if_match` mirrors take the validator
-as the anchor.
 
 Domain listings such as `findEvents` are not a sempods concern: they live in the consuming
 application as SPARQL-native queries over the pod — sempods exposes only generic SPARQL.
