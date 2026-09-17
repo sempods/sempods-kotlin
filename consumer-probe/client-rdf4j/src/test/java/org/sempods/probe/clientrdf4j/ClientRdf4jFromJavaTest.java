@@ -23,7 +23,11 @@ import okhttp3.OkHttpClient;
 
 import org.eclipse.rdf4j.model.Model;
 import org.eclipse.rdf4j.model.Resource;
+import org.eclipse.rdf4j.model.impl.LinkedHashModel;
 import org.eclipse.rdf4j.model.util.Values;
+import org.eclipse.rdf4j.rio.RDFFormat;
+import org.eclipse.rdf4j.rio.RDFHandlerException;
+import org.eclipse.rdf4j.rio.helpers.StatementCollector;
 import org.eclipse.rdf4j.query.BindingSet;
 
 import org.junit.jupiter.api.AfterAll;
@@ -34,6 +38,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsContextSelection;
 import org.sempods.client.core.SempodsDecodingException;
+import org.sempods.client.core.SempodsForeignTarget;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
@@ -41,7 +46,9 @@ import org.sempods.client.core.SempodsReadOptions;
 import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsWriteOptions;
+import org.sempods.client.rdf4j.SempodsRdf4jForeignTarget;
 import org.sempods.client.rdf4j.SempodsRdf4jPod;
+import org.sempods.client.rdf4j.SempodsRdf4jSparql;
 import org.sempods.client.rdf4j.SempodsRdf4jSelectResults;
 import org.sempods.client.rdf4j.SempodsRdf4jSlots;
 
@@ -96,10 +103,19 @@ class ClientRdf4jFromJavaTest {
         send(exchange, 201, "");
       }
     });
+    // SELECT answers a result document, CONSTRUCT N-Quads with a broken last line.
     server.createContext("/alice/_system/sparql/query", exchange -> {
-      exchange.getRequestBody().readAllBytes();
-      send(exchange, 200, "{\"head\": {\"vars\": [\"s\", \"o\"]}, \"results\": {\"bindings\": ["
-          + "{\"s\": {\"type\": \"uri\", \"value\": \"urn:s\"}}]}}");
+      String query = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      if (query.startsWith("CONSTRUCT")) {
+        send(exchange, 200, "<urn:s> <urn:p> \"one\" .\n<urn:s> <urn:p> .\n");
+      } else {
+        send(exchange, 200, "{\"head\": {\"vars\": [\"s\", \"o\"]}, \"results\": {\"bindings\": ["
+            + "{\"s\": {\"type\": \"uri\", \"value\": \"urn:s\"}}]}}");
+      }
+    });
+    server.createContext("/profile", exchange -> {
+      exchange.getResponseHeaders().add("Content-Type", "text/turtle");
+      send(exchange, 200, "<#me> <http://xmlns.com/foaf/0.1/name> \"Bob\" .");
     });
     server.start();
     client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -176,6 +192,31 @@ class ClientRdf4jFromJavaTest {
     assertEquals(Values.iri("urn:s"), row.getValue("s"));
     assertFalse(row.hasBinding("o"));
     assertEquals(Set.of("s"), row.getBindingNames());
+  }
+
+  @Test
+  void streamsAGraphIntoAHandlerAndCatchesItsFailuresAsJavaDeclaresThem() {
+    Model handled = new LinkedHashModel();
+    SempodsRdf4jSparql sparql = new SempodsRdf4jPod(pod()).sparql();
+
+    try {
+      sparql.graphStream("CONSTRUCT WHERE { ?s ?p ?o }", new StatementCollector(handled));
+    } catch (SempodsDecodingException unreadable) {
+      assertEquals(200, unreadable.getStatus());
+    } catch (IOException | RDFHandlerException other) {
+      throw new AssertionError("expected a decoding failure", other);
+    }
+    assertEquals(1, handled.size());
+  }
+
+  @Test
+  void readsAForeignTurtleDocumentAsAModel() throws IOException {
+    SempodsRdf4jForeignTarget foreign = new SempodsRdf4jForeignTarget(new SempodsForeignTarget(client));
+    String profile = "http://127.0.0.1:" + server.getAddress().getPort() + "/profile";
+
+    Model model = foreign.getModel(profile, List.of(RDFFormat.TURTLE, RDFFormat.JSONLD)).getBody();
+
+    assertEquals(Set.<Resource>of(Values.iri(profile + "#me")), model.subjects());
   }
 
   @Test

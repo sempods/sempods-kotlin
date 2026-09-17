@@ -12,6 +12,7 @@ dependencies {
   testImplementation(libs.rdf4jModelApi)
   testImplementation(libs.rdf4jModel)
   testImplementation(libs.rdf4jQuery)
+  testImplementation(libs.rdf4jRioApi)
 
   // JUnit alone, as in `:consumer-probe:client-core`.
   testImplementation(libs.junitJupiterApi)
