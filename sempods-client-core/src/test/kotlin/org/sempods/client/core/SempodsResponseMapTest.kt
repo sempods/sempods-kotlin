@@ -65,6 +65,7 @@ class SempodsResponseMapTest : MockPodTest() {
     assertEquals(200, refused.status)
     assertEquals("t-1", refused.headers["X-Trace"])
     val message = refused.message.orEmpty()
+    assertTrue(message.startsWith("GET $origin/alice/events/1 answered 200"), message)
     assertTrue(IllegalArgumentException::class.java.name in message, message)
     assertFalse("secret" in message || "expected a graph" in message, message)
     assertFalse("?" in message, "the URL is named without its query: $message")
