@@ -57,18 +57,20 @@ Apply the writing rules. In particular, ask in this order:
 
 ## 4. KDoc
 
-Every changed public signature: does its KDoc still describe the contract — nullability, units,
-ownership, what an implementation owes its caller? Field-level detail lives here, not in markdown.
+Check the owning KDoc and comments for every contract affected by signature or behavior changes,
+including public APIs and private or internal contracts. Follow
+[rule 5](documentation-strategy.md#the-writing-rules) for ownership. Check nullability, units,
+ownership and what an implementation owes its caller. Field-level detail lives in KDoc.
 
 ## 5. Weight
 
-The steps above ask whether what you wrote is **true**. This one asks what it costs. Rules 3 and 9
-are the authority; these are the probes.
+Check documentation, KDoc and comments for clarity, useful examples and repetition
+(rules 7–11).
 
 ```bash
 git diff HEAD | grep -cE "^\+\s*(\*|//)"                    # comment lines added
 git diff HEAD | grep -vE "^\+\+\+|^\+\s*(\*|//)" | grep -cE "^\+\s*\S"   # code lines added
-git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 3 antithesis
+git diff HEAD | grep -E "^\+" | grep -niE "rather than|instead of|, not [a-z]"  # rule 7 antithesis
 git grep -n --untracked '<a phrase from each rationale added>' -- '*.md' '*.kt' '*.kts'   # a second owner
 ```
 
@@ -80,12 +82,18 @@ choosing the owner and making the rest point there.
 
 Over what is left:
 
+- Can each sentence be understood on first reading? Split dense sentences and use familiar words.
+- Does a reader have to derive an important consequence? Show a concrete case and its outcome (rule 8).
 - Did anything land in an `AGENTS.md`? Name the document that owns it. Where the answer is the
   map itself, it is misfiled — the grep above cannot see this one, because a misfiled fact has
   exactly one copy.
-- Does a field's KDoc repeat what the class KDoc says? The field wins (rule 6).
+- Is a property's contract documented more than once? Keep one owner under rule 5; a type's
+  `@property` tag already documents that property.
+- Does an override, a private function, a helper or an inline comment restate a public declaration's
+  contract? Link the owner when discussing that contract. Keep private contracts local and leave
+  unchanged overrides without KDoc (rule 5).
 - Does anything explain why something was **not** changed? That is the commit message's job.
-- Did the change delete anything? One that only adds has not looked (rule 9).
+- Did the change make any text redundant? Remove it; keep necessary explanations and examples (rule 11).
 
 ## 6. Issue and PR completion
 
