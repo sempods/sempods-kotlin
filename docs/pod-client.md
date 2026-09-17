@@ -150,7 +150,10 @@ try (Response response = client.newCall(request).execute()) {
 
 `newRequest` plus a call on such a client is also the **extension seam**: an endpoint group, a
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
-and admission by using it, and needs nothing private.
+and admission by using it, and needs nothing private. A module that answers in another
+representation, such as an RDF adapter, runs the core's operation and decodes its answer with
+`SempodsResponse.map`, which keeps status and headers and reports an unreadable body as the core
+does.
 
 Four decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
 
