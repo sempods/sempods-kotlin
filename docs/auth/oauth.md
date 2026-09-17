@@ -21,6 +21,7 @@ step see `identity.md`.
 | Endpoint | Purpose |
 |---|---|
 | `GET /{pod}/_system/auth/authorize` | Authorization Code request |
+| `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, remove an app's access, sign out |
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
 | `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration |
@@ -112,8 +113,9 @@ refreshes stay silent for both client classes.
 4. The pod resolves the user's scopes on this pod (owner: implicit;
    others: explicit grants) and either auto-grants from existing
    `PodGrants` or shows the consent UI. The dialog carries the contexts,
-   the public-read toggle, the lifetime control, and — only for an app
-   that already holds something — a named way to remove its access.
+   the public-read toggle, the lifetime control, a way to
+   [sign out](#signing-out), and — only for an app that already holds
+   something — a named way to remove its access.
 5. On success, redirects to `redirect_uri?code=...&state=...`.
 6. On failure, redirects with `?error=...&error_description=...&error_uri=...`.
 
@@ -350,6 +352,9 @@ durable and are here because the decisions are kept: one minted just
 before the reset still matches its generation and would redeem against
 grants that are gone.
 
+A [sign-out](#signing-out) revokes every family the person holds on the
+pod, whichever app and lifetime.
+
 **A reconnect replaces, it does not accumulate.** An answer to the
 lifetime question governs what stands after it: a consent granting a
 durable connection retires the families it supersedes once the successor
@@ -431,8 +436,8 @@ is worth being exact because the common case does not qualify:
 1. **The pod remembers the person.** The sign-in leaves a session
    cookie on the pod's own origin, scoped to that pod, and a later
    authorization reads it instead of running the round trip again.
-   Without one — first visit, expired, another pod — the answer is
-   `login_required`.
+   Without one — first visit, expired, signed out, another pod — the
+   answer is `login_required`.
 2. **The client is not `dyn:`.** A dynamically registered client always
    gets the consent screen (see above), so it never auto-grants. **The
    AI clients that reach a pod through the hosted MCP service are
@@ -454,17 +459,48 @@ one and passing a consent screen each reset it. Ordinary work never reaches
 somebody who authorizes nothing is forgotten twelve hours after their last.
 
 Renewal carries `auth_time`, the original sign-in, forward unchanged and
-stops thirty days after it. There is no session store to delete from, only a
-signature, so nothing can recall a cookie once issued and the ceiling is what
-ends one. The deadline bounds the renewal's own lifetime too: one issued in
-the final hours gets what is left of the thirty days, and its `Max-Age` says
-the same, so a browser stops presenting the cookie at the moment the pod
-stops accepting it.
+stops thirty days after it. Short of a [sign-out](#signing-out), that
+ceiling is what ends a cookie. The deadline bounds the renewal's own
+lifetime too: one issued in the final hours gets what is left of the thirty
+days, and its `Max-Age` says the same, so a browser stops presenting the
+cookie at the moment the pod stops accepting it.
 
 `prompt=login` is never satisfied by that session: the person asked to
 prove themselves again, and the cookie is exactly what they are asking
 to bypass. The browser AppShell uses a 60 s loop
 guard to avoid infinite redirects on persistent errors.
+
+## Signing out
+
+The consent screen offers "Sign out everywhere" to whoever is signed in.
+It submits the consent form, so it needs the same two proofs. It ends
+everything the person holds on this pod, at once:
+
+| Credential | After the sign-out |
+|---|---|
+| The session cookie, in every browser | Reads as no session: `/authorize` sends the person to sign in, `prompt=none` answers `login_required`, the consent form answers 401 |
+| Every app's refresh-token families, both lifetimes | Revoked: a refresh answers `invalid_grant` |
+| Authorization codes not yet exchanged | Refused at the exchange with `invalid_grant` |
+| Access tokens already issued | Refused on every pod route with 401 |
+
+The app that opened the screen gets `access_denied` with
+`error_description=signed out`, and the response withdraws the cookie.
+
+The grants stay. After signing in again, an app that auto-granted before
+does so again. Another person, a service client and the same person's
+other pods are untouched.
+
+`PodSignOutStore` keeps the instant of the person's last sign-out, under
+every URI the person is known by. A session or access token dated at or
+before it is refused, compared in whole seconds because `auth_time` and
+`iat` are: a sign-in within the same second counts as signed out.
+`PodSignOut.signOut` states the order of the writes and why an exchange
+running beside it cannot hand out a credential that survives.
+
+A session that expires on its own ends nothing else. A connected app
+never calls `/authorize` again, so a family tied to the session's clock
+would end twelve hours after the app's last authorization, however busy
+the person was. The family's own deadline ends it instead.
 
 ## Public-read flow
 

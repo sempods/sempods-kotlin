@@ -37,8 +37,10 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.Context
@@ -61,6 +63,7 @@ class PodAuthEndpoint @Inject constructor(
   private val podTokenIssuer: PodTokenIssuer,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentDecisionStore: PodConsentDecisionStore,
+  private val podSignOut: PodSignOut,
   private val tokenRateLimiter: PodTokenRateLimiter,
   private val podContextsDao: PodContextsDao,
   private val podServiceClientStore: PodServiceClientStore,
@@ -268,9 +271,10 @@ class PodAuthEndpoint @Inject constructor(
     // Who the pod already knows, from a cookie on its own origin. Never from a parameter a browser
     // carried — that was the arrangement the OIDC cutover removed. A session saves the round trip
     // to the id-server and is what makes `prompt=none` answerable at all.
-    val session = readSession(pod, sessionCookie)
+    val podDbo = fetchPodOrThrow(pod)
+    val session = readSession(podDbo, sessionCookie)
     val answer = runAuthorize(
-      pod = pod,
+      podDbo = podDbo,
       responseType = responseType,
       clientId = clientId,
       redirectUri = redirectUri,
@@ -325,7 +329,7 @@ class PodAuthEndpoint @Inject constructor(
    * have changed in that time.
    */
   private fun runAuthorize(
-    pod: String,
+    podDbo: PodDbo,
     responseType: String?,
     clientId: String?,
     redirectUri: String?,
@@ -336,7 +340,6 @@ class PodAuthEndpoint @Inject constructor(
     scope: String?,
     session: PodTokenIssuer.SessionPrincipal?,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
     val sessionIdentity = session?.let { PersonIdentity(webId = it.webId, alsoKnownAs = it.alsoKnownAs) }
 
     // R6: audit-log every authorize entry so cross-client spikes can replay the
@@ -488,23 +491,17 @@ class PodAuthEndpoint @Inject constructor(
           codeChallenge = trimmedCodeChallenge,
           codeChallengeMethod = trimmedCodeChallengeMethod,
           logPrefix = "[oauth/public-read/anon]",
+          session = null,
         )
       }
     }
 
     // ── Missing JWT → login flow (after scope is known to be well-formed) ─
     if (identity == null) {
-      // prompt=none is `login_required` per spec: this server holds no session, so it cannot
-      // answer without the interaction the parameter forbids. With prompt=none combined with
-      // login/select_account we already errored out above as `invalid_request`, so the prompt set
-      // is consistent here.
-      //
-      // TODO: silent re-authorization used to appear to work by reading an identity token out of
-      //   the request URL — the same parameter that let the id-server hand that token to anyone.
-      //   Bringing the outcome back properly means a pod-side session established by the callback
-      //   below (an HttpOnly cookie on the pod origin), which the consent POST would then also
-      //   ride instead of the one-time ticket. That needs CSRF protection on the form, so it is
-      //   its own change rather than a rider on this one.
+      // prompt=none is `login_required` per spec: without a session — none yet, one expired, or one
+      // its person has signed out of since — this server cannot answer without the interaction the
+      // parameter forbids. With prompt=none combined with login/select_account we already errored
+      // out above as `invalid_request`, so the prompt set is consistent here.
       if ("none" in promptValues) {
         return oauthError(normalizedRedirectUri, OAuthErrorCode.LOGIN_REQUIRED, "user is not authenticated", state)
       }
@@ -667,6 +664,7 @@ class PodAuthEndpoint @Inject constructor(
           codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
           codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
           logPrefix = "[oauth/auto-grant]",
+          session = session,
           // The subject's own document, because that is the one redemption will read: the newest
           // across the person's URIs is what the dialog wants, and binding to it would refuse a
           // code the moment an alias carried a higher count.
@@ -909,7 +907,7 @@ class PodAuthEndpoint @Inject constructor(
     // a session-derived token would be the same on every screen the session outlives (so a stale
     // page could be replayed over a narrower consent), and a transaction alone could be lifted out of a
     // page and spent from another browser.
-    val session = readSession(pod, sessionCookie)
+    val session = readSession(podDbo, sessionCookie)
       ?: return Response.status(401).entity("session expired — please re-authorize").type("text/plain").build()
     val transaction = csrf?.trim()?.takeIf { it.isNotBlank() }?.let { consentTransactionStore.consume(it) }
     if (transaction == null || transaction.pod != podDbo.name || transaction.webId != session.webId) {
@@ -923,6 +921,16 @@ class PodAuthEndpoint @Inject constructor(
         .build()
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
+
+    // Ahead of the check below, which refuses a page rendered before this app was disconnected. That
+    // check keeps an old page from writing grants back; a sign-out writes none, and refusing it would
+    // leave the person signed in with no way out on the page in front of them.
+    if (action?.trim() == SIGN_OUT_ACTION) {
+      podSignOut.signOut(checkNotNull(podDbo.id).toPodId(), podDbo.name, identity.allUris)
+      return Response.fromResponse(
+        oauthError(normalizedRedirectUri, OAuthErrorCode.ACCESS_DENIED, "signed out", state),
+      ).cookie(cookies.clearSession(podDbo.name)).build()
+    }
 
     // Single-use stops this page being posted twice; it says nothing about a *second* page opened
     // before the app was disconnected, which would submit its own older selection as the
@@ -1181,6 +1189,7 @@ class PodAuthEndpoint @Inject constructor(
       codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       logPrefix = "[oauth/consent]",
       consentGeneration = decision.generation,
+      session = session,
     )
   }
 
@@ -1551,14 +1560,26 @@ class PodAuthEndpoint @Inject constructor(
       lifetime = lifetime,
     )
 
+    // Signed before the check below and sent only if it passes. A sign-out moves the generation
+    // before it writes its last instant, so a token that passes was signed before that instant and
+    // is refused wherever it is presented. Signed after the check, it could be dated after the
+    // instant and live its hour (`PodSignOut.signOut`).
+    val accessToken = signAccessToken(
+      podName = podDbo.name,
+      clientId = entry.clientId,
+      webId = entry.subject,
+      scopes = featureScopes,
+      familyEndsAt = issuedRefresh.token.endsAt,
+    )
+
     // The decision is read once more, after the insert, and it is the only gate this path needs.
     // Every write to it raises the generation, so a withdrawal landing mid-exchange has already
     // moved what this code carries — asking about `durable` separately beforehand could not fire on
     // anything the comparison misses. The message still tells the two apart, because a person who
     // withheld the durable connection is owed a different sentence than one whose consent moved.
     //
-    // **Every exchange passes here, whatever lifetime it carries.** An access token is no row and
-    // cannot be recalled, so the only moment to refuse one is before it goes out (`SPS-AUTH-062`,
+    // **Every exchange passes here, whatever lifetime it carries.** A consent change cannot recall an
+    // access token, so the only moment to refuse one is before it goes out (`SPS-AUTH-062`,
     // `SPS-AUTH-063`) — and a bearer with a fresh `jti` and `iat` satisfies
     // `ReauthorizeChallengeStore`, so a client that got past this reads "already authorized" and
     // never meets the forced consent screen.
@@ -1613,12 +1634,9 @@ class PodAuthEndpoint @Inject constructor(
     dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
 
     return buildTokenResponse(
-      podName = podDbo.name,
-      clientId = entry.clientId,
-      webId = entry.subject,
+      accessToken = accessToken,
       scopes = featureScopes,
       refreshToken = issuedRefresh.plaintext,
-      familyEndsAt = issuedRefresh.token.endsAt,
     )
   }
 
@@ -1777,6 +1795,20 @@ class PodAuthEndpoint @Inject constructor(
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
 
+    // Signed before the checks below, for the reason the code exchange gives: the sign-out's sweep
+    // lands before its last instant, so a token signed ahead of a check that passes is dated before it.
+    val accessToken = signAccessToken(
+      podName = podDbo.name,
+      clientId = token.owner.clientId,
+      webId = token.owner.webId,
+      scopes = finalScopes,
+      // The successor's deadline, not the predecessor's. A family that predates the terms acquires
+      // one in this very rotation (`RefreshTokenStore.issueInFamily`), so the row that was read
+      // still carries none — capping against that would hand out a full hour past a deadline that
+      // came into existence one statement ago.
+      familyEndsAt = issuedRefresh.token.endsAt,
+    )
+
     // A retirement landing between the rotation and that insert revoked the rows it found, and this
     // successor appeared after it — alive, in the family a reconnect had just replaced. `markRotated`
     // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
@@ -1833,16 +1865,9 @@ class PodAuthEndpoint @Inject constructor(
     dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), token.owner.clientId)
 
     return buildTokenResponse(
-      podName = podDbo.name,
-      clientId = token.owner.clientId,
-      webId = token.owner.webId,
+      accessToken = accessToken,
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
-      // The successor's deadline, not the predecessor's. A family that predates the terms acquires
-      // one in this very rotation (`RefreshTokenStore.issueInFamily`), so the row that was read
-      // still carries none — capping against that would hand out a full hour past a deadline that
-      // came into existence one statement ago.
-      familyEndsAt = issuedRefresh.token.endsAt,
     )
   }
 
@@ -1890,32 +1915,48 @@ class PodAuthEndpoint @Inject constructor(
     return if (remaining <= 0) null else minOf(PodTokenIssuer.USER_TOKEN_TTL_SECONDS, remaining)
   }
 
-  private fun buildTokenResponse(
+  /** A signed access token and the lifetime it was signed with, which `expires_in` repeats. */
+  private class SignedAccessToken(val token: String, val ttlSeconds: Long)
+
+  /**
+   * Signs the access token an exchange hands out, or answers null where its family is already over.
+   *
+   * Apart from [buildTokenResponse] so that an exchange can sign before its last check and respond
+   * after it. The refusal of a null stays with the response, so the checks in between keep their say.
+   */
+  private fun signAccessToken(
     podName: String,
     clientId: String,
     webId: String,
     scopes: Set<String>,
-    refreshToken: String?,
     familyEndsAt: Instant?,
-  ): Response {
-    // Refused here only in the millisecond the deadline itself falls on: `RefreshTokenStore.lookup`
-    // compares with `isBefore`, so a row is still ACTIVE exactly at its expiry, and the clamp holds
-    // every expiry at or below the family's deadline. One millisecond later the refresh is already
-    // answered `EXPIRED`. The branch stays because it is the structural half of the guarantee — no
-    // bearer leaves this server outliving its family, whatever wrote the row.
-    val ttlSeconds = accessTokenTtl(familyEndsAt)
-      ?: return tokenError(OAuthErrorCode.INVALID_GRANT, "the connection has ended")
-    val accessToken = podTokenIssuer.issue(
+  ): SignedAccessToken? {
+    val ttlSeconds = accessTokenTtl(familyEndsAt) ?: return null
+    val token = podTokenIssuer.issue(
       pod = podName,
       webId = webId,
       clientId = clientId,
       scopes = scopes,
       ttlSeconds = ttlSeconds,
     )
+    return SignedAccessToken(token, ttlSeconds)
+  }
+
+  private fun buildTokenResponse(
+    accessToken: SignedAccessToken?,
+    scopes: Set<String>,
+    refreshToken: String?,
+  ): Response {
+    // Refused here only in the millisecond the deadline itself falls on: `RefreshTokenStore.lookup`
+    // compares with `isBefore`, so a row is still ACTIVE exactly at its expiry, and the clamp holds
+    // every expiry at or below the family's deadline. One millisecond later the refresh is already
+    // answered `EXPIRED`. The branch stays because it is the structural half of the guarantee — no
+    // bearer leaves this server outliving its family, whatever wrote the row.
+    accessToken ?: return tokenError(OAuthErrorCode.INVALID_GRANT, "the connection has ended")
     val body = linkedMapOf<String, Any>(
-      "access_token" to accessToken,
+      "access_token" to accessToken.token,
       "token_type" to "Bearer",
-      "expires_in" to ttlSeconds,
+      "expires_in" to accessToken.ttlSeconds,
     )
     // RFC 6749 §5.1 defines this member as the scope of the *access token*, and a credential's
     // lifetime has no standing in it — so `offline_access` does not appear here, whichever answer
@@ -2089,7 +2130,7 @@ class PodAuthEndpoint @Inject constructor(
         podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
     val answer = runAuthorize(
-      pod = podDbo.name,
+      podDbo = podDbo,
       responseType = "code",
       clientId = pending.clientId,
       redirectUri = pending.redirectUri,
@@ -2126,6 +2167,7 @@ class PodAuthEndpoint @Inject constructor(
     codeChallengeMethod: String?,
     logPrefix: String,
     consentGeneration: Long? = null,
+    session: PodTokenIssuer.SessionPrincipal?,
   ): Response {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
     // never mint an auth code for a dynamic (public) client without PKCE.
@@ -2136,6 +2178,13 @@ class PodAuthEndpoint @Inject constructor(
           "PKCE (S256) is required for dynamic clients", state,
         )
       }
+    }
+    // Asked again, now that [consentGeneration] has been read. A sign-out landing between the session
+    // read and that one moves the generation first, and the code would carry the moved generation and
+    // redeem. The sign-out writes its instant before it moves the generation, so a code that could
+    // carry the moved one finds the instant here.
+    if (session != null && !stillSignedIn(podDbo, session)) {
+      return oauthError(redirectUri, OAuthErrorCode.ACCESS_DENIED, "signed out", state)
     }
     val code = authorizationCodeStore.issue(
       realm = podDbo.name,
@@ -2205,9 +2254,23 @@ class PodAuthEndpoint @Inject constructor(
       .build()
   }
 
-  /** The person this browser already proved itself as on this pod, or null. */
-  private fun readSession(pod: String, cookieValue: String?): PodTokenIssuer.SessionPrincipal? =
-    podTokenIssuer.readSession(pod, cookieValue)
+  /**
+   * The person this browser already proved itself as on this pod, or null — also where they have
+   * signed out since, which reads exactly like a session that expired.
+   */
+  private fun readSession(podDbo: PodDbo, cookieValue: String?): PodTokenIssuer.SessionPrincipal? =
+    podTokenIssuer.readSession(podDbo.name, cookieValue)?.takeIf { stillSignedIn(podDbo, it) }
+
+  /**
+   * The pod as the row this request read, because [PodSignOut] takes the id on it — see its KDoc for
+   * what resolving the name again would cost.
+   */
+  private fun stillSignedIn(podDbo: PodDbo, session: PodTokenIssuer.SessionPrincipal): Boolean =
+    podSignOut.sessionStands(
+      checkNotNull(podDbo.id).toPodId(),
+      listOf(session.webId) + session.alsoKnownAs,
+      session.authTime,
+    )
 
   /**
    * Whether cookies may be marked `Secure`.
@@ -2402,6 +2465,9 @@ class PodAuthEndpoint @Inject constructor(
 
     /** The consent form's named way out, as the submit button sends it. */
     private const val DISCONNECT_ACTION = "disconnect"
+
+    /** The consent form's sign-out: it ends everything the person holds on the pod. */
+    private const val SIGN_OUT_ACTION = "signout"
 
     /**
      * What a rate-limited caller is told to wait — the window the budget is stated in, which is

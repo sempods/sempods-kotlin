@@ -301,8 +301,9 @@ class PodTokenIssuer(
      * How long a sign-in can be extended by using it (30 d), measured from `auth_time`.
      *
      * A renewed session outlives the twelve hours by design, and something has to end it: the
-     * cookie is a signature rather than a row, so nothing can recall it once issued, and "renew on
-     * use" without a ceiling is a credential that lives as long as whoever holds it keeps asking.
+     * cookie is a signature rather than a row, so nothing short of its person signing out of the pod
+     * recalls it, and "renew on use" without a ceiling is a credential that lives as long as whoever
+     * holds it keeps asking.
      * Thirty days is the point at which the pod stops taking the id-server's word from a month ago
      * and asks again.
      */

@@ -52,6 +52,19 @@
       word-break: break-all;
     }
 
+    .btn-link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: #0071e3;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .btn-link:hover {
+      text-decoration: underline;
+    }
+
     .contexts-list {
       padding: 1rem 1.5rem;
     }
@@ -347,6 +360,18 @@
       </div>
       <div class="user-info">
         Signed in as <strong th:text="${webId}">https://id.sempods.org/e/abc</strong>
+        <!-- Ends everything the person holds on this pod: every sign-in and every app's connection.
+             The grants stay, so the dialog says so. Confirmed, like the disconnect below. -->
+        ·
+        <button type="submit"
+                class="btn-link"
+                id="signOutBtn"
+                name="action"
+                value="signout"
+                formnovalidate
+                onclick="return confirm('Sign out of this pod everywhere? Your sign-in ends in every browser, and every app connected to this pod loses its connection right away and has to be connected again. The access you granted stays as it is.')">
+          Sign out everywhere
+        </button>
       </div>
     </div>
 

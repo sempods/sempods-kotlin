@@ -21,6 +21,9 @@ import java.time.Instant
  * deliberately a concrete class: every deployment of this server verifies the same self-issued
  * JWT against the same keys, so there is nothing here for a deployment to select.
  *
+ * A token that verifies here can still be refused: its person may have signed out of the pod since
+ * it was issued, which only a store can say — `SempodsBaseEndpoint` asks [PodSignOut] after this.
+ *
  * Failures are returned, not thrown, and they are *reasons* rather than statuses: the same
  * [PodTokenRejection.podMismatch] is a 401 on the read path and a 403 on the app-token path, and
  * that mapping belongs to the endpoint. See `SempodsBaseEndpoint`.
