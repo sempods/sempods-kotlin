@@ -385,6 +385,20 @@ class SempodsAsyncTest : MockPodTest() {
   }
 
   @Test
+  fun `the caller's inheritable thread-locals do not reach the operation's thread`() {
+    val tenant = InheritableThreadLocal<String>()
+    tenant.set("alice")
+
+    try {
+      val seen = SempodsAsync(client).submit { _ -> tenant.get() ?: "nothing" }
+
+      assertEquals("nothing", seen.outcome().getOrThrow())
+    } finally {
+      tenant.remove()
+    }
+  }
+
+  @Test
   fun `a caller's executor runs the work and is never shut down`() {
     server.`when`(request()).respond(response().withStatusCode(200))
     val executor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "caller-pool") }
