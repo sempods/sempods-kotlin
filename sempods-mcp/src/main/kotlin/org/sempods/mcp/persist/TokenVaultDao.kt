@@ -181,22 +181,32 @@ class TokenVaultDao(
     // that both halves of the queue are bounded *and* ordered by the index alone. Leading on
     // `updatedAt` instead reads as the obvious choice — it is the range — and costs a blocking sort
     // over the entire backlog on every tick.
-    // Both are **partial**, on the one thing every sweep row must have: something to rotate with. A
+    // Both are **partial**, on a live grant with something to rotate with. A
     // row without a refresh token can never be swept, and nothing ever moves it — it is not rotated,
     // so its stamp stays put, and it is never handed to the sweep, so it is never marked. In a plain
     // index it would sit in the access path for good, fetched on every tick to be discarded, and the
     // batch bound would stop bounding retrieval. `$type` rather than `$exists`: the field is always
     // present and carries BSON null when there is no token, so existence discriminates nothing.
-    val refreshable = IndexOptions().partialFilterExpression(Filters.type("refreshToken", REFRESH_TOKEN_TYPE))
-    tokens.createIndex(Indexes.ascending("lastUsedAt", "accessTokenExpiresAt"), refreshable)
-    tokens.createIndex(Indexes.ascending("lastRefreshAttemptAt", "updatedAt"), refreshable)
+    // Explicit names let these filters coexist with other partial indexes on the same keys.
+    val refreshable = Filters.and(
+      Filters.type("refreshToken", REFRESH_TOKEN_TYPE),
+      Filters.eq("deadGrantSince", null),
+    )
+    tokens.createIndex(
+      Indexes.ascending("lastUsedAt", "accessTokenExpiresAt"),
+      IndexOptions().name("live_warm").partialFilterExpression(refreshable),
+    )
+    tokens.createIndex(
+      Indexes.ascending("lastRefreshAttemptAt", "updatedAt"),
+      IndexOptions().name("live_preservation").partialFilterExpression(refreshable),
+    )
   }
 
   fun find(key: PodKey): PodTokens? =
     tokens.find(keyFilter(key)).firstOrNull()?.toTokensOrNull()
 
   /**
-   * The sweep's **warm** selection: refreshable rows used since [usedSince] whose access token
+   * The sweep's **warm** selection: live refreshable rows used since [usedSince] whose access token
    * expires before [cutoff].
    *
    * A row with an unknown expiry is deliberately not selected — [PodTokenProvider.isDue] answers
@@ -224,13 +234,14 @@ class TokenVaultDao(
     tokens.find(
       Filters.and(
         Filters.type("refreshToken", REFRESH_TOKEN_TYPE),
+        Filters.eq("deadGrantSince", null),
         Filters.lt("accessTokenExpiresAt", cutoff),
         Filters.gte("lastUsedAt", usedSince),
       ),
     ).sort(Sorts.descending("lastUsedAt")).limit(limit)
 
   /**
-   * The sweep's **preservation** selection: at most [limit] refreshable rows that have not rotated
+   * The sweep's **preservation** selection: at most [limit] live refreshable rows that have not rotated
    * since [cutoff], regardless of access-token expiry, which no refresh token's lifetime runs on.
    * The KDoc on `SempodsMcpConfig.podTokenFamilyPreserveSeconds` owns the cadence and why it is a
    * guess.
@@ -285,6 +296,7 @@ class TokenVaultDao(
     tokens.find(
       Filters.and(
         Filters.type("refreshToken", REFRESH_TOKEN_TYPE),
+        Filters.eq("deadGrantSince", null),
         Filters.lt("updatedAt", cutoff),
         // `$type` on the tail, not `$ne: null`: the negation's index bounds are two ranges around
         // null and the scan pays a key at their boundary, where one date bracket is a single range.
