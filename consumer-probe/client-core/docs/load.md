@@ -33,8 +33,10 @@ Each task writes `environment.properties` and `results.tsv` under
 `consumer-probe/client-core/build/load/java-<version>/`. Preserve both with the issue/PR evidence.
 The metadata records the runtime, OS, architecture, processor count, dependency filenames, protocol,
 payload sizes, delays, JVM flags and concurrency settings. Record the machine model, RAM and other
-load alongside it. The source revision includes `-dirty` when measuring uncommitted changes; the
-reviewed diff is then part of the reproducibility record.
+load alongside it. Reference evidence must come from a clean, committed source revision. Keep that
+checkout unchanged until every comparison finishes, write outputs outside the checkout or under the
+ignored build directory, then copy the results into the documentation. Verify the metadata names
+that commit without `-dirty`; exploratory runs from uncommitted changes are not reference evidence.
 
 ## Workloads and comparison criteria
 
@@ -95,10 +97,12 @@ server implementation; differences between JDKs cannot be attributed solely to c
 ## Reference results
 
 Measured on 2026-09-17 on an Apple M4 Pro, 12 reported processors, 48 GiB RAM, macOS 26.6.2.
-Temurin 21.0.12.1 and 25.0.4.1 ran sequentially with the default settings above. This is a development
-workstation with background containers, without CPU isolation; no build or test suite ran alongside
-the measurements. The substantial variation in the small-body and multi-pod rows is part of the
-result, not evidence for a cross-JDK speed claim.
+Temurin 21.0.12.1 and 25.0.4.1 ran sequentially with the default settings above, from clean commit
+[`a7883f6`](https://github.com/sempods/sempods-kotlin/commit/a7883f6d03c5a590becfd4895e7ccc8eb4b4edba).
+The checkout remained unchanged throughout all four series; results were copied in only afterwards.
+This is a development workstation with background containers, without CPU isolation. Other
+workstation activity was not controlled. The substantial variation in the small-body and multi-pod
+rows limits comparisons, including any cross-JDK speed claim.
 
 Raw evidence: [Java 21 results](load-results/java-21/results.tsv) and
 [environment](load-results/java-21/environment.properties), [Java 25 results](load-results/java-25/results.tsv)
@@ -108,48 +112,59 @@ peaks. Heap, GC, p50/p95, individual repetitions and cleanup timings are in the 
 
 | JDK | Workload | Operations/s | p99, ms | Platform threads |
 |---|---|---:|---:|---:|
-| 21 | small | 75,837 / 71,936 / 58,966 | 4.0 / 4.2 / 4.3 | 58 / 58 / 141 |
-| 21 | slow | 300 / 298 / 300 | 1,592.1 / 1,406.2 / 2,475.4 | 58 / 58 / 139 |
-| 21 | pods | 70,650 / 73,699 / 54,480 | 4.3 / 4.1 / 4.6 | 58 / 58 / 142 |
-| 21 | large | 1,145 / 1,139 / 1,159 | 370.5 / 410.5 / 354.1 | 58 / 58 / 138 |
-| 21 | consumer | 412 / 415 / 398 | 981.5 / 799.6 / 1,134.7 | 58 / 58 / 139 |
-| 25 | small | 64,931 / 69,044 / 47,475 | 6.1 / 5.6 / 5.3 | 57 / 57 / 141 |
-| 25 | slow | 300 / 303 / 305 | 1,070.1 / 1,055.4 / 2,874.3 | 57 / 57 / 139 |
-| 25 | pods | 71,867 / 47,336 / 58,435 | 6.5 / 7.5 / 4.8 | 57 / 57 / 141 |
-| 25 | large | 1,030 / 998 / 1,126 | 349.1 / 327.5 / 366.3 | 57 / 57 / 138 |
-| 25 | consumer | 423 / 417 / 398 | 798.6 / 777.4 / 1,183.8 | 57 / 57 / 139 |
+| 21 | small | 62,149 / 61,859 / 51,230 | 5.0 / 4.8 / 5.5 | 58 / 58 / 141 |
+| 21 | slow | 301 / 300 / 300 | 1,364.6 / 1,142.0 / 2,117.9 | 55 / 58 / 141 |
+| 21 | pods | 56,312 / 50,927 / 39,336 | 5.4 / 7.1 / 9.8 | 58 / 58 / 141 |
+| 21 | large | 1,044 / 1,087 / 1,023 | 351.1 / 394.2 / 444.2 | 55 / 58 / 138 |
+| 21 | consumer | 406 / 423 / 403 | 782.2 / 776.4 / 1,100.2 | 58 / 58 / 139 |
+| 25 | small | 100,192 / 73,030 / 60,195 | 2.3 / 3.6 / 5.5 | 57 / 57 / 141 |
+| 25 | slow | 293 / 292 / 294 | 883.2 / 661.3 / 2,933.9 | 57 / 57 / 139 |
+| 25 | pods | 99,933 / 98,607 / 71,671 | 2.2 / 2.4 / 3.4 | 57 / 57 / 141 |
+| 25 | large | 1,188 / 1,200 / 1,294 | 267.5 / 274.6 / 285.5 | 57 / 57 / 138 |
+| 25 | consumer | 369 / 372 / 353 | 617.2 / 671.8 / 1,401.3 | 57 / 57 / 139 |
 
-The two complete matrices contain 90 successful runs, comprising 11,493,774 timed operations and
-11,520 separately cancelled readers. Every cancellation batch released its calls and leased connections and admitted the next
-batch. The largest batch-to-completion time was 7.92 ms. Post-GC heap growth between the two baselines
-was at most 0.37 MiB per run; that observation is limited to these short runs. Live sampled heap peaks
-depend strongly on whether a GC occurred during a window and do not establish a buffering difference.
+The two complete matrices contain 90 successful runs, comprising 12,266,039 timed operations and
+11,520 separately cancelled readers. Every cancellation batch released its calls and leased
+connections and admitted the next batch. The largest batch-to-completion time was 12.09 ms. Post-GC
+heap growth between the two baselines was at most 0.28 MiB per run; that observation is limited to
+these short runs. Live sampled heap peaks depend strongly on whether a GC occurred during a window
+and do not establish a buffering difference.
 
-The Java 21 slow-consumer p99 exceeded the 15% investigation criterion in the short matrix. A
-[longer comparison](load-results/java-21-consumer-long/results.tsv), with its
-[environment](load-results/java-21-consumer-long/environment.properties), used five seconds of warmup
-and 15 seconds of submissions, retaining the same concurrency and rotating order. Its median
-throughputs were 404 / 406 / 401 operations/s and p99 values 902.1 / 861.3 / 1,457.5 ms. The adapter's
-p99 difference narrowed to 4.7%; its relative ranking against direct calls also changed between
-repetitions. All nine longer runs passed cleanup, with a maximum of 9.68 ms.
+The Java 21 delayed-response p99 exceeded the 15% investigation criterion in every short repetition,
+with a 19.5% median gap. A [longer comparison](load-results/java-21-slow-long/results.tsv), with its
+[environment](load-results/java-21-slow-long/environment.properties), used five seconds of warmup and
+15 seconds of submissions, retaining the same concurrency and rotating order. Median throughputs
+were 298 / 298 / 298 operations/s and p99 values 873.7 / 867.2 / 3,240.0 ms. The adapter's p99 gap
+narrowed to 0.7%, with its relative ranking changing between repetitions. Java 25's short delayed
+profile had a 33.6% median p99 gap, but its direction varied between repetitions; it does not meet
+the consistency criterion for attributing that gap to the adapter.
 
-Reproduce that comparison with:
+A [longer slow-consumer comparison](load-results/java-21-consumer-long/results.tsv), with its
+[environment](load-results/java-21-consumer-long/environment.properties), used the same longer
+settings. Median throughputs were 373 / 371 / 362 operations/s and p99 values 782.2 / 855.0 / 1,749.9 ms.
+All 18 longer runs passed cleanup, with a maximum of 7.18 ms and post-GC heap growth at most 0.31 MiB.
+
+From the pinned clean commit, reproduce the four series sequentially with:
 
 ```sh
-./gradlew :consumer-probe:client-core:load21 -PloadWorkloads=consumer -PloadWarmup=5 -PloadSeconds=15 -PloadOutput=/tmp/sempods-consumer-long
+./gradlew :consumer-probe:client-core:load21 -PloadOutput=/tmp/sempods-load/java-21 --console=plain
+./gradlew :consumer-probe:client-core:load25 -PloadOutput=/tmp/sempods-load/java-25 --console=plain
+./gradlew :consumer-probe:client-core:load21 -PloadWorkloads=consumer -PloadWarmup=5 -PloadSeconds=15 -PloadOutput=/tmp/sempods-load/java-21-consumer-long --console=plain
+./gradlew :consumer-probe:client-core:load21 -PloadWorkloads=slow -PloadWarmup=5 -PloadSeconds=15 -PloadOutput=/tmp/sempods-load/java-21-slow-long --console=plain
 ```
 
 ## Execution strategy
 
 Keep one virtual thread per `SempodsAsync` operation. Across these workloads the adapter's median
-throughput stays close to direct virtual-thread execution; the multi-pod throughput variation does
-not support a stronger ordering. The callback alternative provides no consistent throughput gain
-and uses roughly 138–142 platform threads in the median profiles, against 57–58 for the virtual-thread
-paths. It also has higher p99 latency in the delayed-response and slow-consumer profiles on both JDKs.
+throughput is at most 4.2% below direct virtual-thread execution; variation in the small-body and
+multi-pod repetitions prevents attributing apparent gains to the adapter. The callback alternative
+provides no consistent throughput gain and uses 138–141 platform threads in the median profiles,
+against 55–58 for the virtual-thread paths. It also has higher p99 latency in the delayed-response
+and slow-consumer profiles on both JDKs.
 Its blocking body callback would not remove the need for a blocking execution context for arbitrary
 `SempodsAsyncWork`.
 
-The long slow-consumer comparison gives no reason to change the execution strategy. Admission is
+The longer comparisons give no reason to change the execution strategy. Admission is
 oversubscribed in these profiles and its semaphore is not fair; these results do not promise FIFO
 service or a tail-latency bound. An application already on a virtual thread can continue to call the
 synchronous core directly. The reference measurement supports that choice for the measured
