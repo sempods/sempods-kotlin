@@ -32,6 +32,25 @@ class ProtocolJsonTest {
   }
 
   @Test
+  fun `an integer member is its value, and a null or missing one is null`() {
+    val document = document("""{"a":900,"b":null,"c":-1,"d":9223372036854775807}""")
+
+    assertEquals(900L, document.longOrNull("a"))
+    assertNull(document.longOrNull("b"))
+    assertNull(document.longOrNull("missing"))
+    assertEquals(-1L, document.longOrNull("c"))
+    assertEquals(Long.MAX_VALUE, document.longOrNull("d"))
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = ["1.5", "1.0", "9223372036854775808", "\"900\"", "true", "{}"])
+  fun `a fraction, a number beyond a Long or another type is not an integer`(value: String) {
+    val violation = assertThrows<ProtocolViolation> { document("""{"a":$value}""").longOrNull("a") }
+
+    assertTrue(violation.detail.startsWith("/a: expected an integer or null, found "), violation.detail)
+  }
+
+  @Test
   fun `a required member names what it found when it is missing, null or of another type`() {
     val document = document("""{"s":"x","b":true,"n":null,"o":{}}""")
 

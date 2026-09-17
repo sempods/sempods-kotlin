@@ -243,6 +243,19 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a token request is not resent`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+      requestHeads.clear()
+
+      assertThrows<IOException> { SempodsPodTokens(a, client).clientCredentialsJson() }
+
+      assertTrue(requestHeads.isEmpty(), requestHeads.toString())
+    }
+  }
+
+  @Test
   fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
     val rebuilding = Interceptor { chain ->
       val original = chain.request()

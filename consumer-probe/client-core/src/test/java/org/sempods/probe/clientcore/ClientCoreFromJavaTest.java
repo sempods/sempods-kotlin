@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -59,6 +60,8 @@ import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsSparqlResults;
 import org.sempods.client.core.SempodsSparqlTermKind;
+import org.sempods.client.core.SempodsPodTokens;
+import org.sempods.client.core.SempodsTokenResponse;
 import org.sempods.client.core.SempodsWriteOptions;
 
 /**
@@ -180,6 +183,15 @@ class ClientCoreFromJavaTest {
     });
     server.createContext("/elsewhere/missing", exchange -> json(exchange, 404, "no such card"));
     server.createContext("/issuer/token", exchange -> json(exchange, 200, "k-minted"));
+    // A token endpoint that echoes what the client sent; bob's pod names no lifetime.
+    server.createContext("/alice/_system/auth/token", exchange -> {
+      exchange.getResponseHeaders().add("X-Saw-Authorization", header(exchange, "Authorization"));
+      exchange.getResponseHeaders().add("X-Saw-Content-Type", header(exchange, "Content-Type"));
+      exchange.getResponseHeaders().add("X-Saw-Body", new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+      json(exchange, 200, "{\"access_token\":\"tok-1\",\"token_type\":\"Bearer\",\"expires_in\":900,\"scope\":\"\"}");
+    });
+    server.createContext("/bob/_system/auth/token",
+        exchange -> json(exchange, 200, "{\"access_token\":\"tok-2\",\"token_type\":\"Bearer\"}"));
     server.createContext("/elsewhere/moved", exchange -> {
       exchange.getResponseHeaders().add("Location", "/elsewhere/card");
       exchange.sendResponseHeaders(303, -1);
@@ -286,6 +298,29 @@ class ClientCoreFromJavaTest {
       narrow.connectionPool().evictAll();
     }
     assertEquals(1, number.get());
+  }
+
+  @Test
+  void mintsAServiceTokenRawAndTypedFromJava() throws IOException {
+    SempodsPodTokens alice = new SempodsPodTokens(
+        new SempodsSession(SempodsPodBase.of(base("alice")), SempodsRequestAuth.clientSecretBasic("notes-app", "a+b")), client);
+
+    SempodsResponse<SempodsTokenResponse> typed = alice.clientCredentials();
+    assertEquals(200, typed.getStatus());
+    assertEquals("tok-1", typed.getBody().getAccessToken());
+    assertEquals("Bearer", typed.getBody().getTokenType());
+    assertEquals(Duration.ofSeconds(900), typed.getBody().getExpiresIn());
+    assertEquals("", typed.getBody().getScope());
+    assertEquals("Basic bm90ZXMtYXBwOmElMkJi", typed.getHeaders().get("X-Saw-Authorization"));
+    assertEquals("application/x-www-form-urlencoded", typed.getHeaders().get("X-Saw-Content-Type"));
+    assertEquals("grant_type=client_credentials", typed.getHeaders().get("X-Saw-Body"));
+
+    assertTrue(alice.clientCredentialsJson().getBody().contains("\"tok-1\""));
+    assertTrue(alice.clientCredentialsBytes().getBody().length > 0);
+
+    SempodsPodTokens bob = new SempodsPodTokens(
+        new SempodsSession(SempodsPodBase.of(base("bob")), SempodsRequestAuth.clientSecretBasic("notes-app", "s")), client);
+    assertNull(bob.clientCredentials().getBody().getExpiresIn());
   }
 
   @Test
