@@ -242,6 +242,23 @@ var podBearer = SempodsRequestAuth.refreshable((forceRefresh, attempt) ->
 var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
 ```
 
+### Asynchronous use
+
+`SempodsAsync` runs blocking work away from the caller's thread, on one virtual thread per operation.
+The work makes its calls through the factory it receives, so the operation's `cancel()` reaches them:
+
+```java
+var async = new SempodsAsync(client);
+SempodsAsyncOperation<SempodsResponse<Boolean>> ask =
+    async.submit(calls -> new SempodsPod(session, calls).sparql().ask("ASK { ?s ?p ?o }"));
+ask.result().thenAccept(answer -> ...);
+ask.cancel();
+```
+
+Nothing travels to the operation's thread on its own. A trace goes along with an executor that
+carries it, such as OpenTelemetry's `Context.taskWrapping`, passed as the second argument.
+`SempodsAsyncOperation.result` has the table of how an operation completes.
+
 ## The transport: OkHttp, blocking
 
 **Blocking**, because:
@@ -250,7 +267,8 @@ var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
   specification client is precisely the artifact a foreign JVM implementation consumes;
 - on Java 25 a blocking send on a virtual thread costs no thread per request. `sempods-mcp` is
   `suspend` throughout, fans out over every connected pod at once, and bridges in about forty lines
-  (`PodIo`) — one virtual thread per in-flight request, no carrier thread held.
+  (`PodIo`) — one virtual thread per in-flight request, no carrier thread held. A Java consumer that
+  wants a `CompletionStage` takes `SempodsAsync` (§"Asynchronous use").
 
 **OkHttp**, because SSRF **resolve-and-pin** needs a hook at the moment an address is produced. The
 JDK client's only one is `InetAddressResolverProvider`, which replaces the resolver for the whole
