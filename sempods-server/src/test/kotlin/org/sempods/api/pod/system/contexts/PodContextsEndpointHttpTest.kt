@@ -20,6 +20,10 @@ import org.sempods.client.core.SempodsPodBase
 import org.sempods.client.core.SempodsPodContexts
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
+import org.sempods.client.rdf4j.SempodsRdf4jContexts
+import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -1116,6 +1120,41 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       // `SPS-CTX-036` covers errors, and these three are built where no registry method runs.
       assertEquals("no-store", response.headers.get("Cache-Control"), "status ${response.statusCode}")
       assertEquals("Accept, Authorization", response.headers.get("Vary"), "status ${response.statusCode}")
+    }
+  }
+
+  // ── The RDF4J adapter against these routes ───────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter creates a context and reads the registry as models`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val tasks = contextUri(pod.name, "apps/example/tasks")
+    val tasksIri = Values.iri(tasks)
+
+    withRdf4jContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      val created = assertNotNull(contexts.create(tasks, SempodsContextCreate.fields().withLabel("Tasks")).body)
+      assertTrue(created.contains(tasksIri, RDF.TYPE, Values.iri("${SD_NS}NamedGraph")), "created: $created")
+      assertTrue(created.contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")), "created: $created")
+    }
+
+    val reader = mintScopedToken(pod.name, listOf("$tasks#read"))
+    withRdf4jContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
+      val read = contexts.getModel(tasks)
+      assertTrue(assertNotNull(read.body).contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")))
+      assertEquals(304, contexts.getModel(tasks, checkNotNull(read.headers["ETag"])).status)
+      assertTrue(assertNotNull(contexts.listModel().body).contains(null, null, tasksIri), "the catalogue names the context")
+    }
+  }
+
+  private fun <T> withRdf4jContexts(podName: String, auth: SempodsRequestAuth, block: (SempodsRdf4jContexts) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      return block(SempodsRdf4jPod(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client)).contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
     }
   }
 

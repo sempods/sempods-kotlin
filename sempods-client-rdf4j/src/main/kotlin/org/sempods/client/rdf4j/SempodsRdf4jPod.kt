@@ -27,9 +27,24 @@ class SempodsRdf4jPod(
 
   private val subjectsGroup = SempodsRdf4jSubjects(pod.subjects())
 
+  private val slotsGroup = SempodsRdf4jSlots(pod.slots())
+
+  private val contextsGroup = SempodsRdf4jContexts(pod.contexts())
+
+  private val sparqlGroup = SempodsRdf4jSparql(pod.sparql())
+
   /** Resources the pod hosts, at their own addresses, as models. */
   fun resources(): SempodsRdf4jResources = resourcesGroup
 
   /** Any subject by its IRI, through the System route, as models. */
   fun subjects(): SempodsRdf4jSubjects = subjectsGroup
+
+  /** The values of one predicate on a subject, read as a model and written from RDF4J values. */
+  fun slots(): SempodsRdf4jSlots = slotsGroup
+
+  /** The context registry's answers, as models. */
+  fun contexts(): SempodsRdf4jContexts = contextsGroup
+
+  /** CONSTRUCT and DESCRIBE graphs as models, and SELECT results as binding sets. */
+  fun sparql(): SempodsRdf4jSparql = sparqlGroup
 }

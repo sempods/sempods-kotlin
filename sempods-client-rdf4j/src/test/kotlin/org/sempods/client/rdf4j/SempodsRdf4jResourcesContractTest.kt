@@ -1,8 +1,5 @@
 package org.sempods.client.rdf4j
 
-import okhttp3.Headers
-import okhttp3.HttpUrl
-import okio.Buffer
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Models
@@ -38,18 +35,9 @@ import kotlin.test.assertTrue
  */
 class SempodsRdf4jResourcesContractTest : MockPodTest() {
 
-  /** A request as OkHttp wrote it: MockServer decodes the query, and may re-read a body it records. */
-  private class Sent(val method: String, val url: HttpUrl, val headers: Headers, val body: ByteArray?)
-
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
-    addNetworkInterceptor { chain ->
-      val request = chain.request()
-      sent += Sent(request.method, request.url, request.headers, request.body?.let { Buffer().also(it::writeTo).readByteArray() })
-      chain.proceed(request)
-    }
-  }
+  private val client = recordingClient(sent)
 
   @AfterAll
   fun stopClient() {

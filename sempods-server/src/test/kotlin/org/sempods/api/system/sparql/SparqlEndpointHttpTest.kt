@@ -14,6 +14,8 @@ import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsSparqlTermKind
 import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.eclipse.rdf4j.model.util.Values
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
@@ -626,6 +628,34 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
       val refused = assertThrows<SempodsStatusException> { sparql.ask("ASK {}") }
       assertEquals(401, refused.status)
       assertNotNull(refused.headers["WWW-Authenticate"])
+    }
+  }
+
+  // ── The RDF4J adapter against this route ─────────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter reads a SELECT result as binding sets and a CONSTRUCT graph as a model without contexts`() {
+    val pod = sempodsTestFactory.newPod()
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    val name = "public-event-${TestUtil.randomId()}"
+    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = eventUri, context = sempodsTestFactory.publicContextUri(pod.name), name = name)
+    val event = Values.iri(eventUri.toString())
+
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}${pod.name}")
+      val sparql = SempodsRdf4jPod(SempodsPod(SempodsSession(base, SempodsRequestAuth.anonymous()), client)).sparql()
+
+      val results = assertNotNull(sparql.select("SELECT ?p ?o WHERE { <$eventUri> ?p ?o }").body)
+      assertEquals(listOf("p", "o"), results.variables)
+      assertTrue(results.bindingSets.any { it.getValue("o") == Values.literal(name) }, "$results")
+
+      val graph = assertNotNull(sparql.graphModel("CONSTRUCT WHERE { <$eventUri> ?p ?o }").body)
+      assertTrue(graph.contains(event, null, Values.literal(name)), "graph: $graph")
+      assertEquals(setOf(null), graph.contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
     }
   }
 }

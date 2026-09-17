@@ -4,6 +4,7 @@ import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.rio.ParserConfig
 import org.eclipse.rdf4j.rio.RDFParseException
+import org.eclipse.rdf4j.rio.RDFParser
 import org.eclipse.rdf4j.rio.Rio
 import org.eclipse.rdf4j.rio.WriterConfig
 import org.eclipse.rdf4j.rio.helpers.BasicParserSettings
@@ -11,6 +12,7 @@ import org.eclipse.rdf4j.rio.helpers.BasicWriterSettings
 import org.eclipse.rdf4j.rio.helpers.LargeLiteralHandling
 import org.eclipse.rdf4j.rio.helpers.StatementCollector
 import org.eclipse.rdf4j.rio.jsonld.JSONLDMode
+import org.eclipse.rdf4j.rio.jsonld.JSONLDParser
 import org.eclipse.rdf4j.rio.jsonld.JSONLDSettings
 import org.eclipse.rdf4j.rio.jsonld.JSONLDWriter
 import org.eclipse.rdf4j.rio.nquads.NQuadsParser
@@ -19,6 +21,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
+import java.io.Reader
 import java.nio.charset.CodingErrorAction
 
 /**
@@ -36,21 +39,45 @@ import java.nio.charset.CodingErrorAction
 internal object Rdf4jCodec {
 
   /** [nQuads], UTF-8 and strictly so, as a model keeping every statement's context. */
-  fun readNQuads(nQuads: ByteArray, baseUri: String): Model {
+  fun readNQuads(nQuads: ByteArray, baseUri: String): Model = read(NQuadsParser(), parserConfig(), nQuads, baseUri)
+
+  /**
+   * [jsonLd], UTF-8 and strictly so, as a model keeping every named graph as its statements' context.
+   *
+   * **Nothing the document names is fetched.** A remote `@context` is a parse failure: loading it would
+   * be a request outside the session, its guard and its admission.
+   *
+   * **A language tag comes back in lower case**, and no setting keeps its case: JSON-LD 1.1 lets a
+   * processor lower-case a tag, and RDF4J's does. RDF compares tags without regard to case, and so does
+   * RDF4J's `Literal.equals`.
+   */
+  fun readJsonLd(jsonLd: ByteArray, baseUri: String): Model {
+    val config = parserConfig().apply {
+      set(JSONLDSettings.SECURE_MODE, true)
+      set(JSONLDSettings.WHITELIST, emptySet())
+      set(JSONLDSettings.EXCEPTION_ON_WARNING, true)
+    }
+    return read(JSONLDParser(), config, jsonLd, baseUri)
+  }
+
+  private fun read(parser: RDFParser, config: ParserConfig, bytes: ByteArray, baseUri: String): Model {
     val model = LinkedHashModel()
-    val parser = NQuadsParser()
-    parser.setParserConfig(parserConfig())
+    parser.setParserConfig(config)
     parser.setRDFHandler(StatementCollector(model))
-    // The parser's own `InputStream` reader replaces malformed UTF-8 with U+FFFD.
-    val decoder = Charsets.UTF_8.newDecoder()
-      .onMalformedInput(CodingErrorAction.REPORT)
-      .onUnmappableCharacter(CodingErrorAction.REPORT)
     try {
-      parser.parse(InputStreamReader(ByteArrayInputStream(nQuads), decoder), baseUri)
+      parser.parse(strictUtf8(bytes), baseUri)
     } catch (unreadable: IOException) {
       throw RDFParseException(unreadable)
     }
     return model
+  }
+
+  /** A parser's own `InputStream` reader replaces malformed UTF-8 with U+FFFD. */
+  private fun strictUtf8(bytes: ByteArray): Reader {
+    val decoder = Charsets.UTF_8.newDecoder()
+      .onMalformedInput(CodingErrorAction.REPORT)
+      .onUnmappableCharacter(CodingErrorAction.REPORT)
+    return InputStreamReader(ByteArrayInputStream(bytes), decoder)
   }
 
   /** [model] as expanded JSON-LD, each statement in the named graph of its context. */
