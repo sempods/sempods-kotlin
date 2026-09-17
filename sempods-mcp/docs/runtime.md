@@ -41,8 +41,8 @@ cadence is a guess, and the KDoc on `SempodsMcpConfig.podTokenFamilyPreserveSeco
 tool calls, so `list_pods`, `authorize` and the dashboard mark nothing — as a
 throttled `lastUsedAt` on the vault row, which the warm selection is indexed on (both selections
 are, and a test pins that). The
-warm tier's traffic therefore follows **use**; preservation still walks refreshable inventory.
-The selection of dead rows remains open in [#134](https://github.com/sempods/sempods-kotlin/issues/134). Each tier is
+warm tier's traffic therefore follows **use**; preservation walks live refreshable inventory.
+Both selections exclude connections marked dead, which remain visible as needing reconnect. Each tier is
 time-budgeted per tick (half a tick each), and the preservation budget is anchored where
 preservation *starts* rather than where the sweep did, so a slow warm pass cannot hand it a
 deadline already spent. Within the tier, each row is marked as attempted *before* it is
@@ -59,8 +59,8 @@ costs a blocking sort over the whole backlog before the batch bound applies. Whe
 exhausted is decided on the raw document count, and a row whose ciphertext will not decrypt is
 named back to the sweep rather than dropped, so it gets the same mark as any visited row — nothing
 else could move it out of the head, and a batch of them would mask the queue behind them for good.
-Both sweep indexes are **partial** on
-having a refresh token — a row without one can never be swept and nothing ever moves it, so in a
+Both sweep indexes are **partial** on a live grant with
+a refresh token — a row without one can never be swept and nothing ever moves it, so in a
 plain index it would sit in the access path for good, fetched every tick to be discarded, and the
 batch bound would stop bounding reads. A test explains all three sweep queries as the sweep issues
 them — filter, order and bound — and asserts that each reads exactly as many index keys and

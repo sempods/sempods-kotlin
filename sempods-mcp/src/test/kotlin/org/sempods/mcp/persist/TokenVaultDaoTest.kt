@@ -7,6 +7,8 @@ import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.IndexOptions
+import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.crypto.SecretCipher
@@ -263,6 +265,52 @@ class TokenVaultDaoTest {
   }
 
   @Test
+  fun `dead grants occupy neither the preservation head nor the tail`() {
+    for (attempted in listOf(false, true)) {
+      val selection = TokenVaultDao(db!!, testSecretCipher(), "deadGrants" + UUID.randomUUID())
+      val dead = newKey()
+      val live = newKey()
+      selection.upsert(tokens(dead, updatedAt = Date(0)).copy(deadGrantSince = Date(1)))
+      selection.upsert(tokens(live, updatedAt = Date(2)))
+      if (attempted) {
+        selection.markRefreshAttempted(dead, Date(3))
+        selection.markRefreshAttempted(live, Date(4))
+      }
+
+      repeat(2) {
+        val due = selection.findNotRotatedSince(Date(10), limit = 1)
+        assertEquals(listOf(live.user), due.rows.map { it.user }, "dead rows must not consume the batch")
+        assertTrue(due.unreadable.isEmpty())
+      }
+      assertEquals("r", selection.find(dead)!!.refreshToken, "selection preserves stored credentials")
+      assertTrue(selection.findFacts(dead)!!.needsReconnect)
+    }
+  }
+
+  @Test
+  fun `marking a grant dead removes it from both sweep tiers and reconnect restores eligibility`() {
+    val selection = TokenVaultDao(db!!, testSecretCipher(), "reconnectSweep" + UUID.randomUUID())
+    val key = newKey()
+    val original = tokens(key, accessTokenExpiresAt = Date(1), updatedAt = Date(1), lastUsedAt = Date(1))
+    selection.upsert(original)
+    selection.markRefreshAttempted(key, Date(2))
+    assertTrue(selection.tryClaimRefresh(key, "holder", Date(System.currentTimeMillis() + 60_000)))
+    assertTrue(selection.markDeadGrantIfClaimedBy(key, at = Date(3), holder = "holder"))
+
+    assertTrue(selection.findNotRotatedSince(Date(10), limit = 1).rows.isEmpty())
+    assertTrue(selection.findExpiringBefore(Date(10), usedSince = Date(0), limit = 1).isEmpty())
+    assertEquals(original.copy(deadGrantSince = Date(3)), selection.find(key))
+    assertTrue(selection.listForProfile(ProfileKey(key.user, key.profile)).single().needsReconnect)
+
+    val reconnected = original.copy(accessToken = "new-access", refreshToken = "new-refresh", updatedAt = Date(4))
+    selection.upsert(reconnected)
+    assertFalse(selection.markDeadGrantIfClaimedBy(key, at = Date(5), holder = "holder"))
+    assertFalse(selection.findFacts(key)!!.needsReconnect)
+    assertEquals(listOf(reconnected), selection.findNotRotatedSince(Date(10), limit = 1).rows)
+    assertEquals(listOf(reconnected), selection.findExpiringBefore(Date(10), usedSince = Date(0), limit = 1))
+  }
+
+  @Test
   fun `touchLastUsed moves the marker only past the throttle, and disturbs nothing else`() {
     val key = newKey()
     val rotatedAt = Date(System.currentTimeMillis() - 10_000)
@@ -295,31 +343,42 @@ class TokenVaultDaoTest {
     // filter, ordering and bound — because an explain of the filter alone would pass happily while
     // the ordering forced a blocking sort over the whole selection.
     val collection = "podTokensExplain" + UUID.randomUUID().toString().take(8)
+    val existing = db!!.getCollection(collection)
+    val refreshable = IndexOptions().partialFilterExpression(Filters.type("refreshToken", "string"))
+    existing.createIndex(Indexes.ascending("lastUsedAt", "accessTokenExpiresAt"), refreshable)
+    existing.createIndex(Indexes.ascending("lastRefreshAttemptAt", "updatedAt"), refreshable)
     val explained = TokenVaultDao(db!!, testSecretCipher(), collection)
     val key = newKey()
-    explained.upsert(tokens(key, "a", "r", Date(), Date(), Date()))
+    explained.upsert(tokens(key, "a", "r", Date(1), Date(1), Date(1)))
+    val attempted = newKey()
+    explained.upsert(tokens(attempted, "a", "r", Date(1), Date(1), Date(1)))
+    explained.markRefreshAttempted(attempted, Date(1))
     // Rows nothing can ever rotate, old enough to sort ahead of everything: in a plain index they
     // would be examined on every tick and discarded, so the batch bound would stop bounding reads.
     repeat(5) {
       val dead = newKey()
       explained.upsert(tokens(dead, "a", null, Date(), Date(0), Date(0)))
+      val ended = newKey()
+      explained.upsert(tokens(ended, "a", "r", Date(0), Date(0), Date(2)).copy(deadGrantSince = Date(1)))
+      if (it % 2 == 0) explained.markRefreshAttempted(ended, Date(0))
     }
 
     listOf(
-      "warm" to explained.expiringBeforeQuery(cutoff = Date(), usedSince = Date(0), limit = 500),
-      "preservation head" to explained.notRotatedSinceQuery(Date(), limit = 500, attempted = false),
-      "preservation tail" to explained.notRotatedSinceQuery(Date(), limit = 500, attempted = true),
+      "warm" to explained.expiringBeforeQuery(cutoff = Date(10), usedSince = Date(0), limit = 500),
+      "preservation head" to explained.notRotatedSinceQuery(Date(10), limit = 500, attempted = false),
+      "preservation tail" to explained.notRotatedSinceQuery(Date(10), limit = 500, attempted = true),
     ).forEach { (tier, query) ->
       val explain = query.explain(ExplainVerbosity.EXECUTION_STATS)
-      val plan = explain.get("queryPlanner", Document::class.java).toJson()
+      val plan = explain.get("queryPlanner", Document::class.java).get("winningPlan", Document::class.java).toJson()
       assertTrue(plan.contains("IXSCAN"), "$tier: expected an index scan, got: $plan")
       assertTrue(!plan.contains("COLLSCAN"), "$tier: expected no collection scan, got: $plan")
       assertTrue(!plan.contains("SORT"), "$tier: expected the index to carry the order, got: $plan")
 
       // The part the plan shape alone does not say: an unrefreshable row must not even be looked at.
-      // `IXSCAN` with a residual filter would pass every assertion above and still read all six.
+      // `IXSCAN` with a residual filter would pass every assertion above and still read dead rows.
       val stats = explain.get("executionStats", Document::class.java)
       val returned = stats.getInteger("nReturned")
+      assertEquals(if (tier == "warm") 2 else 1, returned, "$tier: only live rows are returned")
       assertEquals(returned, stats.getInteger("totalKeysExamined"), "$tier: read more index keys than it returned")
       assertEquals(returned, stats.getInteger("totalDocsExamined"), "$tier: fetched more documents than it returned")
     }
