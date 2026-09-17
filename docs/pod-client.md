@@ -1,8 +1,8 @@
 # Pod client — the JVM client for the pod surface (IST)
 
 What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
-`:sempods-client-core`, `:sempods-client` above it, and the sibling that speaks the host-level admin
-surface, `:sempods-control-plane-client`.
+`:sempods-client-core`, its RDF4J adapter `:sempods-client-rdf4j`, `:sempods-client` above it, and
+the sibling that speaks the host-level admin surface, `:sempods-control-plane-client`.
 
 This document is the *shape* of those clients — what tiers they have, how a caller supplies a
 credential, what they are built on, and the rules that decide what may be added. The **routes** they
@@ -151,9 +151,9 @@ try (Response response = client.newCall(request).execute()) {
 `newRequest` plus a call on such a client is also the **extension seam**: an endpoint group, a
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
 and admission by using it, and needs nothing private. A module that answers in another
-representation, such as an RDF adapter, runs the core's operation and decodes its answer with
-`SempodsResponse.map`, which keeps status and headers and reports an unreadable body as the core
-does.
+representation, such as the RDF4J adapter (§"The RDF4J adapter"), runs the core's operation and
+decodes its answer with `SempodsResponse.map`, which keeps status and headers and reports an
+unreadable body as the core does.
 
 Four decisions shape everything above it. Each lives in one class, whose KDoc carries the contract:
 
@@ -199,7 +199,7 @@ route; both read, replace, merge-patch and delete. `slots()` works on the values
 subject: read, replace, add, clear, and remove one IRI value through its edge. `contexts()` reads the
 registry — the catalogue a session sees, and what the registry holds for one context — and creates or
 removes a context at the IRI the pod gave. Those answers are RDF, and this module reads none of it: they arrive
-as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads.
+as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads. §"The RDF4J adapter" reads resources and subjects into models.
 
 **An answer is read into memory, up to 16 MiB — an export is not.** `contexts().exportTo` writes everything in
 one context to a stream the caller owns while it arrives, and `contexts().export` hands the body to a
@@ -216,6 +216,28 @@ pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods
 one that ignores them answers from everything the session may read, and a client cannot tell which
 kind it faces. A resource or slot read carries it as `context` parameters, and `SempodsPodResources`
 says what an empty one does. Every write takes its target context in `SempodsWriteOptions`.
+
+### The RDF4J adapter
+
+`:sempods-client-rdf4j` reads and writes a pod's RDF as RDF4J models, on a `SempodsPod` that already
+exists:
+
+```java
+var rdf = new SempodsRdf4jPod(pod);
+SempodsResponse<Model> read = rdf.resources().getModel(event, SempodsReadOptions.of(SempodsContextSelection.of(tasks)));
+Model model = read.getBody();
+rdf.resources().put(event, model, SempodsWriteOptions.inContext(tasks).withIfMatch(read.getHeaders().get("ETag")));
+```
+
+**Only the body changes.** Each call is the endpoint group's, so a raw call and a model call on one pod
+share authentication, the resend, admission and the transport, and an answer keeps its status and
+headers. Resources and subjects have models today; slots, the registry, SPARQL, exports and foreign URIs
+follow in [#206](https://github.com/sempods/sempods-kotlin/issues/206).
+
+A read asks for N-Quads, so every statement keeps its context; a write sends JSON-LD, each statement
+in its context's named graph. `SempodsRdf4jResources` says what a context other than the target
+leads to. **A model holds what the pod sent:** RDF4J's defaults rewrite some values and yield to JVM
+system properties, so `Rdf4jCodec` sets every such setting itself.
 
 ### A foreign URI
 
@@ -381,8 +403,14 @@ implementation(platform("org.sempods:sempods-bom:0.2.0"))
 implementation("org.sempods:sempods-client-core")
 ```
 
-`:consumer-probe:client-core` checks that from outside the build, as a Java consumer on Java 21 —
-[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
+`:sempods-client-rdf4j` is the coordinate for a consumer that wants models on that same session. It
+brings RDF4J's model and its N-Quads and JSON-LD codecs — and with the JSON-LD codec Jackson 2's
+streaming core — but no Jena, no Jackson 2 mapper, and neither `:sempods-model` nor `:sempods-client`.
+**It needs Java 25**, because RDF4J 6 is built for it; the core stays on 21.
+
+`:consumer-probe:client-core` and `:consumer-probe:client-rdf4j` check both from outside the build, as
+Java consumers on Java 21 and 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source
+readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
 groups beyond pod metadata, SPARQL, resources, subjects, slots and contexts ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
@@ -405,6 +433,8 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
 - `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
   `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
   `SempodsForeignTarget`, and `net/` for the outbound guard
+- `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its
+  groups, `Rdf4jCodec` for the pinned parser and writer settings
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
   `SempodsAuth`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`

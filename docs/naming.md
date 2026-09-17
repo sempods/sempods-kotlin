@@ -166,10 +166,8 @@ through in a module that goes public.
 
 ## 4. Package namespace
 
-**`org.sempods.*`, for every module in the set**: `sempods-commons`, `sempods-commons-jaxrs`, `sempods-commons-json`,
-`sempods-commons-ktor`, `sempods-commons-mongo`, `sempods-commons-okhttp`, `sempods-server`, `sempods-model`,
-`sempods-auth`, `sempods-auth-core`, `sempods-mcp`, `sempods-mcp-core`, `sempods-client`,
-`sempods-control-plane-client`, `sempods-media-s3` and `deployments/sempods/image`. Maven Central
+**`org.sempods.*`, for every module in the set**: the modules named in `publishedModules` in the
+root `build.gradle.kts`, and `deployments/sempods/image`. Maven Central
 verifies a namespace against a domain it can resolve, and `org.sempods` is provable via
 `sempods.org` — which is why the move happened before anything was published rather than after.
 
@@ -178,7 +176,8 @@ one; only a module that ships under these coordinates has to.
 
 Under `org.sempods`, `sempods-commons` keeps its own segment (`org.sempods.commons.*`); the pod server and
 its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempods.auth`,
-`org.sempods.mcp`, `org.sempods.client`, `org.sempods.controlplane`).
+`org.sempods.mcp`, `org.sempods.client`, `org.sempods.client.core`, `org.sempods.client.rdf4j`,
+`org.sempods.controlplane`).
 
 **A module name is not a package name here, and does not try to be.** `sempods-server` holds
 `org.sempods.pods`, and `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies`,

@@ -7,11 +7,11 @@ unless a narrower file says otherwise. The IST documentation is in [`docs/`](doc
 [`sempods-mcp`](sempods-mcp/AGENTS.md) and [`sempods-server`](sempods-server/AGENTS.md), the last
 with two more scoped to packages inside it
 ([`pods/`](sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md),
-[`ai/`](sempods-server/src/main/kotlin/org/sempods/ai/AGENTS.md)). The other thirteen have none and
-take this file directly — that is the normal case, not a gap to be filled.
+[`ai/`](sempods-server/src/main/kotlin/org/sempods/ai/AGENTS.md)). The others have none and take
+this file directly — that is the normal case, not a gap to be filled.
 
-**The pod server is [`sempods-server/`](sempods-server/)**, one module among sixteen rather than
-the product. It carries its own [`sempods-server/AGENTS.md`](sempods-server/AGENTS.md), which
+**The pod server is [`sempods-server/`](sempods-server/)**, one module among many rather than the
+product. It carries its own [`sempods-server/AGENTS.md`](sempods-server/AGENTS.md), which
 points back here for the mission, terminology and documentation map below. This file remains the
 authority where the two overlap.
 
@@ -130,7 +130,7 @@ IST documentation:
 - Naming (IST): `docs/naming.md` — the authority for how "sempods" is written in prose and
   in code, the package namespace, and the names that are frozen because a deployed host, a database
   or a published IRI depends on them
-- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF-free core (`:sempods-client-core`) and its session, authentication, admission and outcome contracts; the tiers above it and which one a consumer takes; the rule for what may be added at which tier; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
+- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF-free core (`:sempods-client-core`) and its session, authentication, admission and outcome contracts; the RDF4J adapter on it (`:sempods-client-rdf4j`); the tiers above it and which one a consumer takes; the rule for what may be added at which tier; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
 - MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
 - Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's sixteen collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
@@ -156,8 +156,9 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. `:consumer-probe:client-core` and
-  `:consumer-probe:opentelemetry` check the client core from outside. See
+  not their wider accidental surface. `:consumer-probe:client-core`,
+  `:consumer-probe:client-rdf4j` and `:consumer-probe:opentelemetry` check the client artifacts from
+  outside. See
   `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference
