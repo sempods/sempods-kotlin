@@ -343,8 +343,7 @@ class PodTokenProviderTest {
 
   @Test
   fun `the sweep skips a connection whose grant the pod declared dead`() = runBlocking {
-    // The path the production incident actually ran: the row never leaves the sweep's selection,
-    // because a refresh that never happens never moves the expiry.
+    // A row selected before another refresh marked it dead can still reach the provider.
     seedConnection()
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
     markDead()
