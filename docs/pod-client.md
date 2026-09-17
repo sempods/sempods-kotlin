@@ -283,6 +283,9 @@ Nothing travels to the operation's thread on its own. A trace goes along with an
 carries it, such as OpenTelemetry's `Context.taskWrapping`, passed as the second argument.
 `SempodsAsyncOperation.result` has the table of how an operation completes.
 
+The [manual load comparison](../consumer-probe/client-core/docs/load.md) measures the adapter,
+direct virtual-thread calls and OkHttp callbacks on Java 21 and 25, outside ordinary PR CI.
+
 ## The transport: OkHttp, blocking
 
 **Blocking**, because:

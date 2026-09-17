@@ -15,7 +15,8 @@
     "gradle",
     "**/build",
     "**/src/test",
-    "**/src/testFixtures"
+    "**/src/testFixtures",
+    "**/src/load"
   ],
   "excludeFiles": [
     "AGENTS.md",
