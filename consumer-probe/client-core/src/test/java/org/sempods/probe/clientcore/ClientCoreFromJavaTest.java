@@ -2,6 +2,7 @@ package org.sempods.probe.clientcore;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -18,7 +19,13 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.Headers;
@@ -37,6 +44,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsAsync;
+import org.sempods.client.core.SempodsAsyncOperation;
 import org.sempods.client.core.SempodsAuthAttempt;
 import org.sempods.client.core.SempodsContent;
 import org.sempods.client.core.SempodsContextCreate;
@@ -92,6 +101,16 @@ class ClientCoreFromJavaTest {
         "sempods.probe.javaRelease is unset — run this suite through Gradle, which chooses its JVM.");
 
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    // A thread per exchange, so the slow route below holds up no other.
+    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    server.createContext("/alice/_system/slow", exchange -> {
+      try {
+        Thread.sleep(10_000);
+      } catch (InterruptedException stopped) {
+        Thread.currentThread().interrupt();
+      }
+      json(exchange, 200, "{}");
+    });
     server.createContext("/alice/_system/probe", exchange -> {
       exchange.getResponseHeaders().add("X-Saw-Api-Key", header(exchange, "X-Api-Key"));
       exchange.getResponseHeaders().add("X-Saw-Tracing", header(exchange, "Y-My-Tracing"));
@@ -536,6 +555,39 @@ class ClientCoreFromJavaTest {
     assertSame(mine, assertThrows(IOException.class, () -> contexts.export(tasks, body -> {
       throw mine;
     })));
+  }
+
+  @Test
+  void runsOperationsAsyncFromJava() throws Exception {
+    SempodsAsync async = new SempodsAsync(client);
+    SempodsSession alice = new SempodsSession(SempodsPodBase.of(base("alice")));
+
+    List<SempodsAsyncOperation<Boolean>> asks = new ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      asks.add(async.submit(calls -> new SempodsPod(alice, calls).sparql().ask("ASK { ?s ?p ?o }").getBody()));
+    }
+    CompletableFuture.allOf(asks.stream().map(ask -> ask.result().toCompletableFuture()).toArray(CompletableFuture[]::new))
+        .get(10, TimeUnit.SECONDS);
+    for (SempodsAsyncOperation<Boolean> ask : asks) {
+      assertTrue(ask.result().toCompletableFuture().join());
+    }
+
+    SempodsAsyncOperation<byte[]> streamed = async.submit(calls ->
+        new SempodsForeignTarget(calls).getStream(base("elsewhere") + "/card", "*/*", InputStream::readAllBytes).getBody());
+    assertTrue(new String(streamed.result().toCompletableFuture().get(10, TimeUnit.SECONDS), StandardCharsets.UTF_8).contains("Bob"));
+
+    SempodsAsyncOperation<Integer> slow = async.submit(calls -> {
+      try (Response response = calls.newCall(alice.newRequest("GET", "_system/slow").build()).execute()) {
+        return response.code();
+      }
+    });
+    Thread.sleep(200);
+    long started = System.nanoTime();
+    slow.cancel();
+
+    ExecutionException ended = assertThrows(ExecutionException.class, () -> slow.result().toCompletableFuture().get(5, TimeUnit.SECONDS));
+    assertInstanceOf(CancellationException.class, ended.getCause());
+    assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 3_000, "the cancel did not end the wait for the answer");
   }
 
   @Test

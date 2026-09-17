@@ -365,9 +365,8 @@ private class AdmissionGate(private val limits: SempodsAdmission) {
    *
    * The bytes are still arriving while a caller reads them and the connection is still held, so
    * releasing the slot when the status line arrived would let an unbounded number of half-read
-   * responses exist under a limit that says otherwise. The release rides on every close OkHttp counts
-   * as closing the body: `Response.close()`, and the source that `string()`, `bytes()` and a closed
-   * `byteStream()` close.
+   * responses exist under a limit that says otherwise. The release rides on the body's close
+   * ([ClosingBody]).
    *
    * A `101` is released at once: the connection now belongs to a WebSocket, which never closes the
    * upgrade response.
@@ -377,40 +376,7 @@ private class AdmissionGate(private val limits: SempodsAdmission) {
       release()
       return response
     }
-    return response.newBuilder().body(ReleasingBody(response.body)).build()
-  }
-
-  private inner class ReleasingBody(private val delegate: ResponseBody) : ResponseBody() {
-
-    private val released = AtomicBoolean(false)
-
-    private val releasingSource: BufferedSource = object : ForwardingSource(delegate.source()) {
-      override fun close() {
-        try {
-          super.close()
-        } finally {
-          releaseOnce()
-        }
-      }
-    }.buffer()
-
-    override fun contentType() = delegate.contentType()
-
-    override fun contentLength() = delegate.contentLength()
-
-    override fun source() = releasingSource
-
-    override fun close() {
-      try {
-        delegate.close()
-      } finally {
-        releaseOnce()
-      }
-    }
-
-    private fun releaseOnce() {
-      if (released.compareAndSet(false, true)) release()
-    }
+    return response.newBuilder().body(ClosingBody(response.body, ::release)).build()
   }
 
   private companion object {
@@ -456,5 +422,42 @@ private class GuardInterceptor(private val guard: SempodsOutboundGuard) : Interc
     if (pinned.dns !== dns) pinned = pinned.withDns(dns)
     if (guard.proxyless && pinned.proxy != Proxy.NO_PROXY) pinned = pinned.withProxy(Proxy.NO_PROXY)
     return pinned.proceed(chain.request())
+  }
+}
+
+/**
+ * [delegate], running [onClose] once, on the first close OkHttp counts as closing a body: `Response.close()`,
+ * and the source that `string()`, `bytes()` and a closed `byteStream()` close.
+ */
+internal class ClosingBody(private val delegate: ResponseBody, private val onClose: Runnable) : ResponseBody() {
+
+  private val closed = AtomicBoolean(false)
+
+  private val closingSource: BufferedSource = object : ForwardingSource(delegate.source()) {
+    override fun close() {
+      try {
+        super.close()
+      } finally {
+        closeOnce()
+      }
+    }
+  }.buffer()
+
+  override fun contentType() = delegate.contentType()
+
+  override fun contentLength() = delegate.contentLength()
+
+  override fun source() = closingSource
+
+  override fun close() {
+    try {
+      delegate.close()
+    } finally {
+      closeOnce()
+    }
+  }
+
+  private fun closeOnce() {
+    if (closed.compareAndSet(false, true)) onClose.run()
   }
 }

@@ -8,6 +8,9 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -17,6 +20,7 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.instrumentation.okhttp.v3_0.OkHttpTelemetry;
@@ -35,6 +39,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import org.sempods.client.core.SempodsAsync;
+import org.sempods.client.core.SempodsAsyncOperation;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPodBase;
 import org.sempods.client.core.SempodsRequestAuth;
@@ -134,6 +140,32 @@ class OpenTelemetryLibraryTest {
     assertEquals(client.getTraceId(), fields[1]);
     assertEquals(client.getSpanId(), fields[2]);
     assertEquals(1, Integer.parseInt(fields[3], 16) & 0x01, "the sampled flag");
+  }
+
+  @Test
+  void anAsyncOperationCarriesTheCallersTraceThroughAContextWrappingExecutor() throws Exception {
+    SempodsSession session = new SempodsSession(SempodsPodBase.of(pod));
+    Span parent = openTelemetry.getTracer("probe").spanBuilder("parent").startSpan();
+
+    try (ExecutorService executor = Context.taskWrapping(Executors.newVirtualThreadPerTaskExecutor())) {
+      SempodsAsync async = new SempodsAsync(calls, executor);
+      SempodsAsyncOperation<Integer> operation;
+      try (Scope ignored = parent.makeCurrent()) {
+        operation = async.submit(work -> {
+          try (Response response = work.newCall(session.newRequest("GET", "ok").build()).execute()) {
+            return response.code();
+          }
+        });
+      }
+      assertEquals(204, operation.result().toCompletableFuture().get(10, TimeUnit.SECONDS));
+    } finally {
+      parent.end();
+    }
+
+    SpanData client = clientSpans().get(0);
+    assertEquals(parent.getSpanContext().getTraceId(), client.getTraceId());
+    assertEquals(parent.getSpanContext().getSpanId(), client.getParentSpanId());
+    assertEquals(client.getSpanId(), TRACEPARENTS.get(0).split("-")[2]);
   }
 
   @Test
