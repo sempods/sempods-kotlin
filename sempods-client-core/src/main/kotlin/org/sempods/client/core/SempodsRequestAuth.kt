@@ -138,7 +138,7 @@ fun interface SempodsRequestAuth {
       SempodsRequestAuth { request, _ -> request.header(name, value) }
 
     /**
-     * An OAuth client's own credential, as `client_secret_basic`: what a [SempodsTokenEndpoint] session
+     * An OAuth client's own credential, as `client_secret_basic`: what a [SempodsPodTokens] session
      * authenticates with. Not retried, as [bearer].
      *
      * RFC 6749 §2.3.1 form-encodes both values before they are joined and Base64-encoded. With the secret

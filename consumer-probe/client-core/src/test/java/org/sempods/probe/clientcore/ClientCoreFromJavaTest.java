@@ -60,7 +60,7 @@ import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsSparqlResults;
 import org.sempods.client.core.SempodsSparqlTermKind;
-import org.sempods.client.core.SempodsTokenEndpoint;
+import org.sempods.client.core.SempodsPodTokens;
 import org.sempods.client.core.SempodsTokenResponse;
 import org.sempods.client.core.SempodsWriteOptions;
 
@@ -302,7 +302,7 @@ class ClientCoreFromJavaTest {
 
   @Test
   void mintsAServiceTokenRawAndTypedFromJava() throws IOException {
-    SempodsTokenEndpoint alice = new SempodsTokenEndpoint(
+    SempodsPodTokens alice = new SempodsPodTokens(
         new SempodsSession(SempodsPodBase.of(base("alice")), SempodsRequestAuth.clientSecretBasic("notes-app", "a+b")), client);
 
     SempodsResponse<SempodsTokenResponse> typed = alice.clientCredentials();
@@ -318,7 +318,7 @@ class ClientCoreFromJavaTest {
     assertTrue(alice.clientCredentialsJson().getBody().contains("\"tok-1\""));
     assertTrue(alice.clientCredentialsBytes().getBody().length > 0);
 
-    SempodsTokenEndpoint bob = new SempodsTokenEndpoint(
+    SempodsPodTokens bob = new SempodsPodTokens(
         new SempodsSession(SempodsPodBase.of(base("bob")), SempodsRequestAuth.clientSecretBasic("notes-app", "s")), client);
     assertNull(bob.clientCredentials().getBody().getExpiresIn());
   }

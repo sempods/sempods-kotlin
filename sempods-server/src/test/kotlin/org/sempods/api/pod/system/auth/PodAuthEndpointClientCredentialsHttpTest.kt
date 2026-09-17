@@ -16,7 +16,7 @@ import org.sempods.client.core.SempodsPodBase
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsStatusException
-import org.sempods.client.core.SempodsTokenEndpoint
+import org.sempods.client.core.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -315,11 +315,11 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   }
 
   /** The client core against this token endpoint, so neither the request nor the answers it takes can drift from these. */
-  private fun <T> withCore(podName: String, clientId: String, secret: String, block: (SempodsTokenEndpoint, OkHttpClient) -> T): T {
+  private fun <T> withCore(podName: String, clientId: String, secret: String, block: (SempodsPodTokens, OkHttpClient) -> T): T {
     val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
     val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")
     try {
-      return block(SempodsTokenEndpoint(SempodsSession(base, SempodsRequestAuth.clientSecretBasic(clientId, secret)), client), client)
+      return block(SempodsPodTokens(SempodsSession(base, SempodsRequestAuth.clientSecretBasic(clientId, secret)), client), client)
     } finally {
       client.dispatcher.executorService.shutdown()
       client.connectionPool.evictAll()
@@ -349,7 +349,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
       val podBearer = SempodsRequestAuth.refreshable(
         SempodsCredentialSupplier { _, attempt ->
-          checkNotNull(SempodsTokenEndpoint(tokens.session, attempt.calls(client)).clientCredentials().body).accessToken
+          checkNotNull(SempodsPodTokens(tokens.session, attempt.calls(client)).clientCredentials().body).accessToken
         },
       )
       val catalogue = SempodsPod(SempodsSession(tokens.session.podBase, podBearer), client).contexts().listText()

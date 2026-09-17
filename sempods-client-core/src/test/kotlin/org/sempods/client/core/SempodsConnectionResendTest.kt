@@ -249,7 +249,7 @@ class SempodsConnectionResendTest {
       leaveAStaleConnection(client, a)
       requestHeads.clear()
 
-      assertThrows<IOException> { SempodsTokenEndpoint(a, client).clientCredentialsJson() }
+      assertThrows<IOException> { SempodsPodTokens(a, client).clientCredentialsJson() }
 
       assertTrue(requestHeads.isEmpty(), requestHeads.toString())
     }

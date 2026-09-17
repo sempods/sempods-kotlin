@@ -20,7 +20,7 @@ import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
 /** What a token request puts on the wire, which answers it takes, and what it never carries. */
-class SempodsTokenEndpointContractTest : MockPodTest() {
+class SempodsPodTokensContractTest : MockPodTest() {
 
   private val client = sempodsClient()
 
@@ -38,9 +38,9 @@ class SempodsTokenEndpointContractTest : MockPodTest() {
   private val alice get() = SempodsPodBase.of("$origin/alice")
 
   private fun tokens(auth: SempodsRequestAuth = SempodsRequestAuth.clientSecretBasic("notes-app", secret)) =
-    SempodsTokenEndpoint(SempodsSession(alice, auth), client)
+    SempodsPodTokens(SempodsSession(alice, auth), client)
 
-  private val operations: Map<String, (SempodsTokenEndpoint) -> SempodsResponse<*>> = mapOf(
+  private val operations: Map<String, (SempodsPodTokens) -> SempodsResponse<*>> = mapOf(
     "clientCredentials" to { it.clientCredentials() },
     "clientCredentialsJson" to { it.clientCredentialsJson() },
     "clientCredentialsBytes" to { it.clientCredentialsBytes() },
@@ -112,7 +112,7 @@ class SempodsTokenEndpointContractTest : MockPodTest() {
       val refreshable = SempodsRequestAuth.refreshable(
         SempodsCredentialSupplier { _, attempt ->
           minted.incrementAndGet()
-          checkNotNull(SempodsTokenEndpoint(clientSession, attempt.calls(narrow)).clientCredentials().body).accessToken
+          checkNotNull(SempodsPodTokens(clientSession, attempt.calls(narrow)).clientCredentials().body).accessToken
         },
       )
       val podBearer = object : SempodsRequestAuth {

@@ -14,13 +14,14 @@ import java.time.Duration
  *     SempodsRequestAuth.clientSecretBasic("notes-app", secret));
  *
  * SempodsRequestAuth podBearer = SempodsRequestAuth.refreshable((forceRefresh, attempt) ->
- *     new SempodsTokenEndpoint(clientSession, attempt.calls(client)).clientCredentials().getBody().getAccessToken());
+ *     new SempodsPodTokens(clientSession, attempt.calls(client)).clientCredentials().getBody().getAccessToken());
  * SempodsPod pod = new SempodsPod(new SempodsSession(alice, podBearer), client);
  * ```
  *
- * **[session] carries the client's credential**, usually [SempodsRequestAuth.clientSecretBasic], and a
- * pod session's bearer never reaches this endpoint. A supplier that mints through the client it serves
- * passes [SempodsAuthAttempt.calls], as above. What to cache and when to mint again is the caller's.
+ * **Built on a session of its own**, unlike the groups a [SempodsPod] hands out: [session] carries the
+ * client's credential, usually [SempodsRequestAuth.clientSecretBasic], so a pod session's bearer never
+ * reaches this endpoint. A supplier that mints through the client it serves passes
+ * [SempodsAuthAttempt.calls], as above. What to cache and when to mint again is the caller's.
  *
  * Every method sends the same request: `Accept: application/json` and the form
  * `grant_type=client_credentials`, without `scope`, which a pod refuses for this grant (SPS-AUTH-032). It
@@ -34,7 +35,7 @@ import java.time.Duration
  * A 2xx body can hold a token, so it is read as the token response and never kept as an excerpt. One
  * that is not a token response is a [SempodsDecodingException], which quotes nothing from it.
  */
-class SempodsTokenEndpoint(
+class SempodsPodTokens(
   val session: SempodsSession,
   val calls: Call.Factory,
 ) {
