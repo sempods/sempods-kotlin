@@ -1,10 +1,12 @@
 package org.sempods.client.core
 
 import okhttp3.Call
+import okhttp3.Credentials
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
@@ -134,6 +136,22 @@ fun interface SempodsRequestAuth {
     @JvmStatic
     fun apiKeyHeader(name: String, value: String): SempodsRequestAuth =
       SempodsRequestAuth { request, _ -> request.header(name, value) }
+
+    /**
+     * An OAuth client's own credential, as `client_secret_basic`: what a [SempodsTokenEndpoint] session
+     * authenticates with. Not retried, as [bearer].
+     *
+     * RFC 6749 §2.3.1 form-encodes both values before they are joined and Base64-encoded. With the secret
+     * `a+b`, the header encodes `notes-app:a%2Bb`. Unencoded, a server that follows the RFC reads the
+     * secret as `a b` and refuses it.
+     */
+    @JvmStatic
+    fun clientSecretBasic(clientId: String, clientSecret: String): SempodsRequestAuth {
+      val value = Credentials.basic(formEncoded(clientId), formEncoded(clientSecret), Charsets.UTF_8)
+      return SempodsRequestAuth { request, _ -> request.header("Authorization", value) }
+    }
+
+    private fun formEncoded(value: String): String = URLEncoder.encode(value, Charsets.UTF_8)
 
     /**
      * A bearer that can be re-acquired, and the only convenience that retries.
