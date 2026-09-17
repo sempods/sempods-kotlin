@@ -5,6 +5,7 @@ import java.io.InterruptedIOException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -358,6 +359,44 @@ class SempodsSessionAuthTest : MockPodTest() {
       }
     } finally {
       release.countDown()
+      pool.shutdownNow()
+    }
+  }
+
+  @Test
+  fun `a call cancelled while it waits for a credential starts no acquisition when the lock comes free`() {
+    // The first acquisition fails and leaves no credential behind, so a waiter that took the lock
+    // after its cancel would ask the supplier again.
+    val acquiring = CountDownLatch(1)
+    val fail = CountDownLatch(1)
+    val asked = AtomicInteger()
+    val a = session("alice", refreshable { _ ->
+      if (asked.incrementAndGet() == 1) {
+        acquiring.countDown()
+        fail.await(5, TimeUnit.SECONDS)
+        throw IOException("issuer unavailable")
+      }
+      "t"
+    })
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    val pool = Executors.newFixedThreadPool(2)
+    try {
+      val first = pool.submit { a.text("x") }
+      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+      val waiting = client.newCall(a.newRequest("GET", "x").build())
+      val second = pool.submit { waiting.execute().close() }
+      Thread.sleep(200)
+
+      waiting.cancel()
+      fail.countDown()
+
+      assertThrows<ExecutionException> { first.get(5, TimeUnit.SECONDS) }
+      assertTrue(assertThrows<ExecutionException> { second.get(5, TimeUnit.SECONDS) }.cause is IOException)
+      assertEquals(1, asked.get(), "the cancelled call asked the supplier for a credential")
+      assertTrue(server.retrieveRecordedRequests(request()).isEmpty())
+    } finally {
+      fail.countDown()
       pool.shutdownNow()
     }
   }

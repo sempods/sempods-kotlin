@@ -193,6 +193,8 @@ private class Refreshable(
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
       credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
+      // The lock can come free just after the call was cancelled, which the wait checks only between polls.
+      if (attempt.call.isCanceled()) throw IOException("Canceled while waiting to acquire a credential.")
       return supplier.get(refused != null, attempt).also { credential = it }
     } finally {
       lock.unlock()
