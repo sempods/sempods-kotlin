@@ -201,9 +201,9 @@ The other half of that rule matters as much and is the one that gets skipped: a 
 ordinary thing carries **no** comment, and a value that *becomes* ordinary loses the comment it had.
 A dependency on `implementation` because nothing it holds is in a public signature needs no more
 explanation than a `val` needs a comment saying it is a variable. What does not happen is a comment
-recording that it used to be otherwise — that is what the commit message is for. This is rule 4 and
-rule 5 of [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which
-apply to code comments exactly as they apply to markdown; nothing about a `.kts` file exempts it.
+recording that it used to be otherwise — that is what the commit message is for. This is rule 3 of
+[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which applies to code
+comments exactly as it applies to markdown; nothing about a `.kts` file exempts it.
 
 **No schema-migration system.** `SempodsUpdater` runs a hardcoded list every boot, with no history
 and no already-applied check. Do not propose a migration framework as a fix for a data change.
@@ -226,7 +226,7 @@ and no already-applied check. Do not propose a migration framework as a fix for 
    "Take MongoDB's key type out of the seams, and check that it stayed out", not `refactor: …`.
    The subject names the change directly, in the fewest words that stay correct: "Correct the
    pod-connect flow documentation", not "Describe the flow as what it does, not as what it still
-   needs" (writing rule 3 in
+   needs" (writing rule 7 in
    [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md)). The body
    explains what was wrong and why the fix has the shape it does.
 
