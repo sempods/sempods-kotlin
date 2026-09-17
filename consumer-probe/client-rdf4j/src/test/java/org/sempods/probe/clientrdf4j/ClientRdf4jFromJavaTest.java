@@ -1,6 +1,7 @@
 package org.sempods.probe.clientrdf4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,6 +12,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
@@ -21,7 +23,12 @@ import okhttp3.OkHttpClient;
 
 import org.eclipse.rdf4j.model.Model;
 import org.eclipse.rdf4j.model.Resource;
+import org.eclipse.rdf4j.model.impl.LinkedHashModel;
 import org.eclipse.rdf4j.model.util.Values;
+import org.eclipse.rdf4j.rio.RDFFormat;
+import org.eclipse.rdf4j.rio.RDFHandlerException;
+import org.eclipse.rdf4j.rio.helpers.StatementCollector;
+import org.eclipse.rdf4j.query.BindingSet;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -31,6 +38,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsContextSelection;
 import org.sempods.client.core.SempodsDecodingException;
+import org.sempods.client.core.SempodsForeignTarget;
 import org.sempods.client.core.SempodsOkHttp;
 import org.sempods.client.core.SempodsPod;
 import org.sempods.client.core.SempodsPodBase;
@@ -38,7 +46,11 @@ import org.sempods.client.core.SempodsReadOptions;
 import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsWriteOptions;
+import org.sempods.client.rdf4j.SempodsRdf4jForeignTarget;
 import org.sempods.client.rdf4j.SempodsRdf4jPod;
+import org.sempods.client.rdf4j.SempodsRdf4jSparql;
+import org.sempods.client.rdf4j.SempodsRdf4jSelectResults;
+import org.sempods.client.rdf4j.SempodsRdf4jSlots;
 
 /**
  * The RDF4J adapter as a Java consumer writes it, checked for what only a Java build and JVM can see.
@@ -80,6 +92,31 @@ class ClientRdf4jFromJavaTest {
       }
     });
     server.createContext("/alice/events/broken", exchange -> send(exchange, 200, "<urn:s> <urn:p> .\n"));
+    // One slot: read as the named-graph array, and an addition echoed back as the value object it sent.
+    server.createContext("/alice/_system/resources/", exchange -> {
+      if (exchange.getRequestMethod().equals("GET")) {
+        send(exchange, 200, "[{\"@id\": \"" + TASKS + "\", \"@graph\": [{\"@id\": \"did:web:bob.example\", "
+            + "\"https://schema.org/name\": [{\"@value\": \"Bob\", \"@language\": \"en\"}]}]}]");
+      } else {
+        String sent = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("X-Sent", sent);
+        send(exchange, 201, "");
+      }
+    });
+    // SELECT answers a result document, CONSTRUCT N-Quads with a broken last line.
+    server.createContext("/alice/_system/sparql/query", exchange -> {
+      String query = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      if (query.startsWith("CONSTRUCT")) {
+        send(exchange, 200, "<urn:s> <urn:p> \"one\" .\n<urn:s> <urn:p> .\n");
+      } else {
+        send(exchange, 200, "{\"head\": {\"vars\": [\"s\", \"o\"]}, \"results\": {\"bindings\": ["
+            + "{\"s\": {\"type\": \"uri\", \"value\": \"urn:s\"}}]}}");
+      }
+    });
+    server.createContext("/profile", exchange -> {
+      exchange.getResponseHeaders().add("Content-Type", "text/turtle");
+      send(exchange, 200, "<#me> <http://xmlns.com/foaf/0.1/name> \"Bob\" .");
+    });
     server.start();
     client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
   }
@@ -131,6 +168,55 @@ class ClientRdf4jFromJavaTest {
         SempodsWriteOptions.inContext(TASKS).withIfMatch("\"v0\""));
     assertEquals(412, stale.getStatus());
     assertNull(stale.getBody());
+  }
+
+  @Test
+  void readsASlotWithItsContextsAndWritesAValueObject() throws IOException {
+    SempodsRdf4jSlots slots = new SempodsRdf4jPod(pod()).slots();
+
+    Model values = slots.getModel("did:web:bob.example", "https://schema.org/name").getBody();
+    assertEquals(Set.<Resource>of(Values.iri(TASKS)), values.contexts());
+
+    SempodsResponse<byte[]> added = slots.add("did:web:bob.example", "https://schema.org/name",
+        Values.iri("https://pods.example/alice/people/bob"), SempodsWriteOptions.inContext(TASKS));
+    assertEquals(201, added.getStatus());
+    assertEquals("{\"@id\":\"https://pods.example/alice/people/bob\"}", added.getHeaders().get("X-Sent"));
+  }
+
+  @Test
+  void readsASelectResultAsBindingSets() throws IOException {
+    SempodsRdf4jSelectResults results = new SempodsRdf4jPod(pod()).sparql().select("SELECT ?s ?o WHERE { ?s ?p ?o }").getBody();
+
+    assertEquals(List.of("s", "o"), results.getVariables());
+    BindingSet row = results.getBindingSets().get(0);
+    assertEquals(Values.iri("urn:s"), row.getValue("s"));
+    assertFalse(row.hasBinding("o"));
+    assertEquals(Set.of("s"), row.getBindingNames());
+  }
+
+  @Test
+  void streamsAGraphIntoAHandlerAndCatchesItsFailuresAsJavaDeclaresThem() {
+    Model handled = new LinkedHashModel();
+    SempodsRdf4jSparql sparql = new SempodsRdf4jPod(pod()).sparql();
+
+    try {
+      sparql.graphStream("CONSTRUCT WHERE { ?s ?p ?o }", new StatementCollector(handled));
+    } catch (SempodsDecodingException unreadable) {
+      assertEquals(200, unreadable.getStatus());
+    } catch (IOException | RDFHandlerException other) {
+      throw new AssertionError("expected a decoding failure", other);
+    }
+    assertEquals(1, handled.size());
+  }
+
+  @Test
+  void readsAForeignTurtleDocumentAsAModel() throws IOException {
+    SempodsRdf4jForeignTarget foreign = new SempodsRdf4jForeignTarget(new SempodsForeignTarget(client));
+    String profile = "http://127.0.0.1:" + server.getAddress().getPort() + "/profile";
+
+    Model model = foreign.getModel(profile, List.of(RDFFormat.TURTLE, RDFFormat.JSONLD)).getBody();
+
+    assertEquals(Set.<Resource>of(Values.iri(profile + "#me")), model.subjects());
   }
 
   @Test

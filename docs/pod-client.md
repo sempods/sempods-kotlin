@@ -199,7 +199,7 @@ route; both read, replace, merge-patch and delete. `slots()` works on the values
 subject: read, replace, add, clear, and remove one IRI value through its edge. `contexts()` reads the
 registry — the catalogue a session sees, and what the registry holds for one context — and creates or
 removes a context at the IRI the pod gave. Those answers are RDF, and this module reads none of it: they arrive
-as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads. §"The RDF4J adapter" reads resources and subjects into models.
+as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads. §"The RDF4J adapter" reads them as RDF4J values.
 
 **An answer is read into memory, up to 16 MiB — an export is not.** `contexts().exportTo` writes everything in
 one context to a stream the caller owns while it arrives, and `contexts().export` hands the body to a
@@ -219,7 +219,7 @@ says what an empty one does. Every write takes its target context in `SempodsWri
 
 ### The RDF4J adapter
 
-`:sempods-client-rdf4j` reads and writes a pod's RDF as RDF4J models, on a `SempodsPod` that already
+`:sempods-client-rdf4j` reads and writes a pod's RDF as RDF4J values, on a `SempodsPod` that already
 exists:
 
 ```java
@@ -227,16 +227,32 @@ var rdf = new SempodsRdf4jPod(pod);
 SempodsResponse<Model> read = rdf.resources().getModel(event, SempodsReadOptions.of(SempodsContextSelection.of(tasks)));
 Model model = read.getBody();
 rdf.resources().put(event, model, SempodsWriteOptions.inContext(tasks).withIfMatch(read.getHeaders().get("ETag")));
+
+rdf.slots().add("did:web:bob.example", knows, Values.iri(carol), SempodsWriteOptions.inContext(tasks));
+List<BindingSet> rows = rdf.sparql().select("SELECT ?s WHERE { ?s ?p ?o }").getBody().getBindingSets();
 ```
 
 **Only the body changes.** Each call is the endpoint group's, so a raw call and a model call on one pod
 share authentication, the resend, admission and the transport, and an answer keeps its status and
-headers. It reads and writes resources and subjects.
+headers. It reads and writes resources, subjects and slots, reads the registry and a context's export,
+and answers CONSTRUCT, DESCRIBE and SELECT queries.
 
-A read asks for N-Quads, so every statement keeps its context; a write sends JSON-LD, each statement
-in its context's named graph. `SempodsRdf4jResources` says what a context other than the target
-leads to. **A model holds what the pod sent:** RDF4J's defaults rewrite some values and yield to JVM
-system properties, so `Rdf4jCodec` sets every such setting itself.
+| Group | Reads | Writes |
+|---|---|---|
+| `resources()`, `subjects()` | a `Model` from N-Quads | a `Model` as JSON-LD, each statement in its context's named graph |
+| `slots()` | a `Model` from JSON-LD grouped by context, the only slot form that names contexts | `Value`s as JSON-LD value objects |
+| `contexts()` | a `Model` from N-Quads, for the catalogue, a description and a creation's answer; an export into an `RDFHandler` or a `Model`, each statement in the exported context | — |
+| `sparql()` | a CONSTRUCT or DESCRIBE `Model`, or into an `RDFHandler`, whose statements carry no context; SELECT solutions as `BindingSet`s | — |
+
+Every statement keeps the context the pod put it in. An ASK needs nothing here: the core's `boolean`
+is what RDF4J would answer. `SempodsRdf4jResources` says what a context other than the target leads
+to. **A model holds what the pod sent:** RDF4J's defaults rewrite some values and yield to JVM system
+properties, so `Rdf4jCodec` sets every such setting itself. What no setting keeps is a language tag's
+case through JSON-LD, which `SempodsRdf4jSlots` explains.
+
+**A stream sorts a failure by where it came from.** What the handler throws, and an `IOException` of the
+connection, reach the caller as they are; a body that stops parsing is a `SempodsDecodingException`,
+after the statements before it were handed on.
 
 ### A foreign URI
 
@@ -251,6 +267,19 @@ SempodsResponse<byte[]> doc = foreign.followingRedirects(5).getBytes(id, "applic
 It keeps the client's guard, deadline and admission, and nothing a session holds; its KDoc has the
 contract. It is the call most likely to get a URI from someone else's request, so install the guard
 (§"The guard").
+
+`SempodsRdf4jForeignTarget` reads the same URI as RDF4J values:
+
+```java
+var rdfForeign = new SempodsRdf4jForeignTarget(foreign.followingRedirects(5));
+Model profile = rdfForeign.getModel("https://bob.example/profile", List.of(RDFFormat.TURTLE, RDFFormat.JSONLD)).getBody();
+```
+
+`Accept` lists the formats in the caller's order, and for a model the answer's `Content-Type` picks the
+parser; a stream parses as the one format it was given.
+Turtle, N-Quads, N-Triples and JSON-LD come with the module. **A remote JSON-LD context is loaded
+through the same foreign target, anonymously and at most ten per document**, so the guard and admission
+hold for it too. A stream loads none, because its call still holds the admission slot.
 
 ### A service token
 
@@ -405,9 +434,10 @@ implementation(platform("org.sempods:sempods-bom:0.2.0"))
 implementation("org.sempods:sempods-client-core")
 ```
 
-`:sempods-client-rdf4j` is the coordinate for a consumer that wants models on that same session. It
-brings RDF4J's model and its N-Quads and JSON-LD codecs — and with the JSON-LD codec Jackson 2's
-streaming core — but no Jena, no Jackson 2 mapper, and neither `:sempods-model` nor `:sempods-client`.
+`:sempods-client-rdf4j` is the coordinate for a consumer that wants RDF4J values on that same session. It
+brings RDF4J's model, its query types and its N-Quads, Turtle and JSON-LD codecs — and with the JSON-LD
+codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper, and neither `:sempods-model` nor
+`:sempods-client`. Slot values it writes with the core's Jackson 3.
 **It needs Java 25**, because RDF4J 6 is built for it; the core stays on 21.
 
 `:consumer-probe:client-core` and `:consumer-probe:client-rdf4j` check both from outside the build, as

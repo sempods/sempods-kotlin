@@ -14,6 +14,11 @@ import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsSparqlTermKind
 import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Models
+import org.eclipse.rdf4j.rio.helpers.StatementCollector
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
@@ -626,6 +631,70 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
       val refused = assertThrows<SempodsStatusException> { sparql.ask("ASK {}") }
       assertEquals(401, refused.status)
       assertNotNull(refused.headers["WWW-Authenticate"])
+    }
+  }
+
+  // ── The RDF4J adapter against this route ─────────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter reads a SELECT result as binding sets and a CONSTRUCT graph as a model without contexts`() {
+    val pod = sempodsTestFactory.newPod()
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
+    val name = "public-event-${TestUtil.randomId()}"
+    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = eventUri, context = sempodsTestFactory.publicContextUri(pod.name), name = name)
+    val event = Values.iri(eventUri.toString())
+
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}${pod.name}")
+      val sparql = SempodsRdf4jPod(SempodsPod(SempodsSession(base, SempodsRequestAuth.anonymous()), client)).sparql()
+
+      val results = assertNotNull(sparql.select("SELECT ?p ?o WHERE { <$eventUri> ?p ?o }").body)
+      assertEquals(listOf("p", "o"), results.variables)
+      assertTrue(results.bindingSets.any { it.getValue("o") == Values.literal(name) }, "$results")
+
+      val graph = assertNotNull(sparql.graphModel("CONSTRUCT WHERE { <$eventUri> ?p ?o }").body)
+      assertTrue(graph.contains(event, null, Values.literal(name)), "graph: $graph")
+      assertEquals(setOf(null), graph.contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the RDF4J adapter exports one context with that context on every statement, and streams a graph`() {
+    val pod = sempodsTestFactory.newPod()
+    val podId = checkNotNull(pod.id)
+    val tasks = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks")
+    val notes = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/notes")
+    listOf(tasks, notes).forEach {
+      podContextsDao.create(podId = podId, contextUri = it.toString(), label = null, description = null, createdBy = "test")
+    }
+    val token = mintScopedToken(pod.name, listOf(tasks, notes).flatMap { listOf("$it#read", "$it#write") })
+    val exported = sempodsTestFactory.seedEvent(pod = pod.name, context = tasks, name = "exported")
+    val other = sempodsTestFactory.seedEvent(pod = pod.name, context = notes, name = "not exported")
+
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    try {
+      val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}${pod.name}")
+      val rdf = SempodsRdf4jPod(SempodsPod(SempodsSession(base, SempodsRequestAuth.bearer(token)), client))
+
+      val handled = LinkedHashModel()
+      val count = rdf.contexts().export(tasks.toString(), StatementCollector(handled))
+      assertEquals(handled.size.toLong(), count.body)
+      assertEquals(setOf(Values.iri(tasks.toString())), handled.contexts())
+      assertTrue(handled.contains(Values.iri(exported.toString()), null, null), "export: $handled")
+      assertFalse(handled.contains(Values.iri(other.toString()), null, null), "export: $handled")
+      assertTrue(Models.isomorphic(handled, assertNotNull(rdf.contexts().exportModel(tasks.toString()).body)))
+
+      val streamed = LinkedHashModel()
+      rdf.sparql().graphStream("CONSTRUCT WHERE { <$exported> ?p ?o }", StatementCollector(streamed))
+      assertTrue(streamed.contains(Values.iri(exported.toString()), null, null), "stream: $streamed")
+      assertEquals(setOf(null), streamed.contexts())
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
     }
   }
 }

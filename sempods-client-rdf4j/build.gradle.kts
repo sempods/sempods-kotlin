@@ -5,19 +5,27 @@ plugins {
 description = "RDF4J models over the sempods pod client core."
 
 dependencies {
-  // `api`: every signature here names the core's session, options and answers, and RDF4J's `Model`.
+  // `api`: every signature here names the core's session, options and answers, and RDF4J's `Model`,
+  // `Value`, `BindingSet`, `RDFHandler` and `RDFFormat`.
   api(project(":sempods-client-core"))
   api(libs.rdf4jModelApi)
+  api(libs.rdf4jQuery)
+  api(libs.rdf4jRioApi)
 
-  // The parser and writer are named, not found through `ServiceLoader`: a consumer's classpath cannot
-  // take away the format this module reads, and the settings pinned in `Rdf4jCodec` are these classes'.
+  // The parsers a pod answers with and the writer are named in code, so a consumer's classpath cannot
+  // take away the format this module reads.
   implementation(libs.rdf4jModel)
-  implementation(libs.rdf4jRioApi)
   implementation(libs.rdf4jRioNquads)
   implementation(libs.rdf4jRioNtriples)
   implementation(libs.rdf4jRioJsonld)
+  implementation(libs.hasmacJsonLd)
+  // Found through `ServiceLoader` for a foreign URI that answers Turtle.
+  runtimeOnly(libs.rdf4jRioTurtle)
+
+  implementation(libs.jackson3Databind)
 
   testImplementation(libs.okhttp)
+  testImplementation(libs.rdf4jModelVocabulary)
   testImplementation(libs.slf4jApi)
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)

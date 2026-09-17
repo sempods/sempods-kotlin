@@ -125,6 +125,10 @@ rdf4jCommonTransaction = { module = "org.eclipse.rdf4j:rdf4j-common-transaction"
 rdf4jRioJsonld = { module = "org.eclipse.rdf4j:rdf4j-rio-jsonld", version.ref = "rdf4j" }
 rdf4jRioNquads = { module = "org.eclipse.rdf4j:rdf4j-rio-nquads", version.ref = "rdf4j" }
 rdf4jRioNtriples = { module = "org.eclipse.rdf4j:rdf4j-rio-ntriples", version.ref = "rdf4j" }
+rdf4jRioTurtle = { module = "org.eclipse.rdf4j:rdf4j-rio-turtle", version.ref = "rdf4j" }
+# The JSON-LD processor `rdf4j-rio-jsonld` is built on, at the version that artifact names: the RDF4J
+# adapter loads remote contexts through its `DocumentLoader`. It moves when RDF4J moves.
+hasmacJsonLd = "no.hasmac:hasmac-json-ld:0.10.2"
 rdf4jRepoSail = { module = "org.eclipse.rdf4j:rdf4j-repository-sail", version.ref = "rdf4j" }
 rdf4jSailMemory = { module = "org.eclipse.rdf4j:rdf4j-sail-memory", version.ref = "rdf4j" }
 rdf4jSparqlJson = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-sparqljson", version.ref = "rdf4j" }
