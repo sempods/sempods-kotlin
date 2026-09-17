@@ -365,6 +365,9 @@ class ClientCoreFromJavaTest {
 
     IOException own = new IOException("the adapter's own");
     assertSame(own, assertThrows(IOException.class, () -> graph.map(bytes -> { throw own; })));
+
+    // javac lets a decoder return null despite the Kotlin bound; an answer with a body keeps one.
+    assertEquals(200, assertThrows(SempodsDecodingException.class, () -> graph.map(bytes -> null)).getStatus());
   }
 
   @Test

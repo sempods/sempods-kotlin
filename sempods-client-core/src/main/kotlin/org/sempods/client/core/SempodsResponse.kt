@@ -43,13 +43,14 @@ class SempodsResponse<T : Any> internal constructor(
    * A failure of [decoder] other than an `IOException` is a [SempodsDecodingException] with this
    * answer's status and headers. Its message names the method, the URL without its query, the status
    * and the failure's class, and quotes neither the body nor the failure's own message, which may
-   * quote the body. An `IOException` passes through as it is, so
-   * a decoder that maps again reports its own [SempodsDecodingException] unchanged.
+   * quote the body. A decoder that returns null — Java allows it — fails the same way, since an answer
+   * with a body keeps one. An `IOException` passes through as it is, so a decoder that maps again
+   * reports its own [SempodsDecodingException] unchanged.
    */
   @Throws(IOException::class)
   fun <R : Any> map(decoder: SempodsBodyDecoder<T, R>): SempodsResponse<R> {
     val decoded = body?.let {
-      try {
+      val result: R? = try {
         decoder.decode(it)
       } catch (failure: IOException) {
         throw failure
@@ -63,6 +64,7 @@ class SempodsResponse<T : Any> internal constructor(
           headers,
         )
       }
+      result ?: throw SempodsDecodingException("$described answered $status, and the decoder returned no body.", status, headers)
     }
     return SempodsResponse(url, status, headers, decoded, described)
   }
