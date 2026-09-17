@@ -65,27 +65,28 @@ class PodResourceWriteService @Inject constructor(
     conditions: WriteConditions,
   ): PutResourceOutcome {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    val preExisting = podFacade.loadResourceStatementsInContext(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-    )
-    conditions.requireHold(RepresentationTags.resourceWriteTarget(preExisting, contextUri))
-    val inputModel = parseRequestModelOrThrow(contentTypeHeader, body)
-    validateReplacementModelOrThrow(
-      model = inputModel,
-      resourceUri = resourceUri,
-      targetContextUri = contextUri,
-      allowEmptyModel = false,
-    )
-    val existedBefore = preExisting.isNotEmpty()
-    podFacade.patchResource(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-      replacementModel = inputModel,
-    )
-    return if (existedBefore) PutResourceOutcome.UPDATED else PutResourceOutcome.CREATED
+    return podFacade.exclusively(pod) {
+      val preExisting = podFacade.loadResourceStatementsInContext(
+        podName = pod,
+        resourceUri = resourceUri,
+        contextUri = contextUri,
+      )
+      conditions.requireHold(RepresentationTags.resourceWriteTarget(preExisting, contextUri))
+      val inputModel = parseRequestModelOrThrow(contentTypeHeader, body)
+      validateReplacementModelOrThrow(
+        model = inputModel,
+        resourceUri = resourceUri,
+        targetContextUri = contextUri,
+        allowEmptyModel = false,
+      )
+      podFacade.patchResource(
+        podName = pod,
+        resourceUri = resourceUri,
+        contextUri = contextUri,
+        replacementModel = inputModel,
+      )
+      if (preExisting.isNotEmpty()) PutResourceOutcome.UPDATED else PutResourceOutcome.CREATED
+    }
   }
 
   /**
@@ -113,54 +114,56 @@ class PodResourceWriteService @Inject constructor(
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
 
-    val existingStatements = podFacade.loadResourceStatementsInContext(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-    )
-    if (existingStatements.isEmpty()) {
-      PodResourceErrors.throwResourceNotFoundInContext(
+    return podFacade.exclusively(pod) {
+      val existingStatements = podFacade.loadResourceStatementsInContext(
+        podName = pod,
         resourceUri = resourceUri,
         contextUri = contextUri,
-        hint = "use create_resource to create it",
+      )
+      if (existingStatements.isEmpty()) {
+        PodResourceErrors.throwResourceNotFoundInContext(
+          resourceUri = resourceUri,
+          contextUri = contextUri,
+          hint = "use create_resource to create it",
+        )
+      }
+      conditions.requireHold(RepresentationTags.resourceWriteTarget(existingStatements, contextUri))
+
+      val patch = parseStrictPatchOrThrow(body, resourceUri)
+      val currentDocument = objectMapper.valueToTree<JsonNode>(
+        RdfWriterUtil.toCanonicalJsonLdEntry(
+          model = existingStatements,
+          resource = resourceUri.toIri(),
+        )
+      ) as ObjectNode
+      val merged = applyVanillaJsonMergePatch(currentDocument, patch)
+      if (!merged.isObject) {
+        throw WebApplicationException(
+          Response.status(400).entity("merge patch result must be a JSON object").type(MediaType.TEXT_PLAIN).build()
+        )
+      }
+      // `@id` survives the merge naturally (canonical document carries it, patch is required to
+      // match if it sets one), but re-pin defensively so a removed `@id` cannot fall through.
+      (merged as ObjectNode).put("@id", resourceUri.toString())
+
+      val patchedModel = parseRequestModelOrThrow(
+        contentTypeHeader = "application/ld+json",
+        body = objectMapper.writeValueAsString(merged),
+      )
+      validateReplacementModelOrThrow(
+        model = patchedModel,
+        resourceUri = resourceUri,
+        targetContextUri = contextUri,
+        allowEmptyModel = true,
+      )
+
+      podFacade.patchResource(
+        podName = pod,
+        resourceUri = resourceUri,
+        contextUri = contextUri,
+        replacementModel = patchedModel,
       )
     }
-    conditions.requireHold(RepresentationTags.resourceWriteTarget(existingStatements, contextUri))
-
-    val patch = parseStrictPatchOrThrow(body, resourceUri)
-    val currentDocument = objectMapper.valueToTree<JsonNode>(
-      RdfWriterUtil.toCanonicalJsonLdEntry(
-        model = existingStatements,
-        resource = resourceUri.toIri(),
-      )
-    ) as ObjectNode
-    val merged = applyVanillaJsonMergePatch(currentDocument, patch)
-    if (!merged.isObject) {
-      throw WebApplicationException(
-        Response.status(400).entity("merge patch result must be a JSON object").type(MediaType.TEXT_PLAIN).build()
-      )
-    }
-    // `@id` survives the merge naturally (canonical document carries it, patch is required to
-    // match if it sets one), but re-pin defensively so a removed `@id` cannot fall through.
-    (merged as ObjectNode).put("@id", resourceUri.toString())
-
-    val patchedModel = parseRequestModelOrThrow(
-      contentTypeHeader = "application/ld+json",
-      body = objectMapper.writeValueAsString(merged),
-    )
-    validateReplacementModelOrThrow(
-      model = patchedModel,
-      resourceUri = resourceUri,
-      targetContextUri = contextUri,
-      allowEmptyModel = true,
-    )
-
-    return podFacade.patchResource(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-      replacementModel = patchedModel,
-    )
   }
 
   /**
@@ -175,27 +178,22 @@ class PodResourceWriteService @Inject constructor(
     conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    val existing = podFacade.loadResourceStatementsInContext(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-    )
-    if (existing.isEmpty()) {
-      PodResourceErrors.throwResourceNotFoundInContext(resourceUri = resourceUri, contextUri = contextUri)
-    }
-    conditions.requireHold(RepresentationTags.resourceWriteTarget(existing, contextUri))
-    val changed = podFacade.deleteFromContext(
-      podName = pod,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-    )
-    if (!changed) {
-      PodResourceErrors.throwResourceNotFoundInContext(
+    return podFacade.exclusively(pod) {
+      val existing = podFacade.loadResourceStatementsInContext(
+        podName = pod,
+        resourceUri = resourceUri,
+        contextUri = contextUri,
+      )
+      if (existing.isEmpty()) {
+        PodResourceErrors.throwResourceNotFoundInContext(resourceUri = resourceUri, contextUri = contextUri)
+      }
+      conditions.requireHold(RepresentationTags.resourceWriteTarget(existing, contextUri))
+      podFacade.deleteFromContext(
+        podName = pod,
         resourceUri = resourceUri,
         contextUri = contextUri,
       )
     }
-    return changed
   }
 
   private fun parseRequestModelOrThrow(contentTypeHeader: String?, body: String): Model {

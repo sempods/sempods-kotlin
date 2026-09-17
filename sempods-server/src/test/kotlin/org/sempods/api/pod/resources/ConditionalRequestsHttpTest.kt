@@ -15,6 +15,8 @@ import org.sempods.rdf.toIri
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -79,6 +81,23 @@ class ConditionalRequestsHttpTest : SempodsIntegrationTest() {
 
   private fun nameIn(url: String, token: String): String = get(url, token).responseBody
 
+  /** Runs [times] calls of [call] released together, and returns what each answered. */
+  private fun <T> race(times: Int, call: (Int) -> T): List<T> {
+    val start = CountDownLatch(1)
+    val pool = Executors.newFixedThreadPool(times)
+    try {
+      val answers = (0 until times).map { i -> pool.submit<T> { start.await(); call(i) } }
+      start.countDown()
+      return answers.map { it.get() }
+    } finally {
+      pool.shutdownNow()
+    }
+  }
+
+  private fun slotUrl(pod: PodDbo, subject: URI, predicate: String): String =
+    "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/" +
+      "${encodeUriToUrlSafeBase64(subject)}/${encodeUriToUrlSafeBase64(URI(predicate))}"
+
   @Test
   fun `a tag read from a context validates a write there, in every form, on both routes`() {
     val pod = sempodsTestFactory.newPod()
@@ -137,6 +156,56 @@ class ConditionalRequestsHttpTest : SempodsIntegrationTest() {
       assertEquals(412, put(inX, owner, resource, "Ada", "If-Match" to unionTag).statusCode, "a union tag validates no write")
       seed(pod, resource, mapOf(x to "Ada", y to "Ada in y"))
     }
+  }
+
+  @Test
+  fun `concurrent writes under one tag let exactly one through`() {
+    val pod = sempodsTestFactory.newPod()
+    val x = context(pod, "x")
+    val owner = token(pod, "$x#read", "$x#write")
+    val resource = sempodsTestFactory.eventUri(pod.name)
+    seed(pod, resource, mapOf(x to "Ada"))
+
+    val inX = selected(resource.toString(), x)
+    val tag = assertNotNull(get(inX, owner).headers.get("ETag"))
+    val resourceWrites = race(8) { put(inX, owner, resource, "Writer $it", "If-Match" to tag).statusCode }
+    assertEquals(listOf(200), resourceWrites.filter { it != 412 }, "one write may pass the tag: $resourceWrites")
+
+    val slot = selected(slotUrl(pod, resource, name.stringValue()), x)
+    val slotTag = assertNotNull(get(slot, owner).headers.get("ETag"))
+    val slotWrites = race(8) { i ->
+      http.preparePut(slot)
+        .addHeader("Content-Type", "application/ld+json")
+        .addHeader("Authorization", "Bearer $owner")
+        .addHeader("If-Match", slotTag)
+        .setBody("""[{"@value":"Slot writer $i"}]""")
+        .execute().statusCode
+    }
+    assertEquals(listOf(204), slotWrites.filter { it != 412 }, "one slot write may pass the tag: $slotWrites")
+  }
+
+  @Test
+  fun `concurrent unconditional writes to one subject lose none of each other`() {
+    // Every write replaces the whole subject in the store, so two computed from the same read would
+    // each drop what the other added.
+    val pod = sempodsTestFactory.newPod()
+    val x = context(pod, "x")
+    val owner = token(pod, "$x#read", "$x#write")
+    val subject = sempodsTestFactory.eventUri(pod.name)
+    seed(pod, subject, mapOf(x to "Ada"))
+
+    val predicates = (0 until 8).map { "https://example.org/vocab/p$it" }
+    val added = race(predicates.size) { i ->
+      http.preparePost(selected(slotUrl(pod, subject, predicates[i]), x))
+        .addHeader("Content-Type", "application/ld+json")
+        .addHeader("Authorization", "Bearer $owner")
+        .setBody("""{"@value":"v$i"}""")
+        .execute().statusCode
+    }
+    assertEquals(List(predicates.size) { 201 }, added)
+
+    val stored = get(selected(subject.toString(), x), owner, accept = "application/n-quads").responseBody
+    assertEquals(emptyList(), predicates.filter { it !in stored }, "every added value must survive: $stored")
   }
 
   @Test

@@ -26,7 +26,10 @@ the write path does not change. Each declares a `Durability` — at most one may
 ## Write flow (`InMemoryPodRepository`)
 
 `putResource`, `removeFromContext`, `removeContext`, `deleteResource` are thin store-mutation
-blocks run through one `doWork` helper, serialized per pod by a write lock. The block declares
+blocks run through one `doWork` helper, serialized per pod by a write lock. `exclusively` holds the
+same lock around a caller's read, decision and write, which is how `PodFacade` keeps a
+read-modify-write of one subject from dropping a concurrent one, and how a write precondition is
+evaluated against the state the write replaces. The block declares
 nothing about *which* resources it touches — the captured statement delta is the single source
 for the changed-resource set, the change events, and the rollback undo log:
 

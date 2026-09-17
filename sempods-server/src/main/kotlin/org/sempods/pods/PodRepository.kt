@@ -20,6 +20,16 @@ interface PodRepository {
   /** Read only the statements for a resource within a specific context. */
   fun getResource(uri: URI, context: URI): Model?
 
+  /**
+   * Runs [block] while no other write to this pod can run, so that reading a resource, deciding and
+   * writing it back is one step. Writes made inside [block] do not wait for themselves.
+   *
+   * Every write that computes the new state of a resource from a read of it needs this. Two such
+   * writes computed from the same read would otherwise each drop what the other changed, and two
+   * conditional writes could both pass a precondition that only one may.
+   */
+  fun <T> exclusively(block: () -> T): T
+
   /** Write a resource model. Returns true if the store was modified (an isomorphic write is a no-op). */
   fun putResource(uri: URI, model: Model): Boolean
 

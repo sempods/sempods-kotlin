@@ -89,15 +89,16 @@ class PodSlotWriteService @Inject constructor(
     conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
-    val values = parseSlotBodyAsArrayOrThrow(body)
-    return podFacade.replaceSlot(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-      newSlotStatements = values,
-    )
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      podFacade.replaceSlot(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+        newSlotStatements = parseSlotBodyAsArrayOrThrow(body),
+      )
+    }
   }
 
   fun addSlotValue(
@@ -110,16 +111,18 @@ class PodSlotWriteService @Inject constructor(
     conditions: WriteConditions,
   ): SlotAddResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
-    val value = parseSingleValueOrThrow(body)
-    val outcome = podFacade.addSlotValue(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-      value = value,
-    )
-    return SlotAddResult(outcome = outcome, addedValue = value)
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      val value = parseSingleValueOrThrow(body)
+      val outcome = podFacade.addSlotValue(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+        value = value,
+      )
+      SlotAddResult(outcome = outcome, addedValue = value)
+    }
   }
 
   /**
@@ -164,19 +167,21 @@ class PodSlotWriteService @Inject constructor(
     conditions: WriteConditions,
   ): Boolean {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
-    return podFacade.clearSlot(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-    )
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      podFacade.clearSlot(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+      )
+    }
   }
 
   /**
    * `If-None-Match: *` holds while the slot is empty in [contextUri] (`SPS-CRUD-053`); a tag holds
    * while it describes the slot there. Statements of other predicates and other contexts do not
-   * enter either.
+   * enter either. Called inside [PodFacade.exclusively] with the write it guards.
    */
   private fun requireConditions(
     conditions: WriteConditions,
