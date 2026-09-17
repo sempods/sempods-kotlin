@@ -3,11 +3,20 @@ package org.sempods.api.pod.system.auth
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import com.nimbusds.jwt.SignedJWT
+import okhttp3.OkHttpClient
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
+import org.sempods.client.core.SempodsCredentialSupplier
+import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.core.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -303,5 +312,69 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       ex.message?.contains("not applicable to service clients") == true,
       "expected service-client rejection reason, got: ${ex.message}"
     )
+  }
+
+  /** The client core against this token endpoint, so neither the request nor the answers it takes can drift from these. */
+  private fun <T> withCore(podName: String, clientId: String, secret: String, block: (SempodsPodTokens, OkHttpClient) -> T): T {
+    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+    val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")
+    try {
+      return block(SempodsPodTokens(SempodsSession(base, SempodsRequestAuth.clientSecretBasic(clientId, secret)), client), client)
+    } finally {
+      client.dispatcher.executorService.shutdown()
+      client.connectionPool.evictAll()
+    }
+  }
+
+  @Test
+  fun `the client core mints a service token here and reads the pod with it`() {
+    val pod = sempodsTestFactory.newPod()
+    val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
+    // A colon in the identifier: the core's form-encoding has to meet this endpoint's decoding.
+    val clientId = "notes:primary"
+    val registered = podServiceClientStore.register(
+      podId = checkNotNull(pod.id),
+      podBaseUrl = podBaseUrl(pod.name),
+      clientId = clientId,
+      scopes = setOf("$appRoot#manage"),
+    )
+
+    withCore(pod.name, clientId, registered.plaintextSecret) { tokens, client ->
+      val minted = tokens.clientCredentials()
+      assertEquals(200, minted.status)
+      val token = checkNotNull(minted.body)
+      assertEquals("Bearer", token.tokenType)
+      assertNotNull(token.expiresIn)
+      assertEquals(clientId, SignedJWT.parse(token.accessToken).jwtClaimsSet.subject)
+
+      val podBearer = SempodsRequestAuth.refreshable(
+        SempodsCredentialSupplier { _, attempt ->
+          checkNotNull(SempodsPodTokens(tokens.session, attempt.calls(client)).clientCredentials().body).accessToken
+        },
+      )
+      val catalogue = SempodsPod(SempodsSession(tokens.session.podBase, podBearer), client).contexts().listText()
+      assertEquals(200, catalogue.status)
+    }
+    assertTrue(podServiceAuditLogDao.findRecent(checkNotNull(pod.id)).any { it.clientId == clientId }, "audit row missing for the core's request")
+  }
+
+  @Test
+  fun `the client core gets a wrong secret as a 401 whose excerpt names invalid_client`() {
+    val pod = sempodsTestFactory.newPod()
+    val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
+    podServiceClientStore.register(
+      podId = checkNotNull(pod.id),
+      podBaseUrl = podBaseUrl(pod.name),
+      clientId = "notes-app",
+      scopes = setOf("$appRoot#manage"),
+    )
+
+    withCore(pod.name, "notes-app", "not-the-secret") { tokens, _ ->
+      val refused = assertThrows<SempodsStatusException> { tokens.clientCredentials() }
+      assertEquals(401, refused.status)
+      assertTrue(refused.headers["WWW-Authenticate"].orEmpty().startsWith("Basic"), refused.headers.toString())
+      assertTrue(refused.bodyExcerpt.contains("\"invalid_client\""), refused.bodyExcerpt)
+      assertTrue(refused.message.orEmpty().contains("not-the-secret").not(), refused.message)
+    }
   }
 }

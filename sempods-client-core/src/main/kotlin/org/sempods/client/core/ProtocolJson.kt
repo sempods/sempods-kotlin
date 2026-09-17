@@ -23,6 +23,12 @@ internal interface ProtocolObject {
   /** [name]'s string. A missing member, a `null` and any other value are a [ProtocolViolation]. */
   fun string(name: String): String
 
+  /**
+   * [name]'s integer, and null when the member is `null` or missing. A fraction, a number beyond a `Long`
+   * and any other value are a [ProtocolViolation].
+   */
+  fun longOrNull(name: String): Long?
+
   /** [name]'s boolean, under the same rule as [string]. */
   fun boolean(name: String): Boolean
 
@@ -128,6 +134,12 @@ private object ProtocolJson {
     }
 
     override fun string(name: String): String = text(node.get(name), at.member(name), "a string")
+
+    override fun longOrNull(name: String): Long? {
+      val member = node.get(name)?.takeUnless { it.isNull } ?: return null
+      if (!member.isIntegralNumber || !member.canConvertToLong()) throw at.member(name).expected("an integer or null", member)
+      return member.longValue()
+    }
 
     override fun boolean(name: String): Boolean {
       val member = node.get(name)

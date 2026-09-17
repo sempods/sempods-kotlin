@@ -133,6 +133,7 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsAdmission` | how many calls may run, and how many may wait |
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
+| `SempodsPodTokens` | a pod's token endpoint, for a service client's `client_credentials` grant |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -226,6 +227,20 @@ SempodsResponse<byte[]> doc = foreign.followingRedirects(5).getBytes(id, "applic
 It keeps the client's guard, deadline and admission, and nothing a session holds; its KDoc has the
 contract. It is the call most likely to get a URI from someone else's request, so install the guard
 (§"The guard").
+
+### A service token
+
+A service client mints its bearer through `SempodsPodTokens`, in a session of its own that carries
+the client's credential. A pod session's supplier passes `attempt.calls(client)`, so the token request
+runs on the call's admission slot and never carries the bearer it supplies:
+
+```java
+var base = SempodsPodBase.of("https://pods.example/alice");
+var clientSession = new SempodsSession(base, SempodsRequestAuth.clientSecretBasic("notes-app", secret));
+var podBearer = SempodsRequestAuth.refreshable((forceRefresh, attempt) ->
+    new SempodsPodTokens(clientSession, attempt.calls(client)).clientCredentials().getBody().getAccessToken());
+var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
+```
 
 ## The transport: OkHttp, blocking
 
