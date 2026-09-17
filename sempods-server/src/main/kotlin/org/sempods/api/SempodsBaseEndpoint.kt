@@ -19,6 +19,7 @@ import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodAccessToken
 import org.sempods.pods.oauth.PodSignOut
@@ -112,8 +113,9 @@ open class SempodsBaseEndpoint(
    * [requireAuthenticatedOrThrow] on the returned credentials.
    */
   protected fun authenticate(pod: String): SempodsCredentials {
-    val podRef = fetchPodOrThrow(pod).toRef(sempodsUriBuilder)
-    return when (val outcome = authenticateBearer(podRef)) {
+    val podDbo = fetchPodOrThrow(pod)
+    val podRef = podDbo.toRef(sempodsUriBuilder)
+    return when (val outcome = authenticateBearer(podDbo, podRef)) {
       PodTokenAuthentication.NoToken -> podAuthorizer.anonymous(podRef)
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
       is PodTokenAuthentication.Rejected -> throwInvalidBearer(podName = podRef.name)
@@ -153,11 +155,14 @@ open class SempodsBaseEndpoint(
    *
    * The authenticator reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
    * may replace, and no deployment may drop a sign-out.
+   *
+   * The pod comes as the row this request just read, because [PodSignOut] is asked for the id on it
+   * rather than for a name to resolve — see its KDoc.
    */
-  private fun authenticateBearer(podRef: PodRef): PodTokenAuthentication =
+  private fun authenticateBearer(podDbo: PodDbo, podRef: PodRef): PodTokenAuthentication =
     when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
       is PodTokenAuthentication.Verified ->
-        if (podSignOut.accessTokenStands(podRef.name, outcome.token)) outcome
+        if (podSignOut.accessTokenStands(checkNotNull(podDbo.id).toPodId(), outcome.token)) outcome
         else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
 
       else -> outcome
@@ -187,8 +192,9 @@ open class SempodsBaseEndpoint(
    * for this resource) and a 401 there (where the answer must also advertise how to obtain one).
    */
   protected fun requirePodAppTokenOrThrow(pod: String): SempodsCredentials {
-    val podRef = fetchPodOrThrow(pod).toRef(sempodsUriBuilder)
-    return when (val outcome = authenticateBearer(podRef)) {
+    val podDbo = fetchPodOrThrow(pod)
+    val podRef = podDbo.toRef(sempodsUriBuilder)
+    return when (val outcome = authenticateBearer(podDbo, podRef)) {
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
 
       is PodTokenAuthentication.Rejected ->

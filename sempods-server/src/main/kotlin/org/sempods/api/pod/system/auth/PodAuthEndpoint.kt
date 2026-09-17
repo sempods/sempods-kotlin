@@ -37,6 +37,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
@@ -270,9 +271,10 @@ class PodAuthEndpoint @Inject constructor(
     // Who the pod already knows, from a cookie on its own origin. Never from a parameter a browser
     // carried — that was the arrangement the OIDC cutover removed. A session saves the round trip
     // to the id-server and is what makes `prompt=none` answerable at all.
-    val session = readSession(pod, sessionCookie)
+    val podDbo = fetchPodOrThrow(pod)
+    val session = readSession(podDbo, sessionCookie)
     val answer = runAuthorize(
-      pod = pod,
+      podDbo = podDbo,
       responseType = responseType,
       clientId = clientId,
       redirectUri = redirectUri,
@@ -327,7 +329,7 @@ class PodAuthEndpoint @Inject constructor(
    * have changed in that time.
    */
   private fun runAuthorize(
-    pod: String,
+    podDbo: PodDbo,
     responseType: String?,
     clientId: String?,
     redirectUri: String?,
@@ -338,7 +340,6 @@ class PodAuthEndpoint @Inject constructor(
     scope: String?,
     session: PodTokenIssuer.SessionPrincipal?,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
     val sessionIdentity = session?.let { PersonIdentity(webId = it.webId, alsoKnownAs = it.alsoKnownAs) }
 
     // R6: audit-log every authorize entry so cross-client spikes can replay the
@@ -906,7 +907,7 @@ class PodAuthEndpoint @Inject constructor(
     // a session-derived token would be the same on every screen the session outlives (so a stale
     // page could be replayed over a narrower consent), and a transaction alone could be lifted out of a
     // page and spent from another browser.
-    val session = readSession(pod, sessionCookie)
+    val session = readSession(podDbo, sessionCookie)
       ?: return Response.status(401).entity("session expired — please re-authorize").type("text/plain").build()
     val transaction = csrf?.trim()?.takeIf { it.isNotBlank() }?.let { consentTransactionStore.consume(it) }
     if (transaction == null || transaction.pod != podDbo.name || transaction.webId != session.webId) {
@@ -925,7 +926,7 @@ class PodAuthEndpoint @Inject constructor(
     // check keeps an old page from writing grants back; a sign-out writes none, and refusing it would
     // leave the person signed in with no way out on the page in front of them.
     if (action?.trim() == SIGN_OUT_ACTION) {
-      podSignOut.signOut(podDbo.name, identity.allUris)
+      podSignOut.signOut(checkNotNull(podDbo.id).toPodId(), podDbo.name, identity.allUris)
       return Response.fromResponse(
         oauthError(normalizedRedirectUri, OAuthErrorCode.ACCESS_DENIED, "signed out", state),
       ).cookie(cookies.clearSession(podDbo.name)).build()
@@ -2129,7 +2130,7 @@ class PodAuthEndpoint @Inject constructor(
         podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
     val answer = runAuthorize(
-      pod = podDbo.name,
+      podDbo = podDbo,
       responseType = "code",
       clientId = pending.clientId,
       redirectUri = pending.redirectUri,
@@ -2182,7 +2183,7 @@ class PodAuthEndpoint @Inject constructor(
     // read and that one moves the generation first, and the code would carry the moved generation and
     // redeem. The sign-out writes its instant before it moves the generation, so a code that could
     // carry the moved one finds the instant here.
-    if (session != null && !stillSignedIn(podDbo.name, session)) {
+    if (session != null && !stillSignedIn(podDbo, session)) {
       return oauthError(redirectUri, OAuthErrorCode.ACCESS_DENIED, "signed out", state)
     }
     val code = authorizationCodeStore.issue(
@@ -2257,11 +2258,19 @@ class PodAuthEndpoint @Inject constructor(
    * The person this browser already proved itself as on this pod, or null — also where they have
    * signed out since, which reads exactly like a session that expired.
    */
-  private fun readSession(pod: String, cookieValue: String?): PodTokenIssuer.SessionPrincipal? =
-    podTokenIssuer.readSession(pod, cookieValue)?.takeIf { stillSignedIn(pod, it) }
+  private fun readSession(podDbo: PodDbo, cookieValue: String?): PodTokenIssuer.SessionPrincipal? =
+    podTokenIssuer.readSession(podDbo.name, cookieValue)?.takeIf { stillSignedIn(podDbo, it) }
 
-  private fun stillSignedIn(pod: String, session: PodTokenIssuer.SessionPrincipal): Boolean =
-    podSignOut.sessionStands(pod, listOf(session.webId) + session.alsoKnownAs, session.authTime)
+  /**
+   * The pod as the row this request read, because [PodSignOut] takes the id on it — see its KDoc for
+   * what resolving the name again would cost.
+   */
+  private fun stillSignedIn(podDbo: PodDbo, session: PodTokenIssuer.SessionPrincipal): Boolean =
+    podSignOut.sessionStands(
+      checkNotNull(podDbo.id).toPodId(),
+      listOf(session.webId) + session.alsoKnownAs,
+      session.authTime,
+    )
 
   /**
    * Whether cookies may be marked `Secure`.

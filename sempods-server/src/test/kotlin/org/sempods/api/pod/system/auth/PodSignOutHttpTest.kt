@@ -12,6 +12,7 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import org.sempods.pods.grants.persist.PodGrantsDao
+import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
@@ -23,6 +24,7 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Base64
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -59,6 +61,9 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
+
+  @Inject
+  private lateinit var podDao: PodDao
 
   private class App(val clientId: String, val redirectUri: String)
 
@@ -284,6 +289,30 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, page.statusCode)
     assertTrue("id=\"signOutBtn\"" in page.responseBody && "value=\"signout\"" in page.responseBody)
+  }
+
+  @Test
+  fun `a sign-out follows the pod the name resolves to now`() {
+    // This process caches name to id, and no replica clears another's deletion. Resolving the name
+    // in the sign-out would end the pod that is gone while the person is looking at its successor,
+    // and report success for both.
+    val owner = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = owner)
+    val person = webIdUriDeriver.deriveFromEmail(checkNotNull(owner.email))
+    val tokens = connect(pod, person, appA)
+    assertEquals(200, dateModified(pod, tokens.accessToken).statusCode, "warms this process's cache")
+
+    // What another replica's delete and create leaves behind: the same name, a new row, and a cache
+    // entry nothing here cleared.
+    podDao.delete(pod.name)
+    val recreated = sempodsTestFactory.newPod(name = pod.name, ownerUser = owner, createPublicContext = false)
+    assertNotEquals(pod.id, recreated.id)
+    val family = seedFamily(recreated, appA, person)
+
+    signOut(recreated, person)
+
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(family).state)
+    assertNotNull(signOutStore.signedOutAt(checkNotNull(recreated.id), listOf(person)), "under the new id")
   }
 
   @Test

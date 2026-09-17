@@ -2,8 +2,10 @@ package org.sempods.pods.oauth
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.bson.types.ObjectId
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.pods.PodFacade
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import java.time.Instant
 
 /**
@@ -23,10 +25,13 @@ import java.time.Instant
  * again, so a family tied to the session's clock would end twelve hours after its last authorization
  * however busy the person was. The family's own deadline ends it.
  *
- * The pod is passed by name, so this stays free of the HTTP and storage types of its two callers.
+ * **The caller passes the pod it has just read**, as the [PodId] of that row. Resolving a name here
+ * would go through the process-local name-to-id cache, which another replica's deletion does not
+ * invalidate (`SempodsFacade.getPodId`): a pod deleted and recreated under the same name would be
+ * signed out under the id that is gone, and the families of the pod in front of the person would
+ * keep rotating.
  */
 class PodSignOut @Inject internal constructor(
-  private val podFacade: PodFacade,
   private val signOutStore: PodSignOutStore,
   private val consentDecisionStore: PodConsentDecisionStore,
   private val refreshTokenStore: PodRefreshTokenStore,
@@ -51,9 +56,11 @@ class PodSignOut @Inject internal constructor(
    *
    * Every URI the person is known by, twins included: a family or a code can sit under any of them
    * (`SPS-AUTH-061`), and a session under an alias is still theirs.
+   *
+   * @param podName for the log line, the way `PodRefreshTokenStore.Owner` carries it.
    */
-  internal fun signOut(pod: String, webIds: Collection<String>) {
-    val podId = podFacade.getPodId(pod) ?: return
+  internal fun signOut(pod: PodId, podName: String, webIds: Collection<String>) {
+    val podId = pod.objectId()
     val person = webIds.flatMap(webIdUriDeriver::derivableAliases).toSet()
     if (person.isEmpty()) return
 
@@ -63,7 +70,7 @@ class PodSignOut @Inject internal constructor(
     val signedOutAt = signOutStore.record(podId, person)
 
     logger.info {
-      "Signed out: pod='$pod', webIds=${person.sorted()}, decisions=$decisions, " +
+      "Signed out: pod='$podName', webIds=${person.sorted()}, decisions=$decisions, " +
           "revokedRows=$revokedRows, signedOutAt=$signedOutAt"
     }
   }
@@ -74,7 +81,7 @@ class PodSignOut @Inject internal constructor(
    * Only the person's own URIs are read, because the sign-out wrote every URI it could derive: a
    * session under a twin of the one that signed out finds the row under its own name.
    */
-  internal fun sessionStands(pod: String, webIds: Collection<String>, authTime: Instant): Boolean =
+  internal fun sessionStands(pod: PodId, webIds: Collection<String>, authTime: Instant): Boolean =
     issuedAfterSignOut(pod, webIds, authTime)
 
   /**
@@ -84,7 +91,7 @@ class PodSignOut @Inject internal constructor(
    * `iat` is refused once the person has signed out, since nothing says it came afterwards; this
    * server writes one on every token it issues.
    */
-  internal fun accessTokenStands(pod: String, token: PodAccessToken): Boolean {
+  internal fun accessTokenStands(pod: PodId, token: PodAccessToken): Boolean {
     if (token.isServiceClient) return true
     val sub = token.sub ?: return true
     val stands = issuedAfterSignOut(pod, listOf(sub), token.issuedAt)
@@ -102,11 +109,13 @@ class PodSignOut @Inject internal constructor(
    * The sign-out and the credential can be dated by different replicas, so clock skew between them
    * moves the line by the skew.
    */
-  private fun issuedAfterSignOut(pod: String, webIds: Collection<String>, issuedAt: Instant?): Boolean {
-    val podId = podFacade.getPodId(pod) ?: return true
-    val signedOutAt = signOutStore.signedOutAt(podId, webIds) ?: return true
+  private fun issuedAfterSignOut(pod: PodId, webIds: Collection<String>, issuedAt: Instant?): Boolean {
+    val signedOutAt = signOutStore.signedOutAt(pod.objectId(), webIds) ?: return true
     return issuedAt != null && issuedAt.epochSecond > signedOutAt.epochSecond
   }
+
+  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
+  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private companion object {
     private val logger = KotlinLogging.logger {}
