@@ -1,6 +1,9 @@
 package org.sempods.client.core
 
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
+import java.io.InterruptedIOException
 
 /**
  * A pod's answer to an endpoint operation, with its body read: the status and headers as they
@@ -16,6 +19,9 @@ import okhttp3.Headers
  *
  * [headers] are OkHttp's — case-insensitive and multi-valued, `ETag`, `Location`, `Retry-After` and
  * `Content-Type` included.
+ *
+ * **Another representation of the same answer is [map]'s**, which is how a module above the core — an
+ * RDF adapter, say — returns the status and headers with a body of its own.
  */
 class SempodsResponse<T : Any> internal constructor(
   /**
@@ -28,6 +34,40 @@ class SempodsResponse<T : Any> internal constructor(
   val headers: Headers,
   val body: T?,
 ) {
+
+  /**
+   * This answer with its body decoded by [decoder]: the same [url], [status] and [headers], and a null
+   * [body] left null without calling [decoder].
+   *
+   * A failure of [decoder] other than an `IOException` is a [SempodsDecodingException] with this
+   * answer's status and headers. Its message names the failure's class and quotes neither the body nor
+   * the failure's own message, which may quote the body. An `IOException` passes through as it is, so
+   * a decoder that maps again reports its own [SempodsDecodingException] unchanged.
+   */
+  @Throws(IOException::class)
+  fun <R : Any> map(decoder: SempodsBodyDecoder<T, R>): SempodsResponse<R> {
+    val decoded = body?.let {
+      try {
+        decoder.decode(it)
+      } catch (failure: IOException) {
+        throw failure
+      } catch (interrupted: InterruptedException) {
+        Thread.currentThread().interrupt()
+        throw InterruptedIOException("Interrupted while decoding the answer of ${described()}.")
+      } catch (failure: Exception) {
+        throw SempodsDecodingException(
+          "${described()} answered $status with a body the decoder cannot read: ${failure.javaClass.name}.",
+          status,
+          headers,
+        )
+      }
+    }
+    return SempodsResponse(url, status, headers, decoded)
+  }
+
+  /** [url] without its query, where a credential may be. */
+  private fun described(): String =
+    url.toHttpUrlOrNull()?.newBuilder()?.query(null)?.build()?.toString() ?: url.substringBefore('?')
 
   /** The status alone: a body can carry a credential, and this string ends up in logs. */
   override fun toString(): String = "SempodsResponse(status=$status)"

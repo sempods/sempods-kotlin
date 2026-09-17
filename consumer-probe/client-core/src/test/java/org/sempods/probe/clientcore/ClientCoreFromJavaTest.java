@@ -348,6 +348,26 @@ class ClientCoreFromJavaTest {
   }
 
   @Test
+  void anAdapterWrittenInJavaDecodesAnAnswerThroughMap() throws IOException {
+    // An adapter above the core: its own representation, the core's status, headers and failure.
+    SempodsResponse<byte[]> graph =
+        pod("alice").sparql().graphBytes("CONSTRUCT WHERE { ?s ?p ?o }", SempodsGraphFormat.N_QUADS);
+    SempodsResponse<List<String>> lines =
+        graph.map(bytes -> List.of(new String(bytes, StandardCharsets.UTF_8).split("\n")));
+    assertEquals(200, lines.getStatus());
+    assertEquals(graph.getHeaders(), lines.getHeaders());
+    assertEquals(1, lines.getBody().size());
+
+    SempodsDecodingException refused = assertThrows(SempodsDecodingException.class,
+        () -> graph.map(bytes -> { throw new IllegalArgumentException(new String(bytes, StandardCharsets.UTF_8)); }));
+    assertEquals(200, refused.getStatus());
+    assertFalse(refused.getMessage().contains("events/1"), refused.getMessage());
+
+    IOException own = new IOException("the adapter's own");
+    assertSame(own, assertThrows(IOException.class, () -> graph.map(bytes -> { throw own; })));
+  }
+
+  @Test
   void queriesSparqlRawAndTypedFromJava() throws IOException {
     SempodsPodSparql sparql = pod("alice").sparql();
 
