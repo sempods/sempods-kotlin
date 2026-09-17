@@ -36,9 +36,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.core.SempodsAdmission;
+import org.sempods.client.core.SempodsAuthAttempt;
 import org.sempods.client.core.SempodsContent;
 import org.sempods.client.core.SempodsContextCreate;
 import org.sempods.client.core.SempodsContextSelection;
+import org.sempods.client.core.SempodsCredentialSupplier;
 import org.sempods.client.core.SempodsDecodingException;
 import org.sempods.client.core.SempodsForeignTarget;
 import org.sempods.client.core.SempodsGraphFormat;
@@ -177,6 +179,7 @@ class ClientCoreFromJavaTest {
       json(exchange, 200, "<https://bob.example/#me> <http://xmlns.com/foaf/0.1/name> \"Bob\" .");
     });
     server.createContext("/elsewhere/missing", exchange -> json(exchange, 404, "no such card"));
+    server.createContext("/issuer/token", exchange -> json(exchange, 200, "k-minted"));
     server.createContext("/elsewhere/moved", exchange -> {
       exchange.getResponseHeaders().add("Location", "/elsewhere/card");
       exchange.sendResponseHeaders(303, -1);
@@ -209,12 +212,12 @@ class ClientCoreFromJavaTest {
   private static final class ApiKey implements SempodsRequestAuth {
 
     @Override
-    public void apply(Request.Builder request, int attempt) {
+    public void apply(Request.Builder request, SempodsAuthAttempt attempt) {
       request.header("X-Api-Key", "k-123");
     }
 
     @Override
-    public boolean recover(Response response, int attempt) throws IOException {
+    public boolean recover(Response response, SempodsAuthAttempt attempt) throws IOException {
       return false;
     }
   }
@@ -258,6 +261,31 @@ class ClientCoreFromJavaTest {
       assertEquals("k-123", response.header("X-Saw-Api-Key"), "the authentication did not reach the pod");
       assertEquals("trace-42", response.header("X-Saw-Tracing"), "the consumer's interceptor did not run");
     }
+  }
+
+  @Test
+  void aCredentialSupplierWrittenInJavaFetchesOnItsCallersSlot() throws IOException {
+    // One slot and no queue: the token fetch is refused if it needs a slot of its own.
+    OkHttpClient narrow = SempodsOkHttp.install(new OkHttpClient.Builder(), null, new SempodsAdmission(1, 0)).build();
+    AtomicInteger number = new AtomicInteger();
+    SempodsCredentialSupplier minting = (forceRefresh, attempt) -> {
+      number.set(attempt.getNumber());
+      Request mint = new Request.Builder().url(base("issuer") + "/token").build();
+      try (Response minted = attempt.calls(narrow).newCall(mint).execute()) {
+        return minted.body().string();
+      }
+    };
+    SempodsSession session = new SempodsSession(
+        SempodsPodBase.of(base("alice")), SempodsRequestAuth.refreshable(minting, "X-Api-Key", ""));
+
+    try (Response response = narrow.newCall(session.newRequest("HEAD", "_system/probe").build()).execute()) {
+      assertEquals(204, response.code());
+      assertEquals("k-minted", response.header("X-Saw-Api-Key"));
+    } finally {
+      narrow.dispatcher().executorService().shutdown();
+      narrow.connectionPool().evictAll();
+    }
+    assertEquals(1, number.get());
   }
 
   @Test

@@ -140,7 +140,7 @@ class OpenTelemetryLibraryTest {
   void anAuthenticationRetryIsASpanOfItsOwn() throws IOException {
     SempodsSession session = new SempodsSession(
         SempodsPodBase.of(pod),
-        SempodsRequestAuth.refreshable(forceRefresh -> forceRefresh ? "fresh" : "stale"));
+        SempodsRequestAuth.refreshable((forceRefresh, attempt) -> forceRefresh ? "fresh" : "stale"));
 
     try (Response response = calls.newCall(session.newRequest("GET", "protected").build()).execute()) {
       assertEquals(204, response.code());

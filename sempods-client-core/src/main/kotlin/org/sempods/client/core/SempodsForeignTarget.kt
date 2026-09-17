@@ -47,10 +47,6 @@ import java.io.OutputStream
  * - [getText] and [getBytes] read at most 16 MiB. [getStream] and [getTo] have no limit and hold the
  *   admission slot until the reader returns.
  * - The deadline and the guard's budget apply per call, and so per redirect hop.
- * - The credential is applied inside the call's slot and deadline, but without the thread-local a
- *   session's call uses ([#161](https://github.com/sempods/sempods-kotlin/issues/161)). A token fetched
- *   through this same client needs a slot of its own, and a call waiting for another to refresh a shared
- *   [SempodsRequestAuth.refreshable] credential does not see its cancellation for up to 30 seconds.
  * - Only `GET`. For anything else, build an `okhttp3.Request` and run it on the same client.
  */
 class SempodsForeignTarget internal constructor(
@@ -221,15 +217,15 @@ internal class ForeignCall(private val named: HttpUrl, private val auth: Sempods
   @Volatile
   private var credentialedFor: HttpUrl? = null
 
-  /** [request] with this call's credential, applied as the first attempt. */
+  /** [request] with this call's credential, applied as [attempt], the call's first. */
   @Throws(IOException::class)
-  fun authenticate(request: Request): Request {
+  fun authenticate(request: Request, attempt: SempodsAuthAttempt): Request {
     val mechanism = auth ?: return request
     // Checked before the mechanism runs, whatever it will set: an interceptor ahead of this one may have
     // moved the request already.
     if (!sameOrigin(request.url, named)) throw movedAway(request.url)
     credentialedFor = named
-    return mechanism.authenticate(request, attempt = 1)
+    return mechanism.authenticate(request, attempt)
   }
 
   /**

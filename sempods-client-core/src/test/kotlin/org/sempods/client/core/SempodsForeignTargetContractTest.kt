@@ -99,12 +99,12 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     val attempts = CopyOnWriteArrayList<Int>()
     val recovered = AtomicBoolean()
     val mechanism = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: Int) {
-        attempts += attempt
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
+        attempts += attempt.number
         request.header("Authorization", "Bearer refused")
       }
 
-      override fun recover(response: Response, attempt: Int): Boolean {
+      override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
         recovered.set(true)
         return true
       }
@@ -381,6 +381,46 @@ class SempodsForeignTargetContractTest : MockPodTest() {
 
       release.countDown()
       assertEquals(200, first.get(5, TimeUnit.SECONDS).status)
+    }
+  }
+
+  @Test
+  fun `a credential fetched through its attempt runs on the call's admission slot`() {
+    answer(200, "ok")
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { narrow ->
+      val fetching = SempodsRequestAuth { request, attempt ->
+        val token = attempt.calls(narrow).newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+        request.header("Authorization", "Bearer $token")
+      }
+
+      assertEquals(200, SempodsForeignTarget(narrow).getText(card, "text/turtle", fetching).status)
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request().withPath("/people/bob/card").withHeader("Authorization", "Bearer ok")).size)
+  }
+
+  @Test
+  fun `a wait for a shared credential ends with the call's deadline`() {
+    answer(200, "ok")
+    val acquiring = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val shared = SempodsRequestAuth.refreshable(
+      SempodsCredentialSupplier { _, _ -> acquiring.countDown(); release.await(10, TimeUnit.SECONDS); "t" },
+    )
+
+    val pool = Executors.newSingleThreadExecutor()
+    try {
+      pool.submit { SempodsForeignTarget(client).getText(card, "text/turtle", shared) }
+      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+      sempodsClient { callTimeout(Duration.ofMillis(300)) }.closing { impatient ->
+        val started = System.nanoTime()
+        assertThrows<IOException> { SempodsForeignTarget(impatient).getText(card, "text/turtle", shared) }
+        val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        assertTrue(waited < 5_000, "waited ${waited}ms for a credential past a 300ms deadline")
+      }
+    } finally {
+      release.countDown()
+      pool.shutdownNow()
     }
   }
 

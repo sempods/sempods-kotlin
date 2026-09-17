@@ -46,7 +46,7 @@ class SempodsSessionAuthTest : MockPodTest() {
    * A Java caller writes the interface out; here one helper keeps the cases below readable.
    */
   private fun refreshable(supplier: (Boolean) -> String) =
-    SempodsRequestAuth.refreshable(SempodsCredentialSupplier { supplier(it) })
+    SempodsRequestAuth.refreshable(SempodsCredentialSupplier { force, _ -> supplier(force) })
 
   private fun session(pod: String, auth: SempodsRequestAuth) = SempodsSession(SempodsPodBase.of("$origin/$pod"), auth)
 
@@ -235,13 +235,13 @@ class SempodsSessionAuthTest : MockPodTest() {
     // and the attempt, so replaying the first attempt's value is structurally impossible.
     val challenges = mutableListOf<String>()
     val perAttempt = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: Int) {
-        request.header("X-Proof", "$attempt")
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
+        request.header("X-Proof", "${attempt.number}")
       }
 
-      override fun recover(response: Response, attempt: Int): Boolean {
+      override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
         challenges += response.headers("WWW-Authenticate").joinToString()
-        return attempt == 1
+        return attempt.number == 1
       }
     }
     val a = session("alice", perAttempt)

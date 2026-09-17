@@ -39,7 +39,7 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
     newCall(session.newRequest("GET", path).build()).execute()
 
   private fun counting(minted: AtomicInteger) =
-    SempodsRequestAuth.refreshable(SempodsCredentialSupplier { "token-${minted.incrementAndGet()}" })
+    SempodsRequestAuth.refreshable(SempodsCredentialSupplier { _, _ -> "token-${minted.incrementAndGet()}" })
 
   @Test
   fun `a caller reads the body before the server has finished sending it`() {
@@ -101,7 +101,7 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
     val acquiring = CountDownLatch(1)
     val release = CountDownLatch(1)
     val slow = SempodsRequestAuth.refreshable(
-      SempodsCredentialSupplier { _ -> acquiring.countDown(); release.await(10, TimeUnit.SECONDS); "t" },
+      SempodsCredentialSupplier { _, _ -> acquiring.countDown(); release.await(10, TimeUnit.SECONDS); "t" },
     )
     server.`when`(request()).respond(response().withStatusCode(200))
 
@@ -129,12 +129,103 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
       .respond(response().withStatusCode(200))
 
     sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 4)) { callTimeout(Duration.ofSeconds(5)) }.closing { client ->
-      val fetching = SempodsCredentialSupplier { force ->
+      val fetching = SempodsCredentialSupplier { force, attempt ->
         if (!force) "token-1"
-        else client.newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+        else attempt.calls(client).newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
       }
       client.get(session(SempodsRequestAuth.refreshable(fetching))).use { assertEquals(200, it.code) }
     }
+  }
+
+  @Test
+  fun `a credential fetched on another thread or enqueued runs on its caller's slot`() {
+    server.`when`(request().withPath("/token")).respond(response().withStatusCode(200).withBody("token"))
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(200))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      val token = Request.Builder().url("$origin/token").build()
+      val pool = Executors.newSingleThreadExecutor()
+      try {
+        val onAnotherThread = SempodsCredentialSupplier { _, attempt ->
+          pool.submit<String> { attempt.calls(client).newCall(token).execute().use { it.body.string() } }.get(5, TimeUnit.SECONDS)
+        }
+        val enqueued = SempodsCredentialSupplier { _, attempt ->
+          val minted = CompletableFuture<String>()
+          attempt.calls(client).newCall(token).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+              minted.completeExceptionally(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+              response.use { minted.complete(it.body.string()) }
+            }
+          })
+          minted.get(5, TimeUnit.SECONDS)
+        }
+
+        client.get(session(SempodsRequestAuth.refreshable(onAnotherThread))).use { assertEquals(200, it.code) }
+        client.get(session(SempodsRequestAuth.refreshable(enqueued))).use { assertEquals(200, it.code) }
+      } finally {
+        pool.shutdownNow()
+      }
+    }
+    assertEquals(2, server.retrieveRecordedRequests(request().withPath("/alice/x").withHeader("Authorization", "Bearer token")).size)
+  }
+
+  @Test
+  fun `a supplier's call through the client itself needs a slot of its own`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("t"))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      val fetching = SempodsCredentialSupplier { _, _ ->
+        client.newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+      }
+      assertThrows<SempodsClientException> { client.get(session(SempodsRequestAuth.refreshable(fetching))).close() }
+    }
+  }
+
+  @Test
+  fun `an attempt kept past its credential work lends no slot`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("t"))
+    val kept = CompletableFuture<SempodsAuthAttempt>()
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      client.get(session(SempodsRequestAuth { _, attempt -> kept.complete(attempt) })).close()
+      val holding = client.get(session())
+      try {
+        assertThrows<SempodsClientException> {
+          kept.get().calls(client).newCall(Request.Builder().url("$origin/token").build()).execute().close()
+        }
+      } finally {
+        holding.close()
+      }
+    }
+  }
+
+  @Test
+  fun `credential work inside credential work runs on the outermost call's slot`() {
+    server.`when`(request().withPath("/token")).respond(response().withStatusCode(200).withBody("issuer-token"))
+    server.`when`(request().withPath("/issuer/token")).respond(response().withStatusCode(200).withBody("alice-token"))
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(200))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { client ->
+      // Alice's token comes from a pod of its own, whose credential is fetched through the same client again.
+      val issuer = SempodsSession(
+        SempodsPodBase.of("$origin/issuer"),
+        SempodsRequestAuth.refreshable(
+          SempodsCredentialSupplier { _, attempt ->
+            attempt.calls(client).newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
+          },
+        ),
+      )
+      val fromIssuer = SempodsCredentialSupplier { _, attempt ->
+        attempt.calls(client).newCall(issuer.newRequest("GET", "token").build()).execute().use { it.body.string() }
+      }
+
+      client.get(session(SempodsRequestAuth.refreshable(fromIssuer))).use { assertEquals(200, it.code) }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request().withPath("/issuer/token").withHeader("Authorization", "Bearer issuer-token")).size)
+    assertEquals(1, server.retrieveRecordedRequests(request().withPath("/alice/x").withHeader("Authorization", "Bearer alice-token")).size)
   }
 
   @Test
@@ -145,7 +236,7 @@ class SempodsExecutionLifetimeTest : MockPodTest() {
       val holding = other.get(session())
       try {
         sempodsClient().closing { client ->
-          val fetching = SempodsCredentialSupplier { _ ->
+          val fetching = SempodsCredentialSupplier { _, _ ->
             other.newCall(Request.Builder().url("$origin/token").build()).execute().use { it.body.string() }
           }
           assertThrows<SempodsClientException> { client.get(session(SempodsRequestAuth.refreshable(fetching))).close() }
