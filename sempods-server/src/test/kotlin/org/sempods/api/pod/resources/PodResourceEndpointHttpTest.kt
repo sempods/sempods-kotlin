@@ -22,12 +22,15 @@ import org.sempods.client.core.SempodsPodBase
 import org.sempods.client.core.SempodsReadOptions
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsStatusException
 import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
+import org.eclipse.rdf4j.model.util.Values
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.net.URI
@@ -2188,6 +2191,72 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       val jsonLd = """{"@id":"$cut","https://schema.org/name":"Semicolon"}"""
       assertEquals(201, core.subjects().put(cut, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks).status)
       assertTrue(core.subjects().getText(cut).body.orEmpty().contains("Semicolon"))
+    }
+  }
+
+  // ── The RDF4J adapter against this route ────────────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter writes a model back under its read's tag, keeps other contexts, and gets 412 after a concurrent change`() {
+    val pod = sempodsTestFactory.newPod()
+    val (tasks, _) = createContextWithToken(pod, "apps/test-app/tasks")
+    val (notes, _) = createContextWithToken(pod, "apps/test-app/notes")
+    val token = mintScopedToken(pod.name, listOf("$tasks#read", "$tasks#write", "$notes#read"))
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val name = Values.iri("https://schema.org/name")
+    podFacade.putResourceModel(
+      podName = pod.name,
+      resourceUri = URI(bob),
+      model = LinkedHashModel().apply {
+        add(Values.iri(bob), name, Values.literal("Bob"), Values.iri(tasks.toString()))
+        add(Values.iri(bob), Values.iri("https://schema.org/description"), Values.literal("Noted"), Values.iri(notes.toString()))
+      },
+    )
+    val inTasks = SempodsReadOptions.of(SempodsContextSelection.of(tasks.toString()))
+    val intoTasks = SempodsWriteOptions.inContext(tasks.toString())
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val resources = SempodsRdf4jPod(core).resources()
+
+      val read = resources.getModel(bob, inTasks)
+      val model = assertNotNull(read.body)
+      assertEquals(setOf(Values.iri(tasks.toString())), model.contexts())
+      model.remove(null, name, null)
+      model.add(Values.iri(bob), name, Values.literal("Robert"), Values.iri(tasks.toString()))
+      val written = resources.put(bob, model, intoTasks.withIfMatch(read.headers["ETag"]))
+      assertTrue(written.status in setOf(200, 204), "status ${written.status}")
+
+      val both = assertNotNull(resources.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(tasks.toString(), notes.toString()))).body)
+      assertEquals(setOf(Values.iri(tasks.toString()), Values.iri(notes.toString())), both.contexts())
+      assertEquals("Robert", both.filter(null, name, null).single().`object`.stringValue())
+      assertEquals("Noted", both.filter(null, null, null, Values.iri(notes.toString())).single().`object`.stringValue())
+
+      val tag = resources.getModel(bob, inTasks).headers["ETag"]
+      core.resources().put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","https://schema.org/name":"Concurrent"}"""), intoTasks)
+      val refused = resources.put(bob, model, intoTasks.withIfMatch(tag))
+      assertEquals(412, refused.status)
+      assertNull(refused.body)
+      assertEquals("Concurrent", assertNotNull(resources.getModel(bob, inTasks).body).filter(null, name, null).single().`object`.stringValue())
+    }
+  }
+
+  @Test
+  fun `the RDF4J adapter sends a statement's other context as it is, and this server refuses it`() {
+    val pod = sempodsTestFactory.newPod()
+    val (tasks, _) = createContextWithToken(pod, "apps/test-app/tasks")
+    val (notes, _) = createContextWithToken(pod, "apps/test-app/notes")
+    val token = mintScopedToken(pod.name, listOf("$tasks#read", "$tasks#write", "$notes#read", "$notes#write"))
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val inNotes = LinkedHashModel().apply {
+      add(Values.iri(bob), Values.iri("https://schema.org/name"), Values.literal("Bob"), Values.iri(notes.toString()))
+    }
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val refused = assertFailsWith<SempodsStatusException> {
+        SempodsRdf4jPod(core).resources().put(bob, inNotes, SempodsWriteOptions.inContext(tasks.toString()))
+      }
+      assertEquals(400, refused.status)
+      assertEquals(404, core.resources().getText(bob).status)
     }
   }
 }

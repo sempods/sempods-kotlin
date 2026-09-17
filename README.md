@@ -177,8 +177,9 @@ ahead of the rest. `enforcedPlatform(...)` in place of `platform(...)` makes the
 the platform's versions on the whole graph instead. That choice is left to you on purpose — made
 here, it would propagate to everyone.
 
-Published bytecode targets **Java 21**. Building this repository needs 25; depending on it does
-not.
+Published bytecode targets **Java 21**, and building this repository needs 25. A module that brings
+RDF4J needs **Java 25** to run, because RDF4J 6 is built for it: `sempods-client-core` runs on 21;
+`sempods-client-rdf4j`, `sempods-client`, `sempods-model` and the modules built on them need 25.
 
 The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
 ones — resolve from Gradle, which reads the capability that carries them. Maven has no notion of
