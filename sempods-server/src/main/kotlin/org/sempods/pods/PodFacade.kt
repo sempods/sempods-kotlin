@@ -53,6 +53,9 @@ class PodFacade @Inject constructor(
     return getRepository(podName).getResource(resourceUri, contextUri)
   }
 
+  /** [PodRepository.exclusively] for [podName]'s store. */
+  internal fun <T> exclusively(podName: String, block: () -> T): T = getRepository(podName).exclusively(block)
+
   internal fun putResourceModel(
     podName: String,
     resourceUri: URI,
@@ -254,7 +257,7 @@ class PodFacade @Inject constructor(
     resourceUri: URI,
     contextUri: URI,
     replacementModel: Model,
-  ): Boolean {
+  ): Boolean = exclusively(podName) {
     val repo = getRepository(podName)
     val resourceIri = resourceUri.toIri()
     val contextIri = contextUri.toIri()
@@ -269,7 +272,7 @@ class PodFacade @Inject constructor(
         mergedModel.add(stmt.subject, stmt.predicate, stmt.`object`, contextIri)
       }
 
-    return putResourceModel(
+    putResourceModel(
       podName = podName,
       resourceUri = resourceUri,
       model = mergedModel,
@@ -323,26 +326,6 @@ class PodFacade @Inject constructor(
   }
 
   /**
-   * Cardinality check for one slot in one context: are there zero statements
-   * `(subject, predicate, *)` in [contextUri]? Used by the System-layer endpoint to drive
-   * `If-None-Match: *` (slot-as-resource semantics — empty slot ≙ "does not exist") before
-   * an upstream conditional write.
-   */
-  internal fun isSlotEmpty(
-    podName: String,
-    subjectUri: URI,
-    predicateUri: URI,
-    contextUri: URI,
-  ): Boolean {
-    val repo = getRepository(podName)
-    val mergedModel = repo.getResource(subjectUri) ?: return true
-    val subjectIri = subjectUri.toIri()
-    val predicateIri = predicateUri.toIri()
-    val contextIri = contextUri.toIri()
-    return !mergedModel.getStatements(subjectIri, predicateIri, null, contextIri).any()
-  }
-
-  /**
    * Replace all statements `(subject, predicate, *)` in [contextUri] with [newSlotStatements].
    * Other predicates of the subject in this context AND every statement of the subject in
    * other contexts remain untouched. Returns `true` if the store was modified.
@@ -353,7 +336,7 @@ class PodFacade @Inject constructor(
     predicateUri: URI,
     contextUri: URI,
     newSlotStatements: Collection<Value>,
-  ): Boolean {
+  ): Boolean = exclusively(podName) {
     val repo = getRepository(podName)
     val subjectIri = subjectUri.toIri()
     val predicateIri = predicateUri.toIri()
@@ -364,7 +347,7 @@ class PodFacade @Inject constructor(
     newSlotStatements.forEach { value ->
       mergedModel.add(subjectIri, predicateIri, value, contextIri)
     }
-    return persistSlotMutation(podName, subjectUri, mergedModel)
+    persistSlotMutation(podName, subjectUri, mergedModel)
   }
 
   /**
@@ -378,7 +361,7 @@ class PodFacade @Inject constructor(
     predicateUri: URI,
     contextUri: URI,
     value: Value,
-  ): SlotAddOutcome {
+  ): SlotAddOutcome = exclusively(podName) {
     val repo = getRepository(podName)
     val subjectIri = subjectUri.toIri()
     val predicateIri = predicateUri.toIri()
@@ -386,11 +369,11 @@ class PodFacade @Inject constructor(
 
     val mergedModel = repo.getResource(subjectUri) ?: LinkedHashModel()
     if (mergedModel.contains(subjectIri, predicateIri, value, contextIri)) {
-      return SlotAddOutcome.ALREADY_PRESENT
+      return@exclusively SlotAddOutcome.ALREADY_PRESENT
     }
     mergedModel.add(subjectIri, predicateIri, value, contextIri)
     persistSlotMutation(podName, subjectUri, mergedModel)
-    return SlotAddOutcome.CREATED
+    SlotAddOutcome.CREATED
   }
 
   /**
@@ -407,18 +390,18 @@ class PodFacade @Inject constructor(
     predicateUri: URI,
     contextUri: URI,
     targetIri: IRI,
-  ): Boolean {
+  ): Boolean = exclusively(podName) {
     val repo = getRepository(podName)
     val subjectRdfIri = subjectUri.toIri()
     val predicateRdfIri = predicateUri.toIri()
     val contextRdfIri = contextUri.toIri()
 
-    val mergedModel = repo.getResource(subjectUri) ?: return false
+    val mergedModel = repo.getResource(subjectUri) ?: return@exclusively false
     if (!mergedModel.contains(subjectRdfIri, predicateRdfIri, targetIri, contextRdfIri)) {
-      return false
+      return@exclusively false
     }
     mergedModel.remove(subjectRdfIri, predicateRdfIri, targetIri, contextRdfIri)
-    return persistSlotMutation(podName, subjectUri, mergedModel)
+    persistSlotMutation(podName, subjectUri, mergedModel)
   }
 
   /**
@@ -432,17 +415,17 @@ class PodFacade @Inject constructor(
     subjectUri: URI,
     predicateUri: URI,
     contextUri: URI,
-  ): Boolean {
+  ): Boolean = exclusively(podName) {
     val repo = getRepository(podName)
     val subjectIri = subjectUri.toIri()
     val predicateIri = predicateUri.toIri()
     val contextIri = contextUri.toIri()
 
-    val mergedModel = repo.getResource(subjectUri) ?: return false
+    val mergedModel = repo.getResource(subjectUri) ?: return@exclusively false
     val existed = mergedModel.getStatements(subjectIri, predicateIri, null, contextIri).any()
-    if (!existed) return false
+    if (!existed) return@exclusively false
     mergedModel.remove(subjectIri, predicateIri, null, contextIri)
-    return persistSlotMutation(podName, subjectUri, mergedModel)
+    persistSlotMutation(podName, subjectUri, mergedModel)
   }
 
   /**

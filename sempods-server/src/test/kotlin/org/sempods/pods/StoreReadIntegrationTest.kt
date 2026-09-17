@@ -17,8 +17,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Resource reads (`getResource`, `existsResource`, `findReferencingResources`, the ETag validator)
- * are served from the in-memory store, not MongoDB.
+ * Resource reads (`getResource`, `existsResource`, `findReferencingResources`) are served from the
+ * in-memory store, not MongoDB.
  */
 class StoreReadIntegrationTest : SempodsIntegrationTest() {
 
@@ -30,7 +30,7 @@ class StoreReadIntegrationTest : SempodsIntegrationTest() {
   private val knows = Values.iri("https://schema.org/knows")
 
   @Test
-  fun `getResource and the validator are served from the store`() {
+  fun `getResource is served from the store`() {
     val pod = sempodsTestFactory.newPod()
     val resourceUri = URI("https://example.org/sr-${System.nanoTime()}")
     val resourceIri = resourceUri.toIri()
@@ -42,21 +42,9 @@ class StoreReadIntegrationTest : SempodsIntegrationTest() {
     }
     assertTrue(repo.putResource(resourceUri, model))
 
-    val validatorBefore = repo.fetchResourceValidator(resourceUri)
-    assertNotNull(validatorBefore)
-
     val read = repo.getResource(resourceUri)
     assertNotNull(read, "getResource must read from the store")
     assertTrue(Models.isomorphic(model, read))
-
-    // The validator is stable for unchanged content and changes after a content change.
-    assertEquals(validatorBefore, repo.fetchResourceValidator(resourceUri), "validator must be stable")
-    val updated = LinkedHashModel().apply {
-      add(resourceIri, RDF.TYPE, Ontologies.SCHEMA_ORG.Types.Event, context)
-      add(resourceIri, Ontologies.SCHEMA_ORG.Properties.name, Values.literal("Changed"), context)
-    }
-    assertTrue(repo.putResource(resourceUri, updated))
-    assertNotEquals(validatorBefore, repo.fetchResourceValidator(resourceUri), "validator must change on content change")
   }
 
   @Test
@@ -103,9 +91,6 @@ class StoreReadIntegrationTest : SempodsIntegrationTest() {
     assertTrue(repo.putResource(e, eModel))
     assertEquals(setOf(a), repo.findReferencingResources(URI(context.stringValue()), b), "rdf:type edges must be excluded")
 
-    assertNull(repo.fetchResourceValidator(URI("https://example.org/never-${System.nanoTime()}")))
+    assertNull(repo.getResource(URI("https://example.org/never-${System.nanoTime()}")))
   }
-
-  private fun assertNotEquals(unexpected: Any?, actual: Any?, message: String) =
-    assertFalse(unexpected == actual, message)
 }

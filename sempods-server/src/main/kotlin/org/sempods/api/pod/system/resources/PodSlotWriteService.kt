@@ -7,11 +7,14 @@ import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
+import org.sempods.api.pod.resources.RepresentationTags
+import org.sempods.api.pod.resources.WriteConditions
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.EntityTag
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
@@ -21,22 +24,27 @@ import java.net.URI
 
 /**
  * Shared write path for the LOD-CRUD **System layer** slot operations, used by
- * [PodSystemResourcesEndpoint] (HTTP) and the slot-flavored MCP tools (`add_property_value`,
- * `set_property_values`, `remove_property_value`, `clear_property_values`).
+ * [PodSystemResourcesEndpoint].
  *
  * Layered on top of [PodFacade]'s slot methods; this service handles transport-level
  * concerns: parse JSON-LD value objects into RDF [Value]s, validate the `?context=`
- * parameter, run the `<ctx>#write` / `<root>#manage` authorization check.
+ * parameter, run the `<ctx>#write` / `<root>#manage` authorization check, then evaluate the
+ * write's [WriteConditions] against the slot in the write context.
  */
 class PodSlotWriteService @Inject constructor(
   private val podFacade: PodFacade,
   private val podContextWriteAuthorizer: PodContextWriteAuthorizer,
 ) {
 
+  /** @property tag the slot's tag after this write, taken before any other write could run. */
   data class SlotAddResult(
     val outcome: PodFacade.SlotAddOutcome,
     val addedValue: Value,
+    val tag: EntityTag,
   )
+
+  /** @property cleared whether the slot held anything. @property tag as on [SlotAddResult]. */
+  data class SlotClearResult(val cleared: Boolean, val tag: EntityTag)
 
   fun resolveWriteContextOrThrow(pod: String, rawContext: String?): URI =
     podContextWriteAuthorizer.resolveWriteContextOrThrow(pod, rawContext)
@@ -73,6 +81,14 @@ class PodSlotWriteService @Inject constructor(
     )
   }
 
+  /** The slot's statements in [contextUri] alone — what a write there replaces, and what its tag describes. */
+  private fun slotInContext(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): Model =
+    podFacade.getSlot(podName = pod, subjectUri = subjectUri, predicateUri = predicateUri, contexts = listOf(contextUri))
+
+  /** The slot's tag in [contextUri] as it stands now — what a slot write echoes (`SPS-CRUD-052`). */
+  private fun slotTag(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): EntityTag =
+    RepresentationTags.slot(slotInContext(pod, subjectUri, predicateUri, contextUri), subjectUri, predicateUri, contextUri, false)
+
   fun replaceSlot(
     pod: String,
     subjectUri: URI,
@@ -80,16 +96,20 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     body: String,
     credentials: SempodsCredentials,
-  ): Boolean {
+    conditions: WriteConditions,
+  ): EntityTag {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    val values = parseSlotBodyAsArrayOrThrow(body)
-    return podFacade.replaceSlot(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-      newSlotStatements = values,
-    )
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      podFacade.replaceSlot(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+        newSlotStatements = parseSlotBodyAsArrayOrThrow(body),
+      )
+      slotTag(pod, subjectUri, predicateUri, contextUri)
+    }
   }
 
   fun addSlotValue(
@@ -99,17 +119,21 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     body: String,
     credentials: SempodsCredentials,
+    conditions: WriteConditions,
   ): SlotAddResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    val value = parseSingleValueOrThrow(body)
-    val outcome = podFacade.addSlotValue(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-      value = value,
-    )
-    return SlotAddResult(outcome = outcome, addedValue = value)
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      val value = parseSingleValueOrThrow(body)
+      val outcome = podFacade.addSlotValue(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+        value = value,
+      )
+      SlotAddResult(outcome = outcome, addedValue = value, tag = slotTag(pod, subjectUri, predicateUri, contextUri))
+    }
   }
 
   /**
@@ -151,13 +175,37 @@ class PodSlotWriteService @Inject constructor(
     predicateUri: URI,
     contextUri: URI,
     credentials: SempodsCredentials,
-  ): Boolean {
+    conditions: WriteConditions,
+  ): SlotClearResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    return podFacade.clearSlot(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      val cleared = podFacade.clearSlot(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+      )
+      SlotClearResult(cleared = cleared, tag = slotTag(pod, subjectUri, predicateUri, contextUri))
+    }
+  }
+
+  /**
+   * `If-None-Match: *` holds while the slot is empty in [contextUri] (`SPS-CRUD-053`); a tag holds
+   * while it describes the slot there. Statements of other predicates and other contexts do not
+   * enter either. Called inside [PodFacade.exclusively] with the write it guards.
+   */
+  private fun requireConditions(
+    conditions: WriteConditions,
+    pod: String,
+    subjectUri: URI,
+    predicateUri: URI,
+    contextUri: URI,
+  ) {
+    val current = slotInContext(pod, subjectUri, predicateUri, contextUri)
+    conditions.requireHold(
+      current = RepresentationTags.slotWriteTarget(current, subjectUri, predicateUri, contextUri),
+      exists = current.isNotEmpty(),
     )
   }
 

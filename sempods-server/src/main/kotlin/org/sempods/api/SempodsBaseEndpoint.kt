@@ -9,6 +9,7 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.api.pod.resources.WriteConditions
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.jaxrs.BaseEndpoint
 import org.sempods.commons.net.BearerAuth
@@ -65,6 +66,24 @@ open class SempodsBaseEndpoint(
    */
   protected fun bearerToken(): String? =
     BearerAuth.parse(currentRequestContext().getHeaderString(HttpHeaders.AUTHORIZATION))
+
+  /** The request's `If-Match` and `If-None-Match`, for a write service to evaluate. */
+  protected fun writeConditions(): WriteConditions {
+    val headers = currentRequestContext().headers
+    fun field(name: String) = headers[name]?.takeIf { it.isNotEmpty() }?.joinToString(",")
+    return WriteConditions(ifMatch = field(HttpHeaders.IF_MATCH), ifNoneMatch = field(HttpHeaders.IF_NONE_MATCH))
+  }
+
+  /**
+   * The cache policy of a resource or slot read, for its `200` and its `304`.
+   *
+   * What a read returns depends on the credential, so a shared cache must not store it and a private
+   * cache has to key it on `Authorization` as well as `Accept`. A private cache may keep it, but has
+   * to revalidate before reusing it (RFC 9111 §5.2.2.4).
+   */
+  protected fun Response.ResponseBuilder.revalidatedPrivately(): Response.ResponseBuilder =
+    header(HttpHeaders.CACHE_CONTROL, "private, no-cache")
+      .header(HttpHeaders.VARY, "${HttpHeaders.ACCEPT}, ${HttpHeaders.AUTHORIZATION}")
 
   /**
    * Resolve caller credentials for a pod request. Supports both anonymous and authenticated

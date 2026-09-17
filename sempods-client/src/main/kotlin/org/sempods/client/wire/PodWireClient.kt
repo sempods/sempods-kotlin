@@ -11,7 +11,7 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-/** A whole-resource read: the canonical JSON-LD plus the pod's write-precondition ETag (if any). */
+/** A whole-resource read: the canonical JSON-LD plus the ETag of that read (if any). */
 data class PodResource(val etag: String?, val jsonld: JsonNode)
 
 /** A single slot read `(subject, predicate)`: the JSON-LD value array plus a slot ETag (if any). */
@@ -42,9 +42,9 @@ data class PodWriteResult(val status: Int, val etag: String?, val body: JsonNode
  *   segments.
  *
  * So this is the floor and the semantic client is the storey above it — not two clients. It also
- * carries the concurrency vocabulary the semantic tier historically lacked: an ETag read here is
- * the precondition a later write sends back, which is what makes a read-modify-write safe against
- * a concurrent editor rather than last-write-wins.
+ * carries the concurrency vocabulary the semantic tier historically lacked: the ETag of a read of one
+ * context is the precondition a later write to that context sends back, which is what makes a
+ * read-modify-write safe against a concurrent editor rather than last-write-wins.
  *
  * **Blocking, like everything else here.** A `suspend` consumer bridges at its own edge; see
  * `docs/pod-client.md` §"The transport" for why the client itself carries no concurrency
@@ -151,8 +151,8 @@ class PodWireClient(
 
   /**
    * `PUT {pod}/_system/resources/{b64url(iri)}?context=` with the JSON-LD body — an upsert, or a
-   * create-or-fail with `If-None-Match: *`. The pod echoes the post-write `ETag`, so the result
-   * carries the next precondition directly and no follow-up read is needed for it.
+   * create-or-fail with `If-None-Match: *`. The next precondition comes from a read of the same
+   * context: what the pod stores is the RDF parsed from the body, so a write answers with no `ETag`.
    */
   fun createResource(
     podBaseUrl: URI,

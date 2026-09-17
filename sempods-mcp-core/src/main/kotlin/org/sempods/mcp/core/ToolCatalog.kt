@@ -357,13 +357,13 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
     add(
       readTool(
         "get_resource",
-        "Fetch the whole-resource view of a KNOWN resource_iri as canonical JSON-LD from $scope, " +
-          "together with its `etag`. Use this before `update_resource` / `delete_resource` to read the " +
-          "current state AND obtain the `etag` to pass back as `if_match` for a safe read-modify-write " +
-          "(lost-update protection). `resource_iri` may be local or external (`did:`, `urn:`, foreign " +
-          "`https://…`).\n\n" +
-          "Returns `{ \"resource_iri\": \"…\", \"etag\": \"…\", \"jsonld\": <canonical JSON-LD> }`" +
-          "$perPod. Pass the `etag` verbatim to `update_resource.if_match`. Prefer this over " +
+        "Fetch the whole-resource view of a KNOWN resource_iri as canonical JSON-LD from $scope. " +
+          "Before `update_resource` / `delete_resource`, read it with `context_iri` naming exactly the " +
+          "context you will write: the answer then carries an `etag` to pass back as `if_match` in that " +
+          "context, for a safe read-modify-write (lost-update protection). `resource_iri` may be local " +
+          "or external (`did:`, `urn:`, foreign `https://…`).\n\n" +
+          "Returns `{ \"resource_iri\": \"…\", \"etag\"?: \"…\", \"jsonld\": <canonical JSON-LD> }`" +
+          "$perPod. Pass the `etag` verbatim. Prefer this over " +
           "hand-written SPARQL when you already know the resource IRI. Where the resource has no " +
           "visible statements, the answer is a not-visible error rather than an empty document.",
         properties = mapOf(
@@ -371,15 +371,14 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
           "context_iri" to stringArray(
             "Optional array of context IRIs to downscope the read to. Omit to union across every " +
               "readable context of $scope. Unknown or unreadable contexts are silently ignored; if none " +
-              "remain, the answer is a not-visible error. An empty array is refused.",
+              "remain, the answer is a not-visible error. An `etag` is returned only when this names " +
+              "exactly one context. An empty array is refused.",
             minItems = 1,
           ),
           "include_contexts" to prop(
             "boolean",
             "Optional: when true, return the named-graph form (statements grouped by context) instead of " +
-              "the merged canonical document. The returned `etag` is the same write-precondition tag " +
-              "either way — it does not describe the named-graph representation — so it stays usable for " +
-              "`if_match`.",
+              "the merged canonical document. Its `etag` is just as usable for `if_match`.",
           ),
         ),
         required = listOf("resource_iri"),
@@ -493,7 +492,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "context_iri" to prop("string", "Absolute IRI of the context (graph) the resource lives in."),
         "resource_iri" to prop("string", "Absolute IRI of the resource to patch — local or external (did:, urn:, foreign https://…)."),
         "jsonld_patch" to prop("object", "Strict canonical JSON-LD merge-patch body. Absolute-IRI predicate keys only. No \"@context\". Only \"@id\" (optional, must match resource_iri) and \"@type\" keywords allowed; a null value removes that property. Example: {\"https://schema.org/text\":[{\"@value\":\"updated\"}]}."),
-        "if_match" to prop("string", "Optional ETag for lost-update protection: pass the `etag` returned by `get_resource` (or by a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional patch."),
+        "if_match" to prop("string", "Optional ETag for lost-update protection: pass the `etag` from `get_resource` read with `context_iri` set to this call's context. Returns a precondition error if the resource changed there since then. Omit for an unconditional patch."),
       ),
       required = listOf("context_iri", "resource_iri", "jsonld_patch"),
     ),
@@ -506,7 +505,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the context (graph) the resource lives in."),
         "resource_iri" to prop("string", "Absolute IRI of the resource to delete — local or external (did:, urn:, foreign https://…)."),
-        "if_match" to prop("string", "Optional ETag for lost-update protection: pass the `etag` from `get_resource` (or a prior write). Returns a precondition error if the resource changed since then. Omit for an unconditional delete."),
+        "if_match" to prop("string", "Optional ETag for lost-update protection: pass the `etag` from `get_resource` read with `context_iri` set to this call's context. Returns a precondition error if the resource changed there since then. Omit for an unconditional delete."),
       ),
       required = listOf("context_iri", "resource_iri"),
     ),

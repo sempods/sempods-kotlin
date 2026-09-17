@@ -34,9 +34,8 @@ import kotlin.concurrent.withLock
  * runs synchronously in the request, after the store commit; a failure of the *critical* listener
  * rolls the store change back and fails the request.
  *
- * Reads come from the **store**: `getResource`, `existsResource`,
- * `findReferencingResources` and the ETag validator are served by `getStatements`/`hasStatement`
- * over a read connection. Reads take no [writeLock] — the MemoryStore serves concurrent reads while
+ * Reads come from the **store**: `getResource`, `existsResource` and
+ * `findReferencingResources` are served by `getStatements`/`hasStatement` over a read connection. Reads take no [writeLock] — the MemoryStore serves concurrent reads while
  * a write holds the lock (SNAPSHOT isolation), and a read sees a consistent snapshot.
  */
 internal class InMemoryPodRepository(
@@ -46,8 +45,10 @@ internal class InMemoryPodRepository(
   private val podChangeDispatcher: PodChangeDispatcher,
 ) : PodRepository {
 
-  /** Serializes writes (store mutation + sink + verification) per pod. */
+  /** Serializes writes (store mutation + sink + verification) per pod, and [exclusively]'s blocks. */
   private val writeLock = ReentrantLock()
+
+  override fun <T> exclusively(block: () -> T): T = writeLock.withLock(block)
 
   // -- reads (from the store) --
 
@@ -63,13 +64,6 @@ internal class InMemoryPodRepository(
       val model = LinkedHashModel()
       conn.getStatements(uri.toIri(), null, null, false, context.toIri()).use { result -> result.forEach(model::add) }
       if (model.isEmpty()) null else model
-    }
-  }
-
-  override fun fetchResourceValidator(uri: URI): String? {
-    return withConnection { conn ->
-      val model = readResource(conn, uri.toIri())
-      if (model.isEmpty()) null else ResourceValidator.compute(model)
     }
   }
 

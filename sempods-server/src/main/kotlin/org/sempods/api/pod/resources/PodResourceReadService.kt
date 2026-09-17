@@ -2,7 +2,6 @@ package org.sempods.api.pod.resources
 
 import com.google.inject.Inject
 import org.sempods.commons.jaxrs.errors.ApiErrors
-import org.sempods.SempodsFacade
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.PodFacade
 import org.eclipse.rdf4j.model.Model
@@ -14,14 +13,12 @@ import java.net.URI
  * `{pod}/{resourcePath}`) and [org.sempods.api.pod.system.resources.PodSystemResourcesEndpoint]
  * (b64-IRI whole-resource route, `{pod}/_system/resources/{b64(iri)}`).
  *
- * Centralizing context-visibility resolution and the ETag base value here is what guarantees
- * the two addressing routes produce a byte-identical representation and validator for the same
- * `(resource, contexts)` — the cross-route conditional-write parity required by
- * sempods-spec `spec/core/lod-crud.md` §5. A pod-owned IRI therefore has one identity whether
- * fetched via the pretty canonical path or the b64 system-layer route.
+ * Centralizing context-visibility resolution here, with [RepresentationTags] for the tag, is what
+ * guarantees the two addressing routes produce a byte-identical representation and validator for
+ * the same `(resource, contexts)` — `SPS-CRUD-002`. A pod-owned IRI therefore has one identity
+ * whether fetched via the pretty canonical path or the b64 system-layer route.
  */
 class PodResourceReadService @Inject constructor(
-  private val sempodsFacade: SempodsFacade,
   private val podContextWriteAuthorizer: PodContextWriteAuthorizer,
   private val podFacade: PodFacade,
 ) {
@@ -40,11 +37,23 @@ class PodResourceReadService @Inject constructor(
     pod: String,
     credentials: SempodsCredentials,
     rawContexts: List<String>?,
-  ): Set<URI>? {
+  ): Set<URI>? = resolveReadScope(pod, credentials, rawContexts).visible
+
+  /**
+   * What a read covers.
+   *
+   * @property visible the contexts whose statements the read returns — [resolveVisibleContexts].
+   * @property selection the same set when the request named contexts with `?context=`, or null when
+   *   it named none. [RepresentationTags] makes it part of the tag.
+   */
+  data class ReadScope(val visible: Set<URI>?, val selection: Set<URI>?)
+
+  fun resolveReadScope(pod: String, credentials: SempodsCredentials, rawContexts: List<String>?): ReadScope {
     val downscope = podContextWriteAuthorizer.resolveReadDownscopeOrEmpty(pod, rawContexts)
-      ?: return credentials.restrictedContexts
+      ?: return ReadScope(visible = credentials.restrictedContexts, selection = null)
     val readable = credentials.restrictedContexts
-    return if (readable == null) downscope.toSet() else downscope.intersect(readable)
+    val selected = if (readable == null) downscope.toSet() else downscope.intersect(readable)
+    return ReadScope(visible = selected, selection = selected)
   }
 
   /**
@@ -67,30 +76,6 @@ class PodResourceReadService @Inject constructor(
     }
     return visibleModel
   }
-
-  /**
-   * Strong-validator base value for a resource's representation, the single source of truth for
-   * the ETag of both LOD routes. The validator is global across contexts (LOD identity is global);
-   * [includeContexts] distinguishes the named-graph representation from the canonical one.
-   *
-   * Mirrors the original `PodResourceEndpoint.entityTag` guard: a missing validator on a
-   * non-existent pod is a 404, not a `"0"` tag.
-   */
-  fun resourceTagBaseValue(pod: String, resourceUri: URI, includeContexts: Boolean): String {
-    val validator = sempodsFacade.getResourceValidator(pod, resourceUri)
-    if (validator == null && !sempodsFacade.existsPod(pod)) {
-      throw ApiErrors.throwNotFoundError()
-    }
-    val representationSuffix = if (includeContexts) "-contexts" else ""
-    return "${validator ?: "0"}$representationSuffix"
-  }
-
-  /**
-   * Strong validator for write-precondition evaluation; `null` when the resource has no
-   * statements yet (so `If-None-Match: *` create-or-fail can be honored).
-   */
-  fun resourceWriteValidator(pod: String, resourceUri: URI): String? =
-    sempodsFacade.getResourceValidator(pod, resourceUri)
 
   private fun filterByContexts(model: Model, visibleContexts: Set<URI>?): Model {
     visibleContexts ?: return model

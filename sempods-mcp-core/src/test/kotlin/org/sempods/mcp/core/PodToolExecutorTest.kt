@@ -84,30 +84,28 @@ class PodToolExecutorTest {
   }
 
   @Test
-  fun `get_resource answers the iri, the write-precondition etag and the document`() {
+  fun `get_resource of one context answers the iri, its etag and the document`() {
     every { wire.getResource(any(), any(), any(), any(), any()) } returns
       PodResource("\"v1\"", mapper.readTree("""{"@id":"$thing"}"""))
-    val result = run("get_resource", """{"resource_iri":"$thing"}""") as Map<*, *>
-    verify { wire.getResource(pod, URI.create(thing), emptyList(), false, "tok") }
+    val result = run("get_resource", """{"resource_iri":"$thing","context_iri":["$ctx"]}""") as Map<*, *>
+    verify { wire.getResource(pod, URI.create(thing), listOf(URI.create(ctx)), false, "tok") }
     assertEquals(listOf("resource_iri", "etag", "jsonld"), result.keys.toList())
     assertEquals(thing, result["resource_iri"])
     assertEquals("\"v1\"", result["etag"])
   }
 
   @Test
-  fun `include_contexts reads the document once and the write-precondition etag once more`() {
-    // HTTP hands out a representation's validator, so the named-graph read answers with a tag that
-    // `if_match` refuses. The tool promises the write-precondition tag in both forms, so it takes it
-    // from the canonical representation — one extra GET, only on this path.
-    every { wire.getResource(pod, URI.create(thing), emptyList(), true, "tok") } returns
+  fun `get_resource of every context withholds the etag, in either form, with one read`() {
+    // A tag validates writes to the context it was read from, and a union read names none. Handed
+    // out, it would come back as `if_match` and fail.
+    every { wire.getResource(any(), any(), any(), any(), any()) } returns
       PodResource("\"v1-contexts\"", mapper.readTree("""{"@graph":[]}"""))
-    every { wire.getResource(pod, URI.create(thing), emptyList(), false, "tok") } returns
-      PodResource("\"v1\"", mapper.readTree("""{"@id":"$thing"}"""))
 
     val result = run("get_resource", """{"resource_iri":"$thing","include_contexts":true}""") as Map<*, *>
 
-    assertEquals("\"v1\"", result["etag"])
+    assertEquals(listOf("resource_iri", "jsonld"), result.keys.toList())
     assertEquals(mapper.readTree("""{"@graph":[]}"""), result["jsonld"])
+    verify(exactly = 1) { wire.getResource(any(), any(), any(), any(), any()) }
   }
 
   @Test

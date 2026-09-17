@@ -141,20 +141,15 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
           ?: return PodToolPlan.InvalidArguments("missing required argument: resource_iri")
         val includeContexts = ToolArguments.flag(arguments, "include_contexts")
         call { pod, token ->
-          val resource = URI.create(resourceIri)
-          val r = wire.getResource(pod, resource, contextIris, includeContexts, token)
-          // The `etag` this tool returns is the **write-precondition** tag, which is what the
-          // description promises and what `update_resource`/`delete_resource`'s `if_match` accepts.
-          //
-          // HTTP does not hand it over under `include_contexts`: an `ETag` identifies a
-          // representation, so the named-graph GET answers with that representation's validator —
-          // the pod appends a `-contexts` marker — and sending it back as `if_match` is a
-          // precondition failure on an unchanged resource. Read it from the canonical
-          // representation instead, which costs a second GET on this one path. Deriving it by
-          // stripping a suffix would put the pod's tag format into this module, where it cannot be
-          // checked and would go stale in silence.
-          val etag = if (includeContexts) wire.getResource(pod, resource, contextIris, false, token).etag else r.etag
-          linkedMapOf("resource_iri" to resourceIri, "etag" to etag, "jsonld" to r.jsonld)
+          val r = wire.getResource(pod, URI.create(resourceIri), contextIris, includeContexts, token)
+          val result = linkedMapOf<String, Any?>("resource_iri" to resourceIri)
+          // Only for a read of exactly one context. An ETag identifies the representation it came
+          // with, and a write names one context, so the tag that can validate it is the tag of a
+          // read of that context. A union read's tag describes something no write replaces; handed
+          // out, it would come back as `if_match` and fail. Omitted rather than null, as in [written].
+          if (contextIris.size == 1) r.etag?.let { result["etag"] = it }
+          result["jsonld"] = r.jsonld
+          result
         }
       }
 

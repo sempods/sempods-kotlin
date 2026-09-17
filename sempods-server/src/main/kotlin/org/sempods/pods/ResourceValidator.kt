@@ -5,24 +5,28 @@ import org.sempods.rdf.RdfWriterUtil
 import org.eclipse.rdf4j.model.Model
 
 /**
- * Strong, store-derived ETag validator for a resource: a stable content hash over the resource's
- * own-subject statements across all contexts. Replaced the MongoDB `dateModified` timestamp as the
- * ETag source when reads moved to the store.
+ * A stable content hash over a model's statements — the value behind the strong ETags of resource,
+ * slot and context-registry representations.
  *
  * Deterministic because blank nodes are forbidden — every statement has a stable N-Quads form, so
  * sorting the per-statement lines yields a canonical serialization: identical content always hashes
- * to the same value, regardless of statement iteration order. A change to *any* statement of the
- * resource (any predicate, any context) changes the hash — the same resource-snapshot granularity
- * the timestamp had, but a true content validator (no spurious bumps, no missing bumps).
+ * to the same value, regardless of statement iteration order. The context is part of each line, so
+ * moving a statement to another context changes the hash.
  */
 object ResourceValidator {
 
-  fun compute(model: Model): String {
+  /**
+   * The hash of [model], and of [scope] when the tag depends on more than the statements — such as
+   * the contexts a read selected. An empty [scope] hashes the statements alone.
+   */
+  @JvmOverloads
+  fun compute(model: Model, scope: String = ""): String {
     val canonical = RdfWriterUtil.writeNQuads(model)
       .lineSequence()
       .filter { it.isNotBlank() }
       .sorted()
       .joinToString("\n")
-    return HashUtil.sha256Hex(canonical).take(16)
+    val input = if (scope.isEmpty()) canonical else "$canonical\n$scope"
+    return HashUtil.sha256Hex(input).take(16)
   }
 }

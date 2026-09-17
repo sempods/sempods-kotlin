@@ -1585,13 +1585,8 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `DELETE with --gzip-suffixed If-Match should succeed`() {
-    // Jetty's GzipHandler appends "--gzip" to the ETag it emits on a
-    // compressed GET response (RFC 9110 §8.8.3). Clients faithfully
-    // echo that exact tag back in If-Match on the subsequent DELETE.
-    // Since the handler does not strip the suffix from inbound If-Match
-    // on a write (the DELETE response has no body to compress), the
-    // application must tolerate the suffix itself or every gzip-aware
-    // client gets a 412 loop. See `BaseEndpoint.evaluatePreconditions`.
+    // A compressed read's tag, echoed on a write that Jetty does not strip it from — see
+    // `RepresentationTags.withCompressed`.
     val pod = sempodsTestFactory.newPod()
     val writeContext = "apps/test-app/tasks"
     val (writeContextUri, token) = createContextWithToken(pod, writeContext)
