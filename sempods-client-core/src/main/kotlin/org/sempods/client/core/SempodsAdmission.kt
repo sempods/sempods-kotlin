@@ -13,10 +13,8 @@ package org.sempods.client.core
  * `maxRequestsPerHost` bound, not these numbers.
  *
  * **A call holds its slot from before its first attempt until its response is closed**, credential
- * work included. A call a credential supplier makes through the same client, on the thread it was
- * called on, runs on the slot of the call it serves; one made on another thread or through another
- * client needs a slot of its own. A caller waits for a slot no longer than its call deadline, and
- * `Call.cancel()` ends the wait.
+ * work included; [SempodsAuthAttempt.calls] runs that work's calls on the same slot. A caller waits for
+ * a slot no longer than its call deadline, and `Call.cancel()` ends the wait.
  */
 data class SempodsAdmission @JvmOverloads constructor(
   val maxActive: Int = 64,

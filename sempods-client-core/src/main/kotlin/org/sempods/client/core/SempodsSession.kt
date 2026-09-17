@@ -107,7 +107,7 @@ class SempodsSession @JvmOverloads constructor(
     }
   }
 
-  internal fun authenticated(request: Request, attempt: Int): Request = auth.authenticate(request, attempt)
+  internal fun authenticated(request: Request, attempt: SempodsAuthAttempt): Request = auth.authenticate(request, attempt)
 
   private companion object {
 

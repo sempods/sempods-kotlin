@@ -133,7 +133,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
         )
       }
       chain.call().tag(ForeignCall::class.java)?.let { foreign -> return foreignCall(chain, foreign, request) }
-      val slot = Slot(gate(), chain.call())
+      val slot = Slot(gate(chain.call()), chain.call())
       slot.take()
       val response = try {
         chain.proceed(request)
@@ -172,11 +172,11 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       .withAuthenticator(Authenticator.NONE)
       .withCookieJar(CookieJar.NO_COOKIES)
       .withRetryOnConnectionFailure(false)
-    val slot = Slot(gate(), call)
+    val slot = Slot(gate(call), call)
     slot.take()
     val response = try {
       if (call.isCanceled()) throw IOException("Canceled")
-      val sent = foreign.authenticate(request)
+      val sent = authenticating(call, number = 1) { foreign.authenticate(request, it) }
       try {
         quiet.proceed(sent)
       } catch (failure: IOException) {
@@ -200,29 +200,18 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * after this one throws once the response arrived looks the same, and such a request is sent again
    * too ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    *
-   * The call's admission slot is held as [SempodsAdmission] describes; [CredentialWait] is how a call
-   * made from inside the credential work finds it.
+   * The call's admission slot is held as [SempodsAdmission] describes.
    */
   private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
     val call = chain.call()
-    val slot = Slot(gate(), call)
+    val slot = Slot(gate(call), call)
     var number = 1
     var resent = false
-
-    fun <T> acquiring(work: () -> T): T {
-      val outer = CredentialWait.current.get()
-      CredentialWait.current.set(CredentialWait.Work(call, admission))
-      try {
-        return work()
-      } finally {
-        if (outer == null) CredentialWait.current.remove() else CredentialWait.current.set(outer)
-      }
-    }
 
     fun send(): Response {
       // OkHttp looks at the cancel only below this interceptor, after the credential work.
       if (call.isCanceled()) throw IOException("Canceled")
-      val authenticated = acquiring { session.authenticated(request, number) }
+      val authenticated = authenticating(call, number) { session.authenticated(request, it) }
       return try {
         chain.proceed(authenticated)
       } catch (failure: IOException) {
@@ -246,7 +235,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
         return slot.holdUntilClosed(first)
       }
       val retry = try {
-        acquiring { session.auth.recover(first, number) }
+        authenticating(call, number) { session.auth.recover(first, it) }
       } catch (failure: Throwable) {
         first.close()
         throw failure
@@ -263,9 +252,19 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
   }
 
-  /** No gate for a call made from inside credential work through this same admission ([CredentialWait]). */
-  private fun gate(): AdmissionGate? =
-    if (admission != null && CredentialWait.current.get()?.admission === admission) null else admission
+  /** Runs [work] for attempt [number] of [call], and ends it when [work] returns. */
+  private fun <T> authenticating(call: Call, number: Int, work: (SempodsAuthAttempt) -> T): T {
+    val attempt = SempodsAuthAttempt(number, call, admission)
+    try {
+      return work(attempt)
+    } finally {
+      attempt.end()
+    }
+  }
+
+  /** No gate for a call that credential work on this same admission lends its slot ([SempodsAuthAttempt.calls]). */
+  private fun gate(call: Call): AdmissionGate? =
+    if (admission != null && call.tag(SempodsAuthAttempt::class.java)?.lends(admission) == true) null else admission
 }
 
 /** The admission slot of one call: taken before its first attempt and handed on to its response, whose close releases it. */

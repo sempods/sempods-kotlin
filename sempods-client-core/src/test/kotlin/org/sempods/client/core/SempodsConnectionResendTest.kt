@@ -48,7 +48,7 @@ class SempodsConnectionResendTest {
   @Volatile private var onConnection: (Socket, Int) -> Unit = { socket, _ -> answerAndHangUp(socket) }
 
   /** Each attempt's number on the wire, so a resend can be told apart from the request it repeats. */
-  private val attemptHeader = SempodsRequestAuth { request, attempt -> request.header("X-Attempt", "$attempt") }
+  private val attemptHeader = SempodsRequestAuth { request, attempt -> request.header("X-Attempt", "${attempt.number}") }
 
   @BeforeEach
   fun start() {
@@ -359,11 +359,11 @@ class SempodsConnectionResendTest {
       }
     }
     val retrying = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: Int) {
-        request.header("X-Attempt", "$attempt")
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
+        request.header("X-Attempt", "${attempt.number}")
       }
 
-      override fun recover(response: Response, attempt: Int) = response.code == 401
+      override fun recover(response: Response, attempt: SempodsAuthAttempt) = response.code == 401
     }
     val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), retrying)
 
@@ -389,8 +389,8 @@ class SempodsConnectionResendTest {
 
     sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 4)) { callTimeout(Duration.ofSeconds(5)) }.closing { client ->
       val fetching = SempodsRequestAuth { request, attempt ->
-        if (attempt > 1) client.newCall(Request.Builder().url("http://127.0.0.1:${server.localPort}/token").build()).execute().close()
-        request.header("X-Attempt", "$attempt")
+        if (attempt.number > 1) attempt.calls(client).newCall(Request.Builder().url("http://127.0.0.1:${server.localPort}/token").build()).execute().close()
+        request.header("X-Attempt", "${attempt.number}")
       }
       val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), fetching)
       leaveAStaleConnection(client, a)
@@ -404,7 +404,7 @@ class SempodsConnectionResendTest {
   fun `a failing authentication is not resent as a lost connection`() {
     val asked = AtomicInteger()
     val failing = SempodsRequestAuth.refreshable(
-      SempodsCredentialSupplier { asked.incrementAndGet(); throw IOException("token endpoint answered 500") },
+      SempodsCredentialSupplier { _, _ -> asked.incrementAndGet(); throw IOException("token endpoint answered 500") },
     )
     val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), failing)
 

@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantLock
  * ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a token may be.
  */
 @Throws(IOException::class)
-internal fun SempodsRequestAuth.authenticate(request: Request, attempt: Int): Request {
+internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsAuthAttempt): Request {
   val builder = request.newBuilder()
   apply(builder, attempt)
   val authenticated = builder.build()
@@ -38,17 +38,16 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: Int): Re
  * A `String` rather than a parsed token: the core neither knows nor parses a token format. Whoever
  * implements this owns expiry, caching, whatever endpoint mints the value and the deadline for
  * minting it: a call's deadline cancels the call, but cannot interrupt a supplier that blocks. A
- * supplier fetching through the same client does so on the thread it is called on
- * ([SempodsAdmission]).
+ * supplier fetching through the client it serves does so through [SempodsAuthAttempt.calls].
  */
 fun interface SempodsCredentialSupplier {
 
   /**
-   * The credential to send. [forceRefresh] is `true` when the previous value was refused, so an
-   * implementation that caches must not answer from its cache.
+   * The credential to send for [attempt]. [forceRefresh] is `true` when the previous value was refused,
+   * so an implementation that caches must not answer from its cache.
    */
   @Throws(IOException::class)
-  fun get(forceRefresh: Boolean): String
+  fun get(forceRefresh: Boolean, attempt: SempodsAuthAttempt): String
 }
 
 /**
@@ -75,9 +74,9 @@ fun interface SempodsCredentialSupplier {
  */
 fun interface SempodsRequestAuth {
 
-  /** Puts this mechanism's headers on [request], which is about to be sent as attempt [attempt]. */
+  /** Puts this mechanism's headers on [request], which is about to be sent as [attempt]. */
   @Throws(IOException::class)
-  fun apply(request: Request.Builder, attempt: Int)
+  fun apply(request: Request.Builder, attempt: SempodsAuthAttempt)
 
   /**
    * Whether another attempt would answer differently, having seen a refusal — a response outside 2xx.
@@ -88,16 +87,16 @@ fun interface SempodsRequestAuth {
    * body has not been read and must not be consumed here.
    */
   @Throws(IOException::class)
-  fun recover(response: Response, attempt: Int): Boolean = false
+  fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean = false
 
   fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(listOf(this, next))
 
   private class Composite(val members: List<SempodsRequestAuth>) : SempodsRequestAuth {
 
-    override fun apply(request: Request.Builder, attempt: Int) =
+    override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) =
       members.forEach { it.apply(request, attempt) }
 
-    override fun recover(response: Response, attempt: Int): Boolean =
+    override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean =
       members.any { it.recover(response, attempt) }
 
     override fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(members + next)
@@ -155,19 +154,6 @@ fun interface SempodsRequestAuth {
 }
 
 /**
- * The call whose credential this thread is acquiring, set by the session's interceptor. A wait for the
- * credential lock ends with that call, and a call made through the same client meanwhile, on this
- * thread, runs on its admission slot.
- */
-internal object CredentialWait {
-
-  /** The call a thread's credential work serves, and the admission whose slot that call holds. */
-  class Work(val call: Call, val admission: Any?)
-
-  val current = ThreadLocal<Work?>()
-}
-
-/**
  * The refreshable bearer, with acquisition coalesced per credential.
  *
  * **A refusal says which credential it refused.** Threads refused at the same moment must make one
@@ -188,41 +174,42 @@ private class Refreshable(
 
   @Volatile private var credential: String? = null
 
-  override fun apply(request: Request.Builder, attempt: Int) {
-    request.header(headerName, headerValue(acquire(refused = null)))
+  override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
+    request.header(headerName, headerValue(acquire(refused = null, attempt)))
   }
 
-  override fun recover(response: Response, attempt: Int): Boolean {
+  override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
     if (response.code != 401) return false
     val refused = response.request.header(headerName) ?: return false
-    acquire(refused)
+    acquire(refused, attempt)
     return true
   }
 
   /** The credential to send: the one held, unless it is what [refused] carried. */
-  private fun acquire(refused: String?): String {
+  private fun acquire(refused: String?, attempt: SempodsAuthAttempt): String {
     credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
 
-    awaitLock()
+    awaitLock(attempt.call)
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
       credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
-      return supplier.get(refused != null).also { credential = it }
+      // The lock can come free just after the call was cancelled, which the wait checks only between polls.
+      if (attempt.call.isCanceled()) throw IOException("Canceled while waiting to acquire a credential.")
+      return supplier.get(refused != null, attempt).also { credential = it }
     } finally {
       lock.unlock()
     }
   }
 
   /**
-   * Bounded twice: by the call waiting, whose deadline cancels it, and by a floor for a caller outside
-   * a call, so a supplier that hangs fails the operations waiting on it rather than holding them.
+   * Bounded twice: by [call], whose deadline cancels it, and by a floor for a call without a deadline.
+   * When a supplier hangs, the operations waiting on it fail.
    */
-  private fun awaitLock() {
-    val call = CredentialWait.current.get()?.call
+  private fun awaitLock(call: Call) {
     val giveUpAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(CREDENTIAL_WAIT_SECONDS)
     try {
       while (!lock.tryLock(POLL_MILLIS, TimeUnit.MILLISECONDS)) {
-        if (call?.isCanceled() == true) throw IOException("Canceled while waiting to acquire a credential.")
+        if (call.isCanceled()) throw IOException("Canceled while waiting to acquire a credential.")
         if (System.nanoTime() - giveUpAt > 0) throw IOException("Timed out waiting to acquire a credential.")
       }
     } catch (interrupted: InterruptedException) {
