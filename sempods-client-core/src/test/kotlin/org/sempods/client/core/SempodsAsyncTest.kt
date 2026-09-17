@@ -231,6 +231,40 @@ class SempodsAsyncTest : MockPodTest() {
   }
 
   @Test
+  fun `a work that fails or is cancelled leaves no response open, and a response it returns stays the caller's`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
+
+    sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0)).closing { narrow ->
+      val async = SempodsAsync(narrow)
+
+      val failed = async.submit { calls ->
+        get(calls)
+        throw IllegalStateException("failed with the answer still open")
+      }
+      assertTrue(failed.outcome().exceptionOrNull() is IllegalStateException)
+      get(narrow).use { assertEquals(200, it.code, "the failed work's response kept the only slot") }
+
+      val running = CountDownLatch(1)
+      val release = CountDownLatch(1)
+      val cancelled = async.submit { calls ->
+        get(calls)
+        running.countDown()
+        release.await(5, TimeUnit.SECONDS)
+        "returned after the cancel"
+      }
+      assertTrue(running.await(5, TimeUnit.SECONDS))
+      cancelled.cancel()
+      release.countDown()
+      assertTrue(cancelled.outcome().exceptionOrNull() is CancellationException)
+      get(narrow).use { assertEquals(200, it.code, "the cancelled work's response kept the only slot") }
+
+      val returned = async.submit { calls -> get(calls) }.outcome().getOrThrow()
+      returned.use { assertEquals("ok", it.body.string()) }
+      get(narrow).use { assertEquals(200, it.code) }
+    }
+  }
+
+  @Test
   fun `a cancel between two calls keeps the second one from being sent`() {
     server.`when`(request()).respond(response().withStatusCode(200))
     val first = CountDownLatch(1)

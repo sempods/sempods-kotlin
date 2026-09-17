@@ -4,7 +4,6 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
 import java.io.IOException
-import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
@@ -16,10 +15,10 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
   private val lock = Any()
 
   /**
-   * The work's calls that can still be running: made, and neither failed nor closed. A long run of calls
-   * holds only the ones still open. Guarded by [lock].
+   * The work's calls that can still be running, made and neither failed nor closed, each with its response
+   * once one arrived. A long run of calls holds only the ones still open. Guarded by [lock].
    */
-  private val open: MutableSet<Call> = Collections.newSetFromMap(IdentityHashMap())
+  private val open: MutableMap<Call, Response?> = IdentityHashMap()
 
   @Volatile
   private var cancelled = false
@@ -57,15 +56,18 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
       cancelled = true
       beforeStart = !started
       if (beforeStart) finished = true
-      open.toList()
+      open.keys.toList()
     }
     if (beforeStart) completion.completeExceptionally(cancellation(cause = null))
     calls.forEach(Call::cancel)
   }
 
   /**
-   * How the work ended: once it has returned, or at once when it was cancelled before it started. The
-   * operation then holds no admission slot and no connection.
+   * How the work ended: once it has returned, or at once when it was cancelled before it started.
+   *
+   * When the work threw or was cancelled, every response of its calls still open is closed first, so the
+   * operation holds no admission slot and no connection. When it returned a value, what the value holds is
+   * the caller's: a response the work returned unread stays open.
    *
    * | The work | The stage completes with |
    * |---|---|
@@ -93,11 +95,14 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
     } catch (thrown: Throwable) {
       failure = thrown
     }
+    var outstanding: List<Response> = emptyList()
     val cancelledFirst = synchronized(lock) {
       finished = true
+      if (cancelled || failure != null) outstanding = open.values.filterNotNull()
       open.clear()
       cancelled
     }
+    outstanding.forEach(::closeQuietly)
     when {
       cancelledFirst -> {
         if (failure == null) closeQuietly(value)
@@ -113,16 +118,16 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
 
   private fun track(call: Call): Call {
     synchronized(lock) {
-      if (cancelled) call.cancel() else if (!finished) open += call
+      if (cancelled) call.cancel() else if (!finished) open[call] = null
     }
     return TrackedCall(call)
   }
 
   private fun closed(call: Call) {
-    synchronized(lock) { open -= call }
+    synchronized(lock) { open.remove(call) }
   }
 
-  /** [call], dropped from [open] when it fails or its response body is closed. */
+  /** [call], recorded in [open] with its response, and dropped from it when it fails or that body is closed. */
   private inner class TrackedCall(private val call: Call) : Call by call {
 
     override fun execute(): Response {
@@ -150,8 +155,11 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
 
     override fun clone(): Call = track(call.clone())
 
-    private fun observed(response: Response): Response =
-      response.newBuilder().body(ClosingBody(response.body) { closed(call) }).build()
+    private fun observed(response: Response): Response {
+      val observed = response.newBuilder().body(ClosingBody(response.body) { closed(call) }).build()
+      synchronized(lock) { if (open.containsKey(call)) open[call] = observed }
+      return observed
+    }
   }
 
   private fun cancellation(cause: Throwable?): CancellationException =
