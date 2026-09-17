@@ -4,6 +4,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
@@ -17,8 +18,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
+import org.mockserver.model.HttpError
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -186,6 +190,44 @@ class SempodsAsyncTest : MockPodTest() {
     } finally {
       socket.close()
     }
+  }
+
+  @Test
+  fun `an operation holds a call only until it fails or its body is closed`() {
+    server.`when`(request().withPath("/alice/dropped")).error(HttpError.error().withDropConnection(true))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
+    val ready = CountDownLatch(1)
+    val open = CopyOnWriteArrayList<Int>()
+    lateinit var operation: SempodsAsyncOperation<Unit>
+
+    operation = SempodsAsync(client).submit { calls ->
+      ready.await(5, TimeUnit.SECONDS)
+      repeat(50) { get(calls).close() }
+      open += operation.openCalls()
+      runCatching { get(calls, "dropped").close() }
+      open += operation.openCalls()
+      val enqueued = CompletableFuture<Unit>()
+      calls.newCall(session().newRequest("GET", "x").build()).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+          enqueued.completeExceptionally(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+          response.close()
+          enqueued.complete(Unit)
+        }
+      })
+      enqueued.get(5, TimeUnit.SECONDS)
+      open += operation.openCalls()
+      val reading = get(calls)
+      open += operation.openCalls()
+      reading.close()
+      open += operation.openCalls()
+    }
+    ready.countDown()
+
+    operation.outcome().getOrThrow()
+    assertEquals(listOf(0, 0, 0, 1, 0), open.toList())
   }
 
   @Test

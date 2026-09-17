@@ -1,6 +1,11 @@
 package org.sempods.client.core
 
 import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
@@ -10,8 +15,11 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
 
   private val lock = Any()
 
-  /** The calls the work made while it ran. Guarded by [lock]. */
-  private val made = mutableListOf<Call>()
+  /**
+   * The work's calls that can still be running: made, and neither failed nor closed. A long run of calls
+   * holds only the ones still open. Guarded by [lock].
+   */
+  private val open: MutableSet<Call> = Collections.newSetFromMap(IdentityHashMap())
 
   @Volatile
   private var cancelled = false
@@ -24,13 +32,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
 
   private val completion = CompletableFuture<T>()
 
-  private val tracked = Call.Factory { request ->
-    val call = calls.newCall(request)
-    synchronized(lock) {
-      if (cancelled) call.cancel() else if (!finished) made += call
-    }
-    call
-  }
+  private val tracked = Call.Factory { request -> track(calls.newCall(request)) }
 
   /** Whether [cancel] took effect: it was called before the work returned. */
   val isCancelled: Boolean
@@ -55,7 +57,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
       cancelled = true
       beforeStart = !started
       if (beforeStart) finished = true
-      made.toList()
+      open.toList()
     }
     if (beforeStart) completion.completeExceptionally(cancellation(cause = null))
     calls.forEach(Call::cancel)
@@ -93,7 +95,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
     }
     val cancelledFirst = synchronized(lock) {
       finished = true
-      made.clear()
+      open.clear()
       cancelled
     }
     when {
@@ -104,6 +106,52 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
       failure != null -> completion.completeExceptionally(failure)
       else -> @Suppress("UNCHECKED_CAST") completion.complete(value as T)
     }
+  }
+
+  /** How many of the work's calls are still open. */
+  internal fun openCalls(): Int = synchronized(lock) { open.size }
+
+  private fun track(call: Call): Call {
+    synchronized(lock) {
+      if (cancelled) call.cancel() else if (!finished) open += call
+    }
+    return TrackedCall(call)
+  }
+
+  private fun closed(call: Call) {
+    synchronized(lock) { open -= call }
+  }
+
+  /** [call], dropped from [open] when it fails or its response body is closed. */
+  private inner class TrackedCall(private val call: Call) : Call by call {
+
+    override fun execute(): Response {
+      val response = try {
+        call.execute()
+      } catch (failure: Throwable) {
+        closed(call)
+        throw failure
+      }
+      return observed(response)
+    }
+
+    override fun enqueue(responseCallback: Callback) {
+      call.enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+          closed(this@TrackedCall.call)
+          responseCallback.onFailure(this@TrackedCall, e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+          responseCallback.onResponse(this@TrackedCall, observed(response))
+        }
+      })
+    }
+
+    override fun clone(): Call = track(call.clone())
+
+    private fun observed(response: Response): Response =
+      response.newBuilder().body(ClosingBody(response.body) { closed(call) }).build()
   }
 
   private fun cancellation(cause: Throwable?): CancellationException =
