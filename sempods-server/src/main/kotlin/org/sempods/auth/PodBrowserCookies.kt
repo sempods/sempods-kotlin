@@ -58,6 +58,9 @@ class PodBrowserCookies(apiBaseUrl: String, private val secure: Boolean) {
   fun session(pod: String, value: String, maxAgeSeconds: Int): NewCookie =
     cookie(SESSION, value, podPath(pod), maxAgeSeconds)
 
+  /** Withdraws the session — a sign-out. Same name and path as [session], or it withdraws nothing. */
+  fun clearSession(pod: String): NewCookie = session(pod, "", 0)
+
   private fun podPath(pod: String) = "$prefix/$pod/"
 
   /**

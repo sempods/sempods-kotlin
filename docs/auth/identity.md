@@ -97,7 +97,8 @@ person from the session on a browser request, and from the token's
 
 The session is per pod on purpose: pods are isolated tenants and share
 a host on a path-scoped deployment, so a sign-in at one is not a
-sign-in at another.
+sign-in at another, and a [sign-out](oauth.md#signing-out) at one is
+not a sign-out at another.
 
 Ownership follows from it directly. `podDbo.owner` is compared against
 the request's subject (`SempodsBaseEndpoint.resolvePodOwnerPrincipal`)

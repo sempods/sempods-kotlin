@@ -12,6 +12,7 @@ import org.sempods.pods.media.persist.PodMedia
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
 import org.sempods.rdf.Rdf4JUtil
 import org.sempods.rdf.toIri
@@ -39,6 +40,9 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var refreshTokenStore: PodRefreshTokenStore
+
+  @Inject
+  private lateinit var signOutStore: PodSignOutStore
 
   @Inject
   private lateinit var dynamicClientRegistrationDao: DynamicClientRegistrationDao
@@ -120,6 +124,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       dynamicClientRegistrationDao.findByClientId(pod1Id, clientIdFor(pod1.name)),
       "DCR rows must be gone",
     )
+    assertNull(signOutStore.signedOutAt(pod1Id, listOf(CASCADE_WEB_ID)), "sign-outs must be gone")
     // PodRepositoryCache.get() reloads from DB; with the pod removed it returns null.
     assertNull(podRepositoryCache.get(pod1.name), "cache must not resurrect a deleted pod")
 
@@ -130,6 +135,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
     assertTrue(podGrantsDao.anyForPod(pod2Id))
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, refreshTokenStore.lookup(seededToken(pod2.name)).state)
     assertNotNull(dynamicClientRegistrationDao.findByClientId(pod2Id, clientIdFor(pod2.name)))
+    assertNotNull(signOutStore.signedOutAt(pod2Id, listOf(CASCADE_WEB_ID)))
   }
 
   private fun seedAllPodScopedRecords(podName: String, podId: ObjectId) {
@@ -170,6 +176,8 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
+    signOutStore.record(podId, listOf(CASCADE_WEB_ID))
+
     // DynamicClientRegistrationDbo: pod-scoped row, deterministic clientId.
     dynamicClientRegistrationDao.create(
       clientId = clientIdFor(podName),
@@ -194,6 +202,10 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
   private fun seededToken(podName: String) = checkNotNull(seededTokens[podName])
 
   private fun clientIdFor(podName: String) = "dyn:cascade-client-$podName"
+
+  private companion object {
+    const val CASCADE_WEB_ID = "https://id.example.org/cascade-test"
+  }
 
   @Test
   fun `removeContext should cascade across grants, resources, and the context registry`() {

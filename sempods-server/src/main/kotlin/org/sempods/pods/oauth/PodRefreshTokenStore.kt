@@ -15,7 +15,7 @@ import java.time.Instant
 internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
 
 /**
- * The pod server's refresh tokens: [RefreshTokenStore] with a pod-shaped owner, plus the three
+ * The pod server's refresh tokens: [RefreshTokenStore] with a pod-shaped owner, plus the
  * revocations that are this server's domain rather than the mechanism's.
  *
  * Under `pods/` rather than under `api/`, which is where it used to live: what is stored here is
@@ -211,6 +211,25 @@ class PodRefreshTokenStore internal constructor(
    */
   internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
     ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
+
+  /**
+   * Revokes every row this person holds on the pod, whichever app it belongs to — the sign-out path.
+   *
+   * One write over the owner filter, which also catches a family inserted while it runs. That is
+   * wanted here: no consent completes beside a sign-out that such a family could belong to. Rotated
+   * rows are revoked too, and that is what reaches a rotation in flight — its successor lands after
+   * this sweep, and [noLongerStands] then finds the predecessor revoked.
+   */
+  internal fun revokeForPerson(podId: ObjectId, webIds: Collection<String>): Long {
+    val distinct = webIds.filter { it.isNotBlank() }.distinct()
+    if (distinct.isEmpty()) return 0
+    return store.revokeWhere(
+      Filters.and(
+        Filters.eq(FIELD_POD_ID, podId),
+        Filters.`in`(FIELD_WEB_ID, distinct),
+      ),
+    )
+  }
 
   /**
    * Ends the families this app holds for this person **as they stand now**, and no later ones.

@@ -21,6 +21,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenAuthentication
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.pods.oauth.PodTokenRejection
@@ -52,6 +53,9 @@ open class SempodsBaseEndpoint(
 
   @Inject
   private lateinit var podAuthorizer: PodAuthorizer
+
+  @Inject
+  private lateinit var podSignOut: PodSignOut
 
   @Inject
   private lateinit var podServiceAuditLogDao: PodServiceAuditLogDao
@@ -94,7 +98,8 @@ open class SempodsBaseEndpoint(
    * whether the bearer is good (protocol — concrete, one implementation per definition), and
    * [PodAuthorizer] decides what a good bearer may reach (policy — the seam a deployment may
    * replace, `docs/concepts/modularity.md`). What stays here is the third thing, which is neither:
-   * how a refusal becomes an HTTP status.
+   * how a refusal becomes an HTTP status. Between the two, [authenticateBearer] asks whether the
+   * person behind a good bearer has signed out since it was issued.
    *
    * - **No bearer** → anonymous caller, resolved by [PodAuthorizer.anonymous].
    * - **Valid bearer** → [PodAuthorizer.authorize].
@@ -108,7 +113,7 @@ open class SempodsBaseEndpoint(
    */
   protected fun authenticate(pod: String): SempodsCredentials {
     val podRef = fetchPodOrThrow(pod).toRef(sempodsUriBuilder)
-    return when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
+    return when (val outcome = authenticateBearer(podRef)) {
       PodTokenAuthentication.NoToken -> podAuthorizer.anonymous(podRef)
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
       is PodTokenAuthentication.Rejected -> throwInvalidBearer(podName = podRef.name)
@@ -141,6 +146,23 @@ open class SempodsBaseEndpoint(
     }
   }
 
+  /**
+   * [PodTokenAuthenticator.authenticate], and a verified token whose person has signed out of the pod
+   * since it was issued refused as an invalid one — a 401, so a client refreshes, finds its family
+   * revoked and starts again.
+   *
+   * The authenticator reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
+   * may replace, and no deployment may drop a sign-out.
+   */
+  private fun authenticateBearer(podRef: PodRef): PodTokenAuthentication =
+    when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
+      is PodTokenAuthentication.Verified ->
+        if (podSignOut.accessTokenStands(podRef.name, outcome.token)) outcome
+        else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
+
+      else -> outcome
+    }
+
   private fun throwInvalidBearer(podName: String): Nothing {
     throw InvalidBearerException(
       podName = podName,
@@ -166,7 +188,7 @@ open class SempodsBaseEndpoint(
    */
   protected fun requirePodAppTokenOrThrow(pod: String): SempodsCredentials {
     val podRef = fetchPodOrThrow(pod).toRef(sempodsUriBuilder)
-    return when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
+    return when (val outcome = authenticateBearer(podRef)) {
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
 
       is PodTokenAuthentication.Rejected ->

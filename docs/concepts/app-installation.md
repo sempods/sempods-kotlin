@@ -46,9 +46,9 @@ window where the exchange reads.
 Ending an app's access is an action of its own: named, and confirmed before it takes effect. It
 removes the grants and the durability at once, and what the app can read stops with them, because
 that is decided per request. An access token already in its hands is the exception: it is
-self-contained, nothing recalls it, and it keeps its feature scopes until it expires. Nobody should
-disconnect an app by accident while dismissing a dialog, be told they disconnected when nothing
-happened, or be promised an instant the mechanism cannot deliver.
+self-contained, removing access does not recall it, and it keeps its feature scopes until it
+expires. Nobody should disconnect an app by accident while dismissing a dialog, be told they
+disconnected when nothing happened, or be promised an instant the mechanism cannot deliver.
 
 An anonymous public-read token has no person to grant anything, so it stays short-lived and
 refresh-token-free.

@@ -82,13 +82,19 @@ at its `/authorize` is always `login_required`, and signing in to a second
 pod re-authenticates at the upstream provider. The pod side has a session
 cookie; this is the other half.
 
-**A pod session is neither visible nor revocable to the person holding
-it.** There is no "signed in as … / sign out" surface on a pod, and no way
-to end a session other than waiting it out — twelve hours after the last
-authorization, and up to thirty days for a session that keeps seeing them
-(see [`oauth.md`](oauth.md) §"The `prompt` parameter"). Ending one early
-would need something a signature alone cannot carry: a session id and a list
-of the ones that no longer stand.
+**A sign-out is everything or nothing, and only on a consent screen.**
+"Sign out everywhere" ([`oauth.md`](oauth.md#signing-out)) ends every
+sign-in and every app's connection the person holds on that pod. One browser
+or one app cannot be signed out alone: removing an app's access takes its
+grants too. The pod has no page of its own to sign out from, so the person
+reaches the button through an app that opens a consent screen, and signs
+out of each pod separately.
+
+**A sign-out draws its line by the clock.** The sign-out and the
+credential it refuses can be dated by different replicas, so clock skew
+between them moves the line. It reaches the URIs the signing-out session
+knows the person by; an alias the identity service no longer asserts is
+not reached.
 
 **`prompt=login` cannot be guaranteed for an Apple sign-in.** The value is
 parsed and forwarded, and Google honours it. Apple's authorize endpoint
@@ -127,9 +133,9 @@ client from another person's holding a grant on the same pod.
 **Signing keys are persisted but never rotated.** The schema carries
 `kid`, `algorithm` and `retiredAt`, and the JWKS endpoint publishes every
 persisted key, so rotation is a change to the issuer rather than a
-migration — but nothing performs it today. Revocation before expiry is
-limited to refresh-family revocation; there is no `jti` blacklist, so an
-issued access token stays valid for its hour.
+migration — but nothing performs it today. Short of a sign-out, revocation
+before expiry is limited to refresh-family revocation; there is no `jti`
+blacklist, so an issued access token stays valid for its hour.
 
 **A connection whose grant died is marked, not pruned.** The RFC 6749 §5.2
 case (`invalid_grant` on refresh) sets a flag that surfaces as "reconnect

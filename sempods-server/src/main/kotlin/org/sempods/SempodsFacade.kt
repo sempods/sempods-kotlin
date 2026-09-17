@@ -5,6 +5,7 @@ import com.google.inject.Provider
 import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -29,6 +30,7 @@ class SempodsFacade @Inject constructor(
   private val podWebIdGrantsDao: PodWebIdGrantsDao,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentDecisionStore: PodConsentDecisionStore,
+  private val signOutStore: PodSignOutStore,
   private val dynamicClientRegistrationDao: DynamicClientRegistrationDao,
   private val podServiceClientDao: PodServiceClientDao,
   private val podServiceAuditLogDao: PodServiceAuditLogDao,
@@ -74,6 +76,7 @@ class SempodsFacade @Inject constructor(
       // PodRepositoryCache).
       refreshTokenStore.deleteByPod(podId)
       consentDecisionStore.deleteByPod(podId)
+      signOutStore.deleteByPod(podId)
       dynamicClientRegistrationDao.deleteByPod(podId)
       podServiceClientDao.deleteByPod(podId)
       podServiceAuditLogDao.deleteByPod(podId)

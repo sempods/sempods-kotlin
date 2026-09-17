@@ -67,6 +67,9 @@ internal object SempodsCollections {
   /** Refresh-token families, with rotation and reuse detection. */
   const val OAUTH_REFRESH_TOKENS = "oauth.refreshTokens"
 
+  /** When a person last signed out of a pod — `(podId, webId)`. */
+  const val OAUTH_SIGN_OUTS = "oauth.signOuts"
+
   /** The parked `/authorize` request, carried across the sign-in round trip. */
   const val OAUTH_LOGIN_STATES = "oauth.loginStates"
 
@@ -98,6 +101,7 @@ internal object SempodsCollections {
     OAUTH_SIGNING_KEYS,
     OAUTH_CONSENT_DECISIONS,
     OAUTH_REFRESH_TOKENS,
+    OAUTH_SIGN_OUTS,
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,
     OAUTH_AUTH_CODES,

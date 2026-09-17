@@ -93,18 +93,20 @@ without `prompt=none` renders a consent page rather than any of this.
 ## `access_denied`
 
 **A decision, and only a decision.** Somebody declined — at this pod's consent page by
-submitting it with nothing selected, or upstream at the identity provider.
+submitting it with nothing selected or by signing out, or upstream at the identity provider.
 
 | Path | `error_description` |
 |---|---|
 | Consent page submitted with nothing selected, by an app that holds nothing | `no scopes selected` |
 | Consent page submitted with nothing selected, or through its "Remove access" button, by an app that holds something | `app disconnected` — the grants are deleted and the refresh families revoked. The denial is real; it also has an effect |
+| Consent page's "Sign out everywhere", or a sign-out landing while the authorization was answered | `signed out` — every sign-in, connection, code and access token the person holds on the pod has ended ([`oauth.md`](oauth.md#signing-out)) |
 | Identity provider reported `access_denied`, or Apple's `user_cancelled_authorize` | the upstream code, and its description where it sent one |
 
 **Recovery:** do not retry automatically. Repeating the flow asks the same question again,
 and the answer will be the same until the person changes their mind. Offer a "try again"
 and let them choose. After `app disconnected` a retry starts from nothing: the app holds no
-grant, so the next consent page is a first authorization again.
+grant, so the next consent page is a first authorization again. After `signed out` the person
+signs in again first; the grants are still there.
 
 Only those two upstream codes earn this. **A code this pod does not recognise is reported
 as `server_error`, not as a refusal** — an unknown string is no evidence that a person

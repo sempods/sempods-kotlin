@@ -132,6 +132,21 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     ).modifiedCount
   }
 
+  /**
+   * [bumpGeneration] for every app this person has answered on the pod — a sign-out, which ends
+   * every authorization they hold at once. No upsert, for the same reason.
+   */
+  internal fun bumpGenerationForPerson(podId: ObjectId, webIds: Collection<String>): Long {
+    if (webIds.isEmpty()) return 0
+    return decisions.updateMany(
+      Filters.and(
+        Filters.eq(FIELD_POD_ID, podId),
+        Filters.`in`(FIELD_WEB_ID, webIds),
+      ),
+      Updates.inc(FIELD_GENERATION, 1L),
+    ).modifiedCount
+  }
+
   /** The pod-cascade delete path, where the authorizations themselves are going away. */
   internal fun deleteByPod(podId: ObjectId): Long =
     decisions.deleteMany(Filters.eq(FIELD_POD_ID, podId)).deletedCount
