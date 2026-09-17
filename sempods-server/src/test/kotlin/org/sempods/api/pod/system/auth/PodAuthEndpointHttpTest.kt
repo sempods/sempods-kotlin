@@ -983,13 +983,19 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
-    val clear = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "clear")))
+    val clearCode = codeFrom(submitConsent(pod, ownerWebId, state = "clear"))
+    val sessionFrom = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+    val clear = exchangeCode(pod, clearCode)
+    val sessionTo = Instant.now()
     val session = checkNotNull(refreshTokenStore.lookup(clear["refresh_token"] as String).token) {
       "an unticked control still leaves one: $clear"
     }
     assertEquals("session", session.kind)
 
-    val ticked = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true)))
+    val tickedCode = codeFrom(submitConsent(pod, ownerWebId, state = "ticked", durable = true))
+    val durableFrom = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+    val ticked = exchangeCode(pod, tickedCode)
+    val durableTo = Instant.now()
     val durable = checkNotNull(refreshTokenStore.lookup(ticked["refresh_token"] as String).token) {
       "a ticked control grants it, whatever the client asked: $ticked"
     }
@@ -1003,6 +1009,18 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val sessionEnd = checkNotNull(session.endsAt) { "every family is seeded with an outer bound" }
     val durableEnd = checkNotNull(durable.endsAt) { "the long one included" }
     assertTrue(sessionEnd.isBefore(durableEnd), "and the short answer's is the nearer: $sessionEnd / $durableEnd")
+
+    // And both are the deployment's numbers, which this suite sets off their defaults.
+    fun assertMintedWithin(from: Instant, to: Instant, term: Duration, actual: Instant) = assertTrue(
+      !actual.isBefore(from.plus(term)) && !actual.isAfter(to.plus(term)),
+      "expected $term after the exchange, between ${from.plus(term)} and ${to.plus(term)}: $actual",
+    )
+    val sessionTerms = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.SESSION)
+    val durableTerms = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.DURABLE)
+    assertMintedWithin(sessionFrom, sessionTo, sessionTerms.idle, session.expiresAt)
+    assertMintedWithin(sessionFrom, sessionTo, sessionTerms.absolute, sessionEnd)
+    assertMintedWithin(durableFrom, durableTo, durableTerms.idle, durable.expiresAt)
+    assertMintedWithin(durableFrom, durableTo, durableTerms.absolute, durableEnd)
   }
 
   @Test
@@ -1101,9 +1119,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // were promised, and the promise is one the server keeps — an access token is capped against its
     // family's deadline, so neither sentence owes a "and up to an hour more".
     //
-    // Read off `Lifetime` rather than spelled out, because that is the whole point of asserting it:
-    // moving a constant without moving the copy leaves the dialog promising something nobody keeps,
-    // and nothing else in the build would notice.
+    // Read off the store's terms rather than spelled out, because that is the whole point of
+    // asserting it: a configured number the copy does not follow leaves the dialog promising
+    // something nobody keeps, and nothing else in the build would notice. The suite configures the
+    // session idle window off its default, so a number written into the template fails here.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1117,16 +1136,32 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
       .setFollowRedirect(false).execute().responseBody
 
-    val session = PodRefreshTokenStore.Lifetime.SESSION
-    val durable = PodRefreshTokenStore.Lifetime.DURABLE
+    val session = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.SESSION)
+    val durable = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.DURABLE)
+    assertNotEquals(
+      Duration.ofHours(SempodsModule.DEFAULT_SESSION_CONNECTION_IDLE_HOURS.toLong()),
+      session.idle,
+      "the root build file sets SEMPODS_SESSION_CONNECTION_IDLE_HOURS for this suite; without it this " +
+        "test cannot tell a configured number from a written one",
+    )
     for (expected in listOf(
-      "${durable.absoluteSeconds / (24 * 60 * 60)} days",
-      "${durable.idleSeconds / (24 * 60 * 60)} days",
-      "${session.absoluteSeconds / (24 * 60 * 60)} days",
-      "${session.idleSeconds / (60 * 60)} hours",
+      "Keep this app connected for up to ${PodAuthEndpoint.durationInWords(durable.absolute)}.",
+      "until it goes ${PodAuthEndpoint.durationInWords(durable.idle)} unused",
+      "Unticked, for up to ${PodAuthEndpoint.durationInWords(session.absolute)}",
+      "until it goes ${PodAuthEndpoint.durationInWords(session.idle)} unused",
     )) {
-      assertTrue(expected in page, "the dialog has to name '$expected' — it is what the server enforces")
+      assertTrue(expected in page, "the dialog has to say '$expected' — it is what the server enforces")
     }
+  }
+
+  @Test
+  fun `the dialog says a term in days where it is whole days, and in hours otherwise`() {
+    assertEquals("4 days", PodAuthEndpoint.durationInWords(Duration.ofHours(96)))
+    assertEquals("180 days", PodAuthEndpoint.durationInWords(Duration.ofDays(180)))
+    assertEquals("1 day", PodAuthEndpoint.durationInWords(Duration.ofHours(24)))
+    assertEquals("30 hours", PodAuthEndpoint.durationInWords(Duration.ofHours(30)))
+    assertEquals("12 hours", PodAuthEndpoint.durationInWords(Duration.ofHours(12)))
+    assertEquals("1 hour", PodAuthEndpoint.durationInWords(Duration.ofHours(1)))
   }
 
   @Test
@@ -1359,6 +1394,20 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       200,
       refreshed.statusCode,
       "the standing 'no' is the answer this family was minted under: ${refreshed.responseBody}",
+    )
+
+    // The successor renews the configured session window.
+    @Suppress("UNCHECKED_CAST")
+    val body = JsonMappers.default().readValue(refreshed.responseBody, Map::class.java) as Map<String, Any?>
+    val successor = checkNotNull(refreshTokenStore.lookup(body["refresh_token"] as String).token)
+    val idle = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.SESSION).idle
+    assertFalse(
+      successor.expiresAt.isAfter(Instant.now().plus(idle)),
+      "a session successor must expire within its idle window of $idle: ${successor.expiresAt}",
+    )
+    assertTrue(
+      successor.expiresAt.isAfter(Instant.now().plus(idle).minusSeconds(60)),
+      "and it must be that window, renewed: ${successor.expiresAt}",
     )
   }
 
