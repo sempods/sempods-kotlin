@@ -36,6 +36,7 @@ val publishedModules = listOf(
   "sempods-auth-core",
   "sempods-client",
   "sempods-client-core",
+  "sempods-client-rdf4j",
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",
@@ -198,17 +199,57 @@ subprojects {
   }
   tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoLoggingBinding) }
 
-  // `:consumer-probe:client-core`, configured here because this block applies the Kotlin plugin that
-  // gives it a source set. What it checks and why: `docs/concepts/modularity.md` §"Open-source
+  // The Java client probes, configured here because this block applies the Kotlin plugin that gives
+  // them a source set. What they check and why: `docs/concepts/modularity.md` §"Open-source
   // readiness".
-  if (path == ":consumer-probe:client-core") {
+  class JavaProbe(
+    val probed: String,
+    // The lowest JVM a consumer of [probed] can run on: the published bytecode's release, or the one
+    // a library it brings was built for.
+    val javaRelease: Int,
+    // What a consumer must not resolve. A key with a `:` is one artifact's coordinates, matched
+    // exactly — `org.sempods:sempods-client` is not `sempods-client-core` — and one without is a
+    // group, matched with the groups under it.
+    val forbidden: Map<String, String>,
+    val allowed: Set<String> = emptySet(),
+  )
+
+  val javaProbes = mapOf(
+    ":consumer-probe:client-core" to JavaProbe(
+      probed = ":sempods-client-core",
+      javaRelease = 21,
+      forbidden = mapOf(
+        "org.eclipse.rdf4j" to "RDF4J",
+        "org.apache.jena" to "Jena",
+        "com.fasterxml.jackson" to "Jackson 2",
+        "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
+      ),
+      // Jackson 3's databind depends on the 2.x annotations, which kept their coordinates and carry
+      // no mapper. Jackson 3 itself, `tools.jackson`, is the core's own.
+      allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),
+    ),
+    ":consumer-probe:client-rdf4j" to JavaProbe(
+      probed = ":sempods-client-rdf4j",
+      // RDF4J 6 is built for Java 25.
+      javaRelease = 25,
+      // RDF4J's JSON-LD codec brings Jackson 2's streaming core, and no mapper.
+      forbidden = mapOf(
+        "org.apache.jena" to "Jena",
+        "com.fasterxml.jackson.core:jackson-databind" to "Jackson 2",
+        "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
+        "org.sempods:sempods-client" to "the legacy client",
+      ),
+    ),
+  )
+
+  javaProbes[path]?.let { probe ->
 
     // The suite's runtime graph is a consumer's, plus JUnit and the test logging binding.
     val testRuntimeClasspath = configurations.named("testRuntimeClasspath")
 
     // Compiled with `--release` and run on that JVM. The suite is handed the release, so the number
     // has one owner.
-    val javaRelease = 21
+    val javaRelease = probe.javaRelease
     tasks.withType<JavaCompile>().configureEach { options.release = javaRelease }
     tasks.withType<Test>().configureEach {
       javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(javaRelease) }
@@ -217,29 +258,22 @@ subprojects {
 
     val checkNoForbiddenDependencies = tasks.register("checkNoForbiddenDependencies") {
       group = "verification"
-      description = "Fails if a consumer of the client core would resolve RDF4J, Jena, Jackson 2 or the legacy DTOs."
+      description = "Fails if a consumer of ${probe.probed} would resolve ${probe.forbidden.values.distinct().joinToString()}."
       doLast {
-        val forbidden = mapOf(
-          "org.eclipse.rdf4j" to "RDF4J",
-          "org.apache.jena" to "Jena",
-          "com.fasterxml.jackson" to "Jackson 2",
-          "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
-        )
-        // Jackson 3's databind depends on the 2.x annotations, which kept their coordinates and carry
-        // no mapper. Jackson 3 itself, `tools.jackson`, is the core's own.
-        val allowed = setOf("com.fasterxml.jackson.core:jackson-annotations")
         // Every component by its coordinates, projects included: `sempods-model` arrives here as one.
         val offenders = testRuntimeClasspath.get().incoming.resolutionResult.allComponents
           .mapNotNull { it.moduleVersion }
           .map { "${it.group}:${it.name}" }
-          .filter { coordinates -> coordinates !in allowed && forbidden.keys.any { coordinates.startsWith(it) } }
+          .filter { coordinates ->
+            coordinates !in probe.allowed &&
+              probe.forbidden.keys.any { if (":" in it) coordinates == it else coordinates.startsWith("$it.") || coordinates.startsWith("$it:") }
+          }
           .distinct().sorted()
 
         if (offenders.isNotEmpty()) {
           throw GradleException(
-            "A consumer of :sempods-client-core would resolve ${offenders.joinToString()}. That " +
-              "module exists so an HTTP consumer does not take an RDF store or a second JSON stack " +
-              "with it — see `docs/pod-client.md` §\"Consumable as an artifact\".",
+            "A consumer of ${probe.probed} would resolve ${offenders.joinToString()}. What it may take with it: " +
+              "`docs/pod-client.md` §\"Consumable as an artifact\".",
           )
         }
       }
@@ -261,6 +295,12 @@ subprojects {
       "com.fasterxml.jackson." to "a JSON library",
       "tools.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",
+      "org.apache.jena." to "an RDF library",
+    ),
+    // RDF4J is this module's surface on purpose.
+    "sempods-client-rdf4j" to mapOf(
+      "com.fasterxml.jackson." to "a JSON library",
+      "tools.jackson." to "a JSON library",
       "org.apache.jena." to "an RDF library",
     ),
   )
@@ -688,7 +728,7 @@ allprojects {
         // first and uploaded as one file — see the `centralBundle` task below and `RELEASING.md`.
         //
         // A directory under the root build dir, shared by every module, because the layout Central
-        // wants is one repository containing all of them and not sixteen zips.
+        // wants is one repository containing all of them and not a zip per module.
         maven {
           name = "centralBundle"
           url = rootProject.layout.buildDirectory.dir("central-bundle").get().asFile.toURI()

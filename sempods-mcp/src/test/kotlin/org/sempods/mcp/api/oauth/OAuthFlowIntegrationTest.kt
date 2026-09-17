@@ -6,7 +6,9 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Indexes
+import com.mongodb.client.model.Updates
 import io.mockk.every
 import io.mockk.spyk
 import org.sempods.commons.logging.CapturedLog
@@ -16,6 +18,7 @@ import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebSession
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
 import org.sempods.mcp.oauth.FakeIdentityProvider
 import org.sempods.mcp.oauth.LoginStateStore
@@ -58,6 +61,9 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import java.security.MessageDigest
+import java.time.Duration
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 import java.util.Date
 import java.util.UUID
@@ -122,6 +128,9 @@ class OAuthFlowIntegrationTest {
   /** The audit DAO wired into the app under test, so a test can assert on the emitted trail. */
   private lateinit var auditLogDao: AuditLogDao
 
+  /** The refresh-token store wired into the app under test, so a test can read and seed families. */
+  private lateinit var refreshTokens: McpRefreshTokenStore
+
   /** The id-server under test. `startAuthorize` tells it which nonce the next token must carry. */
   private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
 
@@ -136,6 +145,7 @@ class OAuthFlowIntegrationTest {
     val database = db!!
     val config = SempodsMcpConfig(0, MONGO_URL, dbName, BASE, listOf(ISSUER))
     auditLogDao = AuditLogDao(database)
+    refreshTokens = McpRefreshTokenStore(database)
     val signingKeyDao = SigningKeyDao(database, testSecretCipher())
     // One key set for both: the issuer signs with it and the verifier trusts exactly it, so there
     // is no construction order to get right. WebSession.establish() returns the minted token's
@@ -152,7 +162,7 @@ class OAuthFlowIntegrationTest {
         loginStateStore = LoginStateStore(database),
         identityProvider = idServer.identityProvider(BASE),
         consentTransactionStore = ConsentTransactionStore(database),
-        refreshTokenStore = McpRefreshTokenStore(database),
+        refreshTokenStore = refreshTokens,
         tokenIssuer = tokenIssuer,
         profileDao = ProfileDao(database),
         webSession = WebSession(config, tokenIssuer, bearerVerifier),
@@ -226,6 +236,12 @@ class OAuthFlowIntegrationTest {
     val refresh1 = tokenJson["refresh_token"].asText()
     assertEquals(WEB_ID, SignedJWT.parse(accessToken).jwtClaimsSet.subject)
 
+    // The exchange starts a family with a deadline a year out, and a ninety-day window below it.
+    val minted = checkNotNull(refreshTokens.lookup(refresh1).token)
+    val deadlineIn = Duration.between(minted.issuedAt, checkNotNull(minted.endsAt) { "a family is minted with a deadline" })
+    assertTrue(deadlineIn in McpRefreshTokenStore.ABSOLUTE.minusSeconds(5)..McpRefreshTokenStore.ABSOLUTE, "deadline in $deadlineIn")
+    assertEquals(minted.issuedAt.plus(McpRefreshTokenStore.IDLE), minted.expiresAt)
+
     // 6. A refresh with the wrong client_id is rejected (bound to the issuing client).
     val wrongClient = refresh(client, refresh1, "dyn:someone-else")
     assertEquals(HttpStatusCode.BadRequest, wrongClient.status)
@@ -246,6 +262,39 @@ class OAuthFlowIntegrationTest {
     val audit = auditLogDao.listFor(WEB_ID, PodKey.DEFAULT_PROFILE)
     assertEquals(1, audit.count { it.type == AuditEventType.SERVICE_TOKEN_ROTATE && it.clientId == clientId })
     assertEquals(1, audit.count { it.type == AuditEventType.SERVICE_TOKEN_FAMILY_REVOKED && it.detail == "refresh_reuse" })
+  }
+
+  @Test
+  fun `a rotation near the family's deadline ends at it`() = testApplication {
+    installAuth()
+    val client = createClient { followRedirects = false }
+    val issued = refreshTokens.issueNewFamily(WEB_ID, PodKey.DEFAULT_PROFILE, "dyn:deadline", setOf("public-read"))
+    val deadline = Instant.now().plus(Duration.ofHours(1)).truncatedTo(ChronoUnit.MILLIS)
+    setTerms(issued.token.tokenHash, endsAt = deadline, kind = "durable")
+
+    assertEquals(HttpStatusCode.OK, refresh(client, issued.plaintext, "dyn:deadline").status)
+
+    val successor = refreshTokens.findByFamily(issued.token.familyId).single { it.tokenHash != issued.token.tokenHash }
+    assertEquals(deadline, successor.endsAt, "the deadline is carried")
+    assertEquals(deadline, successor.expiresAt, "and the successor cannot outlive it")
+  }
+
+  @Test
+  fun `a family minted without a deadline takes its predecessor's expiry as one at its first rotation`() = testApplication {
+    installAuth()
+    val client = createClient { followRedirects = false }
+    // Both kinds of row a deployment holds: one from before a family named its class, and one minted
+    // with the class but before this service set a deadline.
+    for (kind in listOf(null, "durable")) {
+      val issued = refreshTokens.issueNewFamily(WEB_ID, PodKey.DEFAULT_PROFILE, "dyn:grandfathered", setOf("public-read"))
+      setTerms(issued.token.tokenHash, endsAt = null, kind = kind)
+
+      assertEquals(HttpStatusCode.OK, refresh(client, issued.plaintext, "dyn:grandfathered").status)
+
+      val successor = refreshTokens.findByFamily(issued.token.familyId).single { it.tokenHash != issued.token.tokenHash }
+      assertEquals(issued.token.expiresAt, successor.endsAt, "kind=$kind: the family keeps the one deadline it has")
+      assertEquals(issued.token.expiresAt, successor.expiresAt, "kind=$kind: nothing is extended")
+    }
   }
 
   @Test
@@ -960,6 +1009,16 @@ class OAuthFlowIntegrationTest {
         append("client_id", clientId)
       },
     )
+
+  /** Rewrites one row's terms, which is the only way an HTTP test can stand near a deadline or before one existed. */
+  private fun setTerms(tokenHash: String, endsAt: Instant?, kind: String?) {
+    val update = listOf(
+      endsAt?.let { Updates.set(RefreshTokenStore.Field.ENDS_AT, Date.from(it)) } ?: Updates.unset(RefreshTokenStore.Field.ENDS_AT),
+      kind?.let { Updates.set(RefreshTokenStore.Field.KIND, it) } ?: Updates.unset(RefreshTokenStore.Field.KIND),
+    )
+    db!!.getCollection(SempodsMcpCollections.OAUTH_REFRESH_TOKENS)
+      .updateOne(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash), Updates.combine(update))
+  }
 
   private fun enc(v: String) = java.net.URLEncoder.encode(v, Charsets.UTF_8)
 

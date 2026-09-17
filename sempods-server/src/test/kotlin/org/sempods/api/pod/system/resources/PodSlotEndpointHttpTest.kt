@@ -19,6 +19,12 @@ import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsResponse
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.eclipse.rdf4j.model.Literal
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Models
+import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.net.URLEncoder
@@ -979,6 +985,35 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       assertTrue(dave in onlyB && carol !in onlyB, onlyB)
 
       assertEquals(0, core.slots().getJson(bobDid, foafKnows, SempodsReadOptions.of(SempodsContextSelection.none())).headers.size)
+    }
+  }
+
+  // ── The RDF4J adapter against these routes ───────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter writes values into two contexts and reads each back with its context`() {
+    val pod = sempodsTestFactory.newPod()
+    val (ctxA, _) = createContextWithToken(pod, "ctx-a")
+    val (ctxB, _) = createContextWithToken(pod, "ctx-b")
+    val token = mintScopedToken(pod.name, listOf("${ctxA}#read", "${ctxA}#write", "${ctxB}#read", "${ctxB}#write"))
+    val bob = "did:web:bob.example"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val inA = listOf(Values.literal("Grüezi", "de-CH"), Values.literal("042", XSD.INTEGER), Values.literal("Bob"))
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val slots = SempodsRdf4jPod(core).slots()
+
+      assertEquals(204, slots.put(bob, schemaName, inA, SempodsWriteOptions.inContext(ctxA.toString())).status)
+      assertEquals(201, slots.add(bob, schemaName, Values.iri(carol), SempodsWriteOptions.inContext(ctxB.toString())).status)
+
+      val read = slots.getModel(bob, schemaName, SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString(), ctxB.toString())))
+      val expected = LinkedHashModel().apply {
+        inA.forEach { add(Values.iri(bob), Values.iri(schemaName), it, Values.iri(ctxA.toString())) }
+        add(Values.iri(bob), Values.iri(schemaName), Values.iri(carol), Values.iri(ctxB.toString()))
+      }
+      val model = assertNotNull(read.body)
+      assertTrue(Models.isomorphic(expected, model), "read back: $model")
+      assertEquals("042", model.objects().filterIsInstance<Literal>().single { it.datatype == XSD.INTEGER }.label)
     }
   }
 }

@@ -9,7 +9,9 @@ the cross-module credential boundaries.
 The service is its own MCP-OAuth resource server / authorization server (RFC 9728 + 8414 discovery, DCR with
 fingerprint dedup, `/authorize` + consent + `/token` with PKCE-S256 and refresh-token
 rotation, RS256 token issuer + JWKS), federates user login to id.sempods.org as an OIDC
-relying party (`user` = stable WebID), and ships the MCP JSON-RPC front-door. The hosted
+relying party (`user` = stable WebID), and ships the MCP JSON-RPC front-door. An AI client's
+refresh-token family ends after 90 days unused, and 365 days after its code exchange however often
+it rotates (`McpRefreshTokenStore`). The hosted
 service has **no anonymous mode** (unlike the per-pod MCP): every id-bearing request —
 `initialize` / `tools/list` / `tools/call` / `resources/list` / `prompts/list` / `ping` —
 requires a valid bearer; a missing or invalid token gets the 401 OAuth-upgrade challenge

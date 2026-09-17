@@ -18,6 +18,10 @@ import org.sempods.client.core.SempodsReadOptions
 import org.sempods.client.core.SempodsRequestAuth
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Models
+import org.eclipse.rdf4j.model.util.Values
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.net.URLEncoder
@@ -340,6 +344,27 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
         assertEquals(200, read.status, iri)
         assertTrue(read.body.orEmpty().contains("Awkward"), iri)
       }
+    }
+  }
+
+  // ── The RDF4J adapter against this route ────────────────────────────────────────
+
+  @Test
+  fun `the RDF4J adapter writes a did subject from a model and reads it back with its context`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "privat")
+    val bob = "did:web:bob.example"
+    val model = LinkedHashModel().apply {
+      add(Values.iri(bob), Values.iri(schemaName), Values.literal("Bob"), Values.iri(contextUri.toString()))
+      add(Values.iri(bob), Values.iri(schemaJobTitle), Values.literal("Ingenieur", "de-CH"), Values.iri(contextUri.toString()))
+    }
+
+    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
+      val subjects = SempodsRdf4jPod(core).subjects()
+
+      assertEquals(201, subjects.put(bob, model, SempodsWriteOptions.inContext(contextUri.toString())).status)
+      val read = subjects.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+      assertTrue(Models.isomorphic(model, assertNotNull(read.body)), "read back: ${read.body}")
     }
   }
 }
