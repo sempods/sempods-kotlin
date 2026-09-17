@@ -3,6 +3,8 @@ package org.sempods.mcp.oauth
 import com.mongodb.client.MongoDatabase
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.mcp.SempodsMcpCollections
+import java.time.Duration
+import java.time.Instant
 
 /** A refresh token this service issued, with the owner already resolved. */
 typealias McpRefreshToken = RefreshTokenStore.Token<McpRefreshTokenStore.Owner>
@@ -47,33 +49,43 @@ class McpRefreshTokenStore(db: MongoDatabase, collectionName: String = SempodsMc
   )
 
   /**
-   * First token of a new family (from the `authorization_code` exchange).
+   * First token of a new family (from the `authorization_code` exchange), on this service's terms:
+   * [IDLE] as the row's window and [ABSOLUTE] from now as the family's deadline.
    *
    * Every family is minted under [KIND], because this service has one lifetime class and no consent
-   * control to choose between two. It names one anyway: a row carrying no
-   * [RefreshTokenStore.Token.kind] is one that predates the field, and a rotation caps such a family
-   * at its predecessor's expiry. Leaving the value off would apply that cap to families minted from
-   * here on, which is a lifetime policy this service has not decided.
+   * control to choose between two.
    */
   fun issueNewFamily(
     user: String,
     profile: String,
     clientId: String,
     scopes: Set<String>,
-    ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
   ): RefreshTokenStore.Issued<Owner> = store.issueNewFamily(
     owner = Owner(user = user, profile = profile, clientId = clientId),
     scopes = scopes,
     kind = KIND,
-    ttlSeconds = ttlSeconds,
+    endsAt = Instant.now().plus(ABSOLUTE),
+    ttlSeconds = IDLE.seconds,
   )
 
-  /** Successor token in an existing family (rotation). */
+  /**
+   * Successor token in an existing family (rotation), on [IDLE]'s window and under the family's
+   * deadline.
+   *
+   * **A family reaching this without a deadline takes its predecessor's expiry as one.** That is
+   * every family minted before this service had [ABSOLUTE], with or without a [KIND]. Taking that
+   * expiry extends nothing, because the store's clamp hands the successor the same instant. It is
+   * the rule `PodRefreshTokenStore.issueInFamily` applies, and wider than the shared store's own,
+   * which keys on a missing [RefreshTokenStore.Token.kind] alone.
+   */
   fun issueInFamily(
     previous: McpRefreshToken,
     scopes: Set<String>,
-    ttlSeconds: Long = RefreshTokenStore.DEFAULT_TTL_SECONDS,
-  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(previous, scopes, ttlSeconds)
+  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(
+    previous = previous.copy(endsAt = previous.endsAt ?: previous.expiresAt),
+    scopes = scopes,
+    ttlSeconds = IDLE.seconds,
+  )
 
   fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
@@ -85,14 +97,31 @@ class McpRefreshTokenStore(db: MongoDatabase, collectionName: String = SempodsMc
   /** Diagnostics and tests. */
   fun findByFamily(familyId: String): List<McpRefreshToken> = store.findByFamily(familyId)
 
-  private companion object {
+  internal companion object {
 
     /** The one lifetime class this service mints — see [issueNewFamily]. */
-    const val KIND = "durable"
+    private const val KIND = "durable"
+
+    /** How long a family survives unused. Every rotation renews it. */
+    internal val IDLE: Duration = Duration.ofSeconds(RefreshTokenStore.DEFAULT_TTL_SECONDS)
+
+    /**
+     * How long a family lives at most, from its code exchange, however often it rotates.
+     *
+     * Rotation with reuse detection (RFC 9700 §4.14.2) ends a stolen family. A family its client
+     * keeps using renews itself, so without this an AI client that refreshes weekly stays connected
+     * forever. RFC 10017 §6.3.2.3 requires such a bound of browser-based applications, which these
+     * RFC 7591 clients are not. Here it is hygiene.
+     *
+     * Longer than a pod's default of 180 days, because at its end a person reconnects the AI client through a
+     * consent dialog in a desktop application. A ceiling that arrives too often is one somebody
+     * raises. The pod connections behind this service end on their own pods' terms either way.
+     */
+    internal val ABSOLUTE: Duration = Duration.ofDays(365)
 
     // The owner's field names, in the order a row on disk carries them.
-    const val FIELD_USER = "user"
-    const val FIELD_PROFILE = "profile"
-    const val FIELD_CLIENT_ID = "clientId"
+    private const val FIELD_USER = "user"
+    private const val FIELD_PROFILE = "profile"
+    private const val FIELD_CLIENT_ID = "clientId"
   }
 }
