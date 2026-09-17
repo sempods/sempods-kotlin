@@ -18,8 +18,11 @@ import java.util.concurrent.Executor
  *
  * **One virtual thread per operation**, unless [executor] is given. A blocking call on a virtual thread
  * holds no platform thread while it waits, so there is nothing to size or to close. An executor passed in
- * stays the caller's: this never shuts it down, and one that refuses the work makes [submit] throw. Each
- * operation blocks its thread, so a fork-join pool or an event loop is the wrong executor.
+ * stays the caller's: this never shuts it down, and one that refuses the work makes [submit] throw.
+ *
+ * **Each operation blocks the thread it runs on.** A fork-join pool or an event loop is the wrong executor,
+ * and so is one that runs the task on the calling thread: with `Runnable::run`, [submit] returns only once
+ * the work has ended, too late for its handle to cancel anything.
  *
  * **Nothing travels to the operation's thread on its own**, a trace context included. A caller that needs
  * one passes an executor that carries it, such as OpenTelemetry's `Context.taskWrapping`.
@@ -33,7 +36,7 @@ class SempodsAsync @JvmOverloads constructor(
   private val executor: Executor? = null,
 ) {
 
-  /** Starts [work] and returns its handle at once. */
+  /** Hands [work] to a new virtual thread, or to [executor], and returns its handle. */
   fun <T> submit(work: SempodsAsyncWork<T>): SempodsAsyncOperation<T> {
     val operation = SempodsAsyncOperation<T>(calls)
     val task = Runnable { operation.run(work) }
