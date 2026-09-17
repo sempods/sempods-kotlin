@@ -88,7 +88,11 @@ sign-in and every app's connection the person holds on that pod. One browser
 or one app cannot be signed out alone: removing an app's access takes its
 grants too. The pod has no page of its own to sign out from, so the person
 reaches the button through an app that opens a consent screen, and signs
-out of each pod separately.
+out of each pod separately. A person the pod has nothing to offer — no grant
+and no public context — never sees one: `/authorize` answers
+`consent_required`, so they cannot sign out. Nothing they still hold opens
+a context then: a session grants nothing by itself, and a token resolves no
+grant and no public context.
 
 **A sign-out draws its line by the clock.** The sign-out and the
 credential it refuses can be dated by different replicas, so clock skew
