@@ -231,8 +231,7 @@ rdf.resources().put(event, model, SempodsWriteOptions.inContext(tasks).withIfMat
 
 **Only the body changes.** Each call is the endpoint group's, so a raw call and a model call on one pod
 share authentication, the resend, admission and the transport, and an answer keeps its status and
-headers. Resources and subjects have models today; slots, the registry, SPARQL, exports and foreign URIs
-follow in [#206](https://github.com/sempods/sempods-kotlin/issues/206).
+headers. It reads and writes resources and subjects.
 
 A read asks for N-Quads, so every statement keeps its context; a write sends JSON-LD, each statement
 in its context's named graph. `SempodsRdf4jResources` says what a context other than the target

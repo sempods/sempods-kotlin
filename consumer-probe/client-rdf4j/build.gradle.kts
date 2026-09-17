@@ -1,5 +1,5 @@
 // The RDF4J adapter as a Java consumer compiles and runs it. A module of its own because RDF4J is what
-// the client-core probe must not resolve. Its Java 21 JVM and the forbidden-dependency check are
+// the client-core probe must not resolve. Its Java 25 JVM and the forbidden-dependency check are
 // configured in the root build, as the client-core probe's are.
 
 dependencies {
