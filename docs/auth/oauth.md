@@ -305,10 +305,12 @@ a **token family** seeded at code exchange. On detected reuse of a
 previously-rotated token, the entire family is revoked. Plaintext
 tokens are SHA-256 hashed at rest.
 
-A family carries the terms it was minted under, and a rotation inherits
-them rather than deciding them again. Each class has its own idle window
-(the table under [`offline_access`](#offline_access)), and a rotation
-renews that window rather than the family's life.
+A family carries its class and its deadline from the mint, and a rotation
+inherits both rather than deciding them again. The idle window is the
+class's, as configured when the rotation runs (the table under
+[`offline_access`](#offline_access)): a rotation renews that window rather
+than the family's life, and a changed setting reaches a live family at its
+next refresh while its deadline stays where it was.
 `PodRefreshTokenStore.termsOf` holds the numbers,
 `RefreshTokenStore.issueInFamily` the inheritance, RFC 10017 §6.3.2.3 the
 requirement behind it: a rotation may not extend the new token's lifetime

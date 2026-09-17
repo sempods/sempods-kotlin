@@ -73,7 +73,7 @@ class PodRefreshTokenStore internal constructor(
    * Which lifetime a family was minted under, as this server's consent control decides it.
    *
    * The class is stored on every row as [RefreshTokenStore.Token.kind] and inherited by each
-   * rotation, so a rotation reads the terms off the credential rather than off the consent decision
+   * rotation, so a rotation reads the class off the credential rather than off the consent decision
    * — that document is the person's to edit, and a durable family a withdrawal has not yet swept
    * would otherwise be read as a session family: the short window **and** an escape from the
    * withdrawal. How long each class lives is [termsOf]'s answer.
@@ -89,6 +89,10 @@ class PodRefreshTokenStore internal constructor(
    * The numbers are the deployment's ([SempodsConfig.sessionConnectionIdleHours] and the three beside
    * it). RFC 10017 §6.3.2.3 requires a maximum lifetime or an idle expiry and fixes neither, and says
    * an authorization server MAY set different policies for browser-based applications.
+   *
+   * Only [absolute] is stored with a family, as its deadline. [idle] is read at every rotation, so a
+   * changed setting reaches a live family at its next refresh — a deployment that shortens the window
+   * shortens it for connections already made too — while the deadline stays as minted.
    *
    * @param idle how long a family survives unused. Every rotation renews it, which is what makes it
    *   an idle window rather than a life.
@@ -157,7 +161,7 @@ class PodRefreshTokenStore internal constructor(
   }
 
   /**
-   * The successor in an existing family, on that family's own idle window, and **under a deadline
+   * The successor in an existing family, on its class's idle window, and **under a deadline
    * where the family reaches this without one**.
    *
    * The window comes from [lifetimeOf] and not from the store's default, or a session family would
