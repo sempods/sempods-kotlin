@@ -16,6 +16,10 @@ package org.sempods.client
  * request. A caller that runs several requests concurrently gives each its own thread and its own
  * slot, which is what a bridge over a virtual-thread dispatcher does anyway.
  *
+ * A call made on the thread while another is in flight — in the body it supplies, or in the block
+ * reading its answer — is bound beside it: [cancel] reaches both, and once the nested call returns
+ * the owning call is still bound.
+ *
  * Cancelling is sticky: once cancelled, a call that has not started yet is refused as soon as it
  * tries to, so an abort that arrives in the gap between two requests is not silently lost.
  */
@@ -24,7 +28,7 @@ class SempodsCallSlot {
   @Volatile private var cancelInFlight: (() -> Unit)? = null
   @Volatile private var cancelled: Boolean = false
 
-  /** Aborts the current call, and every later one made through this slot. Safe from any thread. */
+  /** Aborts the calls in flight through this slot, and every later one. Safe from any thread. */
   fun cancel() {
     cancelled = true
     cancelInFlight?.invoke()
@@ -32,14 +36,17 @@ class SempodsCallSlot {
 
   val isCancelled: Boolean get() = cancelled
 
-  internal fun bind(cancel: () -> Unit) {
-    cancelInFlight = cancel
+  /** Binds [cancel] beside the calls already bound, and returns what [unbind] restores. */
+  internal fun bind(cancel: () -> Unit): (() -> Unit)? {
+    val owning = cancelInFlight
+    cancelInFlight = if (owning == null) cancel else { { owning(); cancel() } }
     // The cancel may have arrived before the call existed; do not let it fall between the two.
     if (cancelled) cancel()
+    return owning
   }
 
-  internal fun unbind() {
-    cancelInFlight = null
+  internal fun unbind(owning: (() -> Unit)?) {
+    cancelInFlight = owning
   }
 
   companion object {
