@@ -414,10 +414,8 @@ streaming core — but no Jena, no Jackson 2 mapper, and neither `:sempods-model
 Java consumers on Java 21 and 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source
 readiness".
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the endpoint
-groups beyond pod metadata, SPARQL, resources, subjects, slots and contexts ([#148](https://github.com/sempods/sempods-kotlin/issues/148)), the RDF
-adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)), Java async
-consumption ([#151](https://github.com/sempods/sempods-kotlin/issues/151)) and the migration of the
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the RDF
+adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)) and the migration of the
 tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
 [#15](https://github.com/sempods/sempods-kotlin/issues/15).
