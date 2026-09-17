@@ -19,7 +19,8 @@ import java.io.IOException
  * ```
  *
  * **The formats are the caller's, in order of preference.** `Accept` names the first without a
- * `q`-value and each one after it lower, and the answer's `Content-Type` picks the parser among them. An
+ * `q`-value and each one after it strictly lower, in thousandths (RFC 9110 §12.4.2), so a list holds at
+ * most 1000 formats. The answer's `Content-Type` picks the parser among them. An
  * answer in a format not asked for, or without a `Content-Type`, is a
  * [org.sempods.client.core.SempodsDecodingException]. Turtle, N-Quads, N-Triples and JSON-LD come with
  * this module; any other format needs its RDF4J parser on the classpath, and one without is an
@@ -42,7 +43,7 @@ class SempodsRdf4jForeignTarget(
    * [uri] as a model, in whichever of [formats] it answers with. Relative IRIs resolve against
    * [SempodsResponse.url], the URL that answered.
    *
-   * @throws IllegalArgumentException for no format, or a format no parser on the classpath reads.
+   * @throws IllegalArgumentException for no format, more than 1000, or a format no parser on the classpath reads.
    */
   @JvmOverloads
   @Throws(IOException::class)
@@ -51,7 +52,7 @@ class SempodsRdf4jForeignTarget(
     formats: List<RDFFormat>,
     auth: SempodsRequestAuth = SempodsRequestAuth.anonymous(),
   ): SempodsResponse<Model> {
-    require(formats.isNotEmpty()) { "A foreign read asks for at least one format." }
+    require(formats.size in 1..MAX_FORMATS) { "A foreign read asks for 1 to $MAX_FORMATS formats, not ${formats.size}." }
     formats.forEach { Rdf4jCodec.parser(it) }
     val answer = target.getBytes(uri, accept(formats), auth)
     return answer.map { bytes ->
@@ -93,6 +94,12 @@ class SempodsRdf4jForeignTarget(
 
   private fun accept(formats: List<RDFFormat>): String =
     formats.mapIndexed { index, format ->
-      if (index == 0) format.defaultMIMEType else "${format.defaultMIMEType};q=0.${maxOf(1, 10 - index)}"
+      if (index == 0) format.defaultMIMEType else "${format.defaultMIMEType};q=0.${(1000 - index).toString().padStart(3, '0')}"
     }.joinToString(", ")
+
+  private companion object {
+
+    /** A `q`-value has three decimals, so 999 preferences fit below the first. */
+    const val MAX_FORMATS = 1000
+  }
 }

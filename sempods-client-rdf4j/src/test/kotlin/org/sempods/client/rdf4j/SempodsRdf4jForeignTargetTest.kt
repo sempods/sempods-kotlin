@@ -59,9 +59,25 @@ class SempodsRdf4jForeignTargetTest : MockPodTest() {
 
     val read = foreign.getModel("$origin/old", listOf(RDFFormat.TURTLE, RDFFormat.JSONLD, RDFFormat.NQUADS))
 
-    assertEquals("text/turtle, application/ld+json;q=0.9, application/n-quads;q=0.8", sent.first().headers["Accept"])
+    assertEquals("text/turtle, application/ld+json;q=0.999, application/n-quads;q=0.998", sent.first().headers["Accept"])
     assertEquals("$origin/profile", read.url)
     assertTrue(assertNotNull(read.body).contains(iri("$origin/profile#me"), iri(foafName), literal("Bob")))
+  }
+
+  @Test
+  fun `every preference after the first is strictly lower, past the tenth, and more than 1000 formats are refused`() {
+    serve("/many", 200, "text/turtle", "<#me> <$foafName> \"Bob\" .")
+
+    foreign.getModel("$origin/many", List(12) { RDFFormat.TURTLE })
+
+    val preferences = assertNotNull(sent.single().headers["Accept"]).split(", ")
+      .map { it.substringAfter(";q=", missingDelimiterValue = "1").toDouble() }
+    assertEquals(12, preferences.size)
+    assertTrue(preferences.zipWithNext().all { (before, after) -> after < before }, "$preferences")
+
+    sent.clear()
+    assertThrows<IllegalArgumentException> { foreign.getModel("$origin/many", List(1001) { RDFFormat.TURTLE }) }
+    assertTrue(sent.isEmpty())
   }
 
   @Test
