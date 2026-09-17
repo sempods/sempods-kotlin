@@ -217,8 +217,7 @@ class PodTokenProvider(
     lockFor(key).withLock {
       val latest = tokenVaultDao.find(key) ?: return@withLock
       if (!isDue(latest, trigger)) return@withLock
-      // A connection the pod has declared finished never leaves the sweep's selection: neither its
-      // expiry nor its rotation stamp ever moves, so the selection hands it back on every tick.
+      // A concurrent refresh can mark the grant dead after the sweep selected this row.
       if (latest.isDeadGrant) return@withLock
       if (!claimRefresh(key)) {
         // Another replica is refreshing this token; the next sweep re-checks (≤ interval later,
