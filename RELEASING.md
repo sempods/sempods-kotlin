@@ -5,7 +5,7 @@ a contributor needs none of this.
 
 ## What is published
 
-The fifteen modules named in `publishedModules` in the root `build.gradle.kts`, plus
+The modules named in `publishedModules` in the root `build.gradle.kts`, plus
 `sempods-bom`, a platform that carries their versions. `deployments:sempods:image` is an
 application and is not among them.
 

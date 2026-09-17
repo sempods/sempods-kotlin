@@ -283,8 +283,10 @@ are the same kind of judgement: not wrong without them, only worse to call.
 is a JUnit suite written in Java; across the project boundary its compile classpath is a consumer's,
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a
 **Java 21** JVM, the only one in this repository: bytecode built for 21 and only ever run on 25 would
-be a floor nobody stood on. Beside it, `checkNoForbiddenDependencies` fails if a consumer would
-resolve a library the core excludes — a question dependency analysis cannot answer,
+be a floor nobody stood on. `:consumer-probe:client-rdf4j` asks the same of the RDF4J adapter, on
+**Java 25**: RDF4J 6 is built for 25, so a consumer of the adapter stands on nothing lower. Beside
+each, `checkNoForbiddenDependencies` fails if a consumer would resolve a library the module excludes
+— a question dependency analysis cannot answer,
 because it advises on how a dependency is *declared* and has no notion of one being forbidden.
 
 **A fourth probe wires OpenTelemetry.** `:consumer-probe:opentelemetry` wraps a client
