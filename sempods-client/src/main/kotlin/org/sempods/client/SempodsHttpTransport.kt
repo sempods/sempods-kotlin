@@ -168,7 +168,7 @@ class SempodsHttpTransport @JvmOverloads constructor(
   private fun <T> execute(request: SempodsRequest, read: (okhttp3.Response) -> T): T {
     val call = clientFor(request.callTimeout).newCall(toOkHttpRequest(request))
     val slot = SempodsCallSlot.current()
-    slot?.bind(call::cancel)
+    val owning = slot?.bind(call::cancel)
     try {
       val response = try {
         call.execute()
@@ -187,7 +187,7 @@ class SempodsHttpTransport @JvmOverloads constructor(
       }
       return response.use(read)
     } finally {
-      slot?.unbind()
+      slot?.unbind(owning)
     }
   }
 
