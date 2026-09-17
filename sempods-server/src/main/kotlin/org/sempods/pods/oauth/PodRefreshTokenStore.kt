@@ -171,13 +171,12 @@ class PodRefreshTokenStore internal constructor(
    * The deadline is the predecessor's own expiry — the only one such a family demonstrably has, and
    * taking it extends nothing, because the clamp then hands the successor that same instant. At this
    * pod the rule is asked of **every** family missing a deadline, which is wider than
-   * [RefreshTokenStore.issueInFamily]'s own: that one keys on a missing class, and it has to, because
-   * the hosted MCP service shares the store, names a class on every row and has settled no ceiling
-   * for itself. Two populations here name a class and carry no deadline all the same — the families
-   * minted between the terms arriving and this server deciding what they mean — and keyed on the
-   * class they would rotate on a rolling window forever, which is the whole of what the ceiling is
-   * for. Every family seeded from here on carries one at the mint, so this answers for what a
-   * running deployment already holds and for nothing else.
+   * [RefreshTokenStore.issueInFamily]'s own: that one keys on a missing class, and leaves a family
+   * that names one to the service that minted it. Two populations here name a class and carry no
+   * deadline all the same — the families minted between the terms arriving and this server deciding
+   * what they mean — and keyed on the class they would rotate on a rolling window forever, which is
+   * the whole of what the ceiling is for. Every family seeded from here on carries one at the mint,
+   * so this answers for what a running deployment already holds and for nothing else.
    */
   internal fun issueInFamily(
     previous: PodRefreshToken,
