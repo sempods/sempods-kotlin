@@ -124,7 +124,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val predicateUri = decodeUriSegmentOrThrow(predicateB64, "predicate")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    podSlotWriteService.replaceSlot(
+    val tag = podSlotWriteService.replaceSlot(
       pod = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
@@ -135,7 +135,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     )
     logSlotAudit("set", pod, subjectUri, predicateUri, contextUri, credentials)
     return Response.status(204)
-      .tag(slotTag(pod, subjectUri, predicateUri, contextUri))
+      .tag(tag)
       .build()
   }
 
@@ -172,7 +172,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
       PodFacade.SlotAddOutcome.ALREADY_PRESENT -> "already_present"
     }
     logSlotAudit("add", pod, subjectUri, predicateUri, contextUri, credentials, result = auditResult)
-    val postWriteTag = slotTag(pod, subjectUri, predicateUri, contextUri)
+    val postWriteTag = result.tag
     // The status already separates the two outcomes (201 created / 200 already present), and the
     // body says it again in the vocabulary the caller asked in. Same reasoning as `removeSlotEdge`
     // below, and the reason it is worth the repetition: a caller that reads this route through a
@@ -214,7 +214,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val predicateUri = decodeUriSegmentOrThrow(predicateB64, "predicate")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    val cleared = podSlotWriteService.clearSlot(
+    val (cleared, clearedTag) = podSlotWriteService.clearSlot(
       pod = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
@@ -232,7 +232,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
       result = if (cleared) "cleared" else "already_empty",
     )
     // Echo the post-clear (now-empty) slot tag, as `SPS-CRUD-052` asks. It hashes the slot's
-    // identity as well as its statements, so it is well-defined for an empty slot too.
+    // identity as well as its statements, so an empty slot has one, and a next `If-Match` may name it.
     //
     // `200` with `{"outcome": …}` rather than a bare `204`, for the reason `removeSlotEdge` gives
     // below and which applies here word for word: clearing is idempotent, so the status alone cannot
@@ -241,7 +241,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     // "done" and could not tell "done" from "there was nothing to do". RFC 9110 §9.3.5 blesses the
     // representation; the tag rides along on it unchanged.
     return Response.status(200)
-      .tag(slotTag(pod, subjectUri, predicateUri, contextUri))
+      .tag(clearedTag)
       .entity(outcomeBody(if (cleared) "cleared" else "already_empty"))
       .type(MediaType.APPLICATION_JSON)
       .build()
@@ -590,16 +590,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
           "client_id='${credentials.oauthClientId ?: "(anon)"}'$extraPart"
     }
   }
-
-  /** The slot's tag in [contextUri] as it stands now — what a slot write echoes (`SPS-CRUD-052`). */
-  private fun slotTag(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): EntityTag =
-    RepresentationTags.slot(
-      statements = podSlotWriteService.slotInContext(pod, subjectUri, predicateUri, contextUri),
-      subject = subjectUri,
-      predicate = predicateUri,
-      context = contextUri,
-      withContexts = false,
-    )
 
   /**
    * Render a slot model as a JSON-LD array of value objects.

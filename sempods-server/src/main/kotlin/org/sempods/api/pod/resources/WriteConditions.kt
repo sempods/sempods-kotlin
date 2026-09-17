@@ -22,24 +22,26 @@ import jakarta.ws.rs.core.Response
 class WriteConditions(private val ifMatch: String?, private val ifNoneMatch: String?) {
 
   /**
-   * Throws `412` unless both conditions hold for [current]: the strong tags of the target's current
-   * representations, empty when it has none.
+   * Throws `412` unless both conditions hold for [current], the strong tags of the target's current
+   * representations. `*` asks whether the target [exists]; a tag asks whether it is one of [current].
+   * The two differ only for an empty slot, which has a tag to chain on (`SPS-CRUD-052`) and no
+   * representation for `*` (`SPS-CRUD-053`).
    *
    * `If-Match` compares strongly, so a weak tag never matches. `If-None-Match` compares weakly.
    */
-  internal fun requireHold(current: Collection<EntityTag>) {
+  internal fun requireHold(current: Collection<EntityTag>, exists: Boolean = current.isNotEmpty()) {
     val match = ifMatch?.let { parse("If-Match", it) }
     val noneMatch = ifNoneMatch?.let { parse("If-None-Match", it) }
     val currentValues = current.map { it.value }.toSet()
 
     val matchHolds = when (match) {
       null -> true
-      Field.Any -> currentValues.isNotEmpty()
+      Field.Any -> exists
       is Field.Tags -> match.tags.any { !it.isWeak && it.value in currentValues }
     }
     val noneMatchHolds = when (noneMatch) {
       null -> true
-      Field.Any -> currentValues.isEmpty()
+      Field.Any -> !exists
       is Field.Tags -> noneMatch.tags.none { it.value in currentValues }
     }
     if (!matchHolds || !noneMatchHolds) {

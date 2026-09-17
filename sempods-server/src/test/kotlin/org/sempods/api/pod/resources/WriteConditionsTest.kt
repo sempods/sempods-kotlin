@@ -45,6 +45,22 @@ class WriteConditionsTest {
   }
 
   @Test
+  fun `star asks whether the target exists, a tag whether it is current`() {
+    // An empty slot: it has a tag to chain on, and no representation for `*`.
+    fun emptySlot(ifMatch: String? = null, ifNoneMatch: String? = null) =
+      try {
+        WriteConditions(ifMatch, ifNoneMatch).requireHold(listOf(EntityTag("e")), exists = false)
+        200
+      } catch (e: WebApplicationException) {
+        e.response.status
+      }
+    assertEquals(200, emptySlot(ifMatch = "\"e\""))
+    assertEquals(412, emptySlot(ifMatch = "*"))
+    assertEquals(200, emptySlot(ifNoneMatch = "*"))
+    assertEquals(412, emptySlot(ifNoneMatch = "\"e\""))
+  }
+
+  @Test
   fun `a list may carry whitespace and empty elements`() {
     // RFC 9110 §5.6.1: a recipient accepts empty list elements.
     assertEquals(200, status(ifMatch = " , \"b\" ,, \t\"a-jsonld\",  "))

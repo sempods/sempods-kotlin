@@ -185,6 +185,53 @@ class ConditionalRequestsHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a slot write echoes the tag of its own result, even when others write beside it`() {
+    val pod = sempodsTestFactory.newPod()
+    val x = context(pod, "x")
+    val owner = token(pod, "$x#read", "$x#write")
+    val subject = sempodsTestFactory.eventUri(pod.name)
+    seed(pod, subject, mapOf(x to "Ada"))
+    val slot = selected(slotUrl(pod, subject, "https://example.org/vocab/tags"), x)
+
+    // Each addition leaves a state no other one leaves, so no two may answer with the same tag.
+    val tags = race(12) { i ->
+      http.preparePost(slot)
+        .addHeader("Content-Type", "application/ld+json")
+        .addHeader("Authorization", "Bearer $owner")
+        .setBody("""{"@value":"t$i"}""")
+        .execute().headers.get("ETag")
+    }
+    assertEquals(12, tags.filterNotNull().toSet().size, "$tags")
+  }
+
+  @Test
+  fun `a slot emptied by a write can be written again under the tag it echoed`() {
+    val pod = sempodsTestFactory.newPod()
+    val x = context(pod, "x")
+    val owner = token(pod, "$x#read", "$x#write")
+    val subject = sempodsTestFactory.eventUri(pod.name)
+    seed(pod, subject, mapOf(x to "Ada"))
+    val slot = selected(slotUrl(pod, subject, name.stringValue()), x)
+
+    fun putSlot(vararg conditions: Pair<String, String>) =
+      http.preparePut(slot)
+        .addHeader("Content-Type", "application/ld+json")
+        .addHeader("Authorization", "Bearer $owner")
+        .apply { conditions.forEach { (header, v) -> addHeader(header, v) } }
+        .setBody("""[{"@value":"Grace"}]""")
+        .execute()
+
+    val cleared = http.prepareDelete(slot).addHeader("Authorization", "Bearer $owner").execute()
+    assertEquals(200, cleared.statusCode)
+    val emptyTag = assertNotNull(cleared.headers.get("ETag"), "a clear echoes the empty slot's tag (`SPS-CRUD-052`)")
+
+    // `*` still asks whether the slot holds anything (`SPS-CRUD-053`).
+    assertEquals(412, putSlot("If-Match" to "*").statusCode)
+    assertEquals(204, putSlot("If-Match" to emptyTag).statusCode)
+    assertEquals(412, putSlot("If-Match" to emptyTag).statusCode, "the slot holds a value now")
+  }
+
+  @Test
   fun `concurrent unconditional writes to one subject lose none of each other`() {
     // Every write replaces the whole subject in the store, so two computed from the same read would
     // each drop what the other added.

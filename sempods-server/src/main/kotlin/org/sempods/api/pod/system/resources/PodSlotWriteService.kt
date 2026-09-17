@@ -14,6 +14,7 @@ import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.EntityTag
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
@@ -35,10 +36,15 @@ class PodSlotWriteService @Inject constructor(
   private val podContextWriteAuthorizer: PodContextWriteAuthorizer,
 ) {
 
+  /** @property tag the slot's tag after this write, taken before any other write could run. */
   data class SlotAddResult(
     val outcome: PodFacade.SlotAddOutcome,
     val addedValue: Value,
+    val tag: EntityTag,
   )
+
+  /** @property cleared whether the slot held anything. @property tag as on [SlotAddResult]. */
+  data class SlotClearResult(val cleared: Boolean, val tag: EntityTag)
 
   fun resolveWriteContextOrThrow(pod: String, rawContext: String?): URI =
     podContextWriteAuthorizer.resolveWriteContextOrThrow(pod, rawContext)
@@ -76,8 +82,12 @@ class PodSlotWriteService @Inject constructor(
   }
 
   /** The slot's statements in [contextUri] alone — what a write there replaces, and what its tag describes. */
-  fun slotInContext(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): Model =
+  private fun slotInContext(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): Model =
     podFacade.getSlot(podName = pod, subjectUri = subjectUri, predicateUri = predicateUri, contexts = listOf(contextUri))
+
+  /** The slot's tag in [contextUri] as it stands now — what a slot write echoes (`SPS-CRUD-052`). */
+  private fun slotTag(pod: String, subjectUri: URI, predicateUri: URI, contextUri: URI): EntityTag =
+    RepresentationTags.slot(slotInContext(pod, subjectUri, predicateUri, contextUri), subjectUri, predicateUri, contextUri, false)
 
   fun replaceSlot(
     pod: String,
@@ -87,7 +97,7 @@ class PodSlotWriteService @Inject constructor(
     body: String,
     credentials: SempodsCredentials,
     conditions: WriteConditions,
-  ): Boolean {
+  ): EntityTag {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
     return podFacade.exclusively(pod) {
       requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
@@ -98,6 +108,7 @@ class PodSlotWriteService @Inject constructor(
         contextUri = contextUri,
         newSlotStatements = parseSlotBodyAsArrayOrThrow(body),
       )
+      slotTag(pod, subjectUri, predicateUri, contextUri)
     }
   }
 
@@ -121,7 +132,7 @@ class PodSlotWriteService @Inject constructor(
         contextUri = contextUri,
         value = value,
       )
-      SlotAddResult(outcome = outcome, addedValue = value)
+      SlotAddResult(outcome = outcome, addedValue = value, tag = slotTag(pod, subjectUri, predicateUri, contextUri))
     }
   }
 
@@ -165,16 +176,17 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     credentials: SempodsCredentials,
     conditions: WriteConditions,
-  ): Boolean {
+  ): SlotClearResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
     return podFacade.exclusively(pod) {
       requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
-      podFacade.clearSlot(
+      val cleared = podFacade.clearSlot(
         podName = pod,
         subjectUri = subjectUri,
         predicateUri = predicateUri,
         contextUri = contextUri,
       )
+      SlotClearResult(cleared = cleared, tag = slotTag(pod, subjectUri, predicateUri, contextUri))
     }
   }
 
@@ -191,7 +203,10 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
   ) {
     val current = slotInContext(pod, subjectUri, predicateUri, contextUri)
-    conditions.requireHold(RepresentationTags.slotWriteTarget(current, subjectUri, predicateUri, contextUri))
+    conditions.requireHold(
+      current = RepresentationTags.slotWriteTarget(current, subjectUri, predicateUri, contextUri),
+      exists = current.isNotEmpty(),
+    )
   }
 
   // -- body parsing --

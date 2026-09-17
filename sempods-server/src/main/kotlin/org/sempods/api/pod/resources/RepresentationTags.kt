@@ -47,10 +47,12 @@ internal object RepresentationTags {
     if (statementsInContext.isEmpty()) emptyList()
     else withCompressed(Form.entries.map { resource(statementsInContext, setOf(context), it) })
 
-  /** Every current tag a write of the slot in [context] accepts, or none when the slot is empty there. */
+  /**
+   * Every current tag a write of the slot in [context] accepts. An empty slot has them too: a write
+   * that empties it echoes its tag, and the next write may be conditional on it (`SPS-CRUD-052`).
+   */
   fun slotWriteTarget(statementsInContext: Model, subject: URI, predicate: URI, context: URI): List<EntityTag> =
-    if (statementsInContext.isEmpty()) emptyList()
-    else withCompressed(listOf(false, true).map { slot(statementsInContext, subject, predicate, context, it) })
+    withCompressed(listOf(false, true).map { slot(statementsInContext, subject, predicate, context, it) })
 
   /**
    * Jetty's `GzipHandler` serves a compressed read under `"<tag>--gzip"` and strips that suffix from
