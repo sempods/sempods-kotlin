@@ -327,10 +327,9 @@ seeded after them but before this server decided what each class means.
 An actively used one therefore has up to ninety days left and then asks
 for a fresh authorization once. No migration script, no backfill.
 
-`PodRefreshTokenStore.issueInFamily` owns that rule rather than the
-shared store, which asks it only of a family naming no class at all: the
-hosted MCP service shares the store, names one on every row and has
-settled no ceiling of its own.
+`PodRefreshTokenStore.issueInFamily` owns that rule. The shared store
+asks it only of a family naming no class at all, and leaves one that names
+a class to the service that minted it.
 
 **A deployment older than the consent control clears its delegations
 once.** Those authorizations hold grants with no answer beside them, so
