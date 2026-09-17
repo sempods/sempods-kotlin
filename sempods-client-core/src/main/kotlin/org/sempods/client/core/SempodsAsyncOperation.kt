@@ -16,6 +16,9 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
   @Volatile
   private var cancelled = false
 
+  /** Set when the work begins. Guarded by [lock]. */
+  private var started = false
+
   /** Set when the work has returned or will never run. Guarded by [lock]; [cancel] does nothing after it. */
   private var finished = false
 
@@ -41,40 +44,45 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
    * sending or receiving, a body being read, and the gap between two calls. A call that is fetching its own
    * credential ends when that fetch returns ([SempodsAuthAttempt.calls]).
    *
-   * Once the work has returned this does nothing, so it cannot break a response the result still reads.
+   * Before the work has started, the operation completes at once and the work never runs, even when the
+   * executor holding it never gets to it. Once the work has returned this does nothing, so it cannot break a
+   * response the result still reads.
    */
   fun cancel() {
+    var beforeStart = false
     val calls = synchronized(lock) {
       if (cancelled || finished) return
       cancelled = true
+      beforeStart = !started
+      if (beforeStart) finished = true
       made.toList()
     }
+    if (beforeStart) completion.completeExceptionally(cancellation(cause = null))
     calls.forEach(Call::cancel)
   }
 
   /**
-   * How the work ended, once it has returned. The operation then holds no admission slot and no connection.
+   * How the work ended: once it has returned, or at once when it was cancelled before it started. The
+   * operation then holds no admission slot and no connection.
    *
    * | The work | The stage completes with |
    * |---|---|
    * | returned a value | the value |
    * | threw | that exception |
-   * | was cancelled before it started | a `CancellationException`; the work never runs |
+   * | was cancelled before it started | a `CancellationException`, at once; the work never runs |
    * | was cancelled before it returned | a `CancellationException` whose cause is what the work threw, if anything; a value it still returned is closed when it is `AutoCloseable` |
    *
    * The stage cannot be completed or cancelled through this reference. A dependent stage added without an
-   * `…Async` method runs on the operation's thread; anything slow belongs on an executor of its own.
+   * `…Async` method runs on the thread that completes the stage, usually the operation's, or on the thread
+   * that adds it once the stage is complete. Anything slow belongs on an executor of its own.
    */
   fun result(): CompletionStage<T> = completion.minimalCompletionStage()
 
   internal fun run(work: SempodsAsyncWork<T>) {
-    val start = synchronized(lock) {
-      if (cancelled) finished = true
-      !cancelled
-    }
-    if (!start) {
-      completion.completeExceptionally(cancellation(cause = null))
-      return
+    synchronized(lock) {
+      // Cancelled before it started: [cancel] completed the operation already.
+      if (cancelled) return
+      started = true
     }
     var value: T? = null
     var failure: Throwable? = null

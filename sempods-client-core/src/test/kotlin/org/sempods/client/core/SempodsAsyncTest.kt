@@ -77,7 +77,7 @@ class SempodsAsyncTest : MockPodTest() {
   }
 
   @Test
-  fun `an operation cancelled before it starts never runs`() {
+  fun `an operation cancelled before it starts completes at once and never runs`() {
     val queued = CopyOnWriteArrayList<Runnable>()
     val ran = AtomicBoolean()
 
@@ -86,9 +86,11 @@ class SempodsAsyncTest : MockPodTest() {
       get(calls).close()
     }
     operation.cancel()
-    queued.single().run()
 
+    // Complete although the executor has not run the task, and may never.
+    assertTrue(operation.result().toCompletableFuture().isDone)
     assertTrue(operation.outcome().exceptionOrNull() is CancellationException)
+    queued.single().run()
     assertFalse(ran.get())
     assertTrue(operation.isCancelled)
     assertTrue(server.retrieveRecordedRequests(request()).isEmpty())
