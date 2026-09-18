@@ -65,6 +65,11 @@ object SempodsOkHttp {
    * added afterwards runs after the guard's address check, and a network interceptor added afterwards
    * after the final confinement.
    *
+   * Such an interceptor may change what it passes on, and the resend rules are measured against that
+   * request rather than the one the session built — as long as it derives the request with
+   * `newBuilder()`. One that builds a request from scratch drops the attempt's tags, and an attempt
+   * whose request is unknown earns no resend.
+   *
    * It also switches redirects off, and with a [guard] sets the guard's resolver and, unless the guard
    * says otherwise, no proxy. The guard's interceptor pins both again for every call and refuses a
    * call on a client that follows redirects, so a builder changed after this cannot shed them.
@@ -180,11 +185,12 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     val response = try {
       if (call.isCanceled()) throw IOException("Canceled")
       val sent = authenticating(call, number = 1) { foreign.authenticate(request, it) }
+      val first = NetworkPass()
       val answer = try {
-        quiet.proceed(sent)
+        quiet.proceed(sent.carrying(first))
       } catch (failure: IOException) {
-        if (call.isCanceled() || !ConnectionResend.allowed(failure, sent, repeatable = false)) throw failure
-        quiet.proceed(sent)
+        if (call.isCanceled() || !ConnectionResend.allowed(failure, first, repeatable = false)) throw failure
+        quiet.proceed(sent.carrying(NetworkPass()))
       }
       observed(call, number = 1, response = answer, show = foreign::observe)
       answer
@@ -201,9 +207,10 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * (RFC 9110 §9.2.2) — which is how a pooled connection the server has closed fails — and a refusal
    * the session's [SempodsRequestAuth] expects another attempt to change.
    *
-   * A lost connection is told apart by the failure's type alone. An `IOException` that an interceptor
-   * after this one throws once the response arrived looks the same, and such a request is sent again
-   * too ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
+   * What earns the resend is decided on the request the last network interceptor wrote and on
+   * whether an answer came back ([NetworkPass]), so an interceptor below this one that changes the
+   * method or the body is seen, and one that throws after the answer arrived is not mistaken for a
+   * lost connection.
    *
    * Every answer is shown to the mechanism ([SempodsRequestAuth.observe]) before any of that is
    * decided, so a refusal that earns no repeat still hands on what the server said.
@@ -220,10 +227,11 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // OkHttp looks at the cancel only below this interceptor, after the credential work.
       if (call.isCanceled()) throw IOException("Canceled")
       val authenticated = authenticating(call, number) { session.authenticated(request, it) }
+      val pass = NetworkPass()
       return try {
-        chain.proceed(authenticated)
+        chain.proceed(authenticated.carrying(pass))
       } catch (failure: IOException) {
-        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, request, SempodsRepeatable.isMarked(call))) {
+        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, pass, SempodsRepeatable.isMarked(call))) {
           throw failure
         }
         resent = true
@@ -299,6 +307,9 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     if (admission != null && call.tag(SempodsAuthAttempt::class.java)?.lends(admission) == true) null else admission
 }
 
+/** [Request] with [pass] on it, so the last network interceptor can note what it saw of this attempt. */
+private fun Request.carrying(pass: NetworkPass): Request = newBuilder().tag(NetworkPass::class.java, pass).build()
+
 /** The admission slot of one call: taken before its first attempt and handed on to its response, whose close releases it. */
 private class Slot(private val gate: AdmissionGate?, private val call: Call) {
 
@@ -335,13 +346,26 @@ private class Slot(private val gate: AdmissionGate?, private val call: Call) {
 private object FinalTarget : Interceptor {
 
   override fun intercept(chain: Interceptor.Chain): Response {
+    val request = chain.request()
     chain.call().tag(ForeignCall::class.java)?.let { foreign ->
-      foreign.confine(chain.request())
-      return withoutImmediateRepeat(chain.proceed(chain.request()))
+      foreign.confine(request)
+      return withoutImmediateRepeat(recorded(chain, request))
     }
-    val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(chain.request())
-    session.confine(chain.request())
-    return withoutImmediateRepeat(chain.proceed(chain.request()))
+    val session = chain.call().tag(SempodsSession::class.java) ?: return chain.proceed(request)
+    session.confine(request)
+    return withoutImmediateRepeat(recorded(chain, request))
+  }
+
+  /**
+   * The answer to [request], with what this pass saw noted on the attempt's [NetworkPass]: the
+   * request as it is about to be written, and that an answer came back. [ConnectionResend] reads both.
+   */
+  private fun recorded(chain: Interceptor.Chain, request: Request): Response {
+    val pass = request.tag(NetworkPass::class.java)
+    pass?.written = request
+    val response = chain.proceed(request)
+    pass?.answered = true
+    return response
   }
 
   /** [response] without the `Retry-After: 0` that has OkHttp send a `503`'s request again below this interceptor. */

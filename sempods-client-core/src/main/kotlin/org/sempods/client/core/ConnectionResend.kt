@@ -24,12 +24,23 @@ import javax.net.ssl.SSLException
  * automatic repeat for those alone: a client cannot tell a connection lost before the server read
  * the request from one lost after the server acted on it, and for a POST the second is a duplicate
  * write — unless the caller knows the request is safe, which is what the mark says.
+ *
+ * **Decided on the request that went out and on whether an answer came back** ([NetworkPass]), not
+ * on the request the session handed down and not on the failure's type alone. An interceptor below
+ * the session may change the method or put in a body that can be written once, and one that throws
+ * after the answer arrived raises the same `IOException` a lost connection does.
  */
 internal object ConnectionResend {
 
   private val IDEMPOTENT_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE")
 
-  fun allowed(failure: IOException, request: Request, repeatable: Boolean): Boolean {
+  fun allowed(failure: IOException, pass: NetworkPass, repeatable: Boolean): Boolean {
+    // An answer came back, so the failure is something above the wire — an interceptor after the
+    // session's, which may have failed on an operation the server has already carried out.
+    if (pass.answered) return false
+    // The request never reached the last network interceptor, or an interceptor below the session
+    // rebuilt it without its tags. Either way what went out is unknown, and unknown is not eligible.
+    val request = pass.written ?: return false
     if (request.method !in IDEMPOTENT_METHODS && !repeatable) return false
     if (request.body?.isOneShot() == true) return false
     return when (failure) {
@@ -45,4 +56,21 @@ internal object ConnectionResend {
       else -> true
     }
   }
+}
+
+/**
+ * What the last network interceptor saw of one attempt: the request as it was written, and whether
+ * an answer came back.
+ *
+ * One per `Chain.proceed` of [SempodsOkHttp]'s session interceptor, carried down as a tag on the
+ * request so no thread-local is needed, and filled in by the last network interceptor — the only
+ * place that sees what actually goes on the wire.
+ */
+internal class NetworkPass {
+
+  @Volatile
+  var written: Request? = null
+
+  @Volatile
+  var answered: Boolean = false
 }

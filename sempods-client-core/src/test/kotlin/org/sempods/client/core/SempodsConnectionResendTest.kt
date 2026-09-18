@@ -1,11 +1,13 @@
 package org.sempods.client.core
 
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.BufferedInputStream
@@ -19,12 +21,15 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLHandshakeException
 import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import org.junit.jupiter.api.assertInstanceOf
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -146,6 +151,127 @@ class SempodsConnectionResendTest {
 
       assertEquals(2, requestHeads.size)
       assertEquals(listOf(200), told)
+    }
+  }
+
+  @Test
+  fun `an IOException thrown after the answer arrived is not a lost connection`() {
+    // A consumer's interceptor runs below the session's and can fail once the server has already
+    // acted. Sending the request again carries the operation out twice, and the caller is told
+    // about whatever the second attempt did instead of about the failure that happened.
+    val failures = AtomicInteger()
+    val afterTheAnswer = Interceptor { chain ->
+      val response = chain.proceed(chain.request())
+      if (failures.getAndIncrement() > 0) return@Interceptor response
+      response.close()
+      throw IOException("the interceptor after the session failed")
+    }
+    // `Connection: close`, so the second attempt opens a connection of its own and is answered.
+    onConnection = { socket, _ ->
+      socket.use {
+        if (readRequest(it)) {
+          it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".toByteArray())
+          it.getOutputStream().flush()
+        }
+      }
+    }
+
+    sempodsClient { addInterceptor(afterTheAnswer) }.closing { client ->
+      val a = session()
+
+      val failed = assertThrows<IOException> { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+
+      assertEquals("the interceptor after the session failed", failed.message, "the failure was replaced")
+      assertEquals(1, requestHeads.size, "the request was sent again although the server had answered it")
+    }
+  }
+
+  @Test
+  fun `a one-shot body a later interceptor put in rules out the resend`() {
+    // Eligibility is decided on the request this interceptor saw, and a later one may replace its
+    // body. The resend would then write nothing and be answered as if it had.
+    val draining = Interceptor { chain ->
+      val request = chain.request()
+      if (!request.url.encodedPath.endsWith("/second")) return@Interceptor chain.proceed(request)
+      chain.proceed(request.newBuilder().put(oneShotBody("body")).build())
+    }
+
+    sempodsClient { addInterceptor(draining) }.closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      assertThrows<IOException> {
+        client.newCall(a.newRequest("PUT", "second").put("body".toRequestBody()).build()).execute().close()
+      }
+
+      assertEquals(1, requestHeads.size, "a request whose effective body was drained was sent again")
+    }
+  }
+
+  @Test
+  fun `a method a later interceptor changed rules out the resend`() {
+    // The session built a GET, so today's check calls it idempotent; what went out was a POST.
+    val posting = Interceptor { chain ->
+      val request = chain.request()
+      if (!request.url.encodedPath.endsWith("/second")) return@Interceptor chain.proceed(request)
+      chain.proceed(request.newBuilder().post("body".toRequestBody()).build())
+    }
+
+    sempodsClient { addInterceptor(posting) }.closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      assertThrows<IOException> { client.newCall(a.newRequest("GET", "second").build()).execute().close() }
+
+      assertEquals(1, requestHeads.size, "a request whose effective method was POST was sent again")
+    }
+  }
+
+  @Test
+  fun `enqueue decides the resend the same way execute does`() {
+    // Both entry points run the one execution path, and the async one reports through onFailure.
+    val posting = Interceptor { chain ->
+      val request = chain.request()
+      if (!request.url.encodedPath.endsWith("/second")) return@Interceptor chain.proceed(request)
+      chain.proceed(request.newBuilder().post("body".toRequestBody()).build())
+    }
+
+    sempodsClient { addInterceptor(posting) }.closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+      val reported = CompletableFuture<Any>()
+
+      client.newCall(a.newRequest("GET", "second").build()).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+          reported.complete(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+          response.use { reported.complete(it.code) }
+        }
+      })
+
+      assertInstanceOf<IOException>(reported.get(15, TimeUnit.SECONDS), "the enqueued call was resent as a POST")
+      assertEquals(1, requestHeads.size)
+    }
+  }
+
+  @Test
+  fun `an interceptor that rebuilds the request from scratch loses the resend`() {
+    // The pass travels as a tag. An interceptor below the session that builds a new request rather
+    // than deriving one drops it, and what went out is then unknown — which is not eligible.
+    val rebuilding = Interceptor { chain ->
+      val request = chain.request()
+      chain.proceed(Request.Builder().url(request.url).method(request.method, request.body).headers(request.headers).build())
+    }
+
+    sempodsClient { addInterceptor(rebuilding) }.closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      assertThrows<IOException> { client.newCall(a.newRequest("GET", "second").build()).execute().close() }
+
+      assertEquals(1, requestHeads.size)
     }
   }
 
@@ -479,7 +605,7 @@ class SempodsConnectionResendTest {
 
   @Test
   fun `a deadline, a refused connection or a refusal of this library's own is not resent`() {
-    val get = Request.Builder().url("http://127.0.0.1/alice/x").build()
+    val written = NetworkPass().apply { written = Request.Builder().url("http://127.0.0.1/alice/x").build() }
     val notResent = listOf(
       SocketTimeoutException("read timed out"),
       InterruptedIOException("timeout"),
@@ -488,7 +614,22 @@ class SempodsConnectionResendTest {
       SSLHandshakeException("no trusted certificate"),
       SempodsClientException("refused"),
     )
-    notResent.forEach { failure -> assertFalse(ConnectionResend.allowed(failure, get, repeatable = false), "$failure") }
-    assertTrue(ConnectionResend.allowed(SocketException("Connection reset"), get, repeatable = false))
+    notResent.forEach { failure -> assertFalse(ConnectionResend.allowed(failure, written, repeatable = false), "$failure") }
+    assertTrue(ConnectionResend.allowed(SocketException("Connection reset"), written, repeatable = false))
+  }
+
+  @Test
+  fun `a request the last network interceptor never wrote, and one already answered, are not resent`() {
+    // The two states that are not a lost connection: nothing reached the wire, and something came
+    // back from it. Neither is eligible, whatever the failure looks like.
+    val reset = SocketException("Connection reset")
+    val get = Request.Builder().url("http://127.0.0.1/alice/x").build()
+
+    assertFalse(ConnectionResend.allowed(reset, NetworkPass(), repeatable = true), "nothing was written")
+    val answered = NetworkPass().apply {
+      written = get
+      answered = true
+    }
+    assertFalse(ConnectionResend.allowed(reset, answered, repeatable = true), "an answer had already come back")
   }
 }
