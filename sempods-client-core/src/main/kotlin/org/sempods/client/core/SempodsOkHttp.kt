@@ -61,12 +61,15 @@ object SempodsOkHttp {
    * - **The last network interceptor** confines a session's call again, on the request about to be
    *   written, and keeps OkHttp from repeating a session's `503` on its own.
    *
-   * **The consumer's own interceptors go on the builder before this.** An application interceptor
-   * added afterwards runs after the guard's address check, and a network interceptor added afterwards
-   * after the final confinement.
+   * **The consumer's own interceptors go on the builder before this**, and for a session's call a
+   * network interceptor has to: this library's is the last one, and it is where the request that goes
+   * out is read. One added after this sits below it, and a request it changes there — a method, a body
+   * that can be written once — is not seen, so a resend can repeat what the server already did
+   * ([#236](https://github.com/sempods/sempods-kotlin/issues/236)). An application interceptor added
+   * afterwards is above it and runs after the guard's address check.
    *
-   * Such an interceptor may change what it passes on, and the resend rules are measured against that
-   * request rather than the one the session built — as long as it derives the request with
+   * An interceptor before this may change what it passes on, and the resend rules are measured against
+   * that request rather than against the one the session built — as long as it derives the request with
    * `newBuilder()`. One that builds a request from scratch drops the attempt's tags, and an attempt
    * whose request is unknown earns no resend.
    *
