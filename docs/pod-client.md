@@ -27,7 +27,7 @@ The same routes answer in two shapes, and neither is a degraded version of the o
 | Layer | Answers with | For |
 |---|---|---|
 | `PodWireClient` (`org.sempods.client.wire`) | the pod's own JSON-LD as an unparsed `JsonNode`, plus the `ETag` on every read and `If-Match` / `If-None-Match` on every write | a consumer that **forwards** what the pod said — `:sempods-mcp-core`'s `PodToolExecutor` hands it to a model, for both MCP surfaces — or that needs read-modify-write to be safe against a concurrent editor |
-| `SempodsRdf4jPod` (`:sempods-client-rdf4j`) | a parsed RDF4J `Model`, every statement keeping its context | a consumer that **reasons** over the graph and does not want to know that a slot is two base64url segments |
+| `SempodsRdf4jPod` (`:sempods-client-rdf4j`) | a parsed RDF4J `Model`; a resource, subject, slot or registry read keeps every statement's context, while a `CONSTRUCT` or `DESCRIBE` answers triples, as SPARQL does | a consumer that **reasons** over the graph and does not want to know that a slot is two base64url segments |
 
 A forwarding consumer needs the pod's framing and `@context`: parsing to RDF and re-serialising is
 lossy for it even when semantically faithful, and spends a parser round trip on an answer nobody
