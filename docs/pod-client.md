@@ -411,10 +411,11 @@ stricter reading won, so the NAT64 prefixes are refused outright.
 
 ## Consumable as an artifact
 
-RDF4J's model artifact is declared `api` by `:sempods-model` and `:sempods-client`, so a build that
-depends on `:sempods-client` alone can name the `Model`, `IRI`, `Resource` and `Value` its public
-methods return and accept. Rio, Sail and the SPARQL-results readers stay `implementation`. The in-repo
-consumers declare no RDF4J of their own, which is the check that the export is real.
+**One artifact brings RDF4J, and it is the one named for it.** `:sempods-client-rdf4j` declares
+RDF4J's model, query and Rio APIs `api`, so a build depending on it can name the `Model`, `IRI`,
+`Value` and `BindingSet` its methods return and accept; its parsers and writers stay
+`implementation`. The in-repo consumers declare no RDF4J of their own, which is the check that the
+export is real.
 
 `:sempods-client-core` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
 Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
