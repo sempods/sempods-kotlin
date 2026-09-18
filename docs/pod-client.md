@@ -446,7 +446,8 @@ independently embeddable services belongs to
 
 ## Authority and deployment
 
-Pod operations use `sempods-client` and a pod credential. Host administration uses
+Pod operations use `sempods-client-core` — with the RDF4J or media adapter where the representation
+calls for one — and a pod credential. Host administration uses
 `sempods-control-plane-client` and a host credential. Creating a pod requires the latter,
 because the pod and its context authority do not exist yet. The proposed owner and
 operator interfaces preserve this split; their [deployment design](proposals/deployment-profiles.md)
