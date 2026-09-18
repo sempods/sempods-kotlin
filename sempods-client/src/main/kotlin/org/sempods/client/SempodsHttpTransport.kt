@@ -3,7 +3,6 @@ package org.sempods.client
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.Call
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,7 +12,6 @@ import okio.BufferedSink
 import okio.source
 import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.SempodsOutboundGuard
-import org.sempods.commons.okhttp.TraceparentInterceptor
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import java.io.InputStream
@@ -64,15 +62,6 @@ class SempodsHttpTransport @JvmOverloads constructor(
     guard,
     admission = null,
   )
-    // The caller's trace, for every request this client sends rather than only the ones [newRequest]
-    // builds: [calls] hands it to endpoint groups that build their own, and a header set while
-    // building reaches none of those. It leaves a request that already carries the header alone, so
-    // [newRequest]'s own remains what goes out.
-    //
-    // **Ahead of the session interceptor**, which `install` puts at index 0 and which runs the
-    // attempts below itself. Behind it the header would be stamped afresh per attempt, and one
-    // logical call would reach the pod as a different span each time it is resent.
-    .apply { interceptors().add(0, TraceparentInterceptor) }
     // After `install`, which would otherwise read an unset deadline and put its own in: the one this
     // surface's callers configured wins, `Duration.ZERO` included.
     .callTimeout(timeouts.call)
@@ -83,24 +72,6 @@ class SempodsHttpTransport @JvmOverloads constructor(
    * `newBuilder()` would allocate on every call; each variant still shares the pool and dispatcher.
    */
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
-
-  /**
-   * The factory a core endpoint group runs its calls on, sharing this transport's connection pool,
-   * guard and redirect policy instead of opening a second of each.
-   *
-   * **No caller in this module uses it today.** It is what [SempodsControlPlaneClient] and
-   * `PodWireClient` reach for when they move onto the core ([#152](https://github.com/sempods/sempods-kotlin/issues/152)),
-   * and the slot binding below is the part that would be silently missing if it were rebuilt then.
-   *
-   * A session's request needs the policy [SempodsOkHttp] installs here to resolve at all, which is
-   * what makes this a factory over that client rather than a bare one.
-   *
-   * **It binds [SempodsCallSlot] the way [execute] does.** The slot is this surface's cancel handle
-   * and it is per thread, so a call a group makes inside `SempodsCallSlot.using` has to reach it
-   * too — otherwise cancelling marks the slot and leaves the socket blocked until a timeout. The
-   * core's own handle is `Call.cancel()`, which is what the slot ends up calling.
-   */
-  internal val calls: Call.Factory = Call.Factory { request -> SlotBoundCall(httpClient.newCall(request)) }
 
   /** Shared by the clients above so a response is parsed the same way wherever it is read. */
   val objectMapper: ObjectMapper = ObjectMapper()
@@ -272,28 +243,6 @@ class SempodsHttpTransport @JvmOverloads constructor(
     override fun writeTo(sink: BufferedSink) {
       open().source().use { sink.writeAll(it) }
     }
-  }
-
-  /**
-   * A call bound to the thread's [SempodsCallSlot] for as long as it is blocked in [execute].
-   *
-   * `enqueue` is passed through unbound: the slot belongs to the thread that blocks, and an
-   * enqueued call has already left it. The core's asynchronous path blocks on a virtual thread of
-   * its own, where a slot is bound only if its caller bound one — as with [execute] here.
-   */
-  private class SlotBoundCall(private val delegate: Call) : Call by delegate {
-
-    override fun execute(): okhttp3.Response {
-      val slot = SempodsCallSlot.current() ?: return delegate.execute()
-      val owning = slot.bind(delegate::cancel)
-      return try {
-        delegate.execute()
-      } finally {
-        slot.unbind(owning)
-      }
-    }
-
-    override fun clone(): Call = SlotBoundCall(delegate.clone())
   }
 
   private companion object {

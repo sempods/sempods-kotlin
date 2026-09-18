@@ -37,10 +37,9 @@ core, which answers the bytes the pod sent and reads none of them as RDF.
 `SempodsHttpTransport` is what `PodWireClient` still runs on: the legacy surface, with a token
 stamped on each request and the JSON helpers (`objectMapper`, `requiredText`) the core does without.
 It runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect policy have one
-implementation. **Its own requests carry no session**, and the session's authentication and resend
-apply to none of them — a request one of its callers built is authenticated where it is built. The
-same client can send a session's requests, which do carry one, through `calls`. Admission applies to
-neither, because this client is configured without a budget. Moving the wire layer onto the core is
+implementation. **Its requests carry no session**, so the session's authentication, resend and
+admission apply to none of them — a request one of its callers built is authenticated where it is
+built. Moving the wire layer onto the core is
 [#152](https://github.com/sempods/sempods-kotlin/issues/152).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving

@@ -10,11 +10,6 @@ dependencies {
   // application framework along with an HTTP client.
   implementation(project(":sempods-commons"))
 
-  // For `TraceparentInterceptor`, which puts the caller's trace on every request this module's
-  // client sends. Its Guice dependency is `compileOnly` there, so nothing of a DI container
-  // reaches a consumer through this edge.
-  implementation(project(":sempods-commons-okhttp"))
-
   // `api`, because `PodWireClient.listContexts`, `sparqlSelect` and `sparqlGraph` answer with a
   // `JsonNode`, which a caller has to name. The `java.time` codecs are a registration on the
   // mapper and nothing names them.
