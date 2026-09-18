@@ -58,6 +58,12 @@ deployment designs. Each links its owning issue; none is a statement of shipped 
 - [`request-tracing.md`](request-tracing.md) — correlating a request across the three services
 - [`testing.md`](testing.md) — the test layers and which one a change belongs in
 
+## Moving between versions
+
+- [`migration/0.2.md`](migration/0.2.md) — what a 0.1.0 client calls, and what it calls instead. Not
+  IST: it describes a move rather than the system, and it goes when 0.2 is old enough that nobody is
+  making it.
+
 ## Instructions for contributors, human and AI
 
 [`agents/`](agents/) — reached from [`../AGENTS.md`](../AGENTS.md) rather than from here, because

@@ -27,7 +27,7 @@ data class PodWriteResult(val status: Int, val etag: String?, val body: JsonNode
  * The pod's HTTP System layer, **as it is on the wire**: JSON-LD in and out as an unparsed
  * [JsonNode], the `ETag` on every read, `If-Match` / `If-None-Match` on every write.
  *
- * ### Why this exists beside `SempodsClient`
+ * ### Why this exists beside the RDF4J adapter
  *
  * They answer different questions about the same routes, and neither answer is a degraded version
  * of the other:
@@ -37,14 +37,14 @@ data class PodWriteResult(val status: Int, val etag: String?, val body: JsonNode
  *   pod's own framing and `@context` intact. Parsing to RDF and re-serialising is lossy for that
  *   purpose even when it is semantically faithful, and it costs a round trip through a parser for
  *   an answer nobody is going to query.
- * - **[org.sempods.client.SempodsClient] gives meaning.** A consumer that reasons over the graph
- *   wants an RDF4J `Model`, and does not want to know that a slot is addressed by two base64url
+ * - **`SempodsRdf4jPod` (`:sempods-client-rdf4j`) gives meaning.** A consumer that reasons over the
+ *   graph wants an RDF4J `Model`, and does not want to know that a slot is addressed by two base64url
  *   segments.
  *
- * So this is the floor and the semantic client is the storey above it — not two clients. It also
- * carries the concurrency vocabulary the semantic tier historically lacked: the ETag of a read of one
- * context is the precondition a later write to that context sends back, which is what makes a
- * read-modify-write safe against a concurrent editor rather than last-write-wins.
+ * Two shapes of one answer, not two clients. This layer also carries its own concurrency vocabulary:
+ * the ETag of a read of one context is the precondition a later write to that context sends back,
+ * which is what makes a read-modify-write safe against a concurrent editor rather than
+ * last-write-wins.
  *
  * **Blocking, like everything else here.** A `suspend` consumer bridges at its own edge; see
  * `docs/pod-client.md` §"The transport" for why the client itself carries no concurrency

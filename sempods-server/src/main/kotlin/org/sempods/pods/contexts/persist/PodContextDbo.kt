@@ -22,7 +22,7 @@ internal data class PodContextDbo(
   val description: String?,
   /**
    * Single source of truth for context visibility. `true` makes the context
-   * anonymously readable and lets it surface in `SempodsPodClient.publicContexts`.
+   * anonymously readable and lets it surface in the catalogue an unauthenticated caller reads.
    * Defaults to `false`; legacy rows without the field decode as private, which the
    * public-contexts backfill corrects for the rows written before the field existed.
    *

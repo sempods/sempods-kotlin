@@ -83,29 +83,6 @@ class SempodsCallSlotTest {
     return ended
   }
 
-  /**
-   * A tier's call runs on an endpoint group now, which builds its own request and sends it through
-   * `transport.calls` rather than `send`. The slot has to reach it there: without that, a cancel
-   * marks the slot and leaves the socket blocked until a timeout, which is what the slot exists to
-   * avoid.
-   */
-  @Test
-  fun `a cancel ends a call an endpoint group made`() {
-    val slot = SempodsCallSlot()
-    val pod = SempodsPodClient(
-      podBaseUrl = uri("/alice/"),
-      auth = SempodsAuth.anonymous,
-      client = SempodsClient(transport),
-    )
-
-    val ended = inSlot(slot) { pod.exists() }
-    Thread.sleep(200)
-    slot.cancel()
-
-    val failure = ended.get(5, TimeUnit.SECONDS)
-    assertTrue(failure is SempodsClientException, "the group's call ended with $failure")
-  }
-
   @Test
   fun `a call made in the body another call supplies leaves the owning call cancellable`() {
     val slot = SempodsCallSlot()

@@ -96,12 +96,11 @@ Three paths, because three HTTP clients are in use:
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsHttpTransport`** (`sempods-client`) — OkHttp, on a client `SempodsOkHttp.install`
-  configured, carrying `TraceparentInterceptor` itself: the tiers above it reach their routes through
-  the core's endpoint groups, which build their own requests, and a header set only in `newRequest`
-  would not be on them. `newRequest` sets it too, and the interceptor leaves a request that already
-  carries one alone. The core's `SempodsSession` sets none; the tracer goes on the client it sends
-  with ([`pod-client.md`](pod-client.md) §"Tracing").
+- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — OkHttp, on a client
+  `SempodsOkHttp.install` configured rather than `sempods-commons-okhttp`'s, so the interceptor above
+  does not reach it; it sets the header when building a request instead, and every request this
+  surface sends is one it built. The core's `SempodsSession` sets none; the tracer goes on the client
+  it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
@@ -135,4 +134,5 @@ its pod calls go out without a header.
 - `KtorTraceContextTest` — the same contract for the Ktor side, plus the two things only that
   side can get wrong: the binding surviving a dispatch to another thread, and the outbound
   plugin minting a child span rather than repeating the caller's.
-- `SempodsClientHttpTest` — the header on the wire, and its absence outside a request.
+- `SempodsHttpTransportTraceTest` — the header on the wire, its absence outside a request, and one
+  trace id across two requests with a span each.

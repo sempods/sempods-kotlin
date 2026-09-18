@@ -126,6 +126,10 @@ Then, per release:
    The ruleset guards branches, not tags, so the tag push needs no pull request. The release is
    what anyone watching the repository is notified by; Central carries the artifacts and announces
    nothing.
+
+   `--generate-notes` collects pull-request titles and nothing else, so **a version that moves or
+   removes something a consumer calls needs its migration notes pasted in**: for 0.2 that is
+   [`docs/migration/0.2.md`](docs/migration/0.2.md).
 6. Open a second pull request bumping `version` to the next minor with `-SNAPSHOT` restored.
 
 ## What Central requires, and what already satisfies it

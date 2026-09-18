@@ -25,7 +25,7 @@ sealed class SempodsBody {
 
   /**
    * A body supplied on demand. **[open] is invoked once per attempt** and must yield a fresh stream
-   * positioned at the first byte every time — a retry (the 401 retry in `SempodsPodClient`, or a
+   * positioned at the first byte every time — a retry (a session's after a refused credential, or a
    * transport-level retransmit) replays it.
    *
    * [size] decides the framing only: with it the request carries a definite `Content-Length`,

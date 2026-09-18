@@ -24,7 +24,7 @@ import jakarta.ws.rs.core.Response
  * events API exposes), not the HTTP `Last-Modified` header: the value *is* the pod's
  * `dateModified` (the stored [org.sempods.pods.mongo.persist.PodDao.fetchLastModifiedAt],
  * bumped on every write incl. deletes); the ETag is just one consumer. It backs a consumer's own
- * listing ETag, which `SempodsPodClient.lastModifiedAt` reads anonymously.
+ * listing ETag, which `SempodsPodMetadata.dateModified` reads anonymously.
  *
  * `200 { "dateModified": "<iso8601>" }` for an existing pod, `404` when the pod does not
  * exist, `401` on an invalid bearer. The timestamp is pod-global (not context-scoped), so

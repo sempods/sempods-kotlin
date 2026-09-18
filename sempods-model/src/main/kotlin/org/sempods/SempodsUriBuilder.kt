@@ -152,7 +152,7 @@ class SempodsUriBuilder {
      * sempods-spec `spec/core/contexts.md` §2 has the reasoning.
      *
      * Single definition on purpose: `PodContextsEndpoint` (management route),
-     * `PodAuthEndpoint` (consent dialog) and `SempodsClient.contextManagementUrl` all derive from
+     * `PodAuthEndpoint` (consent dialog) and the client's `SempodsPodContexts` all derive from
      * it, so the route that addresses a context and the IRI that identifies it cannot drift apart.
      *
      * Re-exported from [SempodsPodRoutes] for the same reason as [MEDIA_PATH_PREFIX]; this is the

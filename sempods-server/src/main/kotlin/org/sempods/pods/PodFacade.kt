@@ -174,7 +174,7 @@ class PodFacade @Inject constructor(
   }
 
   /**
-   * Backs the pod's context-registration route (`SempodsPodClient.createContext` from outside): registers [contextUri]
+   * Backs the pod's context-registration route (`SempodsPodContexts.create` from outside): registers [contextUri]
    * as a context row for [podName]. Idempotent — returns `false` if the row
    * already exists. `createdBy` is left null to denote a system-driven creation
    * (account provisioning, programmatic seeds); the HTTP endpoint variant

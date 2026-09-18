@@ -28,20 +28,17 @@ dependencies {
   // reads them comes from `:sempods-commons-json`.
   implementation(libs.jacksonDatabind)
 
-  // No application framework. This module is the pod contract, and `sempods-client` plus every
-  // consumer above it depends on it — an edge to a framework here would put Jersey, an object
-  // mapper and a user model behind all of them. The last symbol was `SempodsUriBuilder`'s injected
+  // No application framework. This module is the pod contract, and its consumers depend on it — an
+  // edge to a framework here would put Jersey, an object mapper and a user model behind all of them. The last symbol was `SempodsUriBuilder`'s injected
   // application-config constructor.
   implementation(project(":sempods-commons"))
   implementation(project(":sempods-commons-json"))
 
-  // No test fixtures, and no DI container anywhere: this module ships ontologies, view definitions,
-  // a URI builder that takes its base URL as a plain argument, and the media data types. No pod
-  // service to program against — the pod server binds `SempodsUriBuilder` for its own use and
-  // `sempods-client` constructs its own `ViewFacade`, but nothing here is an abstraction a consumer
-  // injects instead of talking to a pod. A
-  // consumer that wants a real pod runs one (`:sempods-server`); one that wants the wire takes
-  // `:sempods-client`.
+  // No test fixtures, and no DI container anywhere: this module ships ontologies, view definitions
+  // and a URI builder that takes its base URL as a plain argument. No pod service to program
+  // against — the pod server binds `SempodsUriBuilder` for its own use, but nothing here is an
+  // abstraction a consumer injects instead of talking to a pod. A consumer that wants a real pod
+  // runs one (`:sempods-server`); one that wants to reach a pod takes `:sempods-client-core`.
 
   testImplementation(libs.bundles.test)
 }

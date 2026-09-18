@@ -13,8 +13,7 @@ dependencies {
   // reflection at wiring time (#15).
   api(project(":sempods-commons"))
   // The pod HTTP surface and its SSRF guard live here now, shared with every consumer rather
-  // than re-spelled per service. RDF4J rides along on the runtime classpath unused — the price of
-  // one client instead of two, and cheaper than the drift two guards produced.
+  // than re-spelled per service.
   implementation(project(":sempods-client"))
   // The SSRF policy and the pod base rules moved into the core, and this
   // module names them directly — in the OAuth client, in the pod URL policy and in the suites that
