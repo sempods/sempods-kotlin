@@ -15,6 +15,8 @@ dependencies {
   // The parsers a pod answers with and the writer are named in code, so a consumer's classpath cannot
   // take away the format this module reads.
   implementation(libs.rdf4jModel)
+  // `SD.NAMED_GRAPH_PROPERTY`, which a catalogue names its members with.
+  implementation(libs.rdf4jModelVocabulary)
   implementation(libs.rdf4jRioNquads)
   implementation(libs.rdf4jRioNtriples)
   implementation(libs.rdf4jRioJsonld)
@@ -25,7 +27,6 @@ dependencies {
   implementation(libs.jackson3Databind)
 
   testImplementation(libs.okhttp)
-  testImplementation(libs.rdf4jModelVocabulary)
   testImplementation(libs.slf4jApi)
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)

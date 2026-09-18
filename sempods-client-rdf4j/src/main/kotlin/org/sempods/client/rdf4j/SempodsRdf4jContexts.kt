@@ -1,8 +1,10 @@
 package org.sempods.client.rdf4j
 
+import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
+import org.eclipse.rdf4j.model.vocabulary.SD
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.RDFHandler
 import org.eclipse.rdf4j.rio.helpers.StatementCollector
@@ -37,6 +39,23 @@ import java.io.IOException
 class SempodsRdf4jContexts internal constructor(
   private val core: SempodsPodContexts,
 ) {
+
+  /**
+   * The IRIs of the contexts the session sees: what the catalogue names with `sd:namedGraph`
+   * (SPS-CTX-033), in the order the pod wrote them and without repeats.
+   *
+   * A catalogue the session has no answer for — a pod the server does not know — is an empty list
+   * rather than a failure, as [listModel] hands back a null body for it. What each context *is*, and
+   * what this session may do with it, is in [listModel]'s graph; this is the membership alone.
+   */
+  @JvmOverloads
+  @Throws(IOException::class)
+  fun listIris(ifNoneMatch: String? = null): SempodsResponse<List<IRI>> =
+    listModel(ifNoneMatch).map { catalogue ->
+      catalogue.filter { it.predicate == SD.NAMED_GRAPH_PROPERTY }
+        .mapNotNull { it.`object` as? IRI }
+        .distinct()
+    }
 
   /** The catalogue of the contexts the session sees, unchanged from [ifNoneMatch] with `304`. */
   @JvmOverloads

@@ -520,16 +520,11 @@ class SempodsPodClient(
   fun contexts(): Set<URI> = translating { catalogueOf(rdf) }
 
   /**
-   * The catalogue's members: what `sd:namedGraph` points at in the registry's own graph
-   * (SPS-CTX-033). A pod the server does not know answers 404, which is no catalogue rather than a
-   * failure, and reads as the empty set.
+   * The catalogue's members. A pod the server does not know answers 404, which is no catalogue rather
+   * than a failure, and reads as the empty set.
    */
-  private fun catalogueOf(adapter: SempodsRdf4jPod): Set<URI> {
-    val catalogue = adapter.contexts().listModel().body ?: return emptySet()
-    return catalogue
-      .filter { it.predicate.stringValue() == SD_NAMED_GRAPH }
-      .mapNotNullTo(LinkedHashSet()) { (it.`object` as? IRI)?.stringValue()?.let(::URI) }
-  }
+  private fun catalogueOf(adapter: SempodsRdf4jPod): Set<URI> =
+    adapter.contexts().listIris().body.orEmpty().mapTo(LinkedHashSet()) { URI(it.stringValue()) }
 
   /**
    * The body of an answer whose listed statuses are all 2xx, which therefore always carries one

@@ -137,7 +137,7 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
 
     assertEquals(204, delete(pod.name).statusCode)
-    assertFalse(podAccess.clientFor(pod.name).exists(), "pod must be gone")
+    assertFalse(podAccess.exists(pod.name), "pod must be gone")
     assertEquals(404, get(pod.name).statusCode)
 
     // deleting again — and deleting a pod that never existed — stays a no-op
@@ -193,7 +193,7 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       "the error must not disclose which admin clients exist: ${wrong.responseBody}",
     )
 
-    assertTrue(podAccess.clientFor(pod.name).exists(), "an unauthorized DELETE must not have run")
+    assertTrue(podAccess.exists(pod.name), "an unauthorized DELETE must not have run")
   }
 
   @Test
@@ -210,6 +210,6 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       assertEquals(503, delete(pod.name).statusCode)
     }
 
-    assertTrue(podAccess.clientFor(pod.name).exists(), "no route may run while the admin authority is unset")
+    assertTrue(podAccess.exists(pod.name), "no route may run while the admin authority is unset")
   }
 }
