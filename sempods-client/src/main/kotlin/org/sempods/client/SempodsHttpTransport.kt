@@ -3,6 +3,7 @@ package org.sempods.client
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Call
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -71,6 +72,15 @@ class SempodsHttpTransport @JvmOverloads constructor(
    * `newBuilder()` would allocate on every call; each variant still shares the pool and dispatcher.
    */
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
+
+  /**
+   * The client a core endpoint group runs its calls on, so a facade delegating to one shares this
+   * transport's connection pool, guard and redirect policy instead of opening a second of each.
+   *
+   * A session's request needs the policy [SempodsOkHttp] installs here to resolve at all, which is
+   * what makes this the right factory to hand out rather than a bare client.
+   */
+  internal val calls: Call.Factory get() = httpClient
 
   /** Shared by the clients above so a response is parsed the same way wherever it is read. */
   val objectMapper: ObjectMapper = ObjectMapper()

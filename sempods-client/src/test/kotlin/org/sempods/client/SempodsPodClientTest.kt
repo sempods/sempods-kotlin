@@ -27,6 +27,7 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.Base64
 
 /**
  * Wire-level coverage for [SempodsPodClient] against a stub pod: every call has to land on the
@@ -104,6 +105,63 @@ class SempodsPodClientTest {
   }
 
   @Test
+  fun `removeContext treats a context that was never registered as removed`() {
+    val contextUri = podBaseUrl.resolve("_system/contexts/apps/gone")
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/$podName/_system/contexts/apps/gone"))
+      .respond(response().withStatusCode(404))
+
+    service.removeContext(contextUri)
+  }
+
+  /**
+   * A pod keeps the last context its caller can see (SPS-CTX-029). The route lists that refusal, so
+   * the core hands it back as an answer; a caller here reads a removal that did not happen off an
+   * exception, and gets one.
+   */
+  @Test
+  fun `removeContext fails on the last context the caller can see`() {
+    val contextUri = podBaseUrl.resolve("_system/contexts/apps/last")
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/$podName/_system/contexts/apps/last"))
+      .respond(response().withStatusCode(409))
+
+    val failure = assertThrows<SempodsClientException> { service.removeContext(contextUri) }
+
+    assertEquals(409, failure.statusCode)
+  }
+
+  /**
+   * The credential is asked per attempt rather than held between calls, which is what separates the
+   * bridge onto the session from `SempodsRequestAuth.refreshable`. A consumer whose token widens as
+   * it goes — the pod server's own seeding re-derives one per context it registers — would otherwise
+   * keep sending the first it ever acquired and read a 403 for everything registered after it, which
+   * no recovery retries.
+   */
+  @Test
+  fun `each call asks the credential again instead of sending the one before`() {
+    val minted = ArrayDeque(listOf("first-token", "second-token"))
+    val widening = SempodsPodClient(podBaseUrl = podBaseUrl, auth = SempodsAuth { minted.removeFirst() })
+    mockServer
+      .`when`(request().withMethod("POST").withPath("/$podName/_system/sparql/query"))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/sparql-results+json"))
+          .withBody("""{"head":{},"boolean":true}"""),
+      )
+
+    assertTrue(widening.sparqlAsk("ASK { ?s ?p ?o }"))
+    assertTrue(widening.sparqlAsk("ASK { ?s ?p ?o }"))
+
+    assertEquals(
+      listOf("Bearer first-token", "Bearer second-token"),
+      mockServer.retrieveRecordedRequests(request().withPath("/$podName/_system/sparql/query"))
+        .map { it.getFirstHeader("Authorization") },
+    )
+  }
+
+  @Test
   fun `getContexts parses the context listing into a URI set`() {
     val ctxA = podBaseUrl.resolve("_system/contexts/apps/notes/public")
     val ctxB = podBaseUrl.resolve("_system/contexts/apps/notes/private")
@@ -112,20 +170,8 @@ class SempodsPodClientTest {
       .respond(
         response()
           .withStatusCode(200)
-          .withContentType(MediaType.APPLICATION_JSON)
-          .withBody(
-            """
-            {
-              "pod_base_url": "${podBaseUrl.toString().trimEnd('/')}",
-              "authenticated": true,
-              "writable_contexts": ["$ctxA"],
-              "contexts": [
-                {"context_iri":"$ctxA","permissions":["read","write"],"source":"grant","public":true,"createdAt":"2026-05-20T00:00:00Z"},
-                {"context_iri":"$ctxB","permissions":["read","write"],"source":"grant","public":false,"createdAt":"2026-05-20T00:00:00Z"}
-              ]
-            }
-            """.trimIndent(),
-          ),
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(catalogue(ctxA, ctxB)),
       )
 
     val contexts = service.contexts()
@@ -148,20 +194,8 @@ class SempodsPodClientTest {
       .respond(
         response()
           .withStatusCode(200)
-          .withContentType(MediaType.APPLICATION_JSON)
-          .withBody(
-            """
-            {
-              "pod_base_url": "${podBaseUrl.toString().trimEnd('/')}",
-              "authenticated": false,
-              "writable_contexts": [],
-              "contexts": [
-                {"context_iri":"$ctxA","permissions":["read"],"source":"public","public":true,"createdAt":"2026-05-20T00:00:00Z"},
-                {"context_iri":"$ctxB","permissions":["read"],"source":"public","public":true,"createdAt":"2026-05-20T00:00:00Z"}
-              ]
-            }
-            """.trimIndent(),
-          ),
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(catalogue(ctxA, ctxB)),
       )
 
     assertEquals(setOf(ctxA, ctxB), service.publicContexts())
@@ -419,8 +453,8 @@ class SempodsPodClientTest {
       .respond(
         response()
           .withStatusCode(200)
-          .withContentType(MediaType.APPLICATION_JSON)
-          .withBody("""{"contexts":[]}"""),
+          .withContentType(MediaType.parse("application/n-quads"))
+          .withBody(catalogue()),
       )
 
     assertTrue(service.exists(), "200 on the meta route means the pod is there")
@@ -485,43 +519,30 @@ class SempodsPodClientTest {
     assertFalse(present)
   }
 
+  /**
+   * The System layer addresses a subject the pod does not host by its IRI, so removing what it holds
+   * in a context is one call. It used to be a `SELECT` for the subject's predicates followed by a
+   * slot write per predicate — the same end state, at one round trip per edge, and racing anything
+   * that wrote an edge in between.
+   */
   @Test
-  fun `delete with external subject clears its slots through the slot endpoint`() {
+  fun `delete of an external subject sends one System-layer DELETE`() {
     val contextUri = podBaseUrl.resolve("_system/contexts/apps/notes")
     val offerUri = URI("https://tickets.example.com/Event/1/")
-    val offerUrlIri = Ontologies.SCHEMA_ORG.Properties.url
-    val typeIri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-
-    // predicate discovery: the subject carries url + rdf:type in the context
-    val bindings = listOf(offerUrlIri.stringValue(), typeIri)
-      .joinToString(",") { """{"p":{"type":"uri","value":"$it"}}""" }
+    val subjectSegment = Base64.getUrlEncoder().withoutPadding().encodeToString(offerUri.toString().toByteArray())
+    val subjectPath = "/$podName/_system/resources/$subjectSegment"
     mockServer
-      .`when`(request().withMethod("POST").withPath("/$podName/_system/sparql/query"))
-      .respond(
-        response()
-          .withStatusCode(200)
-          .withContentType(MediaType.parse("application/sparql-results+json"))
-          .withBody("""{"head":{"vars":["p"]},"results":{"bindings":[$bindings]}}"""),
-      )
-    mockServer
-      .`when`(request().withMethod("PUT").withPath("/$podName/_system/resources/.*"))
+      .`when`(request().withMethod("DELETE").withPath(subjectPath))
       .respond(response().withStatusCode(204))
 
     service.delete(offerUri, contextUri)
 
-    val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
-    val subjectSegment = b64.encodeToString(offerUri.toString().toByteArray())
-    listOf(offerUrlIri.stringValue(), typeIri).forEach { predicate ->
-      val puts = mockServer.retrieveRecordedRequests(
-        request().withMethod("PUT").withPath(
-          "/$podName/_system/resources/$subjectSegment/${b64.encodeToString(predicate.toByteArray())}",
-        ),
-      )
-      assertEquals(1, puts.size, "slot for '$predicate' must be cleared")
-      assertEquals("[]", puts.single().bodyAsString.replace(" ", ""))
-    }
-    // no LOD DELETE attempted — the external subject has no DELETE URL under the pod
-    assertEquals(0, mockServer.retrieveRecordedRequests(request().withMethod("DELETE")).size)
+    val deletes = mockServer.retrieveRecordedRequests(request().withMethod("DELETE").withPath(subjectPath))
+    assertEquals(1, deletes.size)
+    assertEquals(contextUri.toString(), deletes.single().getFirstQueryStringParameter("context"))
+    // Nothing reads the subject's predicates any more, and nothing writes a slot to clear them.
+    assertEquals(0, mockServer.retrieveRecordedRequests(request().withMethod("POST")).size)
+    assertEquals(0, mockServer.retrieveRecordedRequests(request().withMethod("PUT")).size)
   }
 
   // ─── media ────────────────────────────────────────────────────────────────
@@ -906,4 +927,13 @@ class SempodsPodClientTest {
       "original attempt plus exactly one retry",
     )
   }
+
+  /**
+   * The catalogue as a pod answers it: the registry's own graph, whose `sd:namedGraph` names each
+   * member (SPS-CTX-033). N-Quads, because that is what the client asks for.
+   */
+  private fun catalogue(vararg contextUris: URI): String =
+    contextUris.joinToString("") {
+      "<${podBaseUrl}_system/contexts> <http://www.w3.org/ns/sparql-service-description#namedGraph> <$it> .\n"
+    }
 }

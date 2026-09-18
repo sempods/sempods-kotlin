@@ -21,6 +21,7 @@ dependencies {
   // consumer does not; the parsers are found by `ServiceLoader` when a body is read or written.
   api(libs.rdf4jModelApi)
   implementation(libs.rdf4jModel)
+  implementation(libs.rdf4jQuery)
   implementation(libs.rdf4jRioApi)
   runtimeOnly(libs.bundles.rdf4j)
 
@@ -33,6 +34,11 @@ dependencies {
   // `api`, because this module's signatures name the core's types: `SempodsHttpTransport` takes a
   // `SempodsOutboundGuard`, and this module's `SempodsClientException` extends the core's.
   api(project(":sempods-client-core"))
+
+  // How the tiers here read and write RDF: they run the core's endpoint groups and let this adapter
+  // decode the bodies. `implementation`, because no signature here names one of its types — a caller
+  // gets `Model` and `Value` from `:sempods-model` above.
+  implementation(project(":sempods-client-rdf4j"))
 
   // Named directly because this module names it directly: the legacy surface translates its own
   // `SempodsRequest` onto an `okhttp3.Request` and reads an `okhttp3.Response` back. It arrives

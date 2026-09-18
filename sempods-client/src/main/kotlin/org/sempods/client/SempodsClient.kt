@@ -9,6 +9,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.Base64
+import okhttp3.Call
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
@@ -58,12 +59,13 @@ class SempodsClient(
   private val transport: SempodsHttpTransport = SempodsHttpTransport(),
 ) {
 
+  private val objectMapper = transport.objectMapper
+
   /**
-   * `internal` rather than private: [SempodsPodClient] parses SPARQL-results bodies and must not
-   * build a second mapper to do it — [SempodsHttpTransport.objectMapper] exists so that a response
-   * is parsed the same way wherever it is read.
+   * The transport's client, so a tier delegating to a core endpoint group runs on the same pool,
+   * guard and redirect policy this surface's own calls do — see [SempodsHttpTransport.calls].
    */
-  internal val objectMapper = transport.objectMapper
+  internal val calls: Call.Factory get() = transport.calls
 
   private fun newRequest(uri: URI, token: String? = null): SempodsRequest.Builder =
     transport.newRequest(uri, token)
@@ -917,4 +919,5 @@ data class ServiceTokenResponse(
  * `sd:namedGraph` — what a context catalogue lists its members with (`SPS-CTX-033`). Spelled out
  * here because this module declares no RDF4J vocabulary artifact.
  */
-private const val SD_NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"
+/** What a context catalogue's members are pointed at by (SPS-CTX-033), read here and by [SempodsPodClient]. */
+internal const val SD_NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"

@@ -44,14 +44,22 @@ The semantic side has two, and they differ only in what is fixed:
 **A consumer takes one of them.** The bound tier is the stateless one with a coordinate fixed, so
 taking it removes an argument rather than adding a layer.
 
-`SempodsHttpTransport` sits under both: the legacy surface, with a token stamped on each request and
-the JSON helpers (`objectMapper`, `requiredText`) the core does without. It runs on a client
-`SempodsOkHttp.install` configured, so the guard and the redirect policy have one implementation, and
-it sends no session's requests, so the session's authentication, resend and admission do not apply.
-It hands the tiers the failure shape they classify on (`SempodsClientException`, carrying the
-server's own body). Moving the tiers onto `SempodsSession` is
-[#150](https://github.com/sempods/sempods-kotlin/issues/150) and
-[#152](https://github.com/sempods/sempods-kotlin/issues/152).
+**`SempodsPodClient` runs on the core.** Its non-media calls are the core's endpoint groups and the
+RDF4J adapter's, on two sessions of its own — one under its `SempodsAuth`, one anonymous for the
+three reads that ask without a credential. What the credential buys is the same single 401 retry,
+now the core's and applied per attempt. The answers are stricter for it: a malformed SPARQL result,
+an `ASK` whose `boolean` is not one, a `typed-literal` term and the catalogue's retired JSON
+envelopes are failures rather than empty results.
+
+`SempodsHttpTransport` is what is left under `SempodsClient` and the media calls above it: the legacy
+surface, with a token stamped on each request and the JSON helpers (`objectMapper`, `requiredText`)
+the core does without. It runs on a client `SempodsOkHttp.install` configured, so the guard and the
+redirect policy have one implementation, and it sends no session's requests, so the session's
+authentication, resend and admission do not apply. It hands the tiers the failure shape they classify
+on (`SempodsClientException`, carrying the server's own body). Both leave: the tiers are removed
+([#228](https://github.com/sempods/sempods-kotlin/issues/228)) and the media routes move onto the
+session in an artifact of their own
+([#227](https://github.com/sempods/sempods-kotlin/issues/227)).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
 many pods resolves its own names and builds one bound client per pod; where the names come from is a
@@ -91,10 +99,9 @@ The System-layer resource route is what that test looks like when it is applied.
 `getSubject` and `deleteSubject` reach `{pod}/_system/resources/{b64url(iri)}` from the stateless
 tier and from nowhere else; the bound tier grew nothing, because the consumer that asked for them
 mints a token per tenant and takes the stateless tier anyway. The core draws the same line between
-two groups, `resources()` and `subjects()` (§"Endpoint groups"). `SempodsPodClient.delete` still
-clears an external subject predicate by predicate through `putSlot`; one `subjects().delete` per
-context replaces that loop when the tiers move onto the core
-([#152](https://github.com/sempods/sempods-kotlin/issues/152)).
+two groups, `resources()` and `subjects()` (§"Endpoint groups"). `SempodsPodClient.delete` reaches
+the System route through the second of them: one `subjects().delete` per context, where it used to
+read the subject's predicates and clear each slot in turn.
 
 The raw passthrough is not a concession. [`concepts/modularity.md`](concepts/modularity.md) §"The service contract is
 semantic, not a facade over RDF" forbids a method whose *name* encodes an app's question — a
@@ -444,9 +451,10 @@ codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper, and neith
 Java consumers on Java 21 and 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source
 readiness".
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the RDF
-adapters ([#150](https://github.com/sempods/sempods-kotlin/issues/150)) and the migration of the
-tiers above ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the media
+artifact ([#227](https://github.com/sempods/sempods-kotlin/issues/227)), the removal of the tiers
+above ([#228](https://github.com/sempods/sempods-kotlin/issues/228)) and the consumer migration
+([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
 [#15](https://github.com/sempods/sempods-kotlin/issues/15).
 
