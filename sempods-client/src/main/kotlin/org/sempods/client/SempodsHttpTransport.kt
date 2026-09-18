@@ -13,6 +13,7 @@ import okio.BufferedSink
 import okio.source
 import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.commons.okhttp.TraceparentInterceptor
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import java.io.InputStream
@@ -58,7 +59,12 @@ class SempodsHttpTransport @JvmOverloads constructor(
     SHARED.newBuilder()
       .connectTimeout(timeouts.connect)
       .readTimeout(timeouts.read)
-      .writeTimeout(timeouts.write),
+      .writeTimeout(timeouts.write)
+      // The caller's trace, for every request this client sends rather than only the ones
+      // [newRequest] builds. A request built any other way used to end the trace silently, and
+      // [calls] hands this client to endpoint groups that build their own. It leaves a request that
+      // already carries the header alone, so [newRequest]'s own remains what goes out.
+      .addInterceptor(TraceparentInterceptor),
     guard,
     admission = null,
   )

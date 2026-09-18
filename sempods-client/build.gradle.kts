@@ -12,6 +12,11 @@ dependencies {
   // application framework along with an HTTP client.
   implementation(project(":sempods-commons"))
 
+  // For `TraceparentInterceptor`, which puts the caller's trace on every request this module's
+  // client sends. Its Guice dependency is `compileOnly` there, so nothing of a DI container
+  // reaches a consumer through this edge.
+  implementation(project(":sempods-commons-okhttp"))
+
   // `api` for the same reason `:sempods-model` declares it so, and declared here rather than
   // inherited: this module's own methods return `Model` (`dereference`, `sparqlConstruct`, `load`)
   // and take `Value` (`putSlot`), so a foreign build compiling against them needs RDF4J on its

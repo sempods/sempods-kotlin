@@ -1,5 +1,7 @@
 package org.sempods.client
 
+import org.sempods.commons.trace.TraceContext
+import org.sempods.commons.trace.TraceContextHolder
 import org.sempods.ontologies.Ontologies
 import org.sempods.rdf.toIri
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
@@ -926,6 +928,61 @@ class SempodsPodClientTest {
       mockServer.retrieveRecordedRequests(request().withPath("/$podName/_system/sparql/query")).size,
       "original attempt plus exactly one retry",
     )
+  }
+
+  /**
+   * A request built by an endpoint group is not built by [SempodsHttpTransport.newRequest], which is
+   * where this surface used to put the header. The trace has to reach it all the same: the hosted
+   * MCP service binds one while it handles an incoming request, and a call that drops it ends the
+   * cross-service correlation without saying so.
+   */
+  @Test
+  fun `a call through the session carries the caller's trace`() {
+    mockServer
+      .`when`(request().withMethod("POST").withPath("/$podName/_system/sparql/query"))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/sparql-results+json"))
+          .withBody("""{"head":{},"boolean":true}"""),
+      )
+    val bound = TraceContext.random()
+
+    TraceContextHolder.with(bound) { service.sparqlAsk("ASK { ?s ?p ?o }") }
+
+    val sent = mockServer.retrieveRecordedRequests(request().withPath("/$podName/_system/sparql/query"))
+    val header = sent.single().getFirstHeader(TraceContext.TRACEPARENT)
+    assertTrue(header.contains(bound.traceId), "the trace id carries: $header")
+  }
+
+  /**
+   * Blank nodes are forbidden in pod data, so a nonconforming pod binding one must not become a
+   * statement about it. In the graph position the statement survives without its context, which is
+   * what a caller projecting a context sees for a row it cannot place.
+   */
+  @Test
+  fun `sparqlSelectStatements drops rows a blank node would invent`() {
+    val subject = podBaseUrl.resolve("events/e1")
+    val predicate = Ontologies.SCHEMA_ORG.Properties.url.stringValue()
+    val rows = listOf(
+      """{"s":{"type":"bnode","value":"b0"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"x"}}""",
+      """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"bnode","value":"b1"}}""",
+      """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"kept"},"g":{"type":"bnode","value":"b2"}}""",
+    )
+    mockServer
+      .`when`(request().withMethod("POST").withPath("/$podName/_system/sparql/query"))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/sparql-results+json"))
+          .withBody("""{"head":{"vars":["s","p","o","g"]},"results":{"bindings":[${rows.joinToString(",")}]}}"""),
+      )
+
+    val statements = service.sparqlSelectStatements("SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { ?s ?p ?o } }")
+
+    assertEquals(1, statements.size, "only the row without a blank subject or object survives")
+    assertEquals("kept", statements.single().`object`.stringValue())
+    assertNull(statements.single().context, "a blank graph leaves the statement without a context")
   }
 
   /**

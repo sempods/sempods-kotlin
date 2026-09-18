@@ -5,9 +5,9 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
-import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.Statement
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
@@ -449,10 +449,12 @@ class SempodsPodClient(
   fun sparqlSelectStatements(query: String): List<Statement> = translating {
     val vf = SimpleValueFactory.getInstance()
     rdf.sparql().select(query).required().bindingSets.mapNotNull { row ->
-      val s = row.getValue("s") as? Resource ?: return@mapNotNull null
+      // A blank node is forbidden in pod data, so one in any position is dropped rather than
+      // invented — in the graph position by leaving the statement without its context.
+      val s = row.getValue("s") as? IRI ?: return@mapNotNull null
       val p = row.getValue("p") as? IRI ?: return@mapNotNull null
-      val o = row.getValue("o") ?: return@mapNotNull null
-      vf.createStatement(s, p, o, row.getValue("g") as? Resource)
+      val o = row.getValue("o")?.takeUnless { it is BNode } ?: return@mapNotNull null
+      vf.createStatement(s, p, o, row.getValue("g") as? IRI)
     }
   }
 
