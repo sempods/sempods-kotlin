@@ -1,32 +1,43 @@
 package org.sempods.client
 
-import com.fasterxml.jackson.databind.JsonNode
 import java.io.InputStream
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
-import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.Statement
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
-import org.eclipse.rdf4j.model.util.Values
+import org.sempods.client.core.SempodsContextCreate
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsResponse
+import org.sempods.client.core.SempodsSession
+import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.media.UploadedMedia
-import org.sempods.rdf.toIri
 
 /**
  * **One pod, one credential.** Pod-scoped operations over HTTP — resource and slot CRUD, context
  * management, pod-owned media, pod-level reads and read-only SPARQL — against the pod at
- * [podBaseUrl], authorised by [auth]. Every method maps onto a pod HTTP endpoint; transport runs
- * through [SempodsClient] underneath.
+ * [podBaseUrl], authorised by [auth]. Every method maps onto a pod HTTP endpoint: the non-media
+ * calls run on the core's endpoint groups and its RDF4J adapter, media still on [SempodsClient].
  *
  * **The retry is why this tier exists rather than being a convenience over [SempodsClient].**
  * Retry-once-after-invalidating is a property of a bound client with a *refreshable* credential:
  * only something that can ask its credential for a fresh token can tell a rotated one from a
  * refused one. A caller passing a token per call cannot, and answers a 401 that a second attempt
- * would have satisfied. See [withTokenRetry].
+ * would have satisfied. [asRequestAuth] is where [auth] becomes that credential.
+ *
+ * **An answer outside the route's contract is a failure rather than an empty result.** A malformed
+ * SPARQL result, an `ASK` whose `boolean` is not one, a `typed-literal` term and a catalogue that is
+ * not RDF are each a [SempodsClientException] carrying the answer's status. A body that could not be
+ * read is not quoted back — it may hold a credential — so [SempodsClientException.responseBody] is
+ * null for these and carries the server's own text when the status is what the pod refused on. An
+ * answer is read into memory up to 16 MiB, [sparqlSelect] included.
  *
  * **Everything here carries pod-scoped authority, and that is what decides what belongs on it.**
  * Media writes go through the very same `PodContextWriteAuthorizer` and the very same
@@ -61,7 +72,22 @@ class SempodsPodClient(
   private val client: SempodsClient = SempodsClient(),
 ) {
 
-  private val objectMapper = client.objectMapper
+  private val podBase = SempodsPodBase.of(podBaseUrl.toString())
+
+  /** This pod under [auth], which every call but the anonymous reads below runs on. */
+  private val pod = SempodsPod(SempodsSession(podBase, auth.asRequestAuth()), client.calls)
+
+  private val rdf = SempodsRdf4jPod(pod)
+
+  /**
+   * The same pod with no credential at all, for the three reads that are anonymous by contract —
+   * [exists], [lastModifiedAt] and [publicContexts]. A session carries one credential, so asking
+   * without one is a second session rather than a per-call argument; both run on the transport's
+   * single client.
+   */
+  private val anonymousPod = SempodsPod(SempodsSession(podBase), client.calls)
+
+  private val anonymousRdf = SempodsRdf4jPod(anonymousPod)
 
   // -- contexts -----------------------------------------------------------
 
@@ -78,23 +104,33 @@ class SempodsPodClient(
     public: Boolean = false,
     label: String? = null,
     description: String? = null,
-  ): Boolean = withTokenRetry { token ->
-    client.createContext(
-      podBaseUrl = podBaseUrl,
-      contextUri = contextUri,
-      public = public,
-      label = label,
-      description = description,
-      token = token,
-    )
+  ): Boolean = translating {
+    pod.contexts().create(
+      contextUri.toString(),
+      SempodsContextCreate.fields()
+        .withLabel(label)
+        .withDescription(description)
+        .withPublic(public),
+    ).status == 201
   }
 
-  fun removeContext(context: URI) = withTokenRetry { token ->
-    client.deleteContext(
-      podBaseUrl = podBaseUrl,
-      contextUri = context,
-      token = token,
-    )
+  /**
+   * Removes [context] and what it held. A context that was never registered is success: the route is
+   * idempotent, and its absence is the end state the caller asked for.
+   */
+  fun removeContext(context: URI) {
+    translating {
+      val answer = pod.contexts().delete(context.toString())
+      // The pod keeps the last context a caller can see (SPS-CTX-029). The core reports that as an
+      // answer, because it is one the route lists; this tier's callers classify a failed removal on
+      // an exception, so it becomes one here.
+      if (answer.status == 409) {
+        throw SempodsClientException(
+          "DELETE $context failed: HTTP 409 — a pod keeps the last context its caller can see.",
+          statusCode = 409,
+        )
+      }
+    }
   }
 
   // ─── pod-owned media ────────────────────────────────────────────────────────
@@ -249,14 +285,10 @@ class SempodsPodClient(
    * a silent no-op — the System layer's slot route ([putSlot]) is where an external subject is
    * written, predicate by predicate.
    */
-  fun putResource(resourceUri: URI, contextUri: URI, model: Model) = withTokenRetry { token ->
-    client.putResource(
-      podBaseUrl = podBaseUrl,
-      resourceUri = resourceUri,
-      contextUri = contextUri,
-      model = model,
-      token = token,
-    )
+  fun putResource(resourceUri: URI, contextUri: URI, model: Model) {
+    translating {
+      rdf.resources().put(resourceUri.toString(), model, SempodsWriteOptions.inContext(contextUri.toString()))
+    }
   }
 
   /**
@@ -267,8 +299,8 @@ class SempodsPodClient(
    * one context filters client-side. That is the route's shape rather than this tier's: the LOD GET
    * has no context parameter.
    */
-  fun getResource(resourceUri: URI): Model? = withTokenRetry { token ->
-    client.getResource(podBaseUrl, resourceUri, token)
+  fun getResource(resourceUri: URI): Model? = translating {
+    rdf.resources().getModel(resourceUri.toString()).body
   }
 
   /**
@@ -279,50 +311,31 @@ class SempodsPodClient(
    * refused by [putResource], which is the difference between the two layers rather than a
    * limitation of either (sempods-spec `spec/core/lod-crud.md`).
    */
-  fun putSlot(subjectUri: URI, predicateUri: URI, contextUri: URI, values: List<Value>) =
-    withTokenRetry { token ->
-      client.putSlot(
-        podBaseUrl = podBaseUrl,
-        subjectUri = subjectUri,
-        predicateUri = predicateUri,
-        contextUri = contextUri,
-        values = values,
-        token = token,
+  fun putSlot(subjectUri: URI, predicateUri: URI, contextUri: URI, values: List<Value>) {
+    translating {
+      rdf.slots().put(
+        subjectUri.toString(),
+        predicateUri.toString(),
+        values,
+        SempodsWriteOptions.inContext(contextUri.toString()),
       )
     }
+  }
 
   // Note: deleting a resource does not cascade to resources it references — callers that own the
   // lifecycle pass referencePredicates at the
   // application layer, where the set of referenced resources is known.
-  fun delete(resourceUri: URI, contextUri: URI) = withTokenRetry { token ->
-    if (!isUnderPodBase(resourceUri)) {
-      // External subjects (e.g. an offer keyed by its ticket-shop URI) have no DELETE
-      // URL under the pod — clear every predicate the subject carries in the context
-      // through the slot endpoint (an empty value array clears the slot; afterwards
-      // the resource has no statements left in the context, the same end state as
-      // the LOD DELETE).
-      client.sparqlSelectColumn(
-        podBaseUrl,
-        "SELECT DISTINCT ?p WHERE { GRAPH <$contextUri> { <$resourceUri> ?p ?o } }",
-        column = "p",
-        token = token,
-      ).forEach { predicate ->
-        client.putSlot(
-          podBaseUrl = podBaseUrl,
-          subjectUri = resourceUri,
-          predicateUri = URI(predicate),
-          contextUri = contextUri,
-          values = emptyList(),
-          token = token,
-        )
+  fun delete(resourceUri: URI, contextUri: URI) {
+    val options = SempodsWriteOptions.inContext(contextUri.toString())
+    translating {
+      // An external subject — an offer keyed by its ticket-shop URI, say — has no DELETE URL under
+      // the pod. The System layer addresses any subject by its IRI, so one call removes what it
+      // holds in the context.
+      if (isUnderPodBase(resourceUri)) {
+        pod.resources().delete(resourceUri.toString(), options)
+      } else {
+        pod.subjects().delete(resourceUri.toString(), options)
       }
-    } else {
-      client.deleteResource(
-        podBaseUrl = podBaseUrl,
-        resourceUri = resourceUri,
-        contextUri = contextUri,
-        token = token,
-      )
     }
   }
 
@@ -344,27 +357,20 @@ class SempodsPodClient(
     if (contexts != null && contexts.isEmpty()) {
       return false
     }
-    return withTokenRetry { token ->
-      val typeIri = type.toString()
-      val resource = resourceUri.toString()
-      val graphFilter = if (contexts == null) {
-        ""
-      } else {
-        val values = contexts.joinToString(separator = " ") { "<${it}>" }
-        "VALUES ?g { $values } "
-      }
-      val query = "ASK { ${graphFilter}GRAPH ?g { <$resource> a <$typeIri> } }"
-      client.sparqlAsk(podBaseUrl, query, token)
+    val typeIri = type.toString()
+    val resource = resourceUri.toString()
+    val graphFilter = if (contexts == null) {
+      ""
+    } else {
+      val values = contexts.joinToString(separator = " ") { "<${it}>" }
+      "VALUES ?g { $values } "
     }
+    return sparqlAsk("ASK { ${graphFilter}GRAPH ?g { <$resource> a <$typeIri> } }")
   }
 
   fun findReferencingResources(contextUri: URI, objectUri: URI): Set<URI> =
-    withTokenRetry { token ->
-      val query =
-        "SELECT DISTINCT ?s WHERE { GRAPH <$contextUri> { ?s ?p <$objectUri> } }"
-      client.sparqlSelectColumn(podBaseUrl, query, column = "s", token = token)
-        .mapNotNullTo(mutableSetOf()) { runCatching { URI(it) }.getOrNull() }
-    }
+    sparqlSelectColumn("SELECT DISTINCT ?s WHERE { GRAPH <$contextUri> { ?s ?p <$objectUri> } }", column = "s")
+      .mapNotNullTo(mutableSetOf()) { runCatching { URI(it) }.getOrNull() }
 
   // ─── queries the caller builds itself ───────────────────────────────────────
   //
@@ -378,9 +384,9 @@ class SempodsPodClient(
   // method. So this is the rule's positive form: an app's rules stay in the app's query text, and
   // what the client offers is the endpoint.
   //
-  // What they add over reaching for [SempodsClient] directly is [withTokenRetry], and that is not a
-  // convenience: a caller holding its own token has no way to notice one that was rotated
-  // mid-flight, and a dead bearer answers 401 rather than "no results".
+  // What they add over reaching for [SempodsClient] directly is the retry a bound credential makes
+  // possible, and that is not a convenience: a caller holding its own token has no way to notice one
+  // that was rotated mid-flight, and a dead bearer answers 401 rather than "no results".
   //
   // Deliberately only these two: `sparqlAsk` and `sparqlSelectColumn` have no caller outside this
   // class, and unused raw-query surface is untested surface. And deliberately *one* raw method
@@ -395,19 +401,18 @@ class SempodsPodClient(
    * SPARQL `SELECT` against `{pod}/_system/sparql/query`, scoped by the credential, with the 401
    * retry. Returns the SPARQL-Results-JSON body **verbatim** — the caller wrote the query and owns
    * the shape of its bindings, so parsing and re-serialising here would only be a chance to lose
-   * something.
+   * something. It is read into memory, and a body over 16 MiB is a failure rather than a truncation;
+   * a query whose answer runs that large is one to page.
    *
-   * **Safe under [withTokenRetry] because the server forbids the alternative, not by convention:**
+   * **Safe to retry because the server forbids the alternative, not by convention:**
    * `SparqlQueryService` rejects every Update form and refuses `SERVICE` anywhere in the algebra, so
    * there is no query a retry could re-execute into a state change.
    *
    * The retry may nevertheless return a *different* answer than the first attempt would have — a
-   * concurrent writer can change the graph in between. That is the contract [withTokenRetry] states
-   * for everything it wraps ("reaches the same end state", not "returns the same value") and not a
-   * violation of it; these are reads, not snapshots.
+   * concurrent writer can change the graph in between. A retried read reaches the same end state
+   * rather than the same value; these are reads, not snapshots.
    */
-  fun sparqlSelect(query: String): String =
-    withTokenRetry { token -> client.sparqlSelect(podBaseUrl, query, token) }
+  fun sparqlSelect(query: String): String = translating { pod.sparql().resultsJson(query).required() }
 
   /**
    * SPARQL `CONSTRUCT` against the same endpoint, with the same retry and the same idempotence
@@ -416,14 +421,12 @@ class SempodsPodClient(
    * The answer is requested as n-quads, so **named graphs survive**: a constructed statement keeps
    * the context it came from, which is what a caller reading per-context state depends on.
    */
-  fun sparqlConstruct(query: String): Model =
-    withTokenRetry { token -> client.sparqlConstruct(podBaseUrl, query, token) }
+  fun sparqlConstruct(query: String): Model = translating { rdf.sparql().graphModel(query).required() }
 
   /**
    * SPARQL `ASK`, with the same retry and the same idempotence argument as [sparqlSelect].
    */
-  fun sparqlAsk(query: String): Boolean =
-    withTokenRetry { token -> client.sparqlAsk(podBaseUrl, query, token) }
+  fun sparqlAsk(query: String): Boolean = translating { pod.sparql().ask(query).required() }
 
   /**
    * [sparqlSelect] for the common single-column case: the bound values of [column] across every
@@ -434,7 +437,7 @@ class SempodsPodClient(
    * — one tier at a time".
    */
   fun sparqlSelectColumn(query: String, column: String): List<String> =
-    withTokenRetry { token -> client.sparqlSelectColumn(podBaseUrl, query, column, token) }
+    translating { pod.sparql().select(query).required().column(column).map { it.value } }
 
   /**
    * A `SELECT ?s ?p ?o ?g` read back as statements, **with the named graph each came from**.
@@ -445,8 +448,20 @@ class SempodsPodClient(
    * blank nodes are forbidden in pod data, so a bnode in any position is dropped rather than
    * invented.
    */
-  fun sparqlSelectStatements(query: String): List<Statement> =
-    parseStatements(sparqlSelect(query))
+  fun sparqlSelectStatements(query: String): List<Statement> = translating {
+    val vf = SimpleValueFactory.getInstance()
+    rdf.sparql().select(query).required().bindingSets.mapNotNull { row ->
+      // A blank node is forbidden in pod data, so one in any position drops the row rather than
+      // being invented. An unbound `?g` is not that: the query asked for no graph, and the statement
+      // carries no context.
+      val s = row.getValue("s") as? IRI ?: return@mapNotNull null
+      val p = row.getValue("p") as? IRI ?: return@mapNotNull null
+      val o = row.getValue("o")?.takeUnless { it is BNode } ?: return@mapNotNull null
+      val g = row.getValue("g")
+      if (g != null && g !is IRI) return@mapNotNull null
+      vf.createStatement(s, p, o, g as IRI?)
+    }
+  }
 
   /**
    * **The one lifecycle question that belongs on the data path**, which is why it is here and pod
@@ -463,7 +478,7 @@ class SempodsPodClient(
    * is deliberate: the two carry different authority, and a provisioning path must not learn to
    * answer it without one.
    */
-  fun exists(): Boolean = client.podExists(podBaseUrl)
+  fun exists(): Boolean = translating { anonymousPod.metadata().exists() }
 
   /**
    * The pod's stored last-modified timestamp, backing a consumer's listing ETag.
@@ -474,7 +489,7 @@ class SempodsPodClient(
    * without a bearer, so [auth] is never consulted — which also means a not-yet-provisioned pod (no
    * credential) does not error.
    */
-  fun lastModifiedAt(): Instant? = client.fetchPodLastModifiedAt(podBaseUrl)
+  fun lastModifiedAt(): Instant? = translating { anonymousPod.metadata().dateModified().body?.dateModified }
 
   /**
    * Asked **anonymously**, which is what makes the answer the public contexts.
@@ -484,12 +499,11 @@ class SempodsPodClient(
    * to `restrictedContexts = publicContexts`, and the endpoint filters its listing by that). So
    * there is nothing to filter here — asking without a credential *is* the filter.
    *
-   * Deliberately not routed through [withTokenRetry], and [auth] is not consulted at all: a
-   * consumer of this method may hold no credential, and using one would narrow the answer rather
-   * than widen it — a bearer without `public-read` sees only its own grants.
+   * Asked on the anonymous session, so [auth] is not consulted at all: a consumer of this method
+   * may hold no credential, and using one would narrow the answer rather than widen it — a bearer
+   * without `public-read` sees only its own grants.
    */
-  fun publicContexts(): Set<URI> =
-    client.listContexts(podBaseUrl, token = null).toSet()
+  fun publicContexts(): Set<URI> = translating { catalogueOf(anonymousRdf) }
 
   /**
    * The registered contexts of the pod **visible to [auth]**. `GET /{pod}/_system/contexts` lists
@@ -503,49 +517,35 @@ class SempodsPodClient(
    * invisible. What keeps this sufficient is a forward invariant the caller enforces at provision
    * time: every context an app owns lives under its `<app-root>`.
    */
-  fun contexts(): Set<URI> = withTokenRetry { token ->
-    client.listContexts(podBaseUrl, token).toSet()
-  }
+  fun contexts(): Set<URI> = translating { catalogueOf(rdf) }
 
-  private fun parseStatements(json: String): List<Statement> {
-    val bindings = objectMapper.readTree(json).path("results").path("bindings")
-    if (!bindings.isArray) return emptyList()
-    val vf = SimpleValueFactory.getInstance()
-    return bindings.mapNotNull { row ->
-      val s = term(row.path("s")) as? Resource ?: return@mapNotNull null
-      val p = term(row.path("p")) as? IRI ?: return@mapNotNull null
-      val o = term(row.path("o")) ?: return@mapNotNull null
-      val g = term(row.path("g")) as? Resource
-      vf.createStatement(s, p, o, g)
-    }
-  }
-
-  /** SPARQL-Results-JSON term → RDF4J value. Blank nodes are forbidden in pod data, so they are dropped. */
-  private fun term(node: JsonNode): Value? {
-    if (node.isMissingNode) return null
-    val value = node.path("value").takeIf { !it.isMissingNode }?.asText() ?: return null
-    return when (node.path("type").asText()) {
-      "uri" -> Values.iri(value)
-      "literal", "typed-literal" -> {
-        val lang = node.path("xml:lang").takeIf { !it.isMissingNode && !it.isNull }?.asText()
-        val datatype = node.path("datatype").takeIf { !it.isMissingNode && !it.isNull }?.asText()
-        when {
-          !lang.isNullOrBlank() -> Values.literal(value, lang)
-          !datatype.isNullOrBlank() -> Values.literal(value, Values.iri(datatype))
-          else -> Values.literal(value)
-        }
-      }
-      else -> null
-    }
+  /**
+   * The catalogue's members: what `sd:namedGraph` points at in the registry's own graph
+   * (SPS-CTX-033). A pod the server does not know answers 404, which is no catalogue rather than a
+   * failure, and reads as the empty set.
+   */
+  private fun catalogueOf(adapter: SempodsRdf4jPod): Set<URI> {
+    val catalogue = adapter.contexts().listModel().body ?: return emptySet()
+    return catalogue
+      .filter { it.predicate.stringValue() == SD_NAMED_GRAPH }
+      .mapNotNullTo(LinkedHashSet()) { (it.`object` as? IRI)?.stringValue()?.let(::URI) }
   }
 
   /**
-   * Runs [block] with this pod's credential. On a single 401 — the token expired or was
-   * rotated/revoked mid-flight, which a provider's refresh margin narrows but cannot rule
-   * out — [SempodsAuth.invalidate] drops the cached credential, a fresh one is acquired, and the
-   * operation runs exactly once more; a second 401 (or any non-401 [SempodsClientException])
-   * propagates. The wrapped data operations are idempotent (PUT/DELETE/SPARQL, slot replace,
-   * RDF model dedup), so re-executing the whole block on retry reaches the same end state.
+   * The body of an answer whose listed statuses are all 2xx, which therefore always carries one
+   * ([SempodsResponse]). A pod that answers otherwise has already failed the call.
+   */
+  private fun <T : Any> SempodsResponse<T>.required(): T =
+    body ?: throw SempodsClientException("The pod answered $status without a body.", statusCode = status)
+
+  /**
+   * Runs [block] with this pod's credential, retrying it once after a 401.
+   *
+   * **Only the media methods still need this.** Every other call runs on a session, where the same
+   * retry is the core's and applies per attempt rather than per block — see [asRequestAuth]. Media
+   * has no endpoint group to run on ([SempodsClient] still owns its routes), so it keeps the
+   * block-level retry, which rests on the wrapped operation being idempotent: an upload opens its
+   * body afresh per attempt, and an assignment is a `PUT`.
    */
   private inline fun <R> withTokenRetry(block: (token: String?) -> R): R {
     val token = auth.token()

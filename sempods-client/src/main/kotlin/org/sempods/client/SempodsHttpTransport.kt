@@ -3,6 +3,7 @@ package org.sempods.client
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Call
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -12,6 +13,7 @@ import okio.BufferedSink
 import okio.source
 import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.commons.okhttp.TraceparentInterceptor
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import java.io.InputStream
@@ -48,10 +50,13 @@ class SempodsHttpTransport @JvmOverloads constructor(
 
   /**
    * The core's guard, redirect policy and deadlines, with OkHttp's own resend left on and no admission
-   * budget. The core's resend rule applies to a session's calls, which this surface does not make;
-   * its callers were written against a transport that bridged a pooled connection the server had
-   * already closed. A repeat below this surface sends nothing stale, because the bearer is fixed on the
-   * request before it arrives.
+   * budget.
+   *
+   * **OkHttp's resend, for the requests this surface builds**: they carry no session, so the core's
+   * resend rule — which is a session's — does not reach them, and their callers were written against
+   * a transport that bridged a pooled connection the server had already closed. A repeat of one sends
+   * nothing stale, because the bearer is fixed on the request before it arrives. A session's request
+   * sent through [calls] gets the core's rule instead, and OkHttp's is off below the session.
    */
   private val httpClient: OkHttpClient = SempodsOkHttp.install(
     SHARED.newBuilder()
@@ -61,6 +66,15 @@ class SempodsHttpTransport @JvmOverloads constructor(
     guard,
     admission = null,
   )
+    // The caller's trace, for every request this client sends rather than only the ones [newRequest]
+    // builds: [calls] hands it to endpoint groups that build their own, and a header set while
+    // building reaches none of those. It leaves a request that already carries the header alone, so
+    // [newRequest]'s own remains what goes out.
+    //
+    // **Ahead of the session interceptor**, which `install` puts at index 0 and which runs the
+    // attempts below itself. Behind it the header would be stamped afresh per attempt, and one
+    // logical call would reach the pod as a different span each time it is resent.
+    .apply { interceptors().add(0, TraceparentInterceptor) }
     // After `install`, which would otherwise read an unset deadline and put its own in: the one this
     // surface's callers configured wins, `Duration.ZERO` included.
     .callTimeout(timeouts.call)
@@ -71,6 +85,20 @@ class SempodsHttpTransport @JvmOverloads constructor(
    * `newBuilder()` would allocate on every call; each variant still shares the pool and dispatcher.
    */
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
+
+  /**
+   * The factory a core endpoint group runs its calls on, so a facade delegating to one shares this
+   * transport's connection pool, guard and redirect policy instead of opening a second of each.
+   *
+   * A session's request needs the policy [SempodsOkHttp] installs here to resolve at all, which is
+   * what makes this a factory over that client rather than a bare one.
+   *
+   * **It binds [SempodsCallSlot] the way [execute] does.** The slot is this surface's cancel handle
+   * and it is per thread, so a call a group makes inside `SempodsCallSlot.using` has to reach it
+   * too — otherwise cancelling marks the slot and leaves the socket blocked until a timeout. The
+   * core's own handle is `Call.cancel()`, which is what the slot ends up calling.
+   */
+  internal val calls: Call.Factory = Call.Factory { request -> SlotBoundCall(httpClient.newCall(request)) }
 
   /** Shared by the clients above so a response is parsed the same way wherever it is read. */
   val objectMapper: ObjectMapper = ObjectMapper()
@@ -242,6 +270,28 @@ class SempodsHttpTransport @JvmOverloads constructor(
     override fun writeTo(sink: BufferedSink) {
       open().source().use { sink.writeAll(it) }
     }
+  }
+
+  /**
+   * A call bound to the thread's [SempodsCallSlot] for as long as it is blocked in [execute].
+   *
+   * `enqueue` is passed through unbound: the slot belongs to the thread that blocks, and an
+   * enqueued call has already left it. The core's asynchronous path blocks on a virtual thread of
+   * its own, where a slot is bound only if its caller bound one — as with [execute] here.
+   */
+  private class SlotBoundCall(private val delegate: Call) : Call by delegate {
+
+    override fun execute(): okhttp3.Response {
+      val slot = SempodsCallSlot.current() ?: return delegate.execute()
+      val owning = slot.bind(delegate::cancel)
+      return try {
+        delegate.execute()
+      } finally {
+        slot.unbind(owning)
+      }
+    }
+
+    override fun clone(): Call = SlotBoundCall(delegate.clone())
   }
 
   private companion object {
