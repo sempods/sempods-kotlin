@@ -176,12 +176,13 @@ one; only a module that ships under these coordinates has to.
 
 Under `org.sempods`, `sempods-commons` keeps its own segment (`org.sempods.commons.*`); the pod server and
 its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempods.auth`,
-`org.sempods.mcp`, `org.sempods.client`, `org.sempods.client.core`, `org.sempods.client.rdf4j`,
-`org.sempods.controlplane`).
+`org.sempods.mcp`, `org.sempods.client`, `org.sempods.client.core`, `org.sempods.client.media`,
+`org.sempods.client.rdf4j`, `org.sempods.controlplane`).
 
 **A module name is not a package name here, and does not try to be.** `sempods-server` holds
-`org.sempods.pods`, and `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies`,
-`org.sempods.rdf` and `org.sempods.media` — no directory name appears in any package. That is
+`org.sempods.pods`, `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies` and
+`org.sempods.rdf`, and `org.sempods.media` is `sempods-media`'s — no directory name appears in any
+package. That is
 what made both renames cost zero imports, and it is why a future module rename is a build-file
 edit rather than a repo-wide sweep. Do not "fix" the mismatch: the packages are the wire-adjacent
 half (KDoc links, logger names, the composition guard) and the module names are not.

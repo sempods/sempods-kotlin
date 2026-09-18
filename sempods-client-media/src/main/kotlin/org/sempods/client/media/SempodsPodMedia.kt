@@ -7,6 +7,7 @@ import org.sempods.client.core.SempodsContent
 import org.sempods.client.core.SempodsContentSource
 import org.sempods.client.core.SempodsExchange
 import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsRepeatable
 import org.sempods.client.core.SempodsResponse
 import org.sempods.commons.net.SempodsPodRoutes
 import org.sempods.media.PodMediaSource
@@ -53,6 +54,10 @@ class SempodsPodMedia(pod: SempodsPod) {
    * what is left of it, and the pod would store a truncated object and answer `201` for it
    * ([SempodsContent]).
    *
+   * The request is marked [SempodsRepeatable], because a `POST` is not resent on its method alone and
+   * this one may be: the id is the content hash, so the bytes arriving twice are one object either
+   * way. [uploadFromUrl] carries no such mark — see its own note.
+   *
    * [length] is the exact number of bytes, or `-1` when the caller does not know: it decides the
    * framing rather than what the pod accepts, which a pod enforces while reading. [filename] describes
    * *this* assignment and never decides how anything is served.
@@ -70,9 +75,10 @@ class SempodsPodMedia(pod: SempodsPod) {
     filename: String? = null,
   ): SempodsResponse<UploadedMedia> =
     stored(
-      collection(contextUri, filename)
-        .post(SempodsContent.of(source, length).requestBody(contentType.toMediaType()))
-        .build(),
+      SempodsRepeatable.mark(
+        collection(contextUri, filename)
+          .post(SempodsContent.of(source, length).requestBody(contentType.toMediaType())),
+      ).build(),
     )
 
   /**
@@ -82,6 +88,11 @@ class SempodsPodMedia(pod: SempodsPod) {
    * is routinely a credential in itself — a signed Drive or S3 link — so a query parameter would land
    * in every access log on the way; and the upload route consumes the wildcard, so only a distinct
    * media type separates an instruction from a JSON document somebody meant to store.
+   *
+   * **Not marked [SempodsRepeatable]**, unlike [upload]. A connection lost before any answer leaves it
+   * unknown whether the pod already fetched, and the fetch is the pod's to make, not this client's to
+   * repeat: a source URL good for one use answers the second attempt with a failure for a media that
+   * is by then already stored.
    */
   @JvmOverloads
   @Throws(IOException::class)
