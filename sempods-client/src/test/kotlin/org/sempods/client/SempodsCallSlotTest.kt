@@ -1,6 +1,9 @@
 package org.sempods.client
 
 import com.sun.net.httpserver.HttpServer
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsPodBase
+import org.sempods.client.core.SempodsSession
 import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -84,26 +87,21 @@ class SempodsCallSlotTest {
   }
 
   /**
-   * A tier's call runs on an endpoint group now, which builds its own request and sends it through
-   * `transport.calls` rather than `send`. The slot has to reach it there: without that, a cancel
-   * marks the slot and leaves the socket blocked until a timeout, which is what the slot exists to
-   * avoid.
+   * An endpoint group builds its own request and sends it through `transport.calls` rather than
+   * `send`. The slot has to reach it there: without that, a cancel marks the slot and leaves the
+   * socket blocked until a timeout, which is what the slot exists to avoid.
    */
   @Test
   fun `a cancel ends a call an endpoint group made`() {
     val slot = SempodsCallSlot()
-    val pod = SempodsPodClient(
-      podBaseUrl = uri("/alice/"),
-      auth = SempodsAuth.anonymous,
-      client = SempodsClient(transport),
-    )
+    val pod = SempodsPod(SempodsSession(SempodsPodBase.of(uri("/alice").toString())), transport.calls)
 
-    val ended = inSlot(slot) { pod.exists() }
+    val ended = inSlot(slot) { pod.metadata().exists() }
     Thread.sleep(200)
     slot.cancel()
 
     val failure = ended.get(5, TimeUnit.SECONDS)
-    assertTrue(failure is SempodsClientException, "the group's call ended with $failure")
+    assertTrue(failure is IOException, "the group's call ended with $failure")
   }
 
   @Test

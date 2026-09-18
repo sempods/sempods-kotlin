@@ -1,11 +1,13 @@
 # Pod client — the JVM client for the pod surface (IST)
 
 What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
-`:sempods-client-core`, its RDF4J adapter `:sempods-client-rdf4j`, `:sempods-client` above it, and
-the sibling that speaks the host-level admin surface, `:sempods-control-plane-client`.
+`:sempods-client-core`, its RDF4J adapter `:sempods-client-rdf4j`, the media routes
+`:sempods-client-media`, the JSON-LD wire layer `:sempods-client`, and the sibling that speaks the
+host-level admin surface, `:sempods-control-plane-client`.
 
-This document is the *shape* of those clients — what tiers they have, how a caller supplies a
-credential, what they are built on, and the rules that decide what may be added. The **routes** they
+This document is the *shape* of those clients — how a caller supplies a credential, what they are
+built on, and the rules that decide what may be added. A consumer moving from 0.1.0 reads
+[`migration/0.2.md`](migration/0.2.md) first. The **routes** they
 speak belong to whoever owns the surface: the pod surface to the specification
 (the specification's [CRUD](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) and [media](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md)
 chapters, [`auth`](auth)), the admin surface to the
@@ -18,51 +20,31 @@ hosting many pods cannot be described the same way, because at `createPod` the p
 and no `<context>#permission` scope can authorize it. The consequence a dependency declaration can
 show: a consumer of the specification never adds `:sempods-control-plane-client`.
 
-## Two representations, three bindings
+## Two representations
 
-The client answers the same routes in two shapes, and neither is a degraded version of the other:
+The same routes answer in two shapes, and neither is a degraded version of the other:
 
 | Layer | Answers with | For |
 |---|---|---|
 | `PodWireClient` (`org.sempods.client.wire`) | the pod's own JSON-LD as an unparsed `JsonNode`, plus the `ETag` on every read and `If-Match` / `If-None-Match` on every write | a consumer that **forwards** what the pod said — `:sempods-mcp-core`'s `PodToolExecutor` hands it to a model, for both MCP surfaces — or that needs read-modify-write to be safe against a concurrent editor |
-| `SempodsClient` and the tiers below it | a parsed RDF4J `Model` over n-quads | a consumer that **reasons** over the graph and does not want to know that a slot is two base64url segments |
+| `SempodsRdf4jPod` (`:sempods-client-rdf4j`) | a parsed RDF4J `Model`, every statement keeping its context | a consumer that **reasons** over the graph and does not want to know that a slot is two base64url segments |
 
 A forwarding consumer needs the pod's framing and `@context`: parsing to RDF and re-serialising is
 lossy for it even when semantically faithful, and spends a parser round trip on an answer nobody
-queries. A consumer that wants meaning should equally not be handed JSON to walk. The wire layer is
-the floor and the semantic tiers the storey above it — one client, two answers.
+queries. A consumer that wants meaning should equally not be handed JSON to walk. Under both is the
+core, which answers the bytes the pod sent and reads none of them as RDF.
 
-## The tiers
-
-The semantic side has two, and they differ only in what is fixed:
-
-| Tier | Fixes | Bound by |
-|---|---|---|
-| `SempodsClient` | nothing — base URL and token per call | callers that hold a URI and no pod: an aggregator dereferencing a foreign event, an outbound guard vetting an address before it connects — and the token mint, which cannot go through a client that needs a token |
-| `SempodsPodClient` | one pod, one `SempodsAuth` | everything that reaches *a* pod: an application gateway building one per pod per request |
-
-**A consumer takes one of them.** The bound tier is the stateless one with a coordinate fixed, so
-taking it removes an argument rather than adding a layer.
-
-**`SempodsPodClient` runs on the core.** Its non-media calls are the core's endpoint groups and the
-RDF4J adapter's, on two sessions of its own — one under its `SempodsAuth`, one anonymous for the
-three reads that ask without a credential. What the credential buys is the same single 401 retry,
-now the core's and applied per attempt. The answers are stricter for it: a malformed SPARQL result,
-an `ASK` whose `boolean` is not one, a `typed-literal` term and a catalogue that is not RDF are
-failures rather than empty results, and an answer is read into memory up to 16 MiB.
-
-`SempodsHttpTransport` sits under `SempodsClient` and the media calls above it: the legacy
-surface, with a token stamped on each request and the JSON helpers (`objectMapper`, `requiredText`)
-the core does without. It runs on a client `SempodsOkHttp.install` configured, so the guard and the
-redirect policy have one implementation. **Its own requests carry no session**, and the session's
-authentication and resend apply to none of them — a request one of its callers built is authenticated
-where it is built. The same client sends the sessions' requests, which do carry one: that is what
-`calls` hands the tiers above (§"The tiers"). Admission applies to neither, because this client is
-configured without a budget. It hands the tiers the failure shape they classify on
-(`SempodsClientException`, carrying the server's own body).
+`SempodsHttpTransport` is what `PodWireClient` still runs on: the legacy surface, with a token
+stamped on each request and the JSON helpers (`objectMapper`, `requiredText`) the core does without.
+It runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect policy have one
+implementation. **Its own requests carry no session**, and the session's authentication and resend
+apply to none of them — a request one of its callers built is authenticated where it is built. The
+same client can send a session's requests, which do carry one, through `calls`. Admission applies to
+neither, because this client is configured without a budget. Moving the wire layer onto the core is
+[#152](https://github.com/sempods/sempods-kotlin/issues/152).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
-many pods resolves its own names and builds one bound client per pod; where the names come from is a
+many pods resolves its own names and builds one session per pod; where the names come from is a
 question only that consumer can answer. The busiest consumer, the hosted MCP service, keys pods by
 base URL — `PodConnection.pod` *is* the pod base URL.
 
@@ -71,36 +53,25 @@ in. A closed, compile-time predicate list belongs to whoever publishes that voca
 library about pods in general — so what this client offers is the pod's own terms (a resource, a
 slot, a context, a query) and a consumer that wants views builds them on top.
 
-**The single 401 retry is why the bound tier exists** rather than being a convenience over the
-stateless one. Retry-once-after-invalidating is a property of a bound client with a *refreshable*
-credential: only something that can ask its credential for a fresh token can tell a rotated one from
-a refused one. A caller passing a token per call cannot, and fails a 401 that a second attempt would
-have satisfied. `SempodsAuth` is that credential — a token supplier plus `invalidate`, where `null`
-is anonymous and supported rather than degraded, because reading a pod's public contexts needs no
-credential at all.
+## What may be added, and where
 
-## Growing the surface — one tier at a time
+The rule that keeps three artifacts from becoming three copies of one method list:
 
-The rule that keeps a layered client from multiplying its method count by the number of tiers:
+- **A route is implemented once, in the core.** An endpoint group speaks it and answers the bytes;
+  everything above changes the representation, not the request.
+- **An adapter adds a body, never a route.** `SempodsRdf4jPod` runs the core's groups and decodes
+  what they return; a module with a route of its own — `:sempods-client-media` — builds its request
+  through the session and runs it through `SempodsExchange`, which is the same execution.
+- **The raw path is one generic method, never a twin per route.** `sparql()` knows nothing about the
+  question it carries; it does not, and must not, grow a `findRaw` or a `describeRaw` beside it.
+- **A typed method arrives with the caller that needs it**, and replaces the raw one at its layer
+  rather than joining it.
 
-- The **stateless tier may carry both representations of a route** — `sparqlSelect` → `String`
-  (SPARQL-Results JSON verbatim) beside `sparqlConstruct` → `Model`.
-- The **bound tiers keep the typed one.** A representation that exists only to be parsed by the
-  caller belongs where the caller already assembles the request.
-- The **raw path is one generic method, never a twin per route.** `SempodsPodClient` offers
-  `sparqlSelect(query)` and `sparqlConstruct(query)` and knows nothing about either question; it
-  does not, and must not, grow a `findRaw` or a `describeRaw` beside them.
-- A **typed method replaces the raw call at its tier instead of joining it**, and arrives when a
-  caller needs it rather than upfront.
+*The test:* a new pod route can be added without forcing a method on the adapters.
 
-*The test:* a new pod route can be added at one tier without forcing a method at the others.
-
-The System-layer resource route is what that test looks like when it is applied. `putSubject`,
-`getSubject` and `deleteSubject` reach `{pod}/_system/resources/{b64url(iri)}` from the stateless
-tier and from nowhere else; the bound tier grew nothing, because the consumer that asked for them
-mints a token per tenant and takes the stateless tier anyway. The core draws the same line between
-two groups, `resources()` and `subjects()` (§"Endpoint groups"). `SempodsPodClient.delete` reaches
-the System route through the second of them: one `subjects().delete` per context.
+The System-layer resource route is what that looks like applied. `resources()` reaches an IRI under
+the pod by its own path and `subjects()` reaches any IRI through `{pod}/_system/resources/{b64url(iri)}`
+— two groups, because they are two routes, and the RDF4J adapter has exactly the two to match.
 
 The raw passthrough is not a concession. [`concepts/modularity.md`](concepts/modularity.md) §"The service contract is
 semantic, not a facade over RDF" forbids a method whose *name* encodes an app's question — a
@@ -108,20 +79,12 @@ semantic, not a facade over RDF" forbids a method whose *name* encodes an app's 
 rule's positive form: the app's rules stay in its query text, and what the client offers is the
 endpoint. What a pod will accept is bounded on the server rather than by convention:
 `SparqlQueryService` rejects every Update form and refuses `SERVICE` anywhere in the algebra, which
-is also what makes a query safe to re-run under the 401 retry and after a lost connection.
+is also what makes a query safe to re-run after a refused credential and after a lost connection.
 
-**Why the bound tier still carries a raw `sparqlSelect` today:** there is no typed result to replace
-it with. `SparqlResult` (`org.sempods.spec`) carries matched IRIs plus the model behind them, and
-a consumer's keyset pagination needs the exact lexical of the sort key `?k` out of the bindings —
-a value no resource-shaped result type carries. The typed method
-arrives with the caller that can use it.
-
-Two typed forms already stand beside it and show what "arrives with the caller" looks like:
-`sparqlSelectColumn` for a one-column question, and `sparqlSelectStatements` for a
-`SELECT ?s ?p ?o ?g` read back as statements **with the graph each came from** — the shape a caller
-projecting a context reads by, and the reason it is not `sparqlConstruct` (which drops the context).
-Both arrived when a caller needed them, and neither replaced the raw method, because neither answers
-the pagination question above.
+**Why `sparql()` still answers raw results:** there is no typed result to replace them with. A
+consumer's keyset pagination needs the exact lexical of its sort key out of the bindings, which no
+resource-shaped result type carries. `SempodsSparqlResults` gives it the bindings without a parser of
+its own, and the verbatim body stays beside it for a consumer that forwards the answer.
 
 ## The core: a pod, a credential, and OkHttp
 
@@ -216,8 +179,7 @@ one context to a stream the caller owns while it arrives, and `contexts().export
 graph comes from; `sparql().graphStream` and `graphTo` are the same read for a query of the caller's own.
 
 A status the route does not list, or a body that is not the route's document, is an exception that
-keeps the status and headers and never quotes the body. §"Growing the surface" is the rule for the
-tiers of `:sempods-client`.
+keeps the status and headers and never quotes the body.
 
 **A read can be narrowed to contexts, and a write names its context.** The selection is optional. A
 query carries it as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how), which a
@@ -424,13 +386,13 @@ stricter reading won, so the NAT64 prefixes are refused outright.
 
 ## What the client is not
 
-- **Not two clients.** The JSON-LD wire layer and the RDF tiers are two layers of one client
-  (§"Two representations, three bindings"). `sempods-mcp` keeps only `PodIo`, the bridge; the tool
+- **Not two clients.** The JSON-LD wire layer and the RDF4J adapter are two shapes of one answer
+  (§"Two representations"). `sempods-mcp` keeps only `PodIo`, the bridge; the tool
   calls live in `:sempods-mcp-core`, where both MCP surfaces read them. The two layers read their
   routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own theirs;
   `SempodsPodRoutesParityTest` holds the shared ones equal until #152 moves the layers onto the core
   and removes their copies.
-- **A foreign URI stays unbound.** `SempodsClient.dereference` and `SempodsForeignTarget` take no pod
+- **A foreign URI stays unbound.** `SempodsForeignTarget` and its RDF4J adapter take no pod
   base (§"A foreign URI").
 - **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a
   `suspend` consumer bridges at its own edge, and `sempods-mcp`'s `PodIo` is what that costs: a
@@ -477,9 +439,8 @@ A probe per artifact checks them from outside the build, as Java consumers on th
 on: `:consumer-probe:client-core` and `:consumer-probe:client-media` on 21, `:consumer-probe:client-rdf4j`
 on 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the removal of
-the tiers above ([#228](https://github.com/sempods/sempods-kotlin/issues/228)) and the consumer
-migration ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the consumer
+migration and the artifact rename ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
 [#15](https://github.com/sempods/sempods-kotlin/issues/15).
 
@@ -498,6 +459,7 @@ and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry t
   `SempodsForeignTarget`, and `net/` for the outbound guard
 - `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its
   groups, `Rdf4jCodec` for the pinned parser and writer settings
-- `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsClient`, `SempodsPodClient`,
-  `SempodsAuth`, `SempodsHttpTransport`
+- `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the media
+  routes over a session
+- `sempods-client/src/main/kotlin/org/sempods/client/` — `wire/PodWireClient`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`

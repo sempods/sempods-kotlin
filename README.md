@@ -179,7 +179,7 @@ here, it would propagate to everyone.
 
 Published bytecode targets **Java 21**, and building this repository needs 25. A module that brings
 RDF4J needs **Java 25** to run, because RDF4J 6 is built for it: `sempods-client-core`,
-`sempods-client-media` and `sempods-media` run on 21; `sempods-client-rdf4j`, `sempods-client`,
+`sempods-client-media`, `sempods-media` and `sempods-client` run on 21; `sempods-client-rdf4j`,
 `sempods-model` and the modules built on them need 25.
 
 The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`

@@ -30,9 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
  * **This is the legacy surface, and it is where the JSON helpers stayed.** [objectMapper] and
  * [requiredText] name Jackson types, which is why the core does not have them: a consumer that
  * wants HTTP against a pod should not resolve an object mapper to get it. They remain here because
- * `SempodsClient`, `SempodsPodClient`, `PodWireClient` and `SempodsControlPlaneClient` use them
- * today, and moving those onto the core is
- * [#150](https://github.com/sempods/sempods-kotlin/issues/150) and
+ * `PodWireClient` and `SempodsControlPlaneClient` use them, and moving those onto the core is
  * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
  *
  * **It translates [SempodsRequest] and [SempodsResponse] onto OkHttp's.** A caller of this surface
@@ -87,8 +85,12 @@ class SempodsHttpTransport @JvmOverloads constructor(
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
 
   /**
-   * The factory a core endpoint group runs its calls on, so a facade delegating to one shares this
-   * transport's connection pool, guard and redirect policy instead of opening a second of each.
+   * The factory a core endpoint group runs its calls on, sharing this transport's connection pool,
+   * guard and redirect policy instead of opening a second of each.
+   *
+   * **No caller in this module uses it today.** It is what [SempodsControlPlaneClient] and
+   * `PodWireClient` reach for when they move onto the core ([#152](https://github.com/sempods/sempods-kotlin/issues/152)),
+   * and the slot binding below is the part that would be silently missing if it were rebuilt then.
    *
    * A session's request needs the policy [SempodsOkHttp] installs here to resolve at all, which is
    * what makes this a factory over that client rather than a bare one.

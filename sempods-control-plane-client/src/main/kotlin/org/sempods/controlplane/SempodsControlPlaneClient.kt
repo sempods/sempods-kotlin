@@ -88,7 +88,7 @@ class SempodsControlPlaneClient(
    * `GET {server}/_system/admin/pods/{pod}` — the authorized existence check. The route answers 404
    * for an unknown pod rather than `exists: false`, so the boolean comes from the status.
    *
-   * A caller on the data path asks `SempodsClient.podExists(podBaseUrl)` instead, which needs no
+   * A caller on the data path asks `SempodsPodMetadata.exists` instead, which needs no
    * credential. Both questions exist on purpose: the answer here carries host authority, and code
    * that only needs to know whether a pod is there must not acquire that authority to find out.
    */

@@ -9,7 +9,7 @@ package org.sempods.media
  * this type is the only thing separating "store this body" from "go and fetch that URL". Two copies
  * of it would be two chances to disagree about which one a request meant.
  *
- * The two sides are `SempodsClient.uploadMediaFromUrl` (which sends it) and the pod's
+ * The two sides are `SempodsPodMedia.uploadFromUrl` (which sends it) and the pod's
  * `PodMediaEndpoint` (which recognises it). The descriptor's field names are still string literals
  * on both — this object is where they would be centralised.
  *
