@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import okhttp3.Challenge
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import org.junit.jupiter.api.AfterAll
@@ -82,6 +84,28 @@ class SempodsResponseObservationTest : MockPodTest() {
 
     override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Unit =
       throw IOException("no nonce store")
+  }
+
+  @Test
+  fun `the facts of an answer can be built and read without a server`() {
+    // What a consumer needs to unit-test a mechanism of their own, and the reason `of` is public.
+    // The challenges are the answer's own: one mechanism must not be able to take them from the next.
+    val refusal = Response.Builder()
+      .request(Request.Builder().url("https://pods.example/alice/x").build())
+      .protocol(Protocol.HTTP_1_1)
+      .code(401)
+      .message("Unauthorized")
+      .header("WWW-Authenticate", "Bearer realm=\"alice\"")
+      .build()
+
+    val facts = SempodsResponseFacts.of(refusal)
+
+    assertEquals(401, facts.status)
+    assertEquals(listOf("Bearer"), facts.challenges.map { it.scheme })
+    assertThrows<UnsupportedOperationException> {
+      @Suppress("UNCHECKED_CAST")
+      (facts.challenges as MutableList<Challenge>).clear()
+    }
   }
 
   @Test

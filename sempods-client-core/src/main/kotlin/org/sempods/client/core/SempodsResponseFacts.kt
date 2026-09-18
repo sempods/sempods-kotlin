@@ -4,6 +4,7 @@ import okhttp3.Challenge
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.Response
+import java.util.Collections
 
 /**
  * What a [SempodsRequestAuth] is told about one answer: its status, its headers, what the attempt
@@ -45,7 +46,7 @@ class SempodsResponseFacts private constructor(
       method = response.request.method,
       url = response.request.url,
       sentHeaders = response.request.headers,
-      challenges = response.challenges(),
+      challenges = Collections.unmodifiableList(response.challenges()),
     )
   }
 }
