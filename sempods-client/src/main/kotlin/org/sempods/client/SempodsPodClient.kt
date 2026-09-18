@@ -34,8 +34,10 @@ import org.sempods.media.UploadedMedia
  *
  * **An answer outside the route's contract is a failure rather than an empty result.** A malformed
  * SPARQL result, an `ASK` whose `boolean` is not one, a `typed-literal` term and a catalogue that is
- * not RDF are each a [SempodsClientException] carrying the status and what the pod wrote. An answer
- * is also read into memory up to 16 MiB, [sparqlSelect] included.
+ * not RDF are each a [SempodsClientException] carrying the answer's status. A body that could not be
+ * read is not quoted back — it may hold a credential — so [SempodsClientException.responseBody] is
+ * null for these and carries the server's own text when the status is what the pod refused on. An
+ * answer is read into memory up to 16 MiB, [sparqlSelect] included.
  *
  * **Everything here carries pod-scoped authority, and that is what decides what belongs on it.**
  * Media writes go through the very same `PodContextWriteAuthorizer` and the very same

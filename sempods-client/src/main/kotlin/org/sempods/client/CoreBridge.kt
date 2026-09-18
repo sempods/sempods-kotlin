@@ -50,8 +50,9 @@ private class LegacyRequestAuth(private val auth: SempodsAuth) : SempodsRequestA
  *
  * The two hierarchies are deliberately different — the core's is an `IOException` a Java caller
  * already handles, this one is unchecked because the methods that throw it never declared it — so
- * one translation stands here rather than a `catch` per method. Status, the server's own excerpt
- * and the cause carry over; a caller classifying on any of the three sees what it saw before.
+ * one translation stands here rather than a `catch` per method. The status and the cause carry over,
+ * and so does the server's own excerpt where there is one: a refused status has it, while a body the
+ * core could not read is not quoted back, because it may hold a credential.
  */
 internal inline fun <R> translating(block: () -> R): R =
   try {
