@@ -49,16 +49,17 @@ Two consequences worth knowing, and both are about the two Guice suites:
 
 ## Seeding a pod
 
-**There is one way into a pod, and a test takes it too.** The suite seeds through an HTTP client
-against the server in its own JVM: `SempodsPodClient` — `SempodsTestPodAccess.clientFor(pod)`
-builds one, and `SempodsTestFactory.seedEvent` is that client with the model already built. Seeding
-and assertions therefore cross the same surface a client crosses, and a call that only works
-in-process fails in the test run rather than at deploy time.
+**There is one way into a pod, and a test takes it too.** The suite seeds over HTTP against the
+server in its own JVM: `SempodsTestPodAccess.podFor(pod)` is a session bound to that pod and the
+seeding credential, `rdfFor(pod)` reads and writes its RDF, and `SempodsTestFactory.seedEvent` is
+`seed` with the model already built. Seeding and assertions therefore cross the same surface a
+client crosses, and a call that only works in-process fails in the test run rather than at deploy
+time.
 
 **A plain RDF model, not a typed projection.** What the sempods suite needs of a seeded resource is
 a known type carrying a name it can look for in a response, so `seedEvent` writes `schema:Event`
 with up to three schema.org predicates and PUTs it. A test wanting more builds its own model and
-calls `SempodsPodClient.putResource`.
+calls `SempodsTestPodAccess.seed`.
 
 `SempodsTestPodAccess` resolves the pod name and mints the credential — the resolution is the
 suite's own, as it is for any consumer holding names rather than pods. Two things about it are not

@@ -32,9 +32,10 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected lateinit var sempodsUriBuilder: SempodsUriBuilder
 
   /**
-   * Pod coordinates for the suite's own reads — `podAccess.clientFor(pod)` is a client bound to
-   * that pod and its seeding credential. Seeding an event goes through
-   * [SempodsTestFactory.seedEvent], which is this same client with the model already built.
+   * Pod coordinates for the suite's own reads — [SempodsTestPodAccess.podFor] is a session bound to
+   * that pod and its seeding credential, and [SempodsTestPodAccess.rdfFor] reads and writes its RDF.
+   * Seeding an event goes through [SempodsTestFactory.seedEvent], which is
+   * [SempodsTestPodAccess.seed] with the model already built.
    */
   @Inject
   protected lateinit var podAccess: SempodsTestPodAccess
