@@ -156,7 +156,10 @@ try (Response response = client.newCall(request).execute()) {
 
 `newRequest` plus a call on such a client is also the **extension seam**: an endpoint group, a
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
-and admission by using it, and needs nothing private. A module that answers in another
+and admission by using it, and needs nothing private. `SempodsExchange` is its other half — it sends
+such a request and turns the answer into a `SempodsResponse`, with the same statuses, the same 16 MiB
+bound and the same failures an endpoint group answers with, so a module speaking its own route needs
+neither a result type nor a failure hierarchy of its own. `:sempods-client-media` is built that way. A module that answers in another
 representation, such as the RDF4J adapter (§"The RDF4J adapter"), runs the core's operation and
 decodes its answer with `SempodsResponse.map`, which keeps status and headers and reports an
 unreadable body as the core does.
@@ -259,6 +262,26 @@ case through JSON-LD, which `SempodsRdf4jSlots` explains.
 **A stream sorts a failure by where it came from.** What the handler throws, and an `IOException` of the
 connection, reach the caller as they are; a body that stops parsing is a `SempodsDecodingException`,
 after the statements before it were handed on.
+
+### The media routes
+
+`:sempods-client-media` carries what a pod holds beside its graph: bytes, and which contexts reach
+them.
+
+```java
+var media = new SempodsPodMedia(pod);
+UploadedMedia stored = media.upload(tasks, "image/png", () -> Files.newInputStream(png), Files.size(png)).getBody();
+media.assign(stored.getMediaId(), notes);
+```
+
+**It writes no triple.** Whoever wants a `schema:ImageObject` writes it themselves and points its
+`schema:contentUrl` at what the upload answered — the pod knows the address it is published at, and a
+client rebuilding one from the id would publish the address it dialled. What the routes are, and what
+a deployment without a media backend serves, is [`media.md`](media.md).
+
+**An upload's body is opened per attempt.** `SempodsContentSource` is what a caller passes, and the
+core asks it for a fresh stream for every attempt, so an upload is resent after a lost connection like
+any other write. A plain stream is the other case and is sent once.
 
 ### A foreign URI
 
@@ -446,14 +469,17 @@ codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper, and neith
 `:sempods-client`. Slot values it writes with the core's Jackson 3.
 **It needs Java 25**, because RDF4J 6 is built for it; the core stays on 21.
 
-`:consumer-probe:client-core` and `:consumer-probe:client-rdf4j` check both from outside the build, as
-Java consumers on Java 21 and 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source
-readiness".
+`:sempods-client-media` is the coordinate for the pod's media routes. It brings the media contract
+`:sempods-media` — two types and a media type string, which the pod server reads from the same place —
+and no RDF library at all, so it stays on Java 21 with the core.
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the media
-artifact ([#227](https://github.com/sempods/sempods-kotlin/issues/227)), the removal of the tiers
-above ([#228](https://github.com/sempods/sempods-kotlin/issues/228)) and the consumer migration
-([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
+A probe per artifact checks them from outside the build, as Java consumers on the lowest JVM each runs
+on: `:consumer-probe:client-core` and `:consumer-probe:client-media` on 21, `:consumer-probe:client-rdf4j`
+on 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
+
+The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the removal of
+the tiers above ([#228](https://github.com/sempods/sempods-kotlin/issues/228)) and the consumer
+migration ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
 independently embeddable services belongs to
 [#15](https://github.com/sempods/sempods-kotlin/issues/15).
 

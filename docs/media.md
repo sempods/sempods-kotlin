@@ -118,6 +118,10 @@ code:
 - `sempods-server/src/main/kotlin/org/sempods/api/system/admin/media/AdminMediaEndpoint.kt` — sweep, reconcile
 - `deployments/sempods/image/src/main/kotlin/org/sempods/deployment/SempodsMediaModule.kt` — backend
   selection and the full configuration surface
+- `sempods-media/src/main/kotlin/org/sempods/media/` — `PodMediaSource`, the media type that tells an
+  instruction from a body, and `UploadedMedia`, what an upload answers. Both sides read them here
+- `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the client's
+  side of these routes ([`pod-client.md`](pod-client.md) §"The media routes")
 
 ## The obligation a deployment takes on
 
@@ -135,4 +139,6 @@ it.
   control-plane state lives in MongoDB rather than in the graph is
   [`SPS-CTX-025`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md#SPS-CTX-025); the media registry is the same kind of
   thing.
+- [`pod-client.md`](pod-client.md) — the client that speaks these routes, and what it does not do
+  with them.
 - [`concepts/modularity.md`](concepts/modularity.md) — the seam table this store is a row of.

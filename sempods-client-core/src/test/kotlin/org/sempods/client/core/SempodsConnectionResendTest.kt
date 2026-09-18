@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.RequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.BufferedInputStream
 import java.io.IOException
@@ -285,6 +286,30 @@ class SempodsConnectionResendTest {
 
       assertThrows<IOException> { client.newCall(a.newRequest("PUT", "second").put(oneShot).build()).execute().close() }
       assertEquals(1, requestHeads.size)
+    }
+  }
+
+  /**
+   * The point of a content source: a body too large to hold is still an ordinary request, resent like
+   * any other. Without it a large upload is the one write a lost connection ends.
+   */
+  @Test
+  fun `a body from a content source is opened again for the resend`() {
+    val opened = AtomicInteger()
+    val content = SempodsContent.of(
+      { opened.incrementAndGet(); "payload".byteInputStream() },
+      "payload".length.toLong(),
+    )
+    sempodsClient().closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      client.newCall(a.newRequest("PUT", "second").put(content.requestBody("text/plain".toMediaType())).build())
+        .execute().use { assertEquals(200, it.code) }
+
+      assertEquals(2, requestHeads.size, "the attempt on the dropped connection never reached the server")
+      assertEquals(2, opened.get(), "a fresh stream per attempt")
+      assertTrue(requestHeads[1].contains("Content-Length: 7"), requestHeads[1])
     }
   }
 
