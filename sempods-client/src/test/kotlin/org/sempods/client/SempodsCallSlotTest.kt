@@ -49,6 +49,12 @@ class SempodsCallSlotTest {
       exchange.sendResponseHeaders(204, -1)
       exchange.close()
     }
+    // What a pod answers `exists()` from, kept waiting so a cancel has something to end.
+    server.createContext("/alice/_system/meta/date-modified") { exchange ->
+      Thread.sleep(30_000)
+      exchange.sendResponseHeaders(204, -1)
+      exchange.close()
+    }
     server.createContext("/quick") { exchange ->
       exchange.sendResponseHeaders(204, -1)
       exchange.close()
@@ -75,6 +81,29 @@ class SempodsCallSlotTest {
       }
     }
     return ended
+  }
+
+  /**
+   * A tier's call runs on an endpoint group now, which builds its own request and sends it through
+   * `transport.calls` rather than `send`. The slot has to reach it there: without that, a cancel
+   * marks the slot and leaves the socket blocked until a timeout, which is what the slot exists to
+   * avoid.
+   */
+  @Test
+  fun `a cancel ends a call an endpoint group made`() {
+    val slot = SempodsCallSlot()
+    val pod = SempodsPodClient(
+      podBaseUrl = uri("/alice/"),
+      auth = SempodsAuth.anonymous,
+      client = SempodsClient(transport),
+    )
+
+    val ended = inSlot(slot) { pod.exists() }
+    Thread.sleep(200)
+    slot.cancel()
+
+    val failure = ended.get(5, TimeUnit.SECONDS)
+    assertTrue(failure is SempodsClientException, "the group's call ended with $failure")
   }
 
   @Test

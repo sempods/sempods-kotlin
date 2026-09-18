@@ -80,13 +80,18 @@ class SempodsHttpTransport @JvmOverloads constructor(
   private val byCallTimeout = ConcurrentHashMap<Duration, OkHttpClient>()
 
   /**
-   * The client a core endpoint group runs its calls on, so a facade delegating to one shares this
+   * The factory a core endpoint group runs its calls on, so a facade delegating to one shares this
    * transport's connection pool, guard and redirect policy instead of opening a second of each.
    *
    * A session's request needs the policy [SempodsOkHttp] installs here to resolve at all, which is
-   * what makes this the right factory to hand out rather than a bare client.
+   * what makes this a factory over that client rather than a bare one.
+   *
+   * **It binds [SempodsCallSlot] the way [execute] does.** The slot is this surface's cancel handle
+   * and it is per thread, so a call a group makes inside `SempodsCallSlot.using` has to reach it
+   * too — otherwise cancelling marks the slot and leaves the socket blocked until a timeout. The
+   * core's own handle is `Call.cancel()`, which is what the slot ends up calling.
    */
-  internal val calls: Call.Factory get() = httpClient
+  internal val calls: Call.Factory = Call.Factory { request -> SlotBoundCall(httpClient.newCall(request)) }
 
   /** Shared by the clients above so a response is parsed the same way wherever it is read. */
   val objectMapper: ObjectMapper = ObjectMapper()
@@ -258,6 +263,28 @@ class SempodsHttpTransport @JvmOverloads constructor(
     override fun writeTo(sink: BufferedSink) {
       open().source().use { sink.writeAll(it) }
     }
+  }
+
+  /**
+   * A call bound to the thread's [SempodsCallSlot] for as long as it is blocked in [execute].
+   *
+   * `enqueue` is passed through unbound: the slot belongs to the thread that blocks, and an
+   * enqueued call has already left it. The core's asynchronous path blocks on a virtual thread of
+   * its own, where a slot is bound only if its caller bound one — as with [execute] here.
+   */
+  private class SlotBoundCall(private val delegate: Call) : Call by delegate {
+
+    override fun execute(): okhttp3.Response {
+      val slot = SempodsCallSlot.current() ?: return delegate.execute()
+      val owning = slot.bind(delegate::cancel)
+      return try {
+        delegate.execute()
+      } finally {
+        slot.unbind(owning)
+      }
+    }
+
+    override fun clone(): Call = SlotBoundCall(delegate.clone())
   }
 
   private companion object {
