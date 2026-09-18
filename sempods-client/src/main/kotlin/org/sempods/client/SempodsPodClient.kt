@@ -449,12 +449,15 @@ class SempodsPodClient(
   fun sparqlSelectStatements(query: String): List<Statement> = translating {
     val vf = SimpleValueFactory.getInstance()
     rdf.sparql().select(query).required().bindingSets.mapNotNull { row ->
-      // A blank node is forbidden in pod data, so one in any position is dropped rather than
-      // invented — in the graph position by leaving the statement without its context.
+      // A blank node is forbidden in pod data, so one in any position drops the row rather than
+      // being invented. An unbound `?g` is not that: the query asked for no graph, and the statement
+      // carries no context.
       val s = row.getValue("s") as? IRI ?: return@mapNotNull null
       val p = row.getValue("p") as? IRI ?: return@mapNotNull null
       val o = row.getValue("o")?.takeUnless { it is BNode } ?: return@mapNotNull null
-      vf.createStatement(s, p, o, row.getValue("g") as? IRI)
+      val g = row.getValue("g")
+      if (g != null && g !is IRI) return@mapNotNull null
+      vf.createStatement(s, p, o, g as IRI?)
     }
   }
 

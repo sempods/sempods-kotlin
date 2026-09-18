@@ -955,18 +955,20 @@ class SempodsPodClientTest {
   }
 
   /**
-   * Blank nodes are forbidden in pod data, so a nonconforming pod binding one must not become a
-   * statement about it. In the graph position the statement survives without its context, which is
-   * what a caller projecting a context sees for a row it cannot place.
+   * Blank nodes are forbidden in pod data, so a nonconforming pod binding one in any position drops
+   * the row rather than becoming a statement about it — the graph position included, where a
+   * contextless statement would claim a placement the answer never made.
    */
   @Test
   fun `sparqlSelectStatements drops rows a blank node would invent`() {
     val subject = podBaseUrl.resolve("events/e1")
+    val context = podBaseUrl.resolve("_system/contexts/apps/notes")
     val predicate = Ontologies.SCHEMA_ORG.Properties.url.stringValue()
     val rows = listOf(
       """{"s":{"type":"bnode","value":"b0"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"x"}}""",
       """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"bnode","value":"b1"}}""",
-      """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"kept"},"g":{"type":"bnode","value":"b2"}}""",
+      """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"x"},"g":{"type":"bnode","value":"b2"}}""",
+      """{"s":{"type":"uri","value":"$subject"},"p":{"type":"uri","value":"$predicate"},"o":{"type":"literal","value":"kept"},"g":{"type":"uri","value":"$context"}}""",
     )
     mockServer
       .`when`(request().withMethod("POST").withPath("/$podName/_system/sparql/query"))
@@ -979,9 +981,9 @@ class SempodsPodClientTest {
 
     val statements = service.sparqlSelectStatements("SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { ?s ?p ?o } }")
 
-    assertEquals(1, statements.size, "only the row without a blank subject or object survives")
+    assertEquals(1, statements.size, "only the row that binds no blank node survives")
     assertEquals("kept", statements.single().`object`.stringValue())
-    assertNull(statements.single().context, "a blank graph leaves the statement without a context")
+    assertEquals(context.toString(), statements.single().context.stringValue())
   }
 
   /**
