@@ -74,6 +74,15 @@ class SempodsResponseObservationTest : MockPodTest() {
     }
   }
 
+  /** A mechanism whose bookkeeping fails, to show what that costs and what it does not. */
+  private class NoStore : SempodsRequestAuth {
+
+    override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = Unit
+
+    override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Unit =
+      throw IOException("no nonce store")
+  }
+
   @Test
   fun `a nonce kept from a successful answer rides on the next request`() {
     // The case recovery could never reach: nothing was refused, so nothing would have been asked.
@@ -262,13 +271,7 @@ class SempodsResponseObservationTest : MockPodTest() {
 
   @Test
   fun `a failure while observing closes the answer and fails the call`() {
-    val failing = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = Unit
-
-      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Unit =
-        throw IOException("no nonce store")
-    }
-    val a = session("alice", failing)
+    val a = session("alice", NoStore())
 
     // A 200 as well, because that is the answer a mechanism would otherwise lose in silence.
     for (status in listOf(200, 401)) {
@@ -277,6 +280,20 @@ class SempodsResponseObservationTest : MockPodTest() {
       val failed = assertThrows<IOException> { a.status("x") }
       assertEquals("no nonce store", failed.message, "the answer to $status")
     }
+  }
+
+  @Test
+  fun `a failing observer does not keep the next one from being told`() {
+    // The call fails either way. What the mechanism after it keeps is for the call after that one.
+    val nonce = Nonce()
+    val a = session("alice", NoStore().andThen(nonce))
+    server.`when`(request()).respond(response().withStatusCode(200).withHeader("DPoP-Nonce", "n8"))
+
+    val failed = assertThrows<IOException> { a.status("x") }
+
+    assertEquals("no nonce store", failed.message)
+    assertEquals(listOf(200), nonce.seen)
+    assertEquals("n8", nonce.held)
   }
 
   @Test

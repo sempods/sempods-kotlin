@@ -67,7 +67,8 @@ fun interface SempodsCredentialSupplier {
  * refuses the call.
  *
  * **Composition.** [andThen] applies the two in declaration order and tells both about every
- * answer. On a refusal, [recover] is asked in that same order and the first one to answer `true`
+ * answer; one whose [observe] fails does not keep the other from being told, and the first failure
+ * fails the call. On a refusal, [recover] is asked in that same order and the first one to answer `true`
  * wins; the rest are not asked. A mechanism claims the challenge that names it, so a bearer
  * refresher and a nonce adapter each answer their own 401 whichever way round they are declared;
  * where both claim one challenge, declaration order decides. However long the chain, one operation
@@ -124,8 +125,18 @@ fun interface SempodsRequestAuth {
     override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) =
       members.forEach { it.apply(request, attempt) }
 
-    override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) =
-      members.forEach { it.observe(facts, attempt) }
+    /** Every member is told before a failure is raised: what a later one keeps is for the next call. */
+    override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
+      var failure: Throwable? = null
+      for (member in members) {
+        try {
+          member.observe(facts, attempt)
+        } catch (thrown: Throwable) {
+          if (failure == null) failure = thrown else failure.addSuppressed(thrown)
+        }
+      }
+      failure?.let { throw it }
+    }
 
     override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean =
       members.any { it.recover(facts, attempt) }
