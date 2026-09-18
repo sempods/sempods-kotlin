@@ -955,6 +955,44 @@ class SempodsPodClientTest {
   }
 
   /**
+   * A resent call is one logical request, so both attempts carry the same `traceparent`. The trace
+   * interceptor runs ahead of the session's attempt loop for that: behind it, the pod would see a
+   * different span for the retry of a call it already refused once.
+   */
+  @Test
+  fun `a retried call sends the same traceparent twice`() {
+    val minted = ArrayDeque(listOf("stale-token", "fresh-token"))
+    val retrying = SempodsPodClient(podBaseUrl = podBaseUrl, auth = SempodsAuth { minted.removeFirst() })
+    mockServer
+      .`when`(
+        request().withMethod("POST").withPath("/$podName/_system/sparql/query")
+          .withHeader("Authorization", "Bearer stale-token"),
+      )
+      .respond(response().withStatusCode(401))
+    mockServer
+      .`when`(
+        request().withMethod("POST").withPath("/$podName/_system/sparql/query")
+          .withHeader("Authorization", "Bearer fresh-token"),
+      )
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.parse("application/sparql-results+json"))
+          .withBody("""{"head":{},"boolean":true}"""),
+      )
+
+    TraceContextHolder.with(TraceContext.random()) { retrying.sparqlAsk("ASK { ?s ?p ?o }") }
+
+    val sent = mockServer.retrieveRecordedRequests(request().withPath("/$podName/_system/sparql/query"))
+    assertEquals(2, sent.size, "the refused attempt plus the retry")
+    assertEquals(
+      sent[0].getFirstHeader(TraceContext.TRACEPARENT),
+      sent[1].getFirstHeader(TraceContext.TRACEPARENT),
+      "one call is one span, however often it is sent",
+    )
+  }
+
+  /**
    * Blank nodes are forbidden in pod data, so a nonconforming pod binding one in any position drops
    * the row rather than becoming a statement about it — the graph position included, where a
    * contextless statement would claim a placement the answer never made.

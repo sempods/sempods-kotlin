@@ -59,15 +59,19 @@ class SempodsHttpTransport @JvmOverloads constructor(
     SHARED.newBuilder()
       .connectTimeout(timeouts.connect)
       .readTimeout(timeouts.read)
-      .writeTimeout(timeouts.write)
-      // The caller's trace, for every request this client sends rather than only the ones
-      // [newRequest] builds: [calls] hands it to endpoint groups that build their own, and a header
-      // set while building reaches none of those. It leaves a request that already carries the
-      // header alone, so [newRequest]'s own remains what goes out.
-      .addInterceptor(TraceparentInterceptor),
+      .writeTimeout(timeouts.write),
     guard,
     admission = null,
   )
+    // The caller's trace, for every request this client sends rather than only the ones [newRequest]
+    // builds: [calls] hands it to endpoint groups that build their own, and a header set while
+    // building reaches none of those. It leaves a request that already carries the header alone, so
+    // [newRequest]'s own remains what goes out.
+    //
+    // **Ahead of the session interceptor**, which `install` puts at index 0 and which runs the
+    // attempts below itself. Behind it the header would be stamped afresh per attempt, and one
+    // logical call would reach the pod as a different span each time it is resent.
+    .apply { interceptors().add(0, TraceparentInterceptor) }
     // After `install`, which would otherwise read an unset deadline and put its own in: the one this
     // surface's callers configured wins, `Duration.ZERO` included.
     .callTimeout(timeouts.call)
