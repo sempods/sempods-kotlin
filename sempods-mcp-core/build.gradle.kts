@@ -18,13 +18,11 @@ dependencies {
 
   // `PodToolExecutor` runs the thirteen tools against one pod over `PodWireClient`, which is
   // this module's surface — it is a constructor parameter — so `api` rather than `implementation`.
-  // RDF4J rides along unused, the same price `sempods-mcp` already pays for having one pod client
-  // instead of two (`docs/pod-client.md` §"What the client is not"). Declaring it here
-  // rather than defining a second port interface is deliberate: a port would be the
-  // `PodApi` facade the consolidation deleted, rebuilt one module over.
+  // Declaring it here rather than defining a second port interface is deliberate: a port would be
+  // the `PodApi` facade the consolidation deleted, rebuilt one module over.
   //
-  // Jackson stays declared above and is not inherited from here: `:sempods-client` reaches it only
-  // transitively through `rdf4j-rio-jsonld` and does not export it.
+  // Jackson arrives with it: `PodWireClient` answers a `JsonNode`, so `:sempods-client` exports
+  // `jackson-databind`. This module declares it above all the same, being what it compiles against.
   api(project(":sempods-client"))
 
   // `ReauthorizeChallengeStore` is Mongo-backed, so the driver arrives — `api`, because a
