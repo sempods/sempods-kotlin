@@ -98,8 +98,9 @@ fun interface SempodsRequestAuth {
    * **A failure fails the call**, after closing the answer. The core logs nothing, so a mechanism
    * whose bookkeeping may fail without consequence catches its own.
    *
-   * One call per attempt. A repeat OkHttp makes below the session's interceptor — a `421` over a
-   * coalesced HTTP/2 connection — is not seen
+   * One call per attempt. What OkHttp does below the session's interceptor is not seen: a `421`
+   * repeated over a coalesced HTTP/2 connection, and a redirect followed by a consumer who turned
+   * `followRedirects` back on after `SempodsOkHttp.install`
    * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    */
   @Throws(IOException::class)

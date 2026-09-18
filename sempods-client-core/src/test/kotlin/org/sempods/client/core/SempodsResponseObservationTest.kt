@@ -6,6 +6,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import okhttp3.Request
 import okhttp3.Response
@@ -294,6 +295,27 @@ class SempodsResponseObservationTest : MockPodTest() {
     assertEquals("no nonce store", failed.message)
     assertEquals(listOf(200), nonce.seen)
     assertEquals("n8", nonce.held)
+  }
+
+  @Test
+  fun `one throwable raised by two members is not suppressed by itself`() {
+    // A mechanism may hold the throwable it raises and be composed twice. Kotlin's `addSuppressed`
+    // ignores a throwable suppressing itself, where `java.lang.Throwable`'s member throws.
+    val nonce = Nonce()
+    val held = IOException("no nonce store")
+    val holding = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = Unit
+
+      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Unit = throw held
+    }
+    val a = session("alice", holding.andThen(holding).andThen(nonce))
+    server.`when`(request()).respond(response().withStatusCode(200).withHeader("DPoP-Nonce", "n9"))
+
+    val failed = assertThrows<IOException> { a.status("x") }
+
+    assertSame(held, failed)
+    assertEquals(0, failed.suppressed.size)
+    assertEquals("n9", nonce.held, "the mechanism after the two failures was not told")
   }
 
   @Test
