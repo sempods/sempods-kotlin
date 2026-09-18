@@ -134,4 +134,5 @@ its pod calls go out without a header.
 - `KtorTraceContextTest` — the same contract for the Ktor side, plus the two things only that
   side can get wrong: the binding surviving a dispatch to another thread, and the outbound
   plugin minting a child span rather than repeating the caller's.
-- `SempodsClientHttpTest` — the header on the wire, and its absence outside a request.
+- `SempodsHttpTransportTraceTest` — the header on the wire, its absence outside a request, and one
+  trace id across two requests with a span each.

@@ -44,9 +44,9 @@ dependencies {
   // Declared rather than inherited through `:sempods-mcp-core`'s `api`, because main code names
   // these types directly and a dependency you compile against is one you say you have.
   //
-  // The suite has its own reason for it, older and still valid: it seeds pods over that same HTTP
-  // surface, so a seeding call that only works in-process fails in the test run rather than at
-  // deploy time. The direction stays one-way — `:sempods-client` depends on `:sempods-model` alone.
+  // The suite seeds pods over that same HTTP surface — through `:sempods-client-core` and its RDF4J
+  // adapter — so a seeding call that only works in-process fails in the test run rather than at
+  // deploy time.
   implementation(project(":sempods-client"))
 
   // `PodMediaSource.MEDIA_TYPE`, which the upload route recognises and a client sends.
