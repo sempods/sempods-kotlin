@@ -90,6 +90,34 @@ class SempodsRdf4jContextsContractTest : MockPodTest() {
   }
 
   @Test
+  fun `the catalogue's members are what it names with sd namedGraph`() {
+    val notes = "$origin/alice/_system/contexts/notes"
+    val catalogue = "$origin/alice/_system/contexts"
+    val named = "http://www.w3.org/ns/sparql-service-description#namedGraph"
+    answer(
+      200,
+      "<$catalogue> <$named> <$tasks> <$catalogue> .\n" +
+        "<$catalogue> <$named> <$notes> <$catalogue> .\n" +
+        // Repeated by a pod that describes the same member twice, and a statement that is not the
+        // membership relation: neither belongs in the answer.
+        "<$catalogue> <$named> <$tasks> <$catalogue> .\n" +
+        "<$tasks> <$label> \"Tasks\" <$catalogue> .\n",
+    )
+
+    val iris = contexts.listIris()
+
+    assertEquals(listOf(iri(tasks), iri(notes)), assertNotNull(iris.body), "in the pod's order, without repeats")
+    assertEquals("\"r1\"", iris.headers["ETag"])
+  }
+
+  @Test
+  fun `a pod the server does not know answers no catalogue at all`() {
+    answer(404)
+
+    assertNull(contexts.listIris().body)
+  }
+
+  @Test
   fun `a body that is not N-Quads is a decoding failure with the answer's status and headers`() {
     answer(200, """{"@id": "$tasks"}""")
 

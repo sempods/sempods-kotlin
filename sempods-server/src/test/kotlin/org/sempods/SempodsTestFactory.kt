@@ -101,7 +101,7 @@ class SempodsTestFactory {
    * A plain [org.eclipse.rdf4j.model.Model] rather than a typed projection: what almost every test
    * needs of a seeded event is a resource of a known type carrying a name it can grep the response
    * for. The three optional predicates are what this suite actually asserts on; a test wanting more
-   * builds its own model and calls [org.sempods.client.SempodsPodClient.putResource].
+   * builds its own model and calls [SempodsTestPodAccess.seed].
    *
    * @param location an outgoing `schema:location` edge to another resource — for the deletion and
    *   reference tests, which need one resource to name another.
@@ -127,7 +127,7 @@ class SempodsTestFactory {
       model.add(subject, Ontologies.SCHEMA_ORG.Properties.location, it.toIri(), contextIri)
     }
 
-    podAccess.clientFor(pod).putResource(resourceUri = eventUri, contextUri = context, model = model)
+    podAccess.seed(pod, eventUri, context, model)
     return eventUri
   }
 

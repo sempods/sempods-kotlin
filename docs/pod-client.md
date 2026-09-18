@@ -39,7 +39,7 @@ The semantic side has two, and they differ only in what is fixed:
 | Tier | Fixes | Bound by |
 |---|---|---|
 | `SempodsClient` | nothing — base URL and token per call | callers that hold a URI and no pod: an aggregator dereferencing a foreign event, an outbound guard vetting an address before it connects — and the token mint, which cannot go through a client that needs a token |
-| `SempodsPodClient` | one pod, one `SempodsAuth` | everything that reaches *a* pod: an application gateway building one per pod per request, and the reference implementation's own suite, which seeds through it like any other client |
+| `SempodsPodClient` | one pod, one `SempodsAuth` | everything that reaches *a* pod: an application gateway building one per pod per request |
 
 **A consumer takes one of them.** The bound tier is the stateless one with a coordinate fixed, so
 taking it removes an argument rather than adding a layer.

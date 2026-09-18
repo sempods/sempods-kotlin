@@ -89,8 +89,8 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals(CLIENT_ID, response.field("clientId"))
 
     val root = rootContext(pod)
-    assertTrue(podAccess.clientFor(pod.name).contexts().contains(root), "root context must be registered")
-    assertFalse(podAccess.clientFor(pod.name).publicContexts().contains(root), "root context must be private")
+    assertTrue(podAccess.contextsOf(pod.name).contains(root), "root context must be registered")
+    assertFalse(podAccess.publicContextsOf(pod.name).contains(root), "root context must be private")
 
     val registration = assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID), "registration missing")
     assertEquals(setOf("$root#manage"), registration.scopes)
@@ -224,15 +224,15 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val root = rootContext(pod)
     podFacade.createContext(podName = pod.name, contextUri = root, public = true, label = CLIENT_ID, description = null)
-    assertTrue(podAccess.clientFor(pod.name).publicContexts().contains(root), "precondition: root is public")
+    assertTrue(podAccess.publicContextsOf(pod.name).contains(root), "precondition: root is public")
 
     provision(pod.name)
 
     assertFalse(
-      podAccess.clientFor(pod.name).publicContexts().contains(root),
+      podAccess.publicContextsOf(pod.name).contains(root),
       "a public root would expose every future descendant write to anonymous reads",
     )
-    assertTrue(podAccess.clientFor(pod.name).contexts().contains(root), "root context must stay registered")
+    assertTrue(podAccess.contextsOf(pod.name).contains(root), "root context must stay registered")
   }
 
   @Test
@@ -246,7 +246,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     val response = provision(pod.name, expectedRegistrationId = registrationId)
 
     assertEquals("alreadyProvisioned", response.field("result"))
-    assertFalse(podAccess.clientFor(pod.name).publicContexts().contains(root), "root must have been demoted")
+    assertFalse(podAccess.publicContextsOf(pod.name).contains(root), "root must have been demoted")
   }
 
   @Test

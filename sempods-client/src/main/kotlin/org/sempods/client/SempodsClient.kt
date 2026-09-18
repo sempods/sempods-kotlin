@@ -919,5 +919,4 @@ data class ServiceTokenResponse(
  * `sd:namedGraph` — what a context catalogue lists its members with (`SPS-CTX-033`). Spelled out
  * here because this module declares no RDF4J vocabulary artifact.
  */
-/** What a context catalogue's members are pointed at by (SPS-CTX-033), read here and by [SempodsPodClient]. */
-internal const val SD_NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"
+private const val SD_NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"
