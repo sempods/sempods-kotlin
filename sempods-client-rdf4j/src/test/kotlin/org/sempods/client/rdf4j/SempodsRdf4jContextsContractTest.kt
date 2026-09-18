@@ -111,7 +111,7 @@ class SempodsRdf4jContextsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a pod the server does not know names no contexts`() {
+  fun `a pod the server does not know answers no catalogue at all`() {
     answer(404)
 
     assertNull(contexts.listIris().body)

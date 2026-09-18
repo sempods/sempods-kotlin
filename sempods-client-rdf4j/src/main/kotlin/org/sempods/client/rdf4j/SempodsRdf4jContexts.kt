@@ -44,8 +44,8 @@ class SempodsRdf4jContexts internal constructor(
    * The IRIs of the contexts the session sees: what the catalogue names with `sd:namedGraph`
    * (SPS-CTX-033), in the order the pod wrote them and without repeats.
    *
-   * A catalogue the session has no answer for — a pod the server does not know — is an empty list
-   * rather than a failure, as [listModel] hands back a null body for it. What each context *is*, and
+   * A pod the server does not know answers `404`, whose body is null here as it is for every read of
+   * this group ([SempodsResponse]) — no catalogue rather than a failure. What each context *is*, and
    * what this session may do with it, is in [listModel]'s graph; this is the membership alone.
    */
   @JvmOverloads
