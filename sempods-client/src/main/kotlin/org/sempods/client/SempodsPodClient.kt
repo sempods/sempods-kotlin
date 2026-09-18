@@ -33,10 +33,9 @@ import org.sempods.media.UploadedMedia
  * would have satisfied. [asRequestAuth] is where [auth] becomes that credential.
  *
  * **An answer outside the route's contract is a failure rather than an empty result.** A malformed
- * SPARQL result no longer reads as `false` or as no rows, an `ASK` whose `boolean` is not one is
- * refused, a `typed-literal` term is not a literal, and the catalogue is read as RDF — the JSON
- * envelopes that predate it are gone. Each is a [SempodsClientException] carrying the status and
- * what the pod wrote.
+ * SPARQL result, an `ASK` whose `boolean` is not one, a `typed-literal` term and a catalogue that is
+ * not RDF are each a [SempodsClientException] carrying the status and what the pod wrote. An answer
+ * is also read into memory up to 16 MiB, [sparqlSelect] included.
  *
  * **Everything here carries pod-scoped authority, and that is what decides what belongs on it.**
  * Media writes go through the very same `PodContextWriteAuthorizer` and the very same
@@ -329,7 +328,7 @@ class SempodsPodClient(
     translating {
       // An external subject — an offer keyed by its ticket-shop URI, say — has no DELETE URL under
       // the pod. The System layer addresses any subject by its IRI, so one call removes what it
-      // holds in the context; this used to read the subject's predicates and clear each slot in turn.
+      // holds in the context.
       if (isUnderPodBase(resourceUri)) {
         pod.resources().delete(resourceUri.toString(), options)
       } else {
@@ -400,7 +399,8 @@ class SempodsPodClient(
    * SPARQL `SELECT` against `{pod}/_system/sparql/query`, scoped by the credential, with the 401
    * retry. Returns the SPARQL-Results-JSON body **verbatim** — the caller wrote the query and owns
    * the shape of its bindings, so parsing and re-serialising here would only be a chance to lose
-   * something.
+   * something. It is read into memory, and a body over 16 MiB is a failure rather than a truncation;
+   * a query whose answer runs that large is one to page.
    *
    * **Safe to retry because the server forbids the alternative, not by convention:**
    * `SparqlQueryService` rejects every Update form and refuses `SERVICE` anywhere in the algebra, so

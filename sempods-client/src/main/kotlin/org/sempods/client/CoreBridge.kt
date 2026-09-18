@@ -22,7 +22,9 @@ import java.io.IOException
  *
  * What it keeps from the legacy tier is the rest of that contract: `null` is an anonymous request,
  * a 401 on one drops [SempodsAuth.invalidate] and earns one further attempt, and a 401 on a request
- * that carried no bearer earns none, because there is nothing to re-mint.
+ * that carried no bearer earns none, because there is nothing to re-mint. A connection resend is an
+ * attempt too, so it asks again without invalidating first — [SempodsAuth.token] says what that
+ * costs an implementation that mints per call.
  */
 internal fun SempodsAuth.asRequestAuth(): SempodsRequestAuth = LegacyRequestAuth(this)
 

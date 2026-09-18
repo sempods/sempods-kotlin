@@ -20,16 +20,20 @@ fun interface SempodsAuth {
   /**
    * The bearer for the next request, or `null` for an anonymous one.
    *
-   * **Asked once per operation and never cached by the client**, so an implementation owns its own
+   * **Asked once per attempt and never cached by the client**, so an implementation owns its own
    * expiry policy — a token provider typically caches until `expires_in − 60 s`, while the
    * pod server's test seeding re-derives per call because the scope set it needs grows as a test
    * registers contexts. Neither would survive a client that captured a token when it was bound.
+   *
+   * **An attempt, not an operation**: a connection lost before any answer earns an idempotent
+   * request one resend, and that resend is authenticated afresh. An implementation that must not be
+   * asked twice for one operation caches what it answers.
    */
   fun token(): String?
 
   /**
-   * Drop whatever [token] would return, so the next call re-acquires it. [SempodsPodClient] calls
-   * this after a 401 and before its single retry: a refresh margin narrows the expiry race but
+   * Drop whatever [token] would return, so the next call re-acquires it. A refused bearer brings
+   * this and one further attempt ([asRequestAuth]): a refresh margin narrows the expiry race but
    * cannot close it, because a token can be rotated or revoked mid-flight.
    *
    * **No-op by default, and what that costs is one wasted request.** With a fixed bearer the retry

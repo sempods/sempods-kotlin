@@ -61,9 +61,9 @@ class SempodsHttpTransport @JvmOverloads constructor(
       .readTimeout(timeouts.read)
       .writeTimeout(timeouts.write)
       // The caller's trace, for every request this client sends rather than only the ones
-      // [newRequest] builds. A request built any other way used to end the trace silently, and
-      // [calls] hands this client to endpoint groups that build their own. It leaves a request that
-      // already carries the header alone, so [newRequest]'s own remains what goes out.
+      // [newRequest] builds: [calls] hands it to endpoint groups that build their own, and a header
+      // set while building reaches none of those. It leaves a request that already carries the
+      // header alone, so [newRequest]'s own remains what goes out.
       .addInterceptor(TraceparentInterceptor),
     guard,
     admission = null,

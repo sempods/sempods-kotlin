@@ -523,9 +523,8 @@ class SempodsPodClientTest {
 
   /**
    * The System layer addresses a subject the pod does not host by its IRI, so removing what it holds
-   * in a context is one call. It used to be a `SELECT` for the subject's predicates followed by a
-   * slot write per predicate — the same end state, at one round trip per edge, and racing anything
-   * that wrote an edge in between.
+   * in a context is **one** call: no read of the subject's predicates, and no write per edge that a
+   * concurrent writer could slip between.
    */
   @Test
   fun `delete of an external subject sends one System-layer DELETE`() {
@@ -931,10 +930,10 @@ class SempodsPodClientTest {
   }
 
   /**
-   * A request built by an endpoint group is not built by [SempodsHttpTransport.newRequest], which is
-   * where this surface used to put the header. The trace has to reach it all the same: the hosted
-   * MCP service binds one while it handles an incoming request, and a call that drops it ends the
-   * cross-service correlation without saying so.
+   * An endpoint group builds its own request, so a header put on by
+   * [SempodsHttpTransport.newRequest] is not on it. The trace has to reach it all the same: the
+   * hosted MCP service binds one while it handles an incoming request, and a call that drops it ends
+   * the cross-service correlation without saying so.
    */
   @Test
   fun `a call through the session carries the caller's trace`() {
