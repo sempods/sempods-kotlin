@@ -74,9 +74,11 @@ fun interface SempodsCredentialSupplier {
  * gets at most one authentication retry.
  *
  * **Concurrency.** An instance is shared by every call of its session and must be safe for
- * concurrent use. [refreshable] coalesces: callers refused at the same moment make one acquisition
- * between them, whether or not the supplier answers with a new value, and a session with a
- * different credential is not held up by it.
+ * concurrent use. [refreshable] coalesces: while one acquisition is in flight, every caller refused
+ * for the credential it replaces takes its result, whether or not the value changed. A refusal that
+ * reaches recovery after that acquisition finished acquires again, because what a mechanism is told
+ * is the credential a request carried and never the acquisition it came from. A session with a
+ * different credential is held up by none of it.
  */
 fun interface SempodsRequestAuth {
 
@@ -207,9 +209,15 @@ fun interface SempodsRequestAuth {
  * The refreshable bearer, and how the coalescing [SempodsRequestAuth] promises is kept.
  *
  * **Every acquisition raises [generation], and a caller reads it before the credential.** One that
- * completed while this caller waited shows as a moved generation, so a refusal wave shares it even
- * where the supplier answered with the same value. The value comparison beside it is the fast path,
- * for a caller whose credential another thread has already replaced.
+ * completed since that read shows as a moved generation, so callers refused together share a single
+ * acquisition even where the supplier answered with the same value. The value comparison beside it
+ * is the fast path, for a caller whose credential another thread has already replaced.
+ *
+ * The read happens when recovery starts, which is as close to the refusal as the header gets: it
+ * names the credential a request carried and not the acquisition that produced it. A caller whose
+ * refusal reaches recovery after the wave's acquisition finished therefore acquires once more, where
+ * the supplier answered with the same value. Recognising it would take the generation of the attempt
+ * that was refused, which no hook carries today.
  *
  * The lock is this object's, so it is per credential: a session authenticating against another pod
  * shares none of it.
