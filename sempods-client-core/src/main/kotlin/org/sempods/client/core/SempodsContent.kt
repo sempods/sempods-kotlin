@@ -31,8 +31,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 sealed class SempodsContent {
 
-  /** The body of one request. */
-  internal abstract fun requestBody(mediaType: MediaType): RequestBody
+  /**
+   * This content as the body of one request, sent as [mediaType].
+   *
+   * A protocol module builds its own request through [SempodsSession.newRequest] and needs a body for
+   * it; this is where one comes from, so the resend rules above hold for its route as they do for the
+   * core's own. Calling it twice on stream content is refused — a stream is sent once.
+   */
+  abstract fun requestBody(mediaType: MediaType): RequestBody
 
   private class Bytes(private val bytes: ByteArray) : SempodsContent() {
     override fun requestBody(mediaType: MediaType): RequestBody = bytes.toRequestBody(mediaType)
