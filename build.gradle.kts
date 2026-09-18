@@ -40,6 +40,7 @@ val publishedModules = listOf(
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",
+  "sempods-media",
   "sempods-media-s3",
   "sempods-model",
   "sempods-server",

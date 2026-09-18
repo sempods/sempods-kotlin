@@ -3,9 +3,8 @@ plugins {
 }
 
 dependencies {
-  // Framework-free, and now actually so: `sempods-model` used to depend on an application
-  // framework and put Jersey and an object mapper behind this client through the back door.
-  api(project(":sempods-model"))
+  // `api`, because `uploadMedia` answers with `UploadedMedia`.
+  api(project(":sempods-media"))
 
   // For the W3C trace binding only. Deliberately framework-free and Guice-free: this is a library
   // a consumer binds itself, and the module it is published as must not hand a stranger an
@@ -53,6 +52,11 @@ dependencies {
 
   // No logging: nothing in this module logs. A failed request is handed back rather than written
   // down — see `SempodsClientException`.
+
+  // The vocabulary a test writes its fixtures with. Nothing in this module's own signatures names
+  // anything from it any more: the media contract left for `:sempods-media`, and the RDF types here
+  // are RDF4J's own.
+  testImplementation(project(":sempods-model"))
 
   testImplementation(libs.slf4jApi)
   // The mock HTTP server five of this module's suites drive — one of the three that do, which is
