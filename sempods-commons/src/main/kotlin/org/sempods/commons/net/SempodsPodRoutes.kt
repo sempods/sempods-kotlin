@@ -7,10 +7,10 @@ import java.net.URI
  * The paths of a pod's HTTP surface, relative to the pod's base URL — one definition for every
  * client that dials one.
  *
- * **Why this is in `commons` and not with the pod contract.** Two layers of `:sempods-client` speak
- * these routes from different worlds — `PodWireClient` in JSON-LD with ETags, `SempodsClient` in
- * RDF4J `Model` over n-quads (see `docs/pod-client.md` §"Two representations, three
- * bindings") — and route knowledge is what they must not spell differently. It sits in `commons`
+ * **Why this is in `commons` and not with the pod contract.** Two clients speak these routes from
+ * different worlds — `PodWireClient` in JSON-LD with ETags, `SempodsRdf4jPod` in RDF4J `Model` over
+ * n-quads (see `docs/pod-client.md` §"Two representations") — and route knowledge is what they must
+ * not spell differently. It sits in `commons`
  * rather than beside either because `commons` is the module every consumer already has, and a
  * definition in `:sempods-model` would pull RDF4J toward services that hold no RDF. Same shape as
  * [org.sempods.commons.identity.WebIdUriDeriver]: a formula two modules must agree on, defined

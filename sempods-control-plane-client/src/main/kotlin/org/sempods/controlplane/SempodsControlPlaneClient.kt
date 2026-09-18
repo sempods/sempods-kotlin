@@ -17,7 +17,7 @@ import java.net.URI
  * specification depends on `:sempods-client` alone, and nothing about this module can be mistaken
  * for the contract.
  *
- * **Bound to a server and a credential, deliberately unlike [org.sempods.client.SempodsClient].**
+ * **Bound to a server and a credential**, the way a pod client binds a pod and one.
  * A pod base URL varies per call in a backend serving many pods; a host admin credential does not —
  * it is one per deployment, read from configuration at startup, and threading it through every call
  * only creates opportunities to thread the wrong one.

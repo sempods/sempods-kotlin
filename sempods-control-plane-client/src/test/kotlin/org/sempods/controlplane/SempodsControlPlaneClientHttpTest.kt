@@ -23,7 +23,7 @@ import java.net.URI
  * Wire-format coverage for [SempodsControlPlaneClient]: URL shape, the admin bearer, and the
  * status-code mapping each route's contract promises.
  *
- * These routes had no client-side test while they lived in `SempodsClient` — the only coverage was
+ * These routes had no client-side test while they lived in the pod client — the only coverage was
  * a consumer's integration suite and `AdminPodsEndpointHttpTest` on the server side, neither of
  * which pins what this client sends.
  */
