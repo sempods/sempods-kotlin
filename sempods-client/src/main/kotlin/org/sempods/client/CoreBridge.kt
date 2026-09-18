@@ -14,9 +14,9 @@ import java.io.IOException
  * **The bearer is asked per attempt rather than held**, which is what separates this from
  * [SempodsRequestAuth.refreshable]. That convenience caches the value it acquired and asks its
  * supplier again only after a refusal — correct for a credential that changes when it expires, and
- * wrong for this one: [SempodsAuth.token] is documented as asked once per operation and never
- * cached by the client, and the pod server's own test seeding re-derives per call because the scope
- * set it needs grows as a test registers contexts. Held, such a token would carry no scope for a
+ * wrong for this one: [SempodsAuth.token] is never cached by the client, and the pod server's own
+ * test seeding re-derives per call because the scope set it needs grows as a test registers
+ * contexts. Held, such a token would carry no scope for a
  * context registered after it was first acquired, and the pod would answer 403 — which no recovery
  * retries.
  *
