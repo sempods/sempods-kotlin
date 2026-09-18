@@ -54,9 +54,12 @@ failures rather than empty results, and an answer is read into memory up to 16 M
 `SempodsHttpTransport` sits under `SempodsClient` and the media calls above it: the legacy
 surface, with a token stamped on each request and the JSON helpers (`objectMapper`, `requiredText`)
 the core does without. It runs on a client `SempodsOkHttp.install` configured, so the guard and the
-redirect policy have one implementation, and it sends no session's requests, so the session's
-authentication, resend and admission do not apply. It hands the tiers the failure shape they classify
-on (`SempodsClientException`, carrying the server's own body).
+redirect policy have one implementation. **Its own requests carry no session**, and the session's
+authentication and resend apply to none of them — a request one of its callers built is authenticated
+where it is built. The same client sends the sessions' requests, which do carry one: that is what
+`calls` hands the tiers above (§"The tiers"). Admission applies to neither, because this client is
+configured without a budget. It hands the tiers the failure shape they classify on
+(`SempodsClientException`, carrying the server's own body).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
 many pods resolves its own names and builds one bound client per pod; where the names come from is a

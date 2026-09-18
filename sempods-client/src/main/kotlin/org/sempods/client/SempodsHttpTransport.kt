@@ -50,10 +50,13 @@ class SempodsHttpTransport @JvmOverloads constructor(
 
   /**
    * The core's guard, redirect policy and deadlines, with OkHttp's own resend left on and no admission
-   * budget. The core's resend rule applies to a session's calls, which this surface does not make;
-   * its callers were written against a transport that bridged a pooled connection the server had
-   * already closed. A repeat below this surface sends nothing stale, because the bearer is fixed on the
-   * request before it arrives.
+   * budget.
+   *
+   * **OkHttp's resend, for the requests this surface builds**: they carry no session, so the core's
+   * resend rule — which is a session's — does not reach them, and their callers were written against
+   * a transport that bridged a pooled connection the server had already closed. A repeat of one sends
+   * nothing stale, because the bearer is fixed on the request before it arrives. A session's request
+   * sent through [calls] gets the core's rule instead, and OkHttp's is off below the session.
    */
   private val httpClient: OkHttpClient = SempodsOkHttp.install(
     SHARED.newBuilder()
