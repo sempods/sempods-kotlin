@@ -65,6 +65,7 @@ import org.sempods.client.core.SempodsPodSparql;
 import org.sempods.client.core.SempodsPodSubjects;
 import org.sempods.client.core.SempodsReadOptions;
 import org.sempods.client.core.SempodsRequestAuth;
+import org.sempods.client.core.SempodsResponseFacts;
 import org.sempods.client.core.SempodsResponse;
 import org.sempods.client.core.SempodsSession;
 import org.sempods.client.core.SempodsSparqlResults;
@@ -114,6 +115,8 @@ class ClientCoreFromJavaTest {
     server.createContext("/alice/_system/probe", exchange -> {
       exchange.getResponseHeaders().add("X-Saw-Api-Key", header(exchange, "X-Api-Key"));
       exchange.getResponseHeaders().add("X-Saw-Tracing", header(exchange, "Y-My-Tracing"));
+      // A header worth keeping for the next request, on an answer no retry would ever have shown.
+      exchange.getResponseHeaders().add("DPoP-Nonce", "n-1");
       exchange.sendResponseHeaders(204, -1);
       exchange.close();
     });
@@ -239,8 +242,12 @@ class ClientCoreFromJavaTest {
     }
   }
 
-  /** Both methods of the authentication hook, written in Java. */
+  /** All three methods of the authentication hook, written in Java. */
   private static final class ApiKey implements SempodsRequestAuth {
+
+    final List<Integer> told = new ArrayList<>();
+    volatile String nonce;
+    volatile int challenges = -1;
 
     @Override
     public void apply(Request.Builder request, SempodsAuthAttempt attempt) {
@@ -248,7 +255,16 @@ class ClientCoreFromJavaTest {
     }
 
     @Override
-    public boolean recover(Response response, SempodsAuthAttempt attempt) throws IOException {
+    public void observe(SempodsResponseFacts facts, SempodsAuthAttempt attempt) throws IOException {
+      told.add(facts.getStatus());
+      challenges = facts.getChallenges().size();
+      if (facts.getHeaders().get("DPoP-Nonce") != null) {
+        nonce = facts.getHeaders().get("DPoP-Nonce");
+      }
+    }
+
+    @Override
+    public boolean recover(SempodsResponseFacts facts, SempodsAuthAttempt attempt) throws IOException {
       return false;
     }
   }
@@ -282,8 +298,9 @@ class ClientCoreFromJavaTest {
 
   @Test
   void anExtensionWrittenInJavaCarriesItsAuthenticationAndInterceptor() throws IOException {
+    ApiKey auth = new ApiKey();
     SempodsSession session = new SempodsSession(
-        SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"), new ApiKey());
+        SempodsPodBase.of("http://127.0.0.1:" + server.getAddress().getPort() + "/alice"), auth);
     Request request = session.newRequest("HEAD", "_system/probe").build();
     assertEquals(SempodsOkHttp.UNBOUND_HOST, request.url().host());
 
@@ -292,6 +309,10 @@ class ClientCoreFromJavaTest {
       assertEquals("k-123", response.header("X-Saw-Api-Key"), "the authentication did not reach the pod");
       assertEquals("trace-42", response.header("X-Saw-Tracing"), "the consumer's interceptor did not run");
     }
+
+    assertEquals(List.of(204), auth.told, "a successful answer is shown to the mechanism");
+    assertEquals("n-1", auth.nonce, "the header to keep for the next request did not arrive");
+    assertEquals(0, auth.challenges, "a 204 defines no challenge");
   }
 
   @Test

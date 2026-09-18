@@ -235,13 +235,15 @@ class SempodsSessionAuthTest : MockPodTest() {
     // The seam a later proof-of-possession mechanism needs: the header is computed from the request
     // and the attempt, so replaying the first attempt's value is structurally impossible.
     val challenges = mutableListOf<String>()
+    val schemes = mutableListOf<String>()
     val perAttempt = object : SempodsRequestAuth {
       override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
         request.header("X-Proof", "${attempt.number}")
       }
 
-      override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
-        challenges += response.headers("WWW-Authenticate").joinToString()
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+        challenges += facts.headers.values("WWW-Authenticate").joinToString()
+        schemes += facts.challenges.map { it.scheme }
         return attempt.number == 1
       }
     }
@@ -253,6 +255,8 @@ class SempodsSessionAuthTest : MockPodTest() {
 
     assertEquals("accepted", a.text("x").second)
     assertEquals(listOf("DPoP-ish nonce=\"n1\""), challenges)
+    // The challenges are OkHttp's own parse of that header, so a mechanism needs no parser of its own.
+    assertEquals(listOf("DPoP-ish"), schemes)
   }
 
   @Test
@@ -285,6 +289,46 @@ class SempodsSessionAuthTest : MockPodTest() {
 
     // One initial acquisition plus one refresh. More than two means the coalescing did not hold.
     assertEquals(2, minted.get())
+  }
+
+  @Test
+  fun `a concurrent refusal mints once although the value does not change`() {
+    // Coalescing counts acquisitions, whatever value they yield: a supplier that answers the same
+    // token after a forced refresh is asked once for the whole wave.
+    val minted = AtomicInteger()
+    val inRecovery = CountDownLatch(4)
+    val go = CountDownLatch(1)
+    val auth = refreshable { force: Boolean ->
+      minted.incrementAndGet()
+      if (force) go.await(5, TimeUnit.SECONDS)
+      "same-token"
+    }
+    val counted = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = auth.apply(request, attempt)
+
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+        inRecovery.countDown()
+        return auth.recover(facts, attempt)
+      }
+    }
+    val a = session("alice", counted)
+    // Every attempt is refused, so the count below is four callers with two attempts each.
+    server.`when`(request()).respond(response().withStatusCode(401))
+
+    val pool = Executors.newFixedThreadPool(4)
+    try {
+      val calls = (1..4).map { pool.submit<Int> { a.text("x").first } }
+      assertTrue(inRecovery.await(5, TimeUnit.SECONDS), "not every caller reached recovery")
+      // The winner holds the lock until `go`; this is the losers' room to read the generation.
+      Thread.sleep(100)
+      go.countDown()
+      calls.forEach { assertEquals(401, it.get(15, TimeUnit.SECONDS)) }
+    } finally {
+      pool.shutdownNow()
+    }
+
+    assertEquals(2, minted.get(), "one initial acquisition and one refresh for the whole wave")
+    assertEquals(8, server.retrieveRecordedRequests(request()).size)
   }
 
   @Test

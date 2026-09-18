@@ -5,7 +5,6 @@ import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import okhttp3.RequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -122,6 +121,31 @@ class SempodsConnectionResendTest {
       assertEquals(2, connections.get())
       assertEquals(2, requestHeads.size, "the attempt on the dropped connection never reached the server")
       assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    }
+  }
+
+  @Test
+  fun `a lost connection produces no answer to observe`() {
+    // Only an answer is observed. The attempt that died on the dropped connection produced none, so
+    // the mechanism is told about the resend's answer and nothing else.
+    val told = CopyOnWriteArrayList<Int>()
+    val watching = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) =
+        attemptHeader.apply(request, attempt)
+
+      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
+        told += facts.status
+      }
+    }
+    sempodsClient().closing { client ->
+      val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), watching)
+      leaveAStaleConnection(client, a)
+      told.clear()
+
+      client.newCall(a.newRequest("GET", "second").build()).execute().use { assertEquals(200, it.code) }
+
+      assertEquals(2, requestHeads.size)
+      assertEquals(listOf(200), told)
     }
   }
 
@@ -401,7 +425,7 @@ class SempodsConnectionResendTest {
         request.header("X-Attempt", "${attempt.number}")
       }
 
-      override fun recover(response: Response, attempt: SempodsAuthAttempt) = response.code == 401
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) = facts.status == 401
     }
     val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), retrying)
 

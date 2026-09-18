@@ -228,6 +228,12 @@ internal class ForeignCall(private val named: HttpUrl, private val auth: Sempods
     return mechanism.authenticate(request, attempt)
   }
 
+  /** Shows [attempt]'s answer to this call's mechanism, where it carries one. */
+  @Throws(IOException::class)
+  fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
+    auth?.observe(facts, attempt)
+  }
+
   /**
    * Throws when [request], about to be written, names another authority than the credential's: by its URL,
    * or by a `Host` header, which OkHttp sends in place of the URL's.

@@ -159,6 +159,9 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * OkHttp would also repeat a `408` under it, so the one resend a `GET` keeps after a lost connection is
    * made here ([ConnectionResend]). A client that follows redirects is refused: OkHttp would take the
    * credential along and strip only `Authorization`.
+   *
+   * The call's mechanism is told about the answer ([SempodsRequestAuth.observe]) and never asked to
+   * recover: one attempt is all a foreign target gets.
    */
   private fun foreignCall(chain: Interceptor.Chain, foreign: ForeignCall, request: Request): Response {
     if (chain.followRedirects) {
@@ -177,12 +180,14 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     val response = try {
       if (call.isCanceled()) throw IOException("Canceled")
       val sent = authenticating(call, number = 1) { foreign.authenticate(request, it) }
-      try {
+      val answer = try {
         quiet.proceed(sent)
       } catch (failure: IOException) {
         if (call.isCanceled() || !ConnectionResend.allowed(failure, sent, repeatable = false)) throw failure
         quiet.proceed(sent)
       }
+      observed(call, number = 1, response = answer, show = foreign::observe)
+      answer
     } catch (failure: Throwable) {
       slot.give()
       throw failure
@@ -199,6 +204,9 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * A lost connection is told apart by the failure's type alone. An `IOException` that an interceptor
    * after this one throws once the response arrived looks the same, and such a request is sent again
    * too ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
+   *
+   * Every answer is shown to the mechanism ([SempodsRequestAuth.observe]) before any of that is
+   * decided, so a refusal that earns no repeat still hands on what the server said.
    *
    * The call's admission slot is held as [SempodsAdmission] describes.
    */
@@ -227,6 +235,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     slot.take()
     try {
       val first = send()
+      val facts = observed(call, number, first, session.auth::observe)
       // A body that can be written once rules another attempt out, whatever the mechanism says: the
       // alternative is a repeat that sends nothing and is answered 200. The body is the one the attempt
       // sent, which an interceptor after this one may have replaced. A cancelled call is handed back as
@@ -235,7 +244,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
         return slot.holdUntilClosed(first)
       }
       val retry = try {
-        authenticating(call, number) { session.auth.recover(first, it) }
+        authenticating(call, number) { session.auth.recover(facts, it) }
       } catch (failure: Throwable) {
         first.close()
         throw failure
@@ -245,11 +254,34 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // the caller gets is the next attempt's.
       first.close()
       number++
-      return slot.holdUntilClosed(send())
+      val again = send()
+      observed(call, number, again, session.auth::observe)
+      return slot.holdUntilClosed(again)
     } catch (failure: Throwable) {
       slot.give()
       throw failure
     }
+  }
+
+  /**
+   * [response]'s facts, once [show] has seen them. Every answer a mechanism's call produced is shown
+   * to it once, ahead of any decision about a further attempt. A failure closes [response], so the
+   * caller's `catch` only has to give the slot back.
+   */
+  private fun observed(
+    call: Call,
+    number: Int,
+    response: Response,
+    show: (SempodsResponseFacts, SempodsAuthAttempt) -> Unit,
+  ): SempodsResponseFacts {
+    val facts = SempodsResponseFacts.of(response)
+    try {
+      authenticating(call, number) { show(facts, it) }
+    } catch (failure: Throwable) {
+      response.close()
+      throw failure
+    }
+    return facts
   }
 
   /** Runs [work] for attempt [number] of [call], and ends it when [work] returns. */

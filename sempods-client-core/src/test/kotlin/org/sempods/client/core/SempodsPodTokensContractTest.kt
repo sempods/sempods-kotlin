@@ -9,7 +9,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.Request
-import okhttp3.Response
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -121,7 +120,8 @@ class SempodsPodTokensContractTest : MockPodTest() {
           refreshable.apply(request, attempt)
         }
 
-        override fun recover(response: Response, attempt: SempodsAuthAttempt) = refreshable.recover(response, attempt)
+        override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) =
+          refreshable.recover(facts, attempt)
       }
       val pod = SempodsSession(alice, podBearer)
 

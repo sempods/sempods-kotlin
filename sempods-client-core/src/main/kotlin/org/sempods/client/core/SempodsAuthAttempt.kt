@@ -4,7 +4,8 @@ import okhttp3.Call
 
 /**
  * The credential work for one attempt of a call: what [SempodsRequestAuth.apply],
- * [SempodsRequestAuth.recover] and [SempodsCredentialSupplier.get] receive.
+ * [SempodsRequestAuth.observe], [SempodsRequestAuth.recover] and [SempodsCredentialSupplier.get]
+ * receive.
  *
  * The work lasts until the method that received it returns.
  */
