@@ -21,7 +21,6 @@ import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -94,9 +93,10 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a mechanism is applied once, as the first attempt, and never asked to recover`() {
+  fun `a mechanism is applied once, is told the answer, and is never asked to recover`() {
     answer(401, "", "WWW-Authenticate" to "Bearer")
     val attempts = CopyOnWriteArrayList<Int>()
+    val told = CopyOnWriteArrayList<Int>()
     val recovered = AtomicBoolean()
     val mechanism = object : SempodsRequestAuth {
       override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
@@ -104,7 +104,11 @@ class SempodsForeignTargetContractTest : MockPodTest() {
         request.header("Authorization", "Bearer refused")
       }
 
-      override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
+      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
+        told += facts.status
+      }
+
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
         recovered.set(true)
         return true
       }
@@ -115,6 +119,7 @@ class SempodsForeignTargetContractTest : MockPodTest() {
     assertEquals(401, refused.status)
     assertEquals("Bearer", refused.headers["WWW-Authenticate"])
     assertEquals(listOf(1), attempts)
+    assertEquals(listOf(401), told)
     assertFalse(recovered.get(), "a refusal is an answer here, not a reason to ask again")
     assertEquals(1, recorded().size)
   }

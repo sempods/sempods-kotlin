@@ -3,7 +3,6 @@ package org.sempods.client.core
 import okhttp3.Call
 import okhttp3.Credentials
 import okhttp3.Request
-import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.URLEncoder
@@ -59,20 +58,25 @@ fun interface SempodsCredentialSupplier {
  * **Applied per attempt, on the request that is about to go out.** [apply] receives the builder, so
  * a header it sets replaces a same-named header the caller put on the request, and it is recomputed
  * for every attempt — which is the seam a later proof-of-possession mechanism needs, where the
- * header is bound to the request and to a nonce the server just supplied.
+ * header is bound to the request and to a nonce the server just supplied. [observe] is where that
+ * nonce arrives, and [recover] where a refusal is claimed.
  *
  * **Headers, and nothing else.** A mechanism that changed the URL would carry the session's
  * credential to another authority, and one that changed the method or the body would send a request
  * the caller never built. The client's session interceptor compares all three after [apply] and
  * refuses the call.
  *
- * **Composition.** [andThen] applies the two in declaration order. On a challenge, [recover] is
- * asked in that same order and the first one to answer `true` wins; the rest are not asked.
- * However long the chain, one operation gets at most one authentication retry.
+ * **Composition.** [andThen] applies the two in declaration order and tells both about every
+ * answer. On a refusal, [recover] is asked in that same order and the first one to answer `true`
+ * wins; the rest are not asked. A mechanism claims the challenge that names it, so a bearer
+ * refresher and a nonce adapter each answer their own 401 whichever way round they are declared;
+ * where both claim one challenge, declaration order decides. However long the chain, one operation
+ * gets at most one authentication retry.
  *
  * **Concurrency.** An instance is shared by every call of its session and must be safe for
- * concurrent use. [refreshable] coalesces: concurrent callers that find the credential refused make
- * one acquisition between them, and a session with a different credential is not held up by it.
+ * concurrent use. [refreshable] coalesces: callers refused at the same moment make one acquisition
+ * between them, whether or not the supplier answers with a new value, and a session with a
+ * different credential is not held up by it.
  */
 fun interface SempodsRequestAuth {
 
@@ -81,15 +85,35 @@ fun interface SempodsRequestAuth {
   fun apply(request: Request.Builder, attempt: SempodsAuthAttempt)
 
   /**
-   * Whether another attempt would answer differently, having seen a refusal — a response outside 2xx.
+   * Told about [facts], the answer to [attempt] — every answer, a 2xx included, before the caller
+   * sees it.
    *
-   * **An opinion, not an instruction.** Only the execution layer authorizes a retry, and it refuses
-   * one for a non-replayable body or once the attempt budget is spent — so a mechanism returning
-   * `true` on every challenge cannot loop. [response] is the refusal itself, headers included; its
-   * body has not been read and must not be consumed here.
+   * **This is where a mechanism keeps what the server just said**, such as a `DPoP-Nonce` to send
+   * next time. It runs whether or not another attempt is possible, so a body that can be written
+   * once and a spent attempt budget hide nothing a later call needs.
+   *
+   * **A failure fails the call**, after closing the answer. The core logs nothing, so a mechanism
+   * whose bookkeeping may fail without consequence catches its own.
+   *
+   * One call per attempt. A repeat OkHttp makes below the session's interceptor — a `421` over a
+   * coalesced HTTP/2 connection — is not seen
+   * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    */
   @Throws(IOException::class)
-  fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean = false
+  fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) = Unit
+
+  /**
+   * Whether another attempt would answer differently, having seen a refusal — an answer outside 2xx.
+   *
+   * **Asked only when another attempt is possible.** A 2xx is never repeated, and a body that can
+   * be written once or a spent attempt budget rules a repeat out before this is asked. What the
+   * mechanism is told regardless is [observe]'s.
+   *
+   * **An opinion, not an instruction.** Only the execution layer authorizes a retry, so a mechanism
+   * that answers `true` to every challenge cannot loop.
+   */
+  @Throws(IOException::class)
+  fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean = false
 
   fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(listOf(this, next))
 
@@ -98,8 +122,11 @@ fun interface SempodsRequestAuth {
     override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) =
       members.forEach { it.apply(request, attempt) }
 
-    override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean =
-      members.any { it.recover(response, attempt) }
+    override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) =
+      members.forEach { it.observe(facts, attempt) }
+
+    override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean =
+      members.any { it.recover(facts, attempt) }
 
     override fun andThen(next: SempodsRequestAuth): SempodsRequestAuth = Composite(members + next)
   }
@@ -156,10 +183,15 @@ fun interface SempodsRequestAuth {
     /**
      * A bearer that can be re-acquired, and the only convenience that retries.
      *
-     * On a 401 the credential is dropped and one further attempt is made with a freshly supplied
-     * one; a supplier that fails fails the call with its exception. A refresh margin narrows the
-     * expiry race but cannot close it, because a token can be rotated or revoked mid-flight — which
-     * is why recovery exists at all rather than expiry handling alone.
+     * On a 401 it claims the refusal, drops the credential and makes one further attempt with a
+     * freshly supplied one; a supplier that fails fails the call with its exception. A refresh
+     * margin narrows the expiry race but cannot close it, because a token can be rotated or revoked
+     * mid-flight — which is why recovery exists at all rather than expiry handling alone.
+     *
+     * **It claims a 401 that names [scheme], and one that carries no challenge at all.** A
+     * `WWW-Authenticate: DPoP error="use_dpop_nonce"` belongs to whatever answers a nonce, and this
+     * bearer leaves a token that is still valid alone. An empty [scheme] — an API key in a header of
+     * its own — is named by no challenge, so a challenged 401 is another mechanism's.
      */
     @JvmStatic
     @JvmOverloads
@@ -172,15 +204,15 @@ fun interface SempodsRequestAuth {
 }
 
 /**
- * The refreshable bearer, with acquisition coalesced per credential.
+ * The refreshable bearer, and how the coalescing [SempodsRequestAuth] promises is kept.
  *
- * **A refusal says which credential it refused.** Threads refused at the same moment must make one
- * acquisition between them, and none may then throw away the value another just obtained. Recovery
- * therefore compares the header the refused request carried with the credential held now: when they
- * differ, another thread has replaced it already, and its value is the one to send.
+ * **Every acquisition raises [generation], and a caller reads it before the credential.** One that
+ * completed while this caller waited shows as a moved generation, so a refusal wave shares it even
+ * where the supplier answered with the same value. The value comparison beside it is the fast path,
+ * for a caller whose credential another thread has already replaced.
  *
  * The lock is this object's, so it is per credential: a session authenticating against another pod
- * shares none of it and is never held up.
+ * shares none of it.
  */
 private class Refreshable(
   private val supplier: SempodsCredentialSupplier,
@@ -192,32 +224,53 @@ private class Refreshable(
 
   @Volatile private var credential: String? = null
 
+  /** Acquisitions completed. Written under [lock], read without it. */
+  @Volatile private var generation: Long = 0
+
   override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
     request.header(headerName, headerValue(acquire(refused = null, attempt)))
   }
 
-  override fun recover(response: Response, attempt: SempodsAuthAttempt): Boolean {
-    if (response.code != 401) return false
-    val refused = response.request.header(headerName) ?: return false
+  override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+    if (facts.status != 401 || !claims(facts)) return false
+    val refused = facts.sentHeaders[headerName] ?: return false
     acquire(refused, attempt)
     return true
   }
 
-  /** The credential to send: the one held, unless it is what [refused] carried. */
+  /**
+   * Whether this refusal is of this mechanism's credential: a challenge naming [scheme], or no
+   * challenge at all, which names nothing and may as well be its own.
+   */
+  private fun claims(facts: SempodsResponseFacts): Boolean =
+    facts.challenges.isEmpty() ||
+      scheme.isNotEmpty() && facts.challenges.any { it.scheme.equals(scheme, ignoreCase = true) }
+
+  /** The credential to send: the one held, unless it is what [refused] carried and none has landed since. */
   private fun acquire(refused: String?, attempt: SempodsAuthAttempt): String {
-    credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
+    // Read before the credential: an acquisition overlapping this one then shows as a moved
+    // generation, and the pair is at worst conservative.
+    val seen = generation
+    credential?.let { held -> if (usable(held, refused, seen)) return held }
 
     awaitLock(attempt.call)
     try {
       // Another thread may have acquired one while this one waited; that is the coalescing.
-      credential?.let { held -> if (refused == null || headerValue(held) != refused) return held }
+      credential?.let { held -> if (usable(held, refused, seen)) return held }
       // The lock can come free just after the call was cancelled, which the wait checks only between polls.
       if (attempt.call.isCanceled()) throw IOException("Canceled while waiting to acquire a credential.")
-      return supplier.get(refused != null, attempt).also { credential = it }
+      return supplier.get(refused != null, attempt).also {
+        credential = it
+        generation++
+      }
     } finally {
       lock.unlock()
     }
   }
+
+  /** Whether [held] is worth sending: it is not what [refused] carried, or an acquisition landed since [seen]. */
+  private fun usable(held: String, refused: String?, seen: Long): Boolean =
+    refused == null || headerValue(held) != refused || generation != seen
 
   /**
    * Bounded twice: by [call], whose deadline cancels it, and by a floor for a call without a deadline.

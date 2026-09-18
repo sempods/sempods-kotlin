@@ -9,6 +9,7 @@ import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.SempodsPod
 import org.sempods.client.core.SempodsPodBase
 import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.core.SempodsResponseFacts
 import org.sempods.client.core.SempodsSession
 import org.sempods.client.core.SempodsWriteOptions
 import org.sempods.client.rdf4j.SempodsRdf4jPod
@@ -82,8 +83,8 @@ class SempodsTestPodAccess @Inject constructor(
       tokenFor(pod)?.let { request.header("Authorization", "Bearer $it") }
     }
 
-    override fun recover(response: okhttp3.Response, attempt: SempodsAuthAttempt): Boolean {
-      if (response.code != 401 || response.request.header("Authorization") == null) return false
+    override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+      if (facts.status != 401 || facts.sentHeaders["Authorization"] == null) return false
       invalidate(pod)
       return true
     }
