@@ -472,6 +472,24 @@ class PodToolExecutorTest {
   }
 
   @Test
+  fun `an answer too large to read says so, and says what to do about it`() {
+    // The size bound is the core's, and the exception it raises carries no body to forward — so a
+    // `200` would reach a model as "the pod refused the call" unless this layer says what happened.
+    // Declared rather than sent: the bound is checked against `Content-Length` before a byte is read.
+    server.`when`(request().withMethod("GET").withPath("/alice/_system/contexts"))
+      .respond(response().withStatusCode(200).withHeader("Content-Length", "20000000").withBody("x"))
+
+    val refused = assertThrows<PodToolRefusal> { run("list_contexts", null) }
+
+    assertEquals(200, refused.status)
+    assertEquals(
+      "the pod's answer is larger than the 16 MiB this client reads — ask for less: fewer contexts, " +
+        "a smaller limit, or a narrower query",
+      PodToolFailure.detail("list_contexts", refused.status, refused.reason),
+    )
+  }
+
+  @Test
   fun `an anonymous call carries no bearer`() {
     // The pod-immanent surface serves public contexts without a token; nullable is not an oversight.
     answer("GET", "/alice/_system/contexts", body = "{}")

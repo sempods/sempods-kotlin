@@ -1,6 +1,7 @@
 package org.sempods.mcp.core
 
 import org.sempods.client.core.SempodsClientException
+import org.sempods.client.core.SempodsDecodingException
 import org.sempods.client.core.SempodsResponseException
 import org.sempods.client.core.SempodsStatusException
 
@@ -44,9 +45,21 @@ class PodToolRefusal internal constructor(
       PodToolRefusal(
         refused.message.orEmpty(),
         refused.status,
-        (refused as? SempodsStatusException)?.bodyExcerpt.orEmpty(),
+        when (refused) {
+          is SempodsStatusException -> refused.bodyExcerpt
+          // The only body these tools ask the core for is text, so the one way its decoding fails
+          // is the size bound. Said again here because the core's own message names the URL, and
+          // left unsaid a `200` would reach a model as "the pod refused the call". A tool that ever
+          // asks the core for a typed result makes this too narrow.
+          is SempodsDecodingException -> OVERSIZED
+        },
         refused,
       )
+
+    /** What a caller shows when the answer did not fit the client core's 16 MiB bound. */
+    private const val OVERSIZED: String =
+      "the pod's answer is larger than the 16 MiB this client reads — ask for less: fewer contexts, " +
+        "a smaller limit, or a narrower query"
 
     /** The refusal for an answer the core handed over as a result — a status a group lists, or a body it cannot read. */
     @JvmSynthetic
