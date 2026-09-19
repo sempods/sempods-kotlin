@@ -3,7 +3,7 @@ package org.sempods.client.core
 import java.util.Collections
 
 /** One row of a SELECT result: the terms its variables are bound to. */
-class SempodsSparqlSolution internal constructor(
+class SempodsSparqlSolution private constructor(
   private val variables: Set<String>,
   bindings: Map<String, SempodsSparqlTerm>,
 ) {
@@ -28,4 +28,13 @@ class SempodsSparqlSolution internal constructor(
   override fun hashCode(): Int = 31 * variables.hashCode() + bindings.hashCode()
 
   override fun toString(): String = "SempodsSparqlSolution(bindings=${bindings.size})"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(
+      variables: Set<String>,
+      bindings: Map<String, SempodsSparqlTerm>,
+    ): SempodsSparqlSolution = SempodsSparqlSolution(variables, bindings)
+  }
 }

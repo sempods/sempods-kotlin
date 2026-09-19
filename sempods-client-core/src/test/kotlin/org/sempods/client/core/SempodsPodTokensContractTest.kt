@@ -144,7 +144,7 @@ class SempodsPodTokensContractTest : MockPodTest() {
     val typed = tokens().clientCredentials()
     assertEquals(200, typed.status)
     assertEquals("no-store", typed.headers["Cache-Control"])
-    assertEquals(SempodsTokenResponse(token, "Bearer", Duration.ofSeconds(900), "public-read"), typed.body)
+    assertEquals(SempodsTokenResponse.of(token, "Bearer", Duration.ofSeconds(900), "public-read"), typed.body)
 
     val raw = tokens().clientCredentialsJson()
     assertEquals(tokenDocument(""","expires_in":900,"scope":"public-read","refresh_token_hint":{"x":1}"""), raw.body)
@@ -220,7 +220,7 @@ class SempodsPodTokensContractTest : MockPodTest() {
 
   @Test
   fun `a token response names no credential when it is printed`() {
-    val printed = SempodsTokenResponse(token, "Bearer", Duration.ofSeconds(900), "public-read").toString()
+    val printed = SempodsTokenResponse.of(token, "Bearer", Duration.ofSeconds(900), "public-read").toString()
 
     assertFalse(printed.contains(token), printed)
     assertEquals("SempodsTokenResponse(tokenType=Bearer, expiresIn=PT15M, scope=public-read)", printed)

@@ -6,7 +6,7 @@ import java.util.Collections
  * A SELECT query's result, as the W3C SPARQL 1.1 Query Results JSON Format describes it: the declared
  * variables and the solutions, in the order the pod sent them.
  */
-class SempodsSparqlResults internal constructor(
+class SempodsSparqlResults private constructor(
   variables: List<String>,
   private val declared: Set<String>,
   solutions: List<SempodsSparqlSolution>,
@@ -34,4 +34,14 @@ class SempodsSparqlResults internal constructor(
 
   /** The variables and the number of solutions: the terms are the pod's data and stay out of logs. */
   override fun toString(): String = "SempodsSparqlResults(variables=$variables, solutions=${solutions.size})"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(
+      variables: List<String>,
+      declared: Set<String>,
+      solutions: List<SempodsSparqlSolution>,
+    ): SempodsSparqlResults = SempodsSparqlResults(variables, declared, solutions)
+  }
 }

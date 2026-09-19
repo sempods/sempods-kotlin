@@ -181,9 +181,9 @@ class SempodsPodSparql internal constructor(
           val position = positions[name] ?: throw solution.violation("binds a variable not in /head/vars")
           bindings[name] = term(solution.nestedNamed(name, "/results/bindings/$row, the binding of /head/vars/$position"))
         }
-        SempodsSparqlSolution(declared, bindings)
+        SempodsSparqlSolution.of(declared, bindings)
       }
-      SempodsSparqlResults(variables, declared, solutions)
+      SempodsSparqlResults.of(variables, declared, solutions)
     }
 
     fun term(binding: ProtocolObject): SempodsSparqlTerm {
@@ -204,7 +204,7 @@ class SempodsPodSparql internal constructor(
       }
       if (language != null && datatype != null) throw binding.violation("a literal carries xml:lang or datatype, and this one carries both")
       if (language == "") throw binding.violation("xml:lang: expected a language tag, found an empty string")
-      return SempodsSparqlTerm(kind, value, language, datatype)
+      return SempodsSparqlTerm.of(kind, value, language, datatype)
     }
   }
 }

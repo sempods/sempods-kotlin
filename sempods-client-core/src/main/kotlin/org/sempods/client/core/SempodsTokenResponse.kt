@@ -7,7 +7,7 @@ import java.time.Duration
  *
  * [toString] leaves out [accessToken], so a logged response carries no credential.
  */
-class SempodsTokenResponse internal constructor(
+class SempodsTokenResponse private constructor(
   /** The credential to send. */
   val accessToken: String,
   /** How to send [accessToken], for example `Bearer`. RFC 6749 compares it without regard to case. */
@@ -25,4 +25,15 @@ class SempodsTokenResponse internal constructor(
   override fun hashCode(): Int = listOf(accessToken, tokenType, expiresIn, scope).hashCode()
 
   override fun toString(): String = "SempodsTokenResponse(tokenType=$tokenType, expiresIn=$expiresIn, scope=$scope)"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(
+      accessToken: String,
+      tokenType: String,
+      expiresIn: Duration?,
+      scope: String?,
+    ): SempodsTokenResponse = SempodsTokenResponse(accessToken, tokenType, expiresIn, scope)
+  }
 }

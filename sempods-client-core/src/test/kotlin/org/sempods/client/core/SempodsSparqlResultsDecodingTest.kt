@@ -68,13 +68,13 @@ class SempodsSparqlResultsDecodingTest : MockPodTest() {
     assertEquals(listOf("book", "title", "n", "b", "unbound"), results.variables)
     assertEquals(2, results.solutions.size)
     val first = results.solutions.first()
-    assertEquals(SempodsSparqlTerm(SempodsSparqlTermKind.IRI, "http://example.org/book/1", null, null), first["book"])
-    assertEquals(SempodsSparqlTerm(SempodsSparqlTermKind.LITERAL, "Harry Potter", "en", null), first["title"])
+    assertEquals(SempodsSparqlTerm.of(SempodsSparqlTermKind.IRI, "http://example.org/book/1", null, null), first["book"])
+    assertEquals(SempodsSparqlTerm.of(SempodsSparqlTermKind.LITERAL, "Harry Potter", "en", null), first["title"])
     assertEquals(
-      SempodsSparqlTerm(SempodsSparqlTermKind.LITERAL, "42", null, "http://www.w3.org/2001/XMLSchema#integer"),
+      SempodsSparqlTerm.of(SempodsSparqlTermKind.LITERAL, "42", null, "http://www.w3.org/2001/XMLSchema#integer"),
       first["n"],
     )
-    assertEquals(SempodsSparqlTerm(SempodsSparqlTermKind.BLANK_NODE, "r1", null, null), first["b"])
+    assertEquals(SempodsSparqlTerm.of(SempodsSparqlTermKind.BLANK_NODE, "r1", null, null), first["b"])
     assertNull(first["unbound"])
     assertEquals(emptyMap(), results.solutions.last().bindings)
     assertEquals(listOf("http://example.org/book/1"), results.column("book").map { it.value })

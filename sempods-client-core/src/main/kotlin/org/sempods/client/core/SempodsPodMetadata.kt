@@ -52,7 +52,7 @@ class SempodsPodMetadata internal constructor(
     val ANSWERS = setOf(200, 404)
 
     val DATE_MODIFIED = BodyReading<SempodsPodDateModified> { bytes, _ ->
-      SempodsPodDateModified(decodeObject(bytes).stringOrNull("dateModified")?.let(::instant))
+      SempodsPodDateModified.of(decodeObject(bytes).stringOrNull("dateModified")?.let(::instant))
     }
 
     fun instant(text: String): Instant =
