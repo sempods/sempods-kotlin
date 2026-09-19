@@ -16,7 +16,7 @@ import java.time.format.DateTimeParseException
  * and `404` for a pod the server does not know. Both are answers ([SempodsResponse]); any other
  * status is a [SempodsStatusException].
  */
-class SempodsPodMetadata internal constructor(
+class SempodsPodMetadata private constructor(
   private val session: SempodsSession,
   private val exchange: Exchange,
 ) {
@@ -45,17 +45,21 @@ class SempodsPodMetadata internal constructor(
 
   private fun request() = session.newRequest("GET", ROUTE).header("Accept", "application/json").build()
 
-  private companion object {
+  internal companion object {
 
-    const val ROUTE = "_system/meta/date-modified"
+    @JvmSynthetic
+    internal fun of(session: SempodsSession, exchange: Exchange): SempodsPodMetadata =
+      SempodsPodMetadata(session, exchange)
 
-    val ANSWERS = setOf(200, 404)
+    private const val ROUTE = "_system/meta/date-modified"
 
-    val DATE_MODIFIED = BodyReading<SempodsPodDateModified> { bytes, _ ->
+    private val ANSWERS = setOf(200, 404)
+
+    private val DATE_MODIFIED = BodyReading<SempodsPodDateModified> { bytes, _ ->
       SempodsPodDateModified.of(decodeObject(bytes).stringOrNull("dateModified")?.let(::instant))
     }
 
-    fun instant(text: String): Instant =
+    private fun instant(text: String): Instant =
       try {
         Instant.parse(text)
       } catch (_: DateTimeParseException) {

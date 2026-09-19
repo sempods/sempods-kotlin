@@ -37,7 +37,7 @@ import java.util.Collections
  * [SempodsDecodingException]. A graph too large for that is what [graphStream] and [graphTo] are for:
  * they hand it over as it arrives, with no limit.
  */
-class SempodsPodSparql internal constructor(
+class SempodsPodSparql private constructor(
   private val session: SempodsSession,
   private val exchange: Exchange,
 ) {
@@ -149,23 +149,27 @@ class SempodsPodSparql internal constructor(
       .build()
   }
 
-  private companion object {
+  internal companion object {
 
-    const val ROUTE = "_system/sparql/query"
+    @JvmSynthetic
+    internal fun of(session: SempodsSession, exchange: Exchange): SempodsPodSparql =
+      SempodsPodSparql(session, exchange)
 
-    const val RESULTS_JSON = "application/sparql-results+json"
+    private const val ROUTE = "_system/sparql/query"
 
-    const val DEFAULT_GRAPH = "default-graph-uri"
+    private const val RESULTS_JSON = "application/sparql-results+json"
 
-    const val NAMED_GRAPH = "named-graph-uri"
+    private const val DEFAULT_GRAPH = "default-graph-uri"
 
-    val SPARQL_QUERY = "application/sparql-query".toMediaType()
+    private const val NAMED_GRAPH = "named-graph-uri"
 
-    val ANSWERS = setOf(200)
+    private val SPARQL_QUERY = "application/sparql-query".toMediaType()
 
-    val BOOLEAN = BodyReading<Boolean> { bytes, _ -> decodeObject(bytes).boolean("boolean") }
+    private val ANSWERS = setOf(200)
 
-    val RESULTS = BodyReading<SempodsSparqlResults> { bytes, _ ->
+    private val BOOLEAN = BodyReading<Boolean> { bytes, _ -> decodeObject(bytes).boolean("boolean") }
+
+    private val RESULTS = BodyReading<SempodsSparqlResults> { bytes, _ ->
       val document = decodeObject(bytes)
       val variables = document.nested("head").strings("vars")
       // Indexed once, and shared by every solution: the pod decides how many variables there are, and
@@ -186,7 +190,7 @@ class SempodsPodSparql internal constructor(
       SempodsSparqlResults.of(variables, declared, solutions)
     }
 
-    fun term(binding: ProtocolObject): SempodsSparqlTerm {
+    private fun term(binding: ProtocolObject): SempodsSparqlTerm {
       if ("its:dir" in binding.names()) {
         throw binding.violation("its:dir is SPARQL 1.2's base direction, outside the SPARQL 1.1 results format")
       }

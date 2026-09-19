@@ -43,7 +43,7 @@ import java.io.IOException
  *
  * **A body is read into memory, up to 16 MiB**; a larger one is a [SempodsDecodingException].
  */
-class SempodsPodResources internal constructor(
+class SempodsPodResources private constructor(
   private val operations: ResourceOperations,
 ) {
 
@@ -88,4 +88,10 @@ class SempodsPodResources internal constructor(
     resourceUri: String,
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.delete(resourceUri, options)
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(operations: ResourceOperations): SempodsPodResources = SempodsPodResources(operations)
+  }
 }
