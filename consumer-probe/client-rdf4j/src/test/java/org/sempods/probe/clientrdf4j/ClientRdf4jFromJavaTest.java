@@ -141,10 +141,9 @@ class ClientRdf4jFromJavaTest {
   @ValueSource(strings = {
       "org.apache.jena.rdf.model.Model",
       "com.fasterxml.jackson.databind.ObjectMapper",
-      "org.sempods.client.SempodsClient",
       "org.sempods.rdf.RdfWriterUtil",
   })
-  void resolvesNoJenaJackson2MapperOrLegacyClient(String className) {
+  void resolvesNoJenaJackson2MapperOrRdfDtos(String className) {
     assertThrows(ClassNotFoundException.class,
         () -> Class.forName(className, false, ClientRdf4jFromJavaTest.class.getClassLoader()),
         className + " is on this consumer's runtime classpath");

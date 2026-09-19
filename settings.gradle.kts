@@ -147,7 +147,6 @@ include(
   "sempods-auth",
   "sempods-auth-core",
   "sempods-bom",
-  "sempods-client",
   "sempods-client-core",
   "sempods-client-media",
   "sempods-client-rdf4j",
