@@ -66,9 +66,9 @@ internal class Exchange(
     calls.newCall(request).execute().use { response ->
       refuseUnlisted(response, answers)
       if (!response.isSuccessful) {
-        SempodsResponse(answered(response), response.code, response.headers, body = null, described(response))
+        SempodsResponse.of(answered(response), response.code, response.headers, body = null, described(response))
       } else {
-        SempodsResponse(
+        SempodsResponse.of(
           answered(response), response.code, response.headers, reader.read(response.body.byteStream()), described(response),
         )
       }
@@ -77,7 +77,7 @@ internal class Exchange(
   fun <T : Any> run(request: Request, answers: Set<Int>, reading: BodyReading<T>): SempodsResponse<T> {
     val answer = execute(request, answers, readBody = true)
     val bytes = answer.bytes
-      ?: return SempodsResponse(answer.url, answer.status, answer.headers, body = null, answer.described)
+      ?: return SempodsResponse.of(answer.url, answer.status, answer.headers, body = null, answer.described)
     val body = try {
       reading.read(bytes, answer.contentType)
     } catch (violation: ProtocolViolation) {
@@ -87,7 +87,7 @@ internal class Exchange(
         answer.headers,
       )
     }
-    return SempodsResponse(answer.url, answer.status, answer.headers, body, answer.described)
+    return SempodsResponse.of(answer.url, answer.status, answer.headers, body, answer.described)
   }
 
   private fun execute(request: Request, answers: Set<Int>, readBody: Boolean): Answer =

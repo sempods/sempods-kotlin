@@ -22,7 +22,7 @@ import java.io.InterruptedIOException
  * **Another representation of the same answer is [map]'s**, which is how a module above the core — an
  * RDF adapter, say — returns the status and headers with a body of its own.
  */
-class SempodsResponse<T : Any> internal constructor(
+class SempodsResponse<T : Any> private constructor(
   /**
    * The URL of the request this answers, without a fragment; after followed redirects
    * ([SempodsForeignTarget.followingRedirects]), the last one. A `Host` an interceptor set is not reflected.
@@ -71,4 +71,16 @@ class SempodsResponse<T : Any> internal constructor(
 
   /** The status alone: a body can carry a credential, and this string ends up in logs. */
   override fun toString(): String = "SempodsResponse(status=$status)"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun <T : Any> of(
+      url: String,
+      status: Int,
+      headers: Headers,
+      body: T?,
+      described: String,
+    ): SempodsResponse<T> = SempodsResponse(url, status, headers, body, described)
+  }
 }
