@@ -4,37 +4,36 @@ import org.sempods.commons.utils.UriEncodingUtil
 import java.net.URI
 
 /**
- * The paths of a pod's HTTP surface, relative to the pod's base URL — one definition for every
- * client that dials one.
+ * The paths of a pod's HTTP surface, relative to the pod's base URL — one definition for the server
+ * that mints IRIs on them and the clients that dial them.
  *
- * **Why this is in `commons` and not with the pod contract.** Two clients speak these routes from
- * different worlds — `PodWireClient` in JSON-LD with ETags, `SempodsRdf4jPod` in RDF4J `Model` over
- * n-quads (see `docs/pod-client.md` §"Two representations") — and route knowledge is what they must
- * not spell differently. It sits in `commons`
- * rather than beside either because `commons` is the module every consumer already has, and a
- * definition in `:sempods-model` would pull RDF4J toward services that hold no RDF. Same shape as
- * [org.sempods.commons.identity.WebIdUriDeriver]: a formula two modules must agree on, defined
- * once so they cannot drift apart quietly.
+ * **Why this is in `commons`.** The pod server writes these paths into the graph it serves: a
+ * context IRI *is* the URL that manages it, and a context's description points at the resource
+ * route. `:sempods-mcp-core` and `:sempods-client-media` dial the same paths from outside, and
+ * route knowledge is what the two sides must not spell differently. `commons` is the module every
+ * one of them already has, and a definition in `:sempods-model` would pull RDF4J toward services
+ * that hold no RDF. Same shape as [org.sempods.commons.identity.WebIdUriDeriver]: a formula several
+ * modules must agree on, defined once so they cannot drift apart quietly.
+ *
+ * `:sempods-client-core` is the one caller that keeps its own copies, because it resolves OkHttp
+ * and Jackson 3 and nothing else — `commons` would put a logging facade in a client that logs
+ * nothing (`docs/pod-client.md` §"Consumable as an artifact"). Each side pins its literal in its
+ * own suite.
  *
  * **Paths only — no HTTP, no query parameters, no coroutines.** A caller appends its own
  * `?context=…` and picks its own transport; every value here is relative and carries no leading
  * slash, so it composes with both `URI.resolve` and plain concatenation onto a trimmed base.
  *
- * The routes themselves are specified in sempods-spec, and this object is where a client reads
- * them rather than where they are decided: `spec/core/lod-crud.md` for the resource routes,
- * `spec/core/contexts.md` for the context routes, `spec/core/auth.md` for the token endpoint,
- * `spec/core/sparql.md` and `spec/core/find.md` for the two read surfaces, and
- * `spec/modules/media.md` for media.
+ * The routes themselves are specified in sempods-spec, and this object is where a caller reads
+ * them rather than where they are decided: `spec/core/lod-crud.md` for the resource route,
+ * `spec/core/contexts.md` for the context routes, `spec/core/find.md` for the text-query surface
+ * and `spec/modules/media.md` for media.
  *
  * The OIDC callback is `spec/modules/oidc.md`, which requires the route (`SPS-OIDC-014`) and fixes
  * what it does (`SPS-OIDC-011`, `SPS-OIDC-015`) without fixing where it sits; only
  * `openapi/module-oidc.yaml` spells the path. That is the weaker guarantee it looks like: the path
  * is a redirect URI registered with an upstream provider, so it is pinned by deployments rather
  * than by the spec.
- *
- * [META_DATE_MODIFIED] has nothing behind it at all. It exists because sync clients need a cheap
- * change probe, and until it is written down it is this implementation's alone — a client reading
- * the constant as a cross-implementation promise would be wrong.
  */
 object SempodsPodRoutes {
 
@@ -54,20 +53,11 @@ object SempodsPodRoutes {
   /** `GET {pod}/_system/contexts` — the contexts the bearer may see. */
   const val CONTEXTS = "_system/contexts"
 
-  /** `POST {pod}/_system/sparql/query` — read-only SPARQL, scoped by the bearer. */
-  const val SPARQL_QUERY = "_system/sparql/query"
-
   /** `POST {pod}/_system/find` — a context-sandboxed subgraph for a text query. */
   const val FIND = "_system/find"
 
   /** `POST {pod}/_system/media` — the media collection. */
   const val MEDIA = "_system/media"
-
-  /** `GET {pod}/_system/meta/date-modified` — the pod's last write, served anonymously. */
-  const val META_DATE_MODIFIED = "_system/meta/date-modified"
-
-  /** `POST {pod}/_system/auth/token` — the pod's token endpoint. */
-  const val AUTH_TOKEN = "_system/auth/token"
 
   /**
    * `GET {pod}/_system/auth/oidc/callback` — where the id-server sends the browser back.
@@ -78,26 +68,15 @@ object SempodsPodRoutes {
    */
   const val AUTH_OIDC_CALLBACK = "_system/auth/oidc/callback"
 
-  private const val RESOURCES = "_system/resources"
-
-  /** A context's management route, from its path below [CONTEXT_PATH_PREFIX]. */
-  fun context(relativeContextPath: String): String = "$CONTEXT_PATH_PREFIX$relativeContextPath"
-
   /**
    * The System-layer route of one resource: `_system/resources/{b64url(iri)}`.
    *
    * Base64url (RFC 4648 §5, no padding) so the subject may be **any** IRI, including one outside
    * the pod — which is what separates the System layer from the LOD resource path.
+   *
+   * Read by the pod server, which points a context description's `rdfs:seeAlso` at the route where
+   * the ordinary statements about that context IRI are read (`PodContextRegistryRdf`, SPS-CTX-032).
    */
-  fun resource(resourceIri: URI): String = "$RESOURCES/${segment(resourceIri)}"
-
-  /** One slot — all values of `(subject, predicate)`: `_system/resources/{b64url}/{b64url}`. */
-  fun slot(subjectIri: URI, predicateIri: URI): String =
-    "$RESOURCES/${segment(subjectIri)}/${segment(predicateIri)}"
-
-  /** One value inside a slot, addressed for idempotent removal. */
-  fun slotValue(subjectIri: URI, predicateIri: URI, targetIri: URI): String =
-    "${slot(subjectIri, predicateIri)}/${segment(targetIri)}"
-
-  private fun segment(iri: URI): String = UriEncodingUtil.encodeUriToUrlSafeBase64(iri)
+  fun resource(resourceIri: URI): String =
+    "_system/resources/${UriEncodingUtil.encodeUriToUrlSafeBase64(resourceIri)}"
 }
