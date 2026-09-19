@@ -35,8 +35,8 @@ dependencies {
 
   // The MCP tool catalog, JSON-RPC envelope and `PodToolExecutor`, shared with the hosted
   // `sempods-mcp` service. Framework-free like `:sempods-auth-core`, so the module that goes public
-  // inherits no HTTP stack from it — the pod client it brings along carries its own engine behind
-  // `SempodsHttpTransport` and exposes none.
+  // inherits no HTTP stack from it — the pod client it brings along runs on whatever `Call.Factory`
+  // its caller hands it.
   api(project(":sempods-mcp-core"))   // PodToolExecutor, JsonRpcRequest, ToolInputSchema, …
 
   // `PodMediaSource.MEDIA_TYPE`, which the upload route recognises and a client sends.

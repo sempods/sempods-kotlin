@@ -123,8 +123,8 @@ fifteen; and the JWKS fetch that verifies the resulting token after half a
 second, the tightest of the three sitting on the step nobody thinks about
 (cached for five minutes, so it bites on a cold cache). All are bounded, so
 a slow provider does not hang a request — but only the first was picked,
-none is configurable, and `sempods-client` is the only place in the tree
-where these are modelled deliberately. Figures in `oauth.md`
+none is configurable, and the pod client core is the only place in the
+tree where these are modelled deliberately. Figures in `oauth.md`
 ("Sharp edges").
 
 **A failed credential cannot be attributed to anybody.** When a refresh token is

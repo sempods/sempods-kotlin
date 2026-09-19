@@ -29,10 +29,10 @@ here samples, so claiming otherwise would tell a future collector to discard the
 (parse, format, `newChild`) and [`TraceContextHolder`](../sempods-commons/src/main/kotlin/org/sempods/commons/trace/TraceContextHolder.kt)
 (the per-thread binding).
 
-It sits in `sempods-commons` rather than in any one service because `sempods-client` must read it and
-depends on neither a framework nor Guice. Every module binds and reads the trace through
-`TraceContextHolder` directly; a facade in front of the holder would say nothing the holder does
-not.
+It sits in `sempods-commons` rather than in any one service because the two outbound bindings read
+it as well — `sempods-commons-okhttp` and `sempods-commons-ktor` — and neither may depend on a
+framework or Guice. Every module binds and reads the trace through `TraceContextHolder` directly; a
+facade in front of the holder would say nothing the holder does not.
 
 The holder writes the trace id into the SLF4J MDC in the same call that binds it, so the log
 label and the outgoing headers cannot disagree. The shared `logback-base.xml` renders the MDC via
@@ -76,7 +76,7 @@ for the preflight, `exposedHeaders` so the echo is readable.
 
 ## Outbound
 
-Three paths, because three HTTP clients are in use:
+Two paths, because two HTTP clients are in use:
 
 - **OkHttp** — `TraceparentInterceptor` (`sempods-commons-okhttp`), installed once in `OkHttpClientModule`,
   covers every call on the shared client `sempods-server` composes, and sits on the builder of every
@@ -85,7 +85,8 @@ Three paths, because three HTTP clients are in use:
   after `install`, so it runs inside the session's attempts and each attempt leaves with a
   `traceparent` of its own. An *application* interceptor, not a network one: the trace lives in a
   `ThreadLocal`, and only the application layer is guaranteed to run on the thread that called
-  `execute()`.
+  `execute()`. The core's `SempodsSession` sets no header of its own; the tracer goes on the
+  client it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
 - **Ktor client** — `TraceparentClientPlugin` (`sempods-commons-ktor`), installed on `sempods-auth`'s OIDC
   client, which is its only production installation. It reads the ambient trace from the holder,
   correct inside a call because the server-side interceptor bound a `TraceContextElement` for its
@@ -100,19 +101,11 @@ Three paths, because three HTTP clients are in use:
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — the legacy surface, whose client carries
-  no interceptor of its own; it sets the header when building a request instead, and every request
-  this surface sends is one it built. Nothing outside `:sempods-client` sends through it any more.
-  The core's `SempodsSession` sets none; the tracer goes on the client it sends with
-  ([`pod-client.md`](pod-client.md) §"Tracing").
 
-All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
+Both send `TraceContext.newChild()`, so the trace id carries and the span does not.
 
-**An explicit `traceparent` beats the ambient one on every path but the legacy transport.** The
-OkHttp interceptor and the Ktor plugin leave a request that already carries one alone.
-`SempodsHttpTransport.newRequest` does not: its builder *appends*, so an
-explicit `traceparent` there goes out **beside** the ambient one and the receiver sees two. No
-caller in the tree does that today; the `// TODO:` sits at that `newRequest`.
+**An explicit `traceparent` beats the ambient one.** Both the OkHttp interceptor and the Ktor
+plugin leave a request that already carries one alone.
 
 ## Across threads
 
@@ -138,5 +131,5 @@ its pod calls go out without a header.
 - `KtorTraceContextTest` — the same contract for the Ktor side, plus the two things only that
   side can get wrong: the binding surviving a dispatch to another thread, and the outbound
   plugin minting a child span rather than repeating the caller's.
-- `SempodsHttpTransportTraceTest` — the header on the wire, its absence outside a request, and one
-  trace id across two requests with a span each.
+- `TraceparentInterceptorTest` — the OkHttp side: a bound trace leaving as a fresh child span, a
+  `traceparent` the caller set explicitly left alone, and no header at all outside a trace.

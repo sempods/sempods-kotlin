@@ -4,7 +4,7 @@ plugins {
 }
 
 // A consumer pins this one coordinate and names no versions. The modules are only ever released
-// together, so a mix of `sempods-client` 0.2 with `sempods-model` 0.1 is a combination nothing
+// together, so a mix of `sempods-client-core` 0.2 with `sempods-model` 0.1 is a combination nothing
 // ran. The list comes from the root build, which is also what decides they are published.
 @Suppress("UNCHECKED_CAST")
 val publishedModules = rootProject.extra["publishedModules"] as List<String>

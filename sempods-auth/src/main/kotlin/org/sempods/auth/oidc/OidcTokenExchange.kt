@@ -30,8 +30,8 @@ import net.minidev.json.parser.JSONParser
  *  unbounded socket read — because nothing here sets them. They do bound a call to an
  *  unresponsive provider, so this is not the hang it was once documented as. What is open is that
  *  nobody chose them: the other leg of the same sign-in (`CommonsHttpTransport`, pod server →
- *  id-server) stops at a deliberate 10 s, and `sempods-client` models its timeouts explicitly
- *  with a per-call override. Neither of those shapes is available here. Persistent failure of a
+ *  id-server) stops at a deliberate 10 s, and `:sempods-client-core` sets one whole-call budget
+ *  a caller overrides per call. Neither of those shapes is available here. Persistent failure of a
  *  trusted issuer is also a case for a circuit breaker. `OidcHttpTimeoutsTest` pins the figures;
  *  named as a limitation in `docs/auth/README.md`.
  */

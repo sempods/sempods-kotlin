@@ -17,7 +17,7 @@ This package contains the per-pod data abstraction and business logic orchestrat
 ## Call flow
 
 ```
-Endpoint  (or, over HTTP, sempods-client)
+Endpoint  (or, over HTTP, sempods-client-core)
     │
     ▼
 PodFacade  (business logic: resources, slots, context lifecycle)

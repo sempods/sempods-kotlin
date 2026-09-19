@@ -7,8 +7,8 @@ import io.ktor.client.request.header
 
 /**
  * Carries the current trace onto every outgoing Ktor-client request — the counterpart of
- * `TraceparentInterceptor` in `commons-okhttp` and of `SempodsHttpTransport.newRequest` in
- * `sempods-client`, one of the four outbound paths in this tree (`docs/request-tracing.md`).
+ * `TraceparentInterceptor` in `commons-okhttp`, and one of the two outbound paths in this tree
+ * (`docs/request-tracing.md`).
  *
  * Each request gets its own span id via [TraceContext.newChild]: the trace id stays, the hop does
  * not. A request that already carries a `traceparent` is left alone — an explicit header beats an

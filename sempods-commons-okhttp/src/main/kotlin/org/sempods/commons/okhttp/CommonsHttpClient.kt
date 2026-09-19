@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets
  * a payload becomes a request, and which status codes are an error) and nothing else.
  *
  * **Blocking**, because on Java 25 a blocking send on a virtual thread is what an async client used
- * to buy — the reasoning `docs/pod-client.md` records for `:sempods-client`.
+ * to buy — the reasoning `docs/pod-client.md` records for `:sempods-client-core`.
  */
 class CommonsHttpClient(
   private val client: OkHttpClient,

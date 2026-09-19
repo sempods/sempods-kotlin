@@ -222,7 +222,7 @@ carries is one of the modules in this repository, and the list is short enough t
 ```
 
 `sempods-commons`, `sempods-commons-jaxrs`, `sempods-commons-json`, `sempods-commons-mongo`, `sempods-commons-okhttp`, `sempods-model`,
-`sempods-client-core`, `sempods-client`, `sempods-auth-core`, `sempods-mcp-core` — and nothing else with a `project :`
+`sempods-media`, `sempods-client-core`, `sempods-auth-core`, `sempods-mcp-core` — and nothing else with a `project :`
 prefix. Everything beyond them is a third-party library.
 
 **And the boundary between what a module exports and what it merely uses is

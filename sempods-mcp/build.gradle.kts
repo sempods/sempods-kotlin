@@ -14,7 +14,7 @@ dependencies {
   api(project(":sempods-commons"))
   // The pod HTTP surface, its SSRF guard and the pod base rules: this module names them directly
   // — in the tools, in the OAuth client, in the pod URL policy and in the suites that build a
-  // guarded client. Nothing here reaches for the legacy `:sempods-client` any more.
+  // guarded client.
   implementation(project(":sempods-client-core"))
   implementation(project(":sempods-auth-core"))
 

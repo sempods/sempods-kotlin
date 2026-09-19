@@ -119,8 +119,8 @@ A test that needs an external HTTP API stubs it with a local server and passes t
 the production client — which therefore takes its base URI as a constructor parameter with the real
 host as the default. Nothing in the suite is allowed to reach the network or use a live credential.
 
-**The stub belongs to the class, not to the suite.** `SempodsClientHttpTest` and
-`SempodsHttpTimeoutsTest` show the shape: a `ClientAndServer` started once in `@BeforeAll` on a
+**The stub belongs to the class, not to the suite.** `SempodsControlPlaneClientHttpTest` and the
+client core's `MockPodTest` base class show the shape: a `ClientAndServer` started once in `@BeforeAll` on a
 freshly picked port, `reset()` in `@BeforeEach`, stopped in `@AfterAll`. That is the isolation —
 one server per class, cleared between methods, which the class-level parallelism leaves intact
 because methods within a class do not run side by side. A stub is *not* keyed on the trace the way

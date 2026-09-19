@@ -32,7 +32,7 @@ One rule, and it covers both `AGENTS.md` files and the three documentation types
 
 - What governs a change is the `AGENTS.md` files on the path from the repository root **down to the
   directory of the file being changed** — those, and no others. `sempods-server/AGENTS.md` does not
-  govern an edit in `sempods-client/`, however specific it is.
+  govern an edit in `sempods-client-core/`, however specific it is.
 - **The more specific file wins** where two on that path conflict.
 - Reading a sibling subtree's file for orientation is fine. It still does not govern the edit; the
   path decides, not what happens to be loaded.

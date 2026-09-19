@@ -27,7 +27,7 @@ Published bytecode targets **Java 21**, while the build itself runs on 25.
 ## Versions
 
 One version for the whole repository, in `gradle.properties`. The modules are built, tested and
-released together, and a consumer holding `sempods-client` 0.2 against `sempods-model` 0.1 has a
+released together, and a consumer holding `sempods-client-core` 0.2 against `sempods-model` 0.1 has a
 combination nothing ever ran.
 
 * `0.x` says the API may still break between minors. It is not a statement about quality.
