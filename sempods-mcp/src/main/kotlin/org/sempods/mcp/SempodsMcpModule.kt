@@ -37,39 +37,52 @@ import org.sempods.mcp.api.mcp.WriteTools
 import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodTokenProvider
-import org.sempods.client.SempodsHttpTimeouts
-import org.sempods.client.SempodsHttpTransport
+import okhttp3.OkHttpClient
+import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.OutboundRateLimiter
 import org.sempods.client.core.net.SempodsOutboundGuard
-import org.sempods.client.wire.PodWireClient
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.SempodsMcpCoreModule
 import org.sempods.mcp.pods.PodUrlPolicy
 import java.time.Duration
 import org.sempods.mcp.pods.TokenRefreshScheduler
+import org.sempods.commons.okhttp.TraceparentInterceptor
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
 import java.net.URI
 
 class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
 
   /**
-   * The deadlines every outbound request runs under, pod fetch and issuer fetch alike.
+   * An outbound client with [guard] on it — pod fetch and issuer fetch alike.
    *
-   * **One definition on purpose.** These were spelled twice — once per transport — and one copy
+   * **One definition on purpose.** The deadlines were spelled twice, once per client, and one copy
    * silently lost its whole-call bound, which is the bound that matters: a server dripping bytes
-   * just inside the read timeout keeps a request open forever, and only [SempodsHttpTimeouts.call]
-   * stops it. On the login path that is a request a person is waiting on.
+   * just inside the read timeout keeps a request open forever, and only `callTimeout` stops it. On
+   * the login path that is a request a person is waiting on. It is set after `install`, which would
+   * otherwise read an unset deadline and put its own two minutes in.
    *
    * Tight because the caller is waiting in both cases: a hanging pod must not stall a tool call,
    * and a hanging issuer must not stall a sign-in. `dumpContext`-style streaming, the one thing a
    * whole-call bound would cut off wrongly, is not something this service does.
+   *
+   * **No admission budget**, as the transport this replaced had none: a fan-out opens one call per
+   * connected pod, and a shared ceiling of sixty-four would queue the sixty-fifth behind a pod that
+   * is merely slow. The per-pod budget on the pod client is the regulator, and it counts per pod.
+   *
+   * [TraceparentInterceptor] goes on the builder, where `docs/request-tracing.md` says it belongs.
    */
-  private val outboundTimeouts = SempodsHttpTimeouts(
-    connect = Duration.ofSeconds(5),
-    read = Duration.ofSeconds(10),
-    write = Duration.ofSeconds(10),
-    call = Duration.ofSeconds(10),
-  )
+  private fun outboundClient(guard: SempodsOutboundGuard): OkHttpClient =
+    SempodsOkHttp.install(
+      OkHttpClient.Builder()
+        .connectTimeout(Duration.ofSeconds(5))
+        .readTimeout(Duration.ofSeconds(10))
+        .writeTimeout(Duration.ofSeconds(10))
+        .addInterceptor(TraceparentInterceptor),
+      guard,
+      admission = null,
+    )
+      .callTimeout(Duration.ofSeconds(10))
+      .build()
 
   override fun configure() {
     // MongoDB (plain sync driver — no Morphia; standalone like sempods-auth). The address comes
@@ -191,9 +204,8 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
       // (SSRF into the internal issuer). This client never leaves the provider — it only ever
       // talks to the configured issuer's discovery, JWKS and token endpoints.
       transport = SempodsClientHttpTransport(
-        SempodsHttpTransport(
-          timeouts = outboundTimeouts,
-          guard = SempodsOutboundGuard(
+        outboundClient(
+          SempodsOutboundGuard(
             policy = podUrlPolicy.rules,
             trustedHosts = issuerHosts(config.authIssuers),
           ),
@@ -224,10 +236,10 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
 
   @Provides @Singleton
   fun podOAuthClient(
-    transport: SempodsHttpTransport,
+    calls: OkHttpClient,
     objectMapper: ObjectMapper,
     podUrlPolicy: PodUrlPolicy,
-  ): PodOAuthClient = PodOAuthClient(transport = transport, objectMapper = objectMapper, podUrlPolicy = podUrlPolicy)
+  ): PodOAuthClient = PodOAuthClient(calls = calls, objectMapper = objectMapper, podUrlPolicy = podUrlPolicy)
 
   /** Shared "give me a usable pod token" provider — used by the read tools and the refresh sweep. */
   @Provides @Singleton
@@ -251,30 +263,31 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   // --- pod read surface (service → pod HTTP System layer) ---
 
   /**
-   * The pod System-layer client — `:sempods-client`'s, with this service's hardening bolted on at
-   * the transport: DNS resolve-and-pin, the per-request IP-literal check, no proxy, no redirects,
-   * a per-pod budget, and timeouts tight enough that a hanging pod cannot stall a tool call.
+   * The client every pod call runs on — the client core's, with this service's hardening installed:
+   * DNS resolve-and-pin, the per-request IP-literal check, no proxy, no redirects, a per-pod budget,
+   * and the deadlines [outboundClient] sets.
    *
-   * NO trust exemptions: every request through this transport is vetted, because pod base URLs
-   * (and the endpoints their metadata advertises) are user input.
+   * NO trust exemptions: every request through this client is vetted, because pod base URLs (and
+   * the endpoints their metadata advertises) are user input. That is also why it is the one client
+   * this module binds by type — the issuer client next to it carries an exemption and is built
+   * inline so nothing can receive it by accident.
    */
   @Provides @Singleton
-  fun podTransport(podUrlPolicy: PodUrlPolicy): SempodsHttpTransport = SempodsHttpTransport(
-    timeouts = outboundTimeouts,
-    guard = SempodsOutboundGuard(
-      policy = podUrlPolicy.rules,
-      rateLimiter = perPodBudget(TokenBucketRateLimiter(config.podRateLimitPerMinute)),
-    ),
-  )
+  fun podCalls(podUrlPolicy: PodUrlPolicy): OkHttpClient =
+    outboundClient(
+      SempodsOutboundGuard(
+        policy = podUrlPolicy.rules,
+        rateLimiter = perPodBudget(TokenBucketRateLimiter(config.podRateLimitPerMinute)),
+      ),
+    )
 
   /**
-   * The thirteen pod tools, shared with the pod-immanent MCP: this service supplies the transport
-   * (SSRF guard, per-pod budget, timeouts) and its own `MULTI_POD` catalog, and gets back a
-   * blocking executor the dispatchers run one pod at a time through `podIo`.
+   * The thirteen pod tools, shared with the pod-immanent MCP: this service supplies its own
+   * `MULTI_POD` catalog and gets back a blocking executor the dispatchers run one pod at a time
+   * through `podIo`, against a pod bound to the call factory that operation can cancel.
    */
   @Provides @Singleton
-  fun podToolExecutor(transport: SempodsHttpTransport): PodToolExecutor =
-    PodToolExecutor(hostedToolCatalog, PodWireClient(transport))
+  fun podToolExecutor(): PodToolExecutor = PodToolExecutor(hostedToolCatalog)
 
   /**
    * The per-pod outbound budget, keyed by pod base = authority + first path segment.
@@ -300,17 +313,22 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
     tokenVaultDao: TokenVaultDao,
     podTokenProvider: PodTokenProvider,
     executor: PodToolExecutor,
+    calls: OkHttpClient,
     objectMapper: ObjectMapper,
     auditLog: AuditLog,
   ): ReadTools =
-    ReadTools(connectionRegistryDao, tokenVaultDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
+    ReadTools(
+      connectionRegistryDao, tokenVaultDao, podTokenProvider, executor, calls, objectMapper, config.mcpBaseUrl, auditLog,
+    )
 
   @Provides @Singleton
   fun writeTools(
     connectionRegistryDao: ConnectionRegistryDao,
     podTokenProvider: PodTokenProvider,
     executor: PodToolExecutor,
+    calls: OkHttpClient,
     objectMapper: ObjectMapper,
     auditLog: AuditLog,
-  ): WriteTools = WriteTools(connectionRegistryDao, podTokenProvider, executor, objectMapper, config.mcpBaseUrl, auditLog)
+  ): WriteTools =
+    WriteTools(connectionRegistryDao, podTokenProvider, executor, calls, objectMapper, config.mcpBaseUrl, auditLog)
 }

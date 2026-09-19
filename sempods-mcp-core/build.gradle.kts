@@ -16,14 +16,17 @@ dependencies {
   api(libs.jacksonDatabind)
   runtimeOnly(libs.jackson)
 
-  // `PodToolExecutor` runs the thirteen tools against one pod over `PodWireClient`, which is
-  // this module's surface — it is a constructor parameter — so `api` rather than `implementation`.
-  // Declaring it here rather than defining a second port interface is deliberate: a port would be
-  // the `PodApi` facade the consolidation deleted, rebuilt one module over.
-  //
-  // Jackson arrives with it: `PodWireClient` answers a `JsonNode`, so `:sempods-client` exports
-  // `jackson-databind`. This module declares it above all the same, being what it compiles against.
-  api(project(":sempods-client"))
+  // `PodToolExecutor` runs the thirteen tools against one pod over the client core's endpoint
+  // groups, and `PodToolPlan.Call.execute` takes a `SempodsPod` — this module's surface, so `api`
+  // rather than `implementation`. Declaring it here rather than defining a second port interface is
+  // deliberate: a port would be the `PodApi` facade the consolidation deleted, rebuilt one module
+  // over.
+  api(project(":sempods-client-core"))
+
+  // `api` because OkHttp is in this module's surface: `podAt` takes the `Call.Factory` a pod handle
+  // runs on. It arrives through the core's `api` either way — declaring it is the repository's rule
+  // that a type you compile against is one you say you have.
+  api(libs.okhttp)
 
   // `ReauthorizeChallengeStore` is Mongo-backed, so the driver arrives — `api`, because a
   // `MongoDatabase` is a constructor parameter and therefore this module's surface. It is the
@@ -49,5 +52,8 @@ dependencies {
   // dependency it does not have.
 
   testImplementation(libs.jacksonKotlin)
+  // `PodToolExecutorTest` serves a pod rather than stubbing one: the mapping it checks is the
+  // request that leaves, which only a server can be asked about.
+  testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 }

@@ -17,7 +17,10 @@ import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.needsReconnect
-import org.sempods.client.SempodsClientException
+import okhttp3.Call
+import org.sempods.client.core.SempodsClientException
+import org.sempods.mcp.core.PodToolRefusal
+import org.sempods.mcp.core.podAt
 import org.sempods.mcp.pods.PodTokenProvider
 import org.sempods.mcp.pods.isRetryablePodFailure
 import org.sempods.mcp.pods.podIo
@@ -26,7 +29,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import io.github.oshai.kotlinlogging.KotlinLogging
-import java.net.URI
 
 /**
  * The read tools, as this service means them: **many pods**.
@@ -48,6 +50,7 @@ class ReadTools(
   private val tokenVaultDao: TokenVaultDao,
   private val podTokenProvider: PodTokenProvider,
   private val executor: PodToolExecutor,
+  private val calls: Call.Factory,
   private val objectMapper: ObjectMapper,
   private val mcpBaseUrl: String,
   private val auditLog: AuditLog,
@@ -202,27 +205,29 @@ class ReadTools(
     } ?: return podError(pod, "no_token", "no valid pod token — reconnect this pod at $mcpBaseUrl/_system/ui")
     return try {
       // The blocking executor runs on a virtual thread; `podIo` carries the trace across the hop and
-      // wires coroutine cancellation to the socket. The classification below stays OUT here, where a
-      // cancelled call still arrives as `CancellationException` — inside `podIo` it would look like
-      // an ordinary socket failure and become a well-formed "the pod failed".
-      val entry = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to podIo { plan.execute(URI(pod), access.token) })
+      // wires coroutine cancellation to the calls it hands the block. The classification below stays
+      // OUT here, where a cancelled call still arrives as `CancellationException` — inside `podIo` it
+      // would look like an ordinary socket failure and become a well-formed "the pod failed".
+      val result = podIo(calls) { tracked -> plan.execute(podAt(pod, access.token, tracked)) }
+      val entry = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to result)
       // When this pod runs its own identity provider, mark that the result was produced acting as a
       // foreign WebID — so a caller reading e.g. list_contexts knows whose access it is looking at.
       connection.annotateForeignIdentity(entry, access.podSubject)
       entry
     } catch (e: CancellationException) {
       throw e
-    } catch (e: SempodsClientException) {
+    } catch (e: PodToolRefusal) {
       logger.warn(e) { "read tool failed for pod '$pod'" }
       // The pod answered, so its status travels structurally — a 403 scope refusal stays
       // distinguishable from a 502 without regex-ing the message, the same as on the write path.
-      // The message is the pod's own body, phrased for a model by the shared describer; falling
-      // back to `e.message` only where there was no body to read (a refused connection).
-      podError(
-        pod, "pod_error",
-        PodToolFailure.detail(toolName, e.statusCode, e.responseBody ?: e.message ?: "pod read failed"),
-        e.statusCode,
-      )
+      // The message is the pod's own body, phrased for a model by the shared describer, and never
+      // the exception's, which names the URL that was dialled.
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.reason), e.status)
+    } catch (e: SempodsClientException) {
+      logger.warn(e) { "read tool failed for pod '$pod'" }
+      // The pod never answered — a blocked address, a spent budget, a refused connection. There is
+      // no status to report and no body to quote, so the failure's own words are all there is.
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, null, e.message ?: "pod read failed"))
     } catch (e: Exception) {
       logger.warn(e) { "read tool failed for pod '$pod'" }
       podError(pod, "pod_error", e.message ?: "pod read failed")

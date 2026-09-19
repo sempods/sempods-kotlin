@@ -17,13 +17,12 @@ import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
-import org.sempods.client.SempodsHttpTransport
 import org.sempods.client.core.net.SempodsOutboundGuard
-import org.sempods.client.wire.PodWireClient
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.ToolCallResult
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodTokenProvider
+import org.sempods.mcp.pods.testPodCalls
 import org.sempods.mcp.pods.PodUrlPolicy
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -106,17 +105,12 @@ class WriteToolsIntegrationTest {
     vault = TokenVaultDao(database, testSecretCipher())
     registry = ConnectionRegistryDao(database)
     httpClient = HttpClient(CIO)
+    val calls = testPodCalls()
     val provider = PodTokenProvider(vault, registry, PodOAuthClient(
-      SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
-      mapper, PodUrlPolicy(allowLocal = true),
+      calls, mapper, PodUrlPolicy(allowLocal = true),
     ), auditLog)
-    val executor = PodToolExecutor(
-      hostedToolCatalog,
-      PodWireClient(
-        SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
-      ),
-    )
-    writeTools = WriteTools(registry, provider, executor, mapper, "https://mcp.test", auditLog)
+    val executor = PodToolExecutor(hostedToolCatalog)
+    writeTools = WriteTools(registry, provider, executor, calls, mapper, "https://mcp.test", auditLog)
 
     server = ClientAndServer.startClientAndServer(0)
     pod = "http://localhost:${server.port}/p"

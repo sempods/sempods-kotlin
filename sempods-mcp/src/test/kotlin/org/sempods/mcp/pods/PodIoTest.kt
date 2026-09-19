@@ -7,15 +7,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.Request
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.SempodsHttpTransport
 import org.sempods.commons.ktor.trace.TraceContextElement
 import org.sempods.commons.trace.TraceContext
-import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 class PodIoTest {
 
   private lateinit var server: ClientAndServer
-  private val transport = SempodsHttpTransport()
+  private val calls = testPodCalls()
 
   @BeforeEach fun setup() {
     server = ClientAndServer.startClientAndServer(0)
@@ -36,23 +36,23 @@ class PodIoTest {
 
   @AfterEach fun teardown() = server.stop()
 
-  private fun url(path: String) = URI("http://localhost:${server.port}$path")
+  private fun url(path: String) = "http://localhost:${server.port}$path"
 
-  private fun get(path: String) =
-    transport.send(transport.newRequest(url(path)).GET().build())
+  private fun get(calls: Call.Factory, path: String): String =
+    calls.newCall(Request.Builder().url(url(path)).get().build()).execute().use { it.body.string() }
 
   @Test
   fun `the caller's trace reaches the pod across the dispatcher hop`() = runBlocking {
     // The regression this guards: the trace binding is a ThreadLocal, and podIo runs the request on
-    // a different thread than the one handling the MCP call. It survives only because
-    // TraceContextElement re-binds on whichever thread the coroutine resumes on — assert it, because
-    // losing it would be invisible until someone tried to follow a trace across the two processes.
+    // a different thread than the one handling the MCP call. It survives only because podIo reads it
+    // on the caller's thread and re-binds it around the block — assert it, because losing it would be
+    // invisible until someone tried to follow a trace across the two processes.
     server.`when`(request().withMethod("GET").withPath("/traced"))
       .respond(response().withStatusCode(200).withBody("ok"))
     val trace = TraceContext.random()
 
     withContext(TraceContextElement(trace)) {
-      podIo { get("/traced") }
+      podIo(calls) { tracked -> get(tracked, "/traced") }
     }
 
     val recorded = server.retrieveRecordedRequests(request().withPath("/traced"))
@@ -64,8 +64,8 @@ class PodIoTest {
 
   @Test
   fun `cancelling the caller aborts the request instead of waiting it out`() = runBlocking {
-    // Thread.interrupt() does not unblock an OkHttp read — this is the check that the call handle
-    // is what gets cancelled. Without it the coroutine would sit here for the full delay.
+    // Thread.interrupt() does not unblock an OkHttp read — this is the check that the operation's
+    // own calls are what get cancelled. Without it the coroutine would sit here for the full delay.
     val started = CompletableDeferred<Unit>()
     server.`when`(request().withMethod("GET").withPath("/slow"))
       .respond(response().withStatusCode(200).withBody("late").withDelay(java.util.concurrent.TimeUnit.SECONDS, 30))
@@ -74,7 +74,7 @@ class PodIoTest {
       assertFailsWith<Exception> {
         withTimeout(2_000) {
           coroutineScope {
-            val call = async { podIo { started.complete(Unit); get("/slow") } }
+            val call = async { podIo(calls) { tracked -> started.complete(Unit); get(tracked, "/slow") } }
             started.await()
             call.await()
           }
@@ -93,7 +93,7 @@ class PodIoTest {
 
     val elapsed = kotlin.system.measureTimeMillis {
       coroutineScope {
-        (1..10).map { async { podIo { get("/wait") } } }.awaitAll()
+        (1..10).map { async { podIo(calls) { tracked -> get(tracked, "/wait") } } }.awaitAll()
       }
     }
     assertTrue(elapsed < 2_000, "ten 300ms calls took ${elapsed}ms — they serialised")

@@ -276,7 +276,8 @@ in a pod.
 ## Direction: one semantics, three surfaces
 
 The hosted and pod-immanent MCP surfaces share `ToolCatalog` and `PodToolExecutor` from
-`:sempods-mcp-core`. Execution uses one pod's public HTTP routes through `PodWireClient`.
+`:sempods-mcp-core`. Execution uses one pod's public HTTP routes through the client core's
+endpoint groups.
 The hosted service adds profile-scoped fan-out, tokens, quotas and audit; the pod endpoint
 keeps route, discovery, authentication and delegation. `MULTI_POD` adds target selection
 and `list_pods`; `SINGLE_POD` uses the same declaration without them.

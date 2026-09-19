@@ -8,8 +8,9 @@ Scope: applies to `sempods-mcp/**`. The [repository instructions](../AGENTS.md) 
   pod-server services or per-pod endpoint classes.
 - Shared tool semantics belong to `sempods-mcp-core`; hosted fan-out, profile selection,
   quotas, tokens and audit stay here. Shared OAuth machinery belongs to `sempods-auth-core`.
-- Inbound HTTP is Ktor; outbound pod access uses `SempodsHttpTransport`. Do not bypass its
-  outbound policy. `PodIo` bridges blocking calls into suspending code with cancellation and tracing.
+- Inbound HTTP is Ktor; outbound pod access runs on the client core, on the guarded client
+  `SempodsMcpModule` builds. Do not bypass its outbound policy. `PodIo` bridges blocking calls into
+  suspending code with cancellation and tracing.
 - Keep the service an ordinary OAuth client to every pod. The pod remains the authority
   for consent, grants and revocation.
 - Keep Guice wiring in service composition. Follow the repository documentation and issue-work procedures.

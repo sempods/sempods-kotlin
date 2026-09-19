@@ -24,14 +24,16 @@ import org.sempods.auth.core.JwtVerification
 import org.sempods.auth.core.JwtVerifier
 import org.sempods.auth.core.OAuthErrorCode
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.sempods.client.SempodsBody
-import org.sempods.client.SempodsHttpTransport
-import org.sempods.client.SempodsResponse
+import okhttp3.Call
+import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.sempods.client.core.SempodsExchange
+import org.sempods.client.core.SempodsStatusException
 import org.sempods.mcp.forLog
 import org.sempods.mcp.oauth.SempodsClientHttpTransport
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -53,20 +55,23 @@ class PodOAuthException(message: String, val oauthErrorCode: String? = null) : R
   val isDeadGrant: Boolean get() = oauthErrorCode == OAuthErrorCode.INVALID_GRANT.code
 }
 
+/** What a pod's OAuth endpoint answered: the status, and the body whatever the status was. */
+private class PodOAuthAnswer(val status: Int, val body: String)
+
 /**
  * The service acting as an OAuth **client** toward a pod (the service → pod OAuth layer).
  * Discovers the pod's OAuth metadata, registers via DCR, builds the authorize URL, and
- * exchanges/refreshes tokens. Uses the shared timeout-hardened [SempodsHttpTransport]; pods rotate
- * refresh tokens, so callers must persist the NEW refresh token after every [refresh].
+ * exchanges/refreshes tokens. Runs on the shared, guarded pod client; pods rotate refresh tokens,
+ * so callers must persist the NEW refresh token after every [refresh].
  *
- * The transport blocks, this surface suspends: every fetch goes through [podIo], which runs it on a
- * virtual thread and wires coroutine cancellation to the call.
+ * The client blocks, this surface suspends: every fetch goes through [podIo], which runs it on a
+ * virtual thread and hands the block the calls that operation can cancel.
  *
  * Resolves the pod's endpoints via RFC 9728/8414 discovery rather than hard-coding the pod path,
  * so it works against a pod this service does not host.
  */
 class PodOAuthClient(
-  private val transport: SempodsHttpTransport,
+  private val calls: Call.Factory,
   private val objectMapper: ObjectMapper,
   private val podUrlPolicy: PodUrlPolicy,
 ) {
@@ -221,10 +226,11 @@ class PodOAuthClient(
     // never a positive VerificationFailed. Otherwise a pod signing with e.g. EdDSA, or one whose
     // JWKS host blipped, would be treated as tampered and bricked on refresh.
     val verifier = verifierFor(jwksUri) ?: return SubjectOutcome.Unreadable
-    // One `podIo` per verification, and only here: the verifier fetches synchronously the first
-    // time it is asked about a given JWKS, and the transport underneath it must not open a second
-    // call slot — `SempodsCallSlot` is thread-local and a nested one breaks the outer cancel handle.
-    return when (podIo { verifier.verify(accessToken) }) {
+    // One `podIo` per verification, and the one fetch on this surface that cancellation does not
+    // reach: the verifier is cached per `jwks_uri` ([verifierFor]), so the client it fetches
+    // through has to outlive any one operation. A factory bound to an operation would cancel every
+    // later fetch through that verifier the moment that operation was cancelled.
+    return when (podIo(calls) { verifier.verify(accessToken) }) {
       is JwtVerification.Verified -> SubjectOutcome.Readable(PodSubject(sub, verified = true))
       JwtVerification.Inconclusive -> SubjectOutcome.Unreadable
       // Not definitive yet — the cache may be holding the key this token's predecessor was signed
@@ -253,7 +259,7 @@ class PodOAuthClient(
    */
   private suspend fun verifyAgainstFreshJwks(jwksUri: String, accessToken: String, sub: String): SubjectOutcome {
     val fresh = rebuiltVerifierFor(jwksUri) ?: return SubjectOutcome.Unreadable
-    return when (podIo { fresh.verify(accessToken) }) {
+    return when (podIo(calls) { fresh.verify(accessToken) }) {
       is JwtVerification.Verified -> SubjectOutcome.Readable(PodSubject(sub, verified = true))
       is JwtVerification.Rejected -> SubjectOutcome.VerificationFailed
       JwtVerification.Inconclusive -> SubjectOutcome.Unreadable
@@ -306,7 +312,7 @@ class PodOAuthClient(
     // `signatureOnly`: the pod's own token, on the pod's own clock. This call asks whether the
     // subject is still the one we recorded, and that is not an occasion to overrule a pod about
     // when its token dies — `PodTokenProvider` decides expiry from `expires_in`, not from here.
-    JwtVerifier.remoteJwks(jwksUri, SempodsClientHttpTransport(transport))
+    JwtVerifier.remoteJwks(jwksUri, SempodsClientHttpTransport(calls))
   }.getOrNull()
 
   /**
@@ -330,15 +336,13 @@ class PodOAuthClient(
       softwareID = SoftwareID(CLIENT_NAME)
       setSoftwareVersion(SoftwareVersion(softwareVersion))
     }.toJSONObject().toJSONString()
-    val response = podIo {
-      transport.send(
-        transport.newRequest(URI(registrationEndpoint))
-          .header("Content-Type", "application/json")
-          .header("User-Agent", CLIENT_NAME)
-          .POST(SempodsBody.text(body))
-          .build(),
-      )
-    }
+    val response = send(
+      Request.Builder()
+        .url(registrationEndpoint)
+        .header("User-Agent", CLIENT_NAME)
+        .post(body.toByteArray(Charsets.UTF_8).toRequestBody(JSON))
+        .build(),
+    )
     if (!response.isSuccess) failResponse("DCR", registrationEndpoint, response)
     val json = runCatching { JSONObjectUtils.parse(response.body) }.getOrElse {
       throw PodOAuthException("pod DCR response is not a JSON object")
@@ -421,7 +425,7 @@ class PodOAuthClient(
    */
   private suspend fun getRawOrNullOn404(url: String): String? {
     val response = get(url)
-    if (response.statusCode == 404) return null
+    if (response.status == 404) return null
     if (!response.isSuccess) failResponse("fetch", url, response)
     return response.body
   }
@@ -433,26 +437,36 @@ class PodOAuthClient(
     return response.body
   }
 
-  private suspend fun get(url: String): SempodsResponse<String> {
+  private suspend fun get(url: String): PodOAuthAnswer {
     requireAllowed(url)
-    return podIo { transport.send(transport.newRequest(URI(url)).GET().build()) }
+    return send(Request.Builder().url(url).get().build())
   }
 
   /** `application/x-www-form-urlencoded` per RFC 6749 §2.3.1 — the shape a token endpoint expects. */
-  private suspend fun postForm(url: String, vararg fields: Pair<String, String>): SempodsResponse<String> {
+  private suspend fun postForm(url: String, vararg fields: Pair<String, String>): PodOAuthAnswer {
     requireAllowed(url)
-    val form = fields.joinToString("&") { (k, v) -> "${enc(k)}=${enc(v)}" }
-    return podIo {
-      transport.send(
-        transport.newRequest(URI(url))
-          .header("Content-Type", "application/x-www-form-urlencoded")
-          .POST(SempodsBody.text(form))
-          .build(),
-      )
-    }
+    val form = FormBody.Builder().apply { fields.forEach { (name, value) -> add(name, value) } }.build()
+    return send(Request.Builder().url(url).post(form).build())
   }
 
-  private val SempodsResponse<*>.isSuccess: Boolean get() = statusCode / 100 == 2
+  /**
+   * One request to an endpoint a pod advertised, on the calls the caller's operation can cancel.
+   *
+   * **A refused answer is read, not thrown away.** An OAuth failure is a JSON document naming the
+   * reason (RFC 6749 §5.2), and it is what tells a revoked grant from a pod that is briefly unwell.
+   * The core keeps that body as an excerpt on the refusal, which is where [failResponse] reads it.
+   */
+  private suspend fun send(request: Request): PodOAuthAnswer =
+    podIo(calls) { tracked ->
+      try {
+        val answer = SempodsExchange(tracked).text(request, *SUCCESS_STATUSES)
+        PodOAuthAnswer(answer.status, answer.body.orEmpty())
+      } catch (refused: SempodsStatusException) {
+        PodOAuthAnswer(refused.status, refused.bodyExcerpt)
+      }
+    }
+
+  private val PodOAuthAnswer.isSuccess: Boolean get() = status / 100 == 2
 
   /** Rejects a URL the [podUrlPolicy] disallows (SSRF guard for discovered endpoints). */
   private fun requireAllowed(url: String) {
@@ -505,7 +519,7 @@ class PodOAuthClient(
     )
   }
 
-  private fun failResponse(op: String, url: String, response: SempodsResponse<String>): Nothing {
+  private fun failResponse(op: String, url: String, response: PodOAuthAnswer): Nothing {
     val body = response.body
     // An OAuth failure is a JSON document that names the reason (RFC 6749 §5.2). Reading it is
     // what lets a caller tell a revoked grant from a pod that is briefly unwell; the status code
@@ -518,19 +532,22 @@ class PodOAuthClient(
     val description = error?.description?.trim()?.takeIf { it.isNotEmpty() }
     // The body is whatever the pod sent, and `url` is an endpoint it advertised: both are
     // another host's text, and this line predates `forLog` rather than being exempt from it.
-    logger.warn { "Pod $op failed at ${forLog(url)}: HTTP ${response.statusCode} ${forLog(body)}" }
+    logger.warn { "Pod $op failed at ${forLog(url)}: HTTP ${response.status} ${forLog(body)}" }
     throw PodOAuthException(
-      message = "pod $op failed: HTTP ${response.statusCode}" +
+      message = "pod $op failed: HTTP ${response.status}" +
         (code?.let { " ($it${description?.let { d -> ": $d" }.orEmpty()})" } ?: ""),
       oauthErrorCode = code,
     )
   }
 
-  private fun enc(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8)
-
   companion object {
     private val logger = KotlinLogging.logger {}
     const val CLIENT_NAME = "sempods-mcp"
+
+    /** Listed so that every other status arrives as a refusal carrying the body's excerpt. */
+    private val SUCCESS_STATUSES: IntArray = (200..299).toList().toIntArray()
+
+    private val JSON = "application/json".toMediaType()
 
     /** The `token_type` values nimbus will parse. Anything else is normalised — see the KDoc there. */
     private val NIMBUS_KNOWN_TOKEN_TYPES = setOf(
