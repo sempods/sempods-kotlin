@@ -274,8 +274,8 @@ not, because Java cannot call them at all:
 | a **Kotlin function type** | it arrives as `kotlin.jvm.functions.Function1`, and cannot declare a checked exception — a body handler unable to say `throws IOException` forces its failure into an unchecked wrapper |
 
 `checkPublishedSignatures` reads the compiled classes and refuses all three, for **every published
-module**: the three rules need no input, so there was nothing for a module to opt in to. What a
-module opts in to is the second half — the libraries it hides — which only an artifact promising
+module**: the three rules need no input, so there is nothing for a module to opt in to. What a
+module does opt in to is the second half — the libraries it hides — which only an artifact promising
 dependency isolation has anything to say about, and the four client artifacts are those.
 
 Eight published modules cannot satisfy the callability rule, and the root build names each with the

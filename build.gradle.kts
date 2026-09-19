@@ -318,8 +318,7 @@ subprojects {
   //
   // Which libraries a module hides is the half that has to be said per module, and it is this map.
   // The three Java-callability rules need no input at all and hold for every published module, so
-  // registering the check off this map is what left fourteen of them unchecked for want of an entry
-  // rather than for a reason.
+  // the check is registered from `publishedModules` rather than from here.
   val forbiddenLibraries = mapOf(
     // OkHttp is on the core's surface on purpose, so it is not listed.
     "sempods-client" to mapOf(
