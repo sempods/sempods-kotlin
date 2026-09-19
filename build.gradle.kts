@@ -34,7 +34,6 @@ val publishedModules = listOf(
   "sempods-commons-okhttp",
   "sempods-auth",
   "sempods-auth-core",
-  "sempods-client",
   "sempods-client-core",
   "sempods-client-media",
   "sempods-client-rdf4j",
@@ -210,7 +209,7 @@ subprojects {
     // a library it brings was built for.
     val javaRelease: Int,
     // What a consumer must not resolve. A key with a `:` is one artifact's coordinates, matched
-    // exactly — `org.sempods:sempods-client` is not `sempods-client-core` — and one without is a
+    // exactly — `org.sempods:sempods-media` is not `sempods-media-s3` — and one without is a
     // group, matched with the groups under it.
     val forbidden: Map<String, String>,
     val allowed: Set<String> = emptySet(),
@@ -239,7 +238,6 @@ subprojects {
         "org.apache.jena" to "Jena",
         "com.fasterxml.jackson" to "Jackson 2",
         "org.sempods:sempods-model" to "the RDF DTOs",
-        "org.sempods:sempods-client" to "the legacy client",
       ),
       // As for the core probe: Jackson 3's databind depends on the 2.x annotations.
       allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),
@@ -253,7 +251,6 @@ subprojects {
         "org.apache.jena" to "Jena",
         "com.fasterxml.jackson.core:jackson-databind" to "Jackson 2",
         "org.sempods:sempods-model" to "the legacy media and RDF DTOs",
-        "org.sempods:sempods-client" to "the legacy client",
       ),
     ),
     ":consumer-probe:control-plane" to JavaProbe(
@@ -265,7 +262,6 @@ subprojects {
         "org.apache.jena" to "Jena",
         "com.fasterxml.jackson" to "Jackson 2",
         "org.sempods:sempods-model" to "the RDF DTOs",
-        "org.sempods:sempods-client" to "the legacy client",
       ),
       // As for the core probe: Jackson 3's databind depends on the 2.x annotations.
       allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),

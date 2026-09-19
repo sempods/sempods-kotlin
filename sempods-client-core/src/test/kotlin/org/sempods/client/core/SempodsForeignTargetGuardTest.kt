@@ -125,4 +125,36 @@ class SempodsForeignTargetGuardTest : MockPodTest() {
       assertEquals("loopback", SempodsForeignTarget(client).getText("http://127.0.0.1:${server.port}/card", "text/turtle").body)
     }
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = ["127.0.0.1", "localhost", "[::1]"])
+  fun `a trusted host is exempt from the per-request check, not only from the resolver`(host: String) {
+    // The exemption exists for a caller whose every target is deploy-time configuration — an issuer
+    // that on a private network answers only at an address the policy otherwise refuses. Wiring it
+    // into the resolver alone would leave it useless for exactly those hosts, because an IP literal
+    // never reaches a resolver at all. The IPv6 case is the spelling: `URI.getHost()` keeps the
+    // brackets and the resolver hook does not, so a set built from either has to match.
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
+    val resolved = host.removeSurrounding("[", "]")
+
+    guarded(mapOf(resolved to resolved), trusted = setOf(resolved)).closing { client ->
+      assertEquals("ok", SempodsForeignTarget(client).getText("http://$host:${server.port}/card", "text/turtle").body)
+    }
+
+    assertEquals(1, sent())
+  }
+
+  @Test
+  fun `the exemption covers the trusted host alone`() {
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    guarded(mapOf("127.0.0.1" to "127.0.0.1"), trusted = setOf("127.0.0.1")).closing { client ->
+      val refused = assertThrows<SempodsClientException> {
+        SempodsForeignTarget(client).getText("http://169.254.169.254/latest/meta-data/", "text/turtle")
+      }
+      assertTrue(refused.causes().any { it is SsrfBlockedException }, "$refused")
+    }
+
+    assertEquals(0, sent())
+  }
 }

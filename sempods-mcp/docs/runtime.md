@@ -150,7 +150,7 @@ SHA-256-hashed. [Key rotation](https://github.com/sempods/sempods-kotlin/issues/
 
 ## Outbound requests
 
-Outbound protection lives in `:sempods-client`: `SempodsOutboundGuard`, `VettingDns` and
+Outbound protection lives in `:sempods-client-core`: `SempodsOutboundGuard`, `VettingDns` and
 `SempodsUrlPolicy`. IP-literal hosts need an additional request check because no DNS hook sees them.
 The single outbound transport resolves DNS through a
 vetting hook (`VettingDns`): every A/AAAA record is checked against the blocked-range set

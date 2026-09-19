@@ -92,7 +92,7 @@ jwt = "com.nimbusds:nimbus-jose-jwt:10.9.1"
 # protocol messages only — storage, client policy and identity derivation stay ours.
 oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 # Logging. The facade is what every module compiles against; the binding is what exactly one
-# artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
+# artifact per process supplies. Keeping them apart is what lets `sempods-client-core` and the other
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.3"

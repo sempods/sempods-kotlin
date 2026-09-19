@@ -10,8 +10,8 @@ import com.google.inject.binder.ScopedBindingBuilder
  * singleton scope that reads as one word.
  *
  * Guice is a `compileOnly` dependency of `commons` on purpose: this class is the only thing in the
- * module that needs it, and a consumer that does not use Guice — `sempods-client` runs from a plain
- * `main` — must not inherit a DI container to get a URL helper. Anyone extending this class already
+ * module that needs it, and a consumer that does not use Guice — `sempods-client-core` is a library
+ * its consumer wires itself — must not inherit a DI container to get a URL helper. Anyone extending this class already
  * has Guice on its own classpath.
  */
 abstract class BaseModule : AbstractModule() {

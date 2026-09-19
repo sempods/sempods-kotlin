@@ -169,8 +169,8 @@ dependencies {
 }
 ```
 
-The modules are built, tested and released in lockstep, and a consumer holding `sempods-client`
-0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
+The modules are built, tested and released in lockstep, and a consumer holding
+`sempods-client-core` 0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
 for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary
 constraints, so a *different* dependency asking for a newer sempods module can still pull that one
 ahead of the rest. `enforcedPlatform(...)` in place of `platform(...)` makes them strict and forces
@@ -179,7 +179,7 @@ here, it would propagate to everyone.
 
 Published bytecode targets **Java 21**, and building this repository needs 25. A module that brings
 RDF4J needs **Java 25** to run, because RDF4J 6 is built for it: `sempods-client-core`,
-`sempods-client-media`, `sempods-media` and `sempods-client` run on 21; `sempods-client-rdf4j`,
+`sempods-client-media` and `sempods-media` run on 21; `sempods-client-rdf4j`,
 `sempods-model` and the modules built on them need 25.
 
 The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
@@ -239,7 +239,8 @@ sempods-auth/       identity service (Ktor)
 sempods-auth-core/  the OAuth machinery all three services share — framework-free
 sempods-mcp/        hosted MCP service (Ktor)
 sempods-mcp-core/   the tool catalog and execution both MCP surfaces share
-sempods-client/     HTTP client implementing the contract against a remote pod
+sempods-client-core/ sempods-client-rdf4j/ sempods-client-media/
+                    HTTP client implementing the contract against a remote pod
 sempods-control-plane-client/
                     HTTP client for the host-level admin surface (pod hosting)
 deployments/        the server as a process, and the local stack

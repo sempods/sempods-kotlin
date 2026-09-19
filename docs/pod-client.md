@@ -2,8 +2,8 @@
 
 What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
 `:sempods-client-core`, its RDF4J adapter `:sempods-client-rdf4j`, the media routes
-`:sempods-client-media`, the JSON-LD wire layer `:sempods-client`, and the sibling that speaks the
-host-level admin surface, `:sempods-control-plane-client`.
+`:sempods-client-media`, and the sibling that speaks the host-level admin surface,
+`:sempods-control-plane-client`.
 
 This document is the *shape* of those clients — how a caller supplies a credential, what they are
 built on, and the rules that decide what may be added. A consumer moving from 0.1.0 reads
@@ -33,16 +33,6 @@ A forwarding consumer needs the pod's framing and `@context`: parsing to RDF and
 lossy for it even when semantically faithful, and spends a parser round trip on an answer nobody
 queries. A consumer that wants meaning should equally not be handed JSON to walk. Under both is the
 core, which answers the bytes the pod sent and reads none of them as RDF.
-
-`SempodsHttpTransport` and `PodWireClient` are the legacy surface beside those two, with a token
-stamped on each request and the JSON helpers (`objectMapper`, `requiredText`) the core does without.
-The transport runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect
-policy have one implementation. **Its requests carry no session**, so the session's authentication,
-resend and admission apply to none of them — a request one of its callers built is authenticated
-where it is built. Nothing outside `:sempods-client` calls either any more — the control-plane
-client moved onto the core in [#240](https://github.com/sempods/sempods-kotlin/issues/240), the MCP
-caller in [#239](https://github.com/sempods/sempods-kotlin/issues/239) — and
-[#241](https://github.com/sempods/sempods-kotlin/issues/241) takes the wire layer out.
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
 many pods resolves its own names and builds one session per pod; where the names come from is a
@@ -400,10 +390,7 @@ stricter reading won, so the NAT64 prefixes are refused outright.
 
 - **Not two clients.** The text the pod sent and the RDF4J adapter are two shapes of one answer
   (§"Two representations"). `sempods-mcp` keeps only `PodIo`, the bridge; the tool
-  calls live in `:sempods-mcp-core`, where both MCP surfaces read them. The legacy wire layer reads
-  its routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own
-  theirs; `SempodsPodRoutesParityTest` holds the shared ones equal until
-  [#241](https://github.com/sempods/sempods-kotlin/issues/241) removes that layer's copies.
+  calls live in `:sempods-mcp-core`, where both MCP surfaces read them.
 - **A foreign URI stays unbound.** `SempodsForeignTarget` and its RDF4J adapter take no pod
   base (§"A foreign URI").
 - **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a
@@ -440,8 +427,8 @@ implementation("org.sempods:sempods-client-core")
 
 `:sempods-client-rdf4j` is the coordinate for a consumer that wants RDF4J values on that same session. It
 brings RDF4J's model, its query types and its N-Quads, Turtle and JSON-LD codecs — and with the JSON-LD
-codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper, and neither `:sempods-model` nor
-`:sempods-client`. Slot values it writes with the core's Jackson 3.
+codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper and no `:sempods-model`. Slot
+values it writes with the core's Jackson 3.
 **It needs Java 25**, because RDF4J 6 is built for it; the core stays on 21.
 
 `:sempods-client-media` is the coordinate for the pod's media routes. It brings the media contract
@@ -483,5 +470,4 @@ root, with a host credential, on the same installed OkHttp client.
   groups, `Rdf4jCodec` for the pinned parser and writer settings
 - `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the media
   routes over a session
-- `sempods-client/src/main/kotlin/org/sempods/client/` — `wire/PodWireClient`, `SempodsHttpTransport`
 - `sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt`

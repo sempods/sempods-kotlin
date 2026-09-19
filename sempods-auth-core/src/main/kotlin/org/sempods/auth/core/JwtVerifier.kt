@@ -211,7 +211,7 @@ class JwtVerifier private constructor(
           // The `IOException` wrapper is load-bearing, not defensive tidying. `ResourceRetriever`
           // declares `IOException`, and that is the only failure nimbus turns into a
           // `JWKSetRetrievalException` — its caching and outage-tolerance layers key off that type.
-          // An `HttpTransport` that fails with a runtime exception (`:sempods-client`'s does)
+          // An `HttpTransport` that fails with a runtime exception (`CommonsHttpTransport` does)
           // otherwise propagates straight through `process`, past every catch below, and out of a
           // method whose whole contract is that it answers rather than throws.
           ResourceRetriever { url ->
