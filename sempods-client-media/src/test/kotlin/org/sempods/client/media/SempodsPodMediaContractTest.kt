@@ -150,19 +150,17 @@ class SempodsPodMediaContractTest {
   }
 
   @Test
-  fun `an upload answered 200 is refused, because the route answers 201 either way`() {
-    // SPS-MEDIA-011: a `POST` answers 201 whether or not the bytes were already stored, so that a
-    // caller holding a file cannot learn whether this pod holds it too. Reading a 200 as a stored
-    // media is reading out exactly that difference.
+  fun `an upload answered 200 is still an answer, although SPS-MEDIA-011 asks for 201`() {
+    // That pod has broken the requirement and stored the media all the same. Refusing the answer
+    // would make its deviation this caller's failure, on the path where the same bytes arrive twice.
     server.`when`(request().withMethod("POST")).respond(
       response().withStatusCode(200).withBody("""{"id":"abc123","content_url":"https://pods.example/a"}"""),
     )
 
-    val refused = assertThrows<SempodsStatusException> {
-      media.upload(tasks, "image/png", { "x".byteInputStream() })
-    }
+    val answer = media.upload(tasks, "image/png", { "x".byteInputStream() })
 
-    assertEquals(200, refused.status)
+    assertEquals(200, answer.status, "the status is on the answer, for a caller that wants to notice")
+    assertEquals("abc123", assertNotNull(answer.body).mediaId)
   }
 
   @Test
