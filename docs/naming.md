@@ -179,13 +179,14 @@ its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempod
 `org.sempods.mcp`, `org.sempods.client`, `org.sempods.client.media`,
 `org.sempods.client.rdf4j`, `org.sempods.controlplane`).
 
-**A module name is not a package name here, and does not try to be.** `sempods-server` holds
-`org.sempods.pods`, `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies` and
-`org.sempods.rdf`, and `org.sempods.media` is `sempods-media`'s — no directory name appears in any
-package. That is
-what made both renames cost zero imports, and it is why a future module rename is a build-file
-edit rather than a repo-wide sweep. Do not "fix" the mismatch: the packages are the wire-adjacent
-half (KDoc links, logger names, the composition guard) and the module names are not.
+**A module name is not a package name here.** `sempods-server` holds `org.sempods.pods`,
+`sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies` and `org.sempods.rdf`, and where
+the two do read alike — `sempods-media` and `org.sempods.media` — nothing derives one from the
+other. That is what made the two renames in §3 cost zero imports, and why a module rename is a
+build-file edit. A **package** moves only where its coordinate breaks anyway: 0.2 moved
+`org.sempods.client.core` to `org.sempods.client` with the artifact under it, so a consumer editing
+the dependency line edits the imports in the same sitting. Never rename one for consistency alone —
+the packages are the wire-adjacent half (KDoc links, logger names, the composition guard).
 
 ## Related
 

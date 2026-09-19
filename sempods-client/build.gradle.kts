@@ -3,6 +3,8 @@ plugins {
   `java-test-fixtures`
 }
 
+description = "The sempods pod client core: a pod, a credential and the endpoint groups, without an RDF library."
+
 dependencies {
   // `api`: `SempodsOkHttp` configures an `okhttp3.OkHttpClient.Builder` and `SempodsSession` hands
   // out an `okhttp3.Request.Builder`. Why, and what it costs: `docs/pod-client.md` §"The transport".

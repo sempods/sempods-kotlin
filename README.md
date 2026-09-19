@@ -169,6 +169,10 @@ dependencies {
 }
 ```
 
+`sempods-client` is the whole client at `0.1.0` and the HTTP core from 0.2 on, with the RDF4J
+values and the media routes in artifacts of their own — [`docs/migration/0.2.md`](docs/migration/0.2.md)
+is what a `0.1.0` consumer reads before raising the platform.
+
 The modules are built, tested and released in lockstep, and a consumer holding
 `sempods-client` 0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
 for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary

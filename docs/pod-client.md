@@ -444,9 +444,7 @@ on: `:consumer-probe:client`, `:consumer-probe:client-media` and `:consumer-prob
 on 21, `:consumer-probe:client-rdf4j` on 25 —
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
-The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the consumer
-migration and the artifact rename ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
-independently embeddable services belongs to
+API narrowing for the independently embeddable services belongs to
 [#15](https://github.com/sempods/sempods-kotlin/issues/15).
 
 ## Authority and deployment
@@ -463,7 +461,7 @@ root, with a host credential, on the same installed OkHttp client.
 
 ## Contract source
 
-- `sempods-client/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
+- `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsSession`,
   `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
   `SempodsForeignTarget`, and `net/` for the outbound guard
 - `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its

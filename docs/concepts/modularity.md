@@ -289,12 +289,12 @@ visibility, and what it publishes depends on the declaration:
 | Kotlin | what a Java caller writes |
 |---|---|
 | an `internal` constructor | `new SempodsAsyncOperation<>(calls)`, since it compiles to a plain public one |
-| an `internal` member of a class | `session.bind$org_sempods_sempods_client_core(request)` — `$` is an ordinary identifier character |
+| an `internal` member of a class | `session.bind$org_sempods_sempods_client(request)` — `$` is an ordinary identifier character |
 | a top-level `internal` function | `ProtocolJsonKt.decodeObject(bytes)`, which Kotlin does not rename at all |
 
 So a type only the library wires published a way to build one — a `SempodsResponse` no pod answered
 — and `SempodsSession.authenticated` handed out a request carrying the session's credential. The
-three client modules give such a type a **`private` constructor and an `@JvmSynthetic internal`
+client modules give such a type a **`private` constructor and an `@JvmSynthetic internal`
 factory in its companion**, and put `@JvmSynthetic` on every `internal` member whose call from Java
 breaks a contract. The annotation sets `ACC_SYNTHETIC`, which javac refuses to resolve; a property
 takes `@get:JvmSynthetic` and a `const val` `@field:JvmSynthetic`, where the plain annotation is
@@ -309,17 +309,18 @@ API. It stays a review question beside `@Throws`: **a public type of a client mo
 public constructor only what a consumer can supply.** An `internal` *class* is beyond the rule and
 beyond any annotation — [#237](https://github.com/sempods/sempods-kotlin/issues/237) owns that.
 
-**A third probe asks whether the client core is usable from Java.** `:consumer-probe:client`
+**A probe per client artifact asks whether it is usable from Java.** `:consumer-probe:client`
 is a JUnit suite written in Java; across the project boundary its compile classpath is a consumer's,
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a
-**Java 21** JVM, the only one in this repository: bytecode built for 21 and only ever run on 25 would
-be a floor nobody stood on. `:consumer-probe:client-rdf4j` asks the same of the RDF4J adapter, on
+**Java 21** JVM, the lowest in this repository: bytecode built for 21 and only ever run on 25 would
+be a floor nobody stood on, and `:consumer-probe:client-media` and `:consumer-probe:control-plane`
+stand on the same one. `:consumer-probe:client-rdf4j` asks the same of the RDF4J adapter, on
 **Java 25**: RDF4J 6 is built for 25, so a consumer of the adapter stands on nothing lower. Beside
 each, `checkNoForbiddenDependencies` fails if a consumer would resolve a library the module excludes
 — a question dependency analysis cannot answer,
 because it advises on how a dependency is *declared* and has no notion of one being forbidden.
 
-**A fourth probe wires OpenTelemetry.** `:consumer-probe:opentelemetry` wraps a client
+**One more probe wires OpenTelemetry.** `:consumer-probe:opentelemetry` wraps a client
 `SempodsOkHttp.install` configured with OpenTelemetry's OkHttp library and reads the spans back from
 the SDK: a client span per attempt, a W3C `traceparent` naming it on the wire, and a call factory
 over a client without the sempods interceptors failing closed. It is a module of its own because
