@@ -54,13 +54,14 @@ import org.sempods.auth.CommonsHttpTransport
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
-import org.sempods.client.SempodsHttpTimeouts
-import org.sempods.client.SempodsHttpTransport
+import okhttp3.OkHttpClient
+import org.sempods.client.core.SempodsOkHttp
 import org.sempods.client.core.net.SempodsOutboundGuard
 import org.sempods.client.core.net.SempodsUrlPolicy
-import org.sempods.client.wire.PodWireClient
 import org.sempods.jaxrs.SempodsCorsFilter
 import org.sempods.jaxrs.SempodsObjectMapperResolver
+import org.sempods.api.pod.system.mcp.McpPodCalls
+import org.sempods.commons.okhttp.TraceparentInterceptor
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.SempodsMcpCoreModule
 import org.sempods.mcp.core.ToolCatalog
@@ -264,40 +265,49 @@ class SempodsModule : BaseModule() {
    * [SempodsConfig.apiBaseUrl] and back in, so the tools authorize, sandbox and validate through
    * exactly the routes an external client hits — the equivalence is the deployment's, not a claim
    * this codebase has to keep true by hand. The costs are in `docs/mcp/endpoint.md`.
-   *
-   * **The transport is built here and bound nowhere.** It carries a trusted-host exemption, and an
-   * injectable `SempodsHttpTransport` carrying one is the trap `SempodsMcpModule` documents on the
-   * hosted side: a second consumer would receive it by type and take the exemption along to
-   * wherever it dials. This one dials a single address, and the address comes from deployment
-   * configuration rather than from any request, so the case the exemption is dangerous in — a
-   * caller-supplied URL naming the trusted host — cannot arise.
+   */
+  @Provides
+  @Singleton
+  fun podToolExecutor(): PodToolExecutor = PodToolExecutor(ToolCatalog.of(ToolVariant.SINGLE_POD))
+
+  /**
+   * The client those tool calls run on, bound as [McpPodCalls] so only they receive it.
    *
    * **The exemption is needed, not cosmetic.** Without it `SempodsUrlPolicy` refuses `localhost`
    * as a loopback name (`NON_GLOBAL_HOST`, which is precisely the refusal `trustedHosts` clears),
-   * and local development and the test run would have an MCP that cannot reach its own pod.
+   * and local development and the test run would have an MCP that cannot reach its own pod. This
+   * client dials a single address, and the address comes from deployment configuration rather than
+   * from any request, so the case the exemption is dangerous in — a caller-supplied URL naming the
+   * trusted host — cannot arise.
+   *
+   * **No admission budget**, as the transport it replaces had none: a tool call is already bounded
+   * by the deadline below, and a second queue in front of a pod dialling itself buys nothing.
    *
    * The whole-call bound is 60 s, deliberately not the 10 s the hosted service gives a foreign pod:
    * there a hanging stranger is the risk, here the risk is cutting off a legal query, and the pod's
    * own SPARQL guard already stops at 10 s with `find` and JSON-LD serialisation on top of it.
+   *
+   * [TraceparentInterceptor] goes on the builder, where `docs/request-tracing.md` says it belongs —
+   * so one tool call stays one trace across the two hops.
    */
   @Provides
   @Singleton
-  fun podToolExecutor(): PodToolExecutor = PodToolExecutor(
-    ToolCatalog.of(ToolVariant.SINGLE_POD),
-    PodWireClient(
-      SempodsHttpTransport(
-        timeouts = SempodsHttpTimeouts(
-          connect = Duration.ofSeconds(5),
-          read = Duration.ofSeconds(30),
-          write = Duration.ofSeconds(30),
-          call = Duration.ofSeconds(60),
-        ),
-        guard = SempodsOutboundGuard(
-          policy = SempodsUrlPolicy(allowPrivateAddresses = false),
-          trustedHosts = setOfNotNull(runCatching { URI(config.apiBaseUrl).host }.getOrNull()),
-        ),
+  fun mcpPodCalls(): McpPodCalls = McpPodCalls(
+    SempodsOkHttp.install(
+      OkHttpClient.Builder()
+        .connectTimeout(Duration.ofSeconds(5))
+        .readTimeout(Duration.ofSeconds(30))
+        .writeTimeout(Duration.ofSeconds(30))
+        .addInterceptor(TraceparentInterceptor),
+      guard = SempodsOutboundGuard(
+        policy = SempodsUrlPolicy(allowPrivateAddresses = false),
+        trustedHosts = setOfNotNull(runCatching { URI(config.apiBaseUrl).host }.getOrNull()),
       ),
-    ),
+      admission = null,
+    )
+      // After `install`, which would otherwise read an unset deadline and put its own two minutes in.
+      .callTimeout(Duration.ofSeconds(60))
+      .build(),
   )
 
   /**

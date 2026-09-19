@@ -15,13 +15,15 @@ import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
-import org.sempods.client.SempodsClientException
+import okhttp3.Call
+import org.sempods.client.core.SempodsClientException
+import org.sempods.mcp.core.PodToolRefusal
+import org.sempods.mcp.core.podAt
 import org.sempods.mcp.pods.PodTokenProvider
 import org.sempods.mcp.pods.isRetryablePodFailure
 import org.sempods.mcp.pods.podIo
 import kotlinx.coroutines.CancellationException
 import io.github.oshai.kotlinlogging.KotlinLogging
-import java.net.URI
 
 /**
  * The write / property-mutation tools, as this service means them: **one** pod, named explicitly.
@@ -44,6 +46,7 @@ class WriteTools(
   private val connectionRegistryDao: ConnectionRegistryDao,
   private val podTokenProvider: PodTokenProvider,
   private val executor: PodToolExecutor,
+  private val calls: Call.Factory,
   private val objectMapper: ObjectMapper,
   private val mcpBaseUrl: String,
   private val auditLog: AuditLog,
@@ -115,7 +118,7 @@ class WriteTools(
     return try {
       // `podIo` bridges to the blocking executor on a virtual thread; the classification below stays
       // outside it, where a cancelled call still arrives as `CancellationException`.
-      val result = podIo { plan.execute(URI(pod), access.token) }
+      val result = podIo(calls) { tracked -> plan.execute(podAt(pod, access.token, tracked)) }
       val ok = linkedMapOf<String, Any?>("pod" to pod, "ok" to true, "result" to result)
       // Mirror the read fan-out: when the write happened as a foreign WebID, say so on the envelope
       // — the pod recorded the write under that identity.
@@ -123,17 +126,17 @@ class WriteTools(
       ok
     } catch (e: CancellationException) {
       throw e
-    } catch (e: SempodsClientException) {
+    } catch (e: PodToolRefusal) {
       logger.warn(e) { "write tool failed for pod '$pod'" }
       // The pod's status travels structurally, so a 412 precondition failure stays distinguishable
       // from a 403 scope refusal on the envelope rather than only inside the message text. The
-      // message is the pod's own body, phrased for a model by the shared describer; falling back to
-      // `e.message` only where there was no body to read (a refused connection).
-      podError(
-        pod, "pod_error",
-        PodToolFailure.detail(toolName, e.statusCode, e.responseBody ?: e.message ?: "pod write failed"),
-        e.statusCode,
-      )
+      // message is the pod's own body, phrased for a model by the shared describer, and never the
+      // exception's, which names the URL that was dialled.
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.podBody), e.status)
+    } catch (e: SempodsClientException) {
+      logger.warn(e) { "write tool failed for pod '$pod'" }
+      // The pod never answered — a blocked address, a spent budget, a refused connection.
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, null, e.message ?: "pod write failed"))
     } catch (e: Exception) {
       logger.warn(e) { "write tool failed for pod '$pod'" }
       podError(pod, "pod_error", e.message ?: "pod write failed")

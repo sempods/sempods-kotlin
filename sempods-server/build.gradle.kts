@@ -39,20 +39,17 @@ dependencies {
   // `SempodsHttpTransport` and exposes none.
   api(project(":sempods-mcp-core"))   // PodToolExecutor, JsonRpcRequest, ToolInputSchema, …
 
-  // Reached in production: `SempodsModule.podToolExecutor` builds a `PodWireClient` against
-  // `config.apiBaseUrl`, so the MCP surface talks to this pod the way any other client does.
-  // Declared rather than inherited through `:sempods-mcp-core`'s `api`, because main code names
-  // these types directly and a dependency you compile against is one you say you have.
-  //
-  // The suite seeds pods over that same HTTP surface — through `:sempods-client-core` and its RDF4J
-  // adapter — so a seeding call that only works in-process fails in the test run rather than at
-  // deploy time.
-  implementation(project(":sempods-client"))
-
   // `PodMediaSource.MEDIA_TYPE`, which the upload route recognises and a client sends.
   implementation(project(":sempods-media"))
-  // `SempodsModule` configures the outbound guard and the deadlines, both of which are the core's
-  // types now. Same rule as the line above: named directly, so declared directly.
+
+  // Reached in production: `SempodsModule` builds the client the MCP tools dial this pod's own
+  // public surface on, with the outbound guard and the deadlines on it, so the MCP surface talks to
+  // this pod the way any other client does. Declared rather than inherited through
+  // `:sempods-mcp-core`'s `api`, because main code names these types directly and a dependency you
+  // compile against is one you say you have.
+  //
+  // The suite seeds pods over that same HTTP surface — through this module and its RDF4J adapter —
+  // so a seeding call that only works in-process fails in the test run rather than at deploy time.
   implementation(project(":sempods-client-core"))
 
   // Guice and the logging facade. Neither reaches a consumer as an obligation: Guice is

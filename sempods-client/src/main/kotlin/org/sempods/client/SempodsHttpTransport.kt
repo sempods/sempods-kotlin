@@ -153,43 +153,34 @@ class SempodsHttpTransport @JvmOverloads constructor(
   /**
    * Runs one request, hands the response to [read] and closes it before returning.
    *
-   * The core's cancellation is `Call.cancel()`; [SempodsCallSlot] binds onto it here, which is the
-   * bridge `PodIo` still needs. No authentication runs: this surface puts its bearer on the request
-   * before it arrives, so the core's session auth is not involved.
+   * **No cancellation handle, and none to add.** A caller that has to abort a call in flight builds
+   * on the core instead, where the operation owns its calls
+   * ([org.sempods.client.core.SempodsAsyncOperation]). No authentication runs either: this surface
+   * puts its bearer on the request before it arrives, so the core's session auth is not involved.
    *
    * **Sending is translated, reading is not.** The core made every refusal of its own one type, an
-   * [java.io.IOException] beside the engine's. The callers above were written against several, and
-   * two of them decide real behaviour on the distinction: `PodFailures.isRetryablePodFailure` walks
-   * for a rate-limit or SSRF cause, and `McpEndpoint.runTool` catches [SempodsClientException] to
-   * keep this process's URLs out of a message that goes to a language model. What [read] throws —
-   * this surface's own exception with its status code included — reaches the caller unchanged.
-   * Migrating the callers onto the core's shape is
-   * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
+   * [java.io.IOException] beside the engine's; this surface's callers were written against several,
+   * and classify on the cause chain. What [read] throws — this surface's own exception with its
+   * status code included — reaches the caller unchanged.
    */
   private fun <T> execute(request: SempodsRequest, read: (okhttp3.Response) -> T): T {
     val call = clientFor(request.callTimeout).newCall(toOkHttpRequest(request))
-    val slot = SempodsCallSlot.current()
-    val owning = slot?.bind(call::cancel)
-    try {
-      val response = try {
-        call.execute()
-      } catch (e: org.sempods.client.core.SempodsClientException) {
-        // A refusal this library made — a blocked address, a spent budget. The cause carries what a
-        // consumer classifies on, which is why it travels rather than being flattened into the text.
-        throw SempodsClientException(e.message.orEmpty(), cause = e.cause ?: e)
-      } catch (e: org.sempods.client.core.net.SsrfBlockedException) {
-        // Thrown from inside the connection path, where the resolver vets every address. It is an
-        // `UnknownHostException` so the engine treats it as a resolution failure; this surface's
-        // callers expect their own type, with the cause kept for the same classification.
-        throw SempodsClientException(
-          "Host of '${request.uri}' is not publicly addressable — ${e.message}",
-          cause = e,
-        )
-      }
-      return response.use(read)
-    } finally {
-      slot?.unbind(owning)
+    val response = try {
+      call.execute()
+    } catch (e: org.sempods.client.core.SempodsClientException) {
+      // A refusal this library made — a blocked address, a spent budget. The cause carries what a
+      // consumer classifies on, which is why it travels rather than being flattened into the text.
+      throw SempodsClientException(e.message.orEmpty(), cause = e.cause ?: e)
+    } catch (e: org.sempods.client.core.net.SsrfBlockedException) {
+      // Thrown from inside the connection path, where the resolver vets every address. It is an
+      // `UnknownHostException` so the engine treats it as a resolution failure; this surface's
+      // callers expect their own type, with the cause kept for the same classification.
+      throw SempodsClientException(
+        "Host of '${request.uri}' is not publicly addressable — ${e.message}",
+        cause = e,
+      )
     }
+    return response.use(read)
   }
 
   private fun clientFor(callTimeout: Duration?): OkHttpClient =

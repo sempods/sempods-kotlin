@@ -79,28 +79,32 @@ for the preflight, `exposedHeaders` so the echo is readable.
 Three paths, because three HTTP clients are in use:
 
 - **OkHttp** — `TraceparentInterceptor` (`sempods-commons-okhttp`), installed once in `OkHttpClientModule`,
-  covers every call on the shared client `sempods-server` composes. An *application* interceptor,
-  not a network one: the trace lives in a `ThreadLocal`, and only the application layer is
-  guaranteed to run on the thread that called `execute()`.
+  covers every call on the shared client `sempods-server` composes, and sits on the builder of every
+  client the two services configure with `SempodsOkHttp.install` — the pod-immanent MCP's in
+  `SempodsModule`, the pod and issuer clients in `SempodsMcpModule`. On the builder rather than
+  after `install`, so it runs inside the session's attempts and each attempt leaves with a
+  `traceparent` of its own. An *application* interceptor, not a network one: the trace lives in a
+  `ThreadLocal`, and only the application layer is guaranteed to run on the thread that called
+  `execute()`.
 - **Ktor client** — `TraceparentClientPlugin` (`sempods-commons-ktor`), installed on `sempods-auth`'s OIDC
   client, which is its only production installation. It reads the ambient trace from the holder,
   correct inside a call because the server-side interceptor bound a `TraceContextElement` for its
   coroutine; outside a call there is no ambient trace and no header goes out.
 
   **`sempods-mcp` installs no client plugin at all**, which is worth saying because the module runs
-  on Ktor and the assumption goes the other way. Both of its outbound legs go through
-  `SempodsHttpTransport` below — the pod calls, and the identity provider's discovery, JWKS and
-  token requests (`SempodsMcpModule.identityProvider` wraps it in `SempodsClientHttpTransport`).
+  on Ktor and the assumption goes the other way. Both of its outbound legs are OkHttp calls under
+  the interceptor above — the pod calls, and the identity provider's discovery, JWKS and token
+  requests (`SempodsMcpModule.identityProvider` wraps its client in `SempodsClientHttpTransport`).
   Its bridge, `podIo`, carries the trace across the thread hop explicitly: it reads
   `TraceContextHolder.get()` on the caller's thread — where the coroutine's `TraceContextElement`
   has it bound — and re-binds it around the blocking call on the virtual thread, which the element
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
-- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — OkHttp, on a client
-  `SempodsOkHttp.install` configured rather than `sempods-commons-okhttp`'s, so the interceptor above
-  does not reach it; it sets the header when building a request instead, and every request this
-  surface sends is one it built. The core's `SempodsSession` sets none; the tracer goes on the client
-  it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
+- **`SempodsHttpTransport.newRequest`** (`sempods-client`) — the legacy surface, whose client carries
+  no interceptor of its own; it sets the header when building a request instead, and every request
+  this surface sends is one it built. `SempodsControlPlaneClient` is what is left on it. The core's
+  `SempodsSession` sets none; the tracer goes on the client it sends with
+  ([`pod-client.md`](pod-client.md) §"Tracing").
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
 

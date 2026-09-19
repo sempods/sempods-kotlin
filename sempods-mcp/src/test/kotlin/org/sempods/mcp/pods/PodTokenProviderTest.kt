@@ -1,6 +1,5 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.SempodsHttpTransport
 import org.sempods.client.core.net.SempodsOutboundGuard
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.nimbusds.jose.jwk.JWKSet
@@ -105,8 +104,7 @@ class PodTokenProviderTest {
     database.getCollection(SempodsMcpCollections.CONNECTIONS).drop()
     vault = TokenVaultDao(database, testSecretCipher())
     registry = ConnectionRegistryDao(database)
-    val oauthTransport = SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules))
-    val oauthClient = PodOAuthClient(oauthTransport, jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
+    val oauthClient = PodOAuthClient(testPodCalls(), jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
     provider = PodTokenProvider(vault, registry, oauthClient, auditLog)
 
     server = ClientAndServer.startClientAndServer(0)
@@ -680,10 +678,7 @@ class PodTokenProviderTest {
 
     // Two provider instances = two replicas: separate mutex maps, so only the Mongo claim can
     // serialise them. Both sweep the same due row concurrently.
-    val oauthClient = PodOAuthClient(
-      SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
-      jacksonObjectMapper(), PodUrlPolicy(allowLocal = true),
-    )
+    val oauthClient = PodOAuthClient(testPodCalls(), jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
     val replicaA = PodTokenProvider(vault, registry, oauthClient, auditLog, instanceId = "replica-a")
     val replicaB = PodTokenProvider(vault, registry, oauthClient, auditLog, instanceId = "replica-b")
 
@@ -754,10 +749,7 @@ class PodTokenProviderTest {
     // Replica A already holds the claim (it is mid-refresh); replica B's on-demand call must not
     // double-refresh but wait for A's result.
     assertTrue(vault.tryClaimRefresh(key, "replica-a", Date(System.currentTimeMillis() + 60_000)))
-    val oauthClient = PodOAuthClient(
-      SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
-      jacksonObjectMapper(), PodUrlPolicy(allowLocal = true),
-    )
+    val oauthClient = PodOAuthClient(testPodCalls(), jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
     val replicaB = PodTokenProvider(vault, registry, oauthClient, auditLog, instanceId = "replica-b")
 
     val pending = async(Dispatchers.IO) { replicaB.validAccessToken(key) }

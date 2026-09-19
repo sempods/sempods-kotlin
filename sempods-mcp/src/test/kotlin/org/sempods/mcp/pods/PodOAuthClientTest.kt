@@ -1,6 +1,6 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.SempodsHttpTransport
+import okhttp3.OkHttpClient
 import org.sempods.client.core.net.SempodsOutboundGuard
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.nimbusds.jose.jwk.JWKSet
@@ -32,7 +32,7 @@ class PodOAuthClientTest {
 
   private lateinit var server: ClientAndServer
   private lateinit var base: String
-  private lateinit var transport: SempodsHttpTransport
+  private lateinit var calls: OkHttpClient
   // allowLocal=true: the simulated pod runs on localhost.
   private lateinit var client: PodOAuthClient
   // allowLocal=false: used to prove the SSRF guard fires on discovered/fetched URLs.
@@ -43,9 +43,9 @@ class PodOAuthClientTest {
   fun setup() {
     // The full hardened outbound stack (pin + no-redirect), relaxed so loopback passes.
     // The full hardened stack (resolve-and-pin + no redirects), relaxed so loopback passes.
-    transport = SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules))
-    client = PodOAuthClient(transport, jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
-    strictClient = PodOAuthClient(transport, jacksonObjectMapper(), PodUrlPolicy(allowLocal = false))
+    calls = testPodCalls()
+    client = PodOAuthClient(calls, jacksonObjectMapper(), PodUrlPolicy(allowLocal = true))
+    strictClient = PodOAuthClient(calls, jacksonObjectMapper(), PodUrlPolicy(allowLocal = false))
     server = ClientAndServer.startClientAndServer(0)
     val authBase = "http://localhost:${server.port}/pod/_system/auth"
     base = "http://localhost:${server.port}/pod"

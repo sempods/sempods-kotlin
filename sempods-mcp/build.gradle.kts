@@ -12,12 +12,9 @@ dependencies {
   // `Guice.createInjector` and has declared it. The rest — Ktor, Mongo, Jackson — Guice reaches by
   // reflection at wiring time (#15).
   api(project(":sempods-commons"))
-  // The pod HTTP surface and its SSRF guard live here now, shared with every consumer rather
-  // than re-spelled per service.
-  implementation(project(":sempods-client"))
-  // The SSRF policy and the pod base rules moved into the core, and this
-  // module names them directly — in the OAuth client, in the pod URL policy and in the suites that
-  // build a guarded transport.
+  // The pod HTTP surface, its SSRF guard and the pod base rules: this module names them directly
+  // — in the tools, in the OAuth client, in the pod URL policy and in the suites that build a
+  // guarded client. Nothing here reaches for the legacy `:sempods-client` any more.
   implementation(project(":sempods-client-core"))
   implementation(project(":sempods-auth-core"))
 
@@ -28,6 +25,9 @@ dependencies {
 
   // The W3C trace binding for Ktor: the inbound interceptor and the outbound client plugin.
   implementation(project(":sempods-commons-ktor"))
+  // The same binding for OkHttp: `TraceparentInterceptor` sits on the pod client, inside the
+  // session's attempts, so each attempt leaves with a `traceparent` of its own.
+  implementation(project(":sempods-commons-okhttp"))
   implementation(project(":sempods-commons-mongo"))
 
   // HTTP server — the single MCP surface (JSON-RPC over POST), standalone (no framework)
@@ -40,8 +40,10 @@ dependencies {
   implementation(libs.ktorServerNetty)
   implementation(libs.ktorServerCallLogging)
 
-  // No HTTP *client* here any more: the pod System layer and the pod OAuth surface both go through
-  // `:sempods-client`'s transport, which carries the SSRF resolve-and-pin this service used to own.
+  // The HTTP engine the client core runs on, named here because this module names it: it builds the
+  // pod client with `SempodsOkHttp.install` and hands its `Call.Factory` to the tools and to the pod
+  // OAuth surface. The core's SSRF resolve-and-pin rides on it, so this service owns none of that.
+  implementation(libs.okhttp)
 
   // JSON — JSON-RPC envelopes + JSON-LD payloads. The `java.time` codecs are a registration on the
   // mapper; nothing names them.

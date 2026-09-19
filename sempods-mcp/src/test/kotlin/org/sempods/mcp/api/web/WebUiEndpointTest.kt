@@ -1,6 +1,5 @@
 package org.sempods.mcp.api.web
 
-import org.sempods.client.SempodsHttpTransport
 import org.sempods.client.core.net.SempodsOutboundGuard
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
@@ -41,6 +40,7 @@ import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodOAuthMetadata
 import org.sempods.mcp.pods.PodUrlPolicy
+import org.sempods.mcp.pods.testPodCalls
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -148,10 +148,7 @@ class WebUiEndpointTest {
         webSession = WebSession(config, tokenIssuer, ServiceBearerVerifier.using(BASE, signingKeys)),
         webLoginStateStore = WebLoginStateStore(database),
         identityProvider = idServer.identityProvider(BASE),
-        podOAuthClient = PodOAuthClient(
-          SempodsHttpTransport(guard = SempodsOutboundGuard(PodUrlPolicy(allowLocal = true).rules)),
-          jacksonObjectMapper(), PodUrlPolicy(allowLocal = true),
-        ),
+        podOAuthClient = PodOAuthClient(testPodCalls(), jacksonObjectMapper(), PodUrlPolicy(allowLocal = true)),
         podConnectStateStore = podConnectStateStore,
         podUrlPolicy = PodUrlPolicy(allowLocal = true),
         connectionRegistryDao = registry,

@@ -26,7 +26,7 @@ The same routes answer in two shapes, and neither is a degraded version of the o
 
 | Layer | Answers with | For |
 |---|---|---|
-| `PodWireClient` (`org.sempods.client.wire`) | the pod's own JSON-LD as an unparsed `JsonNode`, plus the `ETag` on every read and `If-Match` / `If-None-Match` on every write | a consumer that **forwards** what the pod said — `:sempods-mcp-core`'s `PodToolExecutor` hands it to a model, for both MCP surfaces — or that needs read-modify-write to be safe against a concurrent editor |
+| The core's own text methods — `getText`, `getJson`, `graphText`, `listText` | the pod's JSON-LD as it arrived, plus the `ETag` on every read and `If-Match` / `If-None-Match` on every write | a consumer that **forwards** what the pod said — `:sempods-mcp-core`'s `PodToolExecutor` hands it to a model, for both MCP surfaces — or that needs read-modify-write to be safe against a concurrent editor |
 | `SempodsRdf4jPod` (`:sempods-client-rdf4j`) | a parsed RDF4J `Model`; a resource, subject, slot or registry read keeps every statement's context, while a `CONSTRUCT` or `DESCRIBE` answers triples, as SPARQL does | a consumer that **reasons** over the graph and does not want to know that a slot is two base64url segments |
 
 A forwarding consumer needs the pod's framing and `@context`: parsing to RDF and re-serialising is
@@ -34,13 +34,14 @@ lossy for it even when semantically faithful, and spends a parser round trip on 
 queries. A consumer that wants meaning should equally not be handed JSON to walk. Under both is the
 core, which answers the bytes the pod sent and reads none of them as RDF.
 
-`SempodsHttpTransport` is what `PodWireClient` still runs on: the legacy surface, with a token
+`SempodsHttpTransport` and `PodWireClient` are the legacy surface beside those two, with a token
 stamped on each request and the JSON helpers (`objectMapper`, `requiredText`) the core does without.
-It runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect policy have one
-implementation. **Its requests carry no session**, so the session's authentication, resend and
-admission apply to none of them — a request one of its callers built is authenticated where it is
-built. Moving the wire layer onto the core is
-[#152](https://github.com/sempods/sempods-kotlin/issues/152).
+The transport runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect
+policy have one implementation. **Its requests carry no session**, so the session's authentication,
+resend and admission apply to none of them — a request one of its callers built is authenticated
+where it is built. `SempodsControlPlaneClient` is the last caller of the transport
+([#240](https://github.com/sempods/sempods-kotlin/issues/240)) and nothing calls the wire layer
+([#241](https://github.com/sempods/sempods-kotlin/issues/241) removes it).
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
 many pods resolves its own names and builds one session per pod; where the names come from is a
@@ -313,9 +314,9 @@ direct virtual-thread calls and OkHttp callbacks on Java 21 and 25, outside ordi
 - a Kotlin library exposing `suspend` functions exposes `Continuation` to Java callers, and a
   specification client is precisely the artifact a foreign JVM implementation consumes;
 - on Java 25 a blocking send on a virtual thread costs no thread per request. `sempods-mcp` is
-  `suspend` throughout, fans out over every connected pod at once, and bridges in about forty lines
+  `suspend` throughout, fans out over every connected pod at once, and bridges on `SempodsAsync`
   (`PodIo`) — one virtual thread per in-flight request, no carrier thread held. A Java consumer that
-  wants a `CompletionStage` takes `SempodsAsync` (§"Asynchronous use").
+  wants a `CompletionStage` takes the same class (§"Asynchronous use").
 
 **OkHttp**, because SSRF **resolve-and-pin** needs a hook at the moment an address is produced. The
 JDK client's only one is `InetAddressResolverProvider`, which replaces the resolver for the whole
@@ -386,20 +387,20 @@ stricter reading won, so the NAT64 prefixes are refused outright.
 
 ## What the client is not
 
-- **Not two clients.** The JSON-LD wire layer and the RDF4J adapter are two shapes of one answer
+- **Not two clients.** The text the pod sent and the RDF4J adapter are two shapes of one answer
   (§"Two representations"). `sempods-mcp` keeps only `PodIo`, the bridge; the tool
-  calls live in `:sempods-mcp-core`, where both MCP surfaces read them. The two layers read their
-  routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own theirs;
-  `SempodsPodRoutesParityTest` holds the shared ones equal until #152 moves the layers onto the core
-  and removes their copies.
+  calls live in `:sempods-mcp-core`, where both MCP surfaces read them. The legacy wire layer reads
+  its routes from `org.sempods.commons.net.SempodsPodRoutes`, and the core's endpoint groups own
+  theirs; `SempodsPodRoutesParityTest` holds the shared ones equal until
+  [#241](https://github.com/sempods/sempods-kotlin/issues/241) removes that layer's copies.
 - **A foreign URI stays unbound.** `SempodsForeignTarget` and its RDF4J adapter take no pod
   base (§"A foreign URI").
 - **No coroutine surface.** OkHttp's `enqueue` carries the core's policy as `execute` does; a
   `suspend` consumer bridges at its own edge, and `sempods-mcp`'s `PodIo` is what that costs: a
-  virtual-thread executor, a cancel handle, and the caller's trace carried across the hop. Two things
-  a bridge must get right: `Thread.interrupt()` does **not** unblock an OkHttp read (Okio clears the
-  flag), so cancellation goes through the call; and `Job.invokeOnCompletion` fires when the job
-  *finishes*, which for a blocking body is after the wait it was meant to cut short —
+  `SempodsAsync` operation per call, and the caller's trace carried across the hop. Two things a
+  bridge must get right: `Thread.interrupt()` does **not** unblock an OkHttp read (Okio clears the
+  flag), so cancellation goes through the operation's calls; and `Job.invokeOnCompletion` fires when
+  the job *finishes*, which for a blocking body is after the wait it was meant to cut short —
   `invokeOnCancellation` fires in time.
 - **No in-process client.** A consumer inside the server takes `PodFacade` / `SempodsFacade`; a
   second path into a pod is one no client could take.

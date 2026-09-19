@@ -30,7 +30,9 @@ import org.sempods.mcp.core.ToolsCapability
 import org.sempods.mcp.core.ToolsListResult
 import org.sempods.mcp.core.isNotification
 import com.google.inject.Inject
-import org.sempods.client.SempodsClientException
+import org.sempods.client.core.SempodsClientException
+import org.sempods.mcp.core.PodToolRefusal
+import org.sempods.mcp.core.podAt
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.LogSafeText
@@ -48,7 +50,6 @@ import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
-import java.net.URI
 
 /**
  * MCP (Model Context Protocol) endpoint for sempods.
@@ -82,6 +83,7 @@ import java.net.URI
 @Path("{pod}/_system/mcp")
 class McpEndpoint @Inject constructor(
   private val podToolExecutor: PodToolExecutor,
+  private val mcpPodCalls: McpPodCalls,
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentDecisionStore: PodConsentDecisionStore,
@@ -319,7 +321,8 @@ class McpEndpoint @Inject constructor(
     val plan = podToolExecutor.plan("list_contexts", objectMapper.createObjectNode())
     if (plan !is PodToolPlan.Call) return null
     return try {
-      val body = objectMapper.valueToTree<JsonNode>(plan.execute(URI("${config.apiBaseUrl}$pod"), bearerToken()))
+      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearerToken(), mcpPodCalls.calls))
+      val body = objectMapper.valueToTree<JsonNode>(payload)
       InstructionContexts(
         entries = body.path("contexts").mapNotNull { node ->
           val iri = node.path("context_iri").takeIf { it.isTextual }?.asText() ?: return@mapNotNull null
@@ -783,16 +786,21 @@ class McpEndpoint @Inject constructor(
    */
   private fun runTool(pod: String, toolName: String, plan: PodToolPlan.Call): ToolCallResult =
     try {
-      val payload = plan.execute(URI("${config.apiBaseUrl}$pod"), bearerToken())
+      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearerToken(), mcpPodCalls.calls))
       ToolCallResult(content = listOf(ContentItem(type = "text", text = objectMapper.writeValueAsString(payload))))
-    } catch (e: SempodsClientException) {
+    } catch (e: PodToolRefusal) {
       logger.info {
         "[mcp] tool '${LogSafeText.of(toolName)}' on pod '$pod' refused " +
-            "(${e.statusCode ?: "no status"}): ${LogSafeText.of(e.message.toString())}"
+            "(${e.status}): ${LogSafeText.of(e.message.toString())}"
       }
       // The pod's own body, not the exception message: the message carries the URL that was dialled,
       // and this text goes to a model.
-      toolError(PodToolFailure.describe(toolName, e.statusCode, e.responseBody ?: e.message.orEmpty()))
+      toolError(PodToolFailure.describe(toolName, e.status, e.podBody))
+    } catch (e: SempodsClientException) {
+      // The pod never answered — a blocked address or a refused connection. No status to report, and
+      // the failure's own words are all there is.
+      logger.info { "[mcp] tool '${LogSafeText.of(toolName)}' on pod '$pod' failed: ${LogSafeText.of(e.message.toString())}" }
+      toolError(PodToolFailure.describe(toolName, null, e.message.orEmpty()))
     } catch (e: Exception) {
       logger.error(e) { "[mcp] tool '${LogSafeText.of(toolName)}' on pod '$pod' failed" }
       toolError("Error: ${e.message ?: e.javaClass.simpleName}")
