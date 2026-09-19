@@ -316,6 +316,10 @@ subprojects {
   // It reads the compiled classes with `javap`: a Kotlin type can reach a signature the source never
   // names, and `javap` ships with the JDK the build already requires.
   //
+  // `-protected`, not `-public`: a published `open` class hands its protected members to a subclass
+  // in the consumer's own project, and `BaseEndpoint` is exactly that class. What such a subclass
+  // inherits is as much the module's Java surface as what an instance can be called with.
+  //
   // Which libraries a module hides is the half that has to be said per module, and it is this map.
   // The three Java-callability rules need no input at all and hold for every published module, so
   // the check is registered from `publishedModules` rather than from here.
@@ -396,7 +400,7 @@ subprojects {
 
         val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
         val output = providers.exec {
-          commandLine(listOf(javap.absolutePath, "-public", "-classpath", root.absolutePath) + classes)
+          commandLine(listOf(javap.absolutePath, "-protected", "-classpath", root.absolutePath) + classes)
         }.standardOutput.asText.get()
 
         // A member name carrying `$` is one Kotlin mangled, or an accessor the compiler generated:
