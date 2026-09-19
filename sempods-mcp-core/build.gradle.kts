@@ -21,7 +21,7 @@ dependencies {
   // rather than `implementation`. Declaring it here rather than defining a second port interface is
   // deliberate: a port would be the `PodApi` facade the consolidation deleted, rebuilt one module
   // over.
-  api(project(":sempods-client-core"))
+  api(project(":sempods-client"))
 
   // `api` because OkHttp is in this module's surface: `podAt` takes the `Call.Factory` a pod handle
   // runs on. It arrives through the core's `api` either way — declaring it is the repository's rule

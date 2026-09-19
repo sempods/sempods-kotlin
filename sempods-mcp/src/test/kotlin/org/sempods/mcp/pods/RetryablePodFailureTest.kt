@@ -3,10 +3,10 @@ package org.sempods.mcp.pods
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.net.SempodsOutboundGuard
-import org.sempods.client.core.net.OutboundRateLimiter
-import org.sempods.client.core.net.SsrfBlockedException
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.net.SempodsOutboundGuard
+import org.sempods.client.net.OutboundRateLimiter
+import org.sempods.client.net.SsrfBlockedException
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
 import java.net.InetAddress
 import org.junit.jupiter.api.AfterEach

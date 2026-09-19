@@ -6,16 +6,16 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import com.fasterxml.jackson.databind.node.ObjectNode
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsContextSelection
-import org.sempods.client.core.SempodsExchange
-import org.sempods.client.core.SempodsGraphFormat
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsReadOptions
-import org.sempods.client.core.SempodsRepeatable
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsResponseException
-import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsContextSelection
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsGraphFormat
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsReadOptions
+import org.sempods.client.SempodsRepeatable
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsResponseException
+import org.sempods.client.SempodsWriteOptions
 import org.sempods.commons.net.SempodsPodRoutes
 import java.net.URI
 

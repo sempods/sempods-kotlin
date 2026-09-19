@@ -38,9 +38,9 @@ import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodTokenProvider
 import okhttp3.OkHttpClient
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.net.OutboundRateLimiter
-import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.net.OutboundRateLimiter
+import org.sempods.client.net.SempodsOutboundGuard
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.SempodsMcpCoreModule
 import org.sempods.mcp.pods.PodUrlPolicy

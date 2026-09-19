@@ -55,9 +55,9 @@ import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import okhttp3.OkHttpClient
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.net.SempodsOutboundGuard
-import org.sempods.client.core.net.SempodsUrlPolicy
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.net.SempodsOutboundGuard
+import org.sempods.client.net.SempodsUrlPolicy
 import org.sempods.jaxrs.SempodsCorsFilter
 import org.sempods.jaxrs.SempodsObjectMapperResolver
 import org.sempods.api.pod.system.mcp.McpPodCalls

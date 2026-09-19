@@ -11,7 +11,7 @@ import java.net.URI
  * them sends.
  *
  * A body that is not the document the route promises fails here, and the failure carries no part of
- * it: [org.sempods.client.core.SempodsResponse.map] turns what this throws into a decoding failure
+ * it: [org.sempods.client.SempodsResponse.map] turns what this throws into a decoding failure
  * with the answer's status and headers.
  */
 internal object MediaJson {

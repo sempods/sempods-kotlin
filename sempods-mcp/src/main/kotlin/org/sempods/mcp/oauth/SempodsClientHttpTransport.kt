@@ -4,8 +4,8 @@ import okhttp3.Call
 import okhttp3.FormBody
 import okhttp3.Request
 import org.sempods.auth.core.HttpTransport
-import org.sempods.client.core.SempodsExchange
-import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsStatusException
 
 /**
  * [HttpTransport] on the client core.

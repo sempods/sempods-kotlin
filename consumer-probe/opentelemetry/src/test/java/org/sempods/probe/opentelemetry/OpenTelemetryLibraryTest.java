@@ -39,12 +39,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import org.sempods.client.core.SempodsAsync;
-import org.sempods.client.core.SempodsAsyncOperation;
-import org.sempods.client.core.SempodsOkHttp;
-import org.sempods.client.core.SempodsPodBase;
-import org.sempods.client.core.SempodsRequestAuth;
-import org.sempods.client.core.SempodsSession;
+import org.sempods.client.SempodsAsync;
+import org.sempods.client.SempodsAsyncOperation;
+import org.sempods.client.SempodsOkHttp;
+import org.sempods.client.SempodsPodBase;
+import org.sempods.client.SempodsRequestAuth;
+import org.sempods.client.SempodsSession;
 
 /**
  * The client core traced by OpenTelemetry's OkHttp library, wired the way that library's README

@@ -1,10 +1,10 @@
 package org.sempods.mcp.core
 
 import okhttp3.Call
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsRequestAuth
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsRequestAuth
+import org.sempods.client.SempodsSession
 
 /**
  * One pod as a surface reaches it for [PodToolPlan.Call.execute]: its base, the bearer this call

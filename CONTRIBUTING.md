@@ -191,7 +191,7 @@ which commit it is; `checkPublishedSignatures` keeps what Java cannot call off t
 surface.
 
 `./gradlew test` also needs a **JDK 21** installed beside the toolchain's 25, for
-`:consumer-probe:client-core`; `docs/concepts/modularity.md` §"Open-source readiness" says why.
+`:consumer-probe:client`; `docs/concepts/modularity.md` §"Open-source readiness" says why.
 
 Every PR completes documentation for its own diff, including partial work on a larger issue.
 A behaviour change carries its documentation in the same commit —

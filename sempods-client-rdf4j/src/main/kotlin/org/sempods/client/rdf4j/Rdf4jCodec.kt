@@ -36,7 +36,7 @@ import java.nio.charset.CodingErrorAction
  * from a JVM system property, so a consumer's JVM flags would otherwise decide what a read returns.
  *
  * **A body that does not parse is an [RDFParseException]**, an `IOException` of the parser's own
- * included, so that [org.sempods.client.core.SempodsResponse.map] reports it as a decoding failure.
+ * included, so that [org.sempods.client.SempodsResponse.map] reports it as a decoding failure.
  * Parsers are not thread-safe; each read makes its own.
  */
 internal object Rdf4jCodec {

@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsSession
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.okhttp.TestHttpClient
 import okhttp3.OkHttpClient

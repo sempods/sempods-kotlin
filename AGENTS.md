@@ -130,7 +130,7 @@ IST documentation:
 - Naming (IST): `docs/naming.md` — the authority for how "sempods" is written in prose and
   in code, the package namespace, and the names that are frozen because a deployed host, a database
   or a published IRI depends on them
-- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF-free core (`:sempods-client-core`) and its session, authentication, admission and outcome contracts; the adapters on it — RDF4J values (`:sempods-client-rdf4j`) and the media routes (`:sempods-client-media`); the rule for what may be added where; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
+- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF-free core (`:sempods-client`) and its session, authentication, admission and outcome contracts; the adapters on it — RDF4J values (`:sempods-client-rdf4j`) and the media routes (`:sempods-client-media`); the rule for what may be added where; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
 - MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
 - Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
@@ -156,7 +156,7 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. `:consumer-probe:client-core`, `:consumer-probe:client-media`,
+  not their wider accidental surface. `:consumer-probe:client`, `:consumer-probe:client-media`,
   `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane` and
   `:consumer-probe:opentelemetry` check the client artifacts from outside. See
   `docs/concepts/modularity.md` §"Open-source readiness".
@@ -180,7 +180,7 @@ methods concurrently as well as classes, `-PtestPortBase=<n>` moves the port ran
 share a machine.
 
 Java 25 is required to build; published bytecode targets Java 21. **A JDK 21 has to be installed
-beside it**, or `./gradlew test` fails in `:consumer-probe:client-core`.
+beside it**, or `./gradlew test` fails in `:consumer-probe:client`.
 
 ## What this repository deliberately does not have
 

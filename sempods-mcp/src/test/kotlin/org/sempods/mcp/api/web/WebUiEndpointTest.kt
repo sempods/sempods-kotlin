@@ -1,6 +1,6 @@
 package org.sempods.mcp.api.web
 
-import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.net.SempodsOutboundGuard
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings

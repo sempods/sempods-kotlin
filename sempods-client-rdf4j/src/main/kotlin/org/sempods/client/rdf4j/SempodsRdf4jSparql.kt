@@ -3,11 +3,11 @@ package org.sempods.client.rdf4j
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.RDFHandler
-import org.sempods.client.core.SempodsBodyReader
-import org.sempods.client.core.SempodsContextSelection
-import org.sempods.client.core.SempodsGraphFormat
-import org.sempods.client.core.SempodsPodSparql
-import org.sempods.client.core.SempodsResponse
+import org.sempods.client.SempodsBodyReader
+import org.sempods.client.SempodsContextSelection
+import org.sempods.client.SempodsGraphFormat
+import org.sempods.client.SempodsPodSparql
+import org.sempods.client.SempodsResponse
 import java.io.IOException
 
 /**
@@ -24,7 +24,7 @@ import java.io.IOException
  *
  * **A SELECT result is the core's strict one** ([SempodsPodSparql.select]), converted term by term. A term
  * RDF4J cannot hold — a `uri` that is no absolute IRI, a datatype `rdf:langString` without a language —
- * is a [org.sempods.client.core.SempodsDecodingException] with the answer's status and headers.
+ * is a [org.sempods.client.SempodsDecodingException] with the answer's status and headers.
  *
  * An ASK query needs nothing from here: [SempodsPodSparql.ask] answers the `boolean` RDF4J would.
  * The selection, answers and the resend are [SempodsPodSparql]'.
@@ -49,7 +49,7 @@ class SempodsRdf4jSparql private constructor(
    * the body is the number of statements.
    *
    * What [handler] throws, and an `IOException` of the connection, reach the caller as they are. A body
-   * that does not parse is a [org.sempods.client.core.SempodsDecodingException], after the statements
+   * that does not parse is a [org.sempods.client.SempodsDecodingException], after the statements
    * before it were handed on.
    */
   @JvmOverloads

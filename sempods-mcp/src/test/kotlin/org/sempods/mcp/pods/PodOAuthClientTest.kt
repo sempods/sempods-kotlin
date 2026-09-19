@@ -1,7 +1,7 @@
 package org.sempods.mcp.pods
 
 import okhttp3.OkHttpClient
-import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.net.SempodsOutboundGuard
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jwt.JWTClaimsSet

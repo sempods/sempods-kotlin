@@ -2,11 +2,11 @@ package org.sempods.client.rdf4j
 
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsPodSlots
-import org.sempods.client.core.SempodsReadOptions
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsPodSlots
+import org.sempods.client.SempodsReadOptions
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsWriteOptions
 import java.io.IOException
 
 /**
@@ -23,7 +23,7 @@ import java.io.IOException
  * other representation that names where a value came from. So every statement keeps its context, and
  * [SempodsReadOptions.includeContexts] changes nothing here. A language tag comes back in lower case, as
  * JSON-LD processing leaves it; RDF compares tags without regard to case. A body that is not such a document is a
- * [org.sempods.client.core.SempodsDecodingException] with the answer's status and headers, and so is one
+ * [org.sempods.client.SempodsDecodingException] with the answer's status and headers, and so is one
  * that names a remote `@context`: nothing a document names is fetched.
  *
  * **A write sends each value as a JSON-LD value object** (SPS-CRUD-023): an IRI as `@id`, a literal

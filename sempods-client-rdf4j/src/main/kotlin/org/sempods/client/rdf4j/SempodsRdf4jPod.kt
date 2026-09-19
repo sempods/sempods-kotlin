@@ -1,6 +1,6 @@
 package org.sempods.client.rdf4j
 
-import org.sempods.client.core.SempodsPod
+import org.sempods.client.SempodsPod
 
 /**
  * A pod's RDF as RDF4J models, on a [SempodsPod] that already exists.

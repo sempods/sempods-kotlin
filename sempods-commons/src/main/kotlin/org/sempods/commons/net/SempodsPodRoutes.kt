@@ -15,7 +15,7 @@ import java.net.URI
  * that hold no RDF. Same shape as [org.sempods.commons.identity.WebIdUriDeriver]: a formula several
  * modules must agree on, defined once so they cannot drift apart quietly.
  *
- * `:sempods-client-core` is the one caller that keeps its own copies, because it resolves OkHttp
+ * `:sempods-client` is the one caller that keeps its own copies, because it resolves OkHttp
  * and Jackson 3 and nothing else — `commons` would put a logging facade in a client that logs
  * nothing (`docs/pod-client.md` §"Consumable as an artifact"). Each side pins its literal in its
  * own suite.

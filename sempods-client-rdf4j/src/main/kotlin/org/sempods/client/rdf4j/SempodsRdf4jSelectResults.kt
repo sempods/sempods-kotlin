@@ -4,9 +4,9 @@ import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.query.BindingSet
 import org.eclipse.rdf4j.query.impl.ListBindingSet
-import org.sempods.client.core.SempodsSparqlResults
-import org.sempods.client.core.SempodsSparqlTerm
-import org.sempods.client.core.SempodsSparqlTermKind
+import org.sempods.client.SempodsSparqlResults
+import org.sempods.client.SempodsSparqlTerm
+import org.sempods.client.SempodsSparqlTermKind
 import java.util.Collections
 
 /**

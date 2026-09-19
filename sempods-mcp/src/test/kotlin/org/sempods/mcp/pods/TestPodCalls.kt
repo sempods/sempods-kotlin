@@ -1,8 +1,8 @@
 package org.sempods.mcp.pods
 
 import okhttp3.OkHttpClient
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.net.SempodsOutboundGuard
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.net.SempodsOutboundGuard
 import org.sempods.commons.okhttp.TraceparentInterceptor
 
 /**

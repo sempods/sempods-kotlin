@@ -7,7 +7,7 @@ description = "The pod's media routes over the sempods pod client core."
 dependencies {
   // `api`: every signature here names the core's session and answers, and the media contract's own
   // types.
-  api(project(":sempods-client-core"))
+  api(project(":sempods-client"))
   api(project(":sempods-media"))
 
   // Named directly because this module names it directly: it builds an `okhttp3.Request` through the

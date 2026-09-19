@@ -7,7 +7,7 @@ description = "RDF4J models over the sempods pod client core."
 dependencies {
   // `api`: every signature here names the core's session, options and answers, and RDF4J's `Model`,
   // `Value`, `BindingSet`, `RDFHandler` and `RDFFormat`.
-  api(project(":sempods-client-core"))
+  api(project(":sempods-client"))
   api(libs.rdf4jModelApi)
   api(libs.rdf4jQuery)
   api(libs.rdf4jRioApi)

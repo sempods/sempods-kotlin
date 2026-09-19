@@ -17,7 +17,7 @@ line automatically and is not repeated here.
 | JUL bridge | `org.slf4j:jul-to-slf4j` | `:sempods-commons`, whose `LoggingInitializer` installs it |
 
 **A library declares the facade and never the binding.** `implementation` is transitive at runtime,
-so a bundle containing logback in `:sempods-client-core` puts logback in the runtime of everyone who
+so a bundle containing logback in `:sempods-client` puts logback in the runtime of everyone who
 depends on it — and the modules here are being published to Maven Central, where that is somebody
 else's problem to unpick. `checkNoLoggingBinding` (root `build.gradle.kts`, wired into `check`)
 fails the build if a published library carries it. Two exemptions, both narrow:

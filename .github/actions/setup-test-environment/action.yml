@@ -5,7 +5,7 @@ runs:
   using: 'composite'
   steps:
     # 25 last: `setup-java` points `JAVA_HOME` at the version installed last, where Gradle belongs.
-    # 21 is for `:consumer-probe:client-core`, installed here so the check does not rest on a runner image.
+    # 21 is for `:consumer-probe:client`, installed here so the check does not rest on a runner image.
     - uses: actions/setup-java@v6
       with:
         distribution: 'temurin'

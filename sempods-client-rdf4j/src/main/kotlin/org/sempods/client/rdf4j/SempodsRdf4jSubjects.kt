@@ -1,12 +1,12 @@
 package org.sempods.client.rdf4j
 
 import org.eclipse.rdf4j.model.Model
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsGraphFormat
-import org.sempods.client.core.SempodsPodSubjects
-import org.sempods.client.core.SempodsReadOptions
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsGraphFormat
+import org.sempods.client.SempodsPodSubjects
+import org.sempods.client.SempodsReadOptions
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsWriteOptions
 import java.io.IOException
 
 /**

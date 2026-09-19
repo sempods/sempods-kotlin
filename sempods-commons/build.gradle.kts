@@ -16,7 +16,7 @@ dependencies {
   implementation(libs.slf4jJul)
 
   // `org.sempods.commons.guice.BaseModule` is the only class here that needs Guice, and a consumer that
-  // does not use it — `sempods-client-core` is a library its consumer wires itself — must not
+  // does not use it — `sempods-client` is a library its consumer wires itself — must not
   // inherit a DI container to get a URL helper. Anyone extending the base module already has Guice on its own classpath.
   compileOnly(libs.guice)
 

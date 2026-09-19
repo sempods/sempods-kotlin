@@ -12,7 +12,7 @@ import java.io.InputStream
 
 /**
  * What a streamed read ended with: the number of statements [readStatements] handed on, or a body that
- * does not parse, kept for [org.sempods.client.core.SempodsResponse.map] to report with the answer's
+ * does not parse, kept for [org.sempods.client.SempodsResponse.map] to report with the answer's
  * status and headers.
  */
 internal class StreamOutcome private constructor(

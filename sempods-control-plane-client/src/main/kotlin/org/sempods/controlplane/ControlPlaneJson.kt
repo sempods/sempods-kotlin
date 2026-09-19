@@ -11,7 +11,7 @@ import java.net.URISyntaxException
  * The admin surface's JSON: the two documents this client sends, and the one it reads.
  *
  * A body that is not the document the route promises fails here, and the failure carries no part of
- * it: [org.sempods.client.core.SempodsResponse.map] turns what this throws into a decoding failure
+ * it: [org.sempods.client.SempodsResponse.map] turns what this throws into a decoding failure
  * with the answer's status and headers. The member name is in the message because a member the route
  * guarantees is a broken contract rather than an empty value — and it is this object's own test that
  * reads that message, since `map` deliberately keeps a decoder's message out of what it reports.

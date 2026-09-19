@@ -38,7 +38,7 @@ dependencies {
   // and a URI builder that takes its base URL as a plain argument. No pod service to program
   // against — the pod server binds `SempodsUriBuilder` for its own use, but nothing here is an
   // abstraction a consumer injects instead of talking to a pod. A consumer that wants a real pod
-  // runs one (`:sempods-server`); one that wants to reach a pod takes `:sempods-client-core`.
+  // runs one (`:sempods-server`); one that wants to reach a pod takes `:sempods-client`.
 
   testImplementation(libs.bundles.test)
 }

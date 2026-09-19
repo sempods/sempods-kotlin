@@ -3,12 +3,12 @@ package org.sempods.controlplane
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsExchange
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsRequestAuth
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsRequestAuth
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsSession
 import java.io.IOException
 import java.net.URI
 
@@ -17,11 +17,11 @@ import java.net.URI
  * pod lifecycle and app provisioning.
  *
  * **This surface is not part of the pod specification and is not meant to become part of it.** A
- * pod's contract is what `:sempods-client-core` speaks: a graph, an addressing scheme and a
+ * pod's contract is what `:sempods-client` speaks: a graph, an addressing scheme and a
  * permission model under `{pod}/…`. Hosting *many* pods — creating them, deleting them, registering
  * apps on them — is a property of a deployment that hosts pods, and the reference implementation
  * ships one. That is why the two clients are two modules: a consumer implementing or consuming the
- * specification depends on `:sempods-client-core` alone, and nothing about this module can be
+ * specification depends on `:sempods-client` alone, and nothing about this module can be
  * mistaken for the contract.
  *
  * ```java

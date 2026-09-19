@@ -15,7 +15,7 @@ dependencies {
   // The pod HTTP surface, its SSRF guard and the pod base rules: this module names them directly
   // — in the tools, in the OAuth client, in the pod URL policy and in the suites that build a
   // guarded client.
-  implementation(project(":sempods-client-core"))
+  implementation(project(":sempods-client"))
   implementation(project(":sempods-auth-core"))
 
   // The MCP tool catalog and JSON-RPC envelope, shared with the pod-immanent MCP in

@@ -7,10 +7,10 @@ dependencies {
   testImplementation(project(":sempods-control-plane-client"))
 
   // Named as a consumer names what it compiles against, although the module's `api` brings them.
-  testImplementation(project(":sempods-client-core"))
+  testImplementation(project(":sempods-client"))
   testImplementation(libs.okhttp)
 
-  // JUnit alone, as in `:consumer-probe:client-core`.
+  // JUnit alone, as in `:consumer-probe:client`.
   testImplementation(libs.junitJupiterApi)
   testRuntimeOnly(libs.junit)
   testRuntimeOnly(libs.junitPlatformLauncher)

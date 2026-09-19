@@ -29,8 +29,8 @@ import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.sempods.client.core.SempodsExchange
-import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsStatusException
 import org.sempods.mcp.forLog
 import org.sempods.mcp.oauth.SempodsClientHttpTransport
 import java.net.URI

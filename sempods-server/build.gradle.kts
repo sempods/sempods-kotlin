@@ -50,7 +50,7 @@ dependencies {
   //
   // The suite seeds pods over that same HTTP surface — through this module and its RDF4J adapter —
   // so a seeding call that only works in-process fails in the test run rather than at deploy time.
-  implementation(project(":sempods-client-core"))
+  implementation(project(":sempods-client"))
 
   // Guice and the logging facade. Neither reaches a consumer as an obligation: Guice is
   // `compileOnly` in the commons siblings, and `libs.bundles.logging` is the facade alone — the

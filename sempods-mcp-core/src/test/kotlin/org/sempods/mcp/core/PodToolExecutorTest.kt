@@ -11,7 +11,7 @@ import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.MediaType
-import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.SempodsOkHttp
 import org.slf4j.event.Level
 import java.util.Base64
 import kotlin.test.Test

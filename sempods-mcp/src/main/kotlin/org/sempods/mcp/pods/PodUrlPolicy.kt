@@ -1,12 +1,12 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.core.net.SempodsUrlPolicy
+import org.sempods.client.net.SempodsUrlPolicy
 import java.net.InetAddress
 
 /**
  * Pod base-URL guard — the URL-string half of the two-layer SSRF defense.
  *
- * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client-core`: one range table for this
+ * **The rules are [SempodsUrlPolicy]'s**, in `:sempods-client`: one range table for this
  * service's pod-base admission and a consumer's dereference guard alike.
  *
  * What survives here is the naming this service uses: [allowLocal] for the deploy-time relaxation,
