@@ -150,6 +150,20 @@ class SempodsPodMediaContractTest {
   }
 
   @Test
+  fun `an upload answered 200 is still an answer, although SPS-MEDIA-011 asks for 201`() {
+    // That pod has broken the requirement and stored the media all the same; `docs/pod-client.md`
+    // §"Endpoint groups" says why such a status is listed.
+    server.`when`(request().withMethod("POST")).respond(
+      response().withStatusCode(200).withBody("""{"id":"abc123","content_url":"https://pods.example/a"}"""),
+    )
+
+    val answer = media.upload(tasks, "image/png", { "x".byteInputStream() })
+
+    assertEquals(200, answer.status, "the status is on the answer, for a caller that wants to notice")
+    assertEquals("abc123", assertNotNull(answer.body).mediaId)
+  }
+
+  @Test
   fun `an upload answered without the members the route promises is a decoding failure`() {
     server.`when`(request().withMethod("POST")).respond(response().withStatusCode(201).withBody("""{"id":"abc123"}"""))
 

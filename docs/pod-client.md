@@ -173,6 +173,16 @@ graph comes from; `sparql().graphStream` and `graphTo` are the same read for a q
 A status the route does not list, or a body that is not the route's document, is an exception that
 keeps the status and headers and never quotes the body.
 
+**What gets listed is decided by what an answer would mean.** A requirement binds a pod, and a client
+refusing an answer makes no pod conformant — it makes one pod's deviation its caller's failure. So a
+status carrying the meaning its route promises is listed even where a requirement names another one:
+[`SPS-MEDIA-011`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-011)
+requires `201` on an upload whether or not the bytes were already stored, and a pod answering `200`
+has stored the media all the same, so `SempodsPodMedia` reports that answer. A status carrying some
+other meaning is refused — `SempodsPodMedia.assign` leaves `404` unlisted, because there it says the
+caller may not read the media, and reading it as nothing-to-do would report something untrue. The
+status is on every answer, which is where a caller that wants to notice a deviation looks.
+
 **A read can be narrowed to contexts, and a write names its context.** The selection is optional. A
 query carries it as the SPARQL Protocol's dataset parameters (`SempodsPodSparql` says how), which a
 pod may leave unsupported ([`SPS-SPARQL-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/sparql.md#SPS-SPARQL-011)):
