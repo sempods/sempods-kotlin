@@ -137,13 +137,19 @@ class SempodsPodMedia(pod: SempodsPod) {
   /**
    * Both upload paths end here.
    *
+   * **`201` is the only answer listed**, because
+   * [`SPS-MEDIA-011`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-011)
+   * forbids the other one: a `POST` answers `201` whether or not the bytes were already stored. The
+   * requirement exists so that a caller who already holds a file cannot learn whether this pod holds
+   * it too, and a client that accepted a `200` here would read out exactly that difference.
+   *
    * `content_url` is read rather than rebuilt from the id: the pod knows the address it is published
    * at, this client knows only the one it dialled, and the value ends up in a persisted
    * `schema:contentUrl`. An app backend reaching a pod at an internal address would otherwise publish
    * a URL nobody outside can resolve.
    */
   private fun stored(request: Request): SempodsResponse<UploadedMedia> =
-    exchange.text(request, 200, 201).map { MediaJson.uploaded(it) }
+    exchange.text(request, 201).map { MediaJson.uploaded(it) }
 
   private fun collection(contextUri: String, filename: String?): Request.Builder =
     addressed("POST", "context" to contextUri, "filename" to filename)
