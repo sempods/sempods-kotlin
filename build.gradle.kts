@@ -320,6 +320,11 @@ subprojects {
   // in the consumer's own project, and `BaseEndpoint` is exactly that class. What such a subclass
   // inherits is as much the module's Java surface as what an instance can be called with.
   //
+  // One owner, because `checkSignatureScanReadsProtected` runs `javap` with this same value and
+  // fails when the answer holds no protected member. No published module breaks the rule on one
+  // today, so narrowing this back to `-public` would leave every module green.
+  val signatureScanScope = "-protected"
+  //
   // Which libraries a module hides is the half that has to be said per module, and it is this map.
   // The three Java-callability rules need no input at all and hold for every published module, so
   // the check is registered from `publishedModules` rather than from here.
@@ -400,7 +405,7 @@ subprojects {
 
         val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
         val output = providers.exec {
-          commandLine(listOf(javap.absolutePath, "-protected", "-classpath", root.absolutePath) + classes)
+          commandLine(listOf(javap.absolutePath, signatureScanScope, "-classpath", root.absolutePath) + classes)
         }.standardOutput.asText.get()
 
         // A member name carrying `$` is one Kotlin mangled, or an accessor the compiler generated:
@@ -459,6 +464,40 @@ subprojects {
       }
     }
     tasks.matching { it.name == "check" }.configureEach { dependsOn(checkPublishedSignatures) }
+
+    // `BaseEndpoint` is the published `open` class a consumer subclasses, so its protected members
+    // are the surface the scan above has to reach. Asserted through the scan's own window rather
+    // than by reading the option, so the check fails for the reason a reader would want: the
+    // members stopped being listed.
+    if (name == "sempods-commons-jaxrs") {
+      val checkSignatureScanReadsProtected = tasks.register("checkSignatureScanReadsProtected") {
+        group = "verification"
+        description = "Fails if the signature scan has stopped reading the members a subclass inherits."
+        dependsOn(tasks.named("classes"))
+        inputs.dir(classesDir)
+        doLast {
+          val javap = javapLauncher.get().metadata.installationPath.file("bin/javap").asFile
+          val listed = providers.exec {
+            commandLine(
+              javap.absolutePath, signatureScanScope, "-classpath", classesDir.get().asFile.absolutePath,
+              "org.sempods.commons.jaxrs.BaseEndpoint",
+            )
+          }.standardOutput.asText.get()
+
+          if (listed.lineSequence().none { it.trim().startsWith("protected ") }) {
+            throw GradleException(
+              "`javap $signatureScanScope` lists no protected member of BaseEndpoint, so " +
+                "`checkPublishedSignatures` is not reading what a subclass in a consumer's own " +
+                "project inherits. Either `signatureScanScope` narrowed, or that class has no " +
+                "protected member left and this guard needs a different one.",
+            )
+          }
+        }
+      }
+      // On `checkPublishedSignatures` rather than on `check`: it guards that task, and the CI job
+      // names its tasks one by one rather than running `check`.
+      checkPublishedSignatures.configure { dependsOn(checkSignatureScanReadsProtected) }
+    }
   }
 
   tasks.withType<JavaExec>().configureEach {
