@@ -1,7 +1,7 @@
 # Pod client — the JVM client for the pod surface (IST)
 
 What a consumer reaches for when it wants to talk to a pod it does not run: the HTTP core
-`:sempods-client-core`, its RDF4J adapter `:sempods-client-rdf4j`, the media routes
+`:sempods-client`, its RDF4J adapter `:sempods-client-rdf4j`, the media routes
 `:sempods-client-media`, and the sibling that speaks the host-level admin surface,
 `:sempods-control-plane-client`.
 
@@ -79,7 +79,7 @@ its own, and the verbatim body stays beside it for a consumer that forwards the 
 
 ## The core: a pod, a credential, and OkHttp
 
-`:sempods-client-core` is the pod's HTTP surface without an RDF representation (§"Consumable as an
+`:sempods-client` is the pod's HTTP surface without an RDF representation (§"Consumable as an
 artifact"). The request, the call and the response are OkHttp's: build an `OkHttpClient`, build a
 `Request`, call it, read the `Response`, close it. What this module adds is what OkHttp has no
 opinion about, and it adds it to the consumer's own client.
@@ -416,13 +416,13 @@ RDF4J's model, query and Rio APIs `api`, so a build depending on it can name the
 `implementation`. The in-repo consumers declare no RDF4J of their own, which is the check that the
 export is real.
 
-`:sempods-client-core` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
+`:sempods-client` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
 Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
 public signature names:
 
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.2.0"))
-implementation("org.sempods:sempods-client-core")
+implementation("org.sempods:sempods-client")
 ```
 
 `:sempods-client-rdf4j` is the coordinate for a consumer that wants RDF4J values on that same session. It
@@ -451,7 +451,7 @@ independently embeddable services belongs to
 
 ## Authority and deployment
 
-Pod operations use `sempods-client-core` — with the RDF4J or media adapter where the representation
+Pod operations use `sempods-client` — with the RDF4J or media adapter where the representation
 calls for one — and a pod credential. Host administration uses
 `sempods-control-plane-client` and a host credential. Creating a pod requires the latter,
 because the pod and its context authority do not exist yet. The proposed owner and
@@ -463,7 +463,7 @@ root, with a host credential, on the same installed OkHttp client.
 
 ## Contract source
 
-- `sempods-client-core/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
+- `sempods-client/src/main/kotlin/org/sempods/client/core/` — `SempodsSession`,
   `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
   `SempodsForeignTarget`, and `net/` for the outbound guard
 - `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its

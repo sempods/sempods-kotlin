@@ -3,7 +3,7 @@
 
 dependencies {
   // `testImplementation` for the `implementation` a foreign build would write.
-  testImplementation(project(":sempods-client-core"))
+  testImplementation(project(":sempods-client"))
   testImplementation(libs.okhttp)
 
   // The API, an SDK with an in-memory exporter to read the spans back, and the instrumentation library.

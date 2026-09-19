@@ -45,7 +45,7 @@ Do not write "sempod" as a shorthand for one pod.
 
 **The module prefix carries through to the public repository.** Every module that is part of the
 sempods product is `sempods-<part>` — `sempods-server`, `sempods-model`, `sempods-auth`,
-`sempods-mcp`, `sempods-client-core`, `sempods-control-plane-client`, `sempods-media-s3` — and keeps
+`sempods-mcp`, `sempods-client`, `sempods-control-plane-client`, `sempods-media-s3` — and keeps
 that name
 after extraction, even though `github.com/sempods/sempods-kotlin` already supplies the word. Gradle
 derives the Maven `artifactId` from the project name, so the prefix is what makes

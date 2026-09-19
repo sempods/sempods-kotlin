@@ -7,7 +7,7 @@ dependencies {
   testImplementation(project(":sempods-client-rdf4j"))
 
   // Named as a consumer names what it compiles against, although the adapter's `api` brings them.
-  testImplementation(project(":sempods-client-core"))
+  testImplementation(project(":sempods-client"))
   testImplementation(libs.okhttp)
   testImplementation(libs.rdf4jModelApi)
   testImplementation(libs.rdf4jModel)

@@ -5,7 +5,7 @@
 dependencies {
   // `testImplementation` for the `implementation` a foreign build would write: Gradle propagates
   // only `api` across a project boundary, so this suite's compile classpath is a consumer's.
-  testImplementation(project(":sempods-client-core"))
+  testImplementation(project(":sempods-client"))
 
   // Named as a consumer names what it compiles against, although the core's `api` brings it.
   testImplementation(libs.okhttp)
@@ -20,7 +20,7 @@ dependencies {
 // An opt-in source set: ordinary test/check tasks never run a load comparison.
 val load = sourceSets.create("load")
 dependencies {
-  add(load.implementationConfigurationName, project(":sempods-client-core"))
+  add(load.implementationConfigurationName, project(":sempods-client"))
   add(load.implementationConfigurationName, libs.okhttp)
 }
 

@@ -9,7 +9,7 @@ dependencies {
   // direction of the edge is the point — the proprietary plane runs on the pod client's execution,
   // never the other way round, and a consumer of the pod specification adds no dependency on this
   // module at all.
-  api(project(":sempods-client-core"))
+  api(project(":sempods-client"))
 
   // `api` rather than `implementation`: the constructor names `okhttp3.Call.Factory`, so a consumer
   // compiles against OkHttp. It also arrives through the core's `api` edge.
@@ -18,7 +18,7 @@ dependencies {
   // The admin routes exchange plain JSON, and no public signature names the library that reads it.
   implementation(libs.jackson3Databind)
 
-  // No logging: nothing in this module logs, for the reason `:sempods-client-core` gives.
+  // No logging: nothing in this module logs, for the reason `:sempods-client` gives.
 
   testImplementation(libs.slf4jApi)
   testImplementation(libs.mockServer)

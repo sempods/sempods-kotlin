@@ -81,7 +81,7 @@ import org.sempods.client.core.SempodsWriteOptions;
  * consumer's, so a value class, a {@code suspend} function or a missing {@code @Throws} on the
  * surface is a compile error here. The second is the JVM — the root build runs this suite on the
  * release it hands in as {@code sempods.probe.javaRelease} — and the third is what that classpath
- * resolves. What the core does on the wire, the Kotlin suites of {@code :sempods-client-core} prove.
+ * resolves. What the core does on the wire, the Kotlin suites of {@code :sempods-client} prove.
  *
  * <p>The pod is {@code com.sun.net.httpserver} from the JDK, so the classpath under test is what a
  * consumer resolves, plus JUnit.

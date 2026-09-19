@@ -34,7 +34,7 @@ val publishedModules = listOf(
   "sempods-commons-okhttp",
   "sempods-auth",
   "sempods-auth-core",
-  "sempods-client-core",
+  "sempods-client",
   "sempods-client-media",
   "sempods-client-rdf4j",
   "sempods-control-plane-client",
@@ -217,7 +217,7 @@ subprojects {
 
   val javaProbes = mapOf(
     ":consumer-probe:client-core" to JavaProbe(
-      probed = ":sempods-client-core",
+      probed = ":sempods-client",
       javaRelease = 21,
       forbidden = mapOf(
         "org.eclipse.rdf4j" to "RDF4J",
@@ -317,7 +317,7 @@ subprojects {
   // names, and `javap` ships with the JDK the build already requires.
   val forbiddenLibraries = mapOf(
     // OkHttp is on the core's surface on purpose, so it is not listed.
-    "sempods-client-core" to mapOf(
+    "sempods-client" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
       "tools.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",

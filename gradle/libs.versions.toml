@@ -28,7 +28,7 @@ ktorUtils = { module = "io.ktor:ktor-utils", version.ref = "ktor" }
 rdf4jBom = { module = "org.eclipse.rdf4j:rdf4j-bom", version.ref = "rdf4j" }
 slf4jBom = { module = "org.slf4j:slf4j-bom", version.ref = "slf4j" }
 
-# The HTTP engine under `:sempods-client-core` — and so under everything that dials a pod — and under
+# The HTTP engine under `:sempods-client` — and so under everything that dials a pod — and under
 # `:commons-okhttp`, which holds a client of its own (`docs/pod-client.md` §"Two OkHttp clients in one
 # process"). Pinned here, so the Ktor BOM of another module does not decide it. Why OkHttp:
 # `docs/pod-client.md` §"The transport".
@@ -75,7 +75,7 @@ jacksonDatabind = { module = "com.fasterxml.jackson.core:jackson-databind", vers
 # Registrations on an `ObjectMapper`: the `java.time` codecs, and the Kotlin module.
 jackson = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 jacksonKotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
-# The protocol's own JSON, read inside `:sempods-client-core` and named in no signature there:
+# The protocol's own JSON, read inside `:sempods-client` and named in no signature there:
 # `docs/pod-client.md` §"Consumable as an artifact".
 jackson3Databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson3" }
 # `Response`, the JAX-RS annotations, and the `@Inject` a `BaseEndpoint` subclass carries — what
@@ -92,7 +92,7 @@ jwt = "com.nimbusds:nimbus-jose-jwt:10.9.1"
 # protocol messages only — storage, client policy and identity derivation stay ours.
 oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 # Logging. The facade is what every module compiles against; the binding is what exactly one
-# artifact per process supplies. Keeping them apart is what lets `sempods-client-core` and the other
+# artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.3"

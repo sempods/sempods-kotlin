@@ -12,7 +12,7 @@ import org.sempods.commons.config.Env
  *   JWTs establish the stable `user`. Empty disables OIDC verification (local dev only).
  * - [allowLocalPods] relaxes the SSRF defense (URL-string guard + connect-time DNS vetting) to
  *   permit http/loopback/private pods — the deploy-time strict/relaxed split for local dev and
- *   self-host. See `PodUrlPolicy` and `:sempods-client-core`'s `SempodsOutboundGuard`.
+ *   self-host. See `PodUrlPolicy` and `:sempods-client`'s `SempodsOutboundGuard`.
  * - [podRateLimitPerMinute] is the per-pod-host request budget on the hardened fetch path;
  *   `0` disables the limiter.
  * - [userRateLimitPerMinute] is the per-`(user, profile)` `tools/call` budget on the MCP

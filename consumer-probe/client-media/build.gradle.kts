@@ -6,7 +6,7 @@ dependencies {
   testImplementation(project(":sempods-client-media"))
 
   // Named as a consumer names what it compiles against, although the module's `api` brings them.
-  testImplementation(project(":sempods-client-core"))
+  testImplementation(project(":sempods-client"))
   testImplementation(project(":sempods-media"))
   testImplementation(libs.okhttp)
 

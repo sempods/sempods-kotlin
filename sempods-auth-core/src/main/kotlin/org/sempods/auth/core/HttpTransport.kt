@@ -5,7 +5,7 @@ package org.sempods.auth.core
  *
  * Four lines of interface rather than a transport dependency. The three services that need this
  * hold different clients between them — the pod server `commons-okhttp`'s, `sempods-mcp`
- * `:sempods-client-core`'s own, `sempods-auth` a Ktor one — so a shared implementation owning the
+ * `:sempods-client`'s own, `sempods-auth` a Ktor one — so a shared implementation owning the
  * transport would hand one of them another's, and `sempods-server` is the module that spent a
  * milestone shedding an inherited framework. Note that the first two run the same *library* and
  * still do not share a client, though nothing stops a deployment handing them one:
