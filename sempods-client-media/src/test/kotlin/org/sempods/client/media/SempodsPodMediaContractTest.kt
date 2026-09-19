@@ -151,8 +151,8 @@ class SempodsPodMediaContractTest {
 
   @Test
   fun `an upload answered 200 is still an answer, although SPS-MEDIA-011 asks for 201`() {
-    // That pod has broken the requirement and stored the media all the same. Refusing the answer
-    // would make its deviation this caller's failure, on the path where the same bytes arrive twice.
+    // That pod has broken the requirement and stored the media all the same; `docs/pod-client.md`
+    // §"Endpoint groups" says why such a status is listed.
     server.`when`(request().withMethod("POST")).respond(
       response().withStatusCode(200).withBody("""{"id":"abc123","content_url":"https://pods.example/a"}"""),
     )

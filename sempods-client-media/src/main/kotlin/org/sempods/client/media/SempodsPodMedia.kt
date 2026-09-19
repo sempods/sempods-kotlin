@@ -140,9 +140,9 @@ class SempodsPodMedia(pod: SempodsPod) {
    * **A `200` means the pod is not conformant, and it is still an answer.**
    * [`SPS-MEDIA-011`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-011)
    * requires `201` whether or not the bytes were already stored, so a pod answering `200` has broken
-   * it — and has stored the media all the same. Refusing that answer would make one pod's deviation
-   * this caller's failure, on the path where the same bytes arrive twice. A caller who wants to know
-   * reads `getStatus()`, which is on the answer either way.
+   * it — and has stored the media all the same. Why such a status is listed rather than refused is
+   * `docs/pod-client.md` §"Endpoint groups"; `getStatus()` is where a caller who wants to notice
+   * looks.
    *
    * `content_url` is read rather than rebuilt from the id: the pod knows the address it is published
    * at, this client knows only the one it dialled, and the value ends up in a persisted
