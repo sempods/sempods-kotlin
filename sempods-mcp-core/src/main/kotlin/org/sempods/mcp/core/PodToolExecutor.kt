@@ -1,12 +1,22 @@
 package org.sempods.mcp.core
 
 import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import com.fasterxml.jackson.databind.node.ObjectNode
-import org.sempods.client.SempodsClientException
-import org.sempods.client.wire.PodSlot
-import org.sempods.client.wire.PodWireClient
-import org.sempods.client.wire.PodWriteResult
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.sempods.client.core.SempodsContent
+import org.sempods.client.core.SempodsContextSelection
+import org.sempods.client.core.SempodsExchange
+import org.sempods.client.core.SempodsGraphFormat
+import org.sempods.client.core.SempodsPod
+import org.sempods.client.core.SempodsReadOptions
+import org.sempods.client.core.SempodsRepeatable
+import org.sempods.client.core.SempodsResponse
+import org.sempods.client.core.SempodsResponseException
+import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.commons.net.SempodsPodRoutes
 import java.net.URI
 
 /**
@@ -25,22 +35,32 @@ sealed interface PodToolPlan {
    *
    * [execute] blocks and **lets pod failures propagate**. That is not an omission: on the hosted
    * side this runs inside `podIo` on a virtual thread, where a cancelled coroutine arrives as an
-   * ordinary socket failure (the call slot closed the socket) rather than as a
+   * ordinary socket failure (the operation cancelled the call) rather than as a
    * `CancellationException`. An executor that turned exceptions into result envelopes here would
    * answer a cancelled request with a well-formed "the pod failed" instead of tearing it down.
    * Classifying a failure is the caller's, one frame further out, where cancellation is still
    * visible as itself.
+   *
+   * The one thing it does do to a failure is give every answer the pod refused with the same type,
+   * [PodToolRefusal] — see there for why a surface must not have to tell two of them apart.
    */
-  class Call internal constructor(private val run: (URI, String?) -> Any?) : PodToolPlan {
+  class Call internal constructor(private val run: (SempodsPod) -> Any?) : PodToolPlan {
 
     /**
-     * Runs the call against [podBaseUrl] with [accessToken] as the bearer, and returns the tool's
-     * result payload — what a single pod answers, with no envelope around it.
+     * Runs the call against [pod] and returns the tool's result payload — what a single pod
+     * answers, with no envelope around it.
      *
-     * [accessToken] is nullable because anonymous is a supported mode: the pod-immanent surface
-     * serves public contexts without one.
+     * [pod] carries the base and the credential: a session built with
+     * `SempodsRequestAuth.anonymous()` is a supported mode, since the pod-immanent surface serves
+     * public contexts without one. Its `Call.Factory` is what cancellation reaches, so a caller
+     * that wants to abort hands in a pod built on the factory of the operation it can cancel.
      */
-    fun execute(podBaseUrl: URI, accessToken: String?): Any? = run(podBaseUrl, accessToken)
+    fun execute(pod: SempodsPod): Any? =
+      try {
+        run(pod)
+      } catch (refused: SempodsResponseException) {
+        throw PodToolRefusal.of(refused)
+      }
   }
 
   /** The catalog does not carry that tool name — or it is a surface's own, like `list_pods`. */
@@ -51,20 +71,31 @@ sealed interface PodToolPlan {
 }
 
 /**
- * The thirteen tools against **one** pod: argument parsing, the call into [PodWireClient], and the
- * shape of what comes back.
+ * The thirteen tools against **one** pod: argument parsing, the call into the client core's endpoint
+ * groups, and the shape of what comes back.
  *
  * This is the half of the MCP surface that is the same wherever it runs. The hosted service adds
  * fan-out, `targets` / `target`, the per-pod envelope and `list_pods`; the pod-immanent surface adds
  * its own route, discovery and `authorize`. Neither of those is here, and neither is anything
- * coroutine-shaped — [PodWireClient] blocks, so this blocks, and a `suspend` consumer bridges at its
- * own edge.
+ * coroutine-shaped — the core blocks, so this blocks, and a `suspend` consumer bridges at its own
+ * edge.
+ *
+ * **What the pod said travels unparsed.** Every read asks for JSON-LD and hands the pod's own text
+ * on as a `JsonNode`, so a model receives the pod's framing and `@context` rather than a
+ * re-serialisation of them. That is why these tools read the groups' text methods and not their
+ * typed ones.
+ *
+ * **Two tools go through [SempodsExchange] rather than a group**, and both for a header the groups
+ * do not expose: `find` has no group at all (`_system/find` is outside the core's operation
+ * inventory), and `list_contexts` has to accept `application/json` beside JSON-LD, for a pod that
+ * still answers the pre-`SPS-CTX-033` envelope [ContextCatalogue] reads. The session and the
+ * response handling are the core's either way.
  *
  * `authorize` is deliberately absent for the same reason it is absent from [ToolCatalog]: it reads
  * the claims of the incoming token and means a grant upgrade on one surface and a pod reconnect on
  * the other.
  */
-class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWireClient) {
+class PodToolExecutor(private val catalog: ToolCatalog) {
 
   init {
     // Drift guard in the direction that would silently break routing: a tool this class maps has to
@@ -106,13 +137,19 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
       normalizeEtag(it) ?: return PodToolPlan.InvalidArguments("if_none_match must be \"*\" or a valid ETag: $it")
     }
 
-    val contextIris = ToolArguments.stringList(arguments, "context_iri").map(URI::create)
+    val contextIris = ToolArguments.stringList(arguments, "context_iri")
+    val selection = if (contextIris.isEmpty()) SempodsContextSelection.readable() else SempodsContextSelection.of(contextIris)
 
     return when (toolName) {
 
       // --- reads: `context_iri` is a downscope the pod intersects with what the bearer may read ---
 
-      "list_contexts" -> call { pod, token -> ContextCatalogue.toToolPayload(wire.listContexts(pod, token)) }
+      "list_contexts" -> call { pod ->
+        val request = pod.session.newRequest("GET", SempodsPodRoutes.CONTEXTS)
+          .header("Accept", "$JSON_LD, $JSON")
+          .build()
+        ContextCatalogue.toToolPayload(json("list_contexts", SempodsExchange(pod.calls).text(request, 200)))
+      }
 
       "sparql_select", "sparql_graph" -> {
         val query = ToolArguments.string(arguments, "query")
@@ -121,34 +158,54 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
         // rejects updates / SERVICE with a 400. Deliberately no keyword pre-screen here — it
         // false-positives on keywords inside literals, IRIs and prefix names (a FILTER on the
         // literal "Create", a `…/service#` prefix), rejecting valid reads.
-        if (toolName == "sparql_graph") call { pod, token -> wire.sparqlGraph(pod, query, contextIris, token) }
-        else call { pod, token -> wire.sparqlSelect(pod, query, contextIris, token) }
+        if (toolName == "sparql_graph") {
+          call { pod -> json(toolName, pod.sparql().graphText(query, SempodsGraphFormat.JSON_LD, selection)) }
+        } else {
+          call { pod -> json(toolName, pod.sparql().resultsJson(query, selection)) }
+        }
       }
 
       "find" -> {
         val text = ToolArguments.string(arguments, "text")?.takeIf { it.isNotBlank() }
           ?: return PodToolPlan.InvalidArguments("missing or blank required argument: text")
-        val types = ToolArguments.stringList(arguments, "type").map(URI::create)
+        val types = ToolArguments.stringList(arguments, "type")
         val includeContexts = ToolArguments.flag(arguments, "include_contexts")
         // Accept any integral (validation allows int or long) and clamp to the advertised 1..100, so
         // an out-of-range or long value can neither reach the pod raw nor silently fall to default.
         val limit = arguments?.get("limit")?.takeIf { it.isIntegralNumber }?.asLong()?.coerceIn(1L, 100L)?.toInt()
-        call { pod, token -> wire.find(pod, text, types, contextIris, includeContexts, limit, token) }
+        val payload = linkedMapOf<String, Any>("text" to text)
+        if (types.isNotEmpty()) payload["type"] = types
+        if (contextIris.isNotEmpty()) payload["contexts"] = contextIris
+        if (includeContexts) payload["include_contexts"] = true
+        if (limit != null) payload["limit"] = limit
+        val body = mapper.writeValueAsBytes(payload)
+        call { pod ->
+          // A search is a read the route spells as POST, so it is marked repeatable: sending it
+          // once more after a connection lost before any answer changes nothing.
+          val request = SempodsRepeatable.mark(pod.session.newRequest("POST", SempodsPodRoutes.FIND))
+            .header("Accept", JSON_LD)
+            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+          json("find", SempodsExchange(pod.calls).text(request, 200))
+        }
       }
 
       "get_resource" -> {
         val resourceIri = ToolArguments.string(arguments, "resource_iri")
           ?: return PodToolPlan.InvalidArguments("missing required argument: resource_iri")
-        val includeContexts = ToolArguments.flag(arguments, "include_contexts")
-        call { pod, token ->
-          val r = wire.getResource(pod, URI.create(resourceIri), contextIris, includeContexts, token)
+        val options = SempodsReadOptions.of(selection)
+          .withIncludeContexts(ToolArguments.flag(arguments, "include_contexts"))
+        call { pod ->
+          // A resource either exists or it does not, and saying so is the answer here — so the
+          // `404` the route lists stays a refusal rather than becoming an empty result.
+          val answer = accepted(pod.subjects().getText(resourceIri, SempodsGraphFormat.JSON_LD, options))
           val result = linkedMapOf<String, Any?>("resource_iri" to resourceIri)
           // Only for a read of exactly one context. An ETag identifies the representation it came
           // with, and a write names one context, so the tag that can validate it is the tag of a
           // read of that context. A union read's tag describes something no write replaces; handed
           // out, it would come back as `if_match` and fail. Omitted rather than null, as in [written].
-          if (contextIris.size == 1) r.etag?.let { result["etag"] = it }
-          result["jsonld"] = r.jsonld
+          if (contextIris.size == 1) answer.headers["ETag"]?.let { result["etag"] = it }
+          result["jsonld"] = parsed("get_resource", answer)
           result
         }
       }
@@ -158,28 +215,17 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
           ?: return PodToolPlan.InvalidArguments("missing required argument: subject_iri")
         val predicateIri = ToolArguments.string(arguments, "predicate_iri")
           ?: return PodToolPlan.InvalidArguments("missing required argument: predicate_iri")
-        call { pod, token ->
+        val options = SempodsReadOptions.of(selection)
+        call { pod ->
           // A slot with nothing in it has no representation, so the route answers 404 — and answers
           // the same 404 for a context the caller may not read, which is deliberate and must stay
           // indistinguishable. For this tool that is not a failure: it was asked what the values are,
           // and "none" is the answer. Reported as an error it would read to a model as a broken call
-          // and get retried.
-          //
-          // The narrow condition is what makes catching safe here at all. The rule this class
-          // otherwise follows — never swallow a pod failure — exists because a cancelled request
-          // arrives as an ordinary socket error; those carry no status, so `statusCode == 404` cannot
-          // be one. `get_resource` keeps the 404: a resource either exists or does not, and saying so
-          // is the answer there.
-          val s = try {
-            wire.getPropertyValues(pod, URI.create(subjectIri), URI.create(predicateIri), contextIris, token)
-          } catch (e: SempodsClientException) {
-            if (e.statusCode != 404) throw e
-            // A fresh node rather than a shared constant: `ArrayNode` is mutable, and a caller that
-            // serialises it is not the only thing that could reach it.
-            PodSlot(etag = null, values = JsonNodeFactory.instance.arrayNode())
-          }
+          // and get retried. The route lists that 404, so it arrives as an answer without a body.
+          val answer = pod.slots().getJson(subjectIri, predicateIri, options)
+          val values = if (answer.body == null) emptyValues() else parsed("get_property_values", answer)
           val result = linkedMapOf<String, Any?>(
-            "subject_iri" to subjectIri, "predicate_iri" to predicateIri, "values" to s.values,
+            "subject_iri" to subjectIri, "predicate_iri" to predicateIri, "values" to values,
           )
           // Omitted rather than null, the way [written] omits a write's absent tag. A slot has a
           // validator only for a single-context read that returned something — the pod withholds
@@ -187,7 +233,7 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
           // (which is what keeps the subject's global change state from leaking to a caller who
           // may not read that context). `"etag": null` invites a model to send the string "null"
           // back as `if_match`; an absent field says the same thing and cannot be misread.
-          s.etag?.let { result["etag"] = it }
+          answer.headers["ETag"]?.let { result["etag"] = it }
           result
         }
       }
@@ -205,13 +251,12 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
       else -> {
         val contextIri = ToolArguments.string(arguments, "context_iri")
           ?: return PodToolPlan.InvalidArguments("missing required argument: context_iri")
-        val context = URI.create(contextIri)
+        val inContext = SempodsWriteOptions.inContext(contextIri)
 
         when (toolName) {
           "create_resource", "update_resource", "delete_resource" -> {
             val resourceIri = ToolArguments.string(arguments, "resource_iri")
               ?: return PodToolPlan.InvalidArguments("missing required argument: resource_iri")
-            val resource = URI.create(resourceIri)
             val ids = linkedMapOf<String, Any?>("context_iri" to contextIri, "resource_iri" to resourceIri)
             when (toolName) {
               "create_resource" -> {
@@ -225,19 +270,23 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
                 // shape a model produces, so the tool closes it here rather than teaching every
                 // client to. A body naming a *different* `@id` is a caller contradicting its own
                 // `resource_iri`; the argument wins, because it is what the result echoes back.
-                val body = (jsonld.deepCopy() as ObjectNode).put("@id", resourceIri)
-                call { pod, token ->
-                  written(ids, wire.createResource(pod, context, resource, body, ifNoneMatch, token))
+                val body = content((jsonld.deepCopy() as ObjectNode).put("@id", resourceIri))
+                val options = inContext.withIfNoneMatch(ifNoneMatch)
+                call { pod ->
+                  written(ids, pod.subjects().put(resourceIri, SempodsGraphFormat.JSON_LD, body, options))
                 }
               }
               "update_resource" -> {
                 val patch = ToolArguments.obj(arguments, "jsonld_patch")
                   ?: return PodToolPlan.InvalidArguments("argument 'jsonld_patch' must be a JSON object")
-                call { pod, token ->
-                  written(ids, wire.updateResource(pod, context, resource, patch, ifMatch, token))
-                }
+                val body = content(patch)
+                val options = inContext.withIfMatch(ifMatch)
+                call { pod -> written(ids, pod.subjects().patch(resourceIri, body, options)) }
               }
-              else -> call { pod, token -> written(ids, wire.deleteResource(pod, context, resource, ifMatch, token)) }
+              else -> {
+                val options = inContext.withIfMatch(ifMatch)
+                call { pod -> written(ids, pod.subjects().delete(resourceIri, options)) }
+              }
             }
           }
 
@@ -246,8 +295,6 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
               ?: return PodToolPlan.InvalidArguments("missing required argument: subject_iri")
             val predicateIri = ToolArguments.string(arguments, "predicate_iri")
               ?: return PodToolPlan.InvalidArguments("missing required argument: predicate_iri")
-            val subject = URI.create(subjectIri)
-            val predicate = URI.create(predicateIri)
             val ids = linkedMapOf<String, Any?>(
               "context_iri" to contextIri, "subject_iri" to subjectIri, "predicate_iri" to predicateIri,
             )
@@ -255,29 +302,30 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
               "add_property_value" -> {
                 val value = ToolArguments.obj(arguments, "value")
                   ?: return PodToolPlan.InvalidArguments("argument 'value' must be a JSON-LD value object")
-                call { pod, token ->
-                  written(ids, wire.addPropertyValue(pod, context, subject, predicate, value, ifMatch, token))
-                }
+                val body = content(value)
+                val options = inContext.withIfMatch(ifMatch)
+                call { pod -> written(ids, pod.slots().add(subjectIri, predicateIri, body, options)) }
               }
               "set_property_values" -> {
                 val values = ToolArguments.arr(arguments, "values")
                   ?: return PodToolPlan.InvalidArguments("argument 'values' must be a JSON array")
-                call { pod, token ->
-                  written(ids, wire.setPropertyValues(pod, context, subject, predicate, values, ifMatch, token))
-                }
+                val body = content(values)
+                val options = inContext.withIfMatch(ifMatch)
+                call { pod -> written(ids, pod.slots().put(subjectIri, predicateIri, body, options)) }
               }
               "remove_property_value" -> {
                 val targetIri = ToolArguments.string(arguments, "target_iri")
                   ?: return PodToolPlan.InvalidArguments("missing required argument: target_iri")
-                // No precondition: removing one edge is idempotent, and the catalog does not offer
-                // `if_match` on this tool.
+                // No precondition: removing one edge is idempotent, the catalog does not offer
+                // `if_match` on this tool, and the route refuses a condition it would have to ignore.
                 val edgeIds = LinkedHashMap(ids).apply { put("target_iri", targetIri) }
-                call { pod, token ->
-                  written(edgeIds, wire.removePropertyValue(pod, context, subject, predicate, URI.create(targetIri), token))
+                call { pod ->
+                  written(edgeIds, pod.slots().removeEdge(subjectIri, predicateIri, targetIri, inContext))
                 }
               }
-              else -> call { pod, token ->
-                written(ids, wire.clearPropertyValues(pod, context, subject, predicate, ifMatch, token))
+              else -> {
+                val options = inContext.withIfMatch(ifMatch)
+                call { pod -> written(ids, pod.slots().clear(subjectIri, predicateIri, options)) }
               }
             }
           }
@@ -286,7 +334,47 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
     }
   }
 
-  private fun call(run: (URI, String?) -> Any?): PodToolPlan.Call = PodToolPlan.Call(run)
+  private fun call(run: (SempodsPod) -> Any?): PodToolPlan.Call = PodToolPlan.Call(run)
+
+  /**
+   * The answer, or the refusal it is for these tools.
+   *
+   * What an endpoint group lists as an answer is wider than what a tool can report: a `404` on a
+   * merge-patch and a `412` on a conditional write are answers to the group and refusals here
+   * ([PodToolRefusal]).
+   */
+  private fun <T : Any> accepted(response: SempodsResponse<T>): SempodsResponse<T> {
+    if (response.status / 100 != 2) {
+      throw PodToolRefusal.at("${response.url} answered ${response.status}", response.status)
+    }
+    return response
+  }
+
+  private fun json(op: String, response: SempodsResponse<String>): JsonNode = parsed(op, accepted(response))
+
+  /** The pod's own document, unparsed beyond what a `JsonNode` is. */
+  private fun parsed(op: String, response: SempodsResponse<*>): JsonNode {
+    val body = response.body
+    val text = when (body) {
+      is String -> body
+      is ByteArray -> String(body, Charsets.UTF_8)
+      else -> ""
+    }
+    return runCatching { mapper.readTree(text) }.getOrNull()?.takeIf { !it.isMissingNode }
+      ?: throw PodToolRefusal.at(
+        "$op ${response.url} answered a body that is not JSON",
+        response.status,
+        // Carried, because the status cannot say it: a 2xx whose body is unreadable would otherwise
+        // reach a model as "the pod refused the call", with the one useful word only in the message
+        // — which a surface must not show, since it names the URL.
+        reason = "the pod answered $op with a body that is not JSON",
+      )
+  }
+
+  private fun content(body: JsonNode): SempodsContent = SempodsContent.of(mapper.writeValueAsBytes(body))
+
+  /** A fresh node rather than a shared constant: `ArrayNode` is mutable, and a caller that serialises it is not the only thing that could reach it. */
+  private fun emptyValues(): JsonNode = JsonNodeFactory.instance.arrayNode()
 
   /**
    * The write result: the ids the caller addressed, echoed back, then what the pod answered.
@@ -294,18 +382,22 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
    * Built fresh on every execution rather than mutated in place — key order is the JSON order, and
    * a plan may be executed more than once.
    */
-  private fun written(ids: Map<String, Any?>, r: PodWriteResult): Map<String, Any?> {
+  private fun written(ids: Map<String, Any?>, response: SempodsResponse<ByteArray>): Map<String, Any?> {
+    val answer = accepted(response)
+    val body = answer.body?.takeIf { it.isNotEmpty() }
+      ?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+      ?.takeIf { !it.isMissingNode }
     val result = LinkedHashMap(ids)
     // Lifted out of the body rather than left nested under `response`, because it is what the tool
     // descriptions promise by name ("the second call returns `outcome=already_present`") and because
     // it is the answer to the question an idempotent write leaves open. The three slot mutations are
     // the routes that carry one; everything else has nothing to lift.
-    r.body?.path("outcome")?.takeIf { it.isTextual }?.let { result["outcome"] = it.asText() }
-    result["status"] = r.status
-    r.etag?.let { result["etag"] = it }
+    body?.path("outcome")?.takeIf { it.isTextual }?.let { result["outcome"] = it.asText() }
+    result["status"] = answer.status
+    answer.headers["ETag"]?.let { result["etag"] = it }
     // The whole body still travels: `outcome` is a summary, and a route that grows a second field
     // must not need this class edited before a caller can see it.
-    r.body?.let { result["response"] = it }
+    body?.let { result["response"] = it }
     return result
   }
 
@@ -345,7 +437,7 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
   companion object {
 
     /**
-     * The tools this executor maps — the thirteen pod operations [PodWireClient] carries.
+     * The tools this executor maps — the thirteen pod operations the client core's groups carry.
      *
      * Not derived from the catalog: `list_pods` is in the `MULTI_POD` catalog and is *not* one of
      * these, because it is answered from the hosted service's own registry and makes no pod call.
@@ -367,5 +459,13 @@ class PodToolExecutor(private val catalog: ToolCatalog, private val wire: PodWir
     private val IRI_FIELDS = listOf(
       "target", "context_iri", "resource_iri", "subject_iri", "predicate_iri", "target_iri", "type",
     )
+
+    private const val JSON = "application/json"
+
+    private const val JSON_LD = "application/ld+json"
+
+    private val JSON_MEDIA_TYPE = JSON.toMediaType()
+
+    private val mapper = ObjectMapper()
   }
 }

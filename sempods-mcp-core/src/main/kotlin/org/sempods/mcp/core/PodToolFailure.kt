@@ -34,10 +34,38 @@ object PodToolFailure {
    * The reason alone — for a surface that reports the status as its own field.
    *
    * Passes the pod's body through unchanged except where the pod's answer is correct HTTP and poor
-   * advice; see [sparqlModeHint].
+   * advice; see [sparqlModeHint]. Where there is no body to pass through, [whatTheStatusSays]
+   * answers instead.
    */
   fun detail(toolName: String, statusCode: Int?, detail: String): String =
-    sparqlModeHint(toolName, statusCode) ?: unwrapErrorEnvelope(detail).ifBlank { "the pod refused the call" }
+    sparqlModeHint(toolName, statusCode)
+      ?: unwrapErrorEnvelope(detail).ifBlank { whatTheStatusSays(toolName, statusCode) }
+
+  /**
+   * What to say when the pod wrote a reason nobody kept ([PodToolRefusal.reason]).
+   *
+   * "The pod refused the call" is not something a model can act on, so each status that arrives
+   * without a body says what it means for the tool that met it. A pod that *did* send a reason still
+   * wins: this is only reached when there is none.
+   */
+  private fun whatTheStatusSays(toolName: String, statusCode: Int?): String = when (statusCode) {
+    404 -> when (toolName) {
+      "update_resource" -> "the resource does not exist in that context — use create_resource to create it"
+      "delete_resource" -> "the resource does not exist in that context, or there is no such context"
+      else -> "the resource does not exist, or nothing of it is readable in the contexts you named"
+    }
+
+    // `create_resource` is the one write whose condition is `if_none_match`, so its 412 says the
+    // resource is already there rather than that a tag went stale.
+    412 -> when (toolName) {
+      "create_resource" ->
+        "the resource already exists in that context — omit if_none_match to replace it, or use update_resource to merge into it"
+
+      else -> "if_match is not the resource's current etag — read it again and retry with the etag that read returns"
+    }
+
+    else -> "the pod refused the call"
+  }
 
   /**
    * The message out of a sempods `{"errors":[{"code","message"}]}` body, or the body unchanged.
