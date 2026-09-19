@@ -352,11 +352,12 @@ subprojects {
           commandLine(listOf(javap.absolutePath, "-public", "-classpath", root.absolutePath) + classes)
         }.standardOutput.asText.get()
 
-        // A member name carrying `$` is one Kotlin mangled on purpose: `internal` is public in
-        // bytecode, and the mangling is what stops a consumer naming it. Those are the module's own
-        // plumbing; this check is about the surface someone can actually write against. A `-` is
-        // the opposite — Kotlin mangles that way for a value class, and the member was meant to be
-        // public.
+        // A member name carrying `$` is one Kotlin mangled, or an accessor the compiler generated:
+        // the module's own plumbing, and this check is about the surface someone writes against on
+        // purpose. A consumer can still reach it — `internal` is public in bytecode and `$` is an
+        // ordinary Java identifier character. `@JvmSynthetic` is what puts a member out of Java's
+        // reach (`docs/concepts/modularity.md` §"Open-source readiness"). A `-` is the opposite —
+        // Kotlin mangles that way for a value class, and the member was meant to be public.
         val offences = mutableListOf<String>()
         var inPublicClass = false
         output.lineSequence().map { it.trimEnd() }.forEach { line ->
