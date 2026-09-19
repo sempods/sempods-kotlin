@@ -36,6 +36,14 @@ import java.io.IOException
  * them. That is not softened into a no-op anywhere below: a pod serving no media at all is a
  * different situation from one with nothing to do, and only the first is a misconfiguration.
  *
+ * **An upload answered `200` means the pod is not conformant, and it is still an answer.** Both
+ * [upload] and [uploadFromUrl] take it.
+ * [`SPS-MEDIA-011`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-011)
+ * requires `201` whether or not the bytes were already stored, so a pod answering `200` has broken
+ * it — and has stored the media all the same. Why such a status is listed rather than refused is
+ * `docs/pod-client.md` §"Endpoint groups"; [SempodsResponse.status] is where a caller who wants to
+ * notice looks.
+ *
  * Every call runs on [pod]'s session, so it carries that credential and its recovery, the admission
  * budget, the outbound guard and the call's deadline, and `Call.cancel()` reaches it.
  */
@@ -47,7 +55,8 @@ class SempodsPodMedia(pod: SempodsPod) {
 
   /**
    * Stores what [source] yields and assigns it to [contextUri]: `POST {pod}/_system/media?context=…`,
-   * answered `201` with the id and the URL the bytes are served from.
+   * answered `201` with the id and the URL the bytes are served from — and see this class for the
+   * `200` a pod that broke the requirement sends instead.
    *
    * **[source] is opened once per attempt**, which is what lets an upload be resent after a connection
    * lost before any answer. Handed a stream that can be read only once, a second attempt would write
