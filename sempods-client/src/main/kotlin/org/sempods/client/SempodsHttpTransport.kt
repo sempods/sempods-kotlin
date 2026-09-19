@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap
  * **This is the legacy surface, and it is where the JSON helpers stayed.** [objectMapper] and
  * [requiredText] name Jackson types, which is why the core does not have them: a consumer that
  * wants HTTP against a pod should not resolve an object mapper to get it. They remain here because
- * `PodWireClient` and `SempodsControlPlaneClient` use them, and moving those onto the core is
- * [#152](https://github.com/sempods/sempods-kotlin/issues/152).
+ * `PodWireClient` uses them, and moving it onto the core is
+ * [#241](https://github.com/sempods/sempods-kotlin/issues/241).
  *
  * **It translates [SempodsRequest] and [SempodsResponse] onto OkHttp's.** A caller of this surface
  * never owes a `close()`: every call reads the body and closes the response before returning. Below

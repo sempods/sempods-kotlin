@@ -256,6 +256,20 @@ subprojects {
         "org.sempods:sempods-client" to "the legacy client",
       ),
     ),
+    ":consumer-probe:control-plane" to JavaProbe(
+      probed = ":sempods-control-plane-client",
+      // The admin surface is JSON over the core, so a consumer of it stays on the core's floor.
+      javaRelease = 21,
+      forbidden = mapOf(
+        "org.eclipse.rdf4j" to "RDF4J",
+        "org.apache.jena" to "Jena",
+        "com.fasterxml.jackson" to "Jackson 2",
+        "org.sempods:sempods-model" to "the RDF DTOs",
+        "org.sempods:sempods-client" to "the legacy client",
+      ),
+      // As for the core probe: Jackson 3's databind depends on the 2.x annotations.
+      allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),
+    ),
   )
 
   javaProbes[path]?.let { probe ->
@@ -316,6 +330,14 @@ subprojects {
     // Its surface is the core's and the media contract's; a JSON library is how it reads the route's
     // answer, and no RDF library is involved at all.
     "sempods-client-media" to mapOf(
+      "com.fasterxml.jackson." to "a JSON library",
+      "tools.jackson." to "a JSON library",
+      "org.eclipse.rdf4j." to "an RDF library",
+      "org.apache.jena." to "an RDF library",
+    ),
+    // Its surface is the core's alone; a JSON library is how it reads and writes the admin routes'
+    // documents, and no RDF library is involved at all.
+    "sempods-control-plane-client" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
       "tools.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",

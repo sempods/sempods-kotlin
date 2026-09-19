@@ -6,7 +6,7 @@ package org.sempods.client
  * Unchecked, as these clients were written against: none of the methods that throw it declares it,
  * so a checked type would break a Java caller's `catch`. It is therefore not the core's
  * [org.sempods.client.core.SempodsClientException], which is an `IOException`. It carries what
- * `PodWireClient` and `SempodsControlPlaneClient` classify on.
+ * `PodWireClient` classifies on.
  */
 class SempodsClientException @JvmOverloads constructor(
   message: String,

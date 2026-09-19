@@ -437,9 +437,14 @@ codec Jackson 2's streaming core — but no Jena, no Jackson 2 mapper, and neith
 `:sempods-media` — two types and a media type string, which the pod server reads from the same place —
 and no RDF library at all, so it stays on Java 21 with the core.
 
+`:sempods-control-plane-client` is the coordinate for the host-level admin surface, and it resolves
+what the core does: the admin routes' JSON is Jackson 3 behind an internal object, and no RDF library
+is involved, so it stays on Java 21 too.
+
 A probe per artifact checks them from outside the build, as Java consumers on the lowest JVM each runs
-on: `:consumer-probe:client-core` and `:consumer-probe:client-media` on 21, `:consumer-probe:client-rdf4j`
-on 25 — [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
+on: `:consumer-probe:client-core`, `:consumer-probe:client-media` and `:consumer-probe:control-plane`
+on 21, `:consumer-probe:client-rdf4j` on 25 —
+[`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
 The [client redesign](https://github.com/sempods/sempods-kotlin/issues/116) still owns the consumer
 migration and the artifact rename ([#152](https://github.com/sempods/sempods-kotlin/issues/152)). API narrowing for the
@@ -454,6 +459,9 @@ calls for one — and a pod credential. Host administration uses
 because the pod and its context authority do not exist yet. The proposed owner and
 operator interfaces preserve this split; their [deployment design](proposals/deployment-profiles.md)
 and [owning issue](https://github.com/sempods/sempods-kotlin/issues/139) carry target scope.
+
+**Both run on the same execution:** the control-plane client is a `SempodsSession` on the server
+root, with a host credential, on the same installed OkHttp client.
 
 ## Contract source
 
