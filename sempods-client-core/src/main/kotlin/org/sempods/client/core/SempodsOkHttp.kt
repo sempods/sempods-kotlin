@@ -297,7 +297,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
 
   /** Runs [work] for attempt [number] of [call], and ends it when [work] returns. */
   private fun <T> authenticating(call: Call, number: Int, work: (SempodsAuthAttempt) -> T): T {
-    val attempt = SempodsAuthAttempt(number, call, admission)
+    val attempt = SempodsAuthAttempt.of(number, call, admission)
     try {
       return work(attempt)
     } finally {

@@ -38,7 +38,7 @@ class SempodsAsync @JvmOverloads constructor(
 
   /** Hands [work] to a new virtual thread, or to [executor], and returns its handle. */
   fun <T> submit(work: SempodsAsyncWork<T>): SempodsAsyncOperation<T> {
-    val operation = SempodsAsyncOperation<T>(calls)
+    val operation = SempodsAsyncOperation.of<T>(calls)
     val task = Runnable { operation.run(work) }
     if (executor == null) {
       Thread.ofVirtual().name("sempods-async").inheritInheritableThreadLocals(false).start(task)

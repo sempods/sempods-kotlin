@@ -222,7 +222,7 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   @Test
   fun `a streamed read is bounded by its reader alone, and a buffered one by the limit`() {
     answer(200, "x".repeat(65))
-    val narrow = SempodsForeignTarget(client, maxRedirects = 0, maxBodyBytes = 64)
+    val narrow = SempodsForeignTarget.of(client, maxRedirects = 0, maxBodyBytes = 64)
 
     assertThrows<SempodsDecodingException> { narrow.getText(card, "text/plain") }
     assertEquals(65, narrow.getStream(card, "text/plain", { it.readBytes() }).body?.size)
