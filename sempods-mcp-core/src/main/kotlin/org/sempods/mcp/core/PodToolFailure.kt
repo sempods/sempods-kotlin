@@ -55,7 +55,14 @@ object PodToolFailure {
       else -> "the resource does not exist, or nothing of it is readable in the contexts you named"
     }
 
-    412 -> "if_match is not the resource's current etag — read it again and retry with the etag that read returns"
+    // `create_resource` is the one write whose condition is `if_none_match`, so its 412 says the
+    // resource is already there rather than that a tag went stale.
+    412 -> when (toolName) {
+      "create_resource" ->
+        "the resource already exists in that context — omit if_none_match to replace it, or use update_resource to merge into it"
+
+      else -> "if_match is not the resource's current etag — read it again and retry with the etag that read returns"
+    }
 
     else -> "the pod refused the call"
   }

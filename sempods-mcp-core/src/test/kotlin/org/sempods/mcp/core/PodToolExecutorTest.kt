@@ -334,6 +334,31 @@ class PodToolExecutorTest {
     )
   }
 
+  @Test
+  fun `a create-or-fail on a resource that is already there says which condition failed`() {
+    // `create_resource` carries `if_none_match`, never `if_match`: its 412 means the resource is
+    // there, and advice to retry with a fresh etag would name an argument it does not take.
+    answer("PUT", "/alice/_system/resources/${b64(thing)}", status = 412, body = "")
+
+    val refused = assertThrows<PodToolRefusal> {
+      run(
+        "create_resource",
+        """{"target":"$pod","context_iri":"$ctx","resource_iri":"$thing","jsonld":{},"if_none_match":"*"}""",
+      )
+    }
+
+    assertEquals(412, refused.status)
+    assertEquals(
+      "the resource already exists in that context — omit if_none_match to replace it, or use update_resource to merge into it",
+      PodToolFailure.detail("create_resource", refused.status, refused.podBody),
+    )
+    // The tools that do carry `if_match` keep the answer that names it.
+    assertEquals(
+      "if_match is not the resource's current etag — read it again and retry with the etag that read returns",
+      PodToolFailure.detail("update_resource", 412, ""),
+    )
+  }
+
   // --- the IRI rule ------------------------------------------------------------------------------
 
   @Test
