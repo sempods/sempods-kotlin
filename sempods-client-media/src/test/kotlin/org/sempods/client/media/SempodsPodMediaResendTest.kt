@@ -5,10 +5,10 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsSession
 import java.io.BufferedInputStream
 import java.io.IOException
 import java.net.InetAddress

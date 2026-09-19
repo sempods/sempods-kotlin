@@ -16,11 +16,11 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.core.SempodsDecodingException
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsDecodingException
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsSession
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs

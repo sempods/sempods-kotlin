@@ -10,8 +10,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.TestInstance
 import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
-import org.sempods.client.core.SempodsAdmission
-import org.sempods.client.core.SempodsOkHttp
+import org.sempods.client.SempodsAdmission
+import org.sempods.client.SempodsOkHttp
 import org.slf4j.event.Level
 
 /** One MockServer standing in for the pods of a test class, reset before each test. The core's twin is internal to its tests. */

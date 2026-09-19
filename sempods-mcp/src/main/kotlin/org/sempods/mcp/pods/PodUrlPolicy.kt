@@ -1,6 +1,6 @@
 package org.sempods.mcp.pods
 
-import org.sempods.client.core.net.SempodsUrlPolicy
+import org.sempods.client.net.SempodsUrlPolicy
 import java.net.InetAddress
 
 /**

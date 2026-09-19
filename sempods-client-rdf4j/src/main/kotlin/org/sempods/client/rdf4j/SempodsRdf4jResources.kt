@@ -1,12 +1,12 @@
 package org.sempods.client.rdf4j
 
 import org.eclipse.rdf4j.model.Model
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsGraphFormat
-import org.sempods.client.core.SempodsPodResources
-import org.sempods.client.core.SempodsReadOptions
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsWriteOptions
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsGraphFormat
+import org.sempods.client.SempodsPodResources
+import org.sempods.client.SempodsReadOptions
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsWriteOptions
 import java.io.IOException
 
 /**
@@ -20,7 +20,7 @@ import java.io.IOException
  * **A read asks for N-Quads**, which every pod serves (SPS-CRUD-026) and which names each statement's
  * context. So every statement keeps its context, and [SempodsReadOptions.includeContexts] changes
  * nothing here. A body that does not parse as N-Quads is a
- * [org.sempods.client.core.SempodsDecodingException] with the answer's status and headers.
+ * [org.sempods.client.SempodsDecodingException] with the answer's status and headers.
  *
  * **A write sends JSON-LD**, the body every pod takes. A statement with a context is sent in the named
  * graph of that context, and one without it in the default graph. The pod decides what a context other

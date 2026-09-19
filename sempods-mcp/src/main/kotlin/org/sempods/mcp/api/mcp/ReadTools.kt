@@ -18,7 +18,7 @@ import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.persist.needsReconnect
 import okhttp3.Call
-import org.sempods.client.core.SempodsClientException
+import org.sempods.client.SempodsClientException
 import org.sempods.mcp.core.PodToolRefusal
 import org.sempods.mcp.core.podAt
 import org.sempods.mcp.pods.PodTokenProvider

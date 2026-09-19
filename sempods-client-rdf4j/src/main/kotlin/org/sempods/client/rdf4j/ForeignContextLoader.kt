@@ -7,7 +7,7 @@ import no.hasmac.jsonld.document.JsonDocument
 import no.hasmac.jsonld.http.media.MediaType
 import no.hasmac.jsonld.loader.DocumentLoader
 import no.hasmac.jsonld.loader.DocumentLoaderOptions
-import org.sempods.client.core.SempodsForeignTarget
+import org.sempods.client.SempodsForeignTarget
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URI

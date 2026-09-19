@@ -16,7 +16,7 @@ import org.sempods.mcp.persist.PodConnection
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileKey
 import okhttp3.Call
-import org.sempods.client.core.SempodsClientException
+import org.sempods.client.SempodsClientException
 import org.sempods.mcp.core.PodToolRefusal
 import org.sempods.mcp.core.podAt
 import org.sempods.mcp.pods.PodTokenProvider

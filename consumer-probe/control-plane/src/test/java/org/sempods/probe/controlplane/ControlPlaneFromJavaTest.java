@@ -23,12 +23,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import org.sempods.client.core.SempodsOkHttp;
-import org.sempods.client.core.SempodsPodBase;
-import org.sempods.client.core.SempodsRequestAuth;
-import org.sempods.client.core.SempodsResponse;
-import org.sempods.client.core.SempodsSession;
-import org.sempods.client.core.SempodsStatusException;
+import org.sempods.client.SempodsOkHttp;
+import org.sempods.client.SempodsPodBase;
+import org.sempods.client.SempodsRequestAuth;
+import org.sempods.client.SempodsResponse;
+import org.sempods.client.SempodsSession;
+import org.sempods.client.SempodsStatusException;
 import org.sempods.controlplane.CreatePodResult;
 import org.sempods.controlplane.ProvisionServiceClientResult;
 import org.sempods.controlplane.SempodsControlPlaneClient;

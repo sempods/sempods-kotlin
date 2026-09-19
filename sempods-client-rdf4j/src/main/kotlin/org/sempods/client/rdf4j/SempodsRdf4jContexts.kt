@@ -8,11 +8,11 @@ import org.eclipse.rdf4j.model.vocabulary.SD
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.RDFHandler
 import org.eclipse.rdf4j.rio.helpers.StatementCollector
-import org.sempods.client.core.SempodsBodyReader
-import org.sempods.client.core.SempodsContextCreate
-import org.sempods.client.core.SempodsGraphFormat
-import org.sempods.client.core.SempodsPodContexts
-import org.sempods.client.core.SempodsResponse
+import org.sempods.client.SempodsBodyReader
+import org.sempods.client.SempodsContextCreate
+import org.sempods.client.SempodsGraphFormat
+import org.sempods.client.SempodsPodContexts
+import org.sempods.client.SempodsResponse
 import java.io.IOException
 
 /**
@@ -26,7 +26,7 @@ import java.io.IOException
  *
  * **Every read asks for N-Quads**, which a registry serves as a resource route does (SPS-CTX-031), so a
  * statement keeps the context the pod put it in. A body that does not parse as N-Quads is a
- * [org.sempods.client.core.SempodsDecodingException] with the answer's status and headers.
+ * [org.sempods.client.SempodsDecodingException] with the answer's status and headers.
  *
  * **An export is read while it arrives** ([SempodsPodContexts.export]), into a handler or into a model,
  * and every statement carries the exported context: the query answers triples. What the handler throws,

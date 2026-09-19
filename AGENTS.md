@@ -156,7 +156,7 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. `:consumer-probe:client-core`, `:consumer-probe:client-media`,
+  not their wider accidental surface. `:consumer-probe:client`, `:consumer-probe:client-media`,
   `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane` and
   `:consumer-probe:opentelemetry` check the client artifacts from outside. See
   `docs/concepts/modularity.md` §"Open-source readiness".
@@ -180,7 +180,7 @@ methods concurrently as well as classes, `-PtestPortBase=<n>` moves the port ran
 share a machine.
 
 Java 25 is required to build; published bytecode targets Java 21. **A JDK 21 has to be installed
-beside it**, or `./gradlew test` fails in `:consumer-probe:client-core`.
+beside it**, or `./gradlew test` fails in `:consumer-probe:client`.
 
 ## What this repository deliberately does not have
 

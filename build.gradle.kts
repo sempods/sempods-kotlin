@@ -216,7 +216,7 @@ subprojects {
   )
 
   val javaProbes = mapOf(
-    ":consumer-probe:client-core" to JavaProbe(
+    ":consumer-probe:client" to JavaProbe(
       probed = ":sempods-client",
       javaRelease = 21,
       forbidden = mapOf(

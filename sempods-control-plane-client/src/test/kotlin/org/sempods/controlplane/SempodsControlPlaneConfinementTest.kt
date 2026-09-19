@@ -15,12 +15,12 @@ import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.core.SempodsClientException
-import org.sempods.client.core.SempodsOkHttp
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsRequestAuth
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsClientException
+import org.sempods.client.SempodsOkHttp
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsRequestAuth
+import org.sempods.client.SempodsSession
 import org.slf4j.event.Level
 
 /**

@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.core.SempodsDecodingException
-import org.sempods.client.core.SempodsForeignTarget
-import org.sempods.client.core.SempodsRequestAuth
+import org.sempods.client.SempodsDecodingException
+import org.sempods.client.SempodsForeignTarget
+import org.sempods.client.SempodsRequestAuth
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals

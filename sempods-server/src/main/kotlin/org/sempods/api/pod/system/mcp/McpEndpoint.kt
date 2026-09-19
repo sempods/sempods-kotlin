@@ -30,7 +30,7 @@ import org.sempods.mcp.core.ToolsCapability
 import org.sempods.mcp.core.ToolsListResult
 import org.sempods.mcp.core.isNotification
 import com.google.inject.Inject
-import org.sempods.client.core.SempodsClientException
+import org.sempods.client.SempodsClientException
 import org.sempods.mcp.core.PodToolRefusal
 import org.sempods.mcp.core.podAt
 import org.sempods.commons.identity.WebIdUriDeriver

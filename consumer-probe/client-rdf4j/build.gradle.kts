@@ -1,6 +1,6 @@
 // The RDF4J adapter as a Java consumer compiles and runs it. A module of its own because RDF4J is what
-// the client-core probe must not resolve. Its Java 25 JVM and the forbidden-dependency check are
-// configured in the root build, as the client-core probe's are.
+// the client probe must not resolve. Its Java 25 JVM and the forbidden-dependency check are
+// configured in the root build, as the client probe's are.
 
 dependencies {
   // `testImplementation` for the `implementation` a foreign build would write.
@@ -14,7 +14,7 @@ dependencies {
   testImplementation(libs.rdf4jQuery)
   testImplementation(libs.rdf4jRioApi)
 
-  // JUnit alone, as in `:consumer-probe:client-core`.
+  // JUnit alone, as in `:consumer-probe:client`.
   testImplementation(libs.junitJupiterApi)
   testImplementation(libs.junitJupiterParams)
   testRuntimeOnly(libs.junit)

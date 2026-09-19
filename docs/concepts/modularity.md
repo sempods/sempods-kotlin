@@ -309,7 +309,7 @@ API. It stays a review question beside `@Throws`: **a public type of a client mo
 public constructor only what a consumer can supply.** An `internal` *class* is beyond the rule and
 beyond any annotation — [#237](https://github.com/sempods/sempods-kotlin/issues/237) owns that.
 
-**A third probe asks whether the client core is usable from Java.** `:consumer-probe:client-core`
+**A third probe asks whether the client core is usable from Java.** `:consumer-probe:client`
 is a JUnit suite written in Java; across the project boundary its compile classpath is a consumer's,
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a
 **Java 21** JVM, the only one in this repository: bytecode built for 21 and only ever run on 25 would
@@ -323,7 +323,7 @@ because it advises on how a dependency is *declared* and has no notion of one be
 `SempodsOkHttp.install` configured with OpenTelemetry's OkHttp library and reads the spans back from
 the SDK: a client span per attempt, a W3C `traceparent` naming it on the wire, and a call factory
 over a client without the sempods interceptors failing closed. It is a module of its own because
-the SDK and the instrumentation are what the client-core probe's classpath must not contain.
+the SDK and the instrumentation are what the client probe's classpath must not contain.
 
 **What no probe reaches is the POM.** A project dependency gives Gradle's own metadata, and the
 published POM is written from the same variants and then post-processed — the `pom.withXml` block

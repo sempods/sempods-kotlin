@@ -3,12 +3,12 @@ package org.sempods.controlplane
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import org.sempods.client.core.SempodsContent
-import org.sempods.client.core.SempodsExchange
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsRequestAuth
-import org.sempods.client.core.SempodsResponse
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsContent
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsRequestAuth
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsSession
 import java.io.IOException
 import java.net.URI
 

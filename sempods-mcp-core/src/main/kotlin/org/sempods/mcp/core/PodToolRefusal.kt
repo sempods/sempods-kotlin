@@ -1,9 +1,9 @@
 package org.sempods.mcp.core
 
-import org.sempods.client.core.SempodsClientException
-import org.sempods.client.core.SempodsDecodingException
-import org.sempods.client.core.SempodsResponseException
-import org.sempods.client.core.SempodsStatusException
+import org.sempods.client.SempodsClientException
+import org.sempods.client.SempodsDecodingException
+import org.sempods.client.SempodsResponseException
+import org.sempods.client.SempodsStatusException
 
 /**
  * The pod answered a tool call, and the answer is not one the tool can report as a result.

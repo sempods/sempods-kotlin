@@ -10,7 +10,7 @@ dependencies {
   testImplementation(project(":sempods-client"))
   testImplementation(libs.okhttp)
 
-  // JUnit alone, as in `:consumer-probe:client-core`.
+  // JUnit alone, as in `:consumer-probe:client`.
   testImplementation(libs.junitJupiterApi)
   testRuntimeOnly(libs.junit)
   testRuntimeOnly(libs.junitPlatformLauncher)

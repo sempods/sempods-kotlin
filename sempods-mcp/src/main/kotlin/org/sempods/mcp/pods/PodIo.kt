@@ -2,7 +2,7 @@ package org.sempods.mcp.pods
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
-import org.sempods.client.core.SempodsAsync
+import org.sempods.client.SempodsAsync
 import org.sempods.commons.trace.TraceContext
 import org.sempods.commons.trace.TraceContextHolder
 import java.util.concurrent.CompletionException

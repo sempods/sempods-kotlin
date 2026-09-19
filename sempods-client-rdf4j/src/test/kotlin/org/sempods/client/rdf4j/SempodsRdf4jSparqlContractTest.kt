@@ -11,11 +11,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.core.SempodsContextSelection
-import org.sempods.client.core.SempodsDecodingException
-import org.sempods.client.core.SempodsPod
-import org.sempods.client.core.SempodsPodBase
-import org.sempods.client.core.SempodsSession
+import org.sempods.client.SempodsContextSelection
+import org.sempods.client.SempodsDecodingException
+import org.sempods.client.SempodsPod
+import org.sempods.client.SempodsPodBase
+import org.sempods.client.SempodsSession
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

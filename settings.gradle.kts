@@ -137,7 +137,7 @@ include(
   "sempods-commons-mongo",
   "sempods-commons-okhttp",
   "consumer-probe:auth",
-  "consumer-probe:client-core",
+  "consumer-probe:client",
   "consumer-probe:client-media",
   "consumer-probe:client-rdf4j",
   "consumer-probe:control-plane",

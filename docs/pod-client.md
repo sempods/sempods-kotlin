@@ -305,7 +305,7 @@ Nothing travels to the operation's thread on its own. A trace goes along with an
 carries it, such as OpenTelemetry's `Context.taskWrapping`, passed as the second argument.
 `SempodsAsyncOperation.result` has the table of how an operation completes.
 
-The [manual load comparison](../consumer-probe/client-core/docs/load.md) measures the adapter,
+The [manual load comparison](../consumer-probe/client/docs/load.md) measures the adapter,
 direct virtual-thread calls and OkHttp callbacks on Java 21 and 25, outside ordinary PR CI.
 
 ## The transport: OkHttp, blocking
@@ -440,7 +440,7 @@ what the core does: the admin routes' JSON is Jackson 3 behind an internal objec
 is involved, so it stays on Java 21 too.
 
 A probe per artifact checks them from outside the build, as Java consumers on the lowest JVM each runs
-on: `:consumer-probe:client-core`, `:consumer-probe:client-media` and `:consumer-probe:control-plane`
+on: `:consumer-probe:client`, `:consumer-probe:client-media` and `:consumer-probe:control-plane`
 on 21, `:consumer-probe:client-rdf4j` on 25 —
 [`concepts/modularity.md`](concepts/modularity.md) §"Open-source readiness".
 
