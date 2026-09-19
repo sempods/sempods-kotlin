@@ -55,9 +55,11 @@ class SempodsAuthAttempt internal constructor(
   }
 
   /** Whether a call made through [calls] runs on this work's slot under [gate], which is not null. */
+  @JvmSynthetic
   internal fun lends(gate: Any): Boolean = !ended && gate === admission
 
   /** Ends the work: a call through [calls] that starts afterwards takes a slot of its own. */
+  @JvmSynthetic
   internal fun end() {
     ended = true
   }

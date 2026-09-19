@@ -45,6 +45,7 @@ class SempodsWriteOptions private constructor(
   }
 
   /** Whether the write is conditional, and so may be answered `412`. */
+  @get:JvmSynthetic
   internal val isConditional: Boolean get() = ifMatch != null || ifNoneMatch != null
 
   override fun equals(other: Any?): Boolean =

@@ -15,6 +15,7 @@ package org.sempods.client.core
 sealed class SempodsContextCreate {
 
   /** The body as it goes on the wire. */
+  @JvmSynthetic
   internal abstract fun encoded(): ByteArray
 
   /**
@@ -34,6 +35,7 @@ sealed class SempodsContextCreate {
 
     fun withPublic(public: Boolean?): Fields = Fields(label, description, public)
 
+    @JvmSynthetic
     override fun encoded(): ByteArray {
       val members = LinkedHashMap<String, Any>()
       label?.let { members["label"] = it }
@@ -44,6 +46,7 @@ sealed class SempodsContextCreate {
   }
 
   private class Encoded(private val bytes: ByteArray) : SempodsContextCreate() {
+    @JvmSynthetic
     override fun encoded(): ByteArray = bytes
   }
 

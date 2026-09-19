@@ -37,6 +37,7 @@ class SempodsRdf4jSelectResults internal constructor(
 }
 
 /** [results] term by term; a term RDF4J refuses is an [IllegalArgumentException]. */
+@JvmSynthetic
 internal fun selectResultsOf(results: SempodsSparqlResults): SempodsRdf4jSelectResults {
   val variables = results.variables
   val bindingSets = results.solutions.map { solution ->

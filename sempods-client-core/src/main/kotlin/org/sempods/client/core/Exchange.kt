@@ -8,12 +8,15 @@ import okhttp3.Response
 import java.io.IOException
 
 /** The most an endpoint operation reads into memory. */
+@field:JvmSynthetic
 internal const val MAX_BODY_BYTES: Long = 16L * 1024 * 1024
 
 /** How much of a refused answer's body a [SempodsStatusException] keeps. */
+@field:JvmSynthetic
 internal const val ERROR_EXCERPT_BYTES: Long = 4L * 1024
 
 /** Every status OkHttp reads — any three digits — for an operation that takes each as an answer. */
+@get:JvmSynthetic
 internal val EVERY_STATUS: Set<Int> = (0..999).toSet()
 
 /** How an operation reads a body that has already left the connection. */

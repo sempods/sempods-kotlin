@@ -82,6 +82,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
    */
   fun result(): CompletionStage<T> = completion.minimalCompletionStage()
 
+  @JvmSynthetic
   internal fun run(work: SempodsAsyncWork<T>) {
     synchronized(lock) {
       // Cancelled before it started: [cancel] completed the operation already.
@@ -114,6 +115,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
   }
 
   /** How many of the work's calls are still open. */
+  @JvmSynthetic
   internal fun openCalls(): Int = synchronized(lock) { open.size }
 
   private fun track(call: Call): Call {

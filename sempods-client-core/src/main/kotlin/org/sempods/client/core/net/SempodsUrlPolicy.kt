@@ -134,6 +134,7 @@ class SempodsUrlPolicy(private val allowPrivateAddresses: Boolean) {
   companion object {
 
     /** RFC 6761 reserves `localhost` and `*.localhost` for loopback. */
+    @JvmSynthetic
     internal fun isLoopbackName(host: String): Boolean =
       host == "localhost" || host.endsWith(".localhost") ||
         host == "ip6-localhost" || host == "ip6-loopback"
