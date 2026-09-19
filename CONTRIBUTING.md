@@ -187,8 +187,8 @@ checkDocLinks checkImageMetadata checkPublishedSignatures`. The two POM checks a
 fails if the published file carries a test library, the other if it omits a dependency a consumer
 needs. `checkDocLinks` walks every markdown file and fails on a relative link that points at
 nothing; `checkImageMetadata` keeps a container image from shipping without the label that says
-which commit it is; `checkPublishedSignatures` keeps what Java cannot call off the client core's
-surface.
+which commit it is; `checkPublishedSignatures` keeps what Java cannot call off every published
+module's surface, bar the eight the root build exempts by name.
 
 `./gradlew test` also needs a **JDK 21** installed beside the toolchain's 25, for
 `:consumer-probe:client`; `docs/concepts/modularity.md` §"Open-source readiness" says why.

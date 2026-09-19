@@ -45,11 +45,6 @@ open class BaseEndpoint {
     return URI(uri)
   }
 
-  protected fun okNoContent(func: () -> Unit): Response {
-    func.invoke()
-    return Response.status(204).build()
-  }
-
   protected fun respondWithAccessDenied(): Response {
     return Response.status(403).build()
   }
