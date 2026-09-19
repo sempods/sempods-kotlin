@@ -23,15 +23,15 @@ class SempodsRdf4jPod(
   val pod: SempodsPod,
 ) {
 
-  private val resourcesGroup = SempodsRdf4jResources(pod.resources())
+  private val resourcesGroup = SempodsRdf4jResources.of(pod.resources())
 
-  private val subjectsGroup = SempodsRdf4jSubjects(pod.subjects())
+  private val subjectsGroup = SempodsRdf4jSubjects.of(pod.subjects())
 
-  private val slotsGroup = SempodsRdf4jSlots(pod.slots())
+  private val slotsGroup = SempodsRdf4jSlots.of(pod.slots())
 
-  private val contextsGroup = SempodsRdf4jContexts(pod.contexts())
+  private val contextsGroup = SempodsRdf4jContexts.of(pod.contexts())
 
-  private val sparqlGroup = SempodsRdf4jSparql(pod.sparql())
+  private val sparqlGroup = SempodsRdf4jSparql.of(pod.sparql())
 
   /** Resources the pod hosts, at their own addresses, as models. */
   fun resources(): SempodsRdf4jResources = resourcesGroup

@@ -19,7 +19,7 @@ import java.io.IOException
  * What a read asks for and how a write is sent are [SempodsRdf4jResources]'; the address and answers are
  * [SempodsPodSubjects]'.
  */
-class SempodsRdf4jSubjects internal constructor(
+class SempodsRdf4jSubjects private constructor(
   private val core: SempodsPodSubjects,
 ) {
 
@@ -42,4 +42,10 @@ class SempodsRdf4jSubjects internal constructor(
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> =
     core.put(subjectUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(Rdf4jCodec.writeJsonLd(model)), options)
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(core: SempodsPodSubjects): SempodsRdf4jSubjects = SempodsRdf4jSubjects(core)
+  }
 }

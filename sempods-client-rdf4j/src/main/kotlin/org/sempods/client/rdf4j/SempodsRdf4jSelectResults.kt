@@ -17,7 +17,7 @@ import java.util.Collections
  * parsers build it; [variables] names them all. The result is held in memory, and can be read as often as
  * needed.
  */
-class SempodsRdf4jSelectResults internal constructor(
+class SempodsRdf4jSelectResults private constructor(
   variables: List<String>,
   bindingSets: List<BindingSet>,
 ) {
@@ -34,6 +34,13 @@ class SempodsRdf4jSelectResults internal constructor(
 
   /** The variables and the number of solutions: the values are the pod's data and stay out of logs. */
   override fun toString(): String = "SempodsRdf4jSelectResults(variables=$variables, bindingSets=${bindingSets.size})"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(variables: List<String>, bindingSets: List<BindingSet>): SempodsRdf4jSelectResults =
+      SempodsRdf4jSelectResults(variables, bindingSets)
+  }
 }
 
 /** [results] term by term; a term RDF4J refuses is an [IllegalArgumentException]. */
@@ -44,7 +51,7 @@ internal fun selectResultsOf(results: SempodsSparqlResults): SempodsRdf4jSelectR
     val bound = variables.filter { it in solution.bindings }
     ListBindingSet(bound, bound.map { valueOf(solution.bindings.getValue(it)) })
   }
-  return SempodsRdf4jSelectResults(variables, bindingSets)
+  return SempodsRdf4jSelectResults.of(variables, bindingSets)
 }
 
 private val values = SimpleValueFactory.getInstance()

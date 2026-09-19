@@ -36,7 +36,7 @@ import java.io.IOException
  * Addresses, answers, entity tags and the resend are [SempodsPodContexts]'. Removing a context answers
  * no graph, so it stays there.
  */
-class SempodsRdf4jContexts internal constructor(
+class SempodsRdf4jContexts private constructor(
   private val core: SempodsPodContexts,
 ) {
 
@@ -99,8 +99,11 @@ class SempodsRdf4jContexts internal constructor(
     return export(contextUri, StatementCollector(model)).map { model }
   }
 
-  private companion object {
+  internal companion object {
 
-    val values: SimpleValueFactory = SimpleValueFactory.getInstance()
+    @JvmSynthetic
+    internal fun of(core: SempodsPodContexts): SempodsRdf4jContexts = SempodsRdf4jContexts(core)
+
+    private val values: SimpleValueFactory = SimpleValueFactory.getInstance()
   }
 }

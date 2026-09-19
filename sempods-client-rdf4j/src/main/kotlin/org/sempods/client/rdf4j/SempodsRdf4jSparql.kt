@@ -29,7 +29,7 @@ import java.io.IOException
  * An ASK query needs nothing from here: [SempodsPodSparql.ask] answers the `boolean` RDF4J would.
  * The selection, answers and the resend are [SempodsPodSparql]'.
  */
-class SempodsRdf4jSparql internal constructor(
+class SempodsRdf4jSparql private constructor(
   private val core: SempodsPodSparql,
 ) {
 
@@ -70,4 +70,10 @@ class SempodsRdf4jSparql internal constructor(
     query: String,
     selection: SempodsContextSelection = SempodsContextSelection.readable(),
   ): SempodsResponse<SempodsRdf4jSelectResults> = core.select(query, selection).map { selectResultsOf(it) }
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(core: SempodsPodSparql): SempodsRdf4jSparql = SempodsRdf4jSparql(core)
+  }
 }

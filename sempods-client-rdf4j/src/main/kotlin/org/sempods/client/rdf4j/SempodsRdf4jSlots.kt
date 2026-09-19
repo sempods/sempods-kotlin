@@ -34,7 +34,7 @@ import java.io.IOException
  * Addresses, answers, the selection, the resend and conditions are [SempodsPodSlots]'. Clearing a slot
  * and removing an edge send no value, so they stay there.
  */
-class SempodsRdf4jSlots internal constructor(
+class SempodsRdf4jSlots private constructor(
   private val core: SempodsPodSlots,
 ) {
 
@@ -67,4 +67,10 @@ class SempodsRdf4jSlots internal constructor(
     value: Value,
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = core.add(subjectUri, predicateUri, SempodsContent.of(slotValueObject(value)), options)
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(core: SempodsPodSlots): SempodsRdf4jSlots = SempodsRdf4jSlots(core)
+  }
 }
