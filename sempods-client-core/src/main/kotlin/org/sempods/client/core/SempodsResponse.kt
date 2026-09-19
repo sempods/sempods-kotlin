@@ -58,13 +58,13 @@ class SempodsResponse<T : Any> private constructor(
         Thread.currentThread().interrupt()
         throw InterruptedIOException("Interrupted while decoding the answer of $described.")
       } catch (failure: Exception) {
-        throw SempodsDecodingException(
+        throw SempodsDecodingException.of(
           "$described answered $status with a body the decoder cannot read: ${failure.javaClass.name}.",
           status,
           headers,
         )
       }
-      result ?: throw SempodsDecodingException("$described answered $status, and the decoder returned no body.", status, headers)
+      result ?: throw SempodsDecodingException.of("$described answered $status, and the decoder returned no body.", status, headers)
     }
     return SempodsResponse(url, status, headers, decoded, described)
   }

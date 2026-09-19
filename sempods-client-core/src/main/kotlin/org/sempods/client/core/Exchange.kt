@@ -81,7 +81,7 @@ internal class Exchange(
     val body = try {
       reading.read(bytes, answer.contentType)
     } catch (violation: ProtocolViolation) {
-      throw SempodsDecodingException(
+      throw SempodsDecodingException.of(
         "${answer.described} answered ${answer.status} with a body this operation cannot read: ${violation.detail}.",
         answer.status,
         answer.headers,
@@ -104,7 +104,7 @@ internal class Exchange(
   /** Throws unless [response] carries one of [answers], keeping what arrived of the refused body. */
   private fun refuseUnlisted(response: Response, answers: Set<Int>) {
     if (response.code in answers) return
-    throw SempodsStatusException(
+    throw SempodsStatusException.of(
       "${described(response)} answered ${response.code}, which this operation does not accept.",
       response.code,
       response.headers,
@@ -127,7 +127,7 @@ internal class Exchange(
   private fun bounded(response: Response, described: String): ByteArray {
     val source = response.body.source()
     if (response.body.contentLength() > maxBodyBytes || source.request(maxBodyBytes + 1)) {
-      throw SempodsDecodingException(
+      throw SempodsDecodingException.of(
         "$described answered ${response.code} with a body over $maxBodyBytes bytes.",
         response.code,
         response.headers,
