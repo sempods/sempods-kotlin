@@ -138,9 +138,9 @@ Four decisions shape everything above it. Each lives in one class, whose KDoc ca
   `OkHttpClient` cannot resolve it and never sends it anonymously.
 - **The attempts belong to one call** (`SempodsOkHttp.install`). Each is authenticated afresh, and
   the session's `SempodsRequestAuth` is told about every answer, a successful one included. A lost
-  connection earns one resend for an idempotent method or a request marked `SempodsRepeatable`
-  ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and a 401 the mechanism
-  claims earns one retry. `callTimeout` and `Call.cancel()` cover them all.
+  connection earns one resend when the request that went out is idempotent or marked
+  `SempodsRepeatable` ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and
+  a 401 the mechanism claims earns one retry. `callTimeout` and `Call.cancel()` cover them all.
 - **Capacity is explicit** (`SempodsAdmission`): active and waiting calls are bounded separately, for
   every running call on the client.
 
