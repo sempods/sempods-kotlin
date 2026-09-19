@@ -156,9 +156,9 @@ IST documentation:
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
-  not their wider accidental surface. `:consumer-probe:client-core`,
-  `:consumer-probe:client-rdf4j` and `:consumer-probe:opentelemetry` check the client artifacts from
-  outside. See
+  not their wider accidental surface. `:consumer-probe:client-core`, `:consumer-probe:client-media`,
+  `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane` and
+  `:consumer-probe:opentelemetry` check the client artifacts from outside. See
   `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference
