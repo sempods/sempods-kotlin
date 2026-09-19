@@ -280,6 +280,32 @@ error — *never thrown in body of corresponding try statement* — so the failu
 to report cannot be caught. `@JvmOverloads` on defaulted parameters and `@JvmStatic` on a companion
 are the same kind of judgement: not wrong without them, only worse to call.
 
+**A constructor Java can call is a constructor the library supports.** `internal` is not a JVM
+visibility, and what it publishes depends on the declaration:
+
+| Kotlin | what a Java caller writes |
+|---|---|
+| an `internal` constructor | `new SempodsAsyncOperation<>(calls)`, since it compiles to a plain public one |
+| an `internal` member of a class | `session.bind$org_sempods_sempods_client_core(request)` — `$` is an ordinary identifier character |
+| a top-level `internal` function | `ProtocolJsonKt.decodeObject(bytes)`, which Kotlin does not rename at all |
+
+So a type only the library wires published a way to build one — a `SempodsResponse` no pod answered
+— and `SempodsSession.authenticated` handed out a request carrying the session's credential. The
+three client modules give such a type a **`private` constructor and an `@JvmSynthetic internal`
+factory in its companion**, and put `@JvmSynthetic` on every `internal` member whose call from Java
+breaks a contract. The annotation sets `ACC_SYNTHETIC`, which javac refuses to resolve; a property
+takes `@get:JvmSynthetic` and a `const val` `@field:JvmSynthetic`, where the plain annotation is
+ignored. It cannot be written on a constructor, which is why that goes `private` and the factory
+carries it, at the price of a `Companion` holding nothing Java can call. An extension still reads
+its `SempodsResponse` off `SempodsExchange` and `SempodsResponse.map`, as `:sempods-client-media`
+does.
+
+This one is not checked. `checkPublishedSignatures` sees a public constructor but not which ones a
+consumer is meant to call, so the rule would need an allowlist of the public API beside the public
+API. It stays a review question beside `@Throws`: **a public type of a client module names in its
+public constructor only what a consumer can supply.** An `internal` *class* is beyond the rule and
+beyond any annotation — [#237](https://github.com/sempods/sempods-kotlin/issues/237) owns that.
+
 **A third probe asks whether the client core is usable from Java.** `:consumer-probe:client-core`
 is a JUnit suite written in Java; across the project boundary its compile classpath is a consumer's,
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a

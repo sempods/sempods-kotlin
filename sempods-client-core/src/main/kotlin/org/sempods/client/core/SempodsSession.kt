@@ -53,7 +53,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  */
 class SempodsSession @JvmOverloads constructor(
   val podBase: SempodsPodBase,
-  internal val auth: SempodsRequestAuth = SempodsRequestAuth.anonymous(),
+  @get:JvmSynthetic internal val auth: SempodsRequestAuth = SempodsRequestAuth.anonymous(),
 ) {
 
   /**
@@ -76,6 +76,7 @@ class SempodsSession @JvmOverloads constructor(
   }
 
   /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
+  @JvmSynthetic
   internal fun bind(request: Request): Request {
     val bound =
       if (request.url.host != SempodsOkHttp.UNBOUND_HOST) request
@@ -88,6 +89,7 @@ class SempodsSession @JvmOverloads constructor(
    * The check that keeps a credential with its pod: the URL and every `Host` header, either of which
    * the caller, an interceptor or a redirect can replace after this session built the request.
    */
+  @JvmSynthetic
   internal fun confine(request: Request) {
     val target = request.url
     if (target !in podBase) {
@@ -107,6 +109,7 @@ class SempodsSession @JvmOverloads constructor(
     }
   }
 
+  @JvmSynthetic
   internal fun authenticated(request: Request, attempt: SempodsAuthAttempt): Request = auth.authenticate(request, attempt)
 
   private companion object {
@@ -118,6 +121,7 @@ class SempodsSession @JvmOverloads constructor(
 }
 
 /** Whether [host], a `Host` value, is [target]'s authority: with its port, or without a default one. */
+@JvmSynthetic
 internal fun namesAuthorityOf(host: String, target: HttpUrl): Boolean {
   val name = if (':' in target.host) "[${target.host}]" else target.host
   return host.equals("$name:${target.port}", ignoreCase = true) ||

@@ -18,7 +18,7 @@ import java.io.IOException
  *
  * Deleting a subject is one [delete] per context it has statements in.
  */
-class SempodsPodSubjects internal constructor(
+class SempodsPodSubjects private constructor(
   private val operations: ResourceOperations,
 ) {
 
@@ -63,4 +63,10 @@ class SempodsPodSubjects internal constructor(
     subjectUri: String,
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> = operations.delete(subjectUri, options)
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(operations: ResourceOperations): SempodsPodSubjects = SempodsPodSubjects(operations)
+  }
 }

@@ -29,7 +29,7 @@ import java.io.IOException
  *
  * Addresses, answers, the selection, the resend and the size limit are [SempodsPodResources]'.
  */
-class SempodsRdf4jResources internal constructor(
+class SempodsRdf4jResources private constructor(
   private val core: SempodsPodResources,
 ) {
 
@@ -52,4 +52,10 @@ class SempodsRdf4jResources internal constructor(
     options: SempodsWriteOptions,
   ): SempodsResponse<ByteArray> =
     core.put(resourceUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(Rdf4jCodec.writeJsonLd(model)), options)
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(core: SempodsPodResources): SempodsRdf4jResources = SempodsRdf4jResources(core)
+  }
 }

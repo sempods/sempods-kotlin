@@ -174,7 +174,7 @@ class SempodsPodSparqlContractTest : MockPodTest() {
     assertEquals(200, typed.status)
     assertEquals("r-1", typed.headers["X-Request-Id"])
     assertEquals(listOf("s"), assertNotNull(typed.body).variables)
-    assertEquals(listOf(SempodsSparqlTerm(SempodsSparqlTermKind.IRI, event, null, null)), typed.body?.column("s"))
+    assertEquals(listOf(SempodsSparqlTerm.of(SempodsSparqlTermKind.IRI, event, null, null)), typed.body?.column("s"))
     assertEquals(selectDocument, sparql().resultsJson(query).body)
     assertContentEquals(selectDocument.toByteArray(), sparql().resultsBytes(query).body)
 

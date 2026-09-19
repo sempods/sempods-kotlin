@@ -44,6 +44,7 @@ internal class StreamOutcome private constructor(
  * Anything else is the body's fault and comes back as a [StreamOutcome]. The statements handed on before
  * a failure stay handed on.
  */
+@JvmSynthetic
 internal fun readStatements(
   body: InputStream,
   format: RDFFormat,

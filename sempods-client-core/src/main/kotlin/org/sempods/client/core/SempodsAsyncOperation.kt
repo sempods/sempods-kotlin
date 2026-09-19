@@ -10,7 +10,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 
 /** One piece of work a [SempodsAsync] started: its result, and the handle that cancels its calls. */
-class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
+class SempodsAsyncOperation<T> private constructor(calls: Call.Factory) {
 
   private val lock = Any()
 
@@ -82,6 +82,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
    */
   fun result(): CompletionStage<T> = completion.minimalCompletionStage()
 
+  @JvmSynthetic
   internal fun run(work: SempodsAsyncWork<T>) {
     synchronized(lock) {
       // Cancelled before it started: [cancel] completed the operation already.
@@ -114,6 +115,7 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
   }
 
   /** How many of the work's calls are still open. */
+  @JvmSynthetic
   internal fun openCalls(): Int = synchronized(lock) { open.size }
 
   private fun track(call: Call): Call {
@@ -171,5 +173,11 @@ class SempodsAsyncOperation<T> internal constructor(calls: Call.Factory) {
     } catch (_: Exception) {
       // The caller asked for nothing from this value; a failure to close it has no one to go to.
     }
+  }
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun <T> of(calls: Call.Factory): SempodsAsyncOperation<T> = SempodsAsyncOperation(calls)
   }
 }

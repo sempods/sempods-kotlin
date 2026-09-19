@@ -29,20 +29,20 @@ class SempodsPod(
 
   private val exchange = Exchange(calls)
 
-  private val metadataGroup = SempodsPodMetadata(session, exchange)
+  private val metadataGroup = SempodsPodMetadata.of(session, exchange)
 
-  private val sparqlGroup = SempodsPodSparql(session, exchange)
+  private val sparqlGroup = SempodsPodSparql.of(session, exchange)
 
-  private val resourcesGroup = SempodsPodResources(ResourceOperations(session, exchange, ResourceAddress.LodPath(session.podBase)))
+  private val resourcesGroup = SempodsPodResources.of(ResourceOperations(session, exchange, ResourceAddress.LodPath(session.podBase)))
 
   private val systemOperations = ResourceOperations(session, exchange, ResourceAddress.SystemRoute)
 
-  private val subjectsGroup = SempodsPodSubjects(systemOperations)
+  private val subjectsGroup = SempodsPodSubjects.of(systemOperations)
 
-  private val slotsGroup = SempodsPodSlots(systemOperations)
+  private val slotsGroup = SempodsPodSlots.of(systemOperations)
 
   private val contextsGroup =
-    SempodsPodContexts(ResourceOperations(session, exchange, ResourceAddress.RegistryPath(session.podBase)), sparqlGroup)
+    SempodsPodContexts.of(ResourceOperations(session, exchange, ResourceAddress.RegistryPath(session.podBase)), sparqlGroup)
 
   /** Whether the pod exists, and when it was last written to. */
   fun metadata(): SempodsPodMetadata = metadataGroup

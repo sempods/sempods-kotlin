@@ -8,12 +8,15 @@ import okhttp3.Response
 import java.io.IOException
 
 /** The most an endpoint operation reads into memory. */
+@field:JvmSynthetic
 internal const val MAX_BODY_BYTES: Long = 16L * 1024 * 1024
 
 /** How much of a refused answer's body a [SempodsStatusException] keeps. */
+@field:JvmSynthetic
 internal const val ERROR_EXCERPT_BYTES: Long = 4L * 1024
 
 /** Every status OkHttp reads — any three digits — for an operation that takes each as an answer. */
+@get:JvmSynthetic
 internal val EVERY_STATUS: Set<Int> = (0..999).toSet()
 
 /** How an operation reads a body that has already left the connection. */
@@ -63,9 +66,9 @@ internal class Exchange(
     calls.newCall(request).execute().use { response ->
       refuseUnlisted(response, answers)
       if (!response.isSuccessful) {
-        SempodsResponse(answered(response), response.code, response.headers, body = null, described(response))
+        SempodsResponse.of(answered(response), response.code, response.headers, body = null, described(response))
       } else {
-        SempodsResponse(
+        SempodsResponse.of(
           answered(response), response.code, response.headers, reader.read(response.body.byteStream()), described(response),
         )
       }
@@ -74,17 +77,17 @@ internal class Exchange(
   fun <T : Any> run(request: Request, answers: Set<Int>, reading: BodyReading<T>): SempodsResponse<T> {
     val answer = execute(request, answers, readBody = true)
     val bytes = answer.bytes
-      ?: return SempodsResponse(answer.url, answer.status, answer.headers, body = null, answer.described)
+      ?: return SempodsResponse.of(answer.url, answer.status, answer.headers, body = null, answer.described)
     val body = try {
       reading.read(bytes, answer.contentType)
     } catch (violation: ProtocolViolation) {
-      throw SempodsDecodingException(
+      throw SempodsDecodingException.of(
         "${answer.described} answered ${answer.status} with a body this operation cannot read: ${violation.detail}.",
         answer.status,
         answer.headers,
       )
     }
-    return SempodsResponse(answer.url, answer.status, answer.headers, body, answer.described)
+    return SempodsResponse.of(answer.url, answer.status, answer.headers, body, answer.described)
   }
 
   private fun execute(request: Request, answers: Set<Int>, readBody: Boolean): Answer =
@@ -101,7 +104,7 @@ internal class Exchange(
   /** Throws unless [response] carries one of [answers], keeping what arrived of the refused body. */
   private fun refuseUnlisted(response: Response, answers: Set<Int>) {
     if (response.code in answers) return
-    throw SempodsStatusException(
+    throw SempodsStatusException.of(
       "${described(response)} answered ${response.code}, which this operation does not accept.",
       response.code,
       response.headers,
@@ -124,7 +127,7 @@ internal class Exchange(
   private fun bounded(response: Response, described: String): ByteArray {
     val source = response.body.source()
     if (response.body.contentLength() > maxBodyBytes || source.request(maxBodyBytes + 1)) {
-      throw SempodsDecodingException(
+      throw SempodsDecodingException.of(
         "$described answered ${response.code} with a body over $maxBodyBytes bytes.",
         response.code,
         response.headers,

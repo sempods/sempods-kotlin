@@ -22,7 +22,7 @@ import java.io.InterruptedIOException
  * **Another representation of the same answer is [map]'s**, which is how a module above the core — an
  * RDF adapter, say — returns the status and headers with a body of its own.
  */
-class SempodsResponse<T : Any> internal constructor(
+class SempodsResponse<T : Any> private constructor(
   /**
    * The URL of the request this answers, without a fragment; after followed redirects
    * ([SempodsForeignTarget.followingRedirects]), the last one. A `Host` an interceptor set is not reflected.
@@ -58,17 +58,29 @@ class SempodsResponse<T : Any> internal constructor(
         Thread.currentThread().interrupt()
         throw InterruptedIOException("Interrupted while decoding the answer of $described.")
       } catch (failure: Exception) {
-        throw SempodsDecodingException(
+        throw SempodsDecodingException.of(
           "$described answered $status with a body the decoder cannot read: ${failure.javaClass.name}.",
           status,
           headers,
         )
       }
-      result ?: throw SempodsDecodingException("$described answered $status, and the decoder returned no body.", status, headers)
+      result ?: throw SempodsDecodingException.of("$described answered $status, and the decoder returned no body.", status, headers)
     }
     return SempodsResponse(url, status, headers, decoded, described)
   }
 
   /** The status alone: a body can carry a credential, and this string ends up in logs. */
   override fun toString(): String = "SempodsResponse(status=$status)"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun <T : Any> of(
+      url: String,
+      status: Int,
+      headers: Headers,
+      body: T?,
+      described: String,
+    ): SempodsResponse<T> = SempodsResponse(url, status, headers, body, described)
+  }
 }

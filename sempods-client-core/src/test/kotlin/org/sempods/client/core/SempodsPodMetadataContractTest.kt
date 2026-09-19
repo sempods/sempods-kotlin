@@ -104,7 +104,7 @@ class SempodsPodMetadataContractTest : MockPodTest() {
     val typed = metadata().dateModified()
 
     assertEquals(200, typed.status)
-    assertEquals(SempodsPodDateModified(null), typed.body)
+    assertEquals(SempodsPodDateModified.of(null), typed.body)
     assertTrue(metadata().exists())
   }
 

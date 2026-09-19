@@ -7,9 +7,11 @@ import org.eclipse.rdf4j.model.base.CoreDatatype
 import tools.jackson.databind.json.JsonMapper
 
 /** [value] as the one JSON-LD value object a slot's `POST` sends (SPS-CRUD-049). */
+@JvmSynthetic
 internal fun slotValueObject(value: Value): ByteArray = SlotJson.write(valueObject(value))
 
 /** [values] as the JSON-LD array a slot's `PUT` sends; an empty one clears the slot. */
+@JvmSynthetic
 internal fun slotValueArray(values: Collection<Value>): ByteArray = SlotJson.write(values.map(::valueObject))
 
 /**

@@ -73,7 +73,7 @@ class SempodsPodTokens(
       val document = decodeObject(bytes)
       val expiresIn = document.longOrNull("expires_in")
       if (expiresIn != null && expiresIn < 0) throw ProtocolViolation("/expires_in: expected a non-negative integer")
-      SempodsTokenResponse(
+      SempodsTokenResponse.of(
         accessToken = document.string("access_token"),
         tokenType = document.string("token_type"),
         expiresIn = expiresIn?.let(Duration::ofSeconds),

@@ -23,5 +23,6 @@ object SempodsRepeatable {
   @JvmStatic
   fun mark(request: Request.Builder): Request.Builder = request.tag(SempodsRepeatable::class.java, SempodsRepeatable)
 
+  @JvmSynthetic
   internal fun isMarked(call: Call): Boolean = call.tag(SempodsRepeatable::class.java) != null
 }

@@ -15,6 +15,7 @@ package org.sempods.client.core
 sealed class SempodsContextCreate {
 
   /** The body as it goes on the wire. */
+  @JvmSynthetic
   internal abstract fun encoded(): ByteArray
 
   /**
@@ -22,7 +23,7 @@ sealed class SempodsContextCreate {
    * member out, and an empty string is sent as it is. A context created without `public` is private
    * (SPS-CTX-027, SPS-CTX-030).
    */
-  class Fields internal constructor(
+  class Fields private constructor(
     private val label: String?,
     private val description: String?,
     private val public: Boolean?,
@@ -34,6 +35,7 @@ sealed class SempodsContextCreate {
 
     fun withPublic(public: Boolean?): Fields = Fields(label, description, public)
 
+    @JvmSynthetic
     override fun encoded(): ByteArray {
       val members = LinkedHashMap<String, Any>()
       label?.let { members["label"] = it }
@@ -41,9 +43,17 @@ sealed class SempodsContextCreate {
       public?.let { members["public"] = it }
       return encodeObject(members)
     }
+
+    internal companion object {
+
+      @JvmSynthetic
+      internal fun of(label: String?, description: String?, public: Boolean?): Fields =
+        Fields(label, description, public)
+    }
   }
 
   private class Encoded(private val bytes: ByteArray) : SempodsContextCreate() {
+    @JvmSynthetic
     override fun encoded(): ByteArray = bytes
   }
 
@@ -51,7 +61,7 @@ sealed class SempodsContextCreate {
 
     /** No members yet: `{}`, which creates a private context without label or description. */
     @JvmStatic
-    fun fields(): Fields = Fields(label = null, description = null, public = null)
+    fun fields(): Fields = Fields.of(label = null, description = null, public = null)
 
     /** [encoded], sent byte for byte and not parsed. The array is copied. */
     @JvmStatic

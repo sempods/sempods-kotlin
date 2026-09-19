@@ -47,7 +47,7 @@ import java.io.IOException
  * more; [add] is not, and a write with stream content never is. When the first attempt already took
  * effect, a clear then reports `already_empty` and an edge removal `already_absent`.
  */
-class SempodsPodSlots internal constructor(
+class SempodsPodSlots private constructor(
   private val operations: ResourceOperations,
 ) {
 
@@ -126,14 +126,17 @@ class SempodsPodSlots internal constructor(
     return operations.writeAt("DELETE", path, content = null, mediaType = null, options, CLEAR_OR_REMOVE_ANSWERS)
   }
 
-  private companion object {
+  internal companion object {
 
-    const val JSON_LD = "application/ld+json"
+    @JvmSynthetic
+    internal fun of(operations: ResourceOperations): SempodsPodSlots = SempodsPodSlots(operations)
 
-    val PUT_ANSWERS = setOf(200, 204)
+    private const val JSON_LD = "application/ld+json"
 
-    val ADD_ANSWERS = setOf(200, 201, 204)
+    private val PUT_ANSWERS = setOf(200, 204)
 
-    val CLEAR_OR_REMOVE_ANSWERS = setOf(200, 204)
+    private val ADD_ANSWERS = setOf(200, 201, 204)
+
+    private val CLEAR_OR_REMOVE_ANSWERS = setOf(200, 204)
   }
 }

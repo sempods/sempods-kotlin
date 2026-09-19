@@ -1,7 +1,7 @@
 package org.sempods.client.core
 
 /** One RDF term bound in a SELECT result, as the SPARQL 1.1 Query Results JSON Format writes it. */
-class SempodsSparqlTerm internal constructor(
+class SempodsSparqlTerm private constructor(
   val kind: SempodsSparqlTermKind,
   /** The IRI, the literal's lexical form or the blank node's label, exactly as the pod sent it. */
   val value: String,
@@ -21,4 +21,15 @@ class SempodsSparqlTerm internal constructor(
   override fun hashCode(): Int = listOf(kind, value, language, datatype).hashCode()
 
   override fun toString(): String = "SempodsSparqlTerm(kind=$kind, value=$value, language=$language, datatype=$datatype)"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(
+      kind: SempodsSparqlTermKind,
+      value: String,
+      language: String?,
+      datatype: String?,
+    ): SempodsSparqlTerm = SempodsSparqlTerm(kind, value, language, datatype)
+  }
 }

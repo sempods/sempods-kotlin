@@ -14,6 +14,7 @@ import java.util.concurrent.locks.ReentrantLock
  * ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a token may be.
  */
 @Throws(IOException::class)
+@JvmSynthetic
 internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsAuthAttempt): Request {
   val builder = request.newBuilder()
   apply(builder, attempt)

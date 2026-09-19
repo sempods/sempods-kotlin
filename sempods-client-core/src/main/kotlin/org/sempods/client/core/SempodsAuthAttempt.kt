@@ -9,7 +9,7 @@ import okhttp3.Call
  *
  * The work lasts until the method that received it returns.
  */
-class SempodsAuthAttempt internal constructor(
+class SempodsAuthAttempt private constructor(
   /** `1` for a call's first attempt. A resend or an authentication retry counts one more. */
   val number: Int,
   /**
@@ -55,10 +55,19 @@ class SempodsAuthAttempt internal constructor(
   }
 
   /** Whether a call made through [calls] runs on this work's slot under [gate], which is not null. */
+  @JvmSynthetic
   internal fun lends(gate: Any): Boolean = !ended && gate === admission
 
   /** Ends the work: a call through [calls] that starts afterwards takes a slot of its own. */
+  @JvmSynthetic
   internal fun end() {
     ended = true
+  }
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(number: Int, call: Call, admission: Any?): SempodsAuthAttempt =
+      SempodsAuthAttempt(number, call, admission)
   }
 }

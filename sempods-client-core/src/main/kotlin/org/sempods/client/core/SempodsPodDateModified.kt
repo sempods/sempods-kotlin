@@ -8,7 +8,7 @@ import java.time.Instant
  * [dateModified] is null for a pod that exists and was never written to. The server sends the member
  * as `null` then; an answer without the member reads the same way.
  */
-class SempodsPodDateModified internal constructor(
+class SempodsPodDateModified private constructor(
   val dateModified: Instant?,
 ) {
 
@@ -17,4 +17,10 @@ class SempodsPodDateModified internal constructor(
   override fun hashCode(): Int = dateModified.hashCode()
 
   override fun toString(): String = "SempodsPodDateModified(dateModified=$dateModified)"
+
+  internal companion object {
+
+    @JvmSynthetic
+    internal fun of(dateModified: Instant?): SempodsPodDateModified = SempodsPodDateModified(dateModified)
+  }
 }

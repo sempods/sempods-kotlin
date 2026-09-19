@@ -58,7 +58,7 @@ import java.io.OutputStream
  * any `GET`, `PUT` and `DELETE` are. A creation whose answer was lost that way reports `200`, because
  * the context is by then already there (SPS-CTX-016), and a removal `404`.
  */
-class SempodsPodContexts internal constructor(
+class SempodsPodContexts private constructor(
   private val operations: ResourceOperations,
   private val sparql: SempodsPodSparql,
 ) {
@@ -174,14 +174,18 @@ class SempodsPodContexts internal constructor(
   /** A registry read's one option, carried in the type every read shares. */
   private fun read(ifNoneMatch: String?): SempodsReadOptions = SempodsReadOptions.defaults().withIfNoneMatch(ifNoneMatch)
 
-  private companion object {
+  internal companion object {
 
-    const val CATALOGUE = ResourceAddress.RegistryPath.CATALOGUE
+    @JvmSynthetic
+    internal fun of(operations: ResourceOperations, sparql: SempodsPodSparql): SempodsPodContexts =
+      SempodsPodContexts(operations, sparql)
 
-    const val JSON = "application/json"
+    private const val CATALOGUE = ResourceAddress.RegistryPath.CATALOGUE
 
-    val CREATED = setOf(200, 201)
+    private const val JSON = "application/json"
 
-    val REMOVED = setOf(204, 404, 409)
+    private val CREATED = setOf(200, 201)
+
+    private val REMOVED = setOf(204, 404, 409)
   }
 }

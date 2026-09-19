@@ -138,6 +138,7 @@ class SempodsOutboundGuard(
    * The exemption covers the **host**, not the scheme. A trusted host does not make `file:`
    * dialable.
    */
+  @JvmSynthetic
   internal fun refuseTarget(uri: URI): SempodsUrlPolicy.Refusal? {
     val refusal = policy.rejectTarget(uri) ?: return null
     val exempt = refusal.kind == SempodsUrlPolicy.Refusal.Kind.NON_GLOBAL_HOST && isTrusted(uri.host)
@@ -145,9 +146,11 @@ class SempodsOutboundGuard(
   }
 
   /** `false` refuses the request. A trusted host is not charged against a budget either. */
+  @JvmSynthetic
   internal fun allows(target: URI): Boolean =
     rateLimiter == null || isTrusted(target.host) || rateLimiter.tryAcquire(target)
 
+  @JvmSynthetic
   internal fun dns(): Dns = VettingDns(policy, trusted, resolver)
 
   private fun isTrusted(host: String?): Boolean = host != null && normalizeHost(host) in trusted

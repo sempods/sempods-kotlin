@@ -59,7 +59,7 @@ class SempodsPodMetadataDecodingTest : MockPodTest() {
   fun `unknown members of every shape are ignored`() {
     val body = """{"a":1,"b":[1,{"c":null}],"d":{"e":"f"},"dateModified":null,"g":false}"""
 
-    assertEquals(SempodsPodDateModified(null), dateModified(body).body)
+    assertEquals(SempodsPodDateModified.of(null), dateModified(body).body)
   }
 
   @Test

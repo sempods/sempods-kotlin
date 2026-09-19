@@ -49,7 +49,7 @@ import java.io.OutputStream
  * - The deadline and the guard's budget apply per call, and so per redirect hop.
  * - Only `GET`. For anything else, build an `okhttp3.Request` and run it on the same client.
  */
-class SempodsForeignTarget internal constructor(
+class SempodsForeignTarget private constructor(
   /** What runs the calls: a client [SempodsOkHttp.install] configured, or a factory over one. */
   val calls: Call.Factory,
   /** How many redirects one call follows; `0` answers with whatever status comes first. */
@@ -173,6 +173,10 @@ class SempodsForeignTarget internal constructor(
 
     /** The most redirects one call may follow — OkHttp's own limit on follow-ups. */
     const val MAX_REDIRECTS: Int = 20
+
+    @JvmSynthetic
+    internal fun of(calls: Call.Factory, maxRedirects: Int, maxBodyBytes: Long): SempodsForeignTarget =
+      SempodsForeignTarget(calls, maxRedirects, maxBodyBytes)
   }
 }
 
