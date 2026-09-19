@@ -151,6 +151,17 @@ class SempodsControlPlaneClientHttpTest {
     assertEquals("boom", refused.bodyExcerpt)
   }
 
+  @Test
+  fun `deletePod refuses a 200, which the route never answers`() {
+    // Something other than the pod server answered — a proxy, or a drifted contract. Reading it as a
+    // removal that happened would leave a caller believing a pod is gone that is still there.
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/_system/admin/pods/alice"))
+      .respond(response().withStatusCode(200).withBody("ok"))
+
+    assertEquals(200, assertThrows<SempodsStatusException> { client.deletePod("alice") }.status)
+  }
+
   // ─── podExists ────────────────────────────────────────────────────────────────
 
   @Test

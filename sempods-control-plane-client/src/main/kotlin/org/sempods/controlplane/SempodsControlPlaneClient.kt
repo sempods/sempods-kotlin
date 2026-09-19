@@ -98,12 +98,17 @@ class SempodsControlPlaneClient(
   /**
    * `DELETE {server}/_system/admin/pods/{pod}` — idempotent, 204 for a pod that was never there.
    *
+   * **204 is the only answer listed**, because it is the only one the route has: deleting an unknown
+   * pod is a no-op that answers 204 like any other removal. A 200 therefore means something else
+   * answered — a proxy, or a server whose contract has drifted — and reading it as a removal that
+   * happened is how a caller comes to believe a pod is gone that is still there.
+   *
    * Deletes pod-side state only. Callers holding their own per-pod rows (a stored credential, say)
    * clean those up themselves.
    */
   @Throws(IOException::class)
   fun deletePod(podName: String): SempodsResponse<ByteArray> =
-    exchange.bytes(pods("DELETE", podName).build(), 200, 204)
+    exchange.bytes(pods("DELETE", podName).build(), 204)
 
   /**
    * `GET {server}/_system/admin/pods/{pod}` — the authorized existence check, `200` for a pod the
