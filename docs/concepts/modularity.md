@@ -136,8 +136,11 @@ anonymous, or a 2-leg pod-scoped token) and
 `:sempods-control-plane-client` (`SempodsControlPlaneClient` — a host-level admin secret against
 `_system/admin/pods/…`).
 Keeping host administration in a separate module makes its proprietary authority visible
-in dependency declarations. `sempods-control-plane-client` borrows `SempodsHttpTransport`;
-the pod client never depends on the host-specific module.
+in dependency declarations. Both run on the same execution: the control-plane client binds a
+`SempodsSession` to the server root and carries its secret as a `SempodsRequestAuth`, so it gets the
+confinement, the authentication per attempt, the resend and the admission a pod call gets. What
+separates them is the base a session is bound to and the credential it holds. The pod client never
+depends on the host-specific module.
 
 The sharpest evidence that the boundary survived is `existsPod`, which exists on **both** clients on
 purpose — and now in both *modules*, which is as visible as a duplicate gets. The data path asks it
