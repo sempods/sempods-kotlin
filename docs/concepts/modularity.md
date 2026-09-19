@@ -273,9 +273,21 @@ not, because Java cannot call them at all:
 | a **suspend function** | it takes a `kotlin.coroutines.Continuation`, which a Java caller has no way to supply |
 | a **Kotlin function type** | it arrives as `kotlin.jvm.functions.Function1`, and cannot declare a checked exception — a body handler unable to say `throws IOException` forces its failure into an unchecked wrapper |
 
-`checkPublishedSignatures` reads the compiled classes and refuses all three. A module opts in with
-an entry in the root build that also names the libraries it hides. Most modules do not satisfy the
-rule yet, and [#15](https://github.com/sempods/sempods-kotlin/issues/15) owns that.
+`checkPublishedSignatures` reads the compiled classes and refuses all three, for **every published
+module**: the three rules need no input, so there was nothing for a module to opt in to. What a
+module opts in to is the second half — the libraries it hides — which only an artifact promising
+dependency isolation has anything to say about, and the four client artifacts are those.
+
+Eight published modules cannot satisfy the callability rule, and the root build names each with the
+reason. Two shapes cover all of them: a service whose Java promise is the Guice module an embedder
+installs, which its own probe compiles against rather than its whole surface; and a Kotlin module
+whose seams hand out a Kotlin lambda, `PodRepository.withConnection` and `TraceContextHolder.with`
+among them. Narrowing what can be narrowed is
+[#15](https://github.com/sempods/sempods-kotlin/issues/15).
+
+**An exempt module is scanned all the same, and fails once it stops breaking the rule** — the
+message says to delete its entry. A suppression list is only as good as the last time somebody
+checked whether it was still needed, and nobody checks one the build does not.
 
 One part cannot be checked and stays a review question: a member that does I/O needs
 `@Throws(IOException::class)`. Without it a Java caller's `catch (IOException e)` is a compile

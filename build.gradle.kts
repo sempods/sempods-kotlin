@@ -311,10 +311,15 @@ subprojects {
 
   // What a module promises a Java consumer — no value class, `suspend` function or Kotlin function
   // type on its surface, and no library it hides. The rule and its reasons:
-  // `docs/concepts/modularity.md` §"Open-source readiness". A module opts in with an entry below.
+  // `docs/concepts/modularity.md` §"Open-source readiness".
   //
   // It reads the compiled classes with `javap`: a Kotlin type can reach a signature the source never
   // names, and `javap` ships with the JDK the build already requires.
+  //
+  // Which libraries a module hides is the half that has to be said per module, and it is this map.
+  // The three Java-callability rules need no input at all and hold for every published module, so
+  // registering the check off this map is what left fourteen of them unchecked for want of an entry
+  // rather than for a reason.
   val forbiddenLibraries = mapOf(
     // OkHttp is on the core's surface on purpose, so it is not listed.
     "sempods-client" to mapOf(
@@ -347,14 +352,39 @@ subprojects {
     ),
   )
 
-  forbiddenLibraries[name]?.let { libraries ->
+  // The published modules the callability rule does not fit, each with the reason it does not.
+  // [#15](https://github.com/sempods/sempods-kotlin/issues/15) owns narrowing what can be narrowed.
+  // An exempt module is scanned all the same and fails once it has stopped breaking the rule: a
+  // reason nobody rechecks is how a list like this fills up with modules that would pass.
+  val signatureRuleExemptions = mapOf(
+    "sempods-auth" to "what it promises a Java embedder is the Guice module `:consumer-probe:auth` " +
+      "installs, and `suspend` runs through the service's own surface",
+    "sempods-mcp" to "the same, through `:consumer-probe:mcp`",
+    "sempods-server" to "its seams hand out a Kotlin lambda — `PodRepository.withConnection`, the " +
+      "media store's `iterate` — and every caller of them is Kotlin",
+    "sempods-media-s3" to "it implements one of those seams",
+    "sempods-commons" to "the helpers that scope work take a Kotlin lambda, `TraceContextHolder.with` " +
+      "and `LoggingCtx.withLabels` among them",
+    "sempods-auth-core" to "`OneTimeStore` and `RefreshTokenStore` take a Kotlin lambda",
+    "sempods-mcp-core" to "`PodToolPlan.Call` and `ReauthorizeChallengeStore` take a Kotlin lambda",
+    "sempods-commons-ktor" to "its surface is a `kotlin.coroutines.CoroutineContext.Element`, whose " +
+      "inherited `fold` is a Kotlin function type",
+  )
+
+  if (name in publishedModules) {
+    val libraries = forbiddenLibraries[name].orEmpty()
+    val exemption = signatureRuleExemptions[name]
     val classesDir = layout.buildDirectory.dir("classes/kotlin/main")
     val javapLauncher = javaToolchains.launcherFor(java.toolchain)
     val modulePath = project.path
 
     val checkPublishedSignatures = tasks.register("checkPublishedSignatures") {
       group = "verification"
-      description = "Fails if $modulePath publishes a surface Java cannot call, or names a library it hides."
+      description = when {
+        exemption != null -> "Fails if $modulePath no longer needs its exemption from the Java-callability rule."
+        libraries.isEmpty() -> "Fails if $modulePath publishes a surface Java cannot call."
+        else -> "Fails if $modulePath publishes a surface Java cannot call, or names a library it hides."
+      }
       dependsOn(tasks.named("classes"))
       inputs.dir(classesDir)
       doLast {
@@ -402,6 +432,17 @@ subprojects {
           libraries.forEach { (prefix, what) ->
             if (trimmed.contains(prefix)) offences += "$trimmed — $what, which this module hides"
           }
+        }
+
+        if (exemption != null) {
+          if (offences.isEmpty()) {
+            throw GradleException(
+              "$modulePath is exempt from the Java-callability rule because $exemption, and now " +
+                "publishes nothing that breaks it. Drop its `signatureRuleExemptions` entry in the " +
+                "root build.",
+            )
+          }
+          return@doLast
         }
 
         if (offences.isNotEmpty()) {
