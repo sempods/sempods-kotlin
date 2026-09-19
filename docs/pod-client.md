@@ -39,9 +39,10 @@ stamped on each request and the JSON helpers (`objectMapper`, `requiredText`) th
 The transport runs on a client `SempodsOkHttp.install` configured, so the guard and the redirect
 policy have one implementation. **Its requests carry no session**, so the session's authentication,
 resend and admission apply to none of them — a request one of its callers built is authenticated
-where it is built. `SempodsControlPlaneClient` is the last caller of the transport
-([#240](https://github.com/sempods/sempods-kotlin/issues/240)) and nothing calls the wire layer
-([#241](https://github.com/sempods/sempods-kotlin/issues/241) removes it).
+where it is built. Nothing outside `:sempods-client` calls either any more — the control-plane
+client moved onto the core in [#240](https://github.com/sempods/sempods-kotlin/issues/240), the MCP
+caller in [#239](https://github.com/sempods/sempods-kotlin/issues/239) — and
+[#241](https://github.com/sempods/sempods-kotlin/issues/241) takes the wire layer out.
 
 **A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
 many pods resolves its own names and builds one session per pod; where the names come from is a

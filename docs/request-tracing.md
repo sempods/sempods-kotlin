@@ -102,8 +102,8 @@ Three paths, because three HTTP clients are in use:
   fan-out running concurrently.
 - **`SempodsHttpTransport.newRequest`** (`sempods-client`) — the legacy surface, whose client carries
   no interceptor of its own; it sets the header when building a request instead, and every request
-  this surface sends is one it built. `SempodsControlPlaneClient` is what is left on it. The core's
-  `SempodsSession` sets none; the tracer goes on the client it sends with
+  this surface sends is one it built. Nothing outside `:sempods-client` sends through it any more.
+  The core's `SempodsSession` sets none; the tracer goes on the client it sends with
   ([`pod-client.md`](pod-client.md) §"Tracing").
 
 All of them send `TraceContext.newChild()`, so the trace id carries and the span does not.
