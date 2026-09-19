@@ -17,18 +17,22 @@ import org.sempods.client.core.SempodsStatusException
  * refused — is not this. It stays what the core threw, and the surfaces report it without a status,
  * as they did before.
  *
- * [podBody] travels separately from [message] because only [message] carries the URL that was
+ * [reason] travels separately from [message] because only [message] carries the URL that was
  * dialled. A tool error goes to a language model, which has no use for
  * `http://localhost:8090/pod/_system/…` and some tendency to repeat it back to the user as if it
  * were an address to visit. It is empty for a status an endpoint group lists, whose body the core
- * closes unread; [PodToolFailure] says what a caller shows instead.
+ * closes unread; [PodToolFailure] then answers from the status alone.
  */
 class PodToolRefusal internal constructor(
   message: String,
   /** The status the pod answered. */
   val status: Int,
-  /** What the pod wrote, on its own, or empty when the core did not keep it. */
-  val podBody: String,
+  /**
+   * The reason a caller shows a model: what the pod wrote where the core kept it, and where it kept
+   * nothing, what this layer can say without naming the URL. Empty when neither has anything to add
+   * to the status.
+   */
+  val reason: String,
   cause: Throwable?,
 ) : SempodsClientException(message, cause) {
 
@@ -46,7 +50,7 @@ class PodToolRefusal internal constructor(
 
     /** The refusal for an answer the core handed over as a result — a status a group lists, or a body it cannot read. */
     @JvmSynthetic
-    internal fun at(message: String, status: Int): PodToolRefusal =
-      PodToolRefusal(message, status, podBody = "", cause = null)
+    internal fun at(message: String, status: Int, reason: String = ""): PodToolRefusal =
+      PodToolRefusal(message, status, reason, cause = null)
   }
 }

@@ -795,7 +795,7 @@ class McpEndpoint @Inject constructor(
       }
       // The pod's own body, not the exception message: the message carries the URL that was dialled,
       // and this text goes to a model.
-      toolError(PodToolFailure.describe(toolName, e.status, e.podBody))
+      toolError(PodToolFailure.describe(toolName, e.status, e.reason))
     } catch (e: SempodsClientException) {
       // The pod never answered — a blocked address or a refused connection. No status to report, and
       // the failure's own words are all there is.

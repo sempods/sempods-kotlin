@@ -222,7 +222,7 @@ class ReadTools(
       // distinguishable from a 502 without regex-ing the message, the same as on the write path.
       // The message is the pod's own body, phrased for a model by the shared describer, and never
       // the exception's, which names the URL that was dialled.
-      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.podBody), e.status)
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.reason), e.status)
     } catch (e: SempodsClientException) {
       logger.warn(e) { "read tool failed for pod '$pod'" }
       // The pod never answered — a blocked address, a spent budget, a refused connection. There is

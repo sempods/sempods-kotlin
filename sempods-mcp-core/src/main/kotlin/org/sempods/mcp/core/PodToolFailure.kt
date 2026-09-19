@@ -42,7 +42,7 @@ object PodToolFailure {
       ?: unwrapErrorEnvelope(detail).ifBlank { whatTheStatusSays(toolName, statusCode) }
 
   /**
-   * What to say when the pod wrote a reason nobody kept ([PodToolRefusal.podBody]).
+   * What to say when the pod wrote a reason nobody kept ([PodToolRefusal.reason]).
    *
    * "The pod refused the call" is not something a model can act on, so each status that arrives
    * without a body says what it means for the tool that met it. A pod that *did* send a reason still

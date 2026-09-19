@@ -132,7 +132,7 @@ class WriteTools(
       // from a 403 scope refusal on the envelope rather than only inside the message text. The
       // message is the pod's own body, phrased for a model by the shared describer, and never the
       // exception's, which names the URL that was dialled.
-      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.podBody), e.status)
+      podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.reason), e.status)
     } catch (e: SempodsClientException) {
       logger.warn(e) { "write tool failed for pod '$pod'" }
       // The pod never answered — a blocked address, a spent budget, a refused connection.

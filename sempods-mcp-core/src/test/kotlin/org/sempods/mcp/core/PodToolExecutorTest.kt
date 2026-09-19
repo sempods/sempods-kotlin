@@ -211,7 +211,7 @@ class PodToolExecutorTest {
 
     assertEquals(403, refused.status)
     // A status no route lists keeps its body, which is the sentence a model is shown.
-    assertEquals("""{"errors":[{"message":"no"}]}""", refused.podBody)
+    assertEquals("""{"errors":[{"message":"no"}]}""", refused.reason)
   }
 
   @Test
@@ -327,10 +327,10 @@ class PodToolExecutorTest {
     }
 
     assertEquals(404, refused.status)
-    assertEquals("", refused.podBody)
+    assertEquals("", refused.reason)
     assertEquals(
       "the resource does not exist in that context — use create_resource to create it",
-      PodToolFailure.detail("update_resource", refused.status, refused.podBody),
+      PodToolFailure.detail("update_resource", refused.status, refused.reason),
     )
   }
 
@@ -350,7 +350,7 @@ class PodToolExecutorTest {
     assertEquals(412, refused.status)
     assertEquals(
       "the resource already exists in that context — omit if_none_match to replace it, or use update_resource to merge into it",
-      PodToolFailure.detail("create_resource", refused.status, refused.podBody),
+      PodToolFailure.detail("create_resource", refused.status, refused.reason),
     )
     // The tools that do carry `if_match` keep the answer that names it.
     assertEquals(
@@ -450,7 +450,25 @@ class PodToolExecutorTest {
     val thrown = assertThrows<PodToolRefusal> { run("list_contexts", null) }
 
     assertEquals(502, thrown.status)
-    assertEquals("upstream is down", thrown.podBody)
+    assertEquals("upstream is down", thrown.reason)
+  }
+
+  @Test
+  fun `a 2xx whose body is not JSON says so, without the URL it was read from`() {
+    // The status cannot carry this one: a `200` reaching `PodToolFailure` with nothing beside it
+    // reads as "the pod refused the call", and the word that helps is in the exception's message,
+    // which no surface shows because it names the URL.
+    answer("GET", "/alice/_system/contexts", body = "<html>not json</html>")
+
+    val refused = assertThrows<PodToolRefusal> { run("list_contexts", null) }
+
+    assertEquals(200, refused.status)
+    assertEquals("the pod answered list_contexts with a body that is not JSON", refused.reason)
+    assertEquals(
+      "the pod answered list_contexts with a body that is not JSON",
+      PodToolFailure.detail("list_contexts", refused.status, refused.reason),
+    )
+    assertFalse(refused.reason.contains("localhost"), "the reason a model reads must not name the URL")
   }
 
   @Test

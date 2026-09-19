@@ -361,7 +361,14 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
       else -> ""
     }
     return runCatching { mapper.readTree(text) }.getOrNull()?.takeIf { !it.isMissingNode }
-      ?: throw PodToolRefusal.at("$op ${response.url} answered a body that is not JSON", response.status)
+      ?: throw PodToolRefusal.at(
+        "$op ${response.url} answered a body that is not JSON",
+        response.status,
+        // Carried, because the status cannot say it: a 2xx whose body is unreadable would otherwise
+        // reach a model as "the pod refused the call", with the one useful word only in the message
+        // — which a surface must not show, since it names the URL.
+        reason = "the pod answered $op with a body that is not JSON",
+      )
   }
 
   private fun content(body: JsonNode): SempodsContent = SempodsContent.of(mapper.writeValueAsBytes(body))
