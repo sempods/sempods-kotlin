@@ -572,8 +572,8 @@ constraints. The full list is in [`README.md`](README.md)
   budget of the three sits on the step nobody thinks about. The pod
   server's leg is now the one that names its own number rather than
   inheriting one; `:sempods-client-core`'s deadline — one whole-call budget
-  `SempodsOkHttp.install` sets and a caller overrides per call — is still the
-  shape the other two want.
+  `SempodsOkHttp.install` sets, which an operation needing another runs under on
+  a client derived with `newBuilder()` — is still the shape the other two want.
   `CommonsHttpTransportTest` and `OidcHttpTimeoutsTest` pin all of these
   figures, because this paragraph has now been wrong about them three
   times.
