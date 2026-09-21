@@ -8,8 +8,6 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
-import org.sempods.pods.PodId
-import org.sempods.pods.mongo.persist.objectId
 import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.commons.mongo.putInstant
@@ -62,20 +60,6 @@ class PodContextsDao internal constructor(db: MongoDatabase, collectionName: Str
 
   internal fun fetchByContextUri(podId: ObjectId, contextUri: String): PodContextDbo? =
     contexts.find(keyFilter(podId, contextUri)).first()?.toDbo()
-
-  /**
-   * The same, keyed by the tenant rather than by this implementation's storage key, and answering
-   * only whether a row was made — a caller above the persistence layer holds a [PodId] and has no
-   * use for the document (`docs/concepts/modularity.md` §"The pattern").
-   */
-  internal fun create(
-    pod: PodId,
-    contextUri: String,
-    label: String?,
-    description: String?,
-    createdBy: String?,
-    isPublic: Boolean = false,
-  ): Boolean = create(pod.objectId(), contextUri, label, description, createdBy, isPublic) != null
 
   internal fun create(
     podId: ObjectId,

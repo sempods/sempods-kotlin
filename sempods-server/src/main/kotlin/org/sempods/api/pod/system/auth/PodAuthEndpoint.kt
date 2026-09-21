@@ -31,6 +31,7 @@ import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodConsentForm
+import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -327,7 +328,8 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
     val session = readSession(podDbo, sessionCookie)
-    return PodAuthorizeResponses.render(
+    return render(
+      podDbo.name,
       podConsentFlow.submit(
         pod = podDbo.hosted,
         form = PodConsentForm(
@@ -348,7 +350,6 @@ class PodAuthEndpoint @Inject constructor(
         ),
         session = session,
       ),
-      podDbo.name, cookies, templateRenderer, config,
     )
   }
 
@@ -718,6 +719,10 @@ class PodAuthEndpoint @Inject constructor(
 
   /** Whatever the authorization decided, on the wire — see [PodAuthorizeResponses]. */
   private fun render(podName: String, result: PodAuthorizeResult): Response =
+    PodAuthorizeResponses.render(result, podName, cookies, templateRenderer, config)
+
+  /** The same, for the submission that answers it. */
+  private fun render(podName: String, result: PodConsentResult): Response =
     PodAuthorizeResponses.render(result, podName, cookies, templateRenderer, config)
 
   /**

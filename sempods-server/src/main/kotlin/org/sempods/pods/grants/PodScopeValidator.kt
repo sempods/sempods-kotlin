@@ -44,7 +44,7 @@ class PodScopeValidator {
 
     val contextUri = normalized.substring(0, separatorIndex)
     val permissionRaw = normalized.substring(separatorIndex + 1)
-    val permission = ScopePermission.entries.firstOrNull { it.value == permissionRaw }
+    val permission = ScopePermission.of(permissionRaw)
       ?: return ScopeValidationResult.Invalid("unsupported scope permission '$permissionRaw'")
 
     val context = try {
@@ -122,4 +122,10 @@ enum class ScopePermission(val value: String) {
   read("read"),
   write("write"),
   manage("manage"),
+  ;
+
+  companion object {
+    /** The permission [value] spells, or `null` where the grant grammar has no such permission. */
+    fun of(value: String): ScopePermission? = entries.firstOrNull { it.value == value }
+  }
 }

@@ -13,9 +13,10 @@ import org.sempods.pods.oauth.DynamicClientStore
  * What one pod makes of a `client_id`: whether it knows the client at all, and where that client
  * may be answered.
  *
- * Two questions rather than one, and they are here together because they are one lookup. A
- * `did:web:` identity answers both from the identifier itself; a `dyn:` one answers both from the
- * registration this pod holds, and asking twice would mean two ways to spell the same split.
+ * Two questions rather than one, and they are here together because they are one lookup — kept
+ * one by the memo below, since a request asks both. A `did:web:` identity answers both from the
+ * identifier itself; a `dyn:` one answers both from the registration this pod holds, and asking
+ * twice would mean two ways to spell the same split.
  *
  * @param allowLoopback development only. A loopback redirect address in production means an
  *   authorization code can be intercepted by anything running on the user's machine. Read once,
@@ -33,6 +34,25 @@ internal class PodClientDirectory(
   private val didWeb = DidWebRedirectPolicy(allowLoopback)
 
   /**
+   * The one registration read this directory needs, held for as long as it lives.
+   *
+   * Both questions below ask it of the same `client_id`, and an authorization asks both — so
+   * without this the widest row in the OAuth schema is fetched and decoded twice per request. Safe
+   * because the instance is built per request and dies with it: what it remembers cannot outlive
+   * the answer it was read for.
+   */
+  private val lookups = HashMap<String, Set<String>?>()
+
+  /**
+   * `containsKey` rather than `getOrPut`: a client this pod holds no registration for answers
+   * `null`, and `getOrPut` treats a stored `null` as absent and asks again — which is the one case
+   * this most needs to remember.
+   */
+  private fun registrations(clientId: String): Set<String>? =
+    if (lookups.containsKey(clientId)) lookups[clientId]
+    else registrationOf(clientId).also { lookups[clientId] = it }
+
+  /**
    * Three-valued because the two failures are statements about different things, and one `null`
    * for both made the endpoint say the wrong one. [PodClientIdentity.Malformed] is about the
    * **string**; [PodClientIdentity.Unregistered] is about this pod's registration store, and the
@@ -46,7 +66,7 @@ internal class PodClientDirectory(
     return when {
       normalized.startsWith(DidWeb.PREFIX) -> PodClientIdentity.Known(normalized)
       normalized.startsWith(DYNAMIC_PREFIX) ->
-        if (registrationOf(normalized) != null) PodClientIdentity.Known(normalized) else PodClientIdentity.Unregistered
+        if (registrations(normalized) != null) PodClientIdentity.Known(normalized) else PodClientIdentity.Unregistered
 
       else -> PodClientIdentity.Malformed
     }
@@ -69,7 +89,7 @@ internal class PodClientDirectory(
     // where `DidWeb.Target.covers` matches host, port and path and says nothing about the scheme.
     if (!RedirectUri.isValid(redirectUri)) return false
     if (!clientId.startsWith(DYNAMIC_PREFIX)) return didWeb.permits(clientId, redirectUri)
-    val registered = registrationOf(clientId) ?: return false
+    val registered = registrations(clientId) ?: return false
     val requested = RedirectUri.canonicalize(redirectUri)
     return registered.any { RedirectUri.canonicalize(it) == requested }
   }

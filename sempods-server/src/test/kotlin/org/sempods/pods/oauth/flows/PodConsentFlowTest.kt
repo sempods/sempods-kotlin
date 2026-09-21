@@ -1,19 +1,12 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
-import org.sempods.SempodsStoreTest
-import org.sempods.SempodsTestFactory
-import org.sempods.SempodsUriBuilder
-import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.tests.TestUtil.randomId
-import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toHostedPod
-import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import java.time.Instant
@@ -34,66 +27,16 @@ import kotlin.test.assertTrue
  *
  * The stores are the real ones, for the reason `PodTokenExchangeTest` gives.
  */
-class PodConsentFlowTest : SempodsStoreTest() {
+internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var flow: PodConsentFlow
-
-  @Inject
-  private lateinit var podGrantsFacade: PodGrantsFacade
-
-  @Inject
-  private lateinit var consentDecisionStore: PodConsentDecisionStore
-
-  @Inject
-  private lateinit var consentTransactionStore: ConsentTransactionStore
 
   @Inject
   private lateinit var authorizationCodeStore: AuthorizationCodeStore
 
   @Inject
   private lateinit var podSignOut: PodSignOut
-
-  @Inject
-  private lateinit var sempodsTestFactory: SempodsTestFactory
-
-  @Inject
-  private lateinit var sempodsUriBuilder: SempodsUriBuilder
-
-  private val clientId = "did:web:app.example"
-  private val redirectUri = "https://app.example/cb"
-  private val challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-
-  /** A pod, its owner, and the one public context `SempodsTestFactory` gives every pod. */
-  private inner class Owned {
-    val row = sempodsTestFactory.newPod()
-    val pod: HostedPod = row.toHostedPod(sempodsUriBuilder)
-    val webId: String = row.owner
-    val contextUri = sempodsTestFactory.publicContextUri(row.name).toString()
-    val readScope = "$contextUri#read"
-    val session = PodTokenIssuer.SessionPrincipal(webId, emptyList(), Instant.now().minusSeconds(60))
-
-    fun grant(vararg scopes: String) {
-      podGrantsFacade.replaceAppGrants(
-        pod = pod,
-        appId = clientId,
-        webId = webId,
-        subjectUris = listOf(webId),
-        grants = scopes.toSet(),
-        grantedBy = webId,
-      )
-    }
-
-    fun answered(durable: Boolean = true): Long =
-      consentDecisionStore.record(pod.id, clientId, webId, durable).generation
-
-    fun standing(): Long? = consentDecisionStore.find(pod.id, clientId, listOf(webId))?.generation
-
-    fun held(): Set<String> = podGrantsFacade.appGrants(pod.id, clientId, listOf(webId))
-
-    /** A ticket for the screen this person is looking at now. */
-    fun ticket(): String = consentTransactionStore.issue(pod.name, webId, standing())
-  }
 
   private fun form(
     csrf: String?,
@@ -124,10 +67,8 @@ class PodConsentFlowTest : SempodsStoreTest() {
     return assertIs<OAuthErrorDelivery.Redirect>(error.delivery)
   }
 
-  private fun issuedCode(result: PodConsentResult): String {
-    val completed = assertIs<PodConsentResult.Completed>(result, "was: $result")
-    return assertIs<PodAuthorizeResult.Code>(completed.outcome, "was: ${completed.outcome}").code
-  }
+  private fun issuedCode(result: PodConsentResult): String =
+    assertIs<PodConsentResult.Code>(result, "was: $result").code
 
   // ── What may be acted on at all ───────────────────────────────────────────
 
@@ -203,6 +144,28 @@ class PodConsentFlowTest : SempodsStoreTest() {
       flow.submit(owned.pod, form(csrf = olderPage, scopes = listOf(owned.readScope)), owned.session),
     )
     assertTrue(owned.held().isEmpty(), "the disconnect must stand")
+  }
+
+  @Test
+  fun `a submission carrying no address is refused`() {
+    val owned = Owned()
+    assertEquals(
+      PodConsentResult.Refused(PodConsentRefusal.MISSING_REDIRECT_URI),
+      flow.submit(owned.pod, form(csrf = owned.ticket(), address = "   "), owned.session),
+    )
+  }
+
+  @Test
+  fun `an address that does not belong to the client is refused without being answered at`() {
+    val owned = Owned()
+    assertEquals(
+      PodConsentResult.Refused(PodConsentRefusal.REDIRECT_URI_NOT_ALLOWED),
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticket(), address = "https://elsewhere.example/cb"),
+        owned.session,
+      ),
+    )
   }
 
   // ── The two named ways out ────────────────────────────────────────────────

@@ -8,11 +8,11 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.Redirectable
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodFacade
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
-import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.ScopePermission
@@ -34,14 +34,13 @@ import org.sempods.pods.oauth.PodTokenIssuer
  * the same thing, and both end the authorization where there is one.
  */
 class PodConsentFlow @Inject internal constructor(
-  private val podAuthorizeFlow: PodAuthorizeFlow,
+  private val codes: PodAuthorizationCodes,
   private val dynamicClientStore: DynamicClientStore,
   private val podFacade: PodFacade,
   private val podGrantsFacade: PodGrantsFacade,
   private val consentDecisionStore: PodConsentDecisionStore,
   private val consentTransactionStore: ConsentTransactionStore,
   private val refreshTokenStore: PodRefreshTokenStore,
-  private val podContextsDao: PodContextsDao,
   private val podSignOut: PodSignOut,
 ) {
 
@@ -193,7 +192,10 @@ class PodConsentFlow @Inject internal constructor(
     val createdContexts = mutableMapOf<String, String>()
     if (isOwner) {
       newContextsRequested.forEach { relativePath ->
-        fun reject(reason: String) = logger.warn { "[oauth/consent] Context rejected: pod='${pod.name}', path='$relativePath' — $reason" }
+        fun reject(reason: String) = logger.warn {
+          "[oauth/consent] Context rejected: pod='${pod.name}', " +
+              "path='${LogSafeText.of(relativePath)}' — $reason"
+        }
         ContextPathRules.rejectionReason(relativePath)?.let { return@forEach reject(it) }
         // Same builder as the management route, so the two cannot disagree about what a path maps
         // to — and so a form value carrying `#` or `?` is refused here as well. Concatenating the
@@ -204,15 +206,9 @@ class PodConsentFlow @Inject internal constructor(
         if (resolution is ContextUriResolution.Rejected) {
           return@forEach reject(resolution.reason)
         }
-        val contextUri = (resolution as ContextUriResolution.Resolved).uri.toString()
-        podContextsDao.create(
-          pod = pod.id,
-          contextUri = contextUri,
-          label = null,
-          description = null,
-          createdBy = identity.webId,
-        )
-        createdContexts[relativePath] = contextUri
+        val contextUri = (resolution as ContextUriResolution.Resolved).uri
+        podFacade.createContext(pod = pod, contextUri = contextUri, createdBy = identity.webId)
+        createdContexts[relativePath] = contextUri.toString()
         logger.info { "[oauth/consent] Context created: pod='${pod.name}', context='$contextUri'" }
       }
     }
@@ -224,7 +220,7 @@ class PodConsentFlow @Inject internal constructor(
     val newContextScopesResolved = newContextScopesRequested.mapNotNull { raw ->
       val relativePath = ContextPathRules.normalize(raw.substringBeforeLast('#', missingDelimiterValue = ""))
       val permission = raw.substringAfterLast('#', missingDelimiterValue = "")
-      if (ScopePermission.entries.none { it.value == permission }) {
+      if (ScopePermission.of(permission) == null) {
         return@mapNotNull null
       }
       createdContexts[relativePath]?.let { "$it#$permission" }
@@ -316,21 +312,19 @@ class PodConsentFlow @Inject internal constructor(
     // persisted, so only feature scopes (e.g. `public-read`) travel in the token.
     val tokenFeatureScopes = if (publicReadRequested) setOf(PUBLIC_READ_SCOPE) else emptySet()
 
-    return PodConsentResult.Completed(
-      podAuthorizeFlow.issueCode(
-        pod = pod,
-        clientId = normalizedClientId,
-        webId = identity.webId,
-        scopes = tokenFeatureScopes,
-        target = redirectTarget,
-        state = form.state,
-        codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
-        codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
-        via = PodCodeIssuance.CONSENT,
-        consentGeneration = decision.generation,
-        session = session,
-      ),
-    )
+    return codes.issue(
+      pod = pod,
+      clientId = normalizedClientId,
+      webId = identity.webId,
+      scopes = tokenFeatureScopes,
+      target = redirectTarget,
+      state = form.state,
+      codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
+      codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
+      via = PodCodeIssuance.CONSENT,
+      consentGeneration = decision.generation,
+      session = session,
+    ).asResult()
   }
 
   /**
@@ -422,7 +416,13 @@ class PodConsentFlow @Inject internal constructor(
     return failed(target, OAuthErrorCode.ACCESS_DENIED, "app disconnected", state)
   }
 
-  /** An error that may travel to the client's own address, because [target] is the proof it may. */
+  /** This route's answer to whatever minting a code said. */
+  private fun PodCodeResult.asResult(): PodConsentResult = when (this) {
+    is PodCodeResult.Minted -> PodConsentResult.Code(code, target, state)
+    is PodCodeResult.Refused -> PodConsentResult.Error(delivery)
+  }
+
+  /** An error at the client's own address — the rule [OAuthErrorDelivery] states. */
   private fun failed(
     target: Redirectable,
     error: OAuthErrorCode,
@@ -468,12 +468,12 @@ internal data class PodConsentForm(
  * What a consent submission answers.
  *
  * [Error] carries a [Redirectable] and [Refused] does not — [OAuthErrorDelivery]'s rule as a type,
- * the same split [PodAuthorizeResult] makes.
+ * the same split [PodAuthorizeResult] makes for the route that sent this form.
  */
 internal sealed interface PodConsentResult {
 
-  /** The submission finished the authorization — whatever minting the code answered. */
-  data class Completed(val outcome: PodAuthorizeResult) : PodConsentResult
+  /** A code was minted. [target] is where it goes; the adapter assembles the address. */
+  data class Code(val code: String, val target: Redirectable, val state: String?) : PodConsentResult
 
   /** An OAuth error, delivered the way [OAuthErrorDelivery] says it may be. */
   data class Error(val delivery: OAuthErrorDelivery) : PodConsentResult

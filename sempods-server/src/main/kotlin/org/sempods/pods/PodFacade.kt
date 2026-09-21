@@ -9,6 +9,7 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toRef
@@ -192,13 +193,41 @@ class PodFacade @Inject constructor(
   ): Boolean {
     val podId = sempodsFacade.getPodId(podName)
       ?: throw ApiErrors.throwNotFoundError("pod", podName)
+    return register(podId, podName, contextUri, createdBy = null, public = public, label = label, description = description)
+  }
+
+  /**
+   * The same, for a caller that already holds the pod and knows who is creating the context.
+   *
+   * Takes [HostedPod] rather than a name because resolving one goes through the process-local
+   * name-to-id cache — see that type's KDoc for what it costs. `createdBy` is the person at the
+   * consent dialog, where the name-keyed form above is the system-driven path that has nobody to
+   * name.
+   */
+  internal fun createContext(
+    pod: HostedPod,
+    contextUri: URI,
+    createdBy: String?,
+    public: Boolean = false,
+  ): Boolean =
+    register(pod.id.objectId(), pod.name, contextUri, createdBy, public, label = null, description = null)
+
+  private fun register(
+    podId: ObjectId,
+    podName: String,
+    contextUri: URI,
+    createdBy: String?,
+    public: Boolean,
+    label: String?,
+    description: String?,
+  ): Boolean {
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,
       contextUri = contextUri.toString(),
       label = label,
       description = description,
-      createdBy = null,
+      createdBy = createdBy,
       isPublic = public,
     ) != null
   }

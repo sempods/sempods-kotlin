@@ -5,7 +5,6 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodBrowserCookies
-import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
@@ -26,8 +25,6 @@ import java.time.Duration
  * decides how that reaches the wire: the status, the media type, the words, and the one cookie an
  * answer carries.
  *
- * The success redirect overwrites its parameters and never appends them, for the reason
- * [PodOAuthErrorResponses] gives for the error one.
  */
 internal object PodAuthorizeResponses {
 
@@ -38,13 +35,7 @@ internal object PodAuthorizeResponses {
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodAuthorizeResult.Code -> {
-      var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(result.target.uri), "code", result.code)
-      result.state?.trim()?.takeIf { it.isNotBlank() }?.let {
-        callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it)
-      }
-      Response.seeOther(callbackUri).build()
-    }
+    is PodAuthorizeResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
 
     is PodAuthorizeResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
@@ -65,7 +56,7 @@ internal object PodAuthorizeResponses {
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodConsentResult.Completed -> render(result.outcome, podName, cookies, templates, config)
+    is PodConsentResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
 
     is PodConsentResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
 
@@ -78,6 +69,21 @@ internal object PodAuthorizeResponses {
         .build()
 
     is PodConsentResult.Refused -> refusal(result.reason)
+  }
+
+  /**
+   * Where the code goes, with `state` beside it where the client sent one.
+   *
+   * Overwriting and never appending, for the reason [PodOAuthErrorResponses] gives: a registered
+   * address may carry a query of its own, and a client registered as `…/cb?code=…` must not receive
+   * its own value back looking like a code this server issued.
+   */
+  private fun codeRedirect(code: String, redirectUri: String, state: String?): Response {
+    var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "code", code)
+    state?.trim()?.takeIf { it.isNotBlank() }?.let {
+      callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it)
+    }
+    return Response.seeOther(callbackUri).build()
   }
 
   /** `/authorize`'s wording for a [PodAuthorizeRefusal], as plain text to whoever holds the browser. */

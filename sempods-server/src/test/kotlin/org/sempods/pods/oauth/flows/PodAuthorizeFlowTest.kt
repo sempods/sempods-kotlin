@@ -1,24 +1,14 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
-import org.sempods.SempodsStoreTest
-import org.sempods.SempodsTestFactory
-import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
-import org.sempods.auth.core.OAuthErrors
 import org.sempods.commons.tests.TestUtil.randomId
-import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toHostedPod
-import org.sempods.pods.oauth.DynamicClientStore
-import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
-import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -36,16 +26,10 @@ import kotlin.test.assertTrue
  *
  * The stores are the real ones, for the reason `PodTokenExchangeTest` gives.
  */
-class PodAuthorizeFlowTest : SempodsStoreTest() {
+internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var flow: PodAuthorizeFlow
-
-  @Inject
-  private lateinit var podGrantsFacade: PodGrantsFacade
-
-  @Inject
-  private lateinit var consentDecisionStore: PodConsentDecisionStore
 
   @Inject
   private lateinit var authorizationCodeStore: AuthorizationCodeStore
@@ -55,45 +39,6 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var podSignOut: PodSignOut
-
-  @Inject
-  private lateinit var dynamicClientStore: DynamicClientStore
-
-  @Inject
-  private lateinit var sempodsTestFactory: SempodsTestFactory
-
-  @Inject
-  private lateinit var sempodsUriBuilder: SempodsUriBuilder
-
-  private val clientId = "did:web:app.example"
-  private val redirectUri = "https://app.example/cb"
-  private val challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-
-  /** A pod, its owner, and the one public context `SempodsTestFactory` gives every pod. */
-  private inner class Owned {
-    val row = sempodsTestFactory.newPod()
-    val pod: HostedPod = row.toHostedPod(sempodsUriBuilder)
-    val webId: String = row.owner
-    val contextScope = "${sempodsTestFactory.publicContextUri(row.name)}#read"
-
-    /**
-     * Signed in a minute ago, so a sign-out written during a case is unambiguously later than the
-     * session it has to end.
-     */
-    val session = PodTokenIssuer.SessionPrincipal(webId, emptyList(), Instant.now().minusSeconds(60))
-
-    fun grant(vararg scopes: String): Set<String> = podGrantsFacade.replaceAppGrants(
-      pod = pod,
-      appId = clientId,
-      webId = webId,
-      subjectUris = listOf(webId),
-      grants = scopes.toSet(),
-      grantedBy = webId,
-    )
-
-    fun answered(durable: Boolean = true): Long =
-      consentDecisionStore.record(pod.id, clientId, webId, durable).generation
-  }
 
   private fun request(
     responseType: String? = "code",
@@ -225,7 +170,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
   fun `a session is not enough for prompt=login`() {
     // The person asked to prove themselves again, and a cookie is what they are asking to bypass.
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
     owned.answered()
 
     val result = flow.authorize(owned.pod, request(prompt = "login"), owned.session)
@@ -237,7 +182,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
   @Test
   fun `standing grants the person has answered for are re-issued without a dialog`() {
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
     val generation = owned.answered()
 
     val result = flow.authorize(owned.pod, request(), owned.session)
@@ -261,7 +206,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
     // An authorization predating the durability control has grants and no decision. It renders
     // nothing today, so it could never acquire one — once, it takes the dialog instead.
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
 
     val result = flow.authorize(owned.pod, request(), owned.session)
     assertIs<PodAuthorizeResult.Consent>(result, "was: $result")
@@ -270,7 +215,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
   @Test
   fun `prompt=consent asks again even where an answered grant stands`() {
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
     owned.answered()
 
     val result = flow.authorize(owned.pod, request(prompt = "consent"), owned.session)
@@ -280,7 +225,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
   @Test
   fun `the dialog arrives ticked with what the person granted last time`() {
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
 
     val screen = assertIs<PodAuthorizeResult.Consent>(
       flow.authorize(owned.pod, request(), owned.session),
@@ -297,7 +242,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
     assertTrue(screen.csrfToken.isNotBlank(), "one screen, once")
 
     val context = assertNotNull(
-      screen.contexts.singleOrNull { it.uri == owned.contextScope.substringBefore('#') },
+      screen.contexts.singleOrNull { it.uri == owned.readScope.substringBefore('#') },
       "was: ${screen.contexts}",
     )
     assertTrue(context.readGranted, "read was granted")
@@ -316,7 +261,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
 
     assertTrue(!screen.disconnectAvailable, "nothing is held, so nothing can be disconnected")
     val context = assertNotNull(
-      screen.contexts.singleOrNull { it.uri == owned.contextScope.substringBefore('#') },
+      screen.contexts.singleOrNull { it.uri == owned.readScope.substringBefore('#') },
       "was: ${screen.contexts}",
     )
     assertTrue(
@@ -396,7 +341,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
     // The window this closes: a sign-out landing between the session read and the consent
     // generation read would leave the code carrying the moved generation, and it would redeem.
     val owned = Owned()
-    owned.grant(owned.contextScope)
+    owned.grant(owned.readScope)
     owned.answered()
     podSignOut.signOut(owned.pod.id, owned.pod.name, listOf(owned.webId))
 
@@ -405,36 +350,5 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
     val delivery = redirectedError(result)
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
     assertEquals("signed out", delivery.description)
-  }
-
-  @Test
-  fun `a dynamic client cannot be handed a code without PKCE, whatever route reached here`() {
-    // Defence in depth: `/authorize` refuses this at the entrance, and this is the second gate —
-    // the consent submission reaches the same method with values off a form.
-    val owned = Owned()
-    val target = assertNotNull(
-      OAuthErrors.redirectTargetFor(
-        PodClientDirectory.of(owned.pod.id, dynamicClientStore),
-        clientId,
-        redirectUri,
-      ),
-    )
-
-    val result = flow.issueCode(
-      pod = owned.pod,
-      clientId = "dyn:${randomId()}",
-      webId = owned.webId,
-      scopes = emptySet(),
-      target = target,
-      state = null,
-      codeChallenge = null,
-      codeChallengeMethod = null,
-      via = PodCodeIssuance.CONSENT,
-      session = owned.session,
-    )
-
-    val delivery = redirectedError(result)
-    assertEquals(OAuthErrorCode.INVALID_REQUEST, delivery.code)
-    assertEquals("PKCE (S256) is required for dynamic clients", delivery.description)
   }
 }

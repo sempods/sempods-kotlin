@@ -29,6 +29,7 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.PodSigningKeyStore
+import org.sempods.pods.oauth.flows.PodAuthorizationCodes
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodTokenExchange
@@ -190,6 +191,7 @@ class SempodsModule : BaseModule() {
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
+    bind<PodAuthorizationCodes>().asSingleton()
     bind<PodAuthorizeFlow>().asSingleton()
     bind<PodConsentFlow>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
