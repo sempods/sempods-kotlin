@@ -45,9 +45,9 @@ internal object PodOAuthErrorResponses {
    * `oidc/callback` resumes a request parked up to fifteen minutes earlier. Re-deriving the address
    * there would turn a redirect into a direct 400 for a client whose registration was cleared in
    * the meantime — a different answer to a different question — so the proof is the parked record
-   * rather than a [Redirectable]. It is taken as a [PodLoginStateStore.Pending] and not as a
-   * string, because holding one is what being resumed *means*: there is no way to reach this with
-   * an address off the current request. #154 owns moving the route onto [OAuthErrorDelivery].
+   * rather than a [Redirectable]. It takes that record: holding a [PodLoginStateStore.Pending] is
+   * what being resumed *means*, so an address off the current request cannot get in. #154 owns
+   * moving the route onto [OAuthErrorDelivery].
    */
   fun renderToParked(
     pending: PodLoginStateStore.Pending,

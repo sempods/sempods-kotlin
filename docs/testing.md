@@ -18,9 +18,6 @@ Nothing here is convention: a suite composes as much as its subject forces it to
   swapped for a stub. **One** override module, with any further test modules `install()`ed inside
   it; the rule and its reason are in
   [`architecture/dependency-injection.md`](architecture/dependency-injection.md) §"Tests".
-  Its sibling `SempodsStoreTest` shares that injector and starts no server: a test of the
-  application layer has no route to call, and a subject that turns out to need the server should
-  fail rather than pass on one another class happened to start.
 - **Identity service — `SempodsAuthIntegrationTest`.** A Guice injector that overrides
   **nothing**: `SempodsAuthModule` takes its configuration as a constructor parameter, so the base
   class builds `Guice.createInjector(SempodsAuthModule(testConfig))` and substitutes no binding at

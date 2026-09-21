@@ -71,7 +71,7 @@ internal data class PodDbo(
  * This row's [PodId] — the tenant key the per-pod seams partition by.
  *
  * [PodDbo.id] is nullable because a row is built before it is inserted; every row a caller holds
- * came back from the store, so a null here is a bug rather than a state to handle.
+ * came back from the store, so a null here is a bug.
  */
 internal fun PodDbo.podId(): PodId = checkNotNull(id).toPodId()
 

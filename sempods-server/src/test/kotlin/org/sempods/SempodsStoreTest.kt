@@ -1,4 +1,5 @@
 package org.sempods
+
 /**
  * The suite's injector and its singletons, and no running server.
  *
