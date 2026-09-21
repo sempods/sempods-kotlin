@@ -84,6 +84,16 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
 
+  /**
+   * The package the OAuth application layer logs under.
+   *
+   * A package and not a class, because logback loggers are a hierarchy: one appender here sees
+   * `PodAuthorizeFlow` and `PodTokenExchange` both, so a decision moving between them cannot turn
+   * an assertion vacuous. Each case selects on a marker of its own, which is what [CapturedLog]
+   * asks of anything capturing a logger a sibling class also writes to.
+   */
+  private val FLOWS_LOGGER = "org.sempods.pods.oauth.flows"
+
   // Any valid-looking PKCE pair is sufficient for /authorize — the actual challenge/verifier
   // pair is checked only at /token. Tests that exercise /authorize for `dyn:` clients must
   // include these to satisfy the mandatory-PKCE rule (PR-review finding #2).
@@ -673,7 +683,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val marker = "forged-${TestUtil.randomId()}"
     val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
 
-    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(FLOWS_LOGGER) {
       val response = http.prepareGet(authorizeUrl(pod.name))
         .addQueryParam("response_type", "code")
         .addQueryParam("client_id", forged)
@@ -705,7 +715,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val marker = "forged-${TestUtil.randomId()}"
     val forged = "did:web:localhost%3A5173\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
 
-    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(FLOWS_LOGGER) {
       val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
         .addHeader("Content-Type", "application/x-www-form-urlencoded")
         .setBody(
@@ -1039,7 +1049,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
     val appender = CapturingAppender().apply { start() }
-    val logger = logbackContext().getLogger(PodAuthEndpoint::class.java)
+    val logger = logbackContext().getLogger(FLOWS_LOGGER)
     logger.addAppender(appender)
     try {
       http.prepareGet(authorizeUrl(pod.name))
@@ -1149,10 +1159,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
         "test cannot tell a configured number from a written one",
     )
     for (expected in listOf(
-      "Keep this app connected for up to ${PodAuthEndpoint.durationInWords(durable.absolute)}.",
-      "until it goes ${PodAuthEndpoint.durationInWords(durable.idle)} unused",
-      "Unticked, for up to ${PodAuthEndpoint.durationInWords(session.absolute)}",
-      "until it goes ${PodAuthEndpoint.durationInWords(session.idle)} unused",
+      "Keep this app connected for up to ${PodAuthorizeResponses.durationInWords(durable.absolute)}.",
+      "until it goes ${PodAuthorizeResponses.durationInWords(durable.idle)} unused",
+      "Unticked, for up to ${PodAuthorizeResponses.durationInWords(session.absolute)}",
+      "until it goes ${PodAuthorizeResponses.durationInWords(session.idle)} unused",
     )) {
       assertTrue(expected in page, "the dialog has to say '$expected' — it is what the server enforces")
     }
@@ -1160,12 +1170,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the dialog says a term in days where it is whole days, and in hours otherwise`() {
-    assertEquals("4 days", PodAuthEndpoint.durationInWords(Duration.ofHours(96)))
-    assertEquals("180 days", PodAuthEndpoint.durationInWords(Duration.ofDays(180)))
-    assertEquals("1 day", PodAuthEndpoint.durationInWords(Duration.ofHours(24)))
-    assertEquals("30 hours", PodAuthEndpoint.durationInWords(Duration.ofHours(30)))
-    assertEquals("12 hours", PodAuthEndpoint.durationInWords(Duration.ofHours(12)))
-    assertEquals("1 hour", PodAuthEndpoint.durationInWords(Duration.ofHours(1)))
+    assertEquals("4 days", PodAuthorizeResponses.durationInWords(Duration.ofHours(96)))
+    assertEquals("180 days", PodAuthorizeResponses.durationInWords(Duration.ofDays(180)))
+    assertEquals("1 day", PodAuthorizeResponses.durationInWords(Duration.ofHours(24)))
+    assertEquals("30 hours", PodAuthorizeResponses.durationInWords(Duration.ofHours(30)))
+    assertEquals("12 hours", PodAuthorizeResponses.durationInWords(Duration.ofHours(12)))
+    assertEquals("1 hour", PodAuthorizeResponses.durationInWords(Duration.ofHours(1)))
   }
 
   @Test
