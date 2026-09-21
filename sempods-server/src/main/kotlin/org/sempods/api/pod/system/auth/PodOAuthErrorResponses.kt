@@ -29,10 +29,10 @@ import java.net.URI
 internal object PodOAuthErrorResponses {
 
   fun render(delivery: OAuthErrorDelivery, config: SempodsConfig): Response = when (delivery) {
-    is OAuthErrorDelivery.Direct -> {
-      audit(delivery.code, delivery.description, state = null, redirectUri = null)
-      Response.status(400).entity("${delivery.code.code}: ${delivery.description}").type("text/plain").build()
-    }
+    // No address to send it to is the same answer as an address that is blank, and the blank case
+    // has to exist anyway for a parked request that lost its `redirect_uri`.
+    is OAuthErrorDelivery.Direct ->
+      renderToProvenAddress(null, delivery.code, delivery.description, null, config)
 
     is OAuthErrorDelivery.Redirect ->
       renderToProvenAddress(delivery.target.uri, delivery.code, delivery.description, delivery.state, config)
@@ -64,7 +64,7 @@ internal object PodOAuthErrorResponses {
     // heading per code this can emit, and the fragment anchors it. Only where a deployment has
     // said where that page is served (`SEMPODS_OAUTH_ERROR_DOC_BASE`): the parameter is optional
     // (RFC 6749 §4.1.2.1), and sending a person to a 404 is worse than sending them nowhere.
-    val errorUri = config.oauthErrorUri(error.code)
+    val errorUri = config.oauthErrorDocBase?.let { OAuthErrors.errorUri(it, error) }
     uri = if (errorUri != null) {
       UrlUtil.addOrUpdateQueryParameter(uri, "error_uri", errorUri)
     } else {

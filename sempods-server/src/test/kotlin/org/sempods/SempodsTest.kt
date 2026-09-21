@@ -13,8 +13,8 @@ import org.junit.jupiter.api.BeforeEach
  * `injectMembers` call.
  *
  * Field injection rather than a constructor because JUnit constructs the test class itself: the
- * injector is a lazily built singleton shared by the whole suite (see
- * `SempodsIntegrationTest.sempodsInjector`), and each instance asks it to fill its own fields.
+ * injector is a lazily built singleton shared by the whole suite (`sempodsInjector`, at file
+ * scope beside [SempodsIntegrationTest]), and each instance asks it to fill its own fields.
  */
 open class SempodsTest(
   protected val injector: Injector,

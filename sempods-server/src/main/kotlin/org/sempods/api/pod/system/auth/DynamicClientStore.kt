@@ -2,10 +2,8 @@ package org.sempods.api.pod.system.auth
 
 import org.sempods.auth.core.DynamicClientFingerprint
 import org.sempods.pods.PodId
-import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import org.sempods.pods.mongo.persist.objectId
 import com.google.inject.Inject
-import org.bson.types.ObjectId
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64

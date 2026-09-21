@@ -125,7 +125,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       dynamicClientRegistrationDao.findByClientId(pod1Id, clientIdFor(pod1.name)),
       "DCR rows must be gone",
     )
-    assertNull(signOutStore.signedOutAt(pod1Id, listOf(CASCADE_WEB_ID)), "sign-outs must be gone")
+    assertNull(signOutStore.signedOutAt(pod1Id.toPodId(), listOf(CASCADE_WEB_ID)), "sign-outs must be gone")
     // PodRepositoryCache.get() reloads from DB; with the pod removed it returns null.
     assertNull(podRepositoryCache.get(pod1.name), "cache must not resurrect a deleted pod")
 
@@ -136,7 +136,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
     assertTrue(podGrantsDao.anyForPod(pod2Id))
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, refreshTokenStore.lookup(seededToken(pod2.name)).state)
     assertNotNull(dynamicClientRegistrationDao.findByClientId(pod2Id, clientIdFor(pod2.name)))
-    assertNotNull(signOutStore.signedOutAt(pod2Id, listOf(CASCADE_WEB_ID)))
+    assertNotNull(signOutStore.signedOutAt(pod2Id.toPodId(), listOf(CASCADE_WEB_ID)))
   }
 
   private fun seedAllPodScopedRecords(podName: String, podId: ObjectId) {
@@ -177,7 +177,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
-    signOutStore.record(podId, listOf(CASCADE_WEB_ID))
+    signOutStore.record(podId.toPodId(), listOf(CASCADE_WEB_ID))
 
     // DynamicClientRegistrationDbo: pod-scoped row, deterministic clientId.
     dynamicClientRegistrationDao.create(

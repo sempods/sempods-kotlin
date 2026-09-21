@@ -9,14 +9,12 @@ import org.sempods.pods.grants.persist.PodGrantDbo
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantDbo
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
-import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.spec.PodRef
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.bson.types.ObjectId
 import java.net.URI
 
 /**
@@ -112,20 +110,21 @@ class PodGrantsFacade @Inject constructor(
     webIds: Collection<String>,
   ): Set<String> {
     val podBaseUrl = podBaseUrl(pod)
-        if (isPodOwner(pod, webIds)) {
-      return podContextsDao.fetchByPod(podId.objectId()).flatMap { ctx ->
+    val storedPodId = podId.objectId()
+    if (isPodOwner(pod, webIds)) {
+      return podContextsDao.fetchByPod(storedPodId).flatMap { ctx ->
         ScopePermission.entries.map { permission -> "${ctx.contextUri}#${permission.value}" }
       }.toSet()
     }
 
     // Keep only well-formed context grants before expanding — a malformed or foreign string in
     // the store must not surface into the person's delegatable set.
-    val contextGrants = podWebIdGrantsDao.fetchGrantStrings(podId.objectId(), webIds)
+    val contextGrants = podWebIdGrantsDao.fetchGrantStrings(storedPodId, webIds)
       .filter { podScopeValidator.validate(it, podBaseUrl) is ScopeValidationResult.Context }
       .toSet()
     if (contextGrants.isEmpty()) return emptySet()
 
-    val expanded = podContextPermissionResolver.expandManageCascade(contextGrants, podId.objectId(), podBaseUrl)
+    val expanded = podContextPermissionResolver.expandManageCascade(contextGrants, storedPodId, podBaseUrl)
     val impliedReads = expanded
       .mapNotNull { grant ->
         (podScopeValidator.validate(grant, podBaseUrl) as? ScopeValidationResult.Context)
@@ -207,14 +206,14 @@ class PodGrantsFacade @Inject constructor(
     webId: String,
     grants: Collection<String>,
   ): GrantCascadeResult {
-        return mutateWebIdGrants(pod, podId, webId) { aliases ->
+    return mutateWebIdGrants(pod, podId, webId) { aliases ->
       aliases.sumOf { alias -> podWebIdGrantsDao.deleteGrants(podId.objectId(), alias, grants) }
     }
   }
 
   /** Removes every owner-level grant [webId] holds, across derivable aliases, and cascades. */
   internal fun revokeAllWebIdGrants(pod: PodRef, podId: PodId, webId: String): GrantCascadeResult {
-        return mutateWebIdGrants(pod, podId, webId) { aliases ->
+    return mutateWebIdGrants(pod, podId, webId) { aliases ->
       aliases.sumOf { alias -> podWebIdGrantsDao.deleteByWebId(podId.objectId(), alias) }
     }
   }
@@ -256,7 +255,7 @@ class PodGrantsFacade @Inject constructor(
     grants: Collection<String>,
     grantedBy: String?,
   ): Set<String> {
-        podGrantsDao.replaceGrants(
+    podGrantsDao.replaceGrants(
       podId = podId.objectId(),
       appId = appId,
       webId = webId,
@@ -336,15 +335,16 @@ class PodGrantsFacade @Inject constructor(
    * failure here also leaves the caller's own retry path intact.
    */
   internal fun revokeContextGrants(pod: PodRef, podId: PodId, contextUri: String): GrantCascadeResult {
-        // Read first, because the delete below is what makes these unfindable — see the note above on
+    val storedPodId = podId.objectId()
+    // Read first, because the delete below is what makes these unfindable — see the note above on
     // why the candidates are this deletion's own subjects and not the pod's live connections.
-    val delegatedHere = podGrantsDao.fetchByContext(podId = podId.objectId(), contextUri = contextUri)
+    val delegatedHere = podGrantsDao.fetchByContext(podId = storedPodId, contextUri = contextUri)
       .map { it.appId to it.webId }
       .toSet()
-    val deletedAppGrants = podGrantsDao.deleteByContext(podId = podId.objectId(), contextUri = contextUri)
+    val deletedAppGrants = podGrantsDao.deleteByContext(podId = storedPodId, contextUri = contextUri)
     // Owner-level, app-independent WebID grants cascade the same way as the app-delegated
     // grants above — a manage/write/read grant must not outlive its context.
-    podWebIdGrantsDao.deleteByContext(podId = podId.objectId(), contextUri = contextUri)
+    podWebIdGrantsDao.deleteByContext(podId = storedPodId, contextUri = contextUri)
     // Static service clients are revoked like grants: scopes anchored at the deleted context are
     // stripped, grant-less registrations removed — otherwise the client secret could keep minting
     // tokens for the deleted root (manage descendants, recreate the root). Unlike a refresh row, a
@@ -361,7 +361,7 @@ class PodGrantsFacade @Inject constructor(
 
     // Third pass, and the reason it is a pass rather than a line inside the second: the pairs it
     // is for have no rows left for the recompute to group.
-    val orphaned = revokeEmptiedFamilies(podId.objectId(), delegatedHere)
+    val orphaned = revokeEmptiedFamilies(podId, delegatedHere)
 
     return GrantCascadeResult(
       deletedAppGrants = deletedAppGrants + derived.deletedAppGrants,
@@ -396,15 +396,16 @@ class PodGrantsFacade @Inject constructor(
    * giving one answer, not about closing a hole.
    */
   private fun revokeEmptiedFamilies(
-    podId: ObjectId,
+    podId: PodId,
     candidates: Set<Pair<String, String>>,
   ): GrantCascadeResult {
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
+    val storedPodId = podId.objectId()
     candidates.forEach { (appId, webId) ->
-      val standing = refreshTokenStore.liveTokens(podId.toPodId(), appId, listOf(webId))
+      val standing = refreshTokenStore.liveTokens(podId, appId, listOf(webId))
       if (standing.isEmpty()) return@forEach
-      if (podGrantsDao.fetchGrantStrings(podId, appId, listOf(webId)).isNotEmpty()) return@forEach
+      if (podGrantsDao.fetchGrantStrings(storedPodId, appId, listOf(webId)).isNotEmpty()) return@forEach
       revokedRefreshTokens += refreshTokenStore.revokeTokens(standing)
       affectedApps += appId
     }
@@ -501,7 +502,7 @@ class PodGrantsFacade @Inject constructor(
    * authority over contexts that remain registered) survive.
    */
   private fun sweepSubtreeAppGrants(pod: PodRef, podId: PodId, root: String): GrantCascadeResult {
-        val podBaseUrl = podBaseUrl(pod)
+    val podBaseUrl = podBaseUrl(pod)
     val rows = podGrantsDao.fetchGrantsByPod(podId.objectId())
     if (rows.isEmpty()) return GrantCascadeResult.empty
 
@@ -544,12 +545,13 @@ class PodGrantsFacade @Inject constructor(
     subjectUris: Set<String>,
     isCandidateContext: (contextUri: String) -> Boolean = { true },
   ): GrantCascadeResult {
-        val podBaseUrl = podBaseUrl(pod)
+    val podBaseUrl = podBaseUrl(pod)
     val stillGranted = resolveUserGrants(pod, podId, subjectUris)
 
     var deletedAppGrants = 0L
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
+    val storedPodId = podId.objectId()
 
     rows.groupBy { it.appId to it.webId }.forEach { (key, appRows) ->
       val (appId, appWebId) = key
@@ -564,7 +566,7 @@ class PodGrantsFacade @Inject constructor(
       if (unbacked.isEmpty()) return@forEach
 
       deletedAppGrants += podGrantsDao.deleteGrants(
-        podId = podId.objectId(),
+        podId = storedPodId,
         appId = appId,
         webId = appWebId,
         grants = unbacked,
@@ -597,11 +599,12 @@ class PodGrantsFacade @Inject constructor(
 
   /**
    * The pod's grant namespace, i.e. what [PodScopeValidator] measures context URIs against.
-   * Byte-identical to the endpoint layer's `"${config.apiBaseUrl}${podName}/"`.
+   *
+   * [PodRef.uri] is the pod URI without a trailing slash and every context hangs off it as
+   * `<pod-uri>/<segment>`, so this is that string with the separator — the same value
+   * `SempodsUriBuilder.buildResourceUri(name, "")` builds, without the parse.
    */
-
-  private fun podBaseUrl(pod: PodRef): String =
-    sempodsUriBuilder.buildResourceUri(podName = pod.name, resourcePath = "").toString()
+  private fun podBaseUrl(pod: PodRef): String = "${pod.uri}/"
 
   companion object {
     private val logger = KotlinLogging.logger {}

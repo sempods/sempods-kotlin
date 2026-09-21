@@ -9,7 +9,6 @@ import org.sempods.SempodsCollections
 import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.PodId
-import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import java.time.Duration
@@ -229,7 +228,7 @@ class PodRefreshTokenStore internal constructor(
     if (distinct.isEmpty()) return 0
     return store.revokeWhere(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, pod.objectId()),
+        podFilter(pod),
         Filters.`in`(FIELD_WEB_ID, distinct),
       ),
     )
@@ -337,7 +336,7 @@ class PodRefreshTokenStore internal constructor(
     val distinct = webIds.filter { it.isNotBlank() }.distinct()
     if (distinct.isEmpty()) return null
     return Filters.and(
-      Filters.eq(FIELD_POD_ID, pod.objectId()),
+      podFilter(pod),
       Filters.eq(FIELD_CLIENT_ID, clientId),
       Filters.`in`(FIELD_WEB_ID, distinct),
     )

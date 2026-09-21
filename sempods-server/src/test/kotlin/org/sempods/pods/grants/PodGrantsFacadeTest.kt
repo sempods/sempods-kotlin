@@ -10,6 +10,7 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.commons.okhttp.TestHttpClient
@@ -34,10 +35,8 @@ import kotlin.test.assertTrue
  */
 class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
-  /** The row this suite seeds, as the two values the facade takes. */
+  /** The row this suite seeds, as the pod the facade takes; its key is `PodDbo.podId()`. */
   private val PodDbo.ref: PodRef get() = toRef(sempodsUriBuilder)
-
-  private val PodDbo.key: PodId get() = checkNotNull(id).toPodId()
 
   @Inject
   private lateinit var http: TestHttpClient
@@ -91,7 +90,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       appGrants(pod, webId),
     )
 
-    val result = podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, webId, listOf("$root#manage"))
+    val result = podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), webId, listOf("$root#manage"))
 
     // The derived descendant goes even though its text never equalled the revoked grant — this is
     // the case a plain string match would miss.
@@ -147,13 +146,13 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(setOf("$child#write"), appGrants(pod, webId))
 
     // Re-running the whole operation must converge.
-    val result = podGrantsFacade.revokeContextGrants(pod.ref, pod.key, root)
+    val result = podGrantsFacade.revokeContextGrants(pod.ref, pod.podId(), root)
 
     assertEquals(emptySet(), appGrants(pod, webId))
     assertEquals(1L, result.deletedAppGrants)
 
     // And once more: idempotent, nothing further to do.
-    assertEquals(0L, podGrantsFacade.revokeContextGrants(pod.ref, pod.key, root).deletedAppGrants)
+    assertEquals(0L, podGrantsFacade.revokeContextGrants(pod.ref, pod.podId(), root).deletedAppGrants)
   }
 
   @Test
@@ -211,7 +210,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webId, listOf("$ctx#read", "$ctx#write")).statusCode)
     assertEquals(setOf("$ctx#read", "$ctx#write"), appGrants(pod, webId))
 
-    podGrantsFacade.replaceWebIdGrants(pod.ref, pod.key, webId, listOf("$ctx#read"), grantedBy = null)
+    podGrantsFacade.replaceWebIdGrants(pod.ref, pod.podId(), webId, listOf("$ctx#read"), grantedBy = null)
 
     assertEquals(setOf("$ctx#read"), appGrants(pod, webId))
   }
@@ -232,7 +231,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(setOf("$ctx#read", "public-read"), appGrants(pod, webId))
 
     val issued = refreshTokenStore.issueNewFamily(
-      pod = checkNotNull(pod.id).toPodId(),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -240,7 +239,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
-    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, webId, listOf("$ctx#read"))
+    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), webId, listOf("$ctx#read"))
 
     assertEquals(setOf("public-read"), appGrants(pod, webId))
     assertNull(
@@ -267,7 +266,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     // The shape a family predating slim tokens has on disk: the context scope is still on the row.
     val issued = refreshTokenStore.issueNewFamily(
-      pod = checkNotNull(pod.id).toPodId(),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -299,7 +298,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
 
     val issued = refreshTokenStore.issueNewFamily(
-      pod = checkNotNull(pod.id).toPodId(),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -335,7 +334,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     // Holds nothing, and never held anything on the deleted context — the shape a re-consent wears
     // for the instant between its delete and its inserts.
     val untouched = refreshTokenStore.issueNewFamily(
-      pod = checkNotNull(pod.id).toPodId(),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = testClientId,
       webId = bystander,
@@ -362,7 +361,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
 
     val issued = refreshTokenStore.issueNewFamily(
-      pod = checkNotNull(pod.id).toPodId(),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -370,7 +369,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     )
 
-    val result = podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.key, webId)
+    val result = podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.podId(), webId)
 
     assertEquals(emptySet(), appGrants(pod, webId))
     assertTrue(result.revokedRefreshTokens > 0, "full revocation should revoke the family")
@@ -392,7 +391,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     // A redundant owner-level row, then revoke everything the owner holds at that level.
     podWebIdGrantsDao.addGrants(checkNotNull(pod.id), ownerWebId, listOf("$ctx#read"), grantedBy = null)
-    val result = podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.key, ownerWebId)
+    val result = podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.podId(), ownerWebId)
 
     assertEquals(setOf("$ctx#read", "$ctx#write"), appGrants(pod, ownerWebId))
     assertEquals(0L, result.deletedAppGrants)
@@ -415,7 +414,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, primaryWebId, listOf("$ctx#read"), alsoKnownAs = listOf(aliasWebId)).statusCode)
     assertEquals(setOf("$ctx#read"), appGrants(pod, primaryWebId))
 
-    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, aliasWebId, listOf("$ctx#read"))
+    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), aliasWebId, listOf("$ctx#read"))
 
     assertEquals(emptySet(), appGrants(pod, primaryWebId))
   }
@@ -436,7 +435,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, httpsWebId, listOf("$ctx#read")).statusCode)
 
     // Revoke naming the URN twin, not the URI the grant was written under.
-    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, urnWebId, listOf("$ctx#read"))
+    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), urnWebId, listOf("$ctx#read"))
 
     assertEquals(emptySet(), appGrants(pod, httpsWebId))
     assertEquals(emptySet(), podWebIdGrantsDao.fetchGrantStrings(checkNotNull(pod.id), listOf(httpsWebId)))
@@ -461,7 +460,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(setOf("$ctx#read"), appGrants(pod, oidcWebId))
 
     // Revoke naming the canonical WebID, not the URN the grant was written under.
-    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, oidcWebId, listOf("$ctx#read"))
+    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), oidcWebId, listOf("$ctx#read"))
 
     assertEquals(emptySet(), podWebIdGrantsDao.fetchGrantStrings(checkNotNull(pod.id), listOf(oidcUrn)))
     assertEquals(emptySet(), appGrants(pod, oidcWebId))
@@ -484,7 +483,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
       grantedBy = webId,
     )
 
-    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.key, webId, listOf("$ctx#read"))
+    podGrantsFacade.revokeWebIdGrants(pod.ref, pod.podId(), webId, listOf("$ctx#read"))
 
     assertEquals(emptySet(), appGrants(pod, webId))
   }
@@ -502,7 +501,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     val persisted = podGrantsFacade.replaceAppGrants(
       pod = pod.ref,
-      podId = pod.key,
+      podId = pod.podId(),
       appId = testClientId,
       webId = webId,
       subjectUris = listOf(webId),
@@ -523,7 +522,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     val persisted = podGrantsFacade.replaceAppGrants(
       pod = pod.ref,
-      podId = pod.key,
+      podId = pod.podId(),
       appId = testClientId,
       webId = webId,
       subjectUris = listOf(webId),
@@ -546,7 +545,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     val persisted = podGrantsFacade.replaceAppGrants(
       pod = pod.ref,
-      podId = pod.key,
+      podId = pod.podId(),
       appId = testClientId,
       webId = webId,
       subjectUris = listOf(webId),
@@ -570,7 +569,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     val persisted = podGrantsFacade.replaceAppGrants(
       pod = pod.ref,
-      podId = pod.key,
+      podId = pod.podId(),
       appId = testClientId,
       webId = ownerWebId,
       subjectUris = listOf(ownerWebId),
@@ -592,7 +591,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     podWebIdGrantsDao.addGrants(checkNotNull(pod.id), webId, listOf("$ctx#read"), grantedBy = null)
     assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
 
-    podGrantsFacade.addWebIdGrants(pod.ref, pod.key, webId, listOf("$ctx#write"), grantedBy = null)
+    podGrantsFacade.addWebIdGrants(pod.ref, pod.podId(), webId, listOf("$ctx#write"), grantedBy = null)
 
     assertEquals(setOf("$ctx#read"), appGrants(pod, webId))
   }
@@ -611,7 +610,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webIdA, listOf("$ctx#read")).statusCode)
     assertEquals(303, consent(pod, webIdB, listOf("$ctx#read")).statusCode)
 
-    podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.key, webIdA)
+    podGrantsFacade.revokeAllWebIdGrants(pod.ref, pod.podId(), webIdA)
 
     assertEquals(emptySet(), appGrants(pod, webIdA))
     assertEquals(setOf("$ctx#read"), appGrants(pod, webIdB))

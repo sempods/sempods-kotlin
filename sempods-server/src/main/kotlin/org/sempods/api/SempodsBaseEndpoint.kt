@@ -19,6 +19,7 @@ import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodAccessToken
@@ -60,6 +61,9 @@ open class SempodsBaseEndpoint(
 
   @Inject
   private lateinit var podServiceAuditLogDao: PodServiceAuditLogDao
+
+  /** This row as the pod it names — its URI, its owner and the segment this deployment routes by. */
+  internal val PodDbo.ref: PodRef get() = toRef(sempodsUriBuilder)
 
   /**
    * The request's `Authorization: Bearer <token>`, or `null` if there is none.
@@ -112,9 +116,6 @@ open class SempodsBaseEndpoint(
    * Endpoints that require authentication (writes, MCP `authorize` tool, etc.) must call
    * [requireAuthenticatedOrThrow] on the returned credentials.
    */
-  /** This row as the pod it names — its URI, its owner and the segment this deployment routes by. */
-  internal val PodDbo.ref: PodRef get() = toRef(sempodsUriBuilder)
-
   protected fun authenticate(pod: String): SempodsCredentials {
     val podDbo = fetchPodOrThrow(pod)
     val podRef = podDbo.ref
@@ -165,7 +166,7 @@ open class SempodsBaseEndpoint(
   private fun authenticateBearer(podDbo: PodDbo, podRef: PodRef): PodTokenAuthentication =
     when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
       is PodTokenAuthentication.Verified ->
-        if (podSignOut.accessTokenStands(checkNotNull(podDbo.id).toPodId(), outcome.token)) outcome
+        if (podSignOut.accessTokenStands(podDbo.podId(), outcome.token)) outcome
         else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
 
       else -> outcome

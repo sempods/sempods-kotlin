@@ -1,6 +1,7 @@
-package org.sempods.pods.oauth
+package org.sempods.pods.oauth.flows
 
 import org.sempods.auth.core.ClientId
+import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.DidWebRedirectPolicy
 import org.sempods.auth.core.RedirectUri
@@ -40,7 +41,7 @@ internal class PodClientDirectory(
     val normalized = clientId?.trim()?.takeIf { it.isNotBlank() } ?: return PodClientIdentity.Malformed
     if (!ClientId.isValid(normalized)) return PodClientIdentity.Malformed
     return when {
-      normalized.startsWith(DID_WEB_PREFIX) -> PodClientIdentity.Known(normalized)
+      normalized.startsWith(DidWeb.PREFIX) -> PodClientIdentity.Known(normalized)
       normalized.startsWith(DYNAMIC_PREFIX) ->
         if (registrationOf(normalized) != null) PodClientIdentity.Known(normalized) else PodClientIdentity.Unregistered
 
@@ -73,8 +74,6 @@ internal class PodClientDirectory(
   companion object {
     /** RFC 7591 dynamic clients, as `DynamicClientStore` mints them. */
     const val DYNAMIC_PREFIX = "dyn:"
-
-    const val DID_WEB_PREFIX = "did:web:"
   }
 }
 

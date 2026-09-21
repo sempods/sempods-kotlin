@@ -1415,15 +1415,17 @@ tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }
 // method body, which is exactly where one would first appear.
 //
 // Two of the collaborators these classes hold still sit under `org.sempods.api` —
-// `PodTokenIssuer`, which mints a JWT and takes and returns strings, and `DynamicClientStore`. That
-// is a package they were filed in rather than a boundary they cross: neither exposes an HTTP,
-// Nimbus or persistence type, so neither is listed below. Moving them is #154's, with the
-// resource-verification slice that already touches them.
+// `PodTokenIssuer`, which mints a JWT and takes and returns strings, and `DynamicClientStore`,
+// which is Mongo-backed and reached as a store like the ones next door. Neither *hands this layer*
+// an HTTP, Nimbus or persistence type, which is what the list below can see; that they are filed
+// under `api` at all is the layering debt #154 settles with the slice that already moves them.
 val checkNoAdapterImports = tasks.register("checkNoAdapterImports") {
   group = "verification"
   description = "Fails if the pod's OAuth application package imports an HTTP-framework, protocol-library or persistence type."
 
-  val scanned = File(rootDir, "sempods-server/src/main/kotlin/org/sempods/pods/oauth/flows")
+  // Read out here rather than in `doLast`, for the reason `checkDocLinks` gives above.
+  val repositoryRoot = rootDir
+  val scanned = File(repositoryRoot, "sempods-server/src/main/kotlin/org/sempods/pods/oauth/flows")
 
   doLast {
     val forbidden = mapOf(
@@ -1440,22 +1442,23 @@ val checkNoAdapterImports = tasks.register("checkNoAdapterImports") {
     // the move is exactly the change that would need it most.
     if (sources.isEmpty()) {
       throw GradleException(
-        "No Kotlin source under ${scanned.relativeTo(rootDir)}. If the application layer moved, " +
+        "No Kotlin source under ${scanned.relativeTo(repositoryRoot)}. If the application layer moved, " +
           "point this task at it; do not leave it scanning nothing.",
       )
     }
 
     val offences = sources.flatMap { file ->
       file.readLines().withIndex().mapNotNull { (index, line) ->
-        val imported = line.trim().removePrefix("import ").takeIf { line.trim().startsWith("import ") }
-          ?: return@mapNotNull null
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("import ")) return@mapNotNull null
+        val imported = trimmed.removePrefix("import ")
         // A stored row, whatever package it sits in: `…Dbo` is this implementation's document, and
         // naming one writes its field order into the contract.
         val row = imported.substringAfterLast('.').substringBefore(' ')
         val why = forbidden.entries.firstOrNull { imported.startsWith(it.key) }?.value
           ?: "a stored row".takeIf { row.endsWith("Dbo") || row.endsWith("DboFields") }
           ?: return@mapNotNull null
-        "${file.relativeTo(rootDir)}:${index + 1} imports $imported — $why"
+        "${file.relativeTo(repositoryRoot)}:${index + 1} imports $imported — $why"
       }
     }
 

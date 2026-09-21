@@ -10,11 +10,10 @@ import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.bson.Document
-import org.bson.types.ObjectId
+import org.bson.conversions.Bson
 import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant
 import org.sempods.pods.PodId
-import org.sempods.pods.mongo.persist.toObjectIdOrNull
 import org.sempods.pods.mongo.persist.objectId
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -71,7 +70,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     if (webIds.isEmpty()) return null
     return decisions.find(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, pod.objectId()),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
@@ -95,7 +94,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     val decidedAt = at.truncatedTo(ChronoUnit.MILLIS)
     val updated = decisions.findOneAndUpdate(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, pod.objectId()),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.eq(FIELD_WEB_ID, webId),
       ),
@@ -127,7 +126,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     if (webIds.isEmpty()) return 0
     return decisions.updateMany(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, pod.objectId()),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
@@ -143,7 +142,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     if (webIds.isEmpty()) return 0
     return decisions.updateMany(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, pod.objectId()),
+        podFilter(pod),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
       Updates.inc(FIELD_GENERATION, 1L),
@@ -152,7 +151,9 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
 
   /** The pod-cascade delete path, where the authorizations themselves are going away. */
   internal fun deleteByPod(pod: PodId): Long =
-    decisions.deleteMany(Filters.eq(FIELD_POD_ID, pod.objectId())).deletedCount
+    decisions.deleteMany(podFilter(pod)).deletedCount
+
+  private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
 
   private fun Document.toDecision() = Decision(
     durable = getBoolean(FIELD_DURABLE, false),

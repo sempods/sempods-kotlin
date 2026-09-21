@@ -12,6 +12,7 @@ import org.sempods.pods.PodId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
@@ -59,18 +60,18 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   private val clientId = "did:web:app.example"
   private val redirectUri = "https://app.example/cb"
 
+  /** One context grant, so an authorization has something to stand on. */
+  private val contextScope = "urn:sempods:test:notes#read"
+
   /** A pod, a person, and a grant for the app — the ordinary state a code is minted from. */
-  private inner class Authorized {
-    val pod = sempodsTestFactory.newPod()
-    val podId: PodId = checkNotNull(pod.id).toPodId()
+  private inner class Authorized(grants: Set<String> = setOf(contextScope)) {
+    val pod = sempodsTestFactory.newPod(createPublicContext = false)
+    val podId: PodId = pod.podId()
     val webId = "https://id.test/person-${randomId()}"
-    val context = "${pod.name}-notes"
 
     init {
-      grant(setOf(contextScope))
+      grant(grants)
     }
-
-    val contextScope: String get() = "urn:sempods:test:$context#read"
 
     fun grant(grants: Set<String>) {
       podGrantsFacade.replaceAppGrants(
@@ -99,22 +100,18 @@ class PodTokenExchangeTest : SempodsStoreTest() {
         consentGeneration = generation,
       )
 
-    fun redeem(code: String) = exchange.redeemCode(
-      pod = podId,
-      podName = pod.name,
-      code = code,
-      redirectUri = redirectUri,
-      clientId = clientId,
-      codeVerifier = null,
-    )
+    fun redeem(
+      code: String?,
+      redirectUri: String = this@PodTokenExchangeTest.redirectUri,
+      clientId: String = this@PodTokenExchangeTest.clientId,
+      codeVerifier: String? = null,
+    ) = exchange.redeemCode(podId, pod.name, code, redirectUri, clientId, codeVerifier)
 
-    fun refresh(token: String, scope: String? = null) = exchange.refresh(
-      pod = podId,
-      podName = pod.name,
-      refreshToken = token,
-      clientId = clientId,
-      requestedScope = scope,
-    )
+    fun refresh(
+      token: String,
+      scope: String? = null,
+      clientId: String = this@PodTokenExchangeTest.clientId,
+    ) = exchange.refresh(podId, pod.name, token, clientId, scope)
   }
 
   private fun refused(result: PodTokenResult): PodTokenResult.Refused = assertIs(result)
@@ -137,7 +134,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val authorized = Authorized()
     val code = authorized.code(authorized.answer(durable = false))
 
-    val missing = exchange.redeemCode(authorized.podId, authorized.pod.name, null, redirectUri, clientId, null)
+    val missing = authorized.redeem(code = null)
     assertEquals(OAuthErrorCode.INVALID_REQUEST, refused(missing).code)
     assertIs<PodTokenResult.Issued>(authorized.redeem(code))
   }
@@ -146,15 +143,15 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   fun `a code redeemed against another address or another client is refused`() {
     val authorized = Authorized()
 
-    val elsewhere = exchange.redeemCode(
-      authorized.podId, authorized.pod.name,
-      authorized.code(authorized.answer(durable = false)), "https://app.example/other", clientId, null,
+    val elsewhere = authorized.redeem(
+      authorized.code(authorized.answer(durable = false)),
+      redirectUri = "https://app.example/other",
     )
     assertEquals("redirect_uri mismatch", refused(elsewhere).description)
 
-    val somebodyElse = exchange.redeemCode(
-      authorized.podId, authorized.pod.name,
-      authorized.code(authorized.answer(durable = false)), redirectUri, "did:web:other.example", null,
+    val somebodyElse = authorized.redeem(
+      authorized.code(authorized.answer(durable = false)),
+      clientId = "did:web:other.example",
     )
     assertEquals("client_id mismatch", refused(somebodyElse).description)
   }
@@ -196,7 +193,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       consentGeneration = authorized.answer(durable = false),
     )
 
-    val wrong = exchange.redeemCode(authorized.podId, authorized.pod.name, code, redirectUri, clientId, "b".repeat(64))
+    val wrong = authorized.redeem(code, codeVerifier = "b".repeat(64))
     assertEquals("PKCE verification failed", refused(wrong).description)
   }
 
@@ -238,7 +235,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     )
 
     val result = issued(
-      exchange.redeemCode(checkNotNull(pod.id).toPodId(), pod.name, code, redirectUri, clientId, null),
+      exchange.redeemCode(pod.podId(), pod.name, code, redirectUri, clientId, null),
     )
     assertEquals(setOf(PUBLIC_READ_SCOPE), result.scopes)
     assertNull(result.refreshToken, "nobody granted it, so there is nobody to grant a way back to")
@@ -247,10 +244,10 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   @Test
   fun `a bearer carries feature scopes only`() {
     val authorized = Authorized()
-    authorized.grant(setOf(authorized.contextScope, PUBLIC_READ_SCOPE))
+    authorized.grant(setOf(contextScope, PUBLIC_READ_SCOPE))
     val code = authorized.code(
       authorized.answer(durable = false),
-      scopes = setOf(PUBLIC_READ_SCOPE, authorized.contextScope),
+      scopes = setOf(PUBLIC_READ_SCOPE, contextScope),
     )
 
     assertEquals(setOf(PUBLIC_READ_SCOPE), issued(authorized.redeem(code)).scopes)
@@ -288,10 +285,10 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable = true)))).refreshToken)
     val elsewhere = sempodsTestFactory.newPod()
 
-    val wrongPod = exchange.refresh(checkNotNull(elsewhere.id).toPodId(), elsewhere.name, token, clientId, null)
+    val wrongPod = exchange.refresh(elsewhere.podId(), elsewhere.name, token, clientId, null)
     assertEquals("refresh token does not belong to this pod", refused(wrongPod).description)
 
-    val wrongClient = exchange.refresh(authorized.podId, authorized.pod.name, token, "did:web:other.example", null)
+    val wrongClient = authorized.refresh(token, clientId = "did:web:other.example")
     assertEquals("refresh token does not belong to this client", refused(wrongClient).description)
   }
 
@@ -311,7 +308,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   @Test
   fun `a refresh may narrow its scope but not widen it`() {
     val authorized = Authorized()
-    authorized.grant(setOf(authorized.contextScope, PUBLIC_READ_SCOPE))
+    authorized.grant(setOf(contextScope, PUBLIC_READ_SCOPE))
     val token = checkNotNull(
       issued(
         authorized.redeem(authorized.code(authorized.answer(durable = true), setOf(PUBLIC_READ_SCOPE))),

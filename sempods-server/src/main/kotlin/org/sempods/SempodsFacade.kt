@@ -108,7 +108,7 @@ class SempodsFacade @Inject constructor(
     // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
     // resolved and its grants stood, a token or session its person had signed out of would be
     // accepted again for that moment.
-    podId?.let(signOutStore::deleteByPod)
+    podId?.toPodId()?.let(signOutStore::deleteByPod)
     podIdCache.clear()
   }
 

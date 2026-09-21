@@ -1,10 +1,11 @@
 package org.sempods.pods.mongo.persist
 
-import org.bson.types.ObjectId
-import org.sempods.SempodsUriBuilder
-import org.sempods.spec.PodRef
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import org.bson.types.ObjectId
+import org.sempods.SempodsUriBuilder
+import org.sempods.pods.PodId
+import org.sempods.spec.PodRef
 
 /**
  * One pod. Its [id] is the `podId` every other collection in the server is keyed by.
@@ -65,6 +66,14 @@ internal data class PodDbo(
  * `PodFacade.getPodId`, which is cached. The edge runs this way only: `sempods-model` knows nothing
  * about this class.
  */
+/**
+ * This row's [PodId] — the tenant key the per-pod seams partition by.
+ *
+ * [PodDbo.id] is nullable because a row is built before it is inserted; every row a caller holds
+ * came back from the store, so a null here is a bug rather than a state to handle.
+ */
+internal fun PodDbo.podId(): PodId = checkNotNull(id).toPodId()
+
 internal fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
   uri = uriBuilder.buildPodUri(name),
   name = name,
