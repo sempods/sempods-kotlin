@@ -83,6 +83,16 @@ class PodSignOut @Inject internal constructor(
     issuedAfterSignOut(pod, webIds, authTime)
 
   /**
+   * The same, for the session a cookie decoded to.
+   *
+   * Two callers ask it of a [PodTokenIssuer.SessionPrincipal] — the route that reads the cookie,
+   * and the authorization that re-asks after reading the consent generation — and spelling the
+   * person out of that principal twice is how the two drift apart.
+   */
+  internal fun sessionStands(pod: PodId, session: PodTokenIssuer.SessionPrincipal): Boolean =
+    sessionStands(pod, listOf(session.webId) + session.alsoKnownAs, session.authTime)
+
+  /**
    * Whether an access token that verified still stands on [pod].
    *
    * A service client's token names no person and cannot be signed out. A person's token without an

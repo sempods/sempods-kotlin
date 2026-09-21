@@ -5,6 +5,9 @@ import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.DidWebRedirectPolicy
 import org.sempods.auth.core.RedirectUri
+import org.sempods.commons.config.Env
+import org.sempods.pods.PodId
+import org.sempods.pods.oauth.DynamicClientStore
 
 /**
  * What one pod makes of a `client_id`: whether it knows the client at all, and where that client
@@ -72,8 +75,22 @@ internal class PodClientDirectory(
   }
 
   companion object {
-    /** RFC 7591 dynamic clients, as `DynamicClientStore` mints them. */
+
+    /** RFC 7591 dynamic clients, as [DynamicClientStore] mints them. */
     const val DYNAMIC_PREFIX = "dyn:"
+
+    /**
+     * The directory of one pod's clients, over the registrations that pod holds.
+     *
+     * Built per request from the pod the request already read, and not from its name: resolving a
+     * name goes through the process-local name-to-id cache, which another replica's deletion does
+     * not invalidate — `PodSignOut` says what that costs.
+     */
+    fun of(pod: PodId, registrations: DynamicClientStore) = PodClientDirectory(
+      // Process-wide, so reading it once per request is reading it as often as it can change.
+      allowLoopback = Env.isDevelopment,
+      registrationOf = { clientId -> registrations.lookup(pod, clientId)?.redirectUris },
+    )
   }
 }
 
