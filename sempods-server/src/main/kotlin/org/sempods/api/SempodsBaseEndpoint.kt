@@ -112,9 +112,12 @@ open class SempodsBaseEndpoint(
    * Endpoints that require authentication (writes, MCP `authorize` tool, etc.) must call
    * [requireAuthenticatedOrThrow] on the returned credentials.
    */
+  /** This row as the pod it names — its URI, its owner and the segment this deployment routes by. */
+  internal val PodDbo.ref: PodRef get() = toRef(sempodsUriBuilder)
+
   protected fun authenticate(pod: String): SempodsCredentials {
     val podDbo = fetchPodOrThrow(pod)
-    val podRef = podDbo.toRef(sempodsUriBuilder)
+    val podRef = podDbo.ref
     return when (val outcome = authenticateBearer(podDbo, podRef)) {
       PodTokenAuthentication.NoToken -> podAuthorizer.anonymous(podRef)
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)

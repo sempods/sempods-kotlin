@@ -15,6 +15,7 @@ import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.objectId
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Date
@@ -152,9 +153,6 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   /** The pod-cascade delete path, where the authorizations themselves are going away. */
   internal fun deleteByPod(pod: PodId): Long =
     decisions.deleteMany(Filters.eq(FIELD_POD_ID, pod.objectId())).deletedCount
-
-  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
-  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private fun Document.toDecision() = Decision(
     durable = getBoolean(FIELD_DURABLE, false),

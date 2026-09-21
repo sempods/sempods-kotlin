@@ -50,6 +50,7 @@ import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodClientDirectory
 import org.sempods.pods.oauth.PodClientIdentity
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -59,6 +60,7 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.flows.PodTokenResult
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import org.sempods.spec.PodRef
 
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
@@ -579,8 +581,8 @@ class PodAuthEndpoint @Inject constructor(
 
     // ── Resolve user's available contexts and existing grants ────────────
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
-    val isOwner = podGrantsFacade.isPodOwner(podDbo, identity.allUris)
-    val userGrants = podGrantsFacade.resolveUserGrants(podDbo, identity.allUris, podBaseUrl)
+    val isOwner = podGrantsFacade.isPodOwner(podDbo.ref, identity.allUris)
+    val userGrants = podGrantsFacade.resolveUserGrants(podDbo.ref, podDbo.pod, identity.allUris)
 
     val podId = checkNotNull(podDbo.id)
     // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
@@ -639,7 +641,8 @@ class PodAuthEndpoint @Inject constructor(
       var persisted = effectiveContextGrants + effectivePublicReadScope
       if (persisted.size != existingGrants.size) {
         persisted = podGrantsFacade.replaceAppGrants(
-          podDbo = podDbo,
+          pod = podDbo.ref,
+          podId = podDbo.pod,
           appId = normalizedClientId,
           webId = identity.webId,
           subjectUris = identity.allUris,
@@ -973,7 +976,7 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
-    val isOwner = podGrantsFacade.isPodOwner(podDbo, identity.allUris)
+    val isOwner = podGrantsFacade.isPodOwner(podDbo.ref, identity.allUris)
 
     // `public-read` is an additive scope. It can be combined with per-context
     // scopes — no mutual-exclusivity check. Persisted as a grant so
@@ -1088,7 +1091,7 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     // Re-resolve the user's grants after potential context creation.
-    val userGrants = podGrantsFacade.resolveUserGrants(podDbo, identity.allUris, podBaseUrl)
+    val userGrants = podGrantsFacade.resolveUserGrants(podDbo.ref, podDbo.pod, identity.allUris)
     val selectedPerContext = (perContextSubmitted + newContextScopesResolved)
       .filter { userGrants.contains(it) }
       .toSet()
@@ -1121,7 +1124,8 @@ class PodAuthEndpoint @Inject constructor(
     // `resolveUserGrants` above and this write cannot leave an unbacked grant behind. What comes
     // back is what actually survived.
     val persistedScopes = podGrantsFacade.replaceAppGrants(
-      podDbo = podDbo,
+      pod = podDbo.ref,
+      podId = podDbo.pod,
       appId = normalizedClientId,
       webId = identity.webId,
       subjectUris = identity.allUris,
@@ -1247,7 +1251,8 @@ class PodAuthEndpoint @Inject constructor(
     // made under an alias is one this person can end, and `holdsAnything` already counted it.
     identity.allUris.forEach { uri ->
       podGrantsFacade.replaceAppGrants(
-        podDbo = podDbo,
+        pod = podDbo.ref,
+        podId = podDbo.pod,
         appId = clientId,
         webId = uri,
         subjectUris = identity.allUris,
@@ -1665,6 +1670,7 @@ class PodAuthEndpoint @Inject constructor(
    * another replica's deletion does not invalidate — `PodSignOut` states what that costs.
    */
   private val PodDbo.pod: PodId get() = checkNotNull(id).toPodId()
+
 
   /**
    * The person this browser already proved itself as on this pod, or null — also where they have

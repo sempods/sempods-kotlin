@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.auth
 import org.sempods.auth.core.DynamicClientFingerprint
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.objectId
 import com.google.inject.Inject
 import org.bson.types.ObjectId
 import java.security.SecureRandom
@@ -114,9 +115,6 @@ class DynamicClientStore @Inject constructor(
    */
   internal fun touchLastAuthorized(pod: PodId, clientId: String): Boolean =
     dao.touchLastAuthorized(pod.objectId(), clientId)
-
-  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
-  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private fun DynamicClientRegistrationDbo.toRegistration(
     deduplicatedFromRegisteredAt: Instant? = null,

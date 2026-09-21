@@ -10,6 +10,7 @@ import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import java.time.Duration
 import java.time.Instant
@@ -352,9 +353,6 @@ class PodRefreshTokenStore internal constructor(
   internal fun findByFamily(familyId: String): List<PodRefreshToken> = store.findByFamily(familyId)
 
   private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
-
-  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
-  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private companion object {
 

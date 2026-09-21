@@ -3,6 +3,7 @@ package org.sempods.pods.oauth.flows
 import com.google.inject.Inject
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
+import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.Pkce
@@ -11,6 +12,7 @@ import org.sempods.pods.PodId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import kotlin.test.Test
@@ -51,6 +53,9 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   @Inject
   private lateinit var sempodsTestFactory: SempodsTestFactory
 
+  @Inject
+  private lateinit var sempodsUriBuilder: SempodsUriBuilder
+
   private val clientId = "did:web:app.example"
   private val redirectUri = "https://app.example/cb"
 
@@ -69,7 +74,8 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
     fun grant(grants: Set<String>) {
       podGrantsFacade.replaceAppGrants(
-        podDbo = pod,
+        pod = pod.toRef(sempodsUriBuilder),
+        podId = podId,
         appId = clientId,
         webId = webId,
         subjectUris = listOf(webId),

@@ -6,6 +6,7 @@ import org.bson.types.ObjectId
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.objectId
 import java.time.Instant
 
 /**
@@ -113,9 +114,6 @@ class PodSignOut @Inject internal constructor(
     val signedOutAt = signOutStore.signedOutAt(pod.objectId(), webIds) ?: return true
     return issuedAt != null && issuedAt.epochSecond > signedOutAt.epochSecond
   }
-
-  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
-  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private companion object {
     private val logger = KotlinLogging.logger {}
