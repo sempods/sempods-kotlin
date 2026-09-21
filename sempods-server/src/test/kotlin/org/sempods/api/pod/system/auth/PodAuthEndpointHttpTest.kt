@@ -315,7 +315,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .executeSignedInAs("${FakeIdServerTransport.ISSUER}/e/somebody", nonce = "the-nonce-of-another-login")
 
     // Must redirect to the app with an OAuth error — not back into a login.
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     assertTrue(location.startsWith(testRedirectUri), "Should redirect to app's redirect_uri, not to login")
@@ -338,7 +338,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
     // Should redirect with login_required error
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     assertTrue(location.contains("error=login_required"), "Should contain login_required error")
@@ -375,7 +375,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     assertTrue(location.contains("error=login_required"), "must be login_required, got: $location")
     assertFalse(location.contains("code="), "prompt=none must not mint a code without a session")
@@ -514,7 +514,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       // cheapest one to provoke.
       .executeSignedInAs(signAs = null)
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     val decoded = java.net.URLDecoder.decode(location, "UTF-8")
@@ -551,7 +551,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("redirect_uri", redirectUri)
       .execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = java.net.URLDecoder.decode(assertNotNull(response.getHeader("Location")), "UTF-8")
     assertTrue(
       location.contains("error=unsupported_response_type"),
@@ -1245,7 +1245,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     val response = submitConsent(pod, ownerWebId, state = "gone", disconnect = true)
 
-    assertEquals(307, response.statusCode, response.responseBody)
+    assertEquals(303, response.statusCode, response.responseBody)
     assertTrue("error=access_denied" in checkNotNull(response.getHeader("Location")))
     assertTrue(
       podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
@@ -1564,7 +1564,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       )
       .setFollowRedirect(false).execute()
 
-    assertEquals(307, response.statusCode, response.responseBody)
+    assertEquals(303, response.statusCode, response.responseBody)
     assertNull(
       podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
       "a disconnect must not build the context the form was carrying",
@@ -1592,7 +1592,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       )
       .setFollowRedirect(false).execute()
 
-    assertEquals(307, response.statusCode, response.responseBody)
+    assertEquals(303, response.statusCode, response.responseBody)
     assertNull(
       podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "notes")),
       "an empty submission must not build a context on its way out",
@@ -2300,7 +2300,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
       .setFollowRedirect(false).execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     assertTrue("error=consent_required" in location, location)
     assertFalse("code=" in location, "a dynamic client must not be auto-granted: $location")
@@ -2322,7 +2322,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
       .setFollowRedirect(false).execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     assertTrue("error=consent_required" in checkNotNull(response.getHeader("Location")))
   }
 
@@ -2622,7 +2622,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     assertTrue(location.startsWith(testRedirectUri), "Spec error must redirect to app: $location")
@@ -2711,7 +2711,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     assertTrue(location.contains("error=login_required"), "Should report login_required: $location")
@@ -2738,7 +2738,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("scope", "public-read")
       .executeSignedInAs(signAs = null)
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location")
     assertNotNull(location)
     // `server_error` and not `access_denied`: the sign-in did not complete, which is this server's
@@ -3882,8 +3882,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("state", "no-pkce-state")
       .executeSignedInAs(ownerWebId)
 
-    // oauthError redirects with error=invalid_request as a 307 to the redirect_uri.
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     assertTrue(location.contains("error=invalid_request"), "Expected invalid_request in: $location")
   }
@@ -3916,7 +3915,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("code_challenge_method", "plain")
       .executeSignedInAs(ownerWebId)
 
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     assertTrue(location.contains("error=invalid_request"), "Expected invalid_request in: $location")
   }
@@ -3943,7 +3942,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
         .apply { if (method.isNotEmpty()) addQueryParam("code_challenge_method", method) }
         .executeSignedInAs(ownerWebId)
 
-      assertEquals(307, response.statusCode, "method='$method'")
+      assertEquals(303, response.statusCode, "method='$method'")
       val location = checkNotNull(response.getHeader("Location"))
       assertTrue(location.contains("error=invalid_request"), "method='$method' must be refused: $location")
       assertFalse(location.contains("code="), "method='$method' must not mint a code: $location")
@@ -4813,7 +4812,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `an unknown client_id is refused without redirecting anywhere`() {
     val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
 
-    // Before the validation order was fixed, this answered 307 to the supplied address: an
+    // Before the validation order was fixed, this redirected to the supplied address: an
     // unknown client_id was reported *by redirect*, several lines before the check that rejects
     // the address. Only error parameters travelled, but it made the pod an open redirector on its
     // own origin — a link that launders through a host the user trusts.
@@ -4864,7 +4863,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
     // Now that the address is validated, the error may travel as RFC 6749 §4.1.2.1 asks.
-    assertEquals(307, response.statusCode)
+    assertEquals(303, response.statusCode)
     val location = response.getHeader("Location").orEmpty()
     assertTrue(location.startsWith(testRedirectUri), location)
     assertTrue("unsupported_response_type" in location, location)

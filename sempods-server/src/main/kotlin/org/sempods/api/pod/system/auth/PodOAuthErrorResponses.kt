@@ -82,7 +82,9 @@ internal object PodOAuthErrorResponses {
     state?.trim()?.takeIf { it.isNotBlank() }?.let {
       uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it)
     }
-    return Response.temporaryRedirect(uri).build()
+    // The consent dialog is a POST, and a 307 tells the browser to repeat it at the client's
+    // address: the ticked scopes and the spent CSRF token arrive at the app. RFC 9700 §4.12 names 303.
+    return Response.seeOther(uri).build()
   }
 
   /**

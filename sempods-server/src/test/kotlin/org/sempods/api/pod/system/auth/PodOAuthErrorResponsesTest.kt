@@ -37,9 +37,16 @@ class PodOAuthErrorResponsesTest {
   ): String = PodOAuthErrorResponses.render(
     OAuthErrorDelivery.Redirect(target(redirectUri), OAuthErrorCode.ACCESS_DENIED, "no", state),
     config(docBase),
-  ).let { response ->
-    assertEquals(307, response.status, "an authorization error is reported without changing the method")
-    response.location.toString()
+  ).location.toString()
+
+  @Test
+  fun `an error sends the browser without re-sending the consent form`() {
+    val response = PodOAuthErrorResponses.render(
+      OAuthErrorDelivery.Redirect(target("https://app.example/cb"), OAuthErrorCode.ACCESS_DENIED, "no", null),
+      config(null),
+    )
+
+    assertEquals(303, response.status, "a 307 would re-POST the consent form to the app")
   }
 
   @Test
