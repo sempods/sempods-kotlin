@@ -1724,6 +1724,61 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `every answer the token endpoint gives carries the cache rules and the JSON type`() {
+    // On the success and the refusal alike. What a client does when they are missing is
+    // `PodTokenResponses`' KDoc; what only this case can show is that they survive the whole
+    // request path rather than being set on a response the endpoint builds and Jersey replaces.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val issued = exchangeCodeRaw(pod, codeFrom(submitConsent(pod, ownerWebId, state = "cache")))
+    val refused = postForm(
+      tokenUrl(pod.name),
+      "grant_type=authorization_code&code=never-issued" +
+        "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+    )
+
+    assertEquals(200, issued.statusCode, issued.responseBody)
+    assertEquals(400, refused.statusCode, refused.responseBody)
+    for (response in listOf(issued, refused)) {
+      assertTrue(
+        response.contentType.orEmpty().startsWith("application/json"),
+        "expected JSON, was '${response.contentType}'",
+      )
+      assertEquals("no-store", response.getHeader("Cache-Control"), response.responseBody)
+      assertEquals("no-cache", response.getHeader("Pragma"), response.responseBody)
+    }
+  }
+
+  @Test
+  fun `a bearer carrying no feature scope names no scope member at all`() {
+    // Why the member is absent is `PodTokenResponses.tokens`' KDoc. What this case adds is the
+    // path that reaches it: a context-only consent grants durable policy and no feature scope, so
+    // the bearer has nothing to state — the ordinary shape, and the one a client meets first.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val browser = signIn(pod.name, ownerWebId)
+
+    val consented = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", browser.cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=context-only&csrf=${enc(browser.csrf)}" +
+          "&new_context=${enc("my/data")}&new_context_scope=${enc("my/data#read")}",
+      )
+      .setFollowRedirect(false).execute()
+
+    val body = exchangeCode(pod, codeFrom(consented))
+    assertFalse("scope" in body, "a context-only consent states no scope: $body")
+    assertEquals("Bearer", body["token_type"], "$body")
+    assertTrue(body["expires_in"] is Number, "expires_in is a number, not a string: $body")
+    assertNotNull(body["refresh_token"], "$body")
+  }
+
+  @Test
   fun `an app whose grants sit under an alias can still be disconnected`() {
     // `SPS-AUTH-061`, lookup half. The pod stores whichever WebID authenticated; asking about one leaves an
     // alias-held authorization reading as a first authorization, which hides the way out exactly

@@ -1311,7 +1311,7 @@ class PodAuthEndpoint @Inject constructor(
     // Ahead of the pod row on purpose: `fetchPodOrThrow` reads it uncached, so a refused request
     // costs no query at all. That is most of what the budget buys — see [PodTokenRateLimiter].
     if (!tokenRateLimiter.tryAcquire(forwardedFor, grantType, clientId, authorizationHeader)) {
-      return rateLimitedError()
+      return PodTokenResponses.rateLimited()
     }
 
     val podDbo = fetchPodOrThrow(pod)
@@ -1363,13 +1363,10 @@ class PodAuthEndpoint @Inject constructor(
     requestedScope: String?,
   ): Response {
     val basic = BasicAuth.parse(authorizationHeader)
-      ?: return Response.status(401)
-        .header("WWW-Authenticate", "Basic realm=\"${podDbo.name}\"")
-        .entity("""{"error":"invalid_client","error_description":"HTTP Basic authentication required"}""")
-        .type(MediaType.APPLICATION_JSON)
-        .header("Cache-Control", "no-store")
-        .header("Pragma", "no-cache")
-        .build()
+      ?: return PodTokenResponses.clientAuthenticationRequired(
+        realm = podDbo.name,
+        description = "HTTP Basic authentication required",
+      )
 
     val podId = checkNotNull(podDbo.id)
     val client = podServiceClientStore.authenticate(podId, basic.username, basic.password)
@@ -1378,13 +1375,10 @@ class PodAuthEndpoint @Inject constructor(
         "[oauth/token] client_credentials auth failed: pod='${podDbo.name}', " +
             "clientId='${LogSafeText.of(basic.username)}'"
       }
-      return Response.status(401)
-        .header("WWW-Authenticate", "Basic realm=\"${podDbo.name}\"")
-        .entity("""{"error":"invalid_client","error_description":"unknown client_id or invalid secret"}""")
-        .type(MediaType.APPLICATION_JSON)
-        .header("Cache-Control", "no-store")
-        .header("Pragma", "no-cache")
-        .build()
+      return PodTokenResponses.clientAuthenticationRequired(
+        realm = podDbo.name,
+        description = "unknown client_id or invalid secret",
+      )
     }
 
     // Down-scoping is NOT supported on client_credentials. A slim service token carries no
@@ -1423,17 +1417,13 @@ class PodAuthEndpoint @Inject constructor(
           "tokenFeatureScopes=${tokenFeatureScopes.size}, label='${client.label ?: "(unset)"}'"
     }
 
-    val body = linkedMapOf<String, Any>(
-      "access_token" to accessToken,
-      "token_type" to "Bearer",
-      "expires_in" to PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
-      "scope" to tokenFeatureScopes.joinToString(" "),
+    // `scope` is stated even when the set is empty, which is the ordinary shape today — see
+    // [PodTokenResponses.tokens] for why this answer differs from the user token's there.
+    return PodTokenResponses.tokens(
+      accessToken = accessToken,
+      expiresInSeconds = PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
+      scope = tokenFeatureScopes.joinToString(" "),
     )
-    return Response.ok(body)
-      .type(MediaType.APPLICATION_JSON)
-      .header("Cache-Control", "no-store")
-      .header("Pragma", "no-cache")
-      .build()
   }
 
   private fun exchangeAuthorizationCode(
@@ -1888,17 +1878,11 @@ class PodAuthEndpoint @Inject constructor(
       clientId = clientId,
       scopes = setOf(PUBLIC_READ_SCOPE),
     )
-    val body = linkedMapOf<String, Any>(
-      "access_token" to accessToken,
-      "token_type" to "Bearer",
-      "expires_in" to PodTokenIssuer.USER_TOKEN_TTL_SECONDS,
-      "scope" to PUBLIC_READ_SCOPE,
+    return PodTokenResponses.tokens(
+      accessToken = accessToken,
+      expiresInSeconds = PodTokenIssuer.USER_TOKEN_TTL_SECONDS,
+      scope = PUBLIC_READ_SCOPE,
     )
-    return Response.ok(body)
-      .type(MediaType.APPLICATION_JSON)
-      .header("Cache-Control", "no-store")
-      .header("Pragma", "no-cache")
-      .build()
   }
 
   /**
@@ -1953,34 +1937,12 @@ class PodAuthEndpoint @Inject constructor(
     // answered `EXPIRED`. The branch stays because it is the structural half of the guarantee — no
     // bearer leaves this server outliving its family, whatever wrote the row.
     accessToken ?: return tokenError(OAuthErrorCode.INVALID_GRANT, "the connection has ended")
-    val body = linkedMapOf<String, Any>(
-      "access_token" to accessToken.token,
-      "token_type" to "Bearer",
-      "expires_in" to accessToken.ttlSeconds,
+    return PodTokenResponses.tokens(
+      accessToken = accessToken.token,
+      expiresInSeconds = accessToken.ttlSeconds,
+      scope = scopes.joinToString(" ").takeIf { scopes.isNotEmpty() },
+      refreshToken = refreshToken,
     )
-    // RFC 6749 §5.1 defines this member as the scope of the *access token*, and a credential's
-    // lifetime has no standing in it — so `offline_access` does not appear here, whichever answer
-    // the person gave. A client could do nothing with it either: it starts a fresh flow when the
-    // family ends, whatever it knew beforehand. The consent screen is where the person is told.
-    //
-    // Omitted rather than empty where the bearer carries no feature scope at all, which is the
-    // ordinary shape of a context-only consent. §3.3's grammar is one `scope-token` followed by
-    // more, so `""` is not a scope this response is allowed to name, and §5.1 makes the member
-    // optional. A strict client is entitled to refuse the whole exchange over it.
-    if (scopes.isNotEmpty()) body["scope"] = scopes.joinToString(" ")
-    // Absent rather than null when no refresh token is handed back: RFC 6749 §5.1 makes the
-    // member optional, and a client reading `"refresh_token": null` as a token is a bug this
-    // response should not be able to provoke.
-    refreshToken?.let { body["refresh_token"] = it }
-    // RFC 6749 §5.1 — token responses MUST carry Cache-Control: no-store + Pragma: no-cache.
-    // Strict OAuth clients (observed: GitHub Copilot CLI) silently drop tokens received without
-    // these headers, which manifests as "consent completed, tokens issued, but no follow-up
-    // request ever carries a Bearer".
-    return Response.ok(body)
-      .type(MediaType.APPLICATION_JSON)
-      .header("Cache-Control", "no-store")
-      .header("Pragma", "no-cache")
-      .build()
   }
 
   // ─── JWKS ─────────────────────────────────────────────────────────────────
@@ -2219,40 +2181,9 @@ class PodAuthEndpoint @Inject constructor(
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private fun tokenError(error: OAuthErrorCode, description: String): Response {
-    val body = """{"error":"${error.code}","error_description":"$description"}"""
-    // RFC 6749 §5.2 — error responses from the token endpoint follow the same cache rules
-    // as successful ones.
-    return Response.status(400)
-      .entity(body)
-      .type(MediaType.APPLICATION_JSON)
-      .header("Cache-Control", "no-store")
-      .header("Pragma", "no-cache")
-      .build()
-  }
-
-  /**
-   * The refusal when a caller has spent its budget at this endpoint.
-   *
-   * `slow_down` rather than an invented code: RFC 8628 registered it for the token endpoint, and
-   * it says exactly this — you are asking too often, keep going more slowly. The status is 429
-   * rather than the 400 [tokenError] uses, because nothing about the request itself is wrong.
-   *
-   * `Retry-After` is stated in whole seconds and deliberately as one flat number: the bucket
-   * refills continuously, so any single value is a hint rather than a deadline, and the hint worth
-   * giving is the window the budget itself is stated in.
-   */
-  private fun rateLimitedError(): Response {
-    val body = """{"error":"slow_down","error_description":"too many token requests — retry later"}"""
-    return Response.status(429)
-      .entity(body)
-      .type(MediaType.APPLICATION_JSON)
-      .header("Retry-After", RETRY_AFTER_SECONDS)
-      // RFC 6749 §5.2 — the token endpoint's cache rules hold for every answer it gives.
-      .header("Cache-Control", "no-store")
-      .header("Pragma", "no-cache")
-      .build()
-  }
+  /** Kept as a name because two dozen refusals read better for it; the answer is [PodTokenResponses]'. */
+  private fun tokenError(error: OAuthErrorCode, description: String): Response =
+    PodTokenResponses.error(error, description)
 
   /**
    * The person this browser already proved itself as on this pod, or null — also where they have
@@ -2468,12 +2399,6 @@ class PodAuthEndpoint @Inject constructor(
 
     /** The consent form's sign-out: it ends everything the person holds on the pod. */
     private const val SIGN_OUT_ACTION = "signout"
-
-    /**
-     * What a rate-limited caller is told to wait — the window the budget is stated in, which is
-     * the only number that means anything about a bucket that refills continuously.
-     */
-    private const val RETRY_AFTER_SECONDS = 60
 
     /**
      * What a well-formed `dyn:` client_id with no registration behind it is answered with.
