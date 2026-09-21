@@ -8,7 +8,7 @@ import java.time.Instant
  * that act on the pod owner's behalf without presenting a WebID.
  *
  * Service clients are NOT created via RFC 7591 Dynamic Client Registration
- * (those live in [org.sempods.api.pod.system.auth.DynamicClientRegistrationDbo]).
+ * (those live in [org.sempods.pods.oauth.DynamicClientRegistrationDbo]).
  * The row is inserted by either an admin script or by the
  * bootstrap step that runs on pod creation (see
  * `docs/auth/service-clients.md`). Each row

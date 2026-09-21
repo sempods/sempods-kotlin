@@ -6,9 +6,14 @@ import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.contexts.persist.PodContextsDao
+import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
+import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.pods.mongo.persist.toRef
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
@@ -94,7 +99,7 @@ class PodResourceRevocationHttpTest : SempodsIntegrationTest() {
     assertEquals(200, get(resourceUrl, accessToken).statusCode, "read before revocation")
 
     // The owner takes the grant back. The app is not involved and its token is untouched.
-    podGrantsFacade.revokeWebIdGrants(pod, webId, listOf("$contextUri#read", "$contextUri#write"))
+    podGrantsFacade.revokeWebIdGrants(pod.toHostedPod(sempodsUriBuilder), webId, listOf("$contextUri#read", "$contextUri#write"))
 
     // Same token, same requests. Writes are refused outright; reads simply stop seeing the
     // context — `authenticate` builds `restrictedContexts` and the read path filters by it, so an

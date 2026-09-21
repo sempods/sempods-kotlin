@@ -1,7 +1,7 @@
 package org.sempods
 
 import com.google.inject.Inject
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.ontologies.Ontologies
 import org.sempods.pods.PodRepositoryCache
@@ -14,6 +14,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.rdf.Rdf4JUtil
 import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil.randomId
@@ -124,7 +125,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       dynamicClientRegistrationDao.findByClientId(pod1Id, clientIdFor(pod1.name)),
       "DCR rows must be gone",
     )
-    assertNull(signOutStore.signedOutAt(pod1Id, listOf(CASCADE_WEB_ID)), "sign-outs must be gone")
+    assertNull(signOutStore.signedOutAt(pod1Id.toPodId(), listOf(CASCADE_WEB_ID)), "sign-outs must be gone")
     // PodRepositoryCache.get() reloads from DB; with the pod removed it returns null.
     assertNull(podRepositoryCache.get(pod1.name), "cache must not resurrect a deleted pod")
 
@@ -135,7 +136,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
     assertTrue(podGrantsDao.anyForPod(pod2Id))
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, refreshTokenStore.lookup(seededToken(pod2.name)).state)
     assertNotNull(dynamicClientRegistrationDao.findByClientId(pod2Id, clientIdFor(pod2.name)))
-    assertNotNull(signOutStore.signedOutAt(pod2Id, listOf(CASCADE_WEB_ID)))
+    assertNotNull(signOutStore.signedOutAt(pod2Id.toPodId(), listOf(CASCADE_WEB_ID)))
   }
 
   private fun seedAllPodScopedRecords(podName: String, podId: ObjectId) {
@@ -168,7 +169,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
 
     // A refresh token for the pod, remembered by its plaintext so the cascade can be asserted on it.
     seededTokens[podName] = refreshTokenStore.issueNewFamily(
-      podId = podId,
+      pod = podId.toPodId(),
       podName = podName,
       clientId = "dyn:cascade-${randomId()}",
       webId = "https://id.example.org/cascade-test",
@@ -176,7 +177,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
     ).plaintext
 
-    signOutStore.record(podId, listOf(CASCADE_WEB_ID))
+    signOutStore.record(podId.toPodId(), listOf(CASCADE_WEB_ID))
 
     // DynamicClientRegistrationDbo: pod-scoped row, deterministic clientId.
     dynamicClientRegistrationDao.create(

@@ -203,12 +203,6 @@ data class SempodsConfig(
     }
   }
 
-  /**
-   * The `error_uri` for one OAuth error code, or null when no documentation address is
-   * configured — in which case the parameter is left off the redirect entirely.
-   */
-  fun oauthErrorUri(errorCode: String): String? = oauthErrorDocBase?.let { "$it#$errorCode" }
-
   companion object {
 
     /**

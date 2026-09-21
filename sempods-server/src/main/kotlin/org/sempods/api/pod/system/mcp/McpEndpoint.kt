@@ -46,6 +46,7 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.api.pod.system.auth.buildProtectedResourceMetadata
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toPodId
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
@@ -918,8 +919,8 @@ class McpEndpoint @Inject constructor(
     val clientId = credentials.oauthClientId ?: return
     val webId = credentials.tokenSub ?: return
     val subjects = webIdUriDeriver.derivableAliases(webId)
-    val reset = consentDecisionStore.bumpGeneration(podId = podId, appId = clientId, webIds = subjects)
-    val revoked = refreshTokenStore.revokeLiveFamiliesFor(podId = podId, clientId = clientId, webIds = subjects)
+    val reset = consentDecisionStore.bumpGeneration(pod = podId.toPodId(), appId = clientId, webIds = subjects)
+    val revoked = refreshTokenStore.revokeLiveFamiliesFor(pod = podId.toPodId(), clientId = clientId, webIds = subjects)
     if (reset > 0 || revoked > 0) {
       logger.info {
         "[mcp] Ended what the client held for explicit reauthorize: pod='${credentials.pod.name}', " +

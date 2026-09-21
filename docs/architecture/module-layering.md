@@ -101,5 +101,12 @@ Service Impl ──┘
   collection turns a storage detail into a contract nobody declared. Reach the data through the
   owning module's facade. In `:sempods-server` this is `internal` and checked by `buildHealth` —
   see `../../sempods-server/docs/collections.md` §"Conventions"
+- **One package is held to what it may name.**
+  `sempods-server`'s `org.sempods.pods.oauth.flows` decides the pod's OAuth flows, and
+  `PodOAuthFlowsBoundaryTest` fails if it reaches for an HTTP framework, a protocol library, a
+  database driver, a stored row or the endpoint layer. A layer that may not reach for those is one
+  an alternative transport or store can be put under, which is why the endpoint holds the request
+  and this holds the decision. Neighbouring packages are not held to it: `org.sempods.pods.oauth`
+  keeps the stores, and a store names its driver by definition
 - Which modules may depend on which is the harder boundary, and it is not a matter of visibility
   modifiers — see the layering rules above and the module list in the root `AGENTS.md`

@@ -8,6 +8,9 @@ import org.bson.types.ObjectId
 import org.sempods.SempodsCollections
 import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.objectId
+import org.sempods.pods.mongo.persist.toPodId
 import java.time.Duration
 import java.time.Instant
 
@@ -37,13 +40,13 @@ class PodRefreshTokenStore internal constructor(
     this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config)
 
   /**
-   * @param podId the pod the token is good for, and the key everything bulk-revoking starts from.
+   * @param pod the pod the token is good for, and the key everything bulk-revoking starts from.
    * @param podName carried for the caller's benefit and never queried on, which is why it is not in
    *   the compound index.
    * @param webId the person, as their WebID — the token's subject.
    */
   internal data class Owner(
-    val podId: ObjectId,
+    val pod: PodId,
     val podName: String,
     val clientId: String,
     val webId: String,
@@ -54,14 +57,14 @@ class PodRefreshTokenStore internal constructor(
     collectionName = collectionName,
     ownerIndexFields = listOf(FIELD_POD_ID, FIELD_CLIENT_ID, FIELD_WEB_ID),
     writeOwner = {
-      put(FIELD_POD_ID, it.podId)
+      put(FIELD_POD_ID, it.pod.objectId())
       put(FIELD_POD_NAME, it.podName)
       put(FIELD_CLIENT_ID, it.clientId)
       put(FIELD_WEB_ID, it.webId)
     },
     readOwner = {
       Owner(
-        podId = getObjectId(FIELD_POD_ID),
+        pod = getObjectId(FIELD_POD_ID).toPodId(),
         podName = getString(FIELD_POD_NAME),
         clientId = getString(FIELD_CLIENT_ID),
         webId = getString(FIELD_WEB_ID),
@@ -143,7 +146,7 @@ class PodRefreshTokenStore internal constructor(
    * to it is how a caller would set one of the two numbers and forget the other.
    */
   internal fun issueNewFamily(
-    podId: ObjectId,
+    pod: PodId,
     podName: String,
     clientId: String,
     webId: String,
@@ -152,7 +155,7 @@ class PodRefreshTokenStore internal constructor(
   ): RefreshTokenStore.Issued<Owner> {
     val terms = termsOf(lifetime)
     return store.issueNewFamily(
-      owner = Owner(podId = podId, podName = podName, clientId = clientId, webId = webId),
+      owner = Owner(pod = pod, podName = podName, clientId = clientId, webId = webId),
       scopes = scopes,
       kind = lifetime.kind,
       endsAt = Instant.now().plus(terms.absolute),
@@ -198,8 +201,8 @@ class PodRefreshTokenStore internal constructor(
    * paths. The MCP surface's explicit re-authorization uses [revokeLiveFamiliesFor] instead, for
    * the reason stated there.
    */
-  internal fun revokeForUser(podId: ObjectId, clientId: String, webId: String): Long =
-    revokeForUser(podId, clientId, listOf(webId))
+  internal fun revokeForUser(pod: PodId, clientId: String, webId: String): Long =
+    revokeForUser(pod, clientId, listOf(webId))
 
   /**
    * The same, for every URI that names the same person.
@@ -209,8 +212,8 @@ class PodRefreshTokenStore internal constructor(
    * calling that a withdrawal leaves the connection the person meant to end running — and the
    * survivor then reads as an authorization with nothing recorded, which is grandfathered.
    */
-  internal fun revokeForUser(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
-    ownerFilter(podId, clientId, webIds)?.let(store::revokeWhere) ?: 0
+  internal fun revokeForUser(pod: PodId, clientId: String, webIds: Collection<String>): Long =
+    ownerFilter(pod, clientId, webIds)?.let(store::revokeWhere) ?: 0
 
   /**
    * Revokes every row this person holds on the pod, whichever app it belongs to — the sign-out path.
@@ -220,12 +223,12 @@ class PodRefreshTokenStore internal constructor(
    * rows are revoked too, and that is what reaches a rotation in flight — its successor lands after
    * this sweep, and [noLongerStands] then finds the predecessor revoked.
    */
-  internal fun revokeForPerson(podId: ObjectId, webIds: Collection<String>): Long {
+  internal fun revokeForPerson(pod: PodId, webIds: Collection<String>): Long {
     val distinct = webIds.filter { it.isNotBlank() }.distinct()
     if (distinct.isEmpty()) return 0
     return store.revokeWhere(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
+        podFilter(pod),
         Filters.`in`(FIELD_WEB_ID, distinct),
       ),
     )
@@ -241,8 +244,8 @@ class PodRefreshTokenStore internal constructor(
    * anything minted after the look. What is minted between the caller's own generation raise and
    * this look is still taken; removing that needs the family to carry its own generation.
    */
-  internal fun revokeLiveFamiliesFor(podId: ObjectId, clientId: String, webIds: Collection<String>): Long =
-    revokeFamilies(liveFamilies(podId, clientId, webIds))
+  internal fun revokeLiveFamiliesFor(pod: PodId, clientId: String, webIds: Collection<String>): Long =
+    revokeFamilies(liveFamilies(pod, clientId, webIds))
 
   /**
    * The live families this app holds for this person — what a consent about to mint one supersedes.
@@ -261,8 +264,8 @@ class PodRefreshTokenStore internal constructor(
    * cannot name a family minted after it, and each caller reads before it inserts, so at most one of
    * the two can have observed the other: either one retires the other, or neither does.
    */
-  internal fun liveFamilies(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
-    ownerFilter(podId, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
+  internal fun liveFamilies(pod: PodId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(pod, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
 
   /**
    * Revokes each of [familyIds] — the sweep [liveFamilies] measured, successors included.
@@ -286,8 +289,8 @@ class PodRefreshTokenStore internal constructor(
    * milestone exists to remove. Whether that successor may live is settled by the refresh exchange,
    * which asks the grants again after inserting it.
    */
-  internal fun liveTokens(podId: ObjectId, clientId: String, webIds: Collection<String>): Set<String> =
-    ownerFilter(podId, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()
+  internal fun liveTokens(pod: PodId, clientId: String, webIds: Collection<String>): Set<String> =
+    ownerFilter(pod, clientId, webIds)?.let(store::liveTokensWhere) ?: emptySet()
 
   /**
    * Revokes exactly the rows [liveTokens] named, and nothing minted since — **skipping any that
@@ -329,11 +332,11 @@ class PodRefreshTokenStore internal constructor(
     store.liveTokensWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash)).isEmpty()
 
   /** What one app holds for one person, or null where no URI names them. */
-  private fun ownerFilter(podId: ObjectId, clientId: String, webIds: Collection<String>): Bson? {
+  private fun ownerFilter(pod: PodId, clientId: String, webIds: Collection<String>): Bson? {
     val distinct = webIds.filter { it.isNotBlank() }.distinct()
     if (distinct.isEmpty()) return null
     return Filters.and(
-      Filters.eq(FIELD_POD_ID, podId),
+      podFilter(pod),
       Filters.eq(FIELD_CLIENT_ID, clientId),
       Filters.`in`(FIELD_WEB_ID, distinct),
     )
@@ -343,12 +346,12 @@ class PodRefreshTokenStore internal constructor(
    * Hard-deletes every refresh token of the pod — the pod-cascade delete path, where family
    * revocation is moot because the pod itself is gone.
    */
-  internal fun deleteByPod(podId: ObjectId): Long = store.deleteWhere(podFilter(podId))
+  internal fun deleteByPod(pod: PodId): Long = store.deleteWhere(podFilter(pod))
 
   /** Diagnostics and tests: used to assert that family-wide revocation happened. */
   internal fun findByFamily(familyId: String): List<PodRefreshToken> = store.findByFamily(familyId)
 
-  private fun podFilter(podId: ObjectId): Bson = Filters.eq(FIELD_POD_ID, podId)
+  private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
 
   private companion object {
 

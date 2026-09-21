@@ -2,7 +2,7 @@ package org.sempods
 
 import com.google.inject.Inject
 import com.google.inject.Provider
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
@@ -13,6 +13,7 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import java.time.Instant
@@ -75,8 +76,9 @@ class SempodsFacade @Inject constructor(
       // handle on data that's about to disappear. The in-memory RDF cache is
       // invalidated by the calling ServiceImpl (cycle avoidance with
       // PodRepositoryCache).
-      refreshTokenStore.deleteByPod(podId)
-      consentDecisionStore.deleteByPod(podId)
+      val pod = podId.toPodId()
+      refreshTokenStore.deleteByPod(pod)
+      consentDecisionStore.deleteByPod(pod)
       dynamicClientRegistrationDao.deleteByPod(podId)
       podServiceClientDao.deleteByPod(podId)
       podServiceAuditLogDao.deleteByPod(podId)
@@ -107,7 +109,7 @@ class SempodsFacade @Inject constructor(
     // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
     // resolved and its grants stood, a token or session its person had signed out of would be
     // accepted again for that moment.
-    podId?.let(signOutStore::deleteByPod)
+    podId?.toPodId()?.let(signOutStore::deleteByPod)
     podIdCache.clear()
   }
 

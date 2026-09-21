@@ -1,8 +1,9 @@
-package org.sempods.api.pod.system.auth
+package org.sempods.pods.oauth
 
 import org.sempods.auth.core.DynamicClientFingerprint
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.objectId
 import com.google.inject.Inject
-import org.bson.types.ObjectId
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
@@ -48,7 +49,7 @@ class DynamicClientStore @Inject constructor(
   private val random = SecureRandom()
 
   internal fun register(
-    registeredForPodId: ObjectId,
+    registeredForPod: PodId,
     registeredForPodName: String,
     redirectUris: Set<String>,
     clientName: String?,
@@ -77,12 +78,12 @@ class DynamicClientStore @Inject constructor(
     // pod-deletion cascade), and a single re-read would answer nothing and turn an unauthenticated
     // `/register` into a 500. The next pass just inserts.
     repeat(ATTEMPTS) {
-      dao.findByFingerprint(registeredForPodId, fingerprint)?.let { existing ->
+      dao.findByFingerprint(registeredForPod.objectId(), fingerprint)?.let { existing ->
         return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
       }
       val dbo = dao.create(
         clientId = "dyn:" + newOpaqueId(),
-        registeredForPodId = registeredForPodId,
+        registeredForPodId = registeredForPod.objectId(),
         registeredForPodName = registeredForPodName,
         redirectUris = redirectUris,
         clientName = clientName,
@@ -100,18 +101,18 @@ class DynamicClientStore @Inject constructor(
       )
       if (dbo != null) return dbo.toRegistration()
     }
-    error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPodId")
+    error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPod")
   }
 
-  internal fun lookup(podId: ObjectId, clientId: String): Registration? =
-    dao.findByClientId(podId, clientId)?.toRegistration()
+  internal fun lookup(pod: PodId, clientId: String): Registration? =
+    dao.findByClientId(pod.objectId(), clientId)?.toRegistration()
 
   /**
    * Best-effort liveness bump. Returns `true` if the DCR row was updated (dyn:-clients),
    * `false` for did:web-clients that have no DCR row.
    */
-  internal fun touchLastAuthorized(podId: ObjectId, clientId: String): Boolean =
-    dao.touchLastAuthorized(podId, clientId)
+  internal fun touchLastAuthorized(pod: PodId, clientId: String): Boolean =
+    dao.touchLastAuthorized(pod.objectId(), clientId)
 
   private fun DynamicClientRegistrationDbo.toRegistration(
     deduplicatedFromRegisteredAt: Instant? = null,

@@ -1,19 +1,20 @@
 package org.sempods.pods.grants
 
 import com.google.inject.Inject
+import io.github.oshai.kotlinlogging.KotlinLogging
+import java.net.URI
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.SempodsUriBuilder
+import org.sempods.pods.HostedPod
+import org.sempods.pods.PodId
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantDbo
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantDbo
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
-import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.objectId
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
-import io.github.oshai.kotlinlogging.KotlinLogging
-import org.bson.types.ObjectId
-import java.net.URI
 
 /**
  * Single entry point for reading and mutating grants on a pod.
@@ -63,14 +64,30 @@ class PodGrantsFacade @Inject constructor(
   private val podScopeValidator: PodScopeValidator,
   private val podContextPermissionResolver: PodContextPermissionResolver,
   private val refreshTokenStore: PodRefreshTokenStore,
-  private val sempodsUriBuilder: SempodsUriBuilder,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
+
+  /**
+   * What this app may exercise for [webIds] on [pod] — the app level, read as it stands.
+   *
+   * Here rather than at each caller, because the row it reads is this module's and a caller that
+   * reaches [PodGrantsDao] for it has made the document format a contract nobody declared
+   * (`docs/architecture/module-layering.md` §"Module Boundaries"). The OAuth paths ask it three
+   * times: whether an app still holds anything at all, and — twice, on either side of a rotation —
+   * whether a refresh may still mint.
+   *
+   * Deliberately *not* intersected with the user level. The request path does not intersect either
+   * ([PodContextPermissionResolver.resolveFromGrants]), and the reason is the same: a request
+   * carries one identity URI while a user-level grant may have been written under an equivalent
+   * one. Revocation recomputes instead, which is what [cascadeToAppGrants] is for.
+   */
+  internal fun appGrants(pod: PodId, appId: String, webIds: Collection<String>): Set<String> =
+    podGrantsDao.fetchGrantStrings(pod.objectId(), appId, webIds.toList())
 
   // ── user level: what a person may do on this pod ────────────────────────────
 
   /**
-   * The effective grant set for a person on [podDbo] — the `user_grants` side of the two-level
+   * The effective grant set for a person on [pod, pod.id] — the `user_grants` side of the two-level
    * intersection.
    *
    * - Pod owner: implicit `read | write | manage` on every registered context.
@@ -86,25 +103,25 @@ class PodGrantsFacade @Inject constructor(
    * must still resolve when they appear under an equivalent one.
    */
   internal fun resolveUserGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     webIds: Collection<String>,
-    podBaseUrl: String,
   ): Set<String> {
-    val podId = checkNotNull(podDbo.id)
-    if (isPodOwner(podDbo, webIds)) {
-      return podContextsDao.fetchByPod(podId).flatMap { ctx ->
+    val podBaseUrl = pod.baseUrl
+    val storedPodId = pod.id.objectId()
+    if (isPodOwner(pod, webIds)) {
+      return podContextsDao.fetchByPod(storedPodId).flatMap { ctx ->
         ScopePermission.entries.map { permission -> "${ctx.contextUri}#${permission.value}" }
       }.toSet()
     }
 
     // Keep only well-formed context grants before expanding — a malformed or foreign string in
     // the store must not surface into the person's delegatable set.
-    val contextGrants = podWebIdGrantsDao.fetchGrantStrings(podId, webIds)
+    val contextGrants = podWebIdGrantsDao.fetchGrantStrings(storedPodId, webIds)
       .filter { podScopeValidator.validate(it, podBaseUrl) is ScopeValidationResult.Context }
       .toSet()
     if (contextGrants.isEmpty()) return emptySet()
 
-    val expanded = podContextPermissionResolver.expandManageCascade(contextGrants, podId, podBaseUrl)
+    val expanded = podContextPermissionResolver.expandManageCascade(contextGrants, storedPodId, podBaseUrl)
     val impliedReads = expanded
       .mapNotNull { grant ->
         (podScopeValidator.validate(grant, podBaseUrl) as? ScopeValidationResult.Context)
@@ -121,12 +138,8 @@ class PodGrantsFacade @Inject constructor(
    * of [resolveUserGrants] and every caller-side owner decision must agree, or a cascade would
    * strip grants the owner implicitly still holds.
    */
-  internal fun isPodOwner(podDbo: PodDbo, webIds: Collection<String>): Boolean =
-    podDbo.owner in webIds
-
-  /** Owner-level grants held by any of [webIds], with `grantedBy`/`grantedAt` provenance. */
-  internal fun fetchWebIdGrants(podDbo: PodDbo, webIds: Collection<String>): List<PodWebIdGrantDbo> =
-    podWebIdGrantsDao.fetchGrants(checkNotNull(podDbo.id), webIds)
+  internal fun isPodOwner(pod: HostedPod, webIds: Collection<String>): Boolean =
+    pod.owner in webIds
 
   /**
    * Grants [grants] to [webId] on top of what they already hold.
@@ -137,13 +150,13 @@ class PodGrantsFacade @Inject constructor(
    * here would silently hand apps access the user never delegated.
    */
   internal fun addWebIdGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     webId: String,
     grants: Collection<String>,
     grantedBy: String?,
   ) {
     podWebIdGrantsDao.addGrants(
-      podId = checkNotNull(podDbo.id),
+      podId = pod.id.objectId(),
       webId = webId,
       grants = grants,
       grantedBy = grantedBy,
@@ -157,13 +170,13 @@ class PodGrantsFacade @Inject constructor(
    * picks the key. The cascade that follows still spans the derivable aliases.
    */
   internal fun replaceWebIdGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     webId: String,
     grants: Collection<String>,
     grantedBy: String?,
-  ): GrantCascadeResult = mutateWebIdGrants(podDbo, webId) { _ ->
+  ): GrantCascadeResult = mutateWebIdGrants(pod, webId) { _ ->
     podWebIdGrantsDao.replaceGrants(
-      podId = checkNotNull(podDbo.id),
+      podId = pod.id.objectId(),
       webId = webId,
       grants = grants,
       grantedBy = grantedBy,
@@ -179,21 +192,19 @@ class PodGrantsFacade @Inject constructor(
    * would leave the access it was meant to remove in place.
    */
   internal fun revokeWebIdGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     webId: String,
     grants: Collection<String>,
   ): GrantCascadeResult {
-    val podId = checkNotNull(podDbo.id)
-    return mutateWebIdGrants(podDbo, webId) { aliases ->
-      aliases.sumOf { alias -> podWebIdGrantsDao.deleteGrants(podId, alias, grants) }
+    return mutateWebIdGrants(pod, webId) { aliases ->
+      aliases.sumOf { alias -> podWebIdGrantsDao.deleteGrants(pod.id.objectId(), alias, grants) }
     }
   }
 
   /** Removes every owner-level grant [webId] holds, across derivable aliases, and cascades. */
-  internal fun revokeAllWebIdGrants(podDbo: PodDbo, webId: String): GrantCascadeResult {
-    val podId = checkNotNull(podDbo.id)
-    return mutateWebIdGrants(podDbo, webId) { aliases ->
-      aliases.sumOf { alias -> podWebIdGrantsDao.deleteByWebId(podId, alias) }
+  internal fun revokeAllWebIdGrants(pod: HostedPod, webId: String): GrantCascadeResult {
+    return mutateWebIdGrants(pod, webId) { aliases ->
+      aliases.sumOf { alias -> podWebIdGrantsDao.deleteByWebId(pod.id.objectId(), alias) }
     }
   }
 
@@ -226,16 +237,15 @@ class PodGrantsFacade @Inject constructor(
    * row. The check is a no-op whenever nothing raced, which is the overwhelmingly common case.
    */
   internal fun replaceAppGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     appId: String,
     webId: String,
     subjectUris: Collection<String>,
     grants: Collection<String>,
     grantedBy: String?,
   ): Set<String> {
-    val podId = checkNotNull(podDbo.id)
     podGrantsDao.replaceGrants(
-      podId = podId,
+      podId = pod.id.objectId(),
       appId = appId,
       webId = webId,
       grants = grants,
@@ -244,7 +254,7 @@ class PodGrantsFacade @Inject constructor(
     )
 
     val cascade = cascadeToAppGrants(
-      podDbo,
+      pod,
       subjectUris.toSet() + webIdUriDeriver.derivableAliases(webId),
     )
     if (cascade.deletedAppGrants == 0L) return grants.toSet()
@@ -252,10 +262,10 @@ class PodGrantsFacade @Inject constructor(
     // Only reachable when an owner-level change raced this write. Re-read rather than subtract:
     // the cascade reports counts, and the caller needs the exact surviving set to decide whether
     // issuing a token still makes sense.
-    val surviving = podGrantsDao.fetchGrantStrings(podId, appId, listOf(webId))
+    val surviving = podGrantsDao.fetchGrantStrings(pod.id.objectId(), appId, listOf(webId))
     logger.warn {
       "[grants/consent] Owner-level change raced this delegation — dropped unbacked grants: " +
-          "pod='${podDbo.name}', clientId='$appId', webId='$webId', " +
+          "pod='${pod.name}', clientId='$appId', webId='$webId', " +
           "requested=${grants.size}, surviving=${surviving.size}"
     }
     return surviving
@@ -305,7 +315,7 @@ class PodGrantsFacade @Inject constructor(
    * *registered* context, and `R/sub` stays registered, so their delegations survive.
    *
    * **Retryable**, with the one exception named above. Every other step derives what it needs from
-   * `(podDbo, contextUri)` and the rows that are still in the store, and every step is a no-op once
+   * `(pod, pod.id, contextUri)` and the rows that are still in the store, and every step is a no-op once
    * it has run — so an attempt that dies part-way (a failing service-client update, a process kill)
    * is repaired by calling this again with the same arguments. Nothing else is carried in memory
    * between the deletes and the sweep; that would be exactly the state a retry could no longer
@@ -313,22 +323,22 @@ class PodGrantsFacade @Inject constructor(
    * before [org.sempods.pods.PodFacade.removeContext] touches data or the registry row, so a
    * failure here also leaves the caller's own retry path intact.
    */
-  internal fun revokeContextGrants(podDbo: PodDbo, contextUri: String): GrantCascadeResult {
-    val podId = checkNotNull(podDbo.id)
+  internal fun revokeContextGrants(pod: HostedPod, contextUri: String): GrantCascadeResult {
+    val storedPodId = pod.id.objectId()
     // Read first, because the delete below is what makes these unfindable — see the note above on
     // why the candidates are this deletion's own subjects and not the pod's live connections.
-    val delegatedHere = podGrantsDao.fetchByContext(podId = podId, contextUri = contextUri)
+    val delegatedHere = podGrantsDao.fetchByContext(podId = storedPodId, contextUri = contextUri)
       .map { it.appId to it.webId }
       .toSet()
-    val deletedAppGrants = podGrantsDao.deleteByContext(podId = podId, contextUri = contextUri)
+    val deletedAppGrants = podGrantsDao.deleteByContext(podId = storedPodId, contextUri = contextUri)
     // Owner-level, app-independent WebID grants cascade the same way as the app-delegated
     // grants above — a manage/write/read grant must not outlive its context.
-    podWebIdGrantsDao.deleteByContext(podId = podId, contextUri = contextUri)
+    podWebIdGrantsDao.deleteByContext(podId = storedPodId, contextUri = contextUri)
     // Static service clients are revoked like grants: scopes anchored at the deleted context are
     // stripped, grant-less registrations removed — otherwise the client secret could keep minting
     // tokens for the deleted root (manage descendants, recreate the root). Unlike a refresh row, a
     // registration's context scopes *are* the authority the resolver reads.
-    val revokedClients = podServiceClientDao.revokeByContextScope(podId = podId, contextUri = contextUri)
+    val revokedClients = podServiceClientDao.revokeByContextScope(podId = pod.id.objectId(), contextUri = contextUri)
     if (revokedClients > 0) {
       logger.info { "Revoked $revokedClients service-client registration(s) anchored at deleted context $contextUri" }
     }
@@ -336,11 +346,11 @@ class PodGrantsFacade @Inject constructor(
     // Second pass: sweep the app grants that were *derived* from an authority this deletion just
     // removed but that name a surviving descendant. Recomputed from scratch, never from state
     // captured before the deletes — see the retry note above.
-    val derived = sweepSubtreeAppGrants(podDbo, contextUri)
+    val derived = sweepSubtreeAppGrants(pod, contextUri)
 
     // Third pass, and the reason it is a pass rather than a line inside the second: the pairs it
     // is for have no rows left for the recompute to group.
-    val orphaned = revokeEmptiedFamilies(podId, delegatedHere)
+    val orphaned = revokeEmptiedFamilies(pod, delegatedHere)
 
     return GrantCascadeResult(
       deletedAppGrants = deletedAppGrants + derived.deletedAppGrants,
@@ -375,21 +385,22 @@ class PodGrantsFacade @Inject constructor(
    * giving one answer, not about closing a hole.
    */
   private fun revokeEmptiedFamilies(
-    podId: ObjectId,
+    pod: HostedPod,
     candidates: Set<Pair<String, String>>,
   ): GrantCascadeResult {
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
+    val storedPodId = pod.id.objectId()
     candidates.forEach { (appId, webId) ->
-      val standing = refreshTokenStore.liveTokens(podId, appId, listOf(webId))
+      val standing = refreshTokenStore.liveTokens(pod.id, appId, listOf(webId))
       if (standing.isEmpty()) return@forEach
-      if (podGrantsDao.fetchGrantStrings(podId, appId, listOf(webId)).isNotEmpty()) return@forEach
+      if (podGrantsDao.fetchGrantStrings(storedPodId, appId, listOf(webId)).isNotEmpty()) return@forEach
       revokedRefreshTokens += refreshTokenStore.revokeTokens(standing)
       affectedApps += appId
     }
     if (revokedRefreshTokens > 0) {
       logger.info {
-        "[grants/revoke] Families the context deletion left without any grant revoked: podId='$podId', " +
+        "[grants/revoke] Families the context deletion left without any grant revoked: pod.id='$pod.id', " +
             "revokedRefreshTokens=$revokedRefreshTokens, apps=${affectedApps.sorted()}"
       }
     }
@@ -412,16 +423,16 @@ class PodGrantsFacade @Inject constructor(
    * pre-existing situation and is repaired by simply running the mutation again.
    */
   private fun mutateWebIdGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     webId: String,
     mutation: (aliases: Set<String>) -> Long,
   ): GrantCascadeResult {
     val aliases = webIdUriDeriver.derivableAliases(webId)
     val revokedUserGrants = mutation(aliases)
-    val result = cascadeToAppGrants(podDbo, aliases)
+    val result = cascadeToAppGrants(pod, aliases)
     if (revokedUserGrants > 0 || result.deletedAppGrants > 0) {
       logger.info {
-        "[grants/revoke] pod='${podDbo.name}', webId='$webId', revokedUserGrants=$revokedUserGrants, " +
+        "[grants/revoke] pod='${pod.name}', webId='$webId', revokedUserGrants=$revokedUserGrants, " +
             "deletedAppGrants=${result.deletedAppGrants}, apps=${result.affectedApps.sorted()}, " +
             "revokedRefreshTokens=${result.revokedRefreshTokens}"
       }
@@ -446,8 +457,8 @@ class PodGrantsFacade @Inject constructor(
    * access tokens that no longer authorize anything. "Full" is measured over *all* remaining
    * grants, feature scopes included: an app left holding only `public-read` keeps its session.
    */
-  private fun cascadeToAppGrants(podDbo: PodDbo, targetUris: Set<String>): GrantCascadeResult {
-    val rows = podGrantsDao.fetchGrantsForSubject(checkNotNull(podDbo.id), targetUris)
+  private fun cascadeToAppGrants(pod: HostedPod, targetUris: Set<String>): GrantCascadeResult {
+    val rows = podGrantsDao.fetchGrantsForSubject(pod.id.objectId(), targetUris)
     if (rows.isEmpty()) return GrantCascadeResult.empty
 
     // The subject's full URI set: what the revocation started from, plus every URI the app rows
@@ -459,7 +470,7 @@ class PodGrantsFacade @Inject constructor(
         row.subjectUris?.let(::addAll)
       }
     }
-    return sweepUnbackedAppGrants(podDbo, rows, subjectUris)
+    return sweepUnbackedAppGrants(pod, rows, subjectUris)
   }
 
   /**
@@ -478,10 +489,9 @@ class PodGrantsFacade @Inject constructor(
    * subtree that are still backed (a direct descendant grant, or the pod owner's implicit
    * authority over contexts that remain registered) survive.
    */
-  private fun sweepSubtreeAppGrants(podDbo: PodDbo, root: String): GrantCascadeResult {
-    val podId = checkNotNull(podDbo.id)
-    val podBaseUrl = podBaseUrl(podDbo)
-    val rows = podGrantsDao.fetchGrantsByPod(podId)
+  private fun sweepSubtreeAppGrants(pod: HostedPod, root: String): GrantCascadeResult {
+    val podBaseUrl = pod.baseUrl
+    val rows = podGrantsDao.fetchGrantsByPod(pod.id.objectId())
     if (rows.isEmpty()) return GrantCascadeResult.empty
 
     return rows.groupBy { it.webId }.entries.fold(GrantCascadeResult.empty) { acc, (webId, subjectRows) ->
@@ -490,7 +500,7 @@ class PodGrantsFacade @Inject constructor(
         addAll(webIdUriDeriver.derivableAliases(webId))
         subjectRows.forEach { row -> row.subjectUris?.let(::addAll) }
       }
-      acc + sweepUnbackedAppGrants(podDbo, subjectRows, subjectUris) { contextUri ->
+      acc + sweepUnbackedAppGrants(pod, subjectRows, subjectUris) { contextUri ->
         podContextPermissionResolver.isCoveredByManageScope(
           scopes = setOf("$root#${ScopePermission.manage.value}"),
           podBaseUrl = podBaseUrl,
@@ -517,18 +527,18 @@ class PodGrantsFacade @Inject constructor(
    * access tokens that no longer authorize anything.
    */
   private fun sweepUnbackedAppGrants(
-    podDbo: PodDbo,
+    pod: HostedPod,
     rows: List<PodGrantDbo>,
     subjectUris: Set<String>,
     isCandidateContext: (contextUri: String) -> Boolean = { true },
   ): GrantCascadeResult {
-    val podId = checkNotNull(podDbo.id)
-    val podBaseUrl = podBaseUrl(podDbo)
-    val stillGranted = resolveUserGrants(podDbo, subjectUris, podBaseUrl)
+    val podBaseUrl = pod.baseUrl
+    val stillGranted = resolveUserGrants(pod, subjectUris)
 
     var deletedAppGrants = 0L
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
+    val storedPodId = pod.id.objectId()
 
     rows.groupBy { it.appId to it.webId }.forEach { (key, appRows) ->
       val (appId, appWebId) = key
@@ -543,7 +553,7 @@ class PodGrantsFacade @Inject constructor(
       if (unbacked.isEmpty()) return@forEach
 
       deletedAppGrants += podGrantsDao.deleteGrants(
-        podId = podId,
+        podId = storedPodId,
         appId = appId,
         webId = appWebId,
         grants = unbacked,
@@ -560,7 +570,7 @@ class PodGrantsFacade @Inject constructor(
       val remainingGrants = appRows.map { it.scope }.toSet() - unbacked
       if (remainingGrants.isEmpty()) {
         revokedRefreshTokens += refreshTokenStore.revokeForUser(
-          podId = podId,
+          pod = pod.id,
           clientId = appId,
           webId = appWebId,
         )
@@ -573,13 +583,6 @@ class PodGrantsFacade @Inject constructor(
       affectedApps = affectedApps,
     )
   }
-
-  /**
-   * The pod's grant namespace, i.e. what [PodScopeValidator] measures context URIs against.
-   * Byte-identical to the endpoint layer's `"${config.apiBaseUrl}${podName}/"`.
-   */
-  private fun podBaseUrl(podDbo: PodDbo): String =
-    sempodsUriBuilder.buildResourceUri(podName = podDbo.name, resourcePath = "").toString()
 
   companion object {
     private val logger = KotlinLogging.logger {}

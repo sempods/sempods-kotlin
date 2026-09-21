@@ -9,6 +9,9 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.pods.mongo.persist.toRef
 import org.sempods.rdf.toIri
 import java.net.URI
 import java.time.Instant
@@ -114,7 +117,7 @@ class PodFacade @Inject constructor(
     val podId = checkNotNull(podDbo.id)
     val contextUri = context.toString()
 
-    podGrantsFacade.revokeContextGrants(podDbo = podDbo, contextUri = contextUri)
+    podGrantsFacade.revokeContextGrants(podDbo.toHostedPod(sempodsUriBuilder), contextUri)
     // Media are not RDF and do not go with the statements: pull the context out of every assignment
     // that names it, which stamps the ones it leaves with no context at all as sweep candidates.
     // The DAO directly rather than `PodMediaFacade` — this touches no byte, and the facade exists

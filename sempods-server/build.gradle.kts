@@ -115,6 +115,11 @@ dependencies {
   // test implementation bundles
   testImplementation(libs.bundles.test)
 
+  // Reads the compiled classes rather than the source, which is what lets one rule hold a package
+  // to what it may *reach for* — a driver type inside a method body, where one would first appear,
+  // and not only a name in an import list. `PodOAuthFlowsBoundaryTest` is its only subject.
+  testImplementation(libs.archunit)
+
   // Three tests attach an appender and therefore name logback types directly:
   // `PodTokenAuthenticatorTest` asserts at which *level* this module logs — the success line has
   // to stay out of a production log — `PodTokenRateLimiterTest` asserts the *volume*, since one

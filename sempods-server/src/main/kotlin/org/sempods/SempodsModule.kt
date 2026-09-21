@@ -22,10 +22,16 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.DynamicClientStore
+import org.sempods.pods.oauth.OAuthSigningKeyDao
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodSignOutStore
+import org.sempods.pods.oauth.PodSigningKeyStore
+import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.PodTokenAuthenticator
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.admin.StaticCredentialAdminAuthorizer
 import org.sempods.ai.AiService
 import org.sempods.ai.impls.ollama.OllamaAiConfig
@@ -182,6 +188,7 @@ class SempodsModule : BaseModule() {
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
+    bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientFacade>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()

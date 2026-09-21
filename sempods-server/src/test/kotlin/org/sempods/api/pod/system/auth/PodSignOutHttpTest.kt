@@ -14,6 +14,8 @@ import org.sempods.commons.okhttp.getAll
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
@@ -182,7 +184,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val (pod, person) = podWithOwner()
     connect(pod, person, appA)
     signOut(pod, person)
-    awaitSecondAfter(checkNotNull(signOutStore.signedOutAt(checkNotNull(pod.id), listOf(person))))
+    awaitSecondAfter(checkNotNull(signOutStore.signedOutAt(checkNotNull(pod.id).toPodId(), listOf(person))))
 
     // No consent screen: the grants and the answer survived the sign-out, so the app is let back in
     // silently once the person has proved themselves again.
@@ -272,7 +274,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     // that fails closed is the one a sign-out owes.
     val (pod, person) = podWithOwner()
     signOut(pod, person)
-    val signedOutAt = checkNotNull(signOutStore.signedOutAt(checkNotNull(pod.id), listOf(person)))
+    val signedOutAt = checkNotNull(signOutStore.signedOutAt(checkNotNull(pod.id).toPodId(), listOf(person)))
 
     val sameSecond = sessionCookieSignedInAt(pod.name, person, signedOutAt.truncatedTo(ChronoUnit.SECONDS))
     assertTrue(isLoginRedirect(authorize(pod, sameSecond)))
@@ -312,7 +314,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     signOut(recreated, person)
 
     assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(family).state)
-    assertNotNull(signOutStore.signedOutAt(checkNotNull(recreated.id), listOf(person)), "under the new id")
+    assertNotNull(signOutStore.signedOutAt(checkNotNull(recreated.id).toPodId(), listOf(person)), "under the new id")
   }
 
   @Test
@@ -363,7 +365,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     consentTransactionStore.issue(
       pod.name,
       webId,
-      consentDecisionStore.find(checkNotNull(pod.id), app.clientId, listOf(webId))?.generation,
+      consentDecisionStore.find(pod.podId(), app.clientId, listOf(webId))?.generation,
     )
 
   private fun consent(
@@ -436,7 +438,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val grants = setOf("${sempodsTestFactory.publicContextUri(pod.name)}#read")
     podGrantsDao.addGrants(podId = checkNotNull(pod.id), appId = app.clientId, webId = webId, grants = grants, grantedBy = webId)
     return refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = pod.podId(),
       podName = pod.name,
       clientId = app.clientId,
       webId = webId,

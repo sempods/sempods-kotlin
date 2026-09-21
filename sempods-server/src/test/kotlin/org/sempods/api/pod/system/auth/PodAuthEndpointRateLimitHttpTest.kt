@@ -75,6 +75,11 @@ class PodAuthEndpointRateLimitHttpTest : SempodsIntegrationTest() {
     assertEquals(429, refused.statusCode, "body=${refused.responseBody}")
     assertEquals("60", refused.getHeader("Retry-After"))
     assertEquals("no-store", refused.getHeader("Cache-Control"))
+    assertEquals("no-cache", refused.getHeader("Pragma"))
+    assertTrue(
+      refused.contentType.orEmpty().startsWith("application/json"),
+      "a refusal is a token-endpoint answer like any other, was '${refused.contentType}'",
+    )
     assertTrue("slow_down" in refused.responseBody, refused.responseBody)
   }
 

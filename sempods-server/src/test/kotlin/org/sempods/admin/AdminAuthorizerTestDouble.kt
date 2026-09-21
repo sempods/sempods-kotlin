@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap
  * configured with [TEST_ADMIN_SECRET], and lets a test swap the delegate **for its own requests**.
  *
  * The swap exists because the production binding reads `SEMPODS_ADMIN_CLIENTS` from the environment
- * at boot and `SempodsIntegrationTest.sempodsInjector` is one lazily built injector shared by every
+ * at boot and `sempodsInjector` is one lazily built injector shared by every
  * sempods test in the JVM — so the *unconfigured* case (fail closed → 503) is unreachable over HTTP
  * without it.
  *

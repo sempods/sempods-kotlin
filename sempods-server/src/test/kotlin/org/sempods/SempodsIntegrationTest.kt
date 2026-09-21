@@ -7,7 +7,7 @@ import com.google.inject.util.Modules
 import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.api.system.admin.pods.AdminPodsEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -258,14 +258,6 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   companion object {
 
-    @JvmStatic
-    protected val sempodsInjector: Injector by lazy {
-      Guice.createInjector(
-        Modules.override(SempodsModule())
-          .with(SempodsTestModule())
-      )
-    }
-
     @BeforeAll
     @JvmStatic
     fun beforeAll() {
@@ -273,4 +265,19 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
       assertNotNull(sempodsInjector.getInstance(Server::class.java))
     }
   }
+}
+
+/**
+ * One lazily built injector for the whole module's suite — `docs/testing.md` §"Composition" says
+ * what that shares and what it costs.
+ *
+ * At file scope rather than inside [SempodsIntegrationTest], so that a test needing the singletons
+ * without the server can have them: a `protected` companion member is reachable from subclasses
+ * only, and subclassing the HTTP base is exactly what such a test is avoiding.
+ */
+internal val sempodsInjector: Injector by lazy {
+  Guice.createInjector(
+    Modules.override(SempodsModule())
+      .with(SempodsTestModule())
+  )
 }

@@ -2,10 +2,9 @@ package org.sempods.pods.oauth
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.bson.types.ObjectId
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.PodId
-import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.objectId
 import java.time.Instant
 
 /**
@@ -60,14 +59,13 @@ class PodSignOut @Inject internal constructor(
    * @param podName for the log line, the way `PodRefreshTokenStore.Owner` carries it.
    */
   internal fun signOut(pod: PodId, podName: String, webIds: Collection<String>) {
-    val podId = pod.objectId()
     val person = webIds.flatMap(webIdUriDeriver::derivableAliases).toSet()
     if (person.isEmpty()) return
 
-    signOutStore.record(podId, person)
-    val decisions = consentDecisionStore.bumpGenerationForPerson(podId, person)
-    val revokedRows = refreshTokenStore.revokeForPerson(podId, person)
-    val signedOutAt = signOutStore.record(podId, person)
+    signOutStore.record(pod, person)
+    val decisions = consentDecisionStore.bumpGenerationForPerson(pod, person)
+    val revokedRows = refreshTokenStore.revokeForPerson(pod, person)
+    val signedOutAt = signOutStore.record(pod, person)
 
     logger.info {
       "Signed out: pod='$podName', webIds=${person.sorted()}, decisions=$decisions, " +
@@ -110,12 +108,9 @@ class PodSignOut @Inject internal constructor(
    * moves the line by the skew.
    */
   private fun issuedAfterSignOut(pod: PodId, webIds: Collection<String>, issuedAt: Instant?): Boolean {
-    val signedOutAt = signOutStore.signedOutAt(pod.objectId(), webIds) ?: return true
+    val signedOutAt = signOutStore.signedOutAt(pod, webIds) ?: return true
     return issuedAt != null && issuedAt.epochSecond > signedOutAt.epochSecond
   }
-
-  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
-  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   private companion object {
     private val logger = KotlinLogging.logger {}

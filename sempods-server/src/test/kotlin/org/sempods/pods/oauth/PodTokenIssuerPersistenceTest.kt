@@ -1,4 +1,4 @@
-package org.sempods.api.pod.system.auth
+package org.sempods.pods.oauth
 
 import com.google.inject.Inject
 import com.nimbusds.jose.crypto.RSASSAVerifier

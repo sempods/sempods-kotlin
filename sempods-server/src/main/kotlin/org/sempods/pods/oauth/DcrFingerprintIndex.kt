@@ -1,4 +1,4 @@
-package org.sempods.api.pod.system.auth
+package org.sempods.pods.oauth
 
 import com.mongodb.MongoCommandException
 import com.mongodb.client.MongoCollection

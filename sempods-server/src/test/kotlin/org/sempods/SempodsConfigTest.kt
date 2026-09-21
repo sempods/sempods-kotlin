@@ -1,6 +1,8 @@
 package org.sempods
 
 import org.junit.jupiter.api.Test
+import org.sempods.auth.core.OAuthErrorCode
+import org.sempods.auth.core.OAuthErrors
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -210,15 +212,6 @@ class SempodsConfigTest {
     // same rule, so this holds for a variable set to whitespace too.
     assertNull(SempodsConfig.normalizeErrorDocBase(""))
     assertNull(SempodsConfig.normalizeErrorDocBase("   "))
-    assertNull(
-      SempodsConfig(
-        httpPort = 8090,
-        apiBaseUrl = "https://example.org/",
-        mongoUrl = "mongodb://localhost:27018",
-        mongoDb = "pods",
-        oauthErrorDocBase = null,
-      ).oauthErrorUri("access_denied")
-    )
   }
 
   @Test
@@ -229,15 +222,14 @@ class SempodsConfigTest {
       "https://example.org/docs/oauth-errors",
       SempodsConfig.normalizeErrorDocBase("  https://example.org/docs/oauth-errors/  "),
     )
+    // What the normalised base is *for* — `OAuthErrors.errorUri` owns the fragment format, and
+     // `PodOAuthErrorResponsesTest` asserts it reaches the redirect.
     assertEquals(
       "https://example.org/docs/oauth-errors#consent_required",
-      SempodsConfig(
-        httpPort = 8090,
-        apiBaseUrl = "https://example.org/",
-        mongoUrl = "mongodb://localhost:27018",
-        mongoDb = "pods",
-        oauthErrorDocBase = SempodsConfig.normalizeErrorDocBase("https://example.org/docs/oauth-errors/"),
-      ).oauthErrorUri("consent_required"),
+      OAuthErrors.errorUri(
+        checkNotNull(SempodsConfig.normalizeErrorDocBase("https://example.org/docs/oauth-errors/")),
+        OAuthErrorCode.CONSENT_REQUIRED,
+      ),
     )
   }
 

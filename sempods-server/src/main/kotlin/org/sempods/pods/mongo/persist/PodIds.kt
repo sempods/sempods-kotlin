@@ -15,3 +15,13 @@ internal fun ObjectId.toPodId(): PodId = PodId(toHexString())
  */
 internal fun PodId.toObjectIdOrNull(): ObjectId? =
   if (ObjectId.isValid(value)) ObjectId(value) else null
+
+/**
+ * [PodId] as this implementation's key.
+ *
+ * Every id a store is handed came off a row this server wrote, so a token of another shape is a
+ * bug rather than a caller's mistake — which is the difference from [toObjectIdOrNull], where the
+ * `null` is an answer.
+ */
+internal fun PodId.objectId(): ObjectId =
+  checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }

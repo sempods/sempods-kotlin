@@ -40,7 +40,7 @@ equivalent URIs, each with a stored answer of its own, and an answer given under
 the others one document at a time — so a code naming the URI written last can be exchanged in the
 gap and be answered. Keeping one answer per URI is deliberate, because a code issued while an alias
 was the session identity has to be able to go stale on its own; a single answer for the person
-would need the identity resolver the `sub` question is parked with. `PodAuthEndpoint` marks the
+would need the identity resolver the `sub` question is parked with. `PodTokenExchange` marks the
 window where the exchange reads.
 
 Ending an app's access is an action of its own: named, and confirmed before it takes effect. It

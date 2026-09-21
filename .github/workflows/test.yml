@@ -42,9 +42,9 @@ jobs:
       # This costs nothing measurable. Runs of this workflow vary by more than a minute on identical
       # code (main: 7m12s, 6m5s, 7m28s), which is wider than any difference two workers make, so
       # single-run comparisons here mean nothing and are not worth drawing conclusions from.
-      # The four guards are named explicitly, because `test` schedules the suites and nothing
-      # else: all four are wired into `check`, so none would run here, and a guard that only fires
-      # on a developer's machine is one a pull request walks straight past. `checkNoLoggingBinding`
+      # The guards are named explicitly, because `test` schedules the suites and nothing else:
+      # every one of them is wired into `check`, so none would run here, and a guard that only
+      # fires on a developer's machine is one a pull request walks straight past. `checkNoLoggingBinding`
       # keeps a library from carrying the logback binding into a consumer's runtime — the one
       # dependency mistake a library is not forgiven, and invisible without a check.
       # `checkNoTestLibrariesInPom` reads the published POM, which nothing else in the build does,

@@ -15,11 +15,14 @@ import org.sempods.commons.jaxrs.BaseEndpoint
 import org.sempods.commons.net.BearerAuth
 import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.PodFacade
+import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodAccessToken
 import org.sempods.pods.oauth.PodSignOut
@@ -60,6 +63,12 @@ open class SempodsBaseEndpoint(
 
   @Inject
   private lateinit var podServiceAuditLogDao: PodServiceAuditLogDao
+
+  /** This row as the pod it names — its URI, its owner and the segment this deployment routes by. */
+  internal val PodDbo.ref: PodRef get() = toRef(sempodsUriBuilder)
+
+  /** The same row as the pod *and* the key it is stored under — see [HostedPod]. */
+  internal val PodDbo.hosted: HostedPod get() = toHostedPod(sempodsUriBuilder)
 
   /**
    * The request's `Authorization: Bearer <token>`, or `null` if there is none.
@@ -114,7 +123,7 @@ open class SempodsBaseEndpoint(
    */
   protected fun authenticate(pod: String): SempodsCredentials {
     val podDbo = fetchPodOrThrow(pod)
-    val podRef = podDbo.toRef(sempodsUriBuilder)
+    val podRef = podDbo.ref
     return when (val outcome = authenticateBearer(podDbo, podRef)) {
       PodTokenAuthentication.NoToken -> podAuthorizer.anonymous(podRef)
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
@@ -162,7 +171,7 @@ open class SempodsBaseEndpoint(
   private fun authenticateBearer(podDbo: PodDbo, podRef: PodRef): PodTokenAuthentication =
     when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
       is PodTokenAuthentication.Verified ->
-        if (podSignOut.accessTokenStands(checkNotNull(podDbo.id).toPodId(), outcome.token)) outcome
+        if (podSignOut.accessTokenStands(podDbo.podId(), outcome.token)) outcome
         else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
 
       else -> outcome

@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.client.SempodsCredentialSupplier
@@ -77,6 +78,9 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       .execute()
 
     assertEquals(200, response.statusCode, "unexpected status; body=${response.responseBody}")
+    // RFC 6749 §5.1, on the success as on every refusal this endpoint gives.
+    assertEquals("no-store", response.getHeader("Cache-Control"), response.responseBody)
+    assertEquals("no-cache", response.getHeader("Pragma"), response.responseBody)
     val body: Map<String, Any?> = objectMapper.readValue(response.responseBody, Map::class.java)
       .mapKeys { it.key.toString() }
     val accessToken = body["access_token"] as? String
@@ -121,7 +125,10 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
     assertEquals(401, response.statusCode)
     assertTrue(response.responseBody.contains("invalid_client"), response.responseBody)
-    assertNotNull(response.getHeader("WWW-Authenticate"))
+    // The challenge names the scheme and the pod, so a client knows what to try and where.
+    assertEquals("""Basic realm="${pod.name}"""", response.getHeader("WWW-Authenticate"))
+    assertEquals("no-store", response.getHeader("Cache-Control"))
+    assertEquals("no-cache", response.getHeader("Pragma"))
   }
 
   @Test
@@ -135,6 +142,11 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
     assertEquals(401, response.statusCode)
     assertTrue(response.responseBody.contains("invalid_client"), response.responseBody)
+    // Same challenge as the wrong-secret refusal: a client that sent nothing is owed the same
+    // instruction as one that sent the wrong thing.
+    assertEquals("""Basic realm="${pod.name}"""", response.getHeader("WWW-Authenticate"))
+    assertEquals("no-store", response.getHeader("Cache-Control"))
+    assertEquals("no-cache", response.getHeader("Pragma"))
   }
 
   @Test

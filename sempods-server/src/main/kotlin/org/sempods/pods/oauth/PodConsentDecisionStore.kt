@@ -10,9 +10,11 @@ import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.bson.Document
-import org.bson.types.ObjectId
+import org.bson.conversions.Bson
 import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.objectId
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Date
@@ -64,11 +66,11 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * access, and the newest answer wins where an alias carries one of its own — the same reason
    * `PodGrantsDao.fetchGrantStrings` takes a list rather than a WebID.
    */
-  internal fun find(podId: ObjectId, appId: String, webIds: Collection<String>): Decision? {
+  internal fun find(pod: PodId, appId: String, webIds: Collection<String>): Decision? {
     if (webIds.isEmpty()) return null
     return decisions.find(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
@@ -83,7 +85,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * told apart from the newer one.
    */
   internal fun record(
-    podId: ObjectId,
+    pod: PodId,
     appId: String,
     webId: String,
     durable: Boolean,
@@ -92,7 +94,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     val decidedAt = at.truncatedTo(ChronoUnit.MILLIS)
     val updated = decisions.findOneAndUpdate(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.eq(FIELD_WEB_ID, webId),
       ),
@@ -120,11 +122,11 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * the two lands second sees the first (`SPS-AUTH-063`) — a database `$inc` rather than a
    * timestamp, because the two calls can be served by different replicas.
    */
-  internal fun bumpGeneration(podId: ObjectId, appId: String, webIds: Collection<String>): Long {
+  internal fun bumpGeneration(pod: PodId, appId: String, webIds: Collection<String>): Long {
     if (webIds.isEmpty()) return 0
     return decisions.updateMany(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
+        podFilter(pod),
         Filters.eq(FIELD_APP_ID, appId),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
@@ -136,11 +138,11 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * [bumpGeneration] for every app this person has answered on the pod — a sign-out, which ends
    * every authorization they hold at once. No upsert, for the same reason.
    */
-  internal fun bumpGenerationForPerson(podId: ObjectId, webIds: Collection<String>): Long {
+  internal fun bumpGenerationForPerson(pod: PodId, webIds: Collection<String>): Long {
     if (webIds.isEmpty()) return 0
     return decisions.updateMany(
       Filters.and(
-        Filters.eq(FIELD_POD_ID, podId),
+        podFilter(pod),
         Filters.`in`(FIELD_WEB_ID, webIds),
       ),
       Updates.inc(FIELD_GENERATION, 1L),
@@ -148,8 +150,10 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   }
 
   /** The pod-cascade delete path, where the authorizations themselves are going away. */
-  internal fun deleteByPod(podId: ObjectId): Long =
-    decisions.deleteMany(Filters.eq(FIELD_POD_ID, podId)).deletedCount
+  internal fun deleteByPod(pod: PodId): Long =
+    decisions.deleteMany(podFilter(pod)).deletedCount
+
+  private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
 
   private fun Document.toDecision() = Decision(
     durable = getBoolean(FIELD_DURABLE, false),

@@ -13,7 +13,7 @@ import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
-import org.sempods.api.pod.system.auth.DcrFingerprintIndex
+import org.sempods.pods.oauth.DcrFingerprintIndex
 import java.time.Instant
 import java.util.Date
 import kotlin.test.assertEquals

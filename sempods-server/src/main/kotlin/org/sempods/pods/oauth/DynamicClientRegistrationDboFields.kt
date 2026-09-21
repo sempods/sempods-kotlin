@@ -1,4 +1,4 @@
-package org.sempods.api.pod.system.auth
+package org.sempods.pods.oauth
 
 internal object DynamicClientRegistrationDboFields {
   // Mongo's own key, like PodDboFields.id / OAuthSigningKeyDboFields.id. Spelled `_id` because
