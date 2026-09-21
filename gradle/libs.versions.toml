@@ -133,6 +133,7 @@ rdf4jRepoSail = { module = "org.eclipse.rdf4j:rdf4j-repository-sail", version.re
 rdf4jSailMemory = { module = "org.eclipse.rdf4j:rdf4j-sail-memory", version.ref = "rdf4j" }
 rdf4jSparqlJson = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-sparqljson", version.ref = "rdf4j" }
 
+archunit = "com.tngtech.archunit:archunit:1.4.1"
 awaitility = "org.awaitility:awaitility:4.3.0"
 junit = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junitJupiterApi = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }

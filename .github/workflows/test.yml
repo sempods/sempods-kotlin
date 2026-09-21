@@ -54,16 +54,14 @@ jobs:
       # `checkImageMetadata` reads the jib configuration, which nothing else touches, and
       # keeps a container image from shipping without the label that says which commit it is.
       # `checkPublishedSignatures` reads every published module's compiled classes for what a Java
-      # consumer cannot call. `checkNoAdapterImports` reads the import lines of the pod's OAuth
-      # application package, which nothing else reads, and is what keeps a framework or a driver
-      # type out of the layer that decides consent and the token exchanges.
+      # consumer cannot call.
       #
       # Naming them beats running `check`, which pulls a couple of dozen extra tasks into the same
       # job and changes what runs concurrently with what. One is a classpath walk, one a POM read
       # and one a file scan; none of them needs `check`'s scheduling.
       - name: Run tests
         id: gradle_tests
-        run: ./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkNoMissingPomDependencies checkDocLinks checkImageMetadata checkPublishedSignatures checkNoAdapterImports --max-workers=2
+        run: ./gradlew test checkNoLoggingBinding checkNoTestLibrariesInPom checkNoMissingPomDependencies checkDocLinks checkImageMetadata checkPublishedSignatures --max-workers=2
         continue-on-error: true
 
       # Reporting must never decide the outcome. A pull request from a fork gets a read-only
