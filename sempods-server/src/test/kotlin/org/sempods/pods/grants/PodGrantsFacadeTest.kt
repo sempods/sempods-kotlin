@@ -9,6 +9,7 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
@@ -223,7 +224,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(setOf("$ctx#read", "public-read"), appGrants(pod, webId))
 
     val issued = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -258,7 +259,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
     // The shape a family predating slim tokens has on disk: the context scope is still on the row.
     val issued = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -290,7 +291,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
 
     val issued = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,
@@ -326,7 +327,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     // Holds nothing, and never held anything on the deleted context — the shape a re-consent wears
     // for the instant between its delete and its inserts.
     val untouched = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = testClientId,
       webId = bystander,
@@ -353,7 +354,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     assertEquals(303, consent(pod, webId, listOf("$ctx#read")).statusCode)
 
     val issued = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = testClientId,
       webId = webId,

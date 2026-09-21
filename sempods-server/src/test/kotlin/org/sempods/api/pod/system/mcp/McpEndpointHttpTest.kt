@@ -12,6 +12,7 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
@@ -2009,7 +2010,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       grantedBy = webId,
     )
     val refreshToken = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = clientId,
       webId = webId,
@@ -2105,7 +2106,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       grantedBy = webId,
     )
     val refreshToken = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = clientId,
       webId = webId,
@@ -2156,7 +2157,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val clientId = "did:web:test.example"
     val redirectUri = "http://localhost:5173/callback"
     val (contextUri, token) = createContextWithToken(pod, "main-${TestUtil.randomId()}", webId = webId)
-    val consent = consentDecisionStore.record(checkNotNull(pod.id), clientId, webId, durable = true)
+    val consent = consentDecisionStore.record(checkNotNull(pod.id).toPodId(), clientId, webId, durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = clientId,
@@ -2216,9 +2217,9 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       grants = scopes,
       grantedBy = webId,
     )
-    val consent = consentDecisionStore.record(checkNotNull(pod.id), clientId, webId, durable = true)
+    val consent = consentDecisionStore.record(checkNotNull(pod.id).toPodId(), clientId, webId, durable = true)
     val refreshToken = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = clientId,
       webId = webId,
@@ -2240,7 +2241,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, refreshResponse.statusCode, refreshResponse.responseBody)
     assertEquals(
       consent.generation,
-      consentDecisionStore.find(checkNotNull(pod.id), clientId, listOf(webId))?.generation,
+      consentDecisionStore.find(checkNotNull(pod.id).toPodId(), clientId, listOf(webId))?.generation,
       "a refused request must not raise the consent generation",
     )
   }
@@ -2266,7 +2267,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       grantedBy = alias,
     )
     val refreshToken = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = clientId,
       webId = alias,

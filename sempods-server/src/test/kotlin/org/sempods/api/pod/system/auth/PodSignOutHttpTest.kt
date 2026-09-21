@@ -14,6 +14,7 @@ import org.sempods.commons.okhttp.getAll
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
@@ -363,7 +364,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     consentTransactionStore.issue(
       pod.name,
       webId,
-      consentDecisionStore.find(checkNotNull(pod.id), app.clientId, listOf(webId))?.generation,
+      consentDecisionStore.find(checkNotNull(pod.id).toPodId(), app.clientId, listOf(webId))?.generation,
     )
 
   private fun consent(
@@ -436,7 +437,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val grants = setOf("${sempodsTestFactory.publicContextUri(pod.name)}#read")
     podGrantsDao.addGrants(podId = checkNotNull(pod.id), appId = app.clientId, webId = webId, grants = grants, grantedBy = webId)
     return refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = app.clientId,
       webId = webId,

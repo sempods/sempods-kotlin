@@ -65,8 +65,8 @@ class PodSignOut @Inject internal constructor(
     if (person.isEmpty()) return
 
     signOutStore.record(podId, person)
-    val decisions = consentDecisionStore.bumpGenerationForPerson(podId, person)
-    val revokedRows = refreshTokenStore.revokeForPerson(podId, person)
+    val decisions = consentDecisionStore.bumpGenerationForPerson(pod, person)
+    val revokedRows = refreshTokenStore.revokeForPerson(pod, person)
     val signedOutAt = signOutStore.record(podId, person)
 
     logger.info {

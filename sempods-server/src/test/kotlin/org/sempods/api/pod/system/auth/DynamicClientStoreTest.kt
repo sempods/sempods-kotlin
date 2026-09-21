@@ -7,6 +7,7 @@ import io.mockk.spyk
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
+import org.sempods.pods.mongo.persist.toPodId
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -46,7 +47,7 @@ class DynamicClientStoreTest : SempodsIntegrationTest() {
     }
 
     val registration = DynamicClientStore(racing).register(
-      registeredForPodId = podId,
+      registeredForPod = podId.toPodId(),
       registeredForPodName = "alice",
       redirectUris = setOf("https://app.example.org/cb"),
       clientName = "Example",
@@ -86,7 +87,7 @@ class DynamicClientStoreTest : SempodsIntegrationTest() {
     }
 
     val registration = DynamicClientStore(racing).register(
-      registeredForPodId = podId,
+      registeredForPod = podId.toPodId(),
       registeredForPodName = "alice",
       redirectUris = setOf("https://app.example.org/cb"),
       clientName = "Example",

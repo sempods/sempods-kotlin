@@ -4,11 +4,14 @@ import com.google.inject.Inject
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsUriBuilder
 import org.sempods.pods.contexts.persist.PodContextsDao
+import org.sempods.pods.PodId
 import org.sempods.pods.grants.persist.PodGrantDbo
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantDbo
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toObjectIdOrNull
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -66,6 +69,26 @@ class PodGrantsFacade @Inject constructor(
   private val sempodsUriBuilder: SempodsUriBuilder,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
+
+  /**
+   * What this app may exercise for [webIds] on [pod] — the app level, read as it stands.
+   *
+   * Here rather than at each caller, because the row it reads is this module's and a caller that
+   * reaches [PodGrantsDao] for it has made the document format a contract nobody declared
+   * (`docs/architecture/module-layering.md` §"Module Boundaries"). The OAuth paths ask it three
+   * times: whether an app still holds anything at all, and — twice, on either side of a rotation —
+   * whether a refresh may still mint.
+   *
+   * Deliberately *not* intersected with the user level. The request path does not intersect either
+   * ([PodContextPermissionResolver.resolveFromGrants]), and the reason is the same: a request
+   * carries one identity URI while a user-level grant may have been written under an equivalent
+   * one. Revocation recomputes instead, which is what [cascadeToAppGrants] is for.
+   */
+  internal fun appGrants(pod: PodId, appId: String, webIds: Collection<String>): Set<String> =
+    podGrantsDao.fetchGrantStrings(pod.objectId(), appId, webIds.toList())
+
+  /** Every id here comes off a row this server wrote, so a token of another shape is a bug. */
+  private fun PodId.objectId(): ObjectId = checkNotNull(toObjectIdOrNull()) { "not a pod id this server minted: $this" }
 
   // ── user level: what a person may do on this pod ────────────────────────────
 
@@ -381,7 +404,7 @@ class PodGrantsFacade @Inject constructor(
     var revokedRefreshTokens = 0L
     val affectedApps = mutableSetOf<String>()
     candidates.forEach { (appId, webId) ->
-      val standing = refreshTokenStore.liveTokens(podId, appId, listOf(webId))
+      val standing = refreshTokenStore.liveTokens(podId.toPodId(), appId, listOf(webId))
       if (standing.isEmpty()) return@forEach
       if (podGrantsDao.fetchGrantStrings(podId, appId, listOf(webId)).isNotEmpty()) return@forEach
       revokedRefreshTokens += refreshTokenStore.revokeTokens(standing)
@@ -560,7 +583,7 @@ class PodGrantsFacade @Inject constructor(
       val remainingGrants = appRows.map { it.scope }.toSet() - unbacked
       if (remainingGrants.isEmpty()) {
         revokedRefreshTokens += refreshTokenStore.revokeForUser(
-          podId = podId,
+          pod = podId.toPodId(),
           clientId = appId,
           webId = appWebId,
         )

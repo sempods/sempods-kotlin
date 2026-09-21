@@ -14,6 +14,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.rdf.Rdf4JUtil
 import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil.randomId
@@ -168,7 +169,7 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
 
     // A refresh token for the pod, remembered by its plaintext so the cascade can be asserted on it.
     seededTokens[podName] = refreshTokenStore.issueNewFamily(
-      podId = podId,
+      pod = podId.toPodId(),
       podName = podName,
       clientId = "dyn:cascade-${randomId()}",
       webId = "https://id.example.org/cascade-test",

@@ -20,6 +20,7 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
@@ -269,7 +270,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     // An answer on record, because auto-grant only runs where there is one: an authorization
     // that predates the lifetime control is asked once. What was answered does not matter here.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -389,7 +390,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     // An answer on record, because auto-grant only runs where there is one: an authorization
     // that predates the lifetime control is asked once. What was answered does not matter here.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -420,7 +421,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     // An answer on record, because auto-grant only runs where there is one: an authorization
     // that predates the lifetime control is asked once. What was answered does not matter here.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -457,7 +458,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     // An answer on record, because auto-grant only runs where there is one: an authorization
     // that predates the lifetime control is asked once. What was answered does not matter here.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -1422,7 +1423,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
     val held = seedRefreshToken(pod, webId = ownerWebId)
 
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val refreshed = postForm(
       tokenUrl(pod.name),
@@ -1451,7 +1452,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       Updates.unset(RefreshTokenStore.Field.KIND),
     )
 
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val refreshed = postForm(
       tokenUrl(pod.name),
@@ -1685,7 +1686,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
     val held = seedRefreshToken(pod, webId = ownerWebId)
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val refreshed = postForm(
       tokenUrl(pod.name),
@@ -1957,7 +1958,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     consentTransactionStore.issue(
       pod.name,
       webId,
-      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId))?.generation,
+      consentDecisionStore.find(checkNotNull(pod.id).toPodId(), testClientId, listOf(webId))?.generation,
     )
 
   private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
@@ -3482,7 +3483,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     // An answer on record, because auto-grant only runs where there is one: an authorization
     // that predates the lifetime control is asked once. What was answered does not matter here.
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, ownerWebId, durable = false)
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, ownerWebId, durable = false)
 
     val response = http.prepareGet(authorizeUrl(pod.name))
       .addQueryParam("response_type", "code")
@@ -4175,7 +4176,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       grantedBy = webId,
     )
     return refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(pod.id),
+      pod = checkNotNull(pod.id).toPodId(),
       podName = pod.name,
       clientId = clientId,
       webId = webId,
@@ -4290,7 +4291,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // In the order the endpoint uses it: the consent is recorded, and the code is issued under it.
     // A refresh token follows that decision, not the code — which is why the code carries the
     // generation it was minted under.
-    val consent = consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
+    val consent = consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, webId, durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -4338,7 +4339,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val scope = "${contextUri(pod.name, "public/tasks")}#read"
     val consent =
-      consentDecisionStore.record(checkNotNull(pod.id), testClientId, "https://id.test/user", durable = true)
+      consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, "https://id.test/user", durable = true)
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -4385,9 +4386,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // minted under the raised generation and has to go through.
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/replayer-${TestUtil.randomId()}"
-    consentDecisionStore.record(checkNotNull(pod.id), testClientId, webId, durable = true)
-    consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId))
-    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)))
+    consentDecisionStore.record(checkNotNull(pod.id).toPodId(), testClientId, webId, durable = true)
+    consentDecisionStore.bumpGeneration(checkNotNull(pod.id).toPodId(), testClientId, listOf(webId))
+    val standing = checkNotNull(consentDecisionStore.find(checkNotNull(pod.id).toPodId(), testClientId, listOf(webId)))
     val code = authorizationCodeStore.issue(
       realm = pod.name,
       clientId = testClientId,
@@ -4419,9 +4420,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/undecided-${TestUtil.randomId()}"
 
-    assertEquals(0, consentDecisionStore.bumpGeneration(checkNotNull(pod.id), testClientId, listOf(webId)))
+    assertEquals(0, consentDecisionStore.bumpGeneration(checkNotNull(pod.id).toPodId(), testClientId, listOf(webId)))
     assertNull(
-      consentDecisionStore.find(checkNotNull(pod.id), testClientId, listOf(webId)),
+      consentDecisionStore.find(checkNotNull(pod.id).toPodId(), testClientId, listOf(webId)),
       "raising a generation must not be the thing that records a decision",
     )
   }

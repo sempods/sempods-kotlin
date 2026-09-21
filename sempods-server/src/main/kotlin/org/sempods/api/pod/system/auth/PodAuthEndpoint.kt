@@ -38,6 +38,7 @@ import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.PodFacade
+import org.sempods.pods.PodId
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.contexts.persist.PodContextsDao
@@ -60,7 +61,6 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
-  private val podGrantsDao: PodGrantsDao,
   private val podGrantsFacade: PodGrantsFacade,
   private val dynamicClientStore: DynamicClientStore,
   private val templateRenderer: TemplateRenderer,
@@ -193,7 +193,7 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     val registration = dynamicClientStore.register(
-      registeredForPodId = checkNotNull(podDbo.id),
+      registeredForPod = podDbo.pod,
       registeredForPodName = podDbo.name,
       redirectUris = redirectUris,
       clientName = clientName,
@@ -585,7 +585,7 @@ class PodAuthEndpoint @Inject constructor(
     // query the token's subject — so counting an alias's rows here would auto-grant a token with no
     // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
     // different question, and `holdsAnything` is where it is asked.
-    val existingGrants = podGrantsDao.fetchGrantStrings(podId, normalizedClientId, listOf(identity.webId))
+    val existingGrants = podGrantsFacade.appGrants(podDbo.pod, normalizedClientId, listOf(identity.webId))
 
     logger.info {
       "[oauth/authorize] Grants pre-check: pod='${podDbo.name}', clientId='$normalizedClientId', " +
@@ -612,7 +612,7 @@ class PodAuthEndpoint @Inject constructor(
     // answering `consent_required` here instead is not worth changing a live contract for a state
     // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
     val decisionRecorded =
-      consentDecisionStore.find(podId, normalizedClientId, listOf(identity.webId)) != null
+      consentDecisionStore.find(podDbo.pod, normalizedClientId, listOf(identity.webId)) != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
@@ -669,7 +669,7 @@ class PodAuthEndpoint @Inject constructor(
           // across the person's URIs is what the dialog wants, and binding to it would refuse a
           // code the moment an alias carried a higher count.
           consentGeneration = consentDecisionStore
-            .find(podId, normalizedClientId, listOf(identity.webId))?.generation,
+            .find(podDbo.pod, normalizedClientId, listOf(identity.webId))?.generation,
         )
       }
     }
@@ -775,7 +775,7 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     val contexts = buildConsentContexts(userGrants, existingGrants)
     val registration = if (normalizedClientId.startsWith("dyn:")) {
-      dynamicClientStore.lookup(checkNotNull(podDbo.id), normalizedClientId)
+      dynamicClientStore.lookup(podDbo.pod, normalizedClientId)
     } else null
     val displayName = registration?.clientName?.takeIf { it.isNotBlank() } ?: normalizedClientId
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
@@ -784,7 +784,7 @@ class PodAuthEndpoint @Inject constructor(
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
     // which is all `offline_access` does — it preselects, it does not grant.
     val recordedDurable = consentDecisionStore
-      .find(checkNotNull(podDbo.id), normalizedClientId, identity.allUris)
+      .find(podDbo.pod, normalizedClientId, identity.allUris)
       ?.durable
     val durablePreselected = recordedDurable ?: durableRequested
 
@@ -830,7 +830,7 @@ class PodAuthEndpoint @Inject constructor(
         "csrfToken" to consentTransactionStore.issue(
           podDbo.name,
           identity.webId,
-          consentDecisionStore.find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+          consentDecisionStore.find(podDbo.pod, normalizedClientId, listOf(identity.webId))
             ?.generation,
         ),
         "webId" to identity.webId,
@@ -943,7 +943,7 @@ class PodAuthEndpoint @Inject constructor(
     // something, submits as it always did. A page that would resurrect a disconnected app does
     // not.
     val standing = consentDecisionStore
-      .find(checkNotNull(podDbo.id), normalizedClientId, listOf(identity.webId))
+      .find(podDbo.pod, normalizedClientId, listOf(identity.webId))
       ?.generation
     if (transaction.consentGeneration != standing && !holdsAnything(podDbo, normalizedClientId, identity)) {
       logger.info {
@@ -1155,7 +1155,7 @@ class PodAuthEndpoint @Inject constructor(
       // Withholding is not merely declining to extend: the families this authorization already has
       // would otherwise keep rotating, and the person would have changed nothing they can observe.
       val revoked = refreshTokenStore.revokeForUser(
-        podId = checkNotNull(podDbo.id),
+        pod = podDbo.pod,
         clientId = normalizedClientId,
         webIds = identity.allUris,
       )
@@ -1218,10 +1218,9 @@ class PodAuthEndpoint @Inject constructor(
     identity: PersonIdentity,
     durable: Boolean,
   ): PodConsentDecisionStore.Decision {
-    val podId = checkNotNull(podDbo.id)
-    val forSubject = consentDecisionStore.record(podId, clientId, identity.webId, durable)
+    val forSubject = consentDecisionStore.record(podDbo.pod, clientId, identity.webId, durable)
     identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
-      consentDecisionStore.record(podId, clientId, alias, durable)
+      consentDecisionStore.record(podDbo.pod, clientId, alias, durable)
     }
     return forSubject
   }
@@ -1234,7 +1233,7 @@ class PodAuthEndpoint @Inject constructor(
    * grant.
    */
   private fun refusedDurability(podDbo: PodDbo, clientId: String, webId: String): Boolean =
-    consentDecisionStore.find(checkNotNull(podDbo.id), clientId, listOf(webId))?.durable == false
+    consentDecisionStore.find(podDbo.pod, clientId, listOf(webId))?.durable == false
 
   /**
    * Whether a refusal on record ends **this** family.
@@ -1258,9 +1257,7 @@ class PodAuthEndpoint @Inject constructor(
    * person: an authorization stored under an alias is one they can still end.
    */
   private fun holdsAnything(podDbo: PodDbo, clientId: String, identity: PersonIdentity): Boolean =
-    podGrantsDao
-      .fetchGrantStrings(checkNotNull(podDbo.id), clientId, identity.allUris.toList())
-      .isNotEmpty()
+    podGrantsFacade.appGrants(podDbo.pod, clientId, identity.allUris).isNotEmpty()
 
   private fun disconnectApp(
     podDbo: PodDbo,
@@ -1269,7 +1266,6 @@ class PodAuthEndpoint @Inject constructor(
     target: Redirectable,
     state: String?,
   ): Response {
-    val podId = checkNotNull(podDbo.id)
     // Once per URI that names the person, because that is how the rows are keyed: an authorization
     // made under an alias is one this person can end, and `holdsAnything` already counted it.
     identity.allUris.forEach { uri ->
@@ -1283,7 +1279,7 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
     val decision = recordDecision(podDbo, clientId, identity, durable = false)
-    val revoked = refreshTokenStore.revokeForUser(podId, clientId, identity.allUris)
+    val revoked = refreshTokenStore.revokeForUser(podDbo.pod, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
           "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"
@@ -1487,7 +1483,7 @@ class PodAuthEndpoint @Inject constructor(
         "[oauth/token] public-read token issued: pod='${podDbo.name}', " +
             "clientId='${entry.clientId}', webId='${entry.subject}'"
       }
-      dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
+      dynamicClientStore.touchLastAuthorized(podDbo.pod, entry.clientId)
       return buildPublicReadTokenResponse(
         podName = podDbo.name,
         clientId = entry.clientId,
@@ -1503,7 +1499,7 @@ class PodAuthEndpoint @Inject constructor(
     // code only where one is on record — so a code without a generation is the debris of a
     // half-written consent or older than the control itself. The anonymous `public-read` exchange
     // has no person and no answer, and returned above.
-    val decision = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    val decision = consentDecisionStore.find(podDbo.pod, entry.clientId, listOf(entry.subject))
     val issuedUnder = entry.consentGeneration
     if (decision == null || issuedUnder == null || decision.generation != issuedUnder) {
       logger.info {
@@ -1536,13 +1532,13 @@ class PodAuthEndpoint @Inject constructor(
     // decision and so revokes nothing: gated on the durable answer, every visit would leave one
     // more live family behind, each renewing a window of its own.
     val superseded = refreshTokenStore.liveFamilies(
-      podId = checkNotNull(podDbo.id),
+      pod = podDbo.pod,
       clientId = entry.clientId,
       webIds = webIdUriDeriver.derivableAliases(entry.subject),
     )
 
     val issuedRefresh = refreshTokenStore.issueNewFamily(
-      podId = checkNotNull(podDbo.id),
+      pod = podDbo.pod,
       podName = podDbo.name,
       clientId = entry.clientId,
       webId = entry.subject,
@@ -1580,7 +1576,7 @@ class PodAuthEndpoint @Inject constructor(
     // issuance rather than compared before it; `recordDecision` keeps one answer per URI so a code
     // issued under an alias can go stale on its own. No test reaches either — the check before the
     // exchange answers anything a test can set up.
-    val standing = consentDecisionStore.find(checkNotNull(podDbo.id), entry.clientId, listOf(entry.subject))
+    val standing = consentDecisionStore.find(podDbo.pod, entry.clientId, listOf(entry.subject))
     if (standing?.generation != issuedUnder) {
       val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
       val withdrawn = standing?.durable == false
@@ -1621,7 +1617,7 @@ class PodAuthEndpoint @Inject constructor(
     // stays as live under the short lifetime as under the long one, and the shorter window is not
     // mistaken for an abandoned app. Best-effort: did:web clients have no DCR row and return false
     // here, which is fine.
-    dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), entry.clientId)
+    dynamicClientStore.touchLastAuthorized(podDbo.pod, entry.clientId)
 
     return buildTokenResponse(
       accessToken = accessToken,
@@ -1699,7 +1695,7 @@ class PodAuthEndpoint @Inject constructor(
 
     // Bind the token to its original pod + client. Prevents a client from taking a refresh
     // token issued for another pod/client and presenting it here.
-    if (token.owner.podId != podDbo.id) {
+    if (token.owner.pod != podDbo.pod) {
       logger.warn {
         "[oauth/token] refresh_token pod mismatch: tokenPod='${token.owner.podName}', requestPod='${podDbo.name}', " +
             "clientId='$normalizedClientId'"
@@ -1718,11 +1714,7 @@ class PodAuthEndpoint @Inject constructor(
     // revocation needs no token change. The session is dead only when the user has revoked
     // EVERY grant for this app (context grants and feature scopes both live in the store) —
     // then force re-consent and revoke the family so a stray rotation cannot re-hydrate it.
-    val currentGrants = podGrantsDao.fetchGrantStrings(
-      podId = checkNotNull(podDbo.id),
-      appId = token.owner.clientId,
-      webIds = listOf(token.owner.webId),
-    )
+    val currentGrants = podGrantsFacade.appGrants(podDbo.pod, token.owner.clientId, listOf(token.owner.webId))
     if (currentGrants.isEmpty()) {
       refreshTokenStore.revokeFamily(token.familyId)
       logger.info {
@@ -1820,12 +1812,7 @@ class PodAuthEndpoint @Inject constructor(
     // replaying the spent row still ends the family. What that leaves behind is a successor for an
     // app holding nothing, and this is the last moment it can be answered for. Untestable for the
     // same reason as its two neighbours; the check before the insert covers the ordinary case.
-    if (podGrantsDao.fetchGrantStrings(
-        podId = checkNotNull(podDbo.id),
-        appId = token.owner.clientId,
-        webIds = listOf(token.owner.webId),
-      ).isEmpty()
-    ) {
+    if (podGrantsFacade.appGrants(podDbo.pod, token.owner.clientId, listOf(token.owner.webId)).isEmpty()) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId)
       logger.info {
         "[oauth/token] grants revoked mid-rotation — successor revoked: pod='${podDbo.name}', " +
@@ -1852,7 +1839,7 @@ class PodAuthEndpoint @Inject constructor(
           "webId='${token.owner.webId}', scopes=${finalScopes.size}, familyId='${token.familyId}'"
     }
 
-    dynamicClientStore.touchLastAuthorized(checkNotNull(podDbo.id), token.owner.clientId)
+    dynamicClientStore.touchLastAuthorized(podDbo.pod, token.owner.clientId)
 
     return buildTokenResponse(
       accessToken = accessToken,
@@ -2186,6 +2173,14 @@ class PodAuthEndpoint @Inject constructor(
     PodTokenResponses.error(error, description)
 
   /**
+   * The tenant key of the pod row this request read.
+   *
+   * Resolving the name again instead would go through the process-local name-to-id cache, which
+   * another replica's deletion does not invalidate — `PodSignOut` states what that costs.
+   */
+  private val PodDbo.pod: PodId get() = checkNotNull(id).toPodId()
+
+  /**
    * The person this browser already proved itself as on this pod, or null — also where they have
    * signed out since, which reads exactly like a session that expired.
    */
@@ -2258,7 +2253,7 @@ class PodAuthEndpoint @Inject constructor(
   private fun clientsOf(podDbo: PodDbo) = PodClientDirectory(
     // Process-wide, so reading it once per request is reading it as often as it can change.
     allowLoopback = Env.isDevelopment,
-    registrationOf = { clientId -> dynamicClientStore.lookup(checkNotNull(podDbo.id), clientId)?.redirectUris },
+    registrationOf = { clientId -> dynamicClientStore.lookup(podDbo.pod, clientId)?.redirectUris },
   )
 
   /**

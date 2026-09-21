@@ -13,6 +13,7 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import java.time.Instant
@@ -75,8 +76,8 @@ class SempodsFacade @Inject constructor(
       // handle on data that's about to disappear. The in-memory RDF cache is
       // invalidated by the calling ServiceImpl (cycle avoidance with
       // PodRepositoryCache).
-      refreshTokenStore.deleteByPod(podId)
-      consentDecisionStore.deleteByPod(podId)
+      refreshTokenStore.deleteByPod(podId.toPodId())
+      consentDecisionStore.deleteByPod(podId.toPodId())
       dynamicClientRegistrationDao.deleteByPod(podId)
       podServiceClientDao.deleteByPod(podId)
       podServiceAuditLogDao.deleteByPod(podId)
