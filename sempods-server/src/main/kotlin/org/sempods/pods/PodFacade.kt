@@ -208,9 +208,8 @@ class PodFacade @Inject constructor(
     pod: HostedPod,
     contextUri: URI,
     createdBy: String?,
-    public: Boolean = false,
   ): Boolean =
-    register(pod.id.objectId(), pod.name, contextUri, createdBy, public, label = null, description = null)
+    register(pod.id.objectId(), pod.name, contextUri, createdBy, public = false, label = null, description = null)
 
   private fun register(
     podId: ObjectId,
@@ -221,6 +220,10 @@ class PodFacade @Inject constructor(
     label: String?,
     description: String?,
   ): Boolean {
+    // **This throws where some callers only skip.** `PodConsentFlow` answers a context it cannot
+    // build by logging and carrying on, and it reaches here only with a URI `ContextPathRules.resolve`
+    // built from the pod's own base — so the check cannot fire for it. A caller that mints the URI
+    // some other way has to be ready for the error, or ask for the check some other way.
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,

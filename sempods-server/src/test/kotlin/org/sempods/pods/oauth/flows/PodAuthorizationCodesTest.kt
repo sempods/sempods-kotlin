@@ -1,6 +1,7 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.auth.core.OAuthErrors
@@ -10,7 +11,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 /**
  * The gate both browser routes pass through on their way to a code.
@@ -25,6 +25,9 @@ internal class PodAuthorizationCodesTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var dynamicClientStore: DynamicClientStore
+
+  @Inject
+  private lateinit var authorizationCodeStore: AuthorizationCodeStore
 
   private fun target(owned: Owned) = assertNotNull(
     OAuthErrors.redirectTargetFor(
@@ -81,6 +84,12 @@ internal class PodAuthorizationCodesTest : PodBrowserFlowTest() {
     val minted = assertIs<PodCodeResult.Minted>(result, "was: $result")
     assertEquals(redirectUri, minted.target.uri)
     assertEquals(state, minted.state)
-    assertTrue(minted.code.isNotBlank())
+
+    // And the code is one the exchange will take: minting that left nothing redeemable would
+    // satisfy every assertion above.
+    val entry = assertNotNull(authorizationCodeStore.consume(minted.code))
+    assertEquals(owned.webId, entry.subject)
+    assertEquals(redirectUri, entry.redirectUri)
+    assertEquals(challenge, entry.codeChallenge)
   }
 }

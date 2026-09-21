@@ -111,8 +111,15 @@ internal object PodAuthorizeResponses {
     PodConsentRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please re-authorize")
   }
 
+  /**
+   * A refusal in words, with the charset stated.
+   *
+   * Stated rather than left out: these sentences carry typographic punctuation, Jersey writes the
+   * entity as UTF-8, and a client that falls back to ISO-8859-1 for an unparameterised `text/plain`
+   * renders the dash as mojibake.
+   */
   private fun text(status: Int, body: String): Response =
-    Response.status(status).entity(body).type("text/plain").build()
+    Response.status(status).entity(body).type("text/plain;charset=UTF-8").build()
 
   /**
    * The dialog, rendered.
@@ -185,8 +192,7 @@ internal object PodAuthorizeResponses {
    * would normally carry it: at this point in `/authorize` the redirect address is not yet known
    * to belong to the client, so nothing may travel by redirect (`PodAuthorizeFlow` has the note).
    * Plain text going to whoever is holding the browser, then — and it says the one thing that
-   * actually fixes it. Kept ASCII-only: the response declares no charset, so a typographic dash
-   * would be the one part of it a client could garble.
+   * actually fixes it.
    */
   internal const val UNREGISTERED_CLIENT_MESSAGE =
     "invalid_client: this pod holds no registration for that client_id. It was removed, it " +

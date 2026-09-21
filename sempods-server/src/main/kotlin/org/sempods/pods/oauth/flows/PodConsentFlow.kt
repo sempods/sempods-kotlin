@@ -70,10 +70,13 @@ class PodConsentFlow @Inject internal constructor(
     // page could be replayed over a narrower consent), and a transaction alone could be lifted out of a
     // page and spent from another browser.
     if (session == null) return PodConsentResult.Refused(PodConsentRefusal.SESSION_EXPIRED)
-    val transaction = form.csrf?.trim()?.takeIf { it.isNotBlank() }?.let { consentTransactionStore.consume(it) }
+    val presented = form.csrf?.trim()?.takeIf { it.isNotBlank() }
+    val transaction = presented?.let { consentTransactionStore.consume(it) }
     if (transaction == null || transaction.pod != pod.name || transaction.webId != session.webId) {
       logger.warn {
-        "[oauth/consent] rejected: consent token ${if (form.csrf == null) "absent" else "unknown, spent or not this session's"} " +
+        // On the normalised value, not the raw one: a form posting `csrf=` never reaches the store,
+        // and saying it was spent points whoever is debugging at the wrong half.
+        "[oauth/consent] rejected: consent token ${if (presented == null) "absent" else "unknown, spent or not this session's"} " +
             "(pod='${pod.name}')"
       }
       return PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED)
@@ -103,7 +106,9 @@ class PodConsentFlow @Inject internal constructor(
     val standing = consentDecisionStore
       .find(pod.id, normalizedClientId, listOf(identity.webId))
       ?.generation
-    if (transaction.consentGeneration != standing && !holdsAnything(pod, normalizedClientId, identity)) {
+    // Read once: the disconnect below asks the same question, and two reads could disagree.
+    val holdsAnything = holdsAnything(pod, normalizedClientId, identity)
+    if (transaction.consentGeneration != standing && !holdsAnything) {
       logger.info {
         "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${pod.name}', " +
             "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
@@ -117,7 +122,7 @@ class PodConsentFlow @Inject internal constructor(
     // an authorization. The empty-submission route to the same place is further down, because it
     // can only be recognised once the selection has been resolved.
     if (form.action?.trim() == DISCONNECT_ACTION) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
     }
 
     val isOwner = podGrantsFacade.isPodOwner(pod, identity.allUris)
@@ -149,7 +154,7 @@ class PodConsentFlow @Inject internal constructor(
     // creation below, so creating one would build a context for an authorization that is not
     // happening. The backstop after the resolution stays, for a selection that empties there.
     if (rawSubmitted.isEmpty() && newContextScopesRequested.isEmpty()) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
     }
 
     if (publicReadRequested) {
@@ -244,7 +249,7 @@ class PodConsentFlow @Inject internal constructor(
     // The backstop for a selection that empties here rather than at the form: every scope the
     // person ticked turned out to be one they no longer hold.
     if (selectedScopes.isEmpty()) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
     }
 
     // Persist the user's grant selection for this app (replace — the checkbox submission is the
@@ -341,8 +346,9 @@ class PodConsentFlow @Inject internal constructor(
     identity: PersonIdentity,
     target: Redirectable,
     state: String?,
+    holdsAnything: Boolean,
   ): PodConsentResult =
-    if (holdsAnything(pod, clientId, identity)) {
+    if (holdsAnything) {
       disconnectApp(pod, clientId, identity, target, state)
     } else {
       failed(target, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)

@@ -581,7 +581,8 @@ class PodAuthEndpoint @Inject constructor(
       }
       return Response.status(400)
         .entity("this sign-in was not started in this browser — please start it again")
-        .type("text/plain")
+        // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
+        .type("text/plain;charset=UTF-8")
         .build()
     }
 

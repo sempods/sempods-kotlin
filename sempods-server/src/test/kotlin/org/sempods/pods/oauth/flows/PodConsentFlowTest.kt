@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -12,6 +13,7 @@ import org.sempods.pods.oauth.PodTokenIssuer
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -229,6 +231,29 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertEquals("no scopes selected", delivery.description)
   }
 
+  @Test
+  fun `a person who signed out while deciding gets no code, and the grants still land`() {
+    // The window PodAuthorizationCodes re-checks for: the session was read before the dialog, the
+    // sign-out landed while the person was choosing, and the generation it moved would otherwise
+    // travel on a code that redeems.
+    val owned = Owned()
+    val ticket = owned.ticket()
+    podSignOut.signOut(owned.pod.id, owned.pod.name, listOf(owned.webId))
+
+    val result = flow.submit(
+      owned.pod,
+      form(csrf = ticket, scopes = listOf(owned.readScope)),
+      owned.session,
+    )
+
+    val delivery = redirectedError(result)
+    assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
+    assertEquals("signed out", delivery.description)
+    // The safe half of the write order stands: the selection was persisted before the code was
+    // asked for, and nothing about a sign-out undoes a grant.
+    assertEquals(setOf(owned.readScope), owned.held())
+  }
+
   // ── The ordinary save ─────────────────────────────────────────────────────
 
   @Test
@@ -314,6 +339,32 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   // ── Contexts typed into the form ──────────────────────────────────────────
+
+  @Test
+  fun `a context path cannot forge a log line`() {
+    // `sempods-server` is published, so the console `%replace` that covers this repository's own
+    // applications is not a guarantee for an embedder — `docs/logging.md` §"Three rules" asks a
+    // library that logs caller-supplied text to escape it and to keep one test at the call site.
+    // The path is a form value and `ContextPathRules.normalize` only trims the ends, so a break in
+    // the middle of one survives to the line that reports the rejection.
+    val owned = Owned()
+    val marker = "forged-${randomId()}"
+    val forged = "../x\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
+
+    val lines = CapturedLog.linesFrom(PodConsentFlow::class.java) {
+      issuedCode(
+        flow.submit(
+          owned.pod,
+          form(csrf = owned.ticket(), scopes = listOf(owned.readScope), newContexts = listOf(forged)),
+          owned.session,
+        ),
+      )
+    }
+
+    val line = lines.single { marker in it }
+    assertFalse('\n' in line, "was: $line")
+    assertTrue("\\u000a" in line, line)
+  }
 
   @Test
   fun `an owner can create a context from the dialog and grant it in the same submission`() {
