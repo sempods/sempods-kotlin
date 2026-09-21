@@ -72,7 +72,8 @@ internal object PodAuthorizeResponses {
   }
 
   /**
-   * Where the code goes, with `state` beside it where the client sent one.
+   * Where the code goes, with `state` beside it exactly as
+   * [suppliedState][org.sempods.pods.oauth.flows.suppliedState] left it.
    *
    * Overwriting and never appending, for the reason [PodOAuthErrorResponses] gives: a registered
    * address may carry a query of its own, and a client registered as `…/cb?code=…` must not receive
@@ -80,9 +81,7 @@ internal object PodAuthorizeResponses {
    */
   private fun codeRedirect(code: String, redirectUri: String, state: String?): Response {
     var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "code", code)
-    state?.trim()?.takeIf { it.isNotBlank() }?.let {
-      callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it)
-    }
+    state?.let { callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it) }
     return Response.seeOther(callbackUri).build()
   }
 

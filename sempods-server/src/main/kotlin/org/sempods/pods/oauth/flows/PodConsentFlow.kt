@@ -48,6 +48,8 @@ class PodConsentFlow @Inject internal constructor(
     form: PodConsentForm,
     session: PodTokenIssuer.SessionPrincipal?,
   ): PodConsentResult {
+    val clientState = suppliedState(form.state)
+
     // Same split as `/authorize`: a consent form submitted after the registration was cleared is
     // not a malformed `client_id`, and telling the person it is sends them looking for a typo.
     val clients = PodClientDirectory.of(pod.id, dynamicClientStore)
@@ -88,7 +90,7 @@ class PodConsentFlow @Inject internal constructor(
     if (form.action?.trim() == SIGN_OUT_ACTION) {
       podSignOut.signOut(pod.id, pod.name, identity.allUris)
       return PodConsentResult.SignedOut(
-        OAuthErrorDelivery.Redirect(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "signed out", form.state),
+        OAuthErrorDelivery.Redirect(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "signed out", clientState),
       )
     }
 
@@ -121,7 +123,7 @@ class PodConsentFlow @Inject internal constructor(
     // an authorization. The empty-submission route to the same place is further down, because it
     // can only be recognised once the selection has been resolved.
     if (form.action?.trim() == DISCONNECT_ACTION) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
     }
 
     val isOwner = podGrantsFacade.isPodOwner(pod, identity.allUris)
@@ -153,7 +155,7 @@ class PodConsentFlow @Inject internal constructor(
     // creation below, so creating one would build a context for an authorization that is not
     // happening. The backstop after the resolution stays, for a selection that empties there.
     if (rawSubmitted.isEmpty() && newContextScopesRequested.isEmpty()) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
     }
 
     if (publicReadRequested) {
@@ -164,7 +166,7 @@ class PodConsentFlow @Inject internal constructor(
       if (publicContexts.isEmpty() && perContextSubmitted.isEmpty() && newContextsRequested.isEmpty()) {
         return failed(
           redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-          "pod has no public-read contexts and no per-context scopes were selected", form.state,
+          "pod has no public-read contexts and no per-context scopes were selected", clientState,
         )
       }
     }
@@ -248,7 +250,7 @@ class PodConsentFlow @Inject internal constructor(
     // The backstop for a selection that empties here rather than at the form: every scope the
     // person ticked turned out to be one they no longer hold.
     if (selectedScopes.isEmpty()) {
-      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, form.state, holdsAnything)
+      return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
     }
 
     // Persist the user's grant selection for this app (replace — the checkbox submission is the
@@ -274,7 +276,7 @@ class PodConsentFlow @Inject internal constructor(
       }
       return failed(
         redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-        "granted access changed while consenting; please re-authorize", form.state,
+        "granted access changed while consenting; please re-authorize", clientState,
       )
     }
 
@@ -322,7 +324,7 @@ class PodConsentFlow @Inject internal constructor(
       webId = identity.webId,
       scopes = tokenFeatureScopes,
       target = redirectTarget,
-      state = form.state,
+      state = clientState,
       codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       via = PodCodeIssuance.CONSENT,
