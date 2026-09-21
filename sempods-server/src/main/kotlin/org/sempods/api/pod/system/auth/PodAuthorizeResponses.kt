@@ -11,12 +11,15 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
+import org.sempods.pods.oauth.flows.PodConsentRefusal
+import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodConsentScreen
 import java.net.URI
 import java.time.Duration
 
 /**
- * Every answer `GET /{pod}/_system/auth/authorize` gives, built in one place.
+ * Every answer the pod's two browser routes give — `GET authorize` and the consent submission it
+ * sends the person to — built in one place.
  *
  * [PodAuthorizeFlow][org.sempods.pods.oauth.flows.PodAuthorizeFlow] decides *what* to answer —
  * whether a code was minted, which boxes the dialog ticks, where the browser goes to sign in. This
@@ -55,6 +58,28 @@ internal object PodAuthorizeResponses {
     is PodAuthorizeResult.Refused -> refusal(result.reason)
   }
 
+  fun render(
+    result: PodConsentResult,
+    podName: String,
+    cookies: PodBrowserCookies,
+    templates: TemplateRenderer,
+    config: SempodsConfig,
+  ): Response = when (result) {
+    is PodConsentResult.Completed -> render(result.outcome, podName, cookies, templates, config)
+
+    is PodConsentResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+
+    // The client is told the request was denied, and the browser is told the sign-in is over. Both
+    // halves are this one answer: a person who signed out and kept their cookie signed out of
+    // nothing.
+    is PodConsentResult.SignedOut ->
+      Response.fromResponse(PodOAuthErrorResponses.render(result.delivery, config))
+        .cookie(cookies.clearSession(podName))
+        .build()
+
+    is PodConsentResult.Refused -> refusal(result.reason)
+  }
+
   /** `/authorize`'s wording for a [PodAuthorizeRefusal], as plain text to whoever holds the browser. */
   private fun refusal(reason: PodAuthorizeRefusal): Response = when (reason) {
     PodAuthorizeRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
@@ -62,6 +87,22 @@ internal object PodAuthorizeResponses {
     PodAuthorizeRefusal.MALFORMED_CLIENT_ID -> text(400, "client_id must be a did:web or dyn: identity")
     PodAuthorizeRefusal.REDIRECT_URI_NOT_ALLOWED -> text(400, "redirect_uri not allowed for this client_id")
     PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE -> text(503, "identity provider unavailable")
+  }
+
+  /**
+   * The consent submission's wording for the same kind of refusal.
+   *
+   * Three sentences it shares with the table above and one it does not: a form posted after the
+   * registration was cleared says "invalid client_id" here, where `/authorize` complains about the
+   * format. Its own two are about this form rather than about the request.
+   */
+  private fun refusal(reason: PodConsentRefusal): Response = when (reason) {
+    PodConsentRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
+    PodConsentRefusal.UNREGISTERED_CLIENT -> text(400, UNREGISTERED_CLIENT_MESSAGE)
+    PodConsentRefusal.MALFORMED_CLIENT_ID -> text(400, "invalid client_id")
+    PodConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> text(400, "redirect_uri not allowed for this client_id")
+    PodConsentRefusal.SESSION_EXPIRED -> text(401, "session expired — please re-authorize")
+    PodConsentRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please re-authorize")
   }
 
   private fun text(status: Int, body: String): Response =

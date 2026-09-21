@@ -8,45 +8,30 @@ import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import java.io.IOException
-import java.net.URI
 import java.time.Instant
 import org.sempods.api.SempodsBaseEndpoint
-import org.sempods.auth.ConsentTransactionStore
-import org.sempods.auth.PersonIdentity
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
-import org.sempods.auth.core.OAuthErrorDelivery
-import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.RedirectUri
-import org.sempods.auth.core.Redirectable
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.pods.PodFacade
-import org.sempods.pods.contexts.ContextPathRules
-import org.sempods.pods.contexts.ContextUriResolution
-import org.sempods.pods.contexts.persist.PodContextsDao
-import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
+import org.sempods.pods.oauth.flows.PodConsentFlow
+import org.sempods.pods.oauth.flows.PodConsentForm
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
-import org.sempods.pods.oauth.flows.PodClientDirectory
-import org.sempods.pods.oauth.flows.PodClientIdentity
-import org.sempods.pods.oauth.flows.PodCodeIssuance
-import org.sempods.pods.oauth.PodConsentDecisionStore
-import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.flows.PodTokenExchange
@@ -56,20 +41,16 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
   private val podAuthorizeFlow: PodAuthorizeFlow,
+  private val podConsentFlow: PodConsentFlow,
   private val podTokenExchange: PodTokenExchange,
-  private val podGrantsFacade: PodGrantsFacade,
   private val dynamicClientStore: DynamicClientStore,
   private val templateRenderer: TemplateRenderer,
   private val podTokenIssuer: PodTokenIssuer,
-  private val refreshTokenStore: PodRefreshTokenStore,
-  private val consentDecisionStore: PodConsentDecisionStore,
   private val podSignOut: PodSignOut,
   private val tokenRateLimiter: PodTokenRateLimiter,
-  private val podContextsDao: PodContextsDao,
   private val podServiceClientStore: PodServiceClientStore,
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
-  private val consentTransactionStore: ConsentTransactionStore,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -345,388 +326,30 @@ class PodAuthEndpoint @Inject constructor(
     @FormParam("action") action: String?,
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
-
-    // Same split as `/authorize`: a consent form submitted after the registration was cleared is
-    // not a malformed `client_id`, and telling the person it is sends them looking for a typo.
-    val clients = PodClientDirectory.of(podDbo.podId(), dynamicClientStore)
-    val normalizedClientId = when (val client = clients.identify(clientId)) {
-      is PodClientIdentity.Known -> client.clientId
-      PodClientIdentity.Unregistered -> return Response.status(400)
-        .entity(PodAuthorizeResponses.UNREGISTERED_CLIENT_MESSAGE).type("text/plain").build()
-
-      PodClientIdentity.Malformed -> return Response.status(400)
-        .entity("invalid client_id").type("text/plain").build()
-    }
-
-    val normalizedRedirectUri = redirectUri?.trim()?.takeIf { it.isNotBlank() }
-      ?: return Response.status(400).entity("missing redirect_uri").type("text/plain").build()
-
-    val redirectTarget = OAuthErrors.redirectTargetFor(clients, normalizedClientId, normalizedRedirectUri)
-      ?: return Response.status(400).entity("redirect_uri not allowed for this client_id").type("text/plain").build()
-
-    // Two questions, two answers. The session says *who* is submitting; the transaction says
-    // *which screen* this is, and that it has not been submitted before. Neither alone is enough:
-    // a session-derived token would be the same on every screen the session outlives (so a stale
-    // page could be replayed over a narrower consent), and a transaction alone could be lifted out of a
-    // page and spent from another browser.
     val session = readSession(podDbo, sessionCookie)
-      ?: return Response.status(401).entity("session expired — please re-authorize").type("text/plain").build()
-    val transaction = csrf?.trim()?.takeIf { it.isNotBlank() }?.let { consentTransactionStore.consume(it) }
-    if (transaction == null || transaction.pod != podDbo.name || transaction.webId != session.webId) {
-      logger.warn {
-        "[oauth/consent] rejected: consent token ${if (csrf == null) "absent" else "unknown, spent or not this session's"} " +
-            "(pod='${podDbo.name}')"
-      }
-      return Response.status(403)
-        .entity("this form is no longer valid — please re-authorize")
-        .type("text/plain")
-        .build()
-    }
-    val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
-
-    // Ahead of the check below, which refuses a page rendered before this app was disconnected. That
-    // check keeps an old page from writing grants back; a sign-out writes none, and refusing it would
-    // leave the person signed in with no way out on the page in front of them.
-    if (action?.trim() == SIGN_OUT_ACTION) {
-      podSignOut.signOut(podDbo.podId(), podDbo.name, identity.allUris)
-      return Response.fromResponse(
-        oauthError(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "signed out", state),
-      ).cookie(cookies.clearSession(podDbo.name)).build()
-    }
-
-    // Single-use stops this page being posted twice; it says nothing about a *second* page opened
-    // before the app was disconnected, which would submit its own older selection as the
-    // authoritative new state and hand back everything the person just removed. So a page carries
-    // what stood when it was rendered, and one from before a disconnect is refused.
-    //
-    // Only that case. Screens are allowed to coexist on purpose — `ConsentTransactionStore` says
-    // why, and `two sign-ins running at once in one browser both complete` pins it — so a page
-    // that is merely older than the current answer, on an authorization that still holds
-    // something, submits as it always did. A page that would resurrect a disconnected app does
-    // not.
-    val standing = consentDecisionStore
-      .find(podDbo.podId(), normalizedClientId, listOf(identity.webId))
-      ?.generation
-    if (transaction.consentGeneration != standing && !holdsAnything(podDbo, normalizedClientId, identity)) {
-      logger.info {
-        "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${podDbo.name}', " +
-            "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
-            "standing=${standing ?: "(none)"})"
-      }
-      return Response.status(403)
-        .entity("this form is no longer valid — please re-authorize")
-        .type("text/plain")
-        .build()
-    }
-
-    // Before anything is created. The form can carry a context the person typed, and choosing to
-    // remove an app's access is not the moment to build one for it — they asked for the opposite of
-    // an authorization. The empty-submission route to the same place is further down, because it
-    // can only be recognised once the selection has been resolved.
-    if (action?.trim() == DISCONNECT_ACTION) {
-      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
-        disconnectApp(podDbo, normalizedClientId, identity, redirectTarget, state)
-      } else {
-        oauthError(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
-      }
-    }
-
-    val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
-    val hostedPod = podDbo.hosted
-    val isOwner = podGrantsFacade.isPodOwner(hostedPod, identity.allUris)
-
-    // `public-read` is an additive scope. It can be combined with per-context
-    // scopes — no mutual-exclusivity check. Persisted as a grant so
-    // prompt=none auto-grant works on subsequent /authorize calls.
-    val rawSubmitted = scopes
-      ?.map { it.trim() }
-      ?.filter { it.isNotBlank() }
-      ?.toSet()
-      ?: emptySet()
-    val publicReadRequested = PUBLIC_READ_SCOPE in rawSubmitted
-    val perContextSubmitted = rawSubmitted - PUBLIC_READ_SCOPE
-    val newContextsRequested = newContexts
-      ?.map { ContextPathRules.normalize(it) }
-      ?.filter { it.isNotBlank() }
-      ?: emptyList()
-    // `<relative-path>#<permission>` — a context that does not exist yet has no IRI to name, so
-    // the form cannot post one. It used to post `podBaseUrl + path + '#' + perm`, which stopped
-    // matching the moment the server started prefixing, and the grants silently vanished.
-    val newContextScopesRequested = newContextScopes
-      ?.map { it.trim() }
-      ?.filter { it.isNotBlank() }
-      ?: emptyList()
-
-    // Nothing ticked anywhere is the other way to ask for the way out, and it is answerable here:
-    // with no scope submitted and no permission on a pending context, no selection can survive the
-    // creation below, so creating one would build a context for an authorization that is not
-    // happening. The backstop after the resolution stays, for a selection that empties there.
-    if (rawSubmitted.isEmpty() && newContextScopesRequested.isEmpty()) {
-      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
-        disconnectApp(podDbo, normalizedClientId, identity, redirectTarget, state)
-      } else {
-        oauthError(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
-      }
-    }
-
-    if (publicReadRequested) {
-      // public-read needs at least one public context to be meaningful — drop
-      // it from the grant set if the pod has no public contexts (rather than
-      // erroring; the user may still want the per-context grants).
-      val publicContexts = podFacade.getPublicContexts(podName = podDbo.name)
-      if (publicContexts.isEmpty() && perContextSubmitted.isEmpty() && newContextsRequested.isEmpty()) {
-        return oauthError(
-          redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-          "pod has no public-read contexts and no per-context scopes were selected", state,
-        )
-      }
-    }
-
-    // Create new contexts submitted from the consent UI (owner only).
-    //
-    // The path is free user input, so it goes through the same structure rules as the management
-    // route ([ContextPathRules]) and gets the same namespace prefix. Until this iteration it did
-    // neither: contexts landed directly under the pod root, in the freely writable resource
-    // namespace, and no rule the other producer enforced applied here at all.
-    //
-    // A rejected path is skipped rather than failing the authorization: the user is mid-consent,
-    // and losing the whole flow over a mistyped context name would be the worse outcome. The
-    // grant set below is computed from what actually exists, so a skipped context simply is not
-    // granted.
-    //
-    // The IRI is built here and nowhere else. The form posts the relative path, both for the
-    // context and for its permission checkboxes — a second builder in the template is what made
-    // every grant on a newly created context vanish the moment this one started prefixing.
-    //
-    // TODO: Schnitt 2 — surface a `public` checkbox here so consent-created
-    //   contexts can be made anonymously readable; defaults to private for now.
-    // TODO: a rejected path is still only a log line. The form validates first, which covers what a
-    //   person actually types, but it is a second implementation of these rules and a second
-    //   implementation eventually disagrees — a character class already did. The complete answer is
-    //   to re-render the consent page with the reason instead of skipping: the owner stays in the
-    //   flow and sees it. What that needs is carrying the pending contexts and their ticked
-    //   permissions back into the template, so the re-render does not discard the work.
-    val createdContexts = mutableMapOf<String, String>()
-    if (isOwner) {
-      val podId = checkNotNull(podDbo.id)
-      newContextsRequested.forEach { relativePath ->
-        fun reject(reason: String) = logger.warn { "[oauth/consent] Context rejected: pod='${podDbo.name}', path='$relativePath' — $reason" }
-        ContextPathRules.rejectionReason(relativePath)?.let { return@forEach reject(it) }
-        // Same builder as the management route, so the two cannot disagree about what a path maps
-        // to — and so a form value carrying `#` or `?` is refused here as well. Concatenating the
-        // string instead would have persisted `<pod>/_system/contexts/foo#bar`: unaddressable
-        // through `_system/contexts/{path}`, and ambiguous against the `<iri>#<permission>` scope
-        // grammar.
-        val resolution = ContextPathRules.resolve(podBaseUrl, relativePath)
-        if (resolution is ContextUriResolution.Rejected) {
-          return@forEach reject(resolution.reason)
-        }
-        val contextUri = (resolution as ContextUriResolution.Resolved).uri.toString()
-        podContextsDao.create(
-          podId = podId,
-          contextUri = contextUri,
-          label = null,
-          description = null,
-          createdBy = identity.webId,
-        )
-        createdContexts[relativePath] = contextUri
-        logger.info { "[oauth/consent] Context created: pod='${podDbo.name}', context='$contextUri'" }
-      }
-    }
-
-    // The checkboxes of a just-created context, resolved against the IRI it actually got. A scope
-    // whose path was rejected above resolves to nothing and is dropped with its context — which is
-    // the intended outcome, and the reason this map is keyed by what was created rather than by
-    // what was requested.
-    val newContextScopesResolved = newContextScopesRequested.mapNotNull { raw ->
-      val relativePath = ContextPathRules.normalize(raw.substringBeforeLast('#', missingDelimiterValue = ""))
-      val permission = raw.substringAfterLast('#', missingDelimiterValue = "")
-      if (permission !in PodGrantsDao.CONTEXT_PERMISSIONS) {
-        return@mapNotNull null
-      }
-      createdContexts[relativePath]?.let { "$it#$permission" }
-    }
-
-    // Re-resolve the user's grants after potential context creation.
-    val userGrants = podGrantsFacade.resolveUserGrants(hostedPod, identity.allUris)
-    val selectedPerContext = (perContextSubmitted + newContextScopesResolved)
-      .filter { userGrants.contains(it) }
-      .toSet()
-
-    // Combined grant set: per-context scopes plus the public-read scope if
-    // the toggle was ticked (additive model). Public-read is persisted so
-    // prompt=none auto-grant honours the choice on later /authorize calls.
-    val selectedScopes = if (publicReadRequested) {
-      selectedPerContext + PUBLIC_READ_SCOPE
-    } else {
-      selectedPerContext
-    }
-
-    // The submission is the authoritative new state, and clearing it is the extreme case of that
-    // rather than an exception to it. Two ways to arrive here mean the same thing — the named
-    // action, and a submission with nothing ticked — and both end the authorization where there is
-    // one. Where there is none the answer stays the plain denial it always was: reporting a
-    // disconnect of nothing is the same lie as reporting nothing when something ended.
-    if (selectedScopes.isEmpty()) {
-      return if (holdsAnything(podDbo, normalizedClientId, identity)) {
-        disconnectApp(podDbo, normalizedClientId, identity, redirectTarget, state)
-      } else {
-        oauthError(redirectTarget, OAuthErrorCode.ACCESS_DENIED, "no scopes selected", state)
-      }
-    }
-
-    // Persist the user's grant selection for this app (replace — the checkbox submission is the
-    // authoritative new state, so any previously granted scope the user unchecked must be revoked).
-    // The facade re-derives after writing, so an owner-level revocation that landed between
-    // `resolveUserGrants` above and this write cannot leave an unbacked grant behind. What comes
-    // back is what actually survived.
-    val persistedScopes = podGrantsFacade.replaceAppGrants(
-      pod = hostedPod,
-      appId = normalizedClientId,
-      webId = identity.webId,
-      subjectUris = identity.allUris,
-      grants = selectedScopes,
-      grantedBy = identity.webId,
-    )
-
-    if (persistedScopes.isEmpty()) {
-      // Recoverable: the person's authority changed while they were deciding. `consent_required`
-      // rather than `access_denied` — nobody refused anything, the basis simply moved.
-      logger.warn {
-        "[oauth/consent] Selection void — owner-level access changed during consent: " +
-            "pod='${podDbo.name}', clientId='$normalizedClientId', webId='${identity.webId}'"
-      }
-      return oauthError(
-        redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-        "granted access changed while consenting; please re-authorize", state,
-      )
-    }
-
-    // **The answer is written after the grants, and a run dying between them leaves the safe
-    // half.** What survives is the selection the person just made, under the answer that stood
-    // before it — so a narrowing takes effect, and the durability question keeps its previous
-    // answer rather than acquiring one nobody gave. Writing the answer first inverts exactly that:
-    // the old, wider grants would stand under a *new* generation, the narrowing silently lost and
-    // the credentials it was meant to end still rotating.
-    //
-    // The pair this order can leave — grants with no answer beside them, on a first consent — is
-    // harmless since a code carrying no generation is refused at the exchange: nothing redeems,
-    // auto-grant needs a decision it does not have, and the next visit renders this dialog again.
-    val durableGranted = durable != null
-    val decision = recordDecision(podDbo, normalizedClientId, identity, durable = durableGranted)
-    if (!durableGranted) {
-      // Withholding is not merely declining to extend: the families this authorization already has
-      // would otherwise keep rotating, and the person would have changed nothing they can observe.
-      val revoked = refreshTokenStore.revokeForUser(
-        pod = podDbo.podId(),
-        clientId = normalizedClientId,
-        webIds = identity.allUris,
-      )
-      if (revoked > 0) {
-        logger.info {
-          "[oauth/consent] Durable connection withheld — refresh tokens revoked: " +
-              "pod='${podDbo.name}', clientId='$normalizedClientId', webId='${identity.webId}', " +
-              "revokedRows=$revoked"
-        }
-      }
-    }
-
-    logger.info {
-      "[oauth/consent] Grants saved: pod='${podDbo.name}', clientId='$normalizedClientId', " +
-          "webId='${identity.webId}', scopes=${persistedScopes.size}, public_read=$publicReadRequested, " +
-          "durable=$durableGranted, generation=${decision.generation}"
-    }
-
-    // Slim access token: context permissions are resolved server-side from the grant just
-    // persisted, so only feature scopes (e.g. `public-read`) travel in the token.
-    val tokenFeatureScopes = if (publicReadRequested) setOf(PUBLIC_READ_SCOPE) else emptySet()
-
-    return render(
-      podDbo.name,
-      podAuthorizeFlow.issueCode(
-        pod = hostedPod,
-        clientId = normalizedClientId,
-        webId = identity.webId,
-        scopes = tokenFeatureScopes,
-        target = redirectTarget,
-        state = state,
-        codeChallenge = codeChallenge?.trim()?.takeIf { it.isNotBlank() },
-        codeChallengeMethod = codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
-        via = PodCodeIssuance.CONSENT,
-        consentGeneration = decision.generation,
+    return PodAuthorizeResponses.render(
+      podConsentFlow.submit(
+        pod = podDbo.hosted,
+        form = PodConsentForm(
+          clientId = clientId,
+          redirectUri = redirectUri,
+          state = state,
+          codeChallenge = codeChallenge,
+          codeChallengeMethod = codeChallengeMethod,
+          csrf = csrf,
+          scopes = scopes,
+          newContexts = newContexts,
+          newContextScopes = newContextScopes,
+          // An unticked checkbox sends nothing at all, so the question is whether the field
+          // arrived. What a ticked one spells — `on`, in every browser that has ever sent this
+          // form — is the browser's business and is deliberately not read.
+          durable = durable != null,
+          action = action,
+        ),
         session = session,
       ),
+      podDbo.name, cookies, templateRenderer, config,
     )
-  }
-
-  /**
-   * End what this app holds for this person.
-   *
-   * The grants go, the decision is written as a refusal — a silence would read as an authorization
-   * that predates the control and be left alone — and the refresh families are revoked, because
-   * withholding that is merely declining to extend would leave the person's most emphatic gesture
-   * with nothing to show for it. The client is still told `access_denied`: the request really was
-   * denied, and what changed is that the denial now has an effect.
-   */
-  /**
-   * Write the answer under every URI that names this person, and hand back the one for the URI they
-   * are signed in as.
-   *
-   * One document per URI rather than one per person, because that is how the rows this sits beside
-   * are keyed — and because the alternative is worse than the duplication: a code issued while an
-   * alias was the session identity carries that alias's generation, and only a document of its own
-   * can move when the person answers again under their canonical WebID. Without that, the older
-   * code would still compare equal and redeem against a consent that has been replaced.
-   */
-  private fun recordDecision(
-    podDbo: PodDbo,
-    clientId: String,
-    identity: PersonIdentity,
-    durable: Boolean,
-  ): PodConsentDecisionStore.Decision {
-    val pod = podDbo.podId()
-    val forSubject = consentDecisionStore.record(pod, clientId, identity.webId, durable)
-    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
-      consentDecisionStore.record(pod, clientId, alias, durable)
-    }
-    return forSubject
-  }
-
-  /**
-   * Whether this app holds anything for this person — the question that decides both whether the
-   * way out is offered and whether taking it means anything. Asked over every URI that names the
-   * person: an authorization stored under an alias is one they can still end.
-   */
-  private fun holdsAnything(podDbo: PodDbo, clientId: String, identity: PersonIdentity): Boolean =
-    podGrantsFacade.appGrants(podDbo.podId(), clientId, identity.allUris).isNotEmpty()
-
-  private fun disconnectApp(
-    podDbo: PodDbo,
-    clientId: String,
-    identity: PersonIdentity,
-    target: Redirectable,
-    state: String?,
-  ): Response {
-    // Once per URI that names the person, because that is how the rows are keyed: an authorization
-    // made under an alias is one this person can end, and `holdsAnything` already counted it.
-    val hostedPod = podDbo.hosted
-    identity.allUris.forEach { uri ->
-      podGrantsFacade.replaceAppGrants(
-        pod = hostedPod,
-        appId = clientId,
-        webId = uri,
-        subjectUris = identity.allUris,
-        grants = emptySet(),
-        grantedBy = identity.webId,
-      )
-    }
-    val decision = recordDecision(podDbo, clientId, identity, durable = false)
-    val revoked = refreshTokenStore.revokeForUser(hostedPod.id, clientId, identity.allUris)
-    logger.info {
-      "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
-          "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"
-    }
-    return oauthError(target, OAuthErrorCode.ACCESS_DENIED, "app disconnected", state)
   }
 
   // ─── OAuth token ──────────────────────────────────────────────────────────
@@ -1098,22 +721,7 @@ class PodAuthEndpoint @Inject constructor(
     PodAuthorizeResponses.render(result, podName, cookies, templateRenderer, config)
 
   /**
-   * Reports [error] at the client's own address, which [target] is the proof of.
-   *
-   * There is no way to reach this without that proof, which is the open-redirector rule stated as
-   * a type: an error may only travel to an address once it is known to belong to the client that
-   * named it.
-   */
-  private fun oauthError(
-    target: Redirectable,
-    error: OAuthErrorCode,
-    errorDescription: String,
-    state: String?,
-  ): Response =
-    PodOAuthErrorResponses.render(OAuthErrorDelivery.Redirect(target, error, errorDescription, state), config)
-
-  /**
-   * The same, for a request `oidc/callback` is resuming.
+   * Reports [error] at the address a parked request was validated with.
    *
    * See [PodOAuthErrorResponses.renderToParked]: the parked record is the proof, and it is the
    * only thing that opens this door.
@@ -1127,11 +735,5 @@ class PodAuthEndpoint @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
-
-    /** The consent form's named way out, as the submit button sends it. */
-    private const val DISCONNECT_ACTION = "disconnect"
-
-    /** The consent form's sign-out: it ends everything the person holds on the pod. */
-    private const val SIGN_OUT_ACTION = "signout"
   }
 }
