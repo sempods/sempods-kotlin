@@ -78,7 +78,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
     val response = signOut(pod, person)
 
-    assertEquals(307, response.statusCode, response.responseBody)
+    assertEquals(303, response.statusCode, response.responseBody)
     val location = checkNotNull(response.getHeader("Location"))
     assertTrue(location.startsWith(appA.redirectUri), location)
     assertTrue("error=access_denied" in location && "state=bye" in location, location)
@@ -259,11 +259,11 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val (pod, person) = podWithOwner()
     connect(pod, person, appA)
     val renderedBefore = formToken(pod, person, appA)
-    assertEquals(307, consent(pod, person, appA, state = "gone", action = "disconnect").statusCode)
+    assertEquals(303, consent(pod, person, appA, state = "gone", action = "disconnect").statusCode)
 
     val response = signOut(pod, person, csrf = renderedBefore)
 
-    assertEquals(307, response.statusCode, response.responseBody)
+    assertEquals(303, response.statusCode, response.responseBody)
     assertTrue("signed+out" in checkNotNull(response.getHeader("Location")), response.getHeader("Location"))
     assertTrue(isLoginRedirect(authorize(pod, signIn(pod.name, person).cookie)))
   }
