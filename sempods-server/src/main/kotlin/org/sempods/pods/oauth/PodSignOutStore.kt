@@ -8,7 +8,6 @@ import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.Updates
-import org.bson.types.ObjectId
 import org.bson.conversions.Bson
 import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant

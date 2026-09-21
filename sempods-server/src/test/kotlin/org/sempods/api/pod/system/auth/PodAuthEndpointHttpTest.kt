@@ -13,9 +13,10 @@ import org.sempods.SempodsModule
 import org.sempods.FakeIdServerTransport
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.AuthorizationCodeStore
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -697,7 +698,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a refresh_token client_id carrying a line break is refused before it is logged`() {
-    // The token endpoint never goes through `readClientId`, and the "not recognized" refusal names
+    // The token endpoint never goes through `PodClientDirectory.identify`, and the "not recognized"
+    // refusal names
     // the submitted `client_id` before anything has matched it against a stored one.
     val pod = sempodsTestFactory.newPod()
     val marker = "forged-${TestUtil.randomId()}"
@@ -4540,7 +4542,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a refresh on the family's deadline issues nothing`() {
     // The instant itself. `lookup` compares with `isBefore`, so a row is still ACTIVE exactly at its
-    // expiry and the structural guard in `buildTokenResponse` is what answers.
+    // expiry and the structural guard in `PodTokenExchange.issued` is what answers.
     //
     // The row below is one the clamp would never write — a deadline behind an expiry — because the
     // millisecond this is really about cannot be aimed at over HTTP. What it pins is that no bearer

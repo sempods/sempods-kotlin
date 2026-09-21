@@ -2,8 +2,8 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.sempods.api.pod.system.auth.DynamicClientStore
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.DynamicClientStore
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.ClientId
 import org.sempods.auth.core.OAuthErrorCode

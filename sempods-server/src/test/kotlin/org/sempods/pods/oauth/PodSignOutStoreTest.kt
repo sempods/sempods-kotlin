@@ -15,7 +15,7 @@ import org.bson.types.ObjectId
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.mongo.persist.toPodId
 
 /** What [PodSignOutStore] keeps, for whom, and for how long. */

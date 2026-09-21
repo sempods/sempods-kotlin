@@ -9,9 +9,11 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.Pkce
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.PodId
+import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -75,8 +77,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
     fun grant(grants: Set<String>) {
       podGrantsFacade.replaceAppGrants(
-        pod = pod.toRef(sempodsUriBuilder),
-        podId = podId,
+        pod = pod.toHostedPod(sempodsUriBuilder),
         appId = clientId,
         webId = webId,
         subjectUris = listOf(webId),

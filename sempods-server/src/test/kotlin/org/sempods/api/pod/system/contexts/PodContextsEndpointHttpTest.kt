@@ -11,7 +11,7 @@ import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.client.SempodsContextCreate
 import org.sempods.client.SempodsGraphFormat
 import org.sempods.client.SempodsOkHttp

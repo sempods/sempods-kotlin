@@ -1,7 +1,7 @@
 package org.sempods
 
 import com.google.inject.Inject
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.PodTokenIssuer
 import okhttp3.OkHttpClient
 import org.eclipse.rdf4j.model.Model
 import org.sempods.client.SempodsAuthAttempt

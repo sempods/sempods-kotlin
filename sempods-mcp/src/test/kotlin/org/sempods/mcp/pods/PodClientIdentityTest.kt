@@ -45,7 +45,7 @@ class PodClientIdentityTest {
   @Test
   fun `a named profile's identifier covers its own callback and nothing else`() {
     // The static half of the fork. The identifier has to cover the address the pod redirects to —
-    // `PodAuthEndpoint.isAllowedRedirectUri` asks `covers` — and must not cover the default
+    // `PodClientDirectory.permits` asks `covers` — and must not cover the default
     // profile's, which is the whole point of giving it one.
     val clientId = PodClientIdentity.didWebClientId(BASE, "cron-agent")
     assertEquals("did:web:mcp.test:_system:ui:pods:callback:cron-agent", clientId)

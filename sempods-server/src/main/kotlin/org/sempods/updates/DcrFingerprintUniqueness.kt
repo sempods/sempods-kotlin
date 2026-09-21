@@ -11,8 +11,8 @@ import com.mongodb.client.model.Updates
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.bson.Document
 import org.sempods.SempodsCollections
-import org.sempods.api.pod.system.auth.DcrFingerprintIndex
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDboFields
+import org.sempods.pods.oauth.DcrFingerprintIndex
+import org.sempods.pods.oauth.DynamicClientRegistrationDboFields
 import org.sempods.commons.mongo.getInstant
 import java.time.Instant
 

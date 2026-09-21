@@ -1,7 +1,7 @@
 package org.sempods
 
 import com.google.inject.Inject
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.ontologies.Ontologies
 import org.sempods.pods.PodRepositoryCache

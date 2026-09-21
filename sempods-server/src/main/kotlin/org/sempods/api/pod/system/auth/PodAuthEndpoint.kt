@@ -49,10 +49,12 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.flows.PodClientDirectory
+import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.flows.PodClientIdentity
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.flows.PodTokenResult
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -140,7 +142,7 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     // The rule `/authorize` applies, through the same method: an address stored here that
-    // `isAllowedRedirectUri` would refuse is a registration no login can honour.
+    // `PodClientDirectory.permits` would refuse is a registration no login can honour.
     redirectUris.forEach { uri ->
       if (!RedirectUri.isValid(uri)) {
         return Response.status(400)
@@ -348,7 +350,8 @@ class PodAuthEndpoint @Inject constructor(
     // R6: audit-log every authorize entry so cross-client spikes can replay the
     // exact request shape per MCP client. One line per request, kept short — the
     // outcome is logged separately by the matching error/issue path.
-    // Ahead of `readClientId`, which is the point of an audit line: these are raw query parameters.
+    // Ahead of `PodClientDirectory.identify`, which is the point of an audit line: these are raw
+    // query parameters.
     logger.info {
       "[oauth/authorize-audit] outcome=start pod='${podDbo.name}' " +
           "client_id='${LogSafeText.of(clientId ?: "(none)")}' " +
@@ -575,9 +578,9 @@ class PodAuthEndpoint @Inject constructor(
 
     // ── Resolve user's available contexts and existing grants ────────────
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
-    val podRef = podDbo.ref
-    val isOwner = podGrantsFacade.isPodOwner(podRef, identity.allUris)
-    val userGrants = podGrantsFacade.resolveUserGrants(podRef, podDbo.podId(), identity.allUris)
+    val hostedPod = podDbo.hosted
+    val isOwner = podGrantsFacade.isPodOwner(hostedPod, identity.allUris)
+    val userGrants = podGrantsFacade.resolveUserGrants(hostedPod, identity.allUris)
 
     // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
     // WebID and does not re-key what it finds, while `resolveFromGrants` and the refresh path both
@@ -635,8 +638,7 @@ class PodAuthEndpoint @Inject constructor(
       var persisted = effectiveContextGrants + effectivePublicReadScope
       if (persisted.size != existingGrants.size) {
         persisted = podGrantsFacade.replaceAppGrants(
-          pod = podDbo.ref,
-          podId = podDbo.podId(),
+          pod = hostedPod,
           appId = normalizedClientId,
           webId = identity.webId,
           subjectUris = identity.allUris,
@@ -970,7 +972,8 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     val podBaseUrl = "${config.apiBaseUrl}${podDbo.name}/"
-    val isOwner = podGrantsFacade.isPodOwner(podDbo.ref, identity.allUris)
+    val hostedPod = podDbo.hosted
+    val isOwner = podGrantsFacade.isPodOwner(hostedPod, identity.allUris)
 
     // `public-read` is an additive scope. It can be combined with per-context
     // scopes — no mutual-exclusivity check. Persisted as a grant so
@@ -1085,7 +1088,7 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     // Re-resolve the user's grants after potential context creation.
-    val userGrants = podGrantsFacade.resolveUserGrants(podDbo.ref, podDbo.podId(), identity.allUris)
+    val userGrants = podGrantsFacade.resolveUserGrants(hostedPod, identity.allUris)
     val selectedPerContext = (perContextSubmitted + newContextScopesResolved)
       .filter { userGrants.contains(it) }
       .toSet()
@@ -1118,8 +1121,7 @@ class PodAuthEndpoint @Inject constructor(
     // `resolveUserGrants` above and this write cannot leave an unbacked grant behind. What comes
     // back is what actually survived.
     val persistedScopes = podGrantsFacade.replaceAppGrants(
-      pod = podDbo.ref,
-      podId = podDbo.podId(),
+      pod = hostedPod,
       appId = normalizedClientId,
       webId = identity.webId,
       subjectUris = identity.allUris,
@@ -1244,12 +1246,10 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     // Once per URI that names the person, because that is how the rows are keyed: an authorization
     // made under an alias is one this person can end, and `holdsAnything` already counted it.
-    val podRef = podDbo.ref
-    val pod = podDbo.podId()
+    val hostedPod = podDbo.hosted
     identity.allUris.forEach { uri ->
       podGrantsFacade.replaceAppGrants(
-        pod = podRef,
-        podId = pod,
+        pod = hostedPod,
         appId = clientId,
         webId = uri,
         subjectUris = identity.allUris,
@@ -1258,7 +1258,7 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
     val decision = recordDecision(podDbo, clientId, identity, durable = false)
-    val revoked = refreshTokenStore.revokeForUser(pod, clientId, identity.allUris)
+    val revoked = refreshTokenStore.revokeForUser(hostedPod.id, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${podDbo.name}', clientId='$clientId', " +
           "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"
@@ -1527,12 +1527,12 @@ class PodAuthEndpoint @Inject constructor(
       val describedAs = errorDescription?.takeIf { it.isNotBlank() }
         ?.let { if (it == error) it else "$error: $it" }
         ?: error
-      return oauthErrorToParked(pending.redirectUri, upstreamClass, describedAs, pending.clientState)
+      return oauthErrorToParked(pending, upstreamClass, describedAs)
     }
     // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
     // rather than `access_denied`, so a client does not record a decision that was never made.
     val authorizationCode = code?.trim()?.takeIf { it.isNotBlank() }
-      ?: return oauthErrorToParked(pending.redirectUri, OAuthErrorCode.SERVER_ERROR, "no authorization code", pending.clientState)
+      ?: return oauthErrorToParked(pending, OAuthErrorCode.SERVER_ERROR, "no authorization code")
 
     val verified = try {
       identityProvider.relyingParty(podDbo.name)
@@ -1549,7 +1549,7 @@ class PodAuthEndpoint @Inject constructor(
         "[oauth/authorize] id-server token exchange failed: pod='${podDbo.name}', " +
             "clientId='${pending.clientId}', answered='${failureClass.code}'"
       }
-      return oauthErrorToParked(pending.redirectUri, failureClass, "login failed", pending.clientState)
+      return oauthErrorToParked(pending, failureClass, "login failed")
     }
 
     logger.info {
@@ -1711,18 +1711,17 @@ class PodAuthEndpoint @Inject constructor(
     PodOAuthErrorResponses.render(OAuthErrorDelivery.Redirect(target, error, errorDescription, state), config)
 
   /**
-   * The same, to an address proven when the request was parked rather than in this call.
+   * The same, for a request `oidc/callback` is resuming.
    *
-   * `oidc/callback`'s only. See [PodOAuthErrorResponses.renderToProvenAddress]; #154 owns moving
-   * that route onto the delivery type.
+   * See [PodOAuthErrorResponses.renderToParked]: the parked record is the proof, and it is the
+   * only thing that opens this door.
    */
   private fun oauthErrorToParked(
-    redirectUri: String?,
+    pending: PodLoginStateStore.Pending,
     error: OAuthErrorCode,
     errorDescription: String,
-    state: String?,
   ): Response =
-    PodOAuthErrorResponses.renderToProvenAddress(redirectUri, error, errorDescription, state, config)
+    PodOAuthErrorResponses.renderToParked(pending, error, errorDescription, config)
 
   /**
    * What this pod makes of a `client_id`, and where that client may be answered.

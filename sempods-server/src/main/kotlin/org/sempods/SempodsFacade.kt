@@ -2,7 +2,7 @@ package org.sempods
 
 import com.google.inject.Inject
 import com.google.inject.Provider
-import org.sempods.api.pod.system.auth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
@@ -76,8 +76,9 @@ class SempodsFacade @Inject constructor(
       // handle on data that's about to disappear. The in-memory RDF cache is
       // invalidated by the calling ServiceImpl (cycle avoidance with
       // PodRepositoryCache).
-      refreshTokenStore.deleteByPod(podId.toPodId())
-      consentDecisionStore.deleteByPod(podId.toPodId())
+      val pod = podId.toPodId()
+      refreshTokenStore.deleteByPod(pod)
+      consentDecisionStore.deleteByPod(pod)
       dynamicClientRegistrationDao.deleteByPod(podId)
       podServiceClientDao.deleteByPod(podId)
       podServiceAuditLogDao.deleteByPod(podId)

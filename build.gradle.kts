@@ -1414,11 +1414,11 @@ tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }
 // in this tree, and it catches what a bytecode signature scan cannot — a driver type used inside a
 // method body, which is exactly where one would first appear.
 //
-// Two of the collaborators these classes hold still sit under `org.sempods.api` —
-// `PodTokenIssuer`, which mints a JWT and takes and returns strings, and `DynamicClientStore`,
-// which is Mongo-backed and reached as a store like the ones next door. Neither *hands this layer*
-// an HTTP, Nimbus or persistence type, which is what the list below can see; that they are filed
-// under `api` at all is the layering debt #154 settles with the slice that already moves them.
+// `org.sempods.api` is on the list too, and that is the layering rule rather than a type rule:
+// `docs/architecture/module-layering.md` §"Dependency Direction" runs Endpoint → Facade →
+// Repository, so a layer that decides may not reach up into the one that binds HTTP. It is on the
+// list only because the stores this layer holds were moved out of that package first; a rule whose
+// violations are exempted is a rule nothing enforces.
 val checkNoAdapterImports = tasks.register("checkNoAdapterImports") {
   group = "verification"
   description = "Fails if the pod's OAuth application package imports an HTTP-framework, protocol-library or persistence type."
@@ -1435,6 +1435,7 @@ val checkNoAdapterImports = tasks.register("checkNoAdapterImports") {
       "com.nimbusds." to "a protocol library",
       "com.mongodb." to "a database driver",
       "org.bson." to "a database driver",
+      "org.sempods.api." to "the layer that binds HTTP",
     )
 
     val sources = scanned.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()

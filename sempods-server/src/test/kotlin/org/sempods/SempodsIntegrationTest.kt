@@ -7,7 +7,7 @@ import com.google.inject.util.Modules
 import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
-import org.sempods.api.pod.system.auth.PodTokenIssuer
+import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.api.system.admin.pods.AdminPodsEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao

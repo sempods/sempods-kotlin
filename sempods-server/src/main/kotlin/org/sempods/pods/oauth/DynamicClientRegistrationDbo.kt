@@ -1,4 +1,4 @@
-package org.sempods.api.pod.system.auth
+package org.sempods.pods.oauth
 
 import org.bson.types.ObjectId
 import java.time.Instant

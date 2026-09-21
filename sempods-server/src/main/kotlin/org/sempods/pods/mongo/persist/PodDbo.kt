@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import org.bson.types.ObjectId
 import org.sempods.SempodsUriBuilder
+import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
 import org.sempods.spec.PodRef
 
@@ -73,6 +74,10 @@ internal data class PodDbo(
  * came back from the store, so a null here is a bug rather than a state to handle.
  */
 internal fun PodDbo.podId(): PodId = checkNotNull(id).toPodId()
+
+/** This row as the pod it is and the key it is stored under — see [HostedPod] for why as one value. */
+internal fun PodDbo.toHostedPod(uriBuilder: SempodsUriBuilder): HostedPod =
+  HostedPod(ref = toRef(uriBuilder), id = podId())
 
 internal fun PodDbo.toRef(uriBuilder: SempodsUriBuilder): PodRef = PodRef(
   uri = uriBuilder.buildPodUri(name),
