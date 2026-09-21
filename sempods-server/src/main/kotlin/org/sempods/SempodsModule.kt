@@ -25,6 +25,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodSignOutStore
+import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.admin.StaticCredentialAdminAuthorizer
 import org.sempods.ai.AiService
@@ -182,6 +183,7 @@ class SempodsModule : BaseModule() {
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
+    bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientFacade>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()

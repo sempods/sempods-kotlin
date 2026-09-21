@@ -258,14 +258,6 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   companion object {
 
-    @JvmStatic
-    protected val sempodsInjector: Injector by lazy {
-      Guice.createInjector(
-        Modules.override(SempodsModule())
-          .with(SempodsTestModule())
-      )
-    }
-
     @BeforeAll
     @JvmStatic
     fun beforeAll() {
@@ -274,3 +266,31 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     }
   }
 }
+
+/**
+ * One lazily built injector for the whole module's suite — `docs/testing.md` §"Composition" says
+ * what that shares and what it costs.
+ *
+ * At file scope rather than inside [SempodsIntegrationTest], so that a test needing the singletons
+ * without the server can have them: a `protected` companion member is reachable from subclasses
+ * only, and subclassing the HTTP base is exactly what such a test is avoiding.
+ */
+internal val sempodsInjector: Injector by lazy {
+  Guice.createInjector(
+    Modules.override(SempodsModule())
+      .with(SempodsTestModule())
+  )
+}
+
+/**
+ * The suite's injector and its singletons, and no running server.
+ *
+ * [SempodsIntegrationTest] starts Jetty in its `@BeforeAll` because its subjects are reached over
+ * HTTP. A test of the application layer has no route to call and no response to read, so it takes
+ * this instead — and a subject that turns out to need the server fails here rather than passing on
+ * one a sibling happened to start.
+ *
+ * The database is the real one all the same: what these classes decide is inseparable from what
+ * their stores do atomically, and a fake store would test the fake.
+ */
+open class SempodsStoreTest : SempodsTest(injector = sempodsInjector)

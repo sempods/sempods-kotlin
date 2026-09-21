@@ -1403,3 +1403,70 @@ val checkDocLinks = tasks.register("checkDocLinks") {
   }
 }
 tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }
+
+// The pod's OAuth application layer, held to what it may name. #154 asks for one thing of these
+// classes — that consent and the token exchanges decide what they decide without an HTTP framework,
+// a protocol library or a database driver in their vocabulary — and an interface cannot say it,
+// because the rule is about what the code reaches for rather than about what it hands back.
+//
+// An import scan, the way `checkDocLinks` scans markdown: it reads the `import` lines and nothing
+// else. That misses a fully-qualified reference written inline, which is not a realistic accident
+// in this tree, and it catches what a bytecode signature scan cannot — a driver type used inside a
+// method body, which is exactly where one would first appear.
+//
+// Two of the collaborators these classes hold still sit under `org.sempods.api` —
+// `PodTokenIssuer`, which mints a JWT and takes and returns strings, and `DynamicClientStore`. That
+// is a package they were filed in rather than a boundary they cross: neither exposes an HTTP,
+// Nimbus or persistence type, so neither is listed below. Moving them is #154's, with the
+// resource-verification slice that already touches them.
+val checkNoAdapterImports = tasks.register("checkNoAdapterImports") {
+  group = "verification"
+  description = "Fails if the pod's OAuth application package imports an HTTP-framework, protocol-library or persistence type."
+
+  val scanned = File(rootDir, "sempods-server/src/main/kotlin/org/sempods/pods/oauth/flows")
+
+  doLast {
+    val forbidden = mapOf(
+      "jakarta." to "an HTTP framework",
+      "io.ktor." to "an HTTP framework",
+      "org.eclipse.jetty." to "an HTTP framework",
+      "com.nimbusds." to "a protocol library",
+      "com.mongodb." to "a database driver",
+      "org.bson." to "a database driver",
+    )
+
+    val sources = scanned.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+    // Fails closed. A check that passes on an empty scan is how a package move turns it off, and
+    // the move is exactly the change that would need it most.
+    if (sources.isEmpty()) {
+      throw GradleException(
+        "No Kotlin source under ${scanned.relativeTo(rootDir)}. If the application layer moved, " +
+          "point this task at it; do not leave it scanning nothing.",
+      )
+    }
+
+    val offences = sources.flatMap { file ->
+      file.readLines().withIndex().mapNotNull { (index, line) ->
+        val imported = line.trim().removePrefix("import ").takeIf { line.trim().startsWith("import ") }
+          ?: return@mapNotNull null
+        // A stored row, whatever package it sits in: `…Dbo` is this implementation's document, and
+        // naming one writes its field order into the contract.
+        val row = imported.substringAfterLast('.').substringBefore(' ')
+        val why = forbidden.entries.firstOrNull { imported.startsWith(it.key) }?.value
+          ?: "a stored row".takeIf { row.endsWith("Dbo") || row.endsWith("DboFields") }
+          ?: return@mapNotNull null
+        "${file.relativeTo(rootDir)}:${index + 1} imports $imported — $why"
+      }
+    }
+
+    if (offences.isNotEmpty()) {
+      throw GradleException(
+        "The pod's OAuth application layer may name none of these:\n  " +
+          offences.joinToString("\n  ") +
+          "\n\nKeep the type at the adapter and hand this layer a domain value instead. " +
+          "`docs/concepts/modularity.md` §\"The pattern\" says why.",
+      )
+    }
+  }
+}
+tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoAdapterImports) }
