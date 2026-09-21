@@ -96,11 +96,10 @@ internal object PodAuthorizeResponses {
   }
 
   /**
-   * The consent submission's wording for the same kind of refusal.
+   * The consent submission's wording.
    *
-   * Three sentences it shares with the table above and one it does not: a form posted after the
-   * registration was cleared says "invalid client_id" here, where `/authorize` complains about the
-   * format. Its own two are about this form rather than about the request.
+   * It shares three sentences with the table above. The fourth differs: a cleared registration is
+   * "invalid client_id" here and a complaint about the format at `/authorize`.
    */
   private fun refusal(reason: PodConsentRefusal): Response = when (reason) {
     PodConsentRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
@@ -114,9 +113,8 @@ internal object PodAuthorizeResponses {
   /**
    * A refusal in words, with the charset stated.
    *
-   * Stated rather than left out: these sentences carry typographic punctuation, Jersey writes the
-   * entity as UTF-8, and a client that falls back to ISO-8859-1 for an unparameterised `text/plain`
-   * renders the dash as mojibake.
+   * These sentences carry an em-dash and Jersey writes UTF-8. Leave the charset out and a client
+   * that falls back to ISO-8859-1 shows `session expired â€” please re-authorize`.
    */
   private fun text(status: Int, body: String): Response =
     Response.status(status).entity(body).type("text/plain;charset=UTF-8").build()

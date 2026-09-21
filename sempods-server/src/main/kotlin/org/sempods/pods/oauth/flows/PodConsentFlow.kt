@@ -29,9 +29,8 @@ import org.sempods.pods.oauth.PodTokenIssuer
  * **Every decision here is the pod's, and none of them is HTTP.** The endpoint binds the form and
  * renders the [PodConsentResult] this hands back.
  *
- * **The submission is the authoritative new state**, and clearing it is the extreme case of that
- * rather than an exception to it: the named disconnect and a submission with nothing ticked mean
- * the same thing, and both end the authorization where there is one.
+ * **The submission is the authoritative new state**, and clearing it is the extreme case of that —
+ * see [endAuthorization].
  */
 class PodConsentFlow @Inject internal constructor(
   private val codes: PodAuthorizationCodes,
@@ -74,8 +73,8 @@ class PodConsentFlow @Inject internal constructor(
     val transaction = presented?.let { consentTransactionStore.consume(it) }
     if (transaction == null || transaction.pod != pod.name || transaction.webId != session.webId) {
       logger.warn {
-        // On the normalised value, not the raw one: a form posting `csrf=` never reaches the store,
-        // and saying it was spent points whoever is debugging at the wrong half.
+        // On the normalised value: a form posting `csrf=` never reaches the store, so it is
+        // absent rather than spent.
         "[oauth/consent] rejected: consent token ${if (presented == null) "absent" else "unknown, spent or not this session's"} " +
             "(pod='${pod.name}')"
       }
@@ -451,9 +450,8 @@ class PodConsentFlow @Inject internal constructor(
 /**
  * The consent dialog's form as the browser posted it — untrimmed, unvalidated, any of it absent.
  *
- * @param durable whether the durability box was ticked. A checkbox that is not ticked sends nothing
- *   at all, so the adapter asks whether the field arrived; what its value spells is the browser's
- *   business and never reaches a decision.
+ * @param durable whether the durability box was ticked — the adapter decides that, since an
+ *   unticked checkbox sends nothing at all.
  * @param action the submit button's own name, or `null` for the ordinary save.
  */
 internal data class PodConsentForm(
@@ -474,7 +472,7 @@ internal data class PodConsentForm(
  * What a consent submission answers.
  *
  * [Error] carries a [Redirectable] and [Refused] does not — [OAuthErrorDelivery]'s rule as a type,
- * the same split [PodAuthorizeResult] makes for the route that sent this form.
+ * the split [PodAuthorizeResult] makes too.
  */
 internal sealed interface PodConsentResult {
 
@@ -495,7 +493,7 @@ internal sealed interface PodConsentResult {
  * Why a consent submission was refused without an OAuth error document: three by the ordering rule
  * at the top of [PodAuthorizeFlow.authorize], and three because this form cannot be acted on.
  *
- * The reason is named and the sentence is not, for the reason [PodAuthorizeRefusal] gives — and
+ * The reason is named and the sentence is not — [PodAuthorizeRefusal] says why, and
  * [MALFORMED_CLIENT_ID] is where the two routes differ.
  */
 internal enum class PodConsentRefusal {

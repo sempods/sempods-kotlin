@@ -14,21 +14,15 @@ import org.sempods.pods.oauth.PodTokenIssuer
 /**
  * Minting the authorization code both browser routes end at.
  *
- * Its own collaborator rather than a method on one of them: `/authorize` reaches it when standing
- * grants make a dialog unnecessary, and the consent submission reaches it once the person's answer
- * is written. Neither is the other's caller, and the step needs nothing either of them holds.
+ * `/authorize` gets here when standing grants make a dialog unnecessary. The consent submission
+ * gets here once the person's answer is written.
  */
 class PodAuthorizationCodes @Inject internal constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
   private val podSignOut: PodSignOut,
 ) {
 
-  /**
-   * @param via which of the three ways here was taken — both log lines name it, and `via=` is what
-   *   an operator groups an audit stream by.
-   * @param session the sign-in this code is being issued under, or `null` for the anonymous
-   *   public-read code, which has none.
-   */
+  /** @param session the sign-in this code is issued under, or `null` for the anonymous one. */
   internal fun issue(
     pod: HostedPod,
     clientId: String,
@@ -98,29 +92,20 @@ class PodAuthorizationCodes @Inject internal constructor(
   }
 }
 
-/**
- * What minting a code answers.
- *
- * Narrower than either route's own result, because this step has only these two answers. Each flow
- * turns it into the answer its route speaks.
- */
+/** What minting a code answers. Each flow turns it into the answer its own route speaks. */
 internal sealed interface PodCodeResult {
 
-  /** [target] is where the code goes and [state] what travels beside it; the adapter builds the address. */
+  /** Where the code goes and what travels with it. The adapter builds the address. */
   data class Minted(val code: String, val target: Redirectable, val state: String?) : PodCodeResult
 
-  /** One of the two checks above refused, at the client's own address. */
+  /** No PKCE for a dynamic client, or the person signed out. */
   data class Refused(val delivery: OAuthErrorDelivery) : PodCodeResult
 }
 
-/**
- * Which of the three ways to an authorization code was taken, as both log lines name it.
- *
- * Closed, because `via=` is an audit field an operator groups a spike by.
- */
+/** Which of the three ways to an authorization code was taken. Both log lines name it as `via=`. */
 internal enum class PodCodeIssuance(val tag: String) {
 
-  /** `scope=public-read&prompt=none` with nobody signed in — the one code with no person behind it. */
+  /** `scope=public-read&prompt=none` with nobody signed in. The one code with no person behind it. */
   ANONYMOUS_PUBLIC_READ("oauth/public-read/anon"),
 
   /** Grants stood and the person had answered once, so no dialog was shown. */

@@ -233,9 +233,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Test
   fun `a person who signed out while deciding gets no code, and the grants still land`() {
-    // The window PodAuthorizationCodes re-checks for: the session was read before the dialog, the
-    // sign-out landed while the person was choosing, and the generation it moved would otherwise
-    // travel on a code that redeems.
+    // The window `PodAuthorizationCodes` re-checks for: the sign-out landed while the person was
+    // choosing, and the generation it moved would otherwise travel on a code that redeems.
     val owned = Owned()
     val ticket = owned.ticket()
     podSignOut.signOut(owned.pod.id, owned.pod.name, listOf(owned.webId))
@@ -342,11 +341,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Test
   fun `a context path cannot forge a log line`() {
-    // `sempods-server` is published, so the console `%replace` that covers this repository's own
-    // applications is not a guarantee for an embedder — `docs/logging.md` §"Three rules" asks a
-    // library that logs caller-supplied text to escape it and to keep one test at the call site.
-    // The path is a form value and `ContextPathRules.normalize` only trims the ends, so a break in
-    // the middle of one survives to the line that reports the rejection.
+    // `docs/logging.md` §"Three rules": a published module escapes caller-supplied text and keeps
+    // one test at the call site. `ContextPathRules.normalize` only trims the ends, so a break in
+    // the middle of a typed path reaches the line that reports the rejection.
     val owned = Owned()
     val marker = "forged-${randomId()}"
     val forged = "../x\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"

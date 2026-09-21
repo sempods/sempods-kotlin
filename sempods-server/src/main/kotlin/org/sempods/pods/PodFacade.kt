@@ -199,10 +199,8 @@ class PodFacade @Inject constructor(
   /**
    * The same, for a caller that already holds the pod and knows who is creating the context.
    *
-   * Takes [HostedPod] rather than a name because resolving one goes through the process-local
-   * name-to-id cache — see that type's KDoc for what it costs. `createdBy` is the person at the
-   * consent dialog, where the name-keyed form above is the system-driven path that has nobody to
-   * name.
+   * [HostedPod] rather than a name: resolving a name goes through the process-local name-to-id
+   * cache — see that type's KDoc.
    */
   internal fun createContext(
     pod: HostedPod,
@@ -220,10 +218,9 @@ class PodFacade @Inject constructor(
     label: String?,
     description: String?,
   ): Boolean {
-    // **This throws where some callers only skip.** `PodConsentFlow` answers a context it cannot
-    // build by logging and carrying on, and it reaches here only with a URI `ContextPathRules.resolve`
-    // built from the pod's own base — so the check cannot fire for it. A caller that mints the URI
-    // some other way has to be ready for the error, or ask for the check some other way.
+    // **This throws where a caller may only want to skip.** `PodConsentFlow` logs a context it
+    // cannot build and carries on; it reaches here only with a URI `ContextPathRules.resolve` built
+    // from the pod's own base, so the check cannot fire for it.
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,

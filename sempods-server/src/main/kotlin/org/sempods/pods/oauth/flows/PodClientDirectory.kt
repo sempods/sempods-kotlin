@@ -13,8 +13,8 @@ import org.sempods.pods.oauth.DynamicClientStore
  * What one pod makes of a `client_id`: whether it knows the client at all, and where that client
  * may be answered.
  *
- * Two questions rather than one, and they are here together because they are one lookup — kept
- * one by the memo below, since a request asks both. A `did:web:` identity answers both from the
+ * Two questions rather than one, and they are here together because they are one lookup —
+ * [registrations] keeps it one. A `did:web:` identity answers both from the
  * identifier itself; a `dyn:` one answers both from the registration this pod holds, and asking
  * twice would mean two ways to spell the same split.
  *
@@ -34,20 +34,15 @@ internal class PodClientDirectory(
   private val didWeb = DidWebRedirectPolicy(allowLoopback)
 
   /**
-   * The one registration read this directory needs, held for as long as it lives.
+   * The registration read, held for this directory's life.
    *
-   * Both questions below ask it of the same `client_id`, and an authorization asks both — so
-   * without this the widest row in the OAuth schema is fetched and decoded twice per request. Safe
-   * because the instance is built per request and dies with it: what it remembers cannot outlive
-   * the answer it was read for.
+   * A request asks both questions below of the same `client_id`, and a `dyn:` client's row is the
+   * widest in the OAuth schema. [of] builds one directory per request, so what it remembers dies
+   * with the request.
    */
   private val lookups = HashMap<String, Set<String>?>()
 
-  /**
-   * `containsKey` rather than `getOrPut`: a client this pod holds no registration for answers
-   * `null`, and `getOrPut` treats a stored `null` as absent and asks again — which is the one case
-   * this most needs to remember.
-   */
+  /** `containsKey`, because `getOrPut` re-runs on a stored `null` — the unregistered client. */
   private fun registrations(clientId: String): Set<String>? =
     if (lookups.containsKey(clientId)) lookups[clientId]
     else registrationOf(clientId).also { lookups[clientId] = it }
