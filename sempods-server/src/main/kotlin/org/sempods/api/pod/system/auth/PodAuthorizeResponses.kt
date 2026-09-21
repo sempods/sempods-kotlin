@@ -23,10 +23,8 @@ import java.time.Duration
  * decides how that reaches the wire: the status, the media type, the words, and the one cookie an
  * answer carries.
  *
- * **Parameters are overwritten, never appended**, on the success redirect for the same reason
- * [PodOAuthErrorResponses] states for the error one: a registered `redirect_uri` may carry a query
- * of its own, and a client registered as `…/cb?code=…` must not receive its own value back looking
- * like a code this server issued.
+ * The success redirect overwrites its parameters and never appends them, for the reason
+ * [PodOAuthErrorResponses] gives for the error one.
  */
 internal object PodAuthorizeResponses {
 
@@ -45,9 +43,6 @@ internal object PodAuthorizeResponses {
       Response.seeOther(callbackUri).build()
     }
 
-    // The pin rides on the answer that mints it, rather than being attached by the route: it is
-    // this redirect's second half, and a redirect that left without it sends the person to a login
-    // whose callback can only be refused.
     is PodAuthorizeResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
       .build()
@@ -60,13 +55,7 @@ internal object PodAuthorizeResponses {
     is PodAuthorizeResult.Refused -> refusal(result.reason)
   }
 
-  /**
-   * A refusal that could not travel as an OAuth error document, as plain text to whoever is holding
-   * the browser.
-   *
-   * `/authorize`'s wording. The consent submission answers three of these identically and the
-   * fourth differently — see [PodAuthorizeRefusal].
-   */
+  /** `/authorize`'s wording for a [PodAuthorizeRefusal], as plain text to whoever holds the browser. */
   private fun refusal(reason: PodAuthorizeRefusal): Response = when (reason) {
     PodAuthorizeRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
     PodAuthorizeRefusal.UNREGISTERED_CLIENT -> text(400, UNREGISTERED_CLIENT_MESSAGE)
@@ -81,10 +70,9 @@ internal object PodAuthorizeResponses {
   /**
    * The dialog, rendered.
    *
-   * The variables that are not on the screen are the ones that are the same on every request: where
-   * the form posts, and the rules it validates a typed context path against. Those are passed as
-   * data rather than hardcoded in the template so a change to [ContextPathRules] reaches the dialog
-   * without anyone remembering to edit it — the server stays the authority either way.
+   * What is not on the screen is what is the same on every request: where the form posts, and the
+   * rules it validates a typed context path against. Those are passed as data rather than hardcoded
+   * in the template, so a change to [ContextPathRules] reaches the dialog on its own.
    */
   private fun consentPage(
     screen: PodConsentScreen,
@@ -148,7 +136,7 @@ internal object PodAuthorizeResponses {
    *
    * It names the RFC 6749 code in prose because the response cannot be the error *document* that
    * would normally carry it: at this point in `/authorize` the redirect address is not yet known
-   * to belong to the client, so nothing may travel by redirect (see the ordering note there).
+   * to belong to the client, so nothing may travel by redirect (`PodAuthorizeFlow` has the note).
    * Plain text going to whoever is holding the browser, then — and it says the one thing that
    * actually fixes it. Kept ASCII-only: the response declares no charset, so a typographic dash
    * would be the one part of it a client could garble.

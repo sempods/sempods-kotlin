@@ -34,9 +34,7 @@ import kotlin.test.assertTrue
  * request goes when nobody is signed in. `PodAuthEndpointHttpTest` drives the same paths over HTTP
  * and is what says the endpoint delegates; this says what it delegates to.
  *
- * The stores are the real ones, for the reason `PodTokenExchangeTest` gives: what this flow decides
- * is inseparable from what a store does atomically — a one-time login state, a consent generation
- * that moves under a code being minted — so a fake store would be testing the fake.
+ * The stores are the real ones, for the reason `PodTokenExchangeTest` gives.
  */
 class PodAuthorizeFlowTest : SempodsStoreTest() {
 
@@ -159,8 +157,7 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
 
   @Test
   fun `a response_type this server does not implement is an error at the client's own address`() {
-    // The implicit grant is advertised nowhere and implemented nowhere, and used to reach the code
-    // path for `code` because the parameter was bound and never read.
+    // The implicit grant is advertised nowhere and implemented nowhere.
     val owned = Owned()
     val state = "state-${randomId()}"
     val delivery = redirectedError(
@@ -336,8 +333,8 @@ class PodAuthorizeFlowTest : SempodsStoreTest() {
       flow.authorize(owned.pod, request(), owned.session),
     ).screen
 
-    // Read from the store rather than restated here: a dialog that names a term the deployment
-    // does not keep is the failure this couples away.
+    // Read from the store, not restated here: the failure worth catching is a dialog naming a
+    // term the deployment does not keep.
     assertTrue(screen.durableTerms.absolute > screen.sessionTerms.absolute, "durable outlives session")
     assertTrue(!screen.durablePreselected, "nothing was recorded and nothing asked for offline_access")
   }

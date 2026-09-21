@@ -87,10 +87,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   /**
    * The package the OAuth application layer logs under.
    *
-   * A package and not a class, because logback loggers are a hierarchy: one appender here sees
-   * `PodAuthorizeFlow` and `PodTokenExchange` both, so a decision moving between them cannot turn
-   * an assertion vacuous. Each case selects on a marker of its own, which is what [CapturedLog]
-   * asks of anything capturing a logger a sibling class also writes to.
+   * A package and not a class: logback loggers are a hierarchy, so one appender here sees every
+   * class in it, and a decision moving between them cannot turn an assertion vacuous.
    */
   private val FLOWS_LOGGER = "org.sempods.pods.oauth.flows"
 

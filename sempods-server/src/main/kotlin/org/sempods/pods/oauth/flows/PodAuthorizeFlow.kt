@@ -34,9 +34,8 @@ import java.util.UUID
  * asking, and whether the answer is a code, the consent dialog, a trip to the id-server or a
  * refusal.
  *
- * **Every decision here is the pod's, and none of them is HTTP.** The result says which of the five
- * answers it is and what goes in it; nothing in this class knows about status codes, cookies,
- * templates or redirects. The endpoint binds the request and renders the answer.
+ * **Every decision here is the pod's, and none of them is HTTP.** The endpoint binds the request
+ * and renders the [PodAuthorizeResult] this hands back.
  *
  * **Entered twice for one sign-in**: once by the client's browser with no identity, and once by the
  * login callback with the one the id-server asserted. Everything is re-validated on the second
@@ -477,8 +476,7 @@ class PodAuthorizeFlow @Inject internal constructor(
    * says which ([PodCodeIssuance]).
    *
    * @param session the sign-in this code is being issued under, or `null` for the anonymous
-   *   public-read code, which has none. Re-checked here rather than only at the entrance — see the
-   *   note at the check itself.
+   *   public-read code, which has none.
    */
   internal fun issueCode(
     pod: HostedPod,
@@ -679,9 +677,8 @@ class PodAuthorizeFlow @Inject internal constructor(
 /**
  * `/authorize`'s parameters as the browser sent them — untrimmed, unvalidated, any of them absent.
  *
- * Raw on purpose: what counts as blank, what a missing `response_type` means and which of them may
- * carry whitespace are decisions, and they are [PodAuthorizeFlow]'s. A binding that trimmed on the
- * way in would be making the first of them where nobody would look for it.
+ * Raw on purpose: what counts as blank and which of them may carry whitespace are decisions, and a
+ * binding that trimmed on the way in would be making the first of them where nobody would look.
  */
 internal data class PodAuthorizeRequest(
   val responseType: String?,
@@ -697,17 +694,11 @@ internal data class PodAuthorizeRequest(
 /**
  * What an authorization answers.
  *
- * Five answers. [Error] carries a [Redirectable] and [Refused] does not, which is
- * [OAuthErrorDelivery]'s rule in the shape of a type: the cases that reach [Refused] have no proof
- * yet that the address belongs to the client that named it.
+ * [Error] carries a [Redirectable] and [Refused] does not — [OAuthErrorDelivery]'s rule as a type.
  */
 internal sealed interface PodAuthorizeResult {
 
-  /**
-   * A code was minted. [target] is where it goes and [state] is what travels beside it — the
-   * address is not assembled here because appending a parameter and overwriting one are different
-   * answers, and that difference is the adapter's (`PodOAuthErrorResponses`).
-   */
+  /** A code was minted. [target] is where it goes; the adapter assembles the address. */
   data class Code(val code: String, val target: Redirectable, val state: String?) : PodAuthorizeResult
 
   /** The dialog, with everything it has to show already decided. */
@@ -716,8 +707,8 @@ internal sealed interface PodAuthorizeResult {
   /**
    * The person is not signed in, so the request is parked and the browser goes to the id-server.
    *
-   * [browserPin] is the second factor that ties the callback to *this* browser — see where it is
-   * minted. The adapter is what puts it somewhere the browser will send back.
+   * [browserPin] ties the callback to *this* browser — see where it is minted. The adapter is what
+   * puts it somewhere the browser will send back.
    */
   data class Login(val authorizationUrl: String, val state: String, val browserPin: String) : PodAuthorizeResult
 
@@ -729,16 +720,12 @@ internal sealed interface PodAuthorizeResult {
 }
 
 /**
- * Why an authorization was refused without an OAuth error document.
- *
- * Four of these are the ordering rule from the top of [PodAuthorizeFlow.authorize]: until the
- * `redirect_uri` is known to belong to the client that named it, nothing may travel there, not even
- * an error. The fifth is the id-server being unreachable, which is this deployment's fault and not
- * the request's.
+ * Why an authorization was refused without an OAuth error document: four by the ordering rule at
+ * the top of [PodAuthorizeFlow.authorize], one because the id-server was unreachable.
  *
  * The reason is named and the sentence is not. `/authorize` answers a malformed `client_id` with
  * "client_id must be a did:web or dyn: identity" and the consent submission with "invalid
- * client_id"; each route keeps its own wording, and neither is a decision this layer makes.
+ * client_id"; each route keeps its own wording.
  */
 internal enum class PodAuthorizeRefusal {
   MISSING_REDIRECT_URI,
@@ -751,8 +738,7 @@ internal enum class PodAuthorizeRefusal {
 /**
  * Which of the three ways to an authorization code was taken, as both log lines name it.
  *
- * A closed set because `via=` is an operator-facing audit field: grouping a spike by it only works
- * while nobody can spell a fourth value.
+ * Closed, because `via=` is an audit field an operator groups a spike by.
  */
 internal enum class PodCodeIssuance(val tag: String) {
 
