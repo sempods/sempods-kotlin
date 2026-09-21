@@ -6,7 +6,6 @@ import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PersonIdentity
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
-import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
@@ -24,7 +23,6 @@ import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
-import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import java.net.URI
 import java.util.UUID
@@ -45,7 +43,7 @@ import java.util.UUID
  * only the identity it has just established.
  */
 class PodAuthorizeFlow @Inject internal constructor(
-  private val authorizationCodeStore: AuthorizationCodeStore,
+  private val codes: PodAuthorizationCodes,
   private val podFacade: PodFacade,
   private val podGrantsFacade: PodGrantsFacade,
   private val dynamicClientStore: DynamicClientStore,
@@ -54,7 +52,6 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val consentTransactionStore: ConsentTransactionStore,
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
-  private val podSignOut: PodSignOut,
 ) {
 
   internal fun authorize(
@@ -199,7 +196,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           "[oauth/authorize] public-read code issued: pod='${pod.name}', " +
               "clientId='$normalizedClientId', webId='$anonymousPublicReadWebId', anonymous=true"
         }
-        return issueCode(
+        return codes.issue(
           pod = pod,
           clientId = normalizedClientId,
           webId = anonymousPublicReadWebId,
@@ -210,7 +207,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           codeChallengeMethod = trimmedCodeChallengeMethod,
           via = PodCodeIssuance.ANONYMOUS_PUBLIC_READ,
           session = null,
-        )
+        ).asResult()
       }
     }
 
@@ -372,7 +369,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       // which is the dialog this authorization needs. The repair above happens either way: it is
       // what a failed cascade is owed, and it has nothing to do with which of the two follows.
       if (persisted.isNotEmpty() && mayAutoGrant) {
-        return issueCode(
+        return codes.issue(
           pod = pod,
           clientId = normalizedClientId,
           webId = identity.webId,
@@ -388,7 +385,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           // code the moment an alias carried a higher count.
           consentGeneration = consentDecisionStore
             .find(pod.id, normalizedClientId, listOf(identity.webId))?.generation,
-        )
+        ).asResult()
       }
     }
 
@@ -466,72 +463,6 @@ class PodAuthorizeFlow @Inject internal constructor(
       existingGrants = existingGrants,
       isOwner = isOwner,
     )
-  }
-
-  /**
-   * Mint an authorization code for [webId] and say where to send it — a [PodAuthorizeResult.Code],
-   * or a [PodAuthorizeResult.Error] where one of the two checks below refuses.
-   *
-   * Reached from the two branches above and from the consent submission, which is why the caller
-   * says which ([PodCodeIssuance]).
-   *
-   * @param session the sign-in this code is being issued under, or `null` for the anonymous
-   *   public-read code, which has none.
-   */
-  internal fun issueCode(
-    pod: HostedPod,
-    clientId: String,
-    webId: String,
-    scopes: Set<String>,
-    target: Redirectable,
-    state: String?,
-    codeChallenge: String?,
-    codeChallengeMethod: String?,
-    via: PodCodeIssuance,
-    consentGeneration: Long? = null,
-    session: PodTokenIssuer.SessionPrincipal?,
-  ): PodAuthorizeResult {
-    // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
-    // never mint an auth code for a dynamic (public) client without PKCE.
-    if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) {
-      if (codeChallenge.isNullOrBlank() || !Pkce.isSupportedMethod(codeChallengeMethod)) {
-        return failed(
-          target, OAuthErrorCode.INVALID_REQUEST,
-          "PKCE (S256) is required for dynamic clients", state,
-        )
-      }
-    }
-    // Asked again, now that [consentGeneration] has been read. A sign-out landing between the session
-    // read and that one moves the generation first, and the code would carry the moved generation and
-    // redeem. The sign-out writes its instant before it moves the generation, so a code that could
-    // carry the moved one finds the instant here.
-    if (session != null && !podSignOut.sessionStands(pod.id, session)) {
-      return failed(target, OAuthErrorCode.ACCESS_DENIED, "signed out", state)
-    }
-    val code = authorizationCodeStore.issue(
-      realm = pod.name,
-      clientId = clientId,
-      subject = webId,
-      scopes = scopes,
-      redirectUri = target.uri,
-      codeChallenge = codeChallenge,
-      codeChallengeMethod = codeChallengeMethod,
-      consentGeneration = consentGeneration,
-    )
-
-    logger.info {
-      "[${via.tag}] Authorization code issued: pod='${pod.name}', clientId='$clientId', " +
-          "webId='$webId', scopes=${scopes.size}"
-    }
-    // R6: terminal audit line for the success path. Pairs with the `outcome=start`
-    // entry at the top of authorize() (and with consent-submission requests, which
-    // also funnel through this helper).
-    logger.info {
-      "[oauth/authorize-audit] outcome=issued_code pod='${pod.name}' " +
-          "client_id='$clientId' web_id='$webId' scopes=${scopes.size} " +
-          "via='${via.tag}'"
-    }
-    return PodAuthorizeResult.Code(code = code, target = target, state = state)
   }
 
   /**
@@ -660,7 +591,13 @@ class PodAuthorizeFlow @Inject internal constructor(
     }
   }
 
-  /** An error that may travel to the client's own address, because [target] is the proof it may. */
+  /** This route's answer to whatever minting a code said. */
+  private fun PodCodeResult.asResult(): PodAuthorizeResult = when (this) {
+    is PodCodeResult.Minted -> PodAuthorizeResult.Code(code, target, state)
+    is PodCodeResult.Refused -> PodAuthorizeResult.Error(delivery)
+  }
+
+  /** An error at the client's own address — the rule [OAuthErrorDelivery] states. */
   private fun failed(
     target: Redirectable,
     error: OAuthErrorCode,
@@ -733,21 +670,4 @@ internal enum class PodAuthorizeRefusal {
   MALFORMED_CLIENT_ID,
   REDIRECT_URI_NOT_ALLOWED,
   IDENTITY_PROVIDER_UNAVAILABLE,
-}
-
-/**
- * Which of the three ways to an authorization code was taken, as both log lines name it.
- *
- * Closed, because `via=` is an audit field an operator groups a spike by.
- */
-internal enum class PodCodeIssuance(val tag: String) {
-
-  /** `scope=public-read&prompt=none` with nobody signed in — the one code with no person behind it. */
-  ANONYMOUS_PUBLIC_READ("oauth/public-read/anon"),
-
-  /** Grants stood and the person had answered once, so no dialog was shown. */
-  AUTO_GRANT("oauth/auto-grant"),
-
-  /** The dialog was submitted. */
-  CONSENT("oauth/consent"),
 }

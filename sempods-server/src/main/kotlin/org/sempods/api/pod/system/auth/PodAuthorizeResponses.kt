@@ -5,26 +5,26 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodBrowserCookies
-import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
+import org.sempods.pods.oauth.flows.PodConsentRefusal
+import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodConsentScreen
 import java.net.URI
 import java.time.Duration
 
 /**
- * Every answer `GET /{pod}/_system/auth/authorize` gives, built in one place.
+ * Every answer the pod's two browser routes give — `GET authorize` and the consent submission it
+ * sends the person to — built in one place.
  *
  * [PodAuthorizeFlow][org.sempods.pods.oauth.flows.PodAuthorizeFlow] decides *what* to answer —
  * whether a code was minted, which boxes the dialog ticks, where the browser goes to sign in. This
  * decides how that reaches the wire: the status, the media type, the words, and the one cookie an
  * answer carries.
  *
- * The success redirect overwrites its parameters and never appends them, for the reason
- * [PodOAuthErrorResponses] gives for the error one.
  */
 internal object PodAuthorizeResponses {
 
@@ -35,13 +35,7 @@ internal object PodAuthorizeResponses {
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodAuthorizeResult.Code -> {
-      var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(result.target.uri), "code", result.code)
-      result.state?.trim()?.takeIf { it.isNotBlank() }?.let {
-        callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it)
-      }
-      Response.seeOther(callbackUri).build()
-    }
+    is PodAuthorizeResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
 
     is PodAuthorizeResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
@@ -55,6 +49,43 @@ internal object PodAuthorizeResponses {
     is PodAuthorizeResult.Refused -> refusal(result.reason)
   }
 
+  fun render(
+    result: PodConsentResult,
+    podName: String,
+    cookies: PodBrowserCookies,
+    templates: TemplateRenderer,
+    config: SempodsConfig,
+  ): Response = when (result) {
+    is PodConsentResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
+
+    is PodConsentResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+
+    // The client is told the request was denied, and the browser is told the sign-in is over. Both
+    // halves are this one answer: a person who signed out and kept their cookie signed out of
+    // nothing.
+    is PodConsentResult.SignedOut ->
+      Response.fromResponse(PodOAuthErrorResponses.render(result.delivery, config))
+        .cookie(cookies.clearSession(podName))
+        .build()
+
+    is PodConsentResult.Refused -> refusal(result.reason)
+  }
+
+  /**
+   * Where the code goes, with `state` beside it where the client sent one.
+   *
+   * Overwriting and never appending, for the reason [PodOAuthErrorResponses] gives: a registered
+   * address may carry a query of its own, and a client registered as `…/cb?code=…` must not receive
+   * its own value back looking like a code this server issued.
+   */
+  private fun codeRedirect(code: String, redirectUri: String, state: String?): Response {
+    var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "code", code)
+    state?.trim()?.takeIf { it.isNotBlank() }?.let {
+      callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it)
+    }
+    return Response.seeOther(callbackUri).build()
+  }
+
   /** `/authorize`'s wording for a [PodAuthorizeRefusal], as plain text to whoever holds the browser. */
   private fun refusal(reason: PodAuthorizeRefusal): Response = when (reason) {
     PodAuthorizeRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
@@ -64,8 +95,29 @@ internal object PodAuthorizeResponses {
     PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE -> text(503, "identity provider unavailable")
   }
 
+  /**
+   * The consent submission's wording.
+   *
+   * It shares three sentences with the table above. The fourth differs: a cleared registration is
+   * "invalid client_id" here and a complaint about the format at `/authorize`.
+   */
+  private fun refusal(reason: PodConsentRefusal): Response = when (reason) {
+    PodConsentRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
+    PodConsentRefusal.UNREGISTERED_CLIENT -> text(400, UNREGISTERED_CLIENT_MESSAGE)
+    PodConsentRefusal.MALFORMED_CLIENT_ID -> text(400, "invalid client_id")
+    PodConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> text(400, "redirect_uri not allowed for this client_id")
+    PodConsentRefusal.SESSION_EXPIRED -> text(401, "session expired — please re-authorize")
+    PodConsentRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please re-authorize")
+  }
+
+  /**
+   * A refusal in words, with the charset stated.
+   *
+   * These sentences carry an em-dash and Jersey writes UTF-8. Leave the charset out and a client
+   * that falls back to ISO-8859-1 shows `session expired â€” please re-authorize`.
+   */
   private fun text(status: Int, body: String): Response =
-    Response.status(status).entity(body).type("text/plain").build()
+    Response.status(status).entity(body).type("text/plain;charset=UTF-8").build()
 
   /**
    * The dialog, rendered.
@@ -138,8 +190,7 @@ internal object PodAuthorizeResponses {
    * would normally carry it: at this point in `/authorize` the redirect address is not yet known
    * to belong to the client, so nothing may travel by redirect (`PodAuthorizeFlow` has the note).
    * Plain text going to whoever is holding the browser, then — and it says the one thing that
-   * actually fixes it. Kept ASCII-only: the response declares no charset, so a typographic dash
-   * would be the one part of it a client could garble.
+   * actually fixes it.
    */
   internal const val UNREGISTERED_CLIENT_MESSAGE =
     "invalid_client: this pod holds no registration for that client_id. It was removed, it " +
