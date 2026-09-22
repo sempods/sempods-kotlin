@@ -13,23 +13,21 @@ import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
-import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.auth.core.RedirectUri
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
-import org.sempods.commons.net.ForwardedFor
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
-import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
+import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
+import org.sempods.pods.oauth.flows.PodRegistrationRequest
 import org.sempods.pods.oauth.flows.PodConsentForm
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
@@ -44,7 +42,7 @@ class PodAuthEndpoint @Inject constructor(
   private val podAuthorizeFlow: PodAuthorizeFlow,
   private val podConsentFlow: PodConsentFlow,
   private val podTokenExchange: PodTokenExchange,
-  private val dynamicClientStore: DynamicClientStore,
+  private val podClientRegistration: PodClientRegistration,
   private val templateRenderer: TemplateRenderer,
   private val podTokenIssuer: PodTokenIssuer,
   private val podSignOut: PodSignOut,
@@ -71,15 +69,8 @@ class PodAuthEndpoint @Inject constructor(
     buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
 
   // ─── OAuth Dynamic Client Registration (RFC 7591) ────────────────────────
-  // MCP 2025-06-18 requires clients to be able to self-register. We issue an opaque
-  // `dyn:<random>` client_id and persist the submitted metadata (fingerprint-deduped:
-  // identical fingerprint inputs return the existing clientId rather than minting a
-  // new one) so re-registrations from the same logical client stay anchored to one
-  // row. The historical record stays available for Stage-2 agent-identity derivation.
-  // token_endpoint_auth_method is always "none" — we rely on PKCE, not client secrets.
-
-  // One route: a pod has one registration endpoint, which is what `registration_endpoint`
-  // in AS-metadata points at.
+  // One route: a pod has one registration endpoint, which is what `registration_endpoint` in
+  // AS-metadata points at. What it answers is [PodClientRegistration]'s.
 
   @POST
   @Path("register")
@@ -90,148 +81,16 @@ class PodAuthEndpoint @Inject constructor(
     @HeaderParam("User-Agent") userAgent: String?,
     @HeaderParam("X-Forwarded-For") forwardedFor: String?,
     request: Map<String, Any?>?,
-  ): Response = doRegister(pod, userAgent, forwardedFor, request)
-
-  private fun doRegister(
-    pod: String,
-    userAgent: String?,
-    forwardedFor: String?,
-    request: Map<String, Any?>?,
-  ): Response {
-    val podDbo = fetchPodOrThrow(pod)
-
-    val redirectUris = (request?.get("redirect_uris") as? List<*>)
-      ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
-      ?.toSet()
-      ?: emptySet()
-
-    if (redirectUris.isEmpty()) {
-      return Response.status(400)
-        .entity(
-          mapOf(
-            "error" to "invalid_redirect_uri",
-            "error_description" to "at least one redirect_uri is required",
-          )
-        )
-        .type(MediaType.APPLICATION_JSON)
-        .build()
-    }
-
-    // The rule `/authorize` applies, through the same method: an address stored here that
-    // `PodClientDirectory.permits` would refuse is a registration no login can honour.
-    redirectUris.forEach { uri ->
-      if (!RedirectUri.isValid(uri)) {
-        return Response.status(400)
-          .entity(
-            mapOf(
-              "error" to "invalid_redirect_uri",
-              "error_description" to
-                  "redirect_uri must be https, or http on a loopback host, with no fragment " +
-                  "and no code/response/state in the query: $uri",
-            )
-          )
-          .type(MediaType.APPLICATION_JSON)
-          .build()
-      }
-    }
-
-    val clientName = (request?.get("client_name") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val clientUri = (request?.get("client_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val logoUri = (request?.get("logo_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val softwareId = (request?.get("software_id") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val softwareVersion = (request?.get("software_version") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val tosUri = (request?.get("tos_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val policyUri = (request?.get("policy_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val contacts = (request?.get("contacts") as? List<*>)
-      ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
-      ?: emptyList()
-
-    // The four members [ClientMetadataUri] is about.
-    listOf(
-      "client_uri" to clientUri,
-      "logo_uri" to logoUri,
-      "tos_uri" to tosUri,
-      "policy_uri" to policyUri,
-    ).forEach { (field, value) ->
-      if (value != null && !ClientMetadataUri.isValid(value)) {
-        return Response.status(400)
-          .entity(
-            mapOf(
-              // A literal like the `invalid_redirect_uri` above: RFC 7591's registration errors are
-              // their own set, and `OAuthErrorCode` is scoped to authorize and token responses.
-              "error" to "invalid_client_metadata",
-              "error_description" to
-                  "$field must be https, or http on a loopback host: $value",
-            )
-          )
-          .type(MediaType.APPLICATION_JSON)
-          .build()
-      }
-    }
-
-    val registration = dynamicClientStore.register(
-      registeredForPod = podDbo.podId(),
-      registeredForPodName = podDbo.name,
-      redirectUris = redirectUris,
-      clientName = clientName,
-      clientUri = clientUri,
-      logoUri = logoUri,
-      softwareId = softwareId,
-      softwareVersion = softwareVersion,
-      contacts = contacts,
-      tosUri = tosUri,
-      policyUri = policyUri,
-      rawRequest = request ?: emptyMap(),
-      remoteAddr = ForwardedFor.clientIp(forwardedFor),
-      userAgent = userAgent?.trim()?.takeIf { it.isNotBlank() },
-    )
-
-    // TODO: full DCR profile on INFO while Stage 1 observes real agents; drop back to FINE once
-    //  Stage 2 pins the per-agent identity model. The second line below logs the whole submitted
-    //  body, which is caller-controlled text on an unauthenticated endpoint — the log volume is
-    //  theirs to choose, not this server's.
-    val action = if (registration.deduplicatedFromRegisteredAt != null) {
-      "Dynamic client dedup hit (reused existing registration from ${registration.deduplicatedFromRegisteredAt})"
-    } else {
-      "Dynamic client registered"
-    }
-    // A fingerprint hit returns the *stored* row and discards the body just validated, so none of
-    // these is the value those checks saw. Same reason [ClientMetadataUri] is asked again on read.
-    logger.info {
-      "[oauth/register] $action: pod='$pod', clientId='${registration.clientId}', " +
-          "clientName='${LogSafeText.of(registration.clientName ?: "(unset)")}', " +
-          "softwareId='${LogSafeText.of(registration.softwareId ?: "(unset)")}', " +
-          "softwareVersion='${LogSafeText.of(registration.softwareVersion ?: "(unset)")}', " +
-          "clientUri='${LogSafeText.of(registration.clientUri ?: "(unset)")}', " +
-          "logoUri='${LogSafeText.of(registration.logoUri ?: "(unset)")}', " +
-          "tosUri='${LogSafeText.of(registration.tosUri ?: "(unset)")}', " +
-          "policyUri='${LogSafeText.of(registration.policyUri ?: "(unset)")}', " +
-          "redirectUris=${LogSafeText.of(registration.redirectUris.toList().toString())}, " +
-          "contacts=${LogSafeText.of(registration.contacts.toString())}, " +
-          "rawRequestKeys=${LogSafeText.of(registration.rawRequest.keys.sorted().toString())}"
-    }
-    logger.info { "[oauth/register] full request body: ${LogSafeText.of(registration.rawRequest.toString())}" }
-
-    val body = linkedMapOf<String, Any?>(
-      "client_id" to registration.clientId,
-      "redirect_uris" to registration.redirectUris.toList(),
-      "token_endpoint_auth_method" to "none",
-      "grant_types" to listOf("authorization_code", "refresh_token"),
-      "response_types" to listOf("code"),
-    )
-    if (registration.clientName != null) body["client_name"] = registration.clientName
-    // Filtered on the way out as well — see [ClientMetadataUri], which says why the check at
-    // registration does not cover the row this may be reading.
-    registration.clientUri?.takeIf(ClientMetadataUri::isValid)?.let { body["client_uri"] = it }
-    registration.logoUri?.takeIf(ClientMetadataUri::isValid)?.let { body["logo_uri"] = it }
-    if (registration.softwareId != null) body["software_id"] = registration.softwareId
-    if (registration.softwareVersion != null) body["software_version"] = registration.softwareVersion
-    if (registration.contacts.isNotEmpty()) body["contacts"] = registration.contacts
-    registration.tosUri?.takeIf(ClientMetadataUri::isValid)?.let { body["tos_uri"] = it }
-    registration.policyUri?.takeIf(ClientMetadataUri::isValid)?.let { body["policy_uri"] = it }
-
-    return Response.status(201).entity(body).type(MediaType.APPLICATION_JSON).build()
-  }
+  ): Response = PodRegistrationResponses.render(
+    podClientRegistration.register(
+      pod = fetchPodOrThrow(pod).hosted,
+      request = PodRegistrationRequest(
+        metadata = request,
+        userAgent = userAgent,
+        forwardedFor = forwardedFor,
+      ),
+    ),
+  )
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────
 

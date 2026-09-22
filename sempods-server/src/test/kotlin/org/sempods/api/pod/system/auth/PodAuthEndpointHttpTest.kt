@@ -655,7 +655,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       ),
     )
 
-    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(FLOWS_LOGGER) {
       val response = http.preparePost(registerUrl(pod.name))
         .addHeader("Content-Type", "application/json")
         .addHeader("User-Agent", userAgent)
@@ -756,11 +756,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `submitted registration metadata cannot forge a log line`() {
     // The `/register` body is caller-written text on an unauthenticated endpoint, and both lines
-    // this endpoint writes about it carry it — the second one carries the body whole.
+    // `PodClientRegistration` writes about it carry it — the second one carries the body whole.
     val pod = sempodsTestFactory.newPod()
     val forgedName = "Dyn-${TestUtil.randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] forged"
 
-    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(FLOWS_LOGGER) {
       val response = http.preparePost(registerUrl(pod.name))
         .addHeader("Content-Type", "application/json")
         .setBody(

@@ -109,11 +109,12 @@ gets a promise the chain may not keep, and does not learn that it did not.
 **No rate limiting on `/authorize` or `/register`** beyond what the
 surrounding infrastructure provides. `/register` is unauthenticated by
 design (RFC 7591) and unthrottled: registrations from anyone who can reach
-the pod are stored, deduplicated only when the submitted metadata is
-identical. `/token` is the one that has a limit — see
-[`oauth.md`](oauth.md) for the key it is spent against, and note that the
-budget is per process, so a deployment running several replicas hands out
-one per replica.
+the pod are stored, and the fingerprint dedup
+[`../mcp/authentication.md`](../mcp/authentication.md#dcr-fingerprint)
+describes absorbs a real client's reconnect loop and nothing else.
+`/token` is the one that has a limit — see [`oauth.md`](oauth.md) for the
+key it is spent against, and note that the budget is per process, so a
+deployment running several replicas hands out one per replica.
 
 **The HTTP timeouts on the OIDC legs are nobody's decision, bar one.** A
 sign-in crosses three of them, on three different clients: the pod server's
