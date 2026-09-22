@@ -113,11 +113,12 @@ class PodServiceClientStore @Inject constructor(
     id = ServiceClientRegistrationId(checkNotNull(id) { "registration without id: '$clientId'" }.toHexString()),
     clientId = clientId,
     scopes = scopes,
+    label = label,
   )
 
   /**
    * Validates `(clientId, secret)` against the persisted hash. Returns the
-   * matching row when the secret verifies, `null` otherwise.
+   * registration when the secret verifies, `null` otherwise.
    *
    * Constant-ish-time: we always run one bcrypt verification, even when no
    * row matches [clientId]. Without that an unknown clientId returns in
@@ -139,14 +140,28 @@ class PodServiceClientStore @Inject constructor(
   //   Touch points: [mintSecret], [hashSecret],
   //   [verifySecret], plus a new pod-scoped verifier key alongside the RSA
   //   signing key.
-  internal fun authenticate(podId: ObjectId, clientId: String, secret: String): PodServiceClientDbo? {
-    val dbo = dao.findByClientId(podId, clientId)
+  internal fun authenticate(pod: PodId, clientId: String, secret: String): ServiceClientRegistration? {
+    val dbo = dao.findByClientId(pod.objectId(), clientId)
     val hash = dbo?.secretHash ?: dummyHash
     val matches = verifySecret(secret, hash)
-    return if (dbo != null && matches) dbo else null
+    return if (dbo != null && matches) dbo.toRegistration() else null
   }
 
-  internal fun touchLastUsed(podId: ObjectId, clientId: String): Boolean = dao.touchLastUsed(podId, clientId)
+  /** Records that [clientId] just minted a token — what an owner-facing list shows as `lastUsedAt`. */
+  internal fun touchLastUsed(pod: PodId, clientId: String): Boolean = dao.touchLastUsed(pod.objectId(), clientId)
+
+  /**
+   * Strips the scopes anchored at [contextUri] and removes the registrations left holding none.
+   *
+   * A registration's context scopes *are* the authority the resolver reads, so a deleted context
+   * has to reach them the way it reaches a grant — otherwise the secret keeps minting tokens for a
+   * root the owner removed. Answers how many registrations went.
+   */
+  internal fun revokeByContextScope(pod: PodId, contextUri: String): Long =
+    dao.revokeByContextScope(pod.objectId(), contextUri)
+
+  /** Everything this pod registered, for the pod's own deletion. */
+  internal fun deleteByPod(pod: PodId): Long = dao.deleteByPod(pod.objectId())
 
   private fun mintSecret(): String {
     val bytes = ByteArray(32)
@@ -207,6 +222,8 @@ internal data class ServiceClientRegistration(
   val id: ServiceClientRegistrationId,
   val clientId: String,
   val scopes: Set<String>,
+  /** What an operator called it — a server-assigned `clientId` alone gives them nothing to recognise. */
+  val label: String?,
 )
 
 /**

@@ -19,7 +19,6 @@ import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.pods.PodFacade
-import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
@@ -35,7 +34,6 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.flows.PodTokenResult
-import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
@@ -47,7 +45,6 @@ class PodAuthEndpoint @Inject constructor(
   private val podTokenIssuer: PodTokenIssuer,
   private val podSignOut: PodSignOut,
   private val tokenRateLimiter: PodTokenRateLimiter,
-  private val podServiceClientStore: PodServiceClientStore,
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
   podFacade: PodFacade,
@@ -245,7 +242,7 @@ class PodAuthEndpoint @Inject constructor(
         redirectUri = redirectUri,
         clientId = clientId,
         codeVerifier = codeVerifier,
-      ).asResponse()
+      ).asResponse(podDbo.name)
 
       "refresh_token" -> podTokenExchange.refresh(
         pod = podDbo.podId(),
@@ -253,12 +250,21 @@ class PodAuthEndpoint @Inject constructor(
         refreshToken = refreshToken,
         clientId = clientId,
         requestedScope = scope,
-      ).asResponse()
+      ).asResponse(podDbo.name)
 
-      "client_credentials" -> exchangeClientCredentials(
-        podDbo = podDbo,
-        authorizationHeader = authorizationHeader,
-        requestedScope = scope,
+      // HTTP Basic is this adapter's format: a request that presents no credentials at all is
+      // answered here, and what a presented pair *means* is the exchange's.
+      "client_credentials" -> BasicAuth.parse(authorizationHeader)?.let { basic ->
+        podTokenExchange.exchangeServiceClient(
+          pod = podDbo.podId(),
+          podName = podDbo.name,
+          clientId = basic.username,
+          secret = basic.password,
+          requestedScope = scope,
+        ).asResponse(podDbo.name)
+      } ?: PodTokenResponses.clientAuthenticationRequired(
+        realm = podDbo.name,
+        description = "HTTP Basic authentication required",
       )
 
       else -> tokenError(
@@ -274,96 +280,18 @@ class PodAuthEndpoint @Inject constructor(
    * `scope` is omitted where the bearer carries no feature scope — the rule and its reason are
    * [PodTokenResponses.tokens]'.
    */
-  private fun PodTokenResult.asResponse(): Response = when (this) {
+  private fun PodTokenResult.asResponse(realm: String): Response = when (this) {
     is PodTokenResult.Issued -> PodTokenResponses.tokens(
       accessToken = accessToken,
       expiresInSeconds = expiresInSeconds,
-      scope = OAuthSyntax.formatScope(scopes).takeIf { scopes.isNotEmpty() },
+      scope = OAuthSyntax.formatScope(scopes).takeIf { statesEmptyScope || scopes.isNotEmpty() },
       refreshToken = refreshToken,
     )
 
     is PodTokenResult.Refused -> PodTokenResponses.error(code, description)
-  }
 
-  /**
-   * OAuth 2-leg flow (RFC 6749 §4.4). Trusted service clients (statically
-   * registered via [PodServiceClientStore]) authenticate with HTTP Basic and
-   * receive a short-lived access token bound to their own clientId.
-   *
-   * The AS metadata at `_system/auth/.well-known/oauth-authorization-server`
-   * advertises this grant and `client_secret_basic` so RFC 8414 §2 honest
-   * disclosure holds. DCR clients (MCP) cannot use this grant — service
-   * clients are statically registered out-of-band and never appear via
-   * `/register` — but advertising it is correct, not enabling: knowledge of
-   * the grant alone does not help an unregistered client mint a token.
-   */
-  private fun exchangeClientCredentials(
-    podDbo: PodDbo,
-    authorizationHeader: String?,
-    requestedScope: String?,
-  ): Response {
-    val basic = BasicAuth.parse(authorizationHeader)
-      ?: return PodTokenResponses.clientAuthenticationRequired(
-        realm = podDbo.name,
-        description = "HTTP Basic authentication required",
-      )
-
-    val podId = checkNotNull(podDbo.id)
-    val client = podServiceClientStore.authenticate(podId, basic.username, basic.password)
-    if (client == null) {
-      logger.info {
-        "[oauth/token] client_credentials auth failed: pod='${podDbo.name}', " +
-            "clientId='${LogSafeText.of(basic.username)}'"
-      }
-      return PodTokenResponses.clientAuthenticationRequired(
-        realm = podDbo.name,
-        description = "unknown client_id or invalid secret",
-      )
-    }
-
-    // Down-scoping is NOT supported on client_credentials. A slim service token carries no
-    // per-token state to express a subset, and the resolver always grants the client's full
-    // registered set from `PodServiceClientDao` at request time. Accepting `scope=` and
-    // silently granting more than requested would be a confused-deputy footgun, so reject it
-    // outright until per-token service down-scope state exists.
-    // TODO: support per-token service down-scoping (carry the requested subset as a signed,
-    //   resolver-honored claim) — then this rejection can relax to the subset path.
-    if (!requestedScope.isNullOrBlank()) {
-      return tokenError(
-        OAuthErrorCode.INVALID_SCOPE,
-        "scope down-scoping is not supported on client_credentials; the token grants the " +
-            "client's full registered scope set",
-      )
-    }
-
-    if (client.scopes.isEmpty()) {
-      return tokenError(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")
-    }
-
-    // Only feature scopes travel in a slim service token. Service clients register context
-    // scopes only (feature scopes are rejected at registration), so this is empty today.
-    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes)
-
-    val accessToken = podTokenIssuer.issueServiceToken(
-      pod = podDbo.name,
-      clientId = client.clientId,
-      scopes = tokenFeatureScopes,
-    )
-    podServiceClientStore.touchLastUsed(podId, client.clientId)
-
-    logger.info {
-      "[oauth/token] Service token issued (client_credentials): pod='${podDbo.name}', " +
-          "clientId='${client.clientId}', registeredScopes=${client.scopes.size}, " +
-          "tokenFeatureScopes=${tokenFeatureScopes.size}, label='${client.label ?: "(unset)"}'"
-    }
-
-    // `scope` is stated even when the set is empty, which is the ordinary shape today — see
-    // [PodTokenResponses.tokens] for why this answer differs from the user token's there.
-    return PodTokenResponses.tokens(
-      accessToken = accessToken,
-      expiresInSeconds = PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
-      scope = OAuthSyntax.formatScope(tokenFeatureScopes),
-    )
+    is PodTokenResult.ClientAuthenticationRequired ->
+      PodTokenResponses.clientAuthenticationRequired(realm, description)
   }
 
   // ─── JWKS ─────────────────────────────────────────────────────────────────

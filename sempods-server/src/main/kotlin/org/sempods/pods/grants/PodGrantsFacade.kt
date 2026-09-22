@@ -14,7 +14,7 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodRefreshTokenStore
-import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 
 /**
  * Single entry point for reading and mutating grants on a pod.
@@ -60,7 +60,7 @@ class PodGrantsFacade @Inject constructor(
   private val podWebIdGrantsDao: PodWebIdGrantsDao,
   private val podGrantsDao: PodGrantsDao,
   private val podContextsDao: PodContextsDao,
-  private val podServiceClientDao: PodServiceClientDao,
+  private val podServiceClientStore: PodServiceClientStore,
   private val podScopeValidator: PodScopeValidator,
   private val podContextPermissionResolver: PodContextPermissionResolver,
   private val refreshTokenStore: PodRefreshTokenStore,
@@ -338,7 +338,7 @@ class PodGrantsFacade @Inject constructor(
     // stripped, grant-less registrations removed — otherwise the client secret could keep minting
     // tokens for the deleted root (manage descendants, recreate the root). Unlike a refresh row, a
     // registration's context scopes *are* the authority the resolver reads.
-    val revokedClients = podServiceClientDao.revokeByContextScope(podId = pod.id.objectId(), contextUri = contextUri)
+    val revokedClients = podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)
     if (revokedClients > 0) {
       logger.info { "Revoked $revokedClients service-client registration(s) anchored at deleted context $contextUri" }
     }

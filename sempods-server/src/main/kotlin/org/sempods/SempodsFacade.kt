@@ -15,7 +15,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
-import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import org.bson.types.ObjectId
@@ -33,7 +33,7 @@ class SempodsFacade @Inject constructor(
   private val consentDecisionStore: PodConsentDecisionStore,
   private val signOutStore: PodSignOutStore,
   private val dynamicClientRegistrationDao: DynamicClientRegistrationDao,
-  private val podServiceClientDao: PodServiceClientDao,
+  private val podServiceClientStore: PodServiceClientStore,
   private val podServiceAuditLogDao: PodServiceAuditLogDao,
   // Provider breaks the SempodsFacade ↔ PodRepositoryCache injection cycle (the cache depends on
   // this facade).
@@ -80,7 +80,7 @@ class SempodsFacade @Inject constructor(
       refreshTokenStore.deleteByPod(pod)
       consentDecisionStore.deleteByPod(pod)
       dynamicClientRegistrationDao.deleteByPod(podId)
-      podServiceClientDao.deleteByPod(podId)
+      podServiceClientStore.deleteByPod(pod)
       podServiceAuditLogDao.deleteByPod(podId)
       backupDao.deleteByPod(podId)
       podContextsDao.deleteByPod(podId)

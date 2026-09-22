@@ -3,7 +3,9 @@ package org.sempods.pods.oauth.flows
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.pods.oauth.DynamicClientStore
+import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.ClientId
 import org.sempods.auth.core.OAuthErrorCode
@@ -23,21 +25,22 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * The two token exchanges a person's authorization goes through: redeeming an authorization code,
- * and rotating the refresh token it seeded.
+ * The three exchanges the token endpoint performs: redeeming an authorization code, rotating the
+ * refresh token it seeded, and authenticating a service with its own credentials.
  *
  * **Every decision here is the pod's, and none of them is HTTP.** What a code is worth, which
  * scopes survive, how long a family lives, when a rotation is reuse and when a consent has moved
  * under an exchange already in flight — this class answers all of it and hands back a
  * [PodTokenResult] that says nothing about status codes, headers or JSON. The endpoint binds the
- * request and renders the answer; `client_credentials` is not here, because it authorizes a service
- * rather than a person and belongs with the service-client work.
+ * request and renders the answer.
  *
- * **The order of the checks is the contract, not a style.** Each exchange signs its access token
- * before its last look at the consent decision, reads the decision again after seeding its family,
- * and sweeps what it supersedes only once the successor exists. `PodSignOut.signOut` writes in the
- * order that makes those reads sufficient (`SPS-AUTH-062`, `SPS-AUTH-063`), so moving one of them
- * re-opens a window on the other side. The comments at each step say which.
+ * **The order of the checks is the contract, not a style.** Each of the two person exchanges signs
+ * its access token before its last look at the consent decision, reads the decision again after
+ * seeding its family, and sweeps what it supersedes only once the successor exists.
+ * `PodSignOut.signOut` writes in the order that makes those reads sufficient (`SPS-AUTH-062`,
+ * `SPS-AUTH-063`), so moving one of them re-opens a window on the other side. The comments at each
+ * step say which. [exchangeServiceClient] authorizes no person and seeds no family, so it runs
+ * none of that.
  */
 class PodTokenExchange @Inject internal constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
@@ -46,6 +49,7 @@ class PodTokenExchange @Inject internal constructor(
   private val podGrantsFacade: PodGrantsFacade,
   private val dynamicClientStore: DynamicClientStore,
   private val podTokenIssuer: PodTokenIssuer,
+  private val serviceClients: PodServiceClientStore,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
 
@@ -250,6 +254,74 @@ class PodTokenExchange @Inject internal constructor(
     )
   }
 
+
+  /**
+   * A service authenticating as itself (RFC 6749 §4.4), with no person behind it.
+   *
+   * The credentials arrive already parsed: HTTP Basic is the adapter's format, and what this
+   * decides is whether they name a registration and what the token it mints may say.
+   *
+   * @param requestedScope rejected outright when present, rather than narrowed — see below.
+   */
+  internal fun exchangeServiceClient(
+    pod: PodId,
+    podName: String,
+    clientId: String,
+    secret: String,
+    requestedScope: String?,
+  ): PodTokenResult {
+    val client = serviceClients.authenticate(pod, clientId, secret)
+    if (client == null) {
+      logger.info {
+        "[oauth/token] client_credentials auth failed: pod='$podName', " +
+            "clientId='${LogSafeText.of(clientId)}'"
+      }
+      return PodTokenResult.ClientAuthenticationRequired("unknown client_id or invalid secret")
+    }
+
+    // Down-scoping is NOT supported on client_credentials. A slim service token carries no
+    // per-token state to express a subset, and the resolver always grants the client's full
+    // registered set from `PodServiceClientDao` at request time. Accepting `scope=` and
+    // silently granting more than requested would be a confused-deputy footgun, so reject it
+    // outright until per-token service down-scope state exists.
+    // TODO: support per-token service down-scoping (carry the requested subset as a signed,
+    //   resolver-honored claim) — then this rejection can relax to the subset path.
+    if (!requestedScope.isNullOrBlank()) {
+      return PodTokenResult.Refused(
+        OAuthErrorCode.INVALID_SCOPE,
+        "scope down-scoping is not supported on client_credentials; the token grants the " +
+            "client's full registered scope set",
+      )
+    }
+
+    if (client.scopes.isEmpty()) {
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")
+    }
+
+    // Only feature scopes travel in a slim service token. Service clients register context
+    // scopes only (feature scopes are rejected at registration), so this is empty today.
+    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes)
+
+    val accessToken = podTokenIssuer.issueServiceToken(
+      pod = podName,
+      clientId = client.clientId,
+      scopes = tokenFeatureScopes,
+    )
+    serviceClients.touchLastUsed(pod, client.clientId)
+
+    logger.info {
+      "[oauth/token] Service token issued (client_credentials): pod='$podName', " +
+          "clientId='${client.clientId}', registeredScopes=${client.scopes.size}, " +
+          "tokenFeatureScopes=${tokenFeatureScopes.size}, label='${client.label ?: "(unset)"}'"
+    }
+
+    return PodTokenResult.Issued(
+      accessToken = accessToken,
+      expiresInSeconds = PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
+      scopes = tokenFeatureScopes,
+      statesEmptyScope = true,
+    )
+  }
 
   internal fun refresh(
     pod: PodId,
@@ -597,7 +669,22 @@ internal sealed interface PodTokenResult {
     val expiresInSeconds: Long,
     val scopes: Set<String>,
     val refreshToken: String? = null,
+    /**
+     * Whether `scope` is named even when [scopes] is empty — true for a service token, which
+     * states its registered set either way. `PodTokenResponses.tokens` argues why the three
+     * success shapes differ here and why making them agree would narrow this one.
+     */
+    val statesEmptyScope: Boolean = false,
   ) : PodTokenResult
 
   data class Refused(val code: OAuthErrorCode, val description: String) : PodTokenResult
+
+  /**
+   * The caller must authenticate as a client before anything else is decided.
+   *
+   * Separate from [Refused] because it is a `401` carrying a challenge rather than an error
+   * document: RFC 6749 §5.2 says an invalid client authentication answers that way, and the realm
+   * is the pod, which the adapter knows and this does not.
+   */
+  data class ClientAuthenticationRequired(val description: String) : PodTokenResult
 }
