@@ -79,9 +79,9 @@ internal object PodOAuthErrorResponses {
     } else {
       UrlUtil.removeQueryParameter(uri, "error_uri")
     }
-    state?.trim()?.takeIf { it.isNotBlank() }?.let {
-      uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it)
-    }
+    // As [suppliedState][org.sempods.pods.oauth.flows.suppliedState] left it, including the value
+    // a parked request stored.
+    state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
     // The consent dialog is a POST, and a 307 tells the browser to repeat it at the client's
     // address: the ticked scopes and the spent CSRF token arrive at the app. RFC 9700 §4.12 names 303.
     return Response.seeOther(uri).build()

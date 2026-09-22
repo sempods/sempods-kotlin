@@ -75,6 +75,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           "signed_in=${session != null}"
     }
 
+    val clientState = suppliedState(request.state)
+
     // ── Validate required params ──────────────────────────────────────────
     // Order is load-bearing: address first, client second, and only then a [Redirectable]. Until
     // the redirect_uri is known to belong to the client that named it, nothing may be *delivered*
@@ -91,7 +93,8 @@ class PodAuthorizeFlow @Inject internal constructor(
         logger.info {
           "[oauth/authorize-audit] outcome=error error=invalid_client " +
               "error_description=\"client_id is not registered at this pod\" " +
-              "pod='${pod.name}' client_id='${request.clientId?.trim()}' state=${request.state ?: "(none)"}"
+              "pod='${pod.name}' client_id='${LogSafeText.of(request.clientId?.trim() ?: "(none)")}' " +
+              "state=${LogSafeText.of(request.state ?: "(none)")}"
         }
         return PodAuthorizeResult.Refused(PodAuthorizeRefusal.UNREGISTERED_CLIENT)
       }
@@ -113,7 +116,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     if (requestedResponseType != "code") {
       return failed(
         redirectTarget, OAuthErrorCode.UNSUPPORTED_RESPONSE_TYPE,
-        "response_type must be 'code'", request.state,
+        "response_type must be 'code'", clientState,
       )
     }
 
@@ -125,7 +128,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     if (normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX) && trimmedCodeChallenge == null) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
-        "code_challenge is required for dynamic clients (PKCE)", request.state,
+        "code_challenge is required for dynamic clients (PKCE)", clientState,
       )
     }
     // A challenge with a method this server cannot verify is refused here rather than at the
@@ -136,7 +139,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     if (trimmedCodeChallenge != null && !Pkce.isSupportedMethod(trimmedCodeChallengeMethod)) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
-        "code_challenge_method must be ${Pkce.METHOD_S256}", request.state,
+        "code_challenge_method must be ${Pkce.METHOD_S256}", clientState,
       )
     }
 
@@ -146,7 +149,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       // Spec: `none` is exclusive — if combined with anything else it's a request error.
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
-        "prompt=none cannot be combined with other prompt values", request.state,
+        "prompt=none cannot be combined with other prompt values", clientState,
       )
     }
 
@@ -184,7 +187,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       if (publicContexts.isEmpty()) {
         return failed(
           redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-          "pod has no public-read contexts", request.state,
+          "pod has no public-read contexts", clientState,
         )
       }
       val anonymousPublicReadWebId =
@@ -202,7 +205,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           webId = anonymousPublicReadWebId,
           scopes = setOf(PUBLIC_READ_SCOPE),
           target = redirectTarget,
-          state = request.state,
+          state = clientState,
           codeChallenge = trimmedCodeChallenge,
           codeChallengeMethod = trimmedCodeChallengeMethod,
           via = PodCodeIssuance.ANONYMOUS_PUBLIC_READ,
@@ -218,7 +221,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       // parameter forbids. With prompt=none combined with login/select_account we already errored
       // out above as `invalid_request`, so the prompt set is consistent here.
       if ("none" in promptValues) {
-        return failed(redirectTarget, OAuthErrorCode.LOGIN_REQUIRED, "user is not authenticated", request.state)
+        return failed(redirectTarget, OAuthErrorCode.LOGIN_REQUIRED, "user is not authenticated", clientState)
       }
       // Federate the login to the id-server as an ordinary OIDC relying party. The whole request
       // stays here, under a `state` this server minted; what comes back through the browser is a
@@ -256,7 +259,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           pod = pod.name,
           clientId = normalizedClientId,
           redirectUri = normalizedRedirectUri,
-          clientState = request.state,
+          clientState = clientState,
           scope = request.scope,
           // The force-reauth values are satisfied by the login now beginning, and carrying them
           // back would send the user straight into another one. `consent` and the rest survive,
@@ -375,7 +378,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           webId = identity.webId,
           scopes = effectivePublicReadScope,
           target = redirectTarget,
-          state = request.state,
+          state = clientState,
           codeChallenge = trimmedCodeChallenge,
           codeChallengeMethod = trimmedCodeChallengeMethod,
           via = PodCodeIssuance.AUTO_GRANT,
@@ -403,10 +406,10 @@ class PodAuthorizeFlow @Inject internal constructor(
         } else {
           "no app-specific scopes available for this user"
         }
-        return failed(redirectTarget, OAuthErrorCode.CONSENT_REQUIRED, desc, request.state)
+        return failed(redirectTarget, OAuthErrorCode.CONSENT_REQUIRED, desc, clientState)
       }
       return failed(
-        redirectTarget, OAuthErrorCode.CONSENT_REQUIRED, "user has not granted access to this app", request.state,
+        redirectTarget, OAuthErrorCode.CONSENT_REQUIRED, "user has not granted access to this app", clientState,
       )
     }
 
@@ -420,7 +423,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       if (publicContexts.isEmpty()) {
         return failed(
           redirectTarget, OAuthErrorCode.CONSENT_REQUIRED,
-          "no app-specific scopes available for this user", request.state,
+          "no app-specific scopes available for this user", clientState,
         )
       }
       return consentScreen(
@@ -428,7 +431,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         identity = identity,
         normalizedClientId = normalizedClientId,
         normalizedRedirectUri = normalizedRedirectUri,
-        state = request.state,
+        state = clientState,
         codeChallenge = trimmedCodeChallenge,
         codeChallengeMethod = trimmedCodeChallengeMethod,
         publicContexts = publicContexts.map { it.toString() }.sorted(),
@@ -453,7 +456,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       identity = identity,
       normalizedClientId = normalizedClientId,
       normalizedRedirectUri = normalizedRedirectUri,
-      state = request.state,
+      state = clientState,
       codeChallenge = trimmedCodeChallenge,
       codeChallengeMethod = trimmedCodeChallengeMethod,
       publicContexts = publicContextsForUi,
@@ -526,7 +529,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         clientUri = registration?.clientUri?.takeIf(ClientMetadataUri::isValid),
         logoUri = registration?.logoUri?.takeIf(ClientMetadataUri::isValid),
         redirectUri = normalizedRedirectUri,
-        state = state?.trim()?.takeIf { it.isNotBlank() },
+        state = state,
         codeChallenge = codeChallenge,
         codeChallengeMethod = codeChallengeMethod,
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending

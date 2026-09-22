@@ -116,8 +116,11 @@ refreshes stay silent for both client classes.
    the public-read toggle, the lifetime control, a way to
    [sign out](#signing-out), and — only for an app that already holds
    something — a named way to remove its access.
-5. On success, redirects to `redirect_uri?code=...&state=...`.
-6. On failure, redirects with `?error=...&error_description=...&error_uri=...`.
+5. On success, redirects to `redirect_uri?code=...`, carrying `state` back
+   exactly as it arrived where the client sent one — an empty `state=` counts
+   as none (RFC 6749 §3.1).
+6. On failure, redirects with `?error=...&error_description=...` and the same
+   `state`; `error_uri` only where the deployment configures one.
 
 Submitting the consent form requires two things: the pod session cookie
 (who) and a single-use token minted for that one screen (which screen,

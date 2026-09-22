@@ -15,10 +15,10 @@ import kotlin.test.assertTrue
 /**
  * Pure unit — how an authorization error is written into a redirect address.
  *
- * Four of these are the reasons this is still assembled by hand rather than by a protocol library.
- * A library appends parameters and has no way to remove one it did not write, and nimbus's `State`
- * refuses a blank value from its constructor; each would change a byte a client already sees. When
- * `#154` converts this, these are the cases that say what the conversion has to keep.
+ * These are the reasons this is still assembled by hand rather than by a protocol library. A
+ * library appends parameters and has no way to remove one it did not write, and nimbus's `State`
+ * refuses a blank value from its constructor — which this now echoes. Each case here is a byte a
+ * client already sees, so `#154`'s conversion has to keep it.
  */
 class PodOAuthErrorResponsesTest {
 
@@ -82,13 +82,11 @@ class PodOAuthErrorResponsesTest {
   }
 
   @Test
-  fun `a state carrying no information is not echoed`() {
-    // RFC 6749 makes `state` opaque `*VSCHAR`, so a client may legally send `state=%20`. It is the
-    // one part of the answer such a client cannot use, and it is what a protocol library refuses.
-    for (blank in listOf(null, "", "   ")) {
-      val location = locationOf("https://app.example/cb", state = blank)
-      assertFalse("state=" in location, "state='$blank' reached the address: $location")
-    }
+  fun `a state is written as it stands, and one that was never sent stays absent`() {
+    // What counts as sent was decided before this, by
+    // [suppliedState][org.sempods.pods.oauth.flows.suppliedState].
+    locationOf("https://app.example/cb", state = "  ").let { assertTrue("state=++" in it, it) }
+    locationOf("https://app.example/cb", state = null).let { assertFalse("state=" in it, it) }
   }
 
   @Test
