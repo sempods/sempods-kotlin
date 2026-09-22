@@ -738,7 +738,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val header = "Basic " + java.util.Base64.getEncoder()
       .encodeToString("${java.net.URLEncoder.encode(forged, Charsets.UTF_8)}:secret".toByteArray())
 
-    val lines = CapturedLog.linesFrom(PodAuthEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(FLOWS_LOGGER) {
       val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/token")
         .addHeader("Authorization", header)
         .addHeader("Content-Type", "application/x-www-form-urlencoded")

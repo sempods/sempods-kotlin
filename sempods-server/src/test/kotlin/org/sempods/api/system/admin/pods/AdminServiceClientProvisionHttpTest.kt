@@ -100,7 +100,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
 
     val secret = assertNotNull(response.field("secret"), "the minted secret must be returned once")
     assertNotNull(
-      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, secret),
+      podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, secret),
       "the returned secret must authenticate against the pod-side hash",
     )
   }
@@ -134,7 +134,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals(registrationId, second.field("registrationId"))
     assertFalse(second.hasField("secret"), "no secret may be produced when nothing was written: ${second.responseBody}")
     assertNotNull(
-      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, firstSecret),
+      podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, firstSecret),
       "the caller's existing secret must stay valid",
     )
   }
@@ -152,9 +152,9 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals("provisioned", second.field("result"))
     assertNotEquals(first.field("registrationId"), second.field("registrationId"), "re-minting replaces the row")
     val newSecret = assertNotNull(second.field("secret"))
-    assertNotNull(podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, newSecret))
+    assertNotNull(podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, newSecret))
     assertNull(
-      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, lostSecret),
+      podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, lostSecret),
       "the replaced secret must no longer authenticate",
     )
   }
@@ -327,7 +327,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     )
     val secrets = responses.filter { it.statusCode == 200 }.mapNotNull { it.field("secret") }
     assertTrue(
-      secrets.any { podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, it) != null },
+      secrets.any { podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, it) != null },
       "no returned secret authenticates against the surviving registration ${registration.id}",
     )
   }

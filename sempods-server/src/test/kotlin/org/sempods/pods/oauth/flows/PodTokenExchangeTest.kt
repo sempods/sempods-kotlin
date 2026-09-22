@@ -18,6 +18,8 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -58,6 +60,9 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var sempodsUriBuilder: SempodsUriBuilder
+
+  @Inject
+  private lateinit var serviceClients: PodServiceClientStore
 
   private val clientId = "did:web:app.example"
   private val redirectUri = "https://app.example/cb"
@@ -342,4 +347,58 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       }
     }
   }
+
+  // ─── client_credentials ───────────────────────────────────────────────────
+
+  @Test
+  fun `a service client's own credentials mint a short-lived token and mark it used`() {
+    val pod = sempodsTestFactory.newPod(createPublicContext = false).toHostedPod(sempodsUriBuilder)
+    val minted = serviceClient(pod)
+
+    val result = issued(
+      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = null),
+    )
+
+    assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, result.expiresInSeconds)
+    assertNull(result.refreshToken, "a service has no person to come back as")
+    assertTrue(result.statesEmptyScope, "the service answer names `scope` even when it is empty")
+    assertNotNull(serviceClients.find(pod.id, "notes-app"), "the registration stands")
+  }
+
+  @Test
+  fun `a secret that does not verify is a challenge, not an error document`() {
+    // RFC 6749 §5.2: an invalid client authentication is a 401 the caller can answer, which is a
+    // different answer from a request this server understood and refused.
+    val pod = sempodsTestFactory.newPod(createPublicContext = false).toHostedPod(sempodsUriBuilder)
+    serviceClient(pod)
+
+    for ((client, secret) in listOf("notes-app" to "sc_wrong", "no-such-app" to "sc_wrong")) {
+      val result = exchange.exchangeServiceClient(pod.id, pod.name, client, secret, requestedScope = null)
+      assertIs<PodTokenResult.ClientAuthenticationRequired>(result, "clientId='$client'")
+    }
+  }
+
+  @Test
+  fun `asking for a narrower scope is refused rather than quietly ignored`() {
+    // The token grants the client's full registered set, so honouring a subset would need
+    // per-token state that does not exist — and ignoring the parameter would grant more than was
+    // asked for without saying so.
+    val pod = sempodsTestFactory.newPod(createPublicContext = false).toHostedPod(sempodsUriBuilder)
+    val minted = serviceClient(pod)
+
+    val result = refused(
+      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = "public-read"),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, result.code)
+  }
+
+  /** A registered service client on [pod], with the secret it was handed once. */
+  private fun serviceClient(pod: HostedPod): PodServiceClientStore.Registered =
+    serviceClients.register(
+      pod = pod,
+      clientId = "notes-app",
+      scopes = setOf("${sempodsUriBuilder.buildContext(pod.name, "apps/notes")}#manage"),
+      label = "notes-app",
+    )
 }
