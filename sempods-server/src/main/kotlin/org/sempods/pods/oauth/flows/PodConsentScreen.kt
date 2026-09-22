@@ -10,8 +10,7 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
  *   otherwise, so the dialog never shows a blank.
  * @param clientUri where the client says it lives, and [logoUri] its logo; `null` where it named
  *   none or named one `ClientMetadataUri` refuses.
- * @param state the client's `state`, trimmed, `null` where it sent none — the form echoes it back
- *   into the submission.
+ * @param state the client's `state`, `null` where it sent none — the form posts it back unchanged.
  * @param csrfToken this screen's one-time ticket — see where it is issued.
  * @param sessionTerms how long a connection lives when the person leaves the durability box
  *   unticked, [durableTerms] when they tick it. Both come from the store that will enforce them, so
