@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.pods.mongo.persist.PodDbo
-import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -86,7 +85,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
    */
   private fun mintServiceToken(pod: PodDbo, scopes: Set<String>): String {
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = scopes,
       label = "notes-app",
@@ -351,7 +350,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${contextUri(pod.name, "apps/notes")}#manage"),
       label = "notes-app",
@@ -386,7 +385,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/other")
     val survivingScope = "${contextUri(pod.name, "apps/other")}#read"
     podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${contextUri(pod.name, "apps/notes")}#manage", survivingScope),
       label = "notes-app",

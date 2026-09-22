@@ -4,7 +4,6 @@ import com.google.inject.Inject
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
 import org.sempods.SempodsUriBuilder
-import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.HostedPod
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -12,15 +11,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
  * Provisioning a service client, without a server in front of it.
  *
- * `AdminServiceClientProvisionHttpTest` drives the same route over HTTP and is what says the
- * endpoint delegates; this says what it delegates to. Every case turns on what the caller claims to
- * already hold, which is the whole of the idempotency contract.
+ * The idempotency contract, one case per thing a caller can claim to already hold. #216 asks for
+ * exactly this — a test of the decision that needs no server — and
+ * `AdminServiceClientProvisionHttpTest` keeps the wire shape it reaches over.
  *
  * The two concurrent refusals are not here. Both need a second writer between two statements of one
  * call, which no single-threaded test reaches — `AdminPodsEndpoint`'s KDoc argues what they cost.
@@ -106,7 +104,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
   }
 
   private fun pod(): HostedPod =
-    sempodsTestFactory.newPod(name = "p${randomId()}".lowercase()).toHostedPod(sempodsUriBuilder)
+    sempodsTestFactory.newPod(createPublicContext = false).toHostedPod(sempodsUriBuilder)
 
   private fun manageScope(pod: HostedPod) =
     "${sempodsUriBuilder.buildContext(pod.name, "apps/$CLIENT_ID")}#manage"
@@ -126,5 +124,5 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
   )
 
   private fun provisioned(result: PodServiceClientResult) =
-    assertIs<PodServiceClientResult.Provisioned>(result).also { assertNotNull(it.secret) }
+    assertIs<PodServiceClientResult.Provisioned>(result)
 }

@@ -21,7 +21,6 @@ import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodServiceClientRefusal
 import org.sempods.pods.oauth.flows.PodServiceClientRequest
 import org.sempods.pods.oauth.flows.PodServiceClientResult
-import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
@@ -69,7 +68,6 @@ class AdminPodsEndpoint @Inject constructor(
   private val podFacade: PodFacade,
   private val podRepositoryCache: PodRepositoryCache,
   private val webIdUriDeriver: WebIdUriDeriver,
-  private val podServiceClientFacade: PodServiceClientFacade,
   private val podServiceClientProvisioning: PodServiceClientProvisioning,
   private val sempodsUriBuilder: SempodsUriBuilder,
   adminAuthorizer: AdminAuthorizer,
@@ -233,8 +231,8 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, ProvisionServiceClientRequest::class.java)
       ?: ProvisionServiceClientRequest()
 
-    // Read once, and carried as one value from here on. Resolving the name again inside each store
-    // call would go through the process-local name-to-id cache three more times.
+    // Read once. Every store call used to resolve the name itself, so the re-mint path ran three
+    // more `fetchByName` queries against a row this already holds.
     val pod = podDao.fetchByName(podName)?.toHostedPod(sempodsUriBuilder)
       ?: throw WebApplicationException(errorResponse(404, "unknown pod '$podName'"))
 
@@ -242,7 +240,7 @@ class AdminPodsEndpoint @Inject constructor(
     // registration names the contexts it wants (#35), where operator provisioning had nobody to
     // ask and derives a sandbox instead.
     val rootContextUri = sempodsUriBuilder.buildContext(podName, "$APP_CONTEXT_ROOT_PREFIX$clientId")
-    ensurePrivateAppRoot(pod = podName, clientId = clientId, rootContextUri = rootContextUri)
+    ensurePrivateAppRoot(podName = podName, clientId = clientId, rootContextUri = rootContextUri)
 
     val result = podServiceClientProvisioning.provision(
       pod = pod,
@@ -254,34 +252,18 @@ class AdminPodsEndpoint @Inject constructor(
       ),
     )
 
-    return when (result) {
-      is PodServiceClientResult.AlreadyProvisioned -> Response.ok(
-        ProvisionServiceClientResponse(
-          result = ALREADY_PROVISIONED,
-          clientId = clientId,
-          registrationId = result.registration.id.value,
-          // The stored set, not the requested one — on this path they are equal by definition
-          // (scope drift is what sends the request down the re-mint branch instead).
-          scopes = result.registration.scopes,
-          contextRoot = rootContextUri.toString(),
-        ),
-      ).build()
+    // One answer, three ways of arriving at it — a field added to the response must not be
+    // addable to one branch only.
+    val (outcome, registration, secret) = when (result) {
+      is PodServiceClientResult.AlreadyProvisioned ->
+        Triple(ALREADY_PROVISIONED, result.registration, null)
 
       is PodServiceClientResult.Provisioned -> {
         logger.info {
           "Admin '$adminClientId' provisioned service client '$clientId' on pod '$podName' " +
               "(scope: $rootContextUri#manage)"
         }
-        Response.ok(
-          ProvisionServiceClientResponse(
-            result = PROVISIONED,
-            clientId = clientId,
-            registrationId = result.registration.id.value,
-            scopes = result.registration.scopes,
-            contextRoot = rootContextUri.toString(),
-            secret = result.secret,
-          ),
-        ).build()
+        Triple(PROVISIONED, result.registration, result.secret)
       }
 
       is PodServiceClientResult.Refused -> throw conflict(
@@ -293,23 +275,35 @@ class AdminPodsEndpoint @Inject constructor(
         },
       )
     }
+    return Response.ok(
+      ProvisionServiceClientResponse(
+        result = outcome,
+        clientId = clientId,
+        registrationId = registration.id.value,
+        // The stored set, not the requested one — on the already-provisioned path they are equal
+        // by definition, since scope drift is what takes the re-mint branch instead.
+        scopes = registration.scopes,
+        contextRoot = rootContextUri.toString(),
+        secret = secret,
+      ),
+    ).build()
   }
 
   /**
    * Registers the app root context private, and demotes it if it already exists and is public.
    * `createContext` is create-only idempotent, so the demotion has to be explicit.
    */
-  private fun ensurePrivateAppRoot(pod: String, clientId: String, rootContextUri: URI) {
+  private fun ensurePrivateAppRoot(podName: String, clientId: String, rootContextUri: URI) {
     val created = podFacade.createContext(
-      podName = pod,
+      podName = podName,
       contextUri = rootContextUri,
       public = false,
       label = clientId,
       description = "Root of the $clientId-managed contexts (sandbox of the '$clientId' service client).",
     )
-    if (!created && podFacade.getPublicContexts(pod).contains(rootContextUri)) {
-      logger.warn { "Root context '$rootContextUri' on pod '$pod' was public — demoting to private." }
-      podFacade.setContextPublic(podName = pod, contextUri = rootContextUri, public = false)
+    if (!created && podFacade.getPublicContexts(podName).contains(rootContextUri)) {
+      logger.warn { "Root context '$rootContextUri' on pod '$podName' was public — demoting to private." }
+      podFacade.setContextPublic(podName = podName, contextUri = rootContextUri, public = false)
     }
   }
 

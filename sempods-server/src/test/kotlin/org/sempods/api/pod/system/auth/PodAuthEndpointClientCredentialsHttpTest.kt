@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import com.nimbusds.jwt.SignedJWT
 import okhttp3.OkHttpClient
-import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
@@ -65,7 +64,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
       label = "notes-app",
@@ -111,7 +110,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   fun `client_credentials with unknown secret returns 401 invalid_client`() {
     val pod = sempodsTestFactory.newPod()
     podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes#manage"),
     )
@@ -156,7 +155,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )
@@ -185,7 +184,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val clientIdWithReserved = "notes:primary"
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = clientIdWithReserved,
       scopes = setOf("$appRoot#manage"),
     )
@@ -215,7 +214,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val podBase = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     val appRoot = "$podBase/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )
@@ -256,7 +255,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val podRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        pod = pod.toHostedPod(sempodsUriBuilder),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("${podRoot}#manage"),
       )
@@ -273,7 +272,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        pod = pod.toHostedPod(sempodsUriBuilder),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("${appRoot}#admin"),
       )
@@ -291,7 +290,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val foreignScope = "${SempodsModule.config.apiBaseUrl}${otherPodName}/_system/contexts/apps/notes#manage"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        pod = pod.toHostedPod(sempodsUriBuilder),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf(foreignScope),
       )
@@ -307,7 +306,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        pod = pod.toHostedPod(sempodsUriBuilder),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("openid"),
       )
@@ -337,7 +336,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     // A colon in the identifier: the core's form-encoding has to meet this endpoint's decoding.
     val clientId = "notes:primary"
     val registered = podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = clientId,
       scopes = setOf("$appRoot#manage"),
     )
@@ -366,7 +365,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     podServiceClientStore.register(
-      pod = pod.toHostedPod(sempodsUriBuilder),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )

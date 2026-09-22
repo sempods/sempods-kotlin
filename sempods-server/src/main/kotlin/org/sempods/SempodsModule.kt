@@ -91,7 +91,6 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
-import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -200,7 +199,6 @@ class SempodsModule : BaseModule() {
     bind<PodServiceClientProvisioning>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
-    bind<PodServiceClientFacade>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()
     bind<PodServiceAuditLogDao>().asSingleton()
     bind<AiSemShaclGuidanceDeriver>().asSingleton()

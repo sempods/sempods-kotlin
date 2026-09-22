@@ -8,11 +8,12 @@ import org.sempods.SempodsModule
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.pods.mongo.persist.PodDbo
-import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
+import org.sempods.pods.mongo.persist.podId
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import org.sempods.pods.oauth.serviceclients.ServiceClientRegistrationId
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
-import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.util.Base64
@@ -39,7 +40,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   private lateinit var http: TestHttpClient
 
   @Inject
-  private lateinit var podServiceClientFacade: PodServiceClientFacade
+  private lateinit var podServiceClientStore: PodServiceClientStore
 
   private val objectMapper = ObjectMapper()
 
@@ -93,13 +94,13 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertTrue(podAccess.contextsOf(pod.name).contains(root), "root context must be registered")
     assertFalse(podAccess.publicContextsOf(pod.name).contains(root), "root context must be private")
 
-    val registration = assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID), "registration missing")
+    val registration = assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID), "registration missing")
     assertEquals(setOf("$root#manage"), registration.scopes)
-    assertEquals(registration.id.toString(), response.field("registrationId"))
+    assertEquals(registration.id.value, response.field("registrationId"))
 
     val secret = assertNotNull(response.field("secret"), "the minted secret must be returned once")
     assertNotNull(
-      podServiceClientFacade.authenticate(pod.name, CLIENT_ID, secret),
+      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, secret),
       "the returned secret must authenticate against the pod-side hash",
     )
   }
@@ -133,7 +134,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals(registrationId, second.field("registrationId"))
     assertFalse(second.hasField("secret"), "no secret may be produced when nothing was written: ${second.responseBody}")
     assertNotNull(
-      podServiceClientFacade.authenticate(pod.name, CLIENT_ID, firstSecret),
+      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, firstSecret),
       "the caller's existing secret must stay valid",
     )
   }
@@ -151,9 +152,9 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals("provisioned", second.field("result"))
     assertNotEquals(first.field("registrationId"), second.field("registrationId"), "re-minting replaces the row")
     val newSecret = assertNotNull(second.field("secret"))
-    assertNotNull(podServiceClientFacade.authenticate(pod.name, CLIENT_ID, newSecret))
+    assertNotNull(podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, newSecret))
     assertNull(
-      podServiceClientFacade.authenticate(pod.name, CLIENT_ID, lostSecret),
+      podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, lostSecret),
       "the replaced secret must no longer authenticate",
     )
   }
@@ -164,9 +165,9 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     // refers to a row that is no longer current.
     val pod = sempodsTestFactory.newPod()
     val stale = assertNotNull(provision(pod.name).field("registrationId"))
-    podServiceClientFacade.unregister(pod.name, CLIENT_ID)
-    podServiceClientFacade.register(
-      podName = pod.name,
+    podServiceClientStore.remove(pod.podId(), CLIENT_ID, ServiceClientRegistrationId(stale))
+    podServiceClientStore.register(
+      pod = pod.hosted,
       clientId = CLIENT_ID,
       scopes = setOf("${rootContext(pod)}#manage"),
       label = CLIENT_ID,
@@ -201,21 +202,21 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   fun `scope drift is re-minted even when the registration id still matches`() {
     // Drift would otherwise surface as 403s only once the tokens are actually used.
     val pod = sempodsTestFactory.newPod()
-    podServiceClientFacade.register(
-      podName = pod.name,
+    podServiceClientStore.register(
+      pod = pod.hosted,
       clientId = CLIENT_ID,
       // narrower than the sandbox root
       scopes = setOf("${rootContext(pod)}/public#manage"),
       label = CLIENT_ID,
     )
-    val drifted = assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID)).id.toString()
+    val drifted = assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).id.value
 
     val response = provision(pod.name, expectedRegistrationId = drifted)
 
     assertEquals("provisioned", response.field("result"))
     assertEquals(
       setOf("${rootContext(pod)}#manage"),
-      assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID)).scopes,
+      assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes,
       "scopes must be reset to the exact sandbox",
     )
   }
@@ -257,7 +258,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     // `..%2F..` would escape `apps/<clientId>` and anchor the manage scope somewhere else entirely.
     assertEquals(400, provision(pod.name, clientId = "..%2Fadmin").statusCode)
     assertEquals(400, provision(pod.name, clientId = "app%20name").statusCode)
-    assertNull(podServiceClientFacade.find(pod.name, ".."), "no registration may be created")
+    assertNull(podServiceClientStore.find(pod.podId(), ".."), "no registration may be created")
   }
 
   @Test
@@ -265,22 +266,22 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     // The delete in provisionServiceClient is conditional on the registration read moments
     // earlier. Without that, two interleaved replacements delete each other's fresh row.
     val pod = sempodsTestFactory.newPod()
-    val staleId = ObjectId(assertNotNull(provision(pod.name).field("registrationId")))
+    val staleId = ServiceClientRegistrationId(assertNotNull(provision(pod.name).field("registrationId")))
     provision(pod.name)  // someone else re-mints — the row now has a different id
-    val current = assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID))
+    val current = assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID))
     assertNotEquals(staleId, current.id, "precondition: re-minting replaces the row")
 
     assertFalse(
-      podServiceClientFacade.unregister(pod.name, CLIENT_ID, expectedId = staleId),
+      podServiceClientStore.remove(pod.podId(), CLIENT_ID, staleId),
       "a delete conditioned on a stale id must remove nothing",
     )
     assertNotNull(
-      podServiceClientFacade.find(pod.name, CLIENT_ID),
+      podServiceClientStore.find(pod.podId(), CLIENT_ID),
       "the current registration must survive a stale-id delete",
     )
 
-    assertTrue(podServiceClientFacade.unregister(pod.name, CLIENT_ID, expectedId = current.id))
-    assertNull(podServiceClientFacade.find(pod.name, CLIENT_ID))
+    assertTrue(podServiceClientStore.remove(pod.podId(), CLIENT_ID, current.id))
+    assertNull(podServiceClientStore.find(pod.podId(), CLIENT_ID))
   }
 
   @Test
@@ -321,12 +322,12 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     }
 
     val registration = assertNotNull(
-      podServiceClientFacade.find(pod.name, CLIENT_ID),
+      podServiceClientStore.find(pod.podId(), CLIENT_ID),
       "exactly one registration must remain",
     )
     val secrets = responses.filter { it.statusCode == 200 }.mapNotNull { it.field("secret") }
     assertTrue(
-      secrets.any { podServiceClientFacade.authenticate(pod.name, CLIENT_ID, it) != null },
+      secrets.any { podServiceClientStore.authenticate(checkNotNull(pod.id), CLIENT_ID, it) != null },
       "no returned secret authenticates against the surviving registration ${registration.id}",
     )
   }
@@ -351,7 +352,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     // And it is exactly what the granted scope is anchored to.
     assertEquals(
       setOf("$expectedRoot#manage"),
-      assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID)).scopes,
+      assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes,
     )
   }
 
@@ -369,7 +370,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     }
     assertEquals(
       expectedScopes,
-      assertNotNull(podServiceClientFacade.find(pod.name, CLIENT_ID)).scopes,
+      assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes,
       "the reported set must be the stored one",
     )
   }
@@ -386,7 +387,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals(401, provision(pod.name, authorization = null).statusCode)
     assertEquals(401, provision(pod.name, authorization = "Bearer sc_wrong").statusCode)
     assertNull(
-      podServiceClientFacade.find(pod.name, CLIENT_ID),
+      podServiceClientStore.find(pod.podId(), CLIENT_ID),
       "an unauthorized call must not have registered anything",
     )
   }

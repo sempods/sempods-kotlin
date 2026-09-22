@@ -29,21 +29,16 @@ class PodServiceClientProvisioning @Inject internal constructor(
   ): PodServiceClientResult {
     val existing = serviceClients.find(pod.id, request.clientId)
 
-    // Nothing to do only when the caller named the registration that is actually there *and* it
-    // still carries the scopes being asked for. Scope drift sends the request down the re-mint
-    // branch, which is what makes a changed sandbox take effect.
-    if (existing != null &&
-      request.expectedRegistrationId != null &&
-      request.expectedRegistrationId == existing.id.value &&
-      existing.scopes == request.scopes
-    ) {
-      return PodServiceClientResult.AlreadyProvisioned(existing)
-    }
-
     if (existing != null) {
+      // Nothing to do only when the caller named the registration that is actually there *and* it
+      // still carries the scopes being asked for. Scope drift takes the re-mint branch instead,
+      // which is what makes a changed sandbox take effect.
+      if (existing.id.value == request.expectedRegistrationId && existing.scopes == request.scopes) {
+        return PodServiceClientResult.AlreadyProvisioned(existing)
+      }
       logger.warn {
         "Pod '${pod.name}': re-minting service client '${request.clientId}' (expectedRegistrationId=" +
-            "${LogSafeText.of(request.expectedRegistrationId.toString())}, current=${existing.id}, " +
+            "${LogSafeText.of(request.expectedRegistrationId ?: "(none)")}, current=${existing.id}, " +
             "scopes=${existing.scopes})"
       }
       if (!serviceClients.remove(pod.id, request.clientId, existing.id)) {
@@ -96,12 +91,7 @@ internal sealed interface PodServiceClientResult {
   data class Refused(val reason: PodServiceClientRefusal) : PodServiceClientResult
 }
 
-/**
- * The two ways a concurrent caller takes the registration away.
- *
- * Neither is retried here: only the caller knows whether it now holds a usable credential, so it
- * has to re-read and decide. That is the same reasoning `expectedRegistrationId` rests on.
- */
+/** The two ways a concurrent caller takes the registration away. */
 internal enum class PodServiceClientRefusal {
 
   /** The conditional removal found the registration already replaced. */

@@ -37,12 +37,11 @@ class PodServiceClientStore @Inject constructor(
   private val random = SecureRandom()
 
   /**
-   * Registers a new service client on [podId]. Returns the persisted row plus
-   * the freshly minted plaintext secret — the only moment the secret is
-   * available outside the registering caller.
+   * Registers a new service client on [pod], and answers with it plus the freshly minted
+   * plaintext secret — the only moment the secret is available outside the registering caller.
    *
    * Each scope is validated against [podScopeValidator]: only well-formed
-   * `<context-iri>#read|write|manage` strings inside [podBaseUrl] are
+   * `<context-iri>#read|write|manage` strings inside the pod's own namespace are
    * accepted. OIDC scopes (`openid`, `offline_access`) and the `public-read`
    * pseudo-scope are not applicable to 2-leg service clients (no end-user,
    * no public-anonymous use case) and are rejected. Any other malformed
@@ -58,8 +57,9 @@ class PodServiceClientStore @Inject constructor(
     label: String? = null,
   ): Registered {
     require(scopes.isNotEmpty()) { "service client must be registered with at least one scope" }
+    val namespace = pod.baseUrl
     val invalid = scopes.mapNotNull { scope ->
-      when (val parsed = podScopeValidator.validate(scope, pod.baseUrl)) {
+      when (val parsed = podScopeValidator.validate(scope, namespace)) {
         is ScopeValidationResult.Context -> null
         is ScopeValidationResult.Invalid -> scope to parsed.reason
         is ScopeValidationResult.Oidc ->
@@ -92,32 +92,27 @@ class PodServiceClientStore @Inject constructor(
       // it without naming the driver — every other write failure stays what it was.
       if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
     }
-    return Registered(stored.asRegistration(), secret)
+    return Registered(stored.toRegistration(), secret)
   }
 
   /** The registration for `(pod, clientId)`, or `null`. */
   internal fun find(pod: PodId, clientId: String): ServiceClientRegistration? =
-    dao.findByClientId(pod.objectId(), clientId)?.asRegistration()
+    dao.findByClientId(pod.objectId(), clientId)?.toRegistration()
 
   /**
-   * Removes the registration [expected] names, and answers whether it was still there.
-   *
-   * Conditional on the registration the caller read, never on `(pod, clientId)` alone: two
-   * concurrent replacements would otherwise interleave as delete/insert/delete/insert, the second
-   * removing the first one's fresh registration and leaving that caller holding a secret that no
-   * longer authenticates. `false` means somebody else replaced it in between.
+   * Removes the one registration [expected] names — see [PodServiceClientDao.delete] for why the
+   * condition is there. `false` means somebody else replaced it in between.
    */
   internal fun remove(pod: PodId, clientId: String, expected: ServiceClientRegistrationId): Boolean =
-    dao.delete(pod.objectId(), clientId, expectedId = ObjectId(expected.value))
+    dao.delete(pod.objectId(), clientId, expectedId = expected.objectId())
 
-  private fun PodServiceClientDbo.asRegistration() = ServiceClientRegistration(
+  private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
     // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
-    // as the pre-insert shape. Asserting it here is what keeps a `null` from reaching the
-    // compare-and-swap below as "delete unconditionally".
+    // as the pre-insert shape. Asserting it keeps a `null` from reaching [remove] as
+    // "delete unconditionally".
     id = ServiceClientRegistrationId(checkNotNull(id) { "registration without id: '$clientId'" }.toHexString()),
     clientId = clientId,
     scopes = scopes,
-    label = label,
   )
 
   /**
@@ -212,20 +207,32 @@ internal data class ServiceClientRegistration(
   val id: ServiceClientRegistrationId,
   val clientId: String,
   val scopes: Set<String>,
-  val label: String?,
 )
 
 /**
  * A handle to one registration, opaque to everyone holding it.
  *
  * The admin API hands it out as `registrationId` and takes it back as `expectedRegistrationId`,
- * where it decides whether a stored credential still pairs with the registration behind it. What
- * the store keys on underneath is the store's business, so this carries the spelling and nothing
- * about its shape.
+ * to decide whether a stored credential still pairs with the registration behind it. What the
+ * store keys on underneath stays the store's business.
  */
 internal data class ServiceClientRegistrationId(val value: String) {
+
+  init {
+    require(value.isNotEmpty()) { "a registration id is not empty" }
+  }
+
   override fun toString(): String = value
 }
+
+/**
+ * This implementation's key for a registration — the same split [org.sempods.pods.PodId] keeps,
+ * and the same reason: a DAO speaks its driver's type and everything above speaks the handle.
+ */
+internal fun ServiceClientRegistrationId.objectId(): ObjectId =
+  checkNotNull(if (ObjectId.isValid(value)) ObjectId(value) else null) {
+    "not a registration id this server minted: $this"
+  }
 
 /** `(pod, clientId)` was taken between reading it and inserting — the unique index said so. */
 internal class ServiceClientAlreadyRegistered(clientId: String) :

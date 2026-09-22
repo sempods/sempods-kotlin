@@ -37,9 +37,6 @@ import kotlin.test.assertTrue
  */
 class PodGrantsFacadeTest : SempodsIntegrationTest() {
 
-  /** The row this suite seeds, as the pod the facade takes. */
-  private val PodDbo.hosted: HostedPod get() = toHostedPod(sempodsUriBuilder)
-
   @Inject
   private lateinit var http: TestHttpClient
 
