@@ -3,6 +3,7 @@ package org.sempods.pods.grants
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class PodScopeValidatorTest {
 
@@ -82,5 +83,33 @@ class PodScopeValidatorTest {
     )
 
     assertIs<ScopeValidationResult.Invalid>(result)
+  }
+
+  @Test
+  fun `should accept the installer scope as a feature scope`() {
+    val result = validator.validate(scope = SERVICE_CLIENTS_SCOPE, podBaseUrl = podBaseUrl)
+
+    val feature = assertIs<ScopeValidationResult.Feature>(result)
+    assertEquals(SERVICE_CLIENTS_SCOPE, feature.scope)
+  }
+
+  @Test
+  fun `a context whose path reads like the installer scope is still a context`() {
+    // The literal has no `#`, so the grammar keeps the two apart on its own. Pinned because a
+    // classification that reached for the substring instead would silently widen a context grant
+    // into an installation authority.
+    val result = validator.validate(
+      scope = "https://sempods.org/my-pod/_system/contexts/$SERVICE_CLIENTS_SCOPE#read",
+      podBaseUrl = podBaseUrl,
+    )
+
+    assertIs<ScopeValidationResult.Context>(result)
+  }
+
+  @Test
+  fun `the privileged feature scopes are feature scopes`() {
+    // The narrower set is read where a rule has to name it; a value in it that the validator did
+    // not recognise would be dropped from every token before that rule ever ran.
+    assertTrue(PodScopeValidator.featureScopes.containsAll(PodScopeValidator.privilegedFeatureScopes))
   }
 }

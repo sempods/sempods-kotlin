@@ -6,6 +6,7 @@ import com.nimbusds.jwt.SignedJWT
 import okhttp3.OkHttpClient
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -315,6 +316,27 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       ex.message?.contains("not applicable to service clients") == true,
       "expected service-client rejection reason, got: ${ex.message}"
     )
+  }
+
+  @Test
+  fun `register rejects every feature scope for service clients`() {
+    // A service expresses no person and installs nothing, so neither feature scope means anything
+    // on one. Driven over both, because the refusal keys off the validator's classification rather
+    // than off a list spelled here.
+    val pod = sempodsTestFactory.newPod()
+    for (scope in PodScopeValidator.featureScopes) {
+      val ex = assertThrows<IllegalArgumentException> {
+        podServiceClientStore.register(
+          pod = pod.hosted,
+          clientId = "bogus",
+          scopes = setOf(scope),
+        )
+      }
+      assertTrue(
+        ex.message?.contains("feature scope '$scope' is not applicable to service clients") == true,
+        "expected a feature-scope rejection for '$scope', got: ${ex.message}",
+      )
+    }
   }
 
   /** The client core against this token endpoint, so neither the request nor the answers it takes can drift from these. */

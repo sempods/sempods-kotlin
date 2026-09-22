@@ -375,6 +375,29 @@
       </div>
     </div>
 
+    <!-- The installation screen's whole question. Offered only where the request asked for it, and
+         never pre-ticked: a capability the person did not go looking for is not one they approve by
+         leaving a box as they found it. The rest of this form renders empty beside it — an
+         authorization carrying this scope carries no context selection, because the service it is
+         about to create is granted its contexts at a consent of its own. -->
+    <div class="public-read-section" th:if="${installerRequested}">
+      <h2>Install an app on this pod</h2>
+      <label class="public-read-toggle">
+        <input type="checkbox"
+               id="installerToggle"
+               name="scope"
+               th:value="${installerScope}"/>
+        <span class="text">
+          Let <th:block th:text="${clientName}">this app</th:block> register one app on this pod.
+          <span class="description">
+            It receives the new app's credentials and no access to your data. You choose what the
+            new app may read or write in a second step, once it exists. This permission is used
+            once.
+          </span>
+        </span>
+      </label>
+    </div>
+
     <!-- R7 (additive model, 2026-05-07): Public-Read is a normal additive
          scope. Visible when the pod has at least one server-defined
          public-read context. Default checked — most users want public-read
@@ -418,8 +441,13 @@
          perfectly well, so capability is not what separates the two.
 
          Ticked when the client asked for it, or when this person granted it here before; what the
-         client asks only preselects, the tick is what decides. -->
-    <div class="public-read-section">
+         client asks only preselects, the tick is what decides.
+
+         Absent from an installation screen. The authority granted there registers one service and
+         is spent; a box that could keep it connected would turn a one-shot authority into a
+         renewable one, and the server refusing that afterwards is not the same as never offering
+         it. -->
+    <div class="public-read-section" th:if="${lifetimeAvailable}">
       <h2>How long this app stays connected</h2>
       <label class="public-read-toggle">
         <input type="checkbox"

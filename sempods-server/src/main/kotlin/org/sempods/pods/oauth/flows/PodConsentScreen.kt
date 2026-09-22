@@ -17,6 +17,13 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
  *   the dialog cannot state a term the deployment does not keep.
  * @param disconnectAvailable whether this app holds anything for this person — whether the way out
  *   is worth offering.
+ * @param privilegedFeatures the privileged feature scopes this request asked for, in the order the
+ *   dialog shows them — empty on an ordinary authorization. Each is offered unticked: a person
+ *   approves a capability like installing a service client by choosing it, never by leaving a box
+ *   as it was found.
+ * @param lifetimeAvailable whether the dialog carries the lifetime control at all. False wherever
+ *   [privilegedFeatures] is non-empty, so that ticking an ordinary box cannot turn a one-shot
+ *   authority into a renewable one; [sessionTerms] and [durableTerms] then have nothing to state.
  */
 internal data class PodConsentScreen(
   val podName: String,
@@ -39,6 +46,8 @@ internal data class PodConsentScreen(
   val sessionTerms: PodRefreshTokenStore.Terms,
   val durableTerms: PodRefreshTokenStore.Terms,
   val disconnectAvailable: Boolean,
+  val privilegedFeatures: List<String>,
+  val lifetimeAvailable: Boolean,
 )
 
 /**

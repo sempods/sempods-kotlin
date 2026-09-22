@@ -79,5 +79,9 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
 
     /** A ticket for the screen this person is looking at now. */
     fun ticket(): String = consentTransactionStore.issue(pod.name, webId, standing())
+
+    /** The same, for a screen that put [offered] to the person — see `ConsentTransactionStore`. */
+    fun ticketOffering(vararg offered: String): String =
+      consentTransactionStore.issue(pod.name, webId, standing(), offered.toSet())
   }
 }

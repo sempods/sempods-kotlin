@@ -7,6 +7,7 @@ import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -426,5 +427,153 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
     issuedCode(result)
     assertEquals(setOf(owned.readScope), owned.held())
+  }
+
+  // ── The installation screen's submission ───────────────────────────────────
+
+  @Test
+  fun `an approved installation mints a code for the feature scope and grants nothing`() {
+    val owned = Owned()
+
+    val code = issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val entry = assertNotNull(authorizationCodeStore.consume(code))
+    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), entry.scopes)
+    assertEquals(emptySet(), owned.held(), "an installer holds none of the rights it arranges")
+    assertNotNull(entry.consentGeneration, "a code with no generation is refused at the exchange")
+  }
+
+  @Test
+  fun `an installation the person left unticked declines it and ends nothing`() {
+    // The shape this closes: ticking nothing on an ordinary screen disconnects the app. On this
+    // screen it means "do not install", and an app's standing access is not what was being asked
+    // about.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), scopes = null, durable = false),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
+    assertEquals("installation declined", delivery.description)
+    assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
+  }
+
+  @Test
+  fun `an installation submitted beside a context scope is refused`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE, owned.readScope),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held(), "and nothing was rewritten on the way out")
+  }
+
+  @Test
+  fun `an installation asking to create a context is refused`() {
+    val owned = Owned()
+    val path = "installer-${randomId()}"
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          newContexts = listOf(path),
+          newContextScopes = listOf("$path#write"),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+  }
+
+  @Test
+  fun `an installation claiming the lifetime control is refused`() {
+    // The control is off the screen. A hand-built post is what is left, and the rule answers it.
+    val owned = Owned()
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = true,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains("does not renew"), delivery.description)
+  }
+
+  @Test
+  fun `the installer scope on a screen that never offered it is refused`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held())
+  }
+
+  @Test
+  fun `an installation approved by someone who does not own the pod is refused`() {
+    val owned = Owned()
+    val stranger = PodTokenIssuer.SessionPrincipal(
+      "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
+    )
+    val ticket = consentTransactionStore.issue(
+      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_SCOPE),
+    )
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        stranger,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains("owner"), delivery.description)
   }
 }

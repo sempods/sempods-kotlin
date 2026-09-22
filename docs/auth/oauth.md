@@ -115,7 +115,9 @@ refreshes stay silent for both client classes.
    `PodGrants` or shows the consent UI. The dialog carries the contexts,
    the public-read toggle, the lifetime control, a way to
    [sign out](#signing-out), and — only for an app that already holds
-   something — a named way to remove its access.
+   something — a named way to remove its access. A request naming
+   `service-clients` gets a screen of its own instead; see "Installing a
+   service client" below.
 5. On success, redirects to `redirect_uri?code=...`, carrying `state` back
    exactly as it arrived where the client sent one — an empty `state=` counts
    as none (RFC 6749 §3.1).
@@ -132,11 +134,12 @@ replayable form could restore a selection the person has since
 narrowed.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
-What it carries is the two values the discovery documents advertise:
-`public-read` ("Public-read flow" below) and
+What it carries is the three values the discovery documents advertise:
+`public-read` ("Public-read flow" below), `service-clients`
+("Installing a service client" below) and
 [`offline_access`](#offline_access), which preselects the lifetime control
-rather than deciding it. Both are optional, and a delegation flow that
-sends neither is the ordinary case.
+rather than deciding it. All three are optional, and a delegation flow that
+sends none of them is the ordinary case.
 
 ## Token exchange
 
@@ -289,9 +292,12 @@ with the answer either — it starts a fresh flow when the family ends,
 whatever it was told beforehand, which is the same reasoning that rules
 out `refresh_token_expires_in`. The person is told at the consent screen.
 
-Two flows mint no family at all, because nobody was asked in them: an
-anonymous `public-read` exchange and a service client's
-`client_credentials` are short-lived by construction. Authenticated
+Three flows mint no family at all. Two because nobody was asked in them:
+an anonymous `public-read` exchange and a service client's
+`client_credentials` are short-lived by construction. The third is an
+installation authority ("Installing a service client" below), where the
+refusal is the point of the flow. It makes `offline_access` a condition of
+nothing, so `SPS-AUTH-059` stands untouched by it. Authenticated
 `public-read` takes the ordinary path, and its lifetime is the consent
 answer like anybody else's.
 
@@ -533,6 +539,34 @@ one place the rest of the value is read — it requires `public-read` and
 nothing else, so `scope=public-read <context>#read` without a session is
 `login_required` rather than an anonymous code. At token issuance and at
 resource access the union semantics described there apply.
+
+## Installing a service client
+
+`/authorize?scope=service-clients` asks the pod owner for the authority to register **one** service
+client. It is the first of the two consents an installation takes; the second grants that service
+its contexts once it exists, and is open work
+([#127](https://github.com/sempods/sempods-kotlin/issues/127)).
+
+- **The owner's to grant.** Ownership is alias-aware — any URI that names the owner does — and
+  anyone else is answered `invalid_scope`.
+- **It stands alone.** `service-clients` beside `public-read` or a context scope is refused rather
+  than trimmed: an installer that could read the owner's data is not the thing being asked for.
+  `offline_access` beside it is ignored, because the control it preselects is not on the screen.
+- **A screen of its own.** The dialog offers the installation unticked and carries no context rows,
+  no public-read toggle and no lifetime control. Ticking nothing declines the installation and
+  leaves whatever that app already holds exactly as it was.
+- **Asked every time.** A standing consent never answers it: `prompt=none` is `consent_required`,
+  and a stored grant naming the scope is dropped rather than re-issued.
+- **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
+  and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
+  second registration finds nothing — concurrent calls included.
+- **No data at any point.** A token carrying the scope resolves no context permissions and no
+  public contexts, whether or not it has been spent. `GET {pod}/_system/contexts` with one lists
+  nothing, even where the same app holds grants for the same person.
+
+The protected registration route this authority is spent at does not exist yet
+([#126](https://github.com/sempods/sempods-kotlin/issues/126)). Until it does, the scope is
+requestable and grants nothing.
 
 ## Protected Resource Metadata (RFC 9728)
 

@@ -7,8 +7,11 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
+import org.sempods.pods.oauth.PodTokenIssuer
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -350,5 +353,155 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(result)
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
     assertEquals("signed out", delivery.description)
+  }
+
+  // ── The installer scope ────────────────────────────────────────────────────
+
+  @Test
+  fun `an installation is put to the owner as its own screen, unticked`() {
+    val owned = Owned()
+
+    val screen = assertIs<PodAuthorizeResult.Consent>(
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session),
+    ).screen
+
+    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+    assertTrue(!screen.lifetimeAvailable, "a one-shot authority has no lifetime to choose")
+    assertTrue(screen.contexts.isEmpty(), "an installer selects no data")
+    assertTrue(screen.publicContexts.isEmpty(), "and is offered none")
+    assertTrue(!screen.publicReadPreselected, "least of all pre-ticked")
+  }
+
+  @Test
+  fun `an ordinary authorization offers no installation and keeps its lifetime control`() {
+    val owned = Owned()
+
+    val screen = assertIs<PodAuthorizeResult.Consent>(
+      flow.authorize(owned.pod, request(), owned.session),
+    ).screen
+
+    assertEquals(emptyList(), screen.privilegedFeatures, "nothing asked for it")
+    assertTrue(screen.lifetimeAvailable, "and the ordinary question is still asked")
+  }
+
+  @Test
+  fun `the installation screen offers no way out, because it is not about what the app holds`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val screen = assertIs<PodAuthorizeResult.Consent>(
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session),
+    ).screen
+
+    assertTrue(
+      !screen.disconnectAvailable,
+      "this app holds something, and ending it is not a decision this screen asks for",
+    )
+  }
+
+  @Test
+  fun `the installer scope cannot be asked for beside a context scope`() {
+    val owned = Owned()
+
+    val delivery = redirectedError(
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE ${owned.readScope}"), owned.session),
+    )
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains(SERVICE_CLIENTS_SCOPE), delivery.description)
+  }
+
+  @Test
+  fun `the installer scope cannot be asked for beside public-read`() {
+    // `public-read` is a feature scope rather than a context one, and it still reaches the owner's
+    // data. An installer holds none of it.
+    val owned = Owned()
+
+    val delivery = redirectedError(
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE $PUBLIC_READ_SCOPE"), owned.session),
+    )
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+  }
+
+  @Test
+  fun `offline_access beside the installer scope changes nothing about the screen`() {
+    // It preselects a control this screen does not render, so there is nothing for it to decide —
+    // and refusing it would break a client sending back the scope list it habitually holds.
+    val owned = Owned()
+
+    val screen = assertIs<PodAuthorizeResult.Consent>(
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE offline_access"), owned.session),
+    ).screen
+
+    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+    assertTrue(!screen.lifetimeAvailable, "the control is still off the screen")
+  }
+
+  @Test
+  fun `a person who does not own the pod is refused the installer scope`() {
+    val owned = Owned()
+    val stranger = PodTokenIssuer.SessionPrincipal(
+      "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
+    )
+
+    val delivery = redirectedError(
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), stranger),
+    )
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains("owner"), delivery.description)
+  }
+
+  @Test
+  fun `an owner signed in under an alias is offered the installation`() {
+    val owned = Owned()
+    val alias = PodTokenIssuer.SessionPrincipal(
+      webId = "https://id.test/${randomId()}",
+      alsoKnownAs = listOf(owned.webId),
+      authTime = Instant.now().minusSeconds(60),
+    )
+
+    val screen = assertIs<PodAuthorizeResult.Consent>(
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), alias),
+    ).screen
+    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+  }
+
+  @Test
+  fun `prompt=none cannot obtain an installation`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+    owned.answered()
+
+    val delivery = redirectedError(
+      flow.authorize(owned.pod, request(prompt = "none", scope = SERVICE_CLIENTS_SCOPE), owned.session),
+    )
+    assertEquals(OAuthErrorCode.CONSENT_REQUIRED, delivery.code)
+  }
+
+  @Test
+  fun `an answered grant does not auto-grant an installation`() {
+    // The branch that skips the dialog is the one a second installation would come out of. An
+    // installer request never reaches it.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+    owned.answered()
+
+    val result = flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session)
+    assertIs<PodAuthorizeResult.Consent>(result, "was: $result")
+  }
+
+  @Test
+  fun `a stored grant carrying the installer scope hands nothing back, and is swept`() {
+    // The shape this closes: a row that named the installer scope would otherwise be re-issued by
+    // auto-grant, and an installation would recover itself out of an ordinary reconnect.
+    val owned = Owned()
+    owned.grant(owned.readScope, SERVICE_CLIENTS_SCOPE)
+    owned.answered()
+
+    val result = flow.authorize(owned.pod, request(), owned.session)
+
+    val issued = assertIs<PodAuthorizeResult.Code>(result, "was: $result")
+    val entry = assertNotNull(authorizationCodeStore.consume(issued.code))
+    assertTrue(SERVICE_CLIENTS_SCOPE !in entry.scopes, "was: ${entry.scopes}")
+    assertTrue(SERVICE_CLIENTS_SCOPE !in owned.held(), "and the row is gone: ${owned.held()}")
   }
 }

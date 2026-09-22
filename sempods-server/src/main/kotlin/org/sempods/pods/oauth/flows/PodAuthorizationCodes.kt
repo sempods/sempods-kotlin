@@ -102,7 +102,7 @@ internal sealed interface PodCodeResult {
   data class Refused(val delivery: OAuthErrorDelivery) : PodCodeResult
 }
 
-/** Which of the three ways to an authorization code was taken. Both log lines name it as `via=`. */
+/** Which of the four ways to an authorization code was taken. Both log lines name it as `via=`. */
 internal enum class PodCodeIssuance(val tag: String) {
 
   /** `scope=public-read&prompt=none` with nobody signed in. The one code with no person behind it. */
@@ -113,4 +113,10 @@ internal enum class PodCodeIssuance(val tag: String) {
 
   /** The dialog was submitted. */
   CONSENT("oauth/consent"),
+
+  /**
+   * An installation dialog was submitted. Apart from [CONSENT] because the code it mints carries a
+   * one-shot authority and no grant, which is what an audit trail wants to be able to count.
+   */
+  INSTALLATION("oauth/installation"),
 }

@@ -15,6 +15,7 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
+import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopePermission
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -136,6 +137,40 @@ class PodConsentFlow @Inject internal constructor(
       ?.filter { it.isNotBlank() }
       ?.toSet()
       ?: emptySet()
+
+    // ── A privileged feature scope is the whole of its own screen ─────────
+    // What was put to the person comes from the transaction, not from the form: it is the server's
+    // own record of which dialog this is, and it is what tells an unticked installation screen
+    // ("do not install") from an unticked ordinary one ("remove this app's access") further down.
+    val offeredPrivileged = transaction.offeredFeatureScopes
+    val submittedPrivileged = rawSubmitted.intersect(PodScopeValidator.privilegedFeatureScopes)
+    if (!offeredPrivileged.containsAll(submittedPrivileged)) {
+      logger.warn {
+        "[oauth/consent] rejected: a privileged feature scope this screen did not offer " +
+            "(pod='${pod.name}', clientId='$normalizedClientId', " +
+            "submitted='${submittedPrivileged.sorted().joinToString(" ")}')"
+      }
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+        "'${submittedPrivileged.sorted().joinToString(" ")}' was not offered on this screen", clientState,
+      )
+    }
+    if (offeredPrivileged.isNotEmpty()) {
+      return installation(
+        pod = pod,
+        clientId = normalizedClientId,
+        identity = identity,
+        form = form,
+        target = redirectTarget,
+        state = clientState,
+        session = session,
+        offered = offeredPrivileged,
+        submitted = submittedPrivileged,
+        rawSubmitted = rawSubmitted,
+        isOwner = isOwner,
+      )
+    }
+
     val publicReadRequested = PUBLIC_READ_SCOPE in rawSubmitted
     val perContextSubmitted = rawSubmitted - PUBLIC_READ_SCOPE
     val newContextsRequested = form.newContexts
@@ -328,6 +363,81 @@ class PodConsentFlow @Inject internal constructor(
       codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       via = PodCodeIssuance.CONSENT,
+      consentGeneration = decision.generation,
+      session = session,
+    ).asResult()
+  }
+
+  /**
+   * What an installation dialog's submission is worth.
+   *
+   * **It writes no grant.** An installer never holds the rights it arranges: the code carries the
+   * feature scope alone, and the service it is about to create is granted its contexts at a
+   * consent of its own. The app's standing grants are left exactly as they were, which is why this
+   * sits ahead of every path below that treats an empty selection as a disconnect — the person
+   * declined an installation, they did not end an authorization.
+   *
+   * The decision is still recorded. A code carrying no generation is refused at the exchange, and
+   * the answer is always `durable = false`: the screen has no lifetime control, and a submission
+   * that claims one anyway is refused rather than obeyed.
+   *
+   * @param offered what the screen put to the person, which the refusals name. [submitted] is what
+   *   came back of it, and an empty one is the person saying no.
+   */
+  private fun installation(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+    form: PodConsentForm,
+    target: Redirectable,
+    state: String?,
+    session: PodTokenIssuer.SessionPrincipal,
+    offered: Set<String>,
+    submitted: Set<String>,
+    rawSubmitted: Set<String>,
+    isOwner: Boolean,
+  ): PodConsentResult {
+    // Authority first, then what the submission is shaped like, then what it says. The screen was
+    // rendered for an owner; a session that stopped being one in between decides nothing here.
+    val asked = offered.sorted().joinToString(" ")
+    if (!isOwner) {
+      return failed(target, OAuthErrorCode.INVALID_SCOPE, "'$asked' is the pod owner's to grant", state)
+    }
+    // An installation selects no data and creates no context. The request that opened this screen
+    // was refused if it asked for both, and a submission that asks for both is refused here.
+    if (rawSubmitted != submitted || !form.newContexts.isNullOrEmpty() || !form.newContextScopes.isNullOrEmpty()) {
+      return failed(
+        target, OAuthErrorCode.INVALID_SCOPE,
+        "'$asked' cannot be combined with access to data", state,
+      )
+    }
+    if (form.durable) {
+      return failed(target, OAuthErrorCode.INVALID_SCOPE, "'$asked' is granted once and does not renew", state)
+    }
+    if (submitted.isEmpty()) {
+      logger.info {
+        "[oauth/consent] Installation declined: pod='${pod.name}', clientId='$clientId', " +
+            "webId='${identity.webId}'"
+      }
+      return failed(target, OAuthErrorCode.ACCESS_DENIED, "installation declined", state)
+    }
+
+    val decision = recordDecision(pod, clientId, identity, durable = false)
+    logger.info {
+      "[oauth/consent] Installation authorized: pod='${pod.name}', clientId='$clientId', " +
+          "webId='${identity.webId}', scopes='${submitted.sorted().joinToString(" ")}', " +
+          "generation=${decision.generation}"
+    }
+    return codes.issue(
+      pod = pod,
+      clientId = clientId,
+      webId = identity.webId,
+      scopes = submitted,
+      target = target,
+      state = state,
+      codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
+      codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
+      via = PodCodeIssuance.INSTALLATION,
       consentGeneration = decision.generation,
       session = session,
     ).asResult()

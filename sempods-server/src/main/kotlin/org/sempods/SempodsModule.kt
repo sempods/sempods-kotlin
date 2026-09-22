@@ -22,6 +22,7 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.OAuthSigningKeyDao
@@ -189,6 +190,7 @@ class SempodsModule : BaseModule() {
     bind<TemplateRenderer>().asSingleton()
     bind<OAuthSigningKeyDao>().asSingleton()
     bind<PodConsentDecisionStore>().asSingleton()
+    bind<PodInstallationAuthorityStore>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
