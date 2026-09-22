@@ -25,21 +25,22 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * The two token exchanges a person's authorization goes through: redeeming an authorization code,
- * and rotating the refresh token it seeded.
+ * The three exchanges the token endpoint performs: redeeming an authorization code, rotating the
+ * refresh token it seeded, and authenticating a service with its own credentials.
  *
  * **Every decision here is the pod's, and none of them is HTTP.** What a code is worth, which
  * scopes survive, how long a family lives, when a rotation is reuse and when a consent has moved
  * under an exchange already in flight — this class answers all of it and hands back a
  * [PodTokenResult] that says nothing about status codes, headers or JSON. The endpoint binds the
- * request and renders the answer; `client_credentials` is not here, because it authorizes a service
- * rather than a person and belongs with the service-client work.
+ * request and renders the answer.
  *
- * **The order of the checks is the contract, not a style.** Each exchange signs its access token
- * before its last look at the consent decision, reads the decision again after seeding its family,
- * and sweeps what it supersedes only once the successor exists. `PodSignOut.signOut` writes in the
- * order that makes those reads sufficient (`SPS-AUTH-062`, `SPS-AUTH-063`), so moving one of them
- * re-opens a window on the other side. The comments at each step say which.
+ * **The order of the checks is the contract, not a style.** Each of the two person exchanges signs
+ * its access token before its last look at the consent decision, reads the decision again after
+ * seeding its family, and sweeps what it supersedes only once the successor exists.
+ * `PodSignOut.signOut` writes in the order that makes those reads sufficient (`SPS-AUTH-062`,
+ * `SPS-AUTH-063`), so moving one of them re-opens a window on the other side. The comments at each
+ * step say which. [exchangeServiceClient] authorizes no person and seeds no family, so it runs
+ * none of that.
  */
 class PodTokenExchange @Inject internal constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
