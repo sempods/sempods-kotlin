@@ -14,6 +14,7 @@ import org.sempods.commons.okhttp.getAll
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -462,13 +463,12 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   /** A `client_credentials` token through the token endpoint, for a client registered on [pod]. */
   private fun mintServiceToken(pod: PodDbo): String {
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = "${SempodsModule.config.apiBaseUrl}${pod.name}/",
+      pod = pod.toHostedPod(sempodsUriBuilder),
       clientId = "notes-app",
       scopes = setOf("${sempodsTestFactory.publicContextUri(pod.name)}#read"),
     )
     val basic = Base64.getEncoder().encodeToString(
-      "${enc(registered.dbo.clientId)}:${enc(registered.plaintextSecret)}".toByteArray(Charsets.UTF_8),
+      "${enc(registered.registration.clientId)}:${enc(registered.secret)}".toByteArray(Charsets.UTF_8),
     )
     val response = http.preparePost(tokenUrl(pod))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")

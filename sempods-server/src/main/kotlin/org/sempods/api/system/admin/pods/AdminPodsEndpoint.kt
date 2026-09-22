@@ -16,6 +16,11 @@ import org.sempods.api.system.admin.AdminAuthorizedEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
+import org.sempods.pods.oauth.flows.PodServiceClientRefusal
+import org.sempods.pods.oauth.flows.PodServiceClientRequest
+import org.sempods.pods.oauth.flows.PodServiceClientResult
 import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
@@ -65,6 +70,7 @@ class AdminPodsEndpoint @Inject constructor(
   private val podRepositoryCache: PodRepositoryCache,
   private val webIdUriDeriver: WebIdUriDeriver,
   private val podServiceClientFacade: PodServiceClientFacade,
+  private val podServiceClientProvisioning: PodServiceClientProvisioning,
   private val sempodsUriBuilder: SempodsUriBuilder,
   adminAuthorizer: AdminAuthorizer,
 ) : AdminAuthorizedEndpoint(adminAuthorizer) {
@@ -213,7 +219,7 @@ class AdminPodsEndpoint @Inject constructor(
   @Path("{pod}/service-clients/{clientId}")
   fun provisionServiceClient(
     @HeaderParam("Authorization") authorization: String?,
-    @PathParam("pod") pod: String,
+    @PathParam("pod") podName: String,
     @PathParam("clientId") clientId: String,
     body: String?,
   ): Response {
@@ -227,84 +233,66 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, ProvisionServiceClientRequest::class.java)
       ?: ProvisionServiceClientRequest()
 
-    if (!sempodsFacade.existsPod(pod)) {
-      throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
-    }
+    // Read once, and carried as one value from here on. Resolving the name again inside each store
+    // call would go through the process-local name-to-id cache three more times.
+    val pod = podDao.fetchByName(podName)?.toHostedPod(sempodsUriBuilder)
+      ?: throw WebApplicationException(errorResponse(404, "unknown pod '$podName'"))
 
-    val rootContextUri = sempodsUriBuilder.buildContext(pod, "$APP_CONTEXT_ROOT_PREFIX$clientId")
-    ensurePrivateAppRoot(pod = pod, clientId = clientId, rootContextUri = rootContextUri)
+    // This route's own policy, and deliberately not the provisioning contract's: an owner-facing
+    // registration names the contexts it wants (#35), where operator provisioning had nobody to
+    // ask and derives a sandbox instead.
+    val rootContextUri = sempodsUriBuilder.buildContext(podName, "$APP_CONTEXT_ROOT_PREFIX$clientId")
+    ensurePrivateAppRoot(pod = podName, clientId = clientId, rootContextUri = rootContextUri)
 
-    val expectedScopes = setOf("$rootContextUri#manage")
-    val existing = podServiceClientFacade.find(pod, clientId)
-    // A row read back from Mongo always carries its `_id`; the type is nullable only because the
-    // DBO doubles as the pre-insert shape. Assert it rather than let it flow on: below it is the
-    // compare-and-swap key, and a `null` there would silently turn the conditional delete into an
-    // unconditional one — re-opening exactly the race the condition exists for.
-    val existingId = existing?.let { checkNotNull(it.id) { "registration without id: pod='$pod', clientId='$clientId'" } }
+    val result = podServiceClientProvisioning.provision(
+      pod = pod,
+      request = PodServiceClientRequest(
+        clientId = clientId,
+        scopes = setOf("$rootContextUri#manage"),
+        label = clientId,
+        expectedRegistrationId = request.expectedRegistrationId,
+      ),
+    )
 
-    if (existing != null &&
-      request.expectedRegistrationId != null &&
-      request.expectedRegistrationId == existingId.toString() &&
-      existing.scopes == expectedScopes
-    ) {
-      return Response.ok(
+    return when (result) {
+      is PodServiceClientResult.AlreadyProvisioned -> Response.ok(
         ProvisionServiceClientResponse(
           result = ALREADY_PROVISIONED,
           clientId = clientId,
-          registrationId = existingId.toString(),
-          // The stored set, not the expected one — on this path they are equal by definition
+          registrationId = result.registration.id.value,
+          // The stored set, not the requested one — on this path they are equal by definition
           // (scope drift is what sends the request down the re-mint branch instead).
-          scopes = existing.scopes,
+          scopes = result.registration.scopes,
           contextRoot = rootContextUri.toString(),
         ),
       ).build()
-    }
 
-    if (existing != null) {
-      logger.warn {
-        "Pod '$pod': re-minting service client '$clientId' (expectedRegistrationId=" +
-            "${LogSafeText.of(request.expectedRegistrationId.toString())}, current=$existingId, " +
-            "scopes=${existing.scopes})"
+      is PodServiceClientResult.Provisioned -> {
+        logger.info {
+          "Admin '$adminClientId' provisioned service client '$clientId' on pod '$podName' " +
+              "(scope: $rootContextUri#manage)"
+        }
+        Response.ok(
+          ProvisionServiceClientResponse(
+            result = PROVISIONED,
+            clientId = clientId,
+            registrationId = result.registration.id.value,
+            scopes = result.registration.scopes,
+            contextRoot = rootContextUri.toString(),
+            secret = result.secret,
+          ),
+        ).build()
       }
-      // Conditional on the row we just read, not on `(pod, clientId)`: two concurrent replacements
-      // would otherwise interleave as delete/insert/delete/insert, the second one removing the
-      // first one's fresh registration — leaving that caller with a 200 whose secret no longer
-      // authenticates. Removing nothing means someone else replaced it in between.
-      if (!podServiceClientFacade.unregister(pod, clientId, expectedId = checkNotNull(existingId))) {
-        throw conflict("service client '$clientId' on pod '$pod' was modified concurrently")
-      }
-    }
 
-    val registered = try {
-      podServiceClientFacade.register(
-        podName = pod,
-        clientId = clientId,
-        scopes = expectedScopes,
-        label = clientId,
+      is PodServiceClientResult.Refused -> throw conflict(
+        when (result.reason) {
+          PodServiceClientRefusal.MODIFIED_CONCURRENTLY ->
+            "service client '$clientId' on pod '$podName' was modified concurrently"
+          PodServiceClientRefusal.PROVISIONED_CONCURRENTLY ->
+            "service client '$clientId' on pod '$podName' was provisioned concurrently"
+        },
       )
-    } catch (e: MongoWriteException) {
-      // Unique index on (podId, clientId) — a concurrent provisioning call inserted first. Same
-      // answer as above: the caller has to re-read rather than receive a secret that a competing
-      // registration already invalidated. Other write failures stay 500s; they are not conflicts
-      // the caller can resolve by retrying.
-      if (!e.isDuplicateKey()) throw e
-      throw conflict("service client '$clientId' on pod '$pod' was provisioned concurrently")
     }
-
-    logger.info {
-      "Admin '$adminClientId' provisioned service client '$clientId' on pod '$pod' " +
-          "(scope: $rootContextUri#manage)"
-    }
-    return Response.ok(
-      ProvisionServiceClientResponse(
-        result = PROVISIONED,
-        clientId = clientId,
-        registrationId = registered.dbo.id.toString(),
-        scopes = registered.dbo.scopes,
-        contextRoot = rootContextUri.toString(),
-        secret = registered.plaintextSecret,
-      ),
-    ).build()
   }
 
   /**
@@ -425,7 +413,7 @@ data class ProvisionServiceClientResponse(
 
   /**
    * The registration's scope set, verbatim — what the client may actually request at the token
-   * endpoint. A statement about *state*, mirroring `PodServiceClientDbo.scopes`, so a caller can
+   * endpoint. A statement about *state*, mirroring `ServiceClientRegistration.scopes`, so a caller can
    * verify its own health assumptions without re-deriving anything.
    */
   val scopes: Set<String>,

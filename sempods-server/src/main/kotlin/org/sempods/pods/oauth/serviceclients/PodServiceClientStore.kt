@@ -1,6 +1,11 @@
 package org.sempods.pods.oauth.serviceclients
 
 import com.google.inject.Inject
+import com.mongodb.MongoWriteException
+import org.sempods.commons.mongo.isDuplicateKey
+import org.sempods.pods.HostedPod
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -25,8 +30,8 @@ class PodServiceClientStore @Inject constructor(
 ) {
 
   internal data class Registered(
-    val dbo: PodServiceClientDbo,
-    val plaintextSecret: String,
+    val registration: ServiceClientRegistration,
+    val secret: String,
   )
 
   private val random = SecureRandom()
@@ -47,15 +52,14 @@ class PodServiceClientStore @Inject constructor(
    * persisted, so the bad scope never reaches a JWT or the resource layer.
    */
   internal fun register(
-    podId: ObjectId,
-    podBaseUrl: String,
+    pod: HostedPod,
     clientId: String,
     scopes: Set<String>,
     label: String? = null,
   ): Registered {
     require(scopes.isNotEmpty()) { "service client must be registered with at least one scope" }
     val invalid = scopes.mapNotNull { scope ->
-      when (val parsed = podScopeValidator.validate(scope, podBaseUrl)) {
+      when (val parsed = podScopeValidator.validate(scope, pod.baseUrl)) {
         is ScopeValidationResult.Context -> null
         is ScopeValidationResult.Invalid -> scope to parsed.reason
         is ScopeValidationResult.Oidc ->
@@ -71,7 +75,7 @@ class PodServiceClientStore @Inject constructor(
 
     val secret = mintSecret()
     val dbo = PodServiceClientDbo(
-      podId = podId,
+      podId = pod.id.objectId(),
       clientId = clientId,
       secretHash = hashSecret(secret),
       scopes = scopes,
@@ -81,9 +85,40 @@ class PodServiceClientStore @Inject constructor(
     // `_id` back into the instance it was passed, so reading it off `dbo` worked; `insertOne` does
     // not, and the id is what the admin API returns as `registrationId` and what the
     // compare-and-swap delete filters on. Discarding this return value hands out a `null` one.
-    val stored = dao.create(dbo)
-    return Registered(dbo = stored, plaintextSecret = secret)
+    val stored = try {
+      dao.create(dbo)
+    } catch (e: MongoWriteException) {
+      // The unique index on `(podId, clientId)`. Named as this store's own so a caller can answer
+      // it without naming the driver — every other write failure stays what it was.
+      if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
+    }
+    return Registered(stored.asRegistration(), secret)
   }
+
+  /** The registration for `(pod, clientId)`, or `null`. */
+  internal fun find(pod: PodId, clientId: String): ServiceClientRegistration? =
+    dao.findByClientId(pod.objectId(), clientId)?.asRegistration()
+
+  /**
+   * Removes the registration [expected] names, and answers whether it was still there.
+   *
+   * Conditional on the registration the caller read, never on `(pod, clientId)` alone: two
+   * concurrent replacements would otherwise interleave as delete/insert/delete/insert, the second
+   * removing the first one's fresh registration and leaving that caller holding a secret that no
+   * longer authenticates. `false` means somebody else replaced it in between.
+   */
+  internal fun remove(pod: PodId, clientId: String, expected: ServiceClientRegistrationId): Boolean =
+    dao.delete(pod.objectId(), clientId, expectedId = ObjectId(expected.value))
+
+  private fun PodServiceClientDbo.asRegistration() = ServiceClientRegistration(
+    // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
+    // as the pre-insert shape. Asserting it here is what keeps a `null` from reaching the
+    // compare-and-swap below as "delete unconditionally".
+    id = ServiceClientRegistrationId(checkNotNull(id) { "registration without id: '$clientId'" }.toHexString()),
+    clientId = clientId,
+    scopes = scopes,
+    label = label,
+  )
 
   /**
    * Validates `(clientId, secret)` against the persisted hash. Returns the
@@ -166,3 +201,32 @@ class PodServiceClientStore @Inject constructor(
     private const val BCRYPT_COST = 12
   }
 }
+
+/**
+ * One registration, without the row it is stored in.
+ *
+ * The secret is not here: it exists for one return value at registration and is stored only as a
+ * hash, so a type that could carry it later would be promising something the store cannot keep.
+ */
+internal data class ServiceClientRegistration(
+  val id: ServiceClientRegistrationId,
+  val clientId: String,
+  val scopes: Set<String>,
+  val label: String?,
+)
+
+/**
+ * A handle to one registration, opaque to everyone holding it.
+ *
+ * The admin API hands it out as `registrationId` and takes it back as `expectedRegistrationId`,
+ * where it decides whether a stored credential still pairs with the registration behind it. What
+ * the store keys on underneath is the store's business, so this carries the spelling and nothing
+ * about its shape.
+ */
+internal data class ServiceClientRegistrationId(val value: String) {
+  override fun toString(): String = value
+}
+
+/** `(pod, clientId)` was taken between reading it and inserting — the unique index said so. */
+internal class ServiceClientAlreadyRegistered(clientId: String) :
+  RuntimeException("service client '$clientId' was registered concurrently")

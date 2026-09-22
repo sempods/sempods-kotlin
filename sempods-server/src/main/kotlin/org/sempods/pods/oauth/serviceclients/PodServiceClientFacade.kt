@@ -3,6 +3,7 @@ package org.sempods.pods.oauth.serviceclients
 import com.google.inject.Inject
 import org.sempods.SempodsUriBuilder
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bson.types.ObjectId
@@ -11,7 +12,12 @@ import org.bson.types.ObjectId
  * Name-keyed surface over the pod service-client registry
  * ([PodServiceClientStore] / [PodServiceClientDao]): resolves a pod name to its `podId` and
  * delegates. Scope strings are passed through verbatim and validated by
- * [PodServiceClientStore.register] against the pod base.
+ * [PodServiceClientStore.register] against the pod base the [org.sempods.pods.HostedPod] carries.
+ *
+ * **Nothing in production calls this any more.** `AdminPodsEndpoint` reads the pod once and goes
+ * through `PodServiceClientProvisioning`; what is left here is the name-keyed surface
+ * `AdminServiceClientProvisionHttpTest` asserts through, and #217 decides its fate with the rest
+ * of the lifecycle.
  */
 class PodServiceClientFacade @Inject constructor(
   private val podDao: PodDao,
@@ -34,8 +40,7 @@ class PodServiceClientFacade @Inject constructor(
   ): PodServiceClientStore.Registered {
     val pod = requireNotNull(podDao.fetchByName(podName)) { "unknown pod '$podName'" }
     return podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = sempodsUriBuilder.buildResourceUri(podName, "").toString(),
+      pod = pod.toHostedPod(sempodsUriBuilder),
       clientId = clientId,
       scopes = scopes,
       label = label,

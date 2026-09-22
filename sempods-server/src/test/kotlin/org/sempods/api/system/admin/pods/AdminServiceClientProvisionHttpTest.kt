@@ -2,6 +2,7 @@ package org.sempods.api.system.admin.pods
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
+import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.commons.logging.CapturedLog
@@ -187,7 +188,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     // Escaped for the JSON body, so what the endpoint parses out of it is a real newline.
     val forged = "6890abc-${randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] pod deleted by admin"
 
-    val lines = CapturedLog.linesFrom(AdminPodsEndpoint::class.java) {
+    val lines = CapturedLog.linesFrom(PodServiceClientProvisioning::class.java) {
       assertEquals("provisioned", provision(pod.name, expectedRegistrationId = forged).field("result"))
     }
 
