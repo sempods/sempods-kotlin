@@ -12,7 +12,6 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
-import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
@@ -99,7 +98,7 @@ class PodResourceRevocationHttpTest : SempodsIntegrationTest() {
     assertEquals(200, get(resourceUrl, accessToken).statusCode, "read before revocation")
 
     // The owner takes the grant back. The app is not involved and its token is untouched.
-    podGrantsFacade.revokeWebIdGrants(pod.toHostedPod(sempodsUriBuilder), webId, listOf("$contextUri#read", "$contextUri#write"))
+    podGrantsFacade.revokeWebIdGrants(pod.hosted, webId, listOf("$contextUri#read", "$contextUri#write"))
 
     // Same token, same requests. Writes are refused outright; reads simply stop seeing the
     // context — `authenticate` builds `restrictedContexts` and the read path filters by it, so an

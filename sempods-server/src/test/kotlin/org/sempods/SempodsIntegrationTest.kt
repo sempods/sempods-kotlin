@@ -11,7 +11,10 @@ import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.api.system.admin.pods.AdminPodsEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
+import org.sempods.pods.HostedPod
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
@@ -30,6 +33,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   @Inject
   protected lateinit var sempodsUriBuilder: SempodsUriBuilder
+
+  /** A seeded row as the pod a seam takes — the same conversion `SempodsBaseEndpoint` makes. */
+  internal val PodDbo.hosted: HostedPod get() = toHostedPod(sempodsUriBuilder)
 
   /**
    * Pod coordinates for the suite's own reads — [SempodsTestPodAccess.podFor] is a session bound to

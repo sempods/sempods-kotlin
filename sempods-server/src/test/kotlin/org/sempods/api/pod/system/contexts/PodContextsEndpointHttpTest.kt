@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.contexts
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
+import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -82,17 +83,16 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
    * Register a service client with the given scopes and mint a `client_credentials`
    * access token via `{pod}/_system/auth/token` — the real client_credentials token path.
    */
-  private fun mintServiceToken(podId: ObjectId, podName: String, scopes: Set<String>): String {
+  private fun mintServiceToken(pod: PodDbo, scopes: Set<String>): String {
     val registered = podServiceClientStore.register(
-      podId = podId,
-      podBaseUrl = "${SempodsModule.config.apiBaseUrl}${podName}/",
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = scopes,
       label = "notes-app",
     )
-    val response = http.preparePost(tokenUrl(podName))
+    val response = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.dbo.clientId, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
     assertEquals(200, response.statusCode, "token mint failed; body=${response.responseBody}")
@@ -350,8 +350,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     val registered = podServiceClientStore.register(
-      podId = podId,
-      podBaseUrl = "${SempodsModule.config.apiBaseUrl}${pod.name}/",
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${contextUri(pod.name, "apps/notes")}#manage"),
       label = "notes-app",
@@ -370,7 +369,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     )
     val tokenResponse = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.dbo.clientId, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
     assertEquals(401, tokenResponse.statusCode, "revoked client must not mint tokens; body=${tokenResponse.responseBody}")
@@ -386,8 +385,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/other")
     val survivingScope = "${contextUri(pod.name, "apps/other")}#read"
     podServiceClientStore.register(
-      podId = podId,
-      podBaseUrl = "${SempodsModule.config.apiBaseUrl}${pod.name}/",
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${contextUri(pod.name, "apps/notes")}#manage", survivingScope),
       label = "notes-app",
@@ -425,7 +423,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val appRoot = contextUri(pod.name, "apps/notes")
     // Root registered; service client creates a slash-delimited descendant under it.
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
-    val serviceToken = mintServiceToken(podId, pod.name, setOf("$appRoot#manage"))
+    val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
 
     val response = http.preparePut(contextManageUrl(pod.name, "apps/notes/events"))
       .addHeader("Content-Type", "application/json")
@@ -442,7 +440,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)
     val appRoot = contextUri(pod.name, "apps/notes")
-    val serviceToken = mintServiceToken(podId, pod.name, setOf("$appRoot#manage"))
+    val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
 
     val response = http.preparePut(contextManageUrl(pod.name, "apps/other/tasks"))
       .addHeader("Content-Type", "application/json")
@@ -460,7 +458,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val appRoot = contextUri(pod.name, "apps/notes")
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes/events")
-    val serviceToken = mintServiceToken(podId, pod.name, setOf("$appRoot#manage"))
+    val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
 
     val response = http.prepareDelete(contextManageUrl(pod.name, "apps/notes/events"))
       .addHeader("Authorization", "Bearer $serviceToken")
@@ -478,7 +476,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)
     val appRoot = contextUri(pod.name, "apps/notes")
-    val serviceToken = mintServiceToken(podId, pod.name, setOf("$appRoot#manage"))
+    val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
 
     // Context does not exist; an out-of-sandbox caller must see 403, not 404.
     val response = http.prepareDelete(contextManageUrl(pod.name, "apps/other/tasks"))

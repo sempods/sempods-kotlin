@@ -33,6 +33,7 @@ import org.sempods.pods.oauth.flows.PodAuthorizationCodes
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodConsentFlow
+import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -90,7 +91,6 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
-import org.sempods.pods.oauth.serviceclients.PodServiceClientFacade
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -196,9 +196,9 @@ class SempodsModule : BaseModule() {
     bind<PodAuthorizeFlow>().asSingleton()
     bind<PodClientRegistration>().asSingleton()
     bind<PodConsentFlow>().asSingleton()
+    bind<PodServiceClientProvisioning>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
-    bind<PodServiceClientFacade>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()
     bind<PodServiceAuditLogDao>().asSingleton()
     bind<AiSemShaclGuidanceDeriver>().asSingleton()

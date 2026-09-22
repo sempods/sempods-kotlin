@@ -64,8 +64,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
       label = "notes-app",
@@ -73,7 +72,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
     val response = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.dbo.clientId, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
 
@@ -111,8 +110,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   fun `client_credentials with unknown secret returns 401 invalid_client`() {
     val pod = sempodsTestFactory.newPod()
     podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes#manage"),
     )
@@ -157,8 +155,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )
@@ -166,7 +163,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     // Even requesting the exact registered scope is rejected — down-scoping is unsupported.
     val response = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.dbo.clientId, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody(
         "grant_type=client_credentials" +
           "&scope=${java.net.URLEncoder.encode("$appRoot#manage", "UTF-8")}",
@@ -187,15 +184,14 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val clientIdWithReserved = "notes:primary"
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = clientIdWithReserved,
       scopes = setOf("$appRoot#manage"),
     )
 
     val response = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(clientIdWithReserved, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(clientIdWithReserved, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
 
@@ -218,15 +214,14 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val podBase = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     val appRoot = "$podBase/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )
 
     val tokenResponse = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.dbo.clientId, registered.plaintextSecret))
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
     assertEquals(200, tokenResponse.statusCode)
@@ -260,8 +255,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val podRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        podId = checkNotNull(pod.id),
-        podBaseUrl = podBaseUrl(pod.name),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("${podRoot}#manage"),
       )
@@ -278,8 +272,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        podId = checkNotNull(pod.id),
-        podBaseUrl = podBaseUrl(pod.name),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("${appRoot}#admin"),
       )
@@ -297,8 +290,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val foreignScope = "${SempodsModule.config.apiBaseUrl}${otherPodName}/_system/contexts/apps/notes#manage"
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        podId = checkNotNull(pod.id),
-        podBaseUrl = podBaseUrl(pod.name),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf(foreignScope),
       )
@@ -314,8 +306,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val ex = assertThrows<IllegalArgumentException> {
       podServiceClientStore.register(
-        podId = checkNotNull(pod.id),
-        podBaseUrl = podBaseUrl(pod.name),
+        pod = pod.hosted,
         clientId = "bogus",
         scopes = setOf("openid"),
       )
@@ -345,13 +336,12 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     // A colon in the identifier: the core's form-encoding has to meet this endpoint's decoding.
     val clientId = "notes:primary"
     val registered = podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = clientId,
       scopes = setOf("$appRoot#manage"),
     )
 
-    withCore(pod.name, clientId, registered.plaintextSecret) { tokens, client ->
+    withCore(pod.name, clientId, registered.secret) { tokens, client ->
       val minted = tokens.clientCredentials()
       assertEquals(200, minted.status)
       val token = checkNotNull(minted.body)
@@ -375,8 +365,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     podServiceClientStore.register(
-      podId = checkNotNull(pod.id),
-      podBaseUrl = podBaseUrl(pod.name),
+      pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
     )

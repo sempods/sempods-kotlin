@@ -1,6 +1,11 @@
 package org.sempods.pods.oauth.serviceclients
 
 import com.google.inject.Inject
+import com.mongodb.MongoWriteException
+import org.sempods.commons.mongo.isDuplicateKey
+import org.sempods.pods.HostedPod
+import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -25,19 +30,18 @@ class PodServiceClientStore @Inject constructor(
 ) {
 
   internal data class Registered(
-    val dbo: PodServiceClientDbo,
-    val plaintextSecret: String,
+    val registration: ServiceClientRegistration,
+    val secret: String,
   )
 
   private val random = SecureRandom()
 
   /**
-   * Registers a new service client on [podId]. Returns the persisted row plus
-   * the freshly minted plaintext secret — the only moment the secret is
-   * available outside the registering caller.
+   * Registers a new service client on [pod], and answers with it plus the freshly minted
+   * plaintext secret — the only moment the secret is available outside the registering caller.
    *
    * Each scope is validated against [podScopeValidator]: only well-formed
-   * `<context-iri>#read|write|manage` strings inside [podBaseUrl] are
+   * `<context-iri>#read|write|manage` strings inside the pod's own namespace are
    * accepted. OIDC scopes (`openid`, `offline_access`) and the `public-read`
    * pseudo-scope are not applicable to 2-leg service clients (no end-user,
    * no public-anonymous use case) and are rejected. Any other malformed
@@ -47,15 +51,15 @@ class PodServiceClientStore @Inject constructor(
    * persisted, so the bad scope never reaches a JWT or the resource layer.
    */
   internal fun register(
-    podId: ObjectId,
-    podBaseUrl: String,
+    pod: HostedPod,
     clientId: String,
     scopes: Set<String>,
     label: String? = null,
   ): Registered {
     require(scopes.isNotEmpty()) { "service client must be registered with at least one scope" }
+    val namespace = pod.baseUrl
     val invalid = scopes.mapNotNull { scope ->
-      when (val parsed = podScopeValidator.validate(scope, podBaseUrl)) {
+      when (val parsed = podScopeValidator.validate(scope, namespace)) {
         is ScopeValidationResult.Context -> null
         is ScopeValidationResult.Invalid -> scope to parsed.reason
         is ScopeValidationResult.Oidc ->
@@ -71,7 +75,7 @@ class PodServiceClientStore @Inject constructor(
 
     val secret = mintSecret()
     val dbo = PodServiceClientDbo(
-      podId = podId,
+      podId = pod.id.objectId(),
       clientId = clientId,
       secretHash = hashSecret(secret),
       scopes = scopes,
@@ -81,9 +85,35 @@ class PodServiceClientStore @Inject constructor(
     // `_id` back into the instance it was passed, so reading it off `dbo` worked; `insertOne` does
     // not, and the id is what the admin API returns as `registrationId` and what the
     // compare-and-swap delete filters on. Discarding this return value hands out a `null` one.
-    val stored = dao.create(dbo)
-    return Registered(dbo = stored, plaintextSecret = secret)
+    val stored = try {
+      dao.create(dbo)
+    } catch (e: MongoWriteException) {
+      // The unique index on `(podId, clientId)`. Named as this store's own so a caller can answer
+      // it without naming the driver — every other write failure stays what it was.
+      if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
+    }
+    return Registered(stored.toRegistration(), secret)
   }
+
+  /** The registration for `(pod, clientId)`, or `null`. */
+  internal fun find(pod: PodId, clientId: String): ServiceClientRegistration? =
+    dao.findByClientId(pod.objectId(), clientId)?.toRegistration()
+
+  /**
+   * Removes the one registration [expected] names — see [PodServiceClientDao.delete] for why the
+   * condition is there. `false` means somebody else replaced it in between.
+   */
+  internal fun remove(pod: PodId, clientId: String, expected: ServiceClientRegistrationId): Boolean =
+    dao.delete(pod.objectId(), clientId, expectedId = expected.objectId())
+
+  private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
+    // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
+    // as the pre-insert shape. Asserting it keeps a `null` from reaching [remove] as
+    // "delete unconditionally".
+    id = ServiceClientRegistrationId(checkNotNull(id) { "registration without id: '$clientId'" }.toHexString()),
+    clientId = clientId,
+    scopes = scopes,
+  )
 
   /**
    * Validates `(clientId, secret)` against the persisted hash. Returns the
@@ -166,3 +196,44 @@ class PodServiceClientStore @Inject constructor(
     private const val BCRYPT_COST = 12
   }
 }
+
+/**
+ * One registration, without the row it is stored in.
+ *
+ * The secret is not here: it exists for one return value at registration and is stored only as a
+ * hash, so a type that could carry it later would be promising something the store cannot keep.
+ */
+internal data class ServiceClientRegistration(
+  val id: ServiceClientRegistrationId,
+  val clientId: String,
+  val scopes: Set<String>,
+)
+
+/**
+ * A handle to one registration, opaque to everyone holding it.
+ *
+ * The admin API hands it out as `registrationId` and takes it back as `expectedRegistrationId`,
+ * to decide whether a stored credential still pairs with the registration behind it. What the
+ * store keys on underneath stays the store's business.
+ */
+internal data class ServiceClientRegistrationId(val value: String) {
+
+  init {
+    require(value.isNotEmpty()) { "a registration id is not empty" }
+  }
+
+  override fun toString(): String = value
+}
+
+/**
+ * This implementation's key for a registration — the same split [org.sempods.pods.PodId] keeps,
+ * and the same reason: a DAO speaks its driver's type and everything above speaks the handle.
+ */
+internal fun ServiceClientRegistrationId.objectId(): ObjectId =
+  checkNotNull(if (ObjectId.isValid(value)) ObjectId(value) else null) {
+    "not a registration id this server minted: $this"
+  }
+
+/** `(pod, clientId)` was taken between reading it and inserting — the unique index said so. */
+internal class ServiceClientAlreadyRegistered(clientId: String) :
+  RuntimeException("service client '$clientId' was registered concurrently")
