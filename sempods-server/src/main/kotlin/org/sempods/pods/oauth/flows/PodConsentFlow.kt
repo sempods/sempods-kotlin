@@ -105,12 +105,17 @@ class PodConsentFlow @Inject internal constructor(
     // that is merely older than the current answer, on an authorization that still holds
     // something, submits as it always did. A page that would resurrect a disconnected app does
     // not.
+    //
+    // Three things, because a moved generation on an app holding nothing is not by itself a
+    // disconnect: an installation moves it and clears nothing, and the ordinary page somebody had
+    // open alongside would be thrown away for it. What the page carries is whether there was
+    // anything to lose when it was rendered, which is the half this request cannot reconstruct.
     val standing = consentDecisionStore
       .find(pod.id, normalizedClientId, listOf(identity.webId))
       ?.generation
     // Read once: the disconnect below asks the same question, and two reads could disagree.
     val holdsAnything = holdsAnything(pod, normalizedClientId, identity)
-    if (transaction.consentGeneration != standing && !holdsAnything) {
+    if (transaction.consentGeneration != standing && transaction.appHeldSomething && !holdsAnything) {
       logger.info {
         "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${pod.name}', " +
             "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +

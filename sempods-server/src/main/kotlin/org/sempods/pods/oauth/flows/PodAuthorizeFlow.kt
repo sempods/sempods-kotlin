@@ -571,6 +571,10 @@ class PodAuthorizeFlow @Inject internal constructor(
     // What the person decided last time outranks what the client asked for this time: a request
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
     // which is all `offline_access` does — it preselects, it does not grant.
+    // Asked once and spent twice: the way out is offered on it, and the transaction carries it so
+    // the submission can tell a page that would resurrect access from one that never had any.
+    val appHeldSomething = podGrantsFacade.appGrants(pod.id, normalizedClientId, identity.allUris).isNotEmpty()
+
     val recordedDurable = consentDecisionStore
       .find(pod.id, normalizedClientId, identity.allUris)
       ?.durable
@@ -616,6 +620,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           // What this screen put to the person, so the submission can read its own kind from the
           // server rather than from a field the form carries.
           privilegedFeatures.toSet(),
+          appHeldSomething,
         ),
         webId = identity.webId,
         contexts = contexts,
@@ -629,8 +634,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         // happened on a first authorization would be the same lie as saying nothing happened on a
         // later one. Asked over the person rather than over this URI, because that is what the
         // action itself clears.
-        disconnectAvailable = privilegedFeatures.isEmpty() &&
-            podGrantsFacade.appGrants(pod.id, normalizedClientId, identity.allUris).isNotEmpty(),
+        disconnectAvailable = privilegedFeatures.isEmpty() && appHeldSomething,
         privilegedFeatures = privilegedFeatures,
         lifetimeAvailable = privilegedFeatures.isEmpty(),
       ),

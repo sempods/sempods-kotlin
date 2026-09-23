@@ -628,4 +628,36 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertNull(standing.durable, "a refusal nobody gave is not the answer to a question nobody asked")
     assertTrue(standing.generation > 0, "and the code still has a generation to be bound to")
   }
+
+
+  @Test
+  fun `an installation does not expire an ordinary page opened beside it`() {
+    // The generation is shared, the grants are not. An installation moves the first and clears
+    // nothing, so the page somebody had open for the same app has lost nothing and must still
+    // submit — screens coexist on purpose.
+    val owned = Owned()
+    val pageOpenedFirst = owned.ticket()
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(csrf = pageOpenedFirst, scopes = listOf(owned.readScope)),
+        owned.session,
+      ),
+    )
+    assertEquals(setOf(owned.readScope), owned.held(), "the page wrote the selection it carried")
+  }
+
 }

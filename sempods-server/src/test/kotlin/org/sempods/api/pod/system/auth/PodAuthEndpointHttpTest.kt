@@ -1965,12 +1965,21 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
   }
 
-  /** The token a freshly rendered page would carry: bound to the consent standing right now. */
+  /**
+   * The token a freshly rendered page would carry: bound to the consent standing right now, and to
+   * what this app holds right now.
+   *
+   * Both halves, because `/authorize` puts both on the page and the stale-page guard reads both. A
+   * shortcut that minted only the first would describe a page the server never renders, and the
+   * one test that needs the guard to fire would stop testing it.
+   */
   private fun renderedFormToken(pod: org.sempods.pods.mongo.persist.PodDbo, webId: String): String =
     consentTransactionStore.issue(
       pod.name,
       webId,
       consentDecisionStore.find(pod.podId(), testClientId, listOf(webId))?.generation,
+      emptySet(),
+      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(webId)).isNotEmpty(),
     )
 
   private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
