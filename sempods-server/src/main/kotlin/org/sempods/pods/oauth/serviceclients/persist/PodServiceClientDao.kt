@@ -16,6 +16,7 @@ import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * Persistence for [PodServiceClientDbo]. The hot-path read is
@@ -51,15 +52,17 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   }
 
   /**
-   * Registers [dbo] and returns it **carrying the id it was stored under**.
+   * Registers [dbo] and returns **the row as it is now stored**.
    *
-   * `datastore.save()` wrote the generated `_id` back into the instance it was handed; `insertOne`
-   * does not. The bootstrap path reads that id back — `delete(…, expectedId)` below is a
-   * compare-and-swap over exactly this value — so it is minted before the write rather than hoped
-   * for afterwards.
+   * Two things differ from what a caller hands in. `datastore.save()` wrote the generated `_id`
+   * back into the instance it was given and `insertOne` does not, so it is minted here — the
+   * bootstrap path reads that id back, and `delete(…, expectedId)` below is a compare-and-swap
+   * over exactly this value. And `createdAt` is truncated to the milliseconds BSON has room for,
+   * so that the answer to a registration equals the answer to the next read of it
+   * (`sempods-commons-mongo/docs/document-contract.md`).
    */
   internal fun create(dbo: PodServiceClientDbo): PodServiceClientDbo {
-    val stored = dbo.copy(id = dbo.id ?: ObjectId())
+    val stored = dbo.copy(id = dbo.id ?: ObjectId(), createdAt = dbo.createdAt.truncatedTo(ChronoUnit.MILLIS))
     serviceClients.insertOne(stored.toDocument())
     return stored
   }

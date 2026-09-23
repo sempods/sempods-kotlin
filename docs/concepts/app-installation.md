@@ -1,15 +1,17 @@
 # Service-client provisioning and connection consent
 
-A service client currently needs host-operator provisioning.
+A service client reaches a pod either by host-operator provisioning or by an owner installing it.
 [Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the pod-OAuth flow
-that is to replace it, and its implementation iterations. The first of that flow's two consents is
-implemented: an owner can grant an installation authority at `/authorize`, described in
-[`../auth/oauth.md`](../auth/oauth.md#installing-a-service-client). The registration route that
-authority is spent at is not, so the flow as a whole is not available yet.
+and its implementation iterations. Two of its steps stand: the owner grants an installation
+authority at `/authorize`, and spends it at `/register` on one service client the server names —
+both in [`../auth/oauth.md`](../auth/oauth.md#installing-a-service-client). The second consent,
+where the owner grants that service its contexts, is open work
+([#127](https://github.com/sempods/sempods-kotlin/issues/127)), so an installation currently ends
+holding a credential that reaches nothing.
 
 ## Provisioning by the operator
 
-Today service clients are registered out of band by the host operator:
+The host operator registers a service client out of band:
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a private app root
 `<pod>/_system/contexts/apps/{clientId}`, registers `<root>#manage`, and returns a secret exactly
 once. That route is host-admin authority, not pod authority; it exists for the first caller that

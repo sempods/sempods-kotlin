@@ -13,6 +13,7 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bouncycastle.crypto.generators.OpenBSDBCrypt
 import org.bson.types.ObjectId
 import java.security.SecureRandom
+import java.time.Instant
 import java.util.Base64
 
 /**
@@ -110,6 +111,17 @@ class PodServiceClientStore @Inject constructor(
   internal fun remove(pod: PodId, clientId: String, expected: ServiceClientRegistrationId): Boolean =
     dao.delete(pod.objectId(), clientId, expectedId = expected.objectId())
 
+  /**
+   * Registers a service client under an identifier this server assigns, holding no grants.
+   *
+   * The identifier is the pod's to give. An installer that could name it could name an app the
+   * owner already trusts into the installation, which is the boundary an owner-facing registration
+   * rests on. Its class is `svc:`, and `/authorize` answers no identifier of that class — a client
+   * authenticating with a secret has no browser flow to be answered in.
+   */
+  internal fun registerInstallation(pod: HostedPod, label: String): Registered =
+    register(pod, SERVICE_CLIENT_PREFIX + newClientId(), scopes = emptySet(), label = label)
+
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
     // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
     // as the pre-insert shape. Asserting it keeps a `null` from reaching [remove] as
@@ -118,6 +130,7 @@ class PodServiceClientStore @Inject constructor(
     clientId = clientId,
     scopes = scopes,
     label = label,
+    createdAt = createdAt,
   )
 
   /**
@@ -169,6 +182,12 @@ class PodServiceClientStore @Inject constructor(
   /** Everything this pod registered, for the pod's own deletion. */
   internal fun deleteByPod(pod: PodId): Long = dao.deleteByPod(pod.objectId())
 
+  private fun newClientId(): String {
+    val bytes = ByteArray(CLIENT_ID_BYTES)
+    random.nextBytes(bytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+  }
+
   private fun mintSecret(): String {
     val bytes = ByteArray(32)
     random.nextBytes(bytes)
@@ -205,8 +224,23 @@ class PodServiceClientStore @Inject constructor(
   }
 
   companion object {
+
+    /**
+     * The identifier class of a client this server named, held apart from the `dyn:` an
+     * unauthenticated registration earns.
+     *
+     * A `:` cannot occur in an operator-chosen `clientId` — `AdminPodsEndpoint` accepts
+     * `[A-Za-z0-9._-]+`, because that identifier becomes a context path segment — so the two
+     * namespaces cannot collide. RFC 6749 §2.3.1 has a client form-urlencode its `client_id`
+     * before base64-encoding the Basic credentials, which is what carries the `:` intact.
+     */
+    internal const val SERVICE_CLIENT_PREFIX = "svc:"
+
     /** Lets operators recognise pod service-client secrets at a glance. */
     private const val SECRET_PREFIX = "sc_"
+
+    /** 144 bits of identifier: unguessable, and short enough to read in a log line. */
+    private const val CLIENT_ID_BYTES = 18
 
     /**
      * bcrypt cost factor. 12 is a balanced default for an interactive token
@@ -230,6 +264,8 @@ internal data class ServiceClientRegistration(
   val scopes: Set<String>,
   /** What an operator called it — a server-assigned `clientId` alone gives them nothing to recognise. */
   val label: String?,
+  /** When this registration was made. RFC 7591 §3.2.1's `client_id_issued_at`. */
+  val createdAt: Instant,
 )
 
 /**

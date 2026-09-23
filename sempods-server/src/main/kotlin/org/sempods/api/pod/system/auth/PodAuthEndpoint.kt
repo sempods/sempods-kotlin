@@ -86,13 +86,15 @@ class PodAuthEndpoint @Inject constructor(
     return when (val read = PodRegistrationMessages.read(registrationEndpoint(podDbo.name), body)) {
       is PodRegistrationRead.Unreadable -> PodRegistrationResponses.refused(read.error, read.description)
       is PodRegistrationRead.Metadata -> PodRegistrationResponses.render(
-        podClientRegistration.register(
+        realm = podDbo.name,
+        result = podClientRegistration.register(
           pod = podDbo.hosted,
           request = PodRegistrationRequest(
             client = read.client,
             raw = read.raw,
             userAgent = userAgent,
             forwardedFor = forwardedFor,
+            caller = resolveBearerOrNull(podDbo),
           ),
         ),
       )

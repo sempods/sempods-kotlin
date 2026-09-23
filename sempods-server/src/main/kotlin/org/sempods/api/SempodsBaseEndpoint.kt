@@ -230,6 +230,22 @@ open class SempodsBaseEndpoint(
   }
 
   /**
+   * The bearer this request carries, or `null` where it carries none.
+   *
+   * [requirePodAppTokenOrThrow] asks for "any app" and refuses a privileged feature scope. This
+   * asks for whoever turned up: the one route that exists for such a bearer has to be able to see
+   * it, and the same route answers unauthenticated callers too, so no bearer is an answer rather
+   * than a refusal. A credential that is presented and does not verify is still a 401 — a request
+   * that showed an ID is not a request that showed none.
+   */
+  internal fun resolveBearerOrNull(podDbo: PodDbo): SempodsCredentials? =
+    when (val outcome = authenticateBearer(podDbo, podDbo.ref)) {
+      PodTokenAuthentication.NoToken -> null
+      is PodTokenAuthentication.Verified -> authorizeAndAudit(podDbo.ref, outcome.token)
+      is PodTokenAuthentication.Rejected -> throwInvalidBearer(podName = podDbo.name)
+    }
+
+  /**
    * The bearer, unless what it carries is an authority for one named operation.
    *
    * A `403` rather than a `401`: the credential is valid and the caller is who they say, the scope
