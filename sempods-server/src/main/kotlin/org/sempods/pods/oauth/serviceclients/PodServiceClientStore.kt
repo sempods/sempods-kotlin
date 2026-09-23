@@ -182,17 +182,12 @@ class PodServiceClientStore @Inject constructor(
   /** Everything this pod registered, for the pod's own deletion. */
   internal fun deleteByPod(pod: PodId): Long = dao.deleteByPod(pod.objectId())
 
-  private fun newClientId(): String {
-    val bytes = ByteArray(CLIENT_ID_BYTES)
-    random.nextBytes(bytes)
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-  }
+  private fun newClientId(): String = randomToken(CLIENT_ID_BYTES)
 
-  private fun mintSecret(): String {
-    val bytes = ByteArray(32)
-    random.nextBytes(bytes)
-    return SECRET_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-  }
+  private fun mintSecret(): String = SECRET_PREFIX + randomToken(SECRET_BYTES)
+
+  private fun randomToken(bytes: Int): String =
+    Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(bytes).also(random::nextBytes))
 
   private fun hashSecret(secret: String): String {
     val salt = ByteArray(16).also(random::nextBytes)
@@ -214,13 +209,8 @@ class PodServiceClientStore @Inject constructor(
    * wrong-secret-on-known-client failure. Computed lazily once.
    */
   private val dummyHash: String by lazy {
-    val dummySecret = ByteArray(32).also(random::nextBytes)
     val salt = ByteArray(16).also(random::nextBytes)
-    OpenBSDBCrypt.generate(
-      Base64.getUrlEncoder().withoutPadding().encodeToString(dummySecret).toCharArray(),
-      salt,
-      BCRYPT_COST,
-    )
+    OpenBSDBCrypt.generate(randomToken(SECRET_BYTES).toCharArray(), salt, BCRYPT_COST)
   }
 
   companion object {
@@ -241,6 +231,9 @@ class PodServiceClientStore @Inject constructor(
 
     /** 144 bits of identifier: unguessable, and short enough to read in a log line. */
     private const val CLIENT_ID_BYTES = 18
+
+    /** 256 bits of secret, for the same reason `Secrets.newSecret` gives. */
+    private const val SECRET_BYTES = 32
 
     /**
      * bcrypt cost factor. 12 is a balanced default for an interactive token

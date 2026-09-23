@@ -22,7 +22,6 @@ import org.sempods.client.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -49,16 +48,6 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
   private fun podBaseUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/"
-
-  /**
-   * RFC 6749 §2.3.1 `client_secret_basic`: clients form-urlencode `client_id`
-   * and `client_secret` before joining with `:` and base64-encoding.
-   */
-  private fun basicHeader(clientId: String, secret: String): String {
-    val encId = java.net.URLEncoder.encode(clientId, Charsets.UTF_8)
-    val encSecret = java.net.URLEncoder.encode(secret, Charsets.UTF_8)
-    return "Basic " + Base64.getEncoder().encodeToString("$encId:$encSecret".toByteArray(Charsets.UTF_8))
-  }
 
   @Test
   fun `a registration holding no grants authenticates and mints nothing`() {

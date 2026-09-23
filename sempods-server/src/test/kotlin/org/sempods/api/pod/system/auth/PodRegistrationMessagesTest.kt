@@ -2,7 +2,6 @@ package org.sempods.api.pod.system.auth
 
 import org.sempods.pods.oauth.flows.PodClientMetadata
 import org.sempods.pods.oauth.flows.PodRegistrationError
-import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -79,11 +78,7 @@ class PodRegistrationMessagesTest {
 
   private fun metadata(body: String?) = assertIs<PodRegistrationRead.Metadata>(read(body))
 
-  private fun unreadable(body: String?) = assertIs<PodRegistrationRead.Unreadable>(read(body))
+  private fun unreadable(body: String?) = assertIs<PodRegistrationRead.Unreadable>(read(body)).refusal
 
-  private fun read(body: String?) = PodRegistrationMessages.read(ENDPOINT, body)
-
-  private companion object {
-    private val ENDPOINT = URI.create("https://pods.example/alice/_system/auth/register")
-  }
+  private fun read(body: String?) = PodRegistrationMessages.read(body)
 }

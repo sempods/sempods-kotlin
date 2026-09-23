@@ -43,10 +43,9 @@ internal data class PodServiceClientDbo(
    * Scopes the client is allowed to request at the token endpoint. The token
    * endpoint refuses to issue scopes outside this set.
    *
-   * Never empty on a row that was inserted: a client with no scopes could not authenticate for
-   * anything, and the write path does not create one. The context-deletion cascade can leave an
-   * *emptied* array behind, which is a different thing on the wire — see
-   * [PodServiceClientDao.revokeByContextScope].
+   * May be empty, in either of two spellings: absent on a row inserted without scopes, and `[]`
+   * on one [PodServiceClientDao.revokeByContextScope] emptied. Both read back as an empty set, and
+   * what such a registration is worth is `PodServiceClientStore.register`'s.
    */
   val scopes: Set<String>,
 

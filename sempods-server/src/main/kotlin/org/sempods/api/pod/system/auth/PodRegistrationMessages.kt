@@ -1,66 +1,53 @@
 package org.sempods.api.pod.system.auth
 
 import com.fasterxml.jackson.core.JacksonException
-import com.fasterxml.jackson.core.type.TypeReference
-import com.nimbusds.common.contenttype.ContentType
 import com.nimbusds.oauth2.sdk.ParseException
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
-import com.nimbusds.oauth2.sdk.client.ClientRegistrationRequest
 import com.nimbusds.oauth2.sdk.client.RegistrationError
-import com.nimbusds.oauth2.sdk.http.HTTPRequest
+import com.nimbusds.oauth2.sdk.util.JSONObjectUtils
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.json.JsonUtil
 import org.sempods.pods.oauth.flows.PodClientMetadata
 import org.sempods.pods.oauth.flows.PodRegistrationError
-import java.net.URI
+import org.sempods.pods.oauth.flows.PodRegistrationResult
 
 /**
  * Reading a registration body (RFC 7591 §2, §3.1).
  *
- * The grammar is the SDK's: `ClientRegistrationRequest` decides what a registration document is,
- * which member may hold which type, and which of the two §3.2.2 codes a malformed one earns. What
- * this adds is the projection the decision works on — trimmed, with a blank read as absent, so the
- * dedup fingerprint sees the same values it always did.
+ * The grammar is the SDK's: `ClientMetadata` decides what a registration document is, which member
+ * may hold which type, and which of the two §3.2.2 codes a malformed one earns. What this adds is
+ * the projection the decision works on — trimmed, with a blank read as absent, so the dedup
+ * fingerprint sees the same values it always did.
  *
  * A member whose type the RFC does not allow — `"contacts": "a@b"` — is refused, so a client that
  * named a contact address the pod will not store learns it at registration.
  *
- * The `Authorization` header is deliberately not handed to the SDK. A bearer is this pod's
- * question, answered by `PodTokenAuthenticator` and the authorizer behind it; letting
- * `ClientRegistrationRequest` parse it would turn a malformed credential into a metadata error.
+ * **Two readers, and each has a job.** Jackson produces the verbatim map the registration row
+ * stores, in the types that row has always held; the SDK produces the typed view. Jackson runs
+ * first because it is the stricter of the two, so a body it accepts is one the SDK's parser accepts
+ * as well.
  */
 internal object PodRegistrationMessages {
 
-  /**
-   * @param endpoint this pod's registration address. Carried by the SDK's request object and
-   *   nothing else reads it; it is the real one so that no value here is a fiction.
-   */
-  fun read(endpoint: URI, body: String?): PodRegistrationRead {
+  fun read(body: String?): PodRegistrationRead {
     // No body at all is a registration that named nothing, and the decision answers that with the
     // sentence it has always answered: at least one redirect_uri is required.
-    val text = body?.takeIf { it.isNotBlank() } ?: return PodRegistrationRead.Metadata(PodClientMetadata(), emptyMap())
+    val text = body?.takeIf { it.isNotBlank() } ?: EMPTY_BODY
 
-    // Jackson first, and the order matters: it is the stricter reader, so a body it accepts is one
-    // the SDK's JSON parser accepts too, and the two can never disagree about what arrived.
     val raw = try {
-      JsonMappers.default().readValue(text, MAP)
+      JsonMappers.default().readValue(text, JsonUtil.dynamicTypeRef)
     } catch (_: JacksonException) {
-      return PodRegistrationRead.Unreadable(PodRegistrationError.INVALID_CLIENT_METADATA, "malformed JSON body")
+      return unreadable(PodRegistrationError.INVALID_CLIENT_METADATA, "malformed JSON body")
     }
 
     val metadata = try {
-      ClientRegistrationRequest.parse(httpRequest(endpoint, text)).clientMetadata
+      ClientMetadata.parse(JSONObjectUtils.parse(text))
     } catch (e: ParseException) {
-      return PodRegistrationRead.Unreadable(errorOf(e), describe(e))
+      return unreadable(errorOf(e), describe(e))
     }
 
     return PodRegistrationRead.Metadata(project(metadata), raw)
   }
-
-  private fun httpRequest(endpoint: URI, body: String): HTTPRequest =
-    HTTPRequest(HTTPRequest.Method.POST, endpoint).apply {
-      entityContentType = ContentType.APPLICATION_JSON
-      setBody(body)
-    }
 
   /**
    * Which of RFC 7591 §3.2.2's two codes the failure earns.
@@ -93,7 +80,11 @@ internal object PodRegistrationMessages {
 
   private fun trimmed(value: String?): String? = value?.trim()?.takeIf { it.isNotBlank() }
 
-  private val MAP = object : TypeReference<Map<String, Any?>>() {}
+  private fun unreadable(error: PodRegistrationError, description: String) =
+    PodRegistrationRead.Unreadable(PodRegistrationResult.Refused(error, description))
+
+  /** What an absent body is read as, so that both readers answer it the way they answer `{}`. */
+  private const val EMPTY_BODY = "{}"
 }
 
 /** A registration body, read or refused. */
@@ -102,5 +93,5 @@ internal sealed interface PodRegistrationRead {
   data class Metadata(val client: PodClientMetadata, val raw: Map<String, Any?>) : PodRegistrationRead
 
   /** Not a registration document at all — answered here, because syntax is this layer's. */
-  data class Unreadable(val error: PodRegistrationError, val description: String) : PodRegistrationRead
+  data class Unreadable(val refusal: PodRegistrationResult.Refused) : PodRegistrationRead
 }

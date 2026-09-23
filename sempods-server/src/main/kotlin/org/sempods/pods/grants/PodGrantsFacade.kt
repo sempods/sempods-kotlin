@@ -142,6 +142,18 @@ class PodGrantsFacade @Inject constructor(
     pod.owner in webIds
 
   /**
+   * Whether [subject] is the pod owner, over the pair of spellings one address has
+   * ([WebIdUriDeriver.derivableAliases]).
+   *
+   * The form a **request** asks in: a token carries one identity URI, and the twins are all this
+   * server can derive from it. A browser session asks the other form instead and passes
+   * `PersonIdentity.allUris`, which also covers the profile-linked aliases only the identity
+   * service knows.
+   */
+  internal fun isPodOwner(pod: HostedPod, subject: String): Boolean =
+    isPodOwner(pod, webIdUriDeriver.derivableAliases(subject))
+
+  /**
    * Grants [grants] to [webId] on top of what they already hold.
    *
    * Deliberately does **not** cascade: widening a person's authority never widens an app

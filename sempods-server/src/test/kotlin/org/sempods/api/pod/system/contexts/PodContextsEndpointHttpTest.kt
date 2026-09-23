@@ -70,16 +70,6 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/token"
 
   /**
-   * RFC 6749 §2.3.1 `client_secret_basic`: form-urlencode `client_id` and
-   * `client_secret`, join with `:`, base64-encode.
-   */
-  private fun basicHeader(clientId: String, secret: String): String {
-    val encId = java.net.URLEncoder.encode(clientId, Charsets.UTF_8)
-    val encSecret = java.net.URLEncoder.encode(secret, Charsets.UTF_8)
-    return "Basic " + Base64.getEncoder().encodeToString("$encId:$encSecret".toByteArray(Charsets.UTF_8))
-  }
-
-  /**
    * Register a service client with the given scopes and mint a `client_credentials`
    * access token via `{pod}/_system/auth/token` — the real client_credentials token path.
    */

@@ -5340,11 +5340,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private val installationBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
     """"token_endpoint_auth_method":"client_secret_basic"}"""
 
-  /** RFC 6749 §2.3.1: form-urlencode both halves before joining them with `:` and base64-encoding. */
-  private fun basicHeader(clientId: String, secret: String): String =
-    "Basic " + java.util.Base64.getEncoder()
-      .encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
-
   private fun registerAsInstaller(
     pod: org.sempods.pods.mongo.persist.PodDbo,
     bearer: String?,

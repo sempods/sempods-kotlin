@@ -14,10 +14,10 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse
 import com.nimbusds.oauth2.sdk.id.ClientID
 import com.nimbusds.oauth2.sdk.id.SoftwareID
 import com.nimbusds.oauth2.sdk.id.SoftwareVersion
-import com.nimbusds.oauth2.sdk.token.BearerTokenError
+import jakarta.ws.rs.core.HttpHeaders
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.sempods.pods.oauth.flows.PodRegistrationError
-import org.sempods.pods.oauth.flows.PodRegistrationRefusal
 import org.sempods.pods.oauth.flows.PodRegistrationResult
 import java.net.URI
 import java.util.Date
@@ -31,72 +31,62 @@ import java.util.Date
  * secret with no expiry — see `docs/auth/oauth.md` §"Installing a service client" for what a
  * caller makes of that.
  *
- * A refusal about the caller's own bearer carries no body: RFC 6750 §3 puts that in the
- * `WWW-Authenticate` challenge, and the SDK builds it.
- *
  * Members are not written in the order §3.2.1 lists them: the SDK's JSON object is a hash map. A
  * caller reads members by name, which is what JSON promises.
  */
 internal object PodRegistrationResponses {
 
-  fun render(realm: String, result: PodRegistrationResult): Response = when (result) {
-    is PodRegistrationResult.Registered -> created(result)
-    is PodRegistrationResult.ServiceRegistered -> created(result)
-    is PodRegistrationResult.Refused -> refused(result.error, result.description)
-    is PodRegistrationResult.Unauthorized -> unauthorized(realm, result.reason, result.description)
-  }
-
   /**
-   * A body this pod will not accept.
-   *
-   * Public because a body that is not a registration document at all never reaches the decision —
-   * [PodRegistrationMessages] answers that one.
+   * @param challenge builds this pod's `WWW-Authenticate` for an RFC 6750 error code. Passed in
+   *   rather than built here so that every 401 and 403 on the pod carries the one challenge shape
+   *   `SempodsBaseEndpoint` owns, RFC 9728 pointer included.
    */
-  fun refused(error: PodRegistrationError, description: String): Response =
-    jaxrs(ClientRegistrationErrorResponse(errorObject(error).setDescription(sanitize(description))).toHTTPResponse())
+  fun render(result: PodRegistrationResult, challenge: (error: String) -> String): Response = when (result) {
+    is PodRegistrationResult.Registered -> created(publicClient(result))
+    is PodRegistrationResult.ServiceRegistered -> created(serviceClient(result))
+    is PodRegistrationResult.Refused -> refused(result)
 
-  private fun unauthorized(realm: String, reason: PodRegistrationRefusal, description: String): Response {
-    val error = when (reason) {
-      PodRegistrationRefusal.AUTHORITY_SPENT -> BearerTokenError.INVALID_TOKEN
-      PodRegistrationRefusal.NOT_AUTHORIZED -> BearerTokenError.INSUFFICIENT_SCOPE
-    }
-    return jaxrs(ClientRegistrationErrorResponse(error.setDescription(sanitize(description)).setRealm(realm)).toHTTPResponse())
+    is PodRegistrationResult.Unauthorized -> Response.status(result.reason.status)
+      .header(HttpHeaders.WWW_AUTHENTICATE, challenge(result.reason.error))
+      .entity(result.description)
+      .type(MediaType.TEXT_PLAIN)
+      .build()
   }
 
-  private fun created(client: PodRegistrationResult.Registered): Response {
+  private fun refused(result: PodRegistrationResult.Refused): Response {
+    // RFC 6749 §5.2's character set for `error_description` excludes `"` and `\`, and a refusal
+    // names the value it refused — which came from the caller.
+    val sanitized = ErrorObject.removeIllegalChars(result.description)
+    return jaxrs(ClientRegistrationErrorResponse(errorObject(result.error).setDescription(sanitized)).toHTTPResponse())
+  }
+
+  private fun publicClient(client: PodRegistrationResult.Registered): ClientInformation {
     val metadata = ClientMetadata().apply {
-      setRedirectionURIs(client.redirectUris.map(URI::create).toSet())
+      setRedirectionURIs(client.client.redirectUris.map(URI::create).toSet())
       setTokenEndpointAuthMethod(ClientAuthenticationMethod.NONE)
       setGrantTypes(setOf(GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN))
       setResponseTypes(setOf(ResponseType.CODE))
-      client.clientName?.let { setName(it) }
-      client.clientUri?.let { setURI(URI.create(it)) }
-      client.logoUri?.let { setLogoURI(URI.create(it)) }
-      client.softwareId?.let { setSoftwareID(SoftwareID(it)) }
-      client.softwareVersion?.let { setSoftwareVersion(SoftwareVersion(it)) }
+      client.client.clientName?.let { setName(it) }
+      client.client.clientUri?.let { setURI(URI.create(it)) }
+      client.client.logoUri?.let { setLogoURI(URI.create(it)) }
+      client.client.softwareId?.let { setSoftwareID(SoftwareID(it)) }
+      client.client.softwareVersion?.let { setSoftwareVersion(SoftwareVersion(it)) }
       // Left unset when empty: `"contacts": []` would claim the client named no way to reach it,
       // which is a different statement from saying nothing.
-      client.contacts.takeIf { it.isNotEmpty() }?.let { setEmailContacts(it) }
-      client.tosUri?.let { setTermsOfServiceURI(URI.create(it)) }
-      client.policyUri?.let { setPolicyURI(URI.create(it)) }
+      client.client.contacts.takeIf { it.isNotEmpty() }?.let { setEmailContacts(it) }
+      client.client.tosUri?.let { setTermsOfServiceURI(URI.create(it)) }
+      client.client.policyUri?.let { setPolicyURI(URI.create(it)) }
     }
-    return created(ClientInformation(ClientID(client.clientId), null, metadata, null))
+    return ClientInformation(ClientID(client.clientId), null, metadata, null)
   }
 
-  private fun created(client: PodRegistrationResult.ServiceRegistered): Response {
+  private fun serviceClient(client: PodRegistrationResult.ServiceRegistered): ClientInformation {
     val metadata = ClientMetadata().apply {
       setTokenEndpointAuthMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
       setGrantTypes(setOf(GrantType.CLIENT_CREDENTIALS))
       setName(client.clientName)
     }
-    return created(
-      ClientInformation(
-        ClientID(client.clientId),
-        Date.from(client.issuedAt),
-        metadata,
-        Secret(client.secret),
-      ),
-    )
+    return ClientInformation(ClientID(client.clientId), Date.from(client.issuedAt), metadata, Secret(client.secret))
   }
 
   private fun created(information: ClientInformation): Response =
@@ -106,12 +96,6 @@ internal object PodRegistrationResponses {
     PodRegistrationError.INVALID_REDIRECT_URI -> RegistrationError.INVALID_REDIRECT_URI
     PodRegistrationError.INVALID_CLIENT_METADATA -> RegistrationError.INVALID_CLIENT_METADATA
   }
-
-  /**
-   * RFC 6749 §5.2's character set for `error_description` excludes `"` and `\`, and a refusal names
-   * the value it refused — which came from the caller.
-   */
-  private fun sanitize(description: String): String = ErrorObject.removeIllegalChars(description)
 
   private fun jaxrs(response: HTTPResponse): Response {
     val builder = Response.status(response.statusCode).entity(response.body)

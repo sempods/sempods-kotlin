@@ -105,9 +105,9 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     val registered = registered(register(client = ordinary().copy(clientName = "Notes ${randomId()}")))
 
     assertTrue(registered.clientId.startsWith("dyn:"), registered.clientId)
-    assertEquals(setOf(LOOPBACK_CALLBACK), registered.redirectUris)
-    assertTrue(registered.clientName.orEmpty().startsWith("Notes "), registered.clientName)
-    assertEquals("https://app.example", registered.clientUri)
+    assertEquals(setOf(LOOPBACK_CALLBACK), registered.client.redirectUris)
+    assertTrue(registered.client.clientName.orEmpty().startsWith("Notes "), registered.client.clientName)
+    assertEquals("https://app.example", registered.client.clientUri)
   }
 
   @Test
@@ -165,8 +165,8 @@ class PodClientRegistrationTest : SempodsStoreTest() {
       register(pod, PodClientMetadata(redirectUris = setOf(LOOPBACK_CALLBACK), clientName = clientName), userAgent),
     )
 
-    assertNull(hit.clientUri, "the refused value must not reach the answer")
-    assertEquals("https://app.example/policy", hit.policyUri, "the legal one beside it survives")
+    assertNull(hit.client.clientUri, "the refused value must not reach the answer")
+    assertEquals("https://app.example/policy", hit.client.policyUri, "the legal one beside it survives")
     assertNotNull(dynamicClientStore.lookup(pod.id, hit.clientId)?.clientUri, "and the row is left as it stands")
   }
 
@@ -188,10 +188,8 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `an owner's installation is given a server-named client, a secret once, and no grants`() {
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
 
-    val installed = installed(register(pod, client = named("Notes Sync"), raw = installation(), caller = owner(pod, jti)))
+    val installed = installed(register(pod, client = named("Notes Sync"), raw = installation(), caller = installer(pod)))
 
     assertTrue(installed.clientId.startsWith("svc:"), installed.clientId)
     assertEquals("Notes Sync", installed.clientName)
@@ -206,11 +204,10 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `one authorization registers one client, however many times it is presented`() {
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
+    val caller = installer(pod)
 
-    installed(register(pod, client = named("First"), raw = installation(), caller = owner(pod, jti)))
-    val again = unauthorized(register(pod, client = named("Second"), raw = installation(), caller = owner(pod, jti)))
+    installed(register(pod, client = named("First"), raw = installation(), caller = caller))
+    val again = unauthorized(register(pod, client = named("Second"), raw = installation(), caller = caller))
 
     assertEquals(PodRegistrationRefusal.AUTHORITY_SPENT, again.reason)
     // A caller whose answer was lost in transit retries and lands here. The secret existed only in
@@ -222,8 +219,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `eight calls on one authority create one client`() {
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
+    val caller = installer(pod)
 
     val callers = 8
     val ready = CountDownLatch(callers)
@@ -234,14 +230,18 @@ class PodClientRegistrationTest : SempodsStoreTest() {
         pool.submit<PodRegistrationResult> {
           ready.countDown()
           go.await()
-          register(pod, client = named("Racing"), raw = installation(), caller = owner(pod, jti))
+          register(pod, client = named("Racing"), raw = installation(), caller = caller)
         }
       }
       ready.await()
       go.countDown()
 
       val results = attempts.map { it.get(30, TimeUnit.SECONDS) }
-      assertEquals(1, results.count { it is PodRegistrationResult.ServiceRegistered }, "one client, whatever the interleaving")
+      assertEquals(
+        1,
+        results.count { it is PodRegistrationResult.ServiceRegistered },
+        "one client, whatever the interleaving",
+      )
       assertTrue(
         results.filterIsInstance<PodRegistrationResult.Unauthorized>()
           .all { it.reason == PodRegistrationRefusal.AUTHORITY_SPENT },
@@ -263,7 +263,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `a bearer that carries no installation authority is refused`() {
     val pod = pod()
-    val ordinary = owner(pod, randomId()).copy(oauthScopes = setOf("public-read"))
+    val ordinary = installer(pod).copy(oauthScopes = setOf("public-read"))
 
     val refused = unauthorized(register(pod, client = named("Ordinary"), raw = installation(), caller = ordinary))
 
@@ -275,52 +275,43 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     // Ownership is asked again here: the authority was granted an hour ago at most, and a pod can
     // change hands in that time.
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
-    val stranger = owner(pod, jti).copy(tokenSub = "https://id.sempods.org/e/${"0".repeat(64)}")
+    val stranger = installer(pod).copy(tokenSub = "https://id.sempods.org/e/${"0".repeat(64)}")
 
     val refused = unauthorized(register(pod, client = named("Stranger"), raw = installation(), caller = stranger))
 
     assertEquals(PodRegistrationRefusal.NOT_AUTHORIZED, refused.reason)
-    assertNotNull(
-      installationAuthorities.consume(pod.id, jti),
-      "a refusal before the authority is spent leaves it to be spent",
-    )
+    assertTrue(authorityStands(pod, stranger), "a refusal before the authority is spent leaves it to be spent")
   }
 
   @Test
   fun `the owner is recognised through either spelling of their address`() {
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
     val urn = assertNotNull(
       webIdUriDeriver.derivableAliases(pod.owner).firstOrNull { it.startsWith("urn:sempods:") },
       "the owner's address has a urn twin",
     )
+    val caller = installer(pod).copy(tokenSub = urn)
 
-    val installed = installed(
-      register(pod, client = named("Aliased"), raw = installation(), caller = owner(pod, jti).copy(tokenSub = urn)),
-    )
+    val installed = installed(register(pod, client = named("Aliased"), raw = installation(), caller = caller))
 
     assertTrue(installed.clientId.startsWith("svc:"))
   }
 
   @Test
-  fun `a body naming the identity, the place or the grants is refused`() {
-    for (member in listOf("client_id", "clientId", "contextRoot", "context_root", "scope", "scopes",
-                          "redirect_uris", "response_types")) {
-      val pod = pod()
-      val jti = randomId()
-      recordAuthority(pod, jti)
+  fun `a body carrying anything but the name is refused, whatever the member`() {
+    // An allowlist, so a member nobody thought of is refused as surely as `client_id` is.
+    val pod = pod()
+    val caller = installer(pod)
 
+    for (member in listOf("client_id", "clientId", "contextRoot", "scope", "redirect_uris", "jwks", "software_id")) {
       val refused = refusal(
-        register(pod, client = named("Presumptuous"), raw = installation() + (member to "anything"), caller = owner(pod, jti)),
+        register(pod, client = named("Presumptuous"), raw = installation() + (member to "anything"), caller = caller),
       )
 
       assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, member)
       assertTrue(member in refused.description, refused.description)
-      assertNotNull(installationAuthorities.consume(pod.id, jti), "and the authority is still there")
     }
+    assertTrue(authorityStands(pod, caller), "and none of them spent the authority")
   }
 
   @Test
@@ -328,10 +319,8 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     // The consent that grants this service its contexts names it. There is nothing else to show
     // an owner: the identifier is 18 random bytes.
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
 
-    val refused = refusal(register(pod, client = PodClientMetadata(), raw = installation(), caller = owner(pod, jti)))
+    val refused = refusal(register(pod, client = PodClientMetadata(), raw = installation(), caller = installer(pod)))
 
     assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error)
     assertTrue("client_name" in refused.description, refused.description)
@@ -340,10 +329,8 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `an installer bearer on a public registration is refused`() {
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
 
-    val refused = refusal(register(pod, caller = owner(pod, jti)))
+    val refused = refusal(register(pod, caller = installer(pod)))
 
     assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error)
     assertTrue("client_credentials" in refused.description, refused.description)
@@ -355,8 +342,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     // secret. Answering one as a public registration would hand back a `dyn:` client that quietly
     // does something else.
     val pod = pod()
-    val jti = randomId()
-    recordAuthority(pod, jti)
+    val caller = installer(pod)
     val bodies = listOf(
       mapOf("token_endpoint_auth_method" to "client_secret_post", "grant_types" to listOf("client_credentials")),
       mapOf("token_endpoint_auth_method" to "client_secret_basic", "grant_types" to listOf("authorization_code")),
@@ -364,10 +350,10 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     )
 
     bodies.forEach { body ->
-      val refused = refusal(register(pod, client = named("Confidential"), raw = body, caller = owner(pod, jti)))
+      val refused = refusal(register(pod, client = named("Confidential"), raw = body, caller = caller))
       assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, body.toString())
     }
-    assertNotNull(installationAuthorities.consume(pod.id, jti), "none of them spent the authority")
+    assertTrue(authorityStands(pod, caller), "none of them spent the authority")
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -405,18 +391,26 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     "grant_types" to listOf("client_credentials"),
   )
 
-  /** What the code exchange writes when the owner approves an installation. */
-  private fun recordAuthority(pod: HostedPod, jti: String) =
+  /**
+   * An owner bearer carrying one recorded, unspent installation authority — what the code exchange
+   * leaves behind when the owner approves an installation.
+   */
+  private fun installer(pod: HostedPod): SempodsCredentials {
+    val jti = randomId()
     installationAuthorities.record(pod = pod.id, jti = jti, clientId = INSTALLER, webId = pod.owner)
+    return SempodsCredentials(
+      pod = pod.ref,
+      restrictedContexts = emptySet(),
+      oauthClientId = INSTALLER,
+      oauthScopes = setOf(SERVICE_CLIENTS_SCOPE),
+      tokenJti = jti,
+      tokenSub = pod.owner,
+    )
+  }
 
-  private fun owner(pod: HostedPod, jti: String) = SempodsCredentials(
-    pod = pod.ref,
-    restrictedContexts = emptySet(),
-    oauthClientId = INSTALLER,
-    oauthScopes = setOf(SERVICE_CLIENTS_SCOPE),
-    tokenJti = jti,
-    tokenSub = pod.owner,
-  )
+  /** Whether [installer]'s authority is still there, spending it in the asking. */
+  private fun authorityStands(pod: HostedPod, caller: SempodsCredentials): Boolean =
+    installationAuthorities.consume(pod.id, checkNotNull(caller.tokenJti)) != null
 
   private fun refusal(result: PodRegistrationResult) = assertIs<PodRegistrationResult.Refused>(result)
 

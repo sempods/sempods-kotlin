@@ -16,7 +16,6 @@ import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 
 /**
  * Persistence for [PodServiceClientDbo]. The hot-path read is
@@ -52,19 +51,20 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   }
 
   /**
-   * Registers [dbo] and returns **the row as it is now stored**.
+   * Registers [dbo] and returns **the row as it is now stored**, read back through the same
+   * encoder and decoder every other read uses.
    *
-   * Two things differ from what a caller hands in. `datastore.save()` wrote the generated `_id`
-   * back into the instance it was given and `insertOne` does not, so it is minted here — the
-   * bootstrap path reads that id back, and `delete(…, expectedId)` below is a compare-and-swap
-   * over exactly this value. And `createdAt` is truncated to the milliseconds BSON has room for,
-   * so that the answer to a registration equals the answer to the next read of it
-   * (`sempods-commons-mongo/docs/document-contract.md`).
+   * `datastore.save()` wrote the generated `_id` back into the instance it was given and
+   * `insertOne` does not, so it is minted here — the bootstrap path reads that id back, and
+   * `delete(…, expectedId)` below is a compare-and-swap over exactly this value. The round trip
+   * covers the rest: a stored `Instant` carries milliseconds and an empty collection is not
+   * written at all (`sempods-commons-mongo/docs/document-contract.md`), so a registration's answer
+   * equals the answer to the next read of it without this method knowing either rule.
    */
   internal fun create(dbo: PodServiceClientDbo): PodServiceClientDbo {
-    val stored = dbo.copy(id = dbo.id ?: ObjectId(), createdAt = dbo.createdAt.truncatedTo(ChronoUnit.MILLIS))
-    serviceClients.insertOne(stored.toDocument())
-    return stored
+    val document = dbo.copy(id = dbo.id ?: ObjectId()).toDocument()
+    serviceClients.insertOne(document)
+    return document.toDbo()
   }
 
   internal fun findByClientId(podId: ObjectId, clientId: String): PodServiceClientDbo? =

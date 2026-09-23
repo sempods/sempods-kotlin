@@ -8,7 +8,6 @@ import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import java.io.IOException
-import java.net.URI
 import java.time.Instant
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PodBrowserCookies
@@ -83,27 +82,21 @@ class PodAuthEndpoint @Inject constructor(
     body: String?,
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
-    return when (val read = PodRegistrationMessages.read(registrationEndpoint(podDbo.name), body)) {
-      is PodRegistrationRead.Unreadable -> PodRegistrationResponses.refused(read.error, read.description)
-      is PodRegistrationRead.Metadata -> PodRegistrationResponses.render(
-        realm = podDbo.name,
-        result = podClientRegistration.register(
-          pod = podDbo.hosted,
-          request = PodRegistrationRequest(
-            client = read.client,
-            raw = read.raw,
-            userAgent = userAgent,
-            forwardedFor = forwardedFor,
-            caller = resolveBearerOrNull(podDbo),
-          ),
+    val result = when (val read = PodRegistrationMessages.read(body)) {
+      is PodRegistrationRead.Unreadable -> read.refusal
+      is PodRegistrationRead.Metadata -> podClientRegistration.register(
+        pod = podDbo.hosted,
+        request = PodRegistrationRequest(
+          client = read.client,
+          raw = read.raw,
+          userAgent = userAgent,
+          forwardedFor = forwardedFor,
+          caller = resolveBearerOrNull(podDbo),
         ),
       )
     }
+    return PodRegistrationResponses.render(result) { error -> buildBearerChallenge(podDbo.name, error) }
   }
-
-  /** The address AS metadata advertises as `registration_endpoint`, which is this route. */
-  private fun registrationEndpoint(podName: String): URI =
-    URI.create("${config.apiBaseUrl}$podName/_system/auth/register")
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────
 

@@ -631,12 +631,16 @@ with:
 - **Exactly once.** The authority is consumed before the client is created, so two calls arriving
   together produce one client and the loser hears what a second attempt hears: `401 invalid_token`.
   A run that dies between the two leaves neither, and the owner installs again.
+- **The three members above are all an installation may carry.** Any other is refused by name —
+  the identity, the context root and the grants are the pod's, and so is every member it has not
+  been asked about.
 - **Refusals, in the order they are asked.** A body this pod does not serve is
-  `400 invalid_client_metadata` — that covers an unauthenticated confidential registration, a
-  confidential shape other than the one above, an installer bearer sent with a public body, and a
-  body naming the identity, the place or the grants. A bearer without the scope, or one whose
-  subject no longer owns the pod, is `403 insufficient_scope`. Every refusal is decided before the
-  authority is spent.
+  `400 invalid_client_metadata` — an unauthenticated confidential registration, a confidential
+  shape other than the one above, an installer bearer sent with a public body, a body carrying a
+  member that is not on the list. A bearer without `service-clients`, or one whose subject no
+  longer owns the pod, is `403 insufficient_scope`; a spent authority is `401 invalid_token`. Each
+  carries the pod's usual RFC 6750 challenge, and every refusal is decided before the authority is
+  spent.
 
 The `dyn:` prefix and the grant types a registration response may advertise are bound to this
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)

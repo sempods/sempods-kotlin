@@ -1,17 +1,16 @@
 package org.sempods.api.pod.system.auth
 
-import com.fasterxml.jackson.core.type.TypeReference
 import jakarta.ws.rs.core.Response
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.json.JsonUtil
+import org.sempods.pods.oauth.flows.PodClientMetadata
 import org.sempods.pods.oauth.flows.PodRegistrationError
 import org.sempods.pods.oauth.flows.PodRegistrationRefusal
 import org.sempods.pods.oauth.flows.PodRegistrationResult
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import java.time.Instant
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -53,33 +52,7 @@ class PodRegistrationResponsesTest {
   fun `the answer is not cached`() {
     // The answer carries a client identity, and a shared cache holding one hands it to whoever
     // asks next.
-    val response = PodRegistrationResponses.render(REALM, client())
-
-    assertEquals("no-store", response.getHeaderString("Cache-Control"))
-  }
-
-  @Test
-  fun `a refusal carries the RFC's own code and the sentence beside it`() {
-    val response = PodRegistrationResponses.refused(
-      PodRegistrationError.INVALID_CLIENT_METADATA,
-      "logo_uri must be https",
-    )
-
-    assertEquals(400, response.status)
-    assertEquals("invalid_client_metadata", json(response)["error"])
-    assertEquals("logo_uri must be https", json(response)["error_description"])
-  }
-
-  @Test
-  fun `a refusal naming the caller's own value carries no character the field forbids`() {
-    // RFC 6749 §5.2 excludes `"` and `\` from `error_description`, and the value a refusal names
-    // came from whoever sent it.
-    val response = PodRegistrationResponses.refused(
-      PodRegistrationError.INVALID_REDIRECT_URI,
-      """redirect_uri must be https: "ftp://a\b"""",
-    )
-
-    assertEquals("redirect_uri must be https: ftp://ab", json(response)["error_description"])
+    assertEquals("no-store", render(client()).getHeaderString("Cache-Control"))
   }
 
   @Test
@@ -88,8 +61,7 @@ class PodRegistrationResponsesTest {
     // `0` is its spelling for one that never expires. `client_id_issued_at` beside it is what the
     // caller opens the grant consent with.
     val issuedAt = Instant.parse("2026-09-23T10:15:30Z")
-    val response = PodRegistrationResponses.render(
-      REALM,
+    val response = render(
       PodRegistrationResult.ServiceRegistered(
         clientId = "svc:opaque",
         clientName = "Notes Sync",
@@ -111,26 +83,48 @@ class PodRegistrationResponsesTest {
   }
 
   @Test
-  fun `a refusal about the caller's own bearer is a challenge, and carries no body`() {
-    // RFC 6750 §3 puts the error in `WWW-Authenticate`. A spent installation authority is a 401,
-    // because the way out is a new authorization; a bearer that simply does not cover this is a
-    // 403, because there is nothing to go and get.
-    val spent = PodRegistrationResponses.render(
-      REALM,
+  fun `a refusal carries the RFC's own code and the sentence beside it`() {
+    val response = render(
+      PodRegistrationResult.Refused(PodRegistrationError.INVALID_CLIENT_METADATA, "logo_uri must be https"),
+    )
+
+    assertEquals(400, response.status)
+    assertEquals("invalid_client_metadata", json(response)["error"])
+    assertEquals("logo_uri must be https", json(response)["error_description"])
+  }
+
+  @Test
+  fun `a refusal naming the caller's own value carries no character the field forbids`() {
+    // RFC 6749 §5.2 excludes `"` and `\` from `error_description`, and the value a refusal names
+    // came from whoever sent it.
+    val response = render(
+      PodRegistrationResult.Refused(
+        PodRegistrationError.INVALID_REDIRECT_URI,
+        """redirect_uri must be https: "ftp://a\b"""",
+      ),
+    )
+
+    assertEquals("redirect_uri must be https: ftp://ab", json(response)["error_description"])
+  }
+
+  @Test
+  fun `a refusal about the caller's own bearer is the pod's own challenge`() {
+    // RFC 6750 §3 puts the error in `WWW-Authenticate`, and it is built by the caller so that
+    // every 401 and 403 on this pod carries one shape. A spent installation authority is a 401,
+    // because the way out is a new authorization; a bearer that does not cover this is a 403,
+    // because there is nothing to go and get.
+    val spent = render(
       PodRegistrationResult.Unauthorized(PodRegistrationRefusal.AUTHORITY_SPENT, "already registered"),
     )
     assertEquals(401, spent.status)
-    assertNull(spent.entity)
-    val challenge = assertNotNull(spent.getHeaderString("WWW-Authenticate"))
-    assertTrue("""realm="$REALM"""" in challenge, challenge)
-    assertTrue("""error="invalid_token"""" in challenge, challenge)
+    assertEquals("challenge-for=invalid_token", spent.getHeaderString("WWW-Authenticate"))
+    assertEquals("already registered", spent.entity, "and the sentence a challenge has no room for")
 
-    val unscoped = PodRegistrationResponses.render(
-      REALM,
+    val unscoped = render(
       PodRegistrationResult.Unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "not the owner"),
     )
     assertEquals(403, unscoped.status)
-    assertTrue("""error="insufficient_scope"""" in assertNotNull(unscoped.getHeaderString("WWW-Authenticate")))
+    assertEquals("challenge-for=insufficient_scope", unscoped.getHeaderString("WWW-Authenticate"))
   }
 
   private fun client(
@@ -139,27 +133,24 @@ class PodRegistrationResponsesTest {
     contacts: List<String> = emptyList(),
   ) = PodRegistrationResult.Registered(
     clientId = "dyn:abc",
-    redirectUris = setOf("https://app.example/cb"),
-    clientName = clientName,
-    clientUri = clientUri,
-    logoUri = null,
-    softwareId = null,
-    softwareVersion = null,
-    contacts = contacts,
-    tosUri = null,
-    policyUri = null,
+    client = PodClientMetadata(
+      redirectUris = setOf("https://app.example/cb"),
+      clientName = clientName,
+      clientUri = clientUri,
+      contacts = contacts,
+    ),
   )
 
   private fun body(registered: PodRegistrationResult.Registered): Map<String, Any?> {
-    val response = PodRegistrationResponses.render(REALM, registered)
+    val response = render(registered)
     assertEquals(201, response.status)
     return json(response)
   }
 
-  private fun json(response: Response): Map<String, Any?> =
-    JsonMappers.default().readValue(response.entity as String, object : TypeReference<Map<String, Any?>>() {})
+  /** The challenge is the endpoint's to build; here it only has to be recognisable. */
+  private fun render(result: PodRegistrationResult): Response =
+    PodRegistrationResponses.render(result) { error -> "challenge-for=$error" }
 
-  private companion object {
-    private const val REALM = "alice"
-  }
+  private fun json(response: Response): Map<String, Any?> =
+    JsonMappers.default().readValue(response.entity as String, JsonUtil.dynamicTypeRef)
 }
