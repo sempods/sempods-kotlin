@@ -571,10 +571,13 @@ class PodAuthorizeFlow @Inject internal constructor(
     // What the person decided last time outranks what the client asked for this time: a request
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
     // which is all `offline_access` does — it preselects, it does not grant.
-    // Read once: the lifetime answer the control is pre-ticked from, and the count of endings the
-    // submission compares this page against.
-    val standing = consentDecisionStore.find(pod.id, normalizedClientId, identity.allUris)
-    val recordedDurable = standing?.durable
+    // Two reads, over two identity sets, and the difference is load-bearing. The control is
+    // pre-ticked from the newest answer across every URI that names the person. What the page is
+    // *bound* to comes from the subject's own document, because that is the one the submission
+    // will compare it against — read over the person here, a page rendered under a fresh alias
+    // would carry a count the submission cannot see and be refused the moment it was posted.
+    val subjectDecision = consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))
+    val recordedDurable = consentDecisionStore.find(pod.id, normalizedClientId, identity.allUris)?.durable
     val durablePreselected = recordedDurable ?: durableRequested
 
     logger.info {
@@ -608,16 +611,14 @@ class PodAuthorizeFlow @Inject internal constructor(
         codeChallengeMethod = codeChallengeMethod,
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending
         // it also requires the session cookie it was rendered beside.
-        // Bound to the subject's own document, which is what the submission will be compared
-        // against — the newest across the person's URIs is what the control above wants.
         csrfToken = consentTransactionStore.issue(
           pod.name,
           identity.webId,
-          consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))?.generation,
+          subjectDecision?.generation,
           // What this screen put to the person, so the submission can read its own kind from the
           // server rather than from a field the form carries.
           privilegedFeatures.toSet(),
-          standing?.disconnects ?: 0L,
+          subjectDecision?.disconnects ?: 0L,
         ),
         webId = identity.webId,
         contexts = contexts,

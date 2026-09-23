@@ -682,4 +682,24 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
     assertTrue(owned.held().isEmpty(), "and nothing came back")
   }
+
+
+  @Test
+  fun `an installation screen cannot be posted as a disconnect`() {
+    // The screen renders no way out, and every other field it could carry across from another
+    // dialog is refused. This is the destructive one, so it is refused too.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), action = "disconnect"),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
+  }
 }

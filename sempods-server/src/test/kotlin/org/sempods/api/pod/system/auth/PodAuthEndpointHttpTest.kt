@@ -5386,6 +5386,50 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(400, admitted.statusCode, admitted.responseBody)
   }
 
+  @Test
+  fun `a person signing in under a new alias can still consent after an earlier disconnect`() {
+    // The page is bound to the subject's own document and the submission compares it against the
+    // same one. Read over the person at render instead, a fresh alias would carry the canonical
+    // row's count, find none of its own on submission, and every page would be refused the moment
+    // it was posted — with no way back, because reopening it mints the same mismatch.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "notes")
+    val contextScope = "${contextUri(pod.name, "notes")}#read"
+
+    // The person grants and then ends it, signed in as themselves. Only that row records the end.
+    submitConsent(pod, ownerWebId, state = "first")
+    val ended = submitConsent(pod, ownerWebId, state = "ending", disconnect = true)
+    assertEquals(303, ended.statusCode, ended.responseBody)
+
+    // They come back under an alias the pod has never recorded anything for.
+    val alias = "https://id.test/oidc/${TestUtil.randomId()}"
+    val cookie = signIn(pod.name, alias, listOf(ownerWebId)).cookie
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "alias")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(200, page.statusCode, page.responseBody)
+
+    val submitted = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=alias&csrf=${enc(formToken(page.responseBody))}&scope=${enc(contextScope)}",
+      )
+      .setFollowRedirect(false).execute()
+
+    assertEquals(303, submitted.statusCode, submitted.responseBody)
+    val location = checkNotNull(submitted.getHeader("Location"))
+    assertTrue("code=" in location, "the page the server just rendered has to be postable: $location")
+  }
+
   /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
   @Suppress("UNCHECKED_CAST")
   private fun contextsReachableBy(podName: String, accessToken: String): List<String> {

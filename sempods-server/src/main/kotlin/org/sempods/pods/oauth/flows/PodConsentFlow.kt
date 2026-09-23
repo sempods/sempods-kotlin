@@ -84,6 +84,9 @@ class PodConsentFlow @Inject internal constructor(
       return PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED)
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
+    // What this screen put to the person, known as soon as the transaction is — the named actions
+    // below are answered differently on an installation screen, which offers neither of them.
+    val offeredPrivileged = transaction.offeredFeatureScopes
 
     // Ahead of the check below, which refuses a page rendered before this app was disconnected. That
     // check keeps an old page from writing grants back; a sign-out writes none, and refusing it would
@@ -126,6 +129,15 @@ class PodConsentFlow @Inject internal constructor(
     // an authorization. The empty-submission route to the same place is further down, because it
     // can only be recognised once the selection has been resolved.
     if (form.action?.trim() == DISCONNECT_ACTION) {
+      // Not from an installation screen. It renders no way out — ending an authorization it is not
+      // about is not one click's worth of decision — and every other field this form could carry
+      // across from another screen is refused below. This is the destructive one.
+      if (offeredPrivileged.isNotEmpty()) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_REQUEST,
+          "an installation screen does not end an app's access", clientState,
+        )
+      }
       return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
     }
 
@@ -141,10 +153,9 @@ class PodConsentFlow @Inject internal constructor(
       ?: emptySet()
 
     // ── A privileged feature scope is the whole of its own screen ─────────
-    // What was put to the person comes from the transaction, not from the form: it is the server's
-    // own record of which dialog this is, and it is what tells an unticked installation screen
-    // ("do not install") from an unticked ordinary one ("remove this app's access") further down.
-    val offeredPrivileged = transaction.offeredFeatureScopes
+    // What was put to the person came from the transaction rather than from the form: it is the
+    // server's own record of which dialog this is, and it is what tells an unticked installation
+    // screen ("do not install") from an unticked ordinary one ("remove this app's access") below.
     val submittedPrivileged = rawSubmitted.intersect(PodScopeValidator.privilegedFeatureScopes)
     if (!offeredPrivileged.containsAll(submittedPrivileged)) {
       logger.warn {
