@@ -35,10 +35,12 @@ internal object PodRegistrationMessages {
     val text = body?.takeIf { it.isNotBlank() } ?: EMPTY_BODY
 
     val raw = try {
+      // `readValue` answers the JSON literal `null` with `null` and no exception, so the result is
+      // a platform type and the check below is the one that keeps it out of a non-null field.
       JsonMappers.default().readValue(text, JsonUtil.dynamicTypeRef)
     } catch (_: JacksonException) {
-      return unreadable(PodRegistrationError.INVALID_CLIENT_METADATA, "malformed JSON body")
-    }
+      null
+    } ?: return unreadable(PodRegistrationError.INVALID_CLIENT_METADATA, "malformed JSON body")
 
     val metadata = try {
       ClientMetadata.parse(JSONObjectUtils.parse(text))

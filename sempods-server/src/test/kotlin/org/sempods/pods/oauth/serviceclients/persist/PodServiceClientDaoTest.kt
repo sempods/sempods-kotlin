@@ -73,6 +73,27 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `what create answers is what the next read answers`() {
+    // The contract the registration response rests on: `client_id_issued_at` comes from the value
+    // `create` hands back, and a caller that re-reads the row must see the same one. Three
+    // normalization rules meet here — a BSON date carries milliseconds, an empty collection is not
+    // written, and neither is a null — so the row is built to trip all three.
+    val created = serviceClientDao.create(
+      PodServiceClientDbo(
+        podId = probePodId,
+        clientId = "round-trip",
+        secretHash = SECRET_HASH,
+        scopes = emptySet(),
+        label = null,
+        createdAt = Instant.parse("2026-08-16T10:15:30.123456789Z"),
+      ),
+    )
+
+    assertEquals(created, serviceClientDao.findByClientId(probePodId, "round-trip"))
+    assertEquals(Instant.parse("2026-08-16T10:15:30.123Z"), created.createdAt, "BSON has no nanoseconds")
+  }
+
+  @Test
   fun `the context cascade strips scopes and leaves the registrations it empties`() {
     create("only-events", setOf("$eventsRoot#manage"))
     create("also-notes", setOf("$eventsRoot#read", "$notesRoot#manage"))

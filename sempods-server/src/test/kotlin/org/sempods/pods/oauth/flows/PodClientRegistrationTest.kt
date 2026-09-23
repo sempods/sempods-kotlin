@@ -280,7 +280,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     val refused = unauthorized(register(pod, client = named("Stranger"), raw = installation(), caller = stranger))
 
     assertEquals(PodRegistrationRefusal.NOT_AUTHORIZED, refused.reason)
-    assertTrue(authorityStands(pod, stranger), "a refusal before the authority is spent leaves it to be spent")
+    assertTrue(spendAuthority(pod, stranger), "a refusal before the authority is spent leaves it to be spent")
   }
 
   @Test
@@ -311,7 +311,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
       assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, member)
       assertTrue(member in refused.description, refused.description)
     }
-    assertTrue(authorityStands(pod, caller), "and none of them spent the authority")
+    assertTrue(spendAuthority(pod, caller), "and none of them spent the authority")
   }
 
   @Test
@@ -353,7 +353,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
       val refused = refusal(register(pod, client = named("Confidential"), raw = body, caller = caller))
       assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, body.toString())
     }
-    assertTrue(authorityStands(pod, caller), "none of them spent the authority")
+    assertTrue(spendAuthority(pod, caller), "none of them spent the authority")
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -408,8 +408,13 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     )
   }
 
-  /** Whether [installer]'s authority is still there, spending it in the asking. */
-  private fun authorityStands(pod: HostedPod, caller: SempodsCredentials): Boolean =
+  /**
+   * Whether [installer]'s authority was still there — **and spends it**, because consuming is the
+   * only way this store can be asked.
+   *
+   * So: once per test, last. A second call answers `false` whatever the subject did.
+   */
+  private fun spendAuthority(pod: HostedPod, caller: SempodsCredentials): Boolean =
     installationAuthorities.consume(pod.id, checkNotNull(caller.tokenJti)) != null
 
   private fun refusal(result: PodRegistrationResult) = assertIs<PodRegistrationResult.Refused>(result)

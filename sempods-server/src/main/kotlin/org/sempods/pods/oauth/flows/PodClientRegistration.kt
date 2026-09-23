@@ -5,8 +5,8 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.RedirectUri
 import org.sempods.commons.logging.LogSafeText
-import org.sempods.mcp.core.BearerChallenge
 import org.sempods.commons.net.ForwardedFor
+import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
@@ -119,10 +119,12 @@ class PodClientRegistration @Inject internal constructor(
     return PodRegistrationResult.Registered(
       clientId = registration.clientId,
       client = PodClientMetadata(
-        redirectUris = registration.redirectUris,
+        // Filtered on the way out, all five of them. A fingerprint hit answers with the stored
+        // row, so a value written before the rule that now refuses it would otherwise reach the
+        // answer — and an address is worse than the four below, because the answer *parses* it:
+        // a stored fragment or `?state=` is an exception where it used to be an echoed string.
+        redirectUris = registration.redirectUris.filter(RedirectUri::isValid).toSet(),
         clientName = registration.clientName,
-        // Filtered on the way out as well — see [ClientMetadataUri], which says why the check
-        // above does not cover the row this may be reading.
         clientUri = registration.clientUri?.takeIf(ClientMetadataUri::isValid),
         logoUri = registration.logoUri?.takeIf(ClientMetadataUri::isValid),
         softwareId = registration.softwareId,
@@ -201,7 +203,18 @@ class PodClientRegistration @Inject internal constructor(
       )
     }
 
-    val registered = serviceClients.registerInstallation(pod, label)
+    val registered = try {
+      serviceClients.registerInstallation(pod, label)
+    } catch (e: Exception) {
+      // The authority is gone and no client exists, which is the row the table above calls "the
+      // server dies between consuming and creating" — reached here without the process dying. The
+      // caller is told the one thing it can act on: this authorization is spent, install again.
+      logger.error(e) { "[oauth/register] Installation failed after its authority was spent: pod='${pod.name}'" }
+      return unauthorized(
+        PodRegistrationRefusal.AUTHORITY_SPENT,
+        "this authorization is spent and its registration did not complete; install again",
+      )
+    }
 
     logger.info {
       "[oauth/register] Service client installed: pod='${pod.name}', " +

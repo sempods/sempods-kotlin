@@ -216,12 +216,11 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   private fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
 
   /**
-   * `client_secret_basic` as RFC 6749 §2.3.1 spells it: both halves form-urlencoded, joined with
-   * `:`, base64-encoded.
+   * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
    *
-   * The encoding step is the whole point of having one copy. An owner-installed `client_id`
-   * carries a `:` of its own, so a test that joins the raw strings sends a username of `svc` and
-   * gets a credential failure that looks like a bug in the store.
+   * One copy, because an owner-installed `client_id` carries a `:` of its own: a test that joins
+   * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug
+   * in the store.
    */
   protected fun basicHeader(clientId: String, secret: String): String =
     "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))

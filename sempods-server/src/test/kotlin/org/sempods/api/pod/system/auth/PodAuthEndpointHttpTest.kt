@@ -190,7 +190,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       clientId = legacyId,
       registeredForPodId = checkNotNull(pod.id),
       registeredForPodName = pod.name,
-      redirectUris = setOf(redirectUri),
+      // The fragment is the one an answer cannot merely echo: building the response parses every
+      // address, and `RedirectURIValidator` refuses this one.
+      redirectUris = setOf(redirectUri, "https://app.example/cb#x"),
       clientName = clientName,
       clientUri = "javascript:alert(1)",
       logoUri = "data:text/html,<script>alert(1)</script>",
@@ -219,6 +221,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertNull(body["client_uri"], "a stored script URL must not be handed back")
     assertNull(body["logo_uri"], "a stored data URL must not be handed back")
     assertNull(body["tos_uri"], "a stored script URL must not be handed back")
+    assertEquals(listOf(redirectUri), body["redirect_uris"], "a stored address the rule refuses is dropped")
     // The one legal value on the same row survives: this filters, it does not blank the client.
     assertEquals("https://app.example/privacy", body["policy_uri"])
   }

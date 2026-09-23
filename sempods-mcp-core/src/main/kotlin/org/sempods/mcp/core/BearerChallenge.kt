@@ -19,6 +19,7 @@ object BearerChallenge {
    *   which is what most of this server sends; `insufficient_scope` where the bearer is good and
    *   does not cover the operation.
    */
+  @JvmOverloads
   fun forResource(
     realm: String,
     resource: String,

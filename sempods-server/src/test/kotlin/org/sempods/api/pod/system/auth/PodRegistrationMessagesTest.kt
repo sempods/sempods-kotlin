@@ -35,6 +35,26 @@ class PodRegistrationMessagesTest {
   }
 
   @Test
+  fun `the JSON literal null is a body, and not a hole in the reader`() {
+    // Jackson answers it with `null` and no exception, so it reaches the non-null field this
+    // projection is built from unless something says otherwise.
+    val refused = unreadable("null")
+
+    assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error)
+    assertEquals("malformed JSON body", refused.description)
+  }
+
+  @Test
+  fun `the stricter reader answers first`() {
+    // Two readers see this body: Jackson, for the map the registration row stores, and the SDK's
+    // for the typed view. The projection is only coherent while Jackson is the one that refuses
+    // first, so a body it rejects must carry its answer and not the SDK's.
+    val refused = unreadable("""{redirect_uris:["https://app.example/cb"]}""")
+
+    assertEquals("malformed JSON body", refused.description, "the SDK's JSON parser takes unquoted keys")
+  }
+
+  @Test
   fun `a member of the wrong type is refused, and named`() {
     // The client learns that the address it named was never stored.
     val refused = unreadable("""{"redirect_uris":["https://app.example/cb"],"contacts":"a@b.example"}""")

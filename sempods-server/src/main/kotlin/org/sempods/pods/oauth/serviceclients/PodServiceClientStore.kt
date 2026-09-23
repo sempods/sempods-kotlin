@@ -219,10 +219,11 @@ class PodServiceClientStore @Inject constructor(
      * The identifier class of a client this server named, held apart from the `dyn:` an
      * unauthenticated registration earns.
      *
-     * A `:` cannot occur in an operator-chosen `clientId` — `AdminPodsEndpoint` accepts
-     * `[A-Za-z0-9._-]+`, because that identifier becomes a context path segment — so the two
-     * namespaces cannot collide. RFC 6749 §2.3.1 has a client form-urlencode its `client_id`
-     * before base64-encoding the Basic credentials, which is what carries the `:` intact.
+     * The `:` is what makes the two namespaces disjoint: `AdminPodsEndpoint` accepts
+     * `[A-Za-z0-9._-]+` for an operator-chosen `clientId`, because that identifier becomes a
+     * context path segment. It survives HTTP Basic because a client encodes its credentials the
+     * way [org.sempods.client.SempodsRequestAuth] does — `docs/auth/service-clients.md`
+     * §"Token exchange".
      */
     internal const val SERVICE_CLIENT_PREFIX = "svc:"
 
