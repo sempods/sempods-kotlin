@@ -72,7 +72,9 @@ Note: `guidance` is optional. Default recommendation is SHACL-only first, then a
 
 ## Auth and Errors (IST)
 
-- valid pod app bearer token required
+- valid pod app bearer token required — any app's, except one carrying an authority granted
+  for a single operation ([`../../auth/oauth.md`](../../auth/oauth.md#installing-a-service-client)),
+  which a route spending a provider call must not accept on the strength of the bearer alone
 - endpoint returns deterministic HTTP errors for auth, input, and provider failures
 - exact status/code mapping is defined in endpoint code
 

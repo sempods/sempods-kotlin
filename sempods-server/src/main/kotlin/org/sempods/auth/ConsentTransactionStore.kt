@@ -4,7 +4,9 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsCollections
 import org.sempods.auth.core.OneTimeStore
+import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putNotNull
+import org.sempods.commons.mongo.putStrings
 import java.time.Duration
 
 /**
@@ -37,8 +39,23 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
   /**
    * @param webId whose consent screen this is. Compared against the session presenting it, so a
    *   token that travelled to another browser cannot be spent there.
+   * @param offeredFeatureScopes the privileged feature scopes this screen put to the person, empty
+   *   on an ordinary dialog. Held here rather than in a form field because it is the same question
+   *   this transaction already answers — *which screen is this* — and the answer decides how an
+   *   empty submission is read: ticking nothing on an ordinary dialog ends the app's access, and
+   *   ticking nothing on an installation dialog declines the installation and touches nothing.
+   * @param disconnects how many times this app's access had been ended when the screen was
+   *   rendered. The submission compares it with the count standing now: a page from before an
+   *   ending would hand back what the person removed, and a page that is merely older than some
+   *   other answer would not.
    */
-  data class Transaction(val pod: String, val webId: String, val consentGeneration: Long?)
+  data class Transaction(
+    val pod: String,
+    val webId: String,
+    val consentGeneration: Long?,
+    val offeredFeatureScopes: Set<String>,
+    val disconnects: Long,
+  )
 
   private val transactions = OneTimeStore(
     db = db,
@@ -50,12 +67,20 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
       put("pod", it.pod)
       put("webId", it.webId)
       putNotNull("consentGeneration", it.consentGeneration)
+      putStrings("offeredFeatureScopes", it.offeredFeatureScopes)
+      putNotNull("disconnects", it.disconnects.takeIf { count -> count > 0 })
     },
     read = {
       Transaction(
         pod = getString("pod") ?: return@OneTimeStore null,
         webId = getString("webId") ?: return@OneTimeStore null,
         consentGeneration = get("consentGeneration", Number::class.java)?.toLong(),
+        // Absent on a screen rendered before this field existed, and on every ordinary one since:
+        // the empty set is what both mean.
+        offeredFeatureScopes = getStringSet("offeredFeatureScopes"),
+        // Absent means none, which is what a screen rendered before this field existed also means:
+        // it compares equal to a document that has never recorded an ending.
+        disconnects = get("disconnects", Number::class.java)?.toLong() ?: 0L,
       )
     },
   )
@@ -66,7 +91,26 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * @return the token to put in the form.
    */
   fun issue(pod: String, webId: String, consentGeneration: Long? = null): String =
-    transactions.issue(Transaction(pod, webId, consentGeneration))
+    issue(pod, webId, consentGeneration, emptySet(), disconnects = 0)
+
+  /**
+   * The same, for a screen that puts a privileged feature scope to the person.
+   *
+   * An overload rather than a fourth parameter on the form above, which would replace the JVM
+   * descriptor that form has always had — this module is published.
+   *
+   * @param offeredFeatureScopes see [Transaction.offeredFeatureScopes].
+   * @param disconnects see [Transaction.disconnects].
+   */
+  fun issue(
+    pod: String,
+    webId: String,
+    consentGeneration: Long?,
+    offeredFeatureScopes: Set<String>,
+    disconnects: Long = 0,
+  ): String = transactions.issue(
+    Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects),
+  )
 
   /** The screen behind the token, spent in the same operation. */
   fun consume(token: String): Transaction? = transactions.consume(token)

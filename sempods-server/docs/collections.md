@@ -47,6 +47,12 @@ been submitted before, which one value cannot answer.
 
 Both exist because nothing that authenticates a person travels through the browser any more.
 
+`oauth.installationAuthorities` is a third `OneTimeStore` and the plainest use of it: one row per
+issued installer token, under the SHA-256 of that token's `jti`. Registering a service client
+consumes the row, so the authority the token carries is spent — and `findOneAndDelete` is what makes
+"once" mean once when two registration calls arrive together. Its TTL is the access token's own
+hour, derived from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS` so the row cannot outlive the bearer.
+
 ## Two collections with no field order, and one filter that misses rows
 
 Both are instances of a rule stated in the document contract, and both are this server's.

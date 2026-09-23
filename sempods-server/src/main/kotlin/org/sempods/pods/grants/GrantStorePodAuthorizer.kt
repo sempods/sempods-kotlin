@@ -20,6 +20,12 @@ import org.sempods.spec.PodRef
  * contexts, and the second half only if the token carries the scope. The consent UI pre-checks it,
  * but a user may deselect it, and then the bearer sees its explicit grants and nothing else. See
  * `SPS-GRANT-020` (sempods-spec).
+ *
+ * A token carrying one of [PodScopeValidator.privilegedFeatureScopes] reaches no data at all. That
+ * has to be said here rather than left to the scope set, because context permissions never travel
+ * in a token: a slim `service-clients` bearer would otherwise resolve whatever the same client was
+ * granted in some earlier, ordinary authorization of the same person. An installation authority
+ * arranges rights and holds none.
  */
 class GrantStorePodAuthorizer @Inject constructor(
   private val podFacade: PodFacade,
@@ -36,8 +42,11 @@ class GrantStorePodAuthorizer @Inject constructor(
       .filterNot { podScopeValidator.validate(it, podBaseUrl) is ScopeValidationResult.Context }
       .toSet()
 
+    val privileged = tokenFeatureScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     val resolved = when {
       podId == null -> ResolvedContextAccess(emptySet(), emptySet(), emptySet())
+      // Before the two resolvers, so neither is asked. See the note on this class.
+      privileged.isNotEmpty() -> ResolvedContextAccess(emptySet(), emptySet(), emptySet())
       token.isServiceClient -> podContextPermissionResolver.resolveFromServiceClient(podId, token.clientId, podBaseUrl)
       else -> podContextPermissionResolver.resolveFromGrants(podId, token.clientId, checkNotNull(token.sub), podBaseUrl)
     }
@@ -48,8 +57,14 @@ class GrantStorePodAuthorizer @Inject constructor(
     val effectiveScopes = resolved.effectiveScopes + tokenFeatureScopes
     val rawScopes = resolved.rawContextScopes + tokenFeatureScopes
 
+    // Nor the public ones. No authorization mints the two scopes together, so what this answers
+    // for is a bearer carrying both anyway.
     val publicContexts =
-      if (PUBLIC_READ_SCOPE in rawScopes) podFacade.getPublicContexts(podName = pod.name) else emptySet()
+      if (PUBLIC_READ_SCOPE in rawScopes && privileged.isEmpty()) {
+        podFacade.getPublicContexts(podName = pod.name)
+      } else {
+        emptySet()
+      }
 
     return SempodsCredentials(
       pod = pod,

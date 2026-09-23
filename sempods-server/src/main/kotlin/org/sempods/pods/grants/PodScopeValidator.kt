@@ -21,6 +21,33 @@ const val PUBLIC_READ_SCOPE = "public-read"
  */
 const val OFFLINE_ACCESS_SCOPE = "offline_access"
 
+/**
+ * OAuth scope literal by which a program asks to install a service client on this pod. It registers
+ * exactly one and holds no permission on the owner's data; the grants that service ends up with
+ * come from a consent of their own afterwards.
+ *
+ * Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator classifies it, the consent
+ * screen offers it, [GrantStorePodAuthorizer] refuses context permissions to a token carrying it,
+ * and no one of them owns it.
+ *
+ * It is the first of [PodScopeValidator.privilegedFeatureScopes], where the rules that follow from
+ * being one live.
+ */
+const val SERVICE_CLIENTS_SCOPE = "service-clients"
+
+/**
+ * Whether this bearer carries an authority granted for one named operation.
+ *
+ * Three routes ask, and none of them resolves a context: owner recognition, the gate that asks only
+ * for an app, and the MCP call that ends what a client holds. An empty sandbox answers none of
+ * them, because none of them looks at one — so what such a token may do is the scope it carries,
+ * and the question has one owner here rather than three spellings of the same `any { }`.
+ *
+ * See [PodScopeValidator.privilegedFeatureScopes].
+ */
+val SempodsCredentials.carriesPrivilegedFeature: Boolean
+  get() = oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }
+
 class PodScopeValidator {
 
   fun validate(scope: String, podBaseUrl: String): ScopeValidationResult {
@@ -91,15 +118,27 @@ class PodScopeValidator {
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
-     * follow the `<context-uri>#<permission>` grammar. `public-read` today; `ai` / `search`
-     * and similar capability gates may be added here. Keeping this an explicit allow-list is
-     * what lets the validator tell a legitimate feature scope from a typo now that access tokens
-     * carry only feature scopes (context permissions resolve server-side). See
-     * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved
-     * server-side"). Additional installer authority is proposed under
-     * https://github.com/sempods/sempods-kotlin/issues/35.
+     * follow the `<context-uri>#<permission>` grammar. `public-read` and `service-clients` today;
+     * `ai` / `search` and similar capability gates may be added here. Keeping this an explicit
+     * allow-list is what lets the validator tell a legitimate feature scope from a typo now that
+     * access tokens carry only feature scopes (context permissions resolve server-side). See
+     * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved server-side").
      */
-    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE)
+    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE)
+
+    /**
+     * The feature scopes an authorization holds only because this request asked for them.
+     *
+     * Five rules follow, and every site reads them from here instead of naming the literal again:
+     * the consent screen offers such a scope only where the request names it and never pre-ticked;
+     * the submission stores no grant for it; auto-grant cannot re-issue it; a rotation drops it;
+     * and a token carrying one resolves no context permissions at all ([GrantStorePodAuthorizer]).
+     * Together they keep an installation authority inside the one authorization it was granted in.
+     *
+     * `public-read` stays outside this set. It is additive and unprivileged, and its stored grant
+     * is what lets a reconnect skip the dialog.
+     */
+    val privilegedFeatureScopes: Set<String> = setOf(SERVICE_CLIENTS_SCOPE)
   }
 }
 

@@ -20,6 +20,8 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
+import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
@@ -52,6 +54,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val consentTransactionStore: ConsentTransactionStore,
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
+  private val podScopeValidator: PodScopeValidator,
 ) {
 
   internal fun authorize(
@@ -165,6 +168,26 @@ class PodAuthorizeFlow @Inject internal constructor(
     // of the clients in `docs/mcp/clients.md` those are is what the `[oauth/authorize]` log line
     // accumulates.
     val requestedScopes = OAuthSyntax.parseScope(request.scope)
+
+    // ── A privileged feature scope stands alone ───────────────────────────
+    // An authorization that arranges a service client never holds that service's rights: the
+    // grants come from a second consent, rendered for the identity once it exists. A request for
+    // both is a request for an installer that could write to the owner's data itself. Refused
+    // rather than trimmed — a trim hands back a narrower token than was asked for and gives the
+    // client nothing to notice it by.
+    val privilegedRequested = requestedScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
+    if (privilegedRequested.isNotEmpty()) {
+      val asked = privilegedRequested.sorted().joinToString(" ")
+      val reachesData = requestedScopes.any {
+        it == PUBLIC_READ_SCOPE || podScopeValidator.validate(it, pod.baseUrl) is ScopeValidationResult.Context
+      }
+      if (reachesData) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+          "'$asked' cannot be combined with $PUBLIC_READ_SCOPE or a context scope", clientState,
+        )
+      }
+    }
 
     // ── R1: forced re-authentication ──────────────────────────────────────
     // OIDC Core 1.0 §3.1.2.1 — `prompt=login` and `prompt=select_account` ask the upstream
@@ -312,6 +335,45 @@ class PodAuthorizeFlow @Inject internal constructor(
           "existingGrants=${existingGrants.size}"
     }
 
+    // ── An installation is always asked for ──────────────────────────────
+    // Ahead of auto-grant, which is the branch that would otherwise answer a second installation
+    // out of a standing consent. It never reaches it: the dialog is what a one-shot authority is
+    // granted in, every time.
+    if (privilegedRequested.isNotEmpty()) {
+      val asked = privilegedRequested.sorted().joinToString(" ")
+      if (!isOwner) {
+        // Alias-aware, through `isOwner` above: the person may be signed in under any URI that
+        // names them. Answered here rather than by leaving the item off the dialog, so a client
+        // asking for an authority it cannot have learns that it cannot have it.
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_SCOPE, "'$asked' is the pod owner's to grant", clientState,
+        )
+      }
+      if ("none" in promptValues) {
+        return failed(
+          redirectTarget, OAuthErrorCode.CONSENT_REQUIRED, "'$asked' is granted at the dialog", clientState,
+        )
+      }
+      return consentScreen(
+        pod = pod,
+        identity = identity,
+        normalizedClientId = normalizedClientId,
+        normalizedRedirectUri = normalizedRedirectUri,
+        state = clientState,
+        codeChallenge = trimmedCodeChallenge,
+        codeChallengeMethod = trimmedCodeChallengeMethod,
+        // The dialog shows the installation and nothing else. There is no data selection to make:
+        // a request that carried one was refused above.
+        publicContexts = emptyList(),
+        publicReadPreselected = false,
+        durableRequested = false,
+        userGrants = emptySet(),
+        existingGrants = emptySet(),
+        isOwner = true,
+        privilegedFeatures = privilegedRequested.sorted(),
+      )
+    }
+
     // ── Auto-grant when existing grants cover the request ────────────────
     // prompt=none or prompt unset: skip consent UI if grants exist.
     // prompt=consent: always show consent UI (user explicitly wants to review).
@@ -322,36 +384,38 @@ class PodAuthorizeFlow @Inject internal constructor(
     // pre-checked in the dialog, so repeat flows are one-click. /token exchanges
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)
-    // An authorization that predates the lifetime control has no decision recorded, and this branch
+    // An authorization that predates the lifetime control has no lifetime answer on record, and this branch
     // renders nothing — so it could never acquire one. Once, therefore, it falls through to the
     // dialog instead, which is where it picks one up. Only where there is a dialog to fall through
     // to: `prompt=none` has none, so it keeps its silent code and the redirect looks unchanged.
-    // What that code buys is nothing — carrying no generation, it is refused at the exchange — and
+    // What that code buys is nothing — the exchange refuses it for want of a generation or of an
+    // answer — and
     // answering `consent_required` here instead is not worth changing a live contract for a state
     // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
-    val decisionRecorded =
-      consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId)) != null
+    val decisionRecorded = consentDecisionStore
+      .find(pod.id, normalizedClientId, listOf(identity.webId))?.durable != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
-      // stay in the durable store and are resolved server-side per request; public-read is an
-      // additive persisted grant, still valid as long as the pod has public contexts.
+      // stay in the durable store and are resolved server-side per request.
       val effectiveContextGrants = existingGrants.intersect(userGrants)
-      val effectivePublicReadScope = if (
-        PUBLIC_READ_SCOPE in existingGrants &&
-        podFacade.getPublicContexts(podName = pod.name).isNotEmpty()
-      ) {
-        setOf(PUBLIC_READ_SCOPE)
-      } else {
-        emptySet()
-      }
+      // The feature scopes a row may still hand back without asking anyone. Privileged ones never
+      // can: an installation authority is granted at a dialog, every time, and a stored grant that
+      // named one would let an ordinary reconnect hand it back in silence. `public-read` keeps its
+      // own condition — it means nothing on a pod with no public context.
+      val effectiveFeatureScopes = existingGrants
+        .intersect(PodScopeValidator.featureScopes)
+        .minus(PodScopeValidator.privilegedFeatureScopes)
+        .filterTo(mutableSetOf()) {
+          it != PUBLIC_READ_SCOPE || podFacade.getPublicContexts(podName = pod.name).isNotEmpty()
+        }
       // Persist the narrowed set. `PodGrantsFacade` cascades an owner-level revocation into these
       // rows already, so this is a repair path rather than the primary enforcement: it is the
       // idempotent second chance for a cascade write that never landed (no Mongo transactions
       // here), and it keeps the store from carrying grants this branch has just decided are stale.
       // The facade re-derives after writing, so `persisted` may be narrower still if an
       // owner-level change raced us.
-      var persisted = effectiveContextGrants + effectivePublicReadScope
+      var persisted = effectiveContextGrants + effectiveFeatureScopes
       if (persisted.size != existingGrants.size) {
         persisted = podGrantsFacade.replaceAppGrants(
           pod = pod,
@@ -376,7 +440,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           pod = pod,
           clientId = normalizedClientId,
           webId = identity.webId,
-          scopes = effectivePublicReadScope,
+          scopes = effectiveFeatureScopes,
           target = redirectTarget,
           state = clientState,
           codeChallenge = trimmedCodeChallenge,
@@ -470,11 +534,17 @@ class PodAuthorizeFlow @Inject internal constructor(
 
   /**
    * What the consent dialog shows. Reached by the ordinary authorize path (per-context scope
-   * checkboxes plus an optional public-read toggle) and by the public-read path
-   * (`scope=public-read&prompt=consent`, where [publicReadPreselected] is true).
+   * checkboxes plus an optional public-read toggle), by the public-read path
+   * (`scope=public-read&prompt=consent`, where [publicReadPreselected] is true), and by the
+   * installation path ([privilegedFeatures] non-empty).
    *
    * For the public-read path, [userGrants] / [existingGrants] are not relevant and are empty — the
    * template only shows the public-read section.
+   *
+   * @param privilegedFeatures the privileged feature scopes this request asked for. A dialog that
+   *   carries one carries nothing else: no lifetime control, because a one-shot authority must not
+   *   be turned into a renewable one by an ordinary tick, and no way out, because ending an
+   *   authorization this screen is not about is not one click's worth of decision.
    */
   private fun consentScreen(
     pod: HostedPod,
@@ -490,6 +560,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     userGrants: Set<String>,
     existingGrants: Set<String>,
     isOwner: Boolean,
+    privilegedFeatures: List<String> = emptyList(),
   ): PodAuthorizeResult {
     val contexts = consentContexts(userGrants, existingGrants)
     val registration = if (normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) {
@@ -500,9 +571,13 @@ class PodAuthorizeFlow @Inject internal constructor(
     // What the person decided last time outranks what the client asked for this time: a request
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,
     // which is all `offline_access` does — it preselects, it does not grant.
-    val recordedDurable = consentDecisionStore
-      .find(pod.id, normalizedClientId, identity.allUris)
-      ?.durable
+    // Two reads, over two identity sets, and the difference is load-bearing. The control is
+    // pre-ticked from the newest answer across every URI that names the person. What the page is
+    // *bound* to comes from the subject's own document, because that is the one the submission
+    // will compare it against — read over the person here, a page rendered under a fresh alias
+    // would carry a count the submission cannot see and be refused the moment it was posted.
+    val subjectDecision = consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))
+    val recordedDurable = consentDecisionStore.find(pod.id, normalizedClientId, identity.allUris)?.durable
     val durablePreselected = recordedDurable ?: durableRequested
 
     logger.info {
@@ -510,13 +585,15 @@ class PodAuthorizeFlow @Inject internal constructor(
           "clientName='${registration?.clientName ?: "(unset)"}', " +
           "webId='${identity.webId}', availableContexts=${contexts.size}, " +
           "publicContexts=${publicContexts.size}, publicReadPreselected=$publicReadPreselected, " +
-          "durablePreselected=$durablePreselected"
+          "durablePreselected=$durablePreselected, " +
+          "privilegedFeatures=${privilegedFeatures.joinToString(" ").ifEmpty { "(none)" }}"
     }
     logger.info {
       "[oauth/authorize-audit] outcome=consent_ui pod='${pod.name}' " +
           "client_id='$normalizedClientId' web_id='${identity.webId}' " +
           "available_contexts=${contexts.size} existing_grants=${existingGrants.size} " +
-          "public_read_preselected=$publicReadPreselected durable_preselected=$durablePreselected"
+          "public_read_preselected=$publicReadPreselected durable_preselected=$durablePreselected " +
+          "privileged_features='${privilegedFeatures.joinToString(" ")}'"
     }
     return PodAuthorizeResult.Consent(
       PodConsentScreen(
@@ -534,12 +611,14 @@ class PodAuthorizeFlow @Inject internal constructor(
         codeChallengeMethod = codeChallengeMethod,
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending
         // it also requires the session cookie it was rendered beside.
-        // Bound to the subject's own document, which is what the submission will be compared
-        // against — the newest across the person's URIs is what the control above wants.
         csrfToken = consentTransactionStore.issue(
           pod.name,
           identity.webId,
-          consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))?.generation,
+          subjectDecision?.generation,
+          // What this screen put to the person, so the submission can read its own kind from the
+          // server rather than from a field the form carries.
+          privilegedFeatures.toSet(),
+          subjectDecision?.disconnects ?: 0L,
         ),
         webId = identity.webId,
         contexts = contexts,
@@ -553,8 +632,10 @@ class PodAuthorizeFlow @Inject internal constructor(
         // happened on a first authorization would be the same lie as saying nothing happened on a
         // later one. Asked over the person rather than over this URI, because that is what the
         // action itself clears.
-        disconnectAvailable =
-          podGrantsFacade.appGrants(pod.id, normalizedClientId, identity.allUris).isNotEmpty(),
+        disconnectAvailable = privilegedFeatures.isEmpty() &&
+            podGrantsFacade.appGrants(pod.id, normalizedClientId, identity.allUris).isNotEmpty(),
+        privilegedFeatures = privilegedFeatures,
+        lifetimeAvailable = privilegedFeatures.isEmpty(),
       ),
     )
   }

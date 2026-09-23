@@ -115,7 +115,9 @@ refreshes stay silent for both client classes.
    `PodGrants` or shows the consent UI. The dialog carries the contexts,
    the public-read toggle, the lifetime control, a way to
    [sign out](#signing-out), and — only for an app that already holds
-   something — a named way to remove its access.
+   something — a named way to remove its access. A request naming
+   `service-clients` gets a screen of its own instead; see "Installing a
+   service client" below.
 5. On success, redirects to `redirect_uri?code=...`, carrying `state` back
    exactly as it arrived where the client sent one — an empty `state=` counts
    as none (RFC 6749 §3.1).
@@ -132,11 +134,12 @@ replayable form could restore a selection the person has since
 narrowed.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
-What it carries is the two values the discovery documents advertise:
-`public-read` ("Public-read flow" below) and
+What it carries is the three values the discovery documents advertise:
+`public-read` ("Public-read flow" below), `service-clients`
+("Installing a service client" below) and
 [`offline_access`](#offline_access), which preselects the lifetime control
-rather than deciding it. Both are optional, and a delegation flow that
-sends neither is the ordinary case.
+rather than deciding it. All three are optional, and a delegation flow that
+sends none of them is the ordinary case.
 
 ## Token exchange
 
@@ -268,12 +271,16 @@ The exchange reads the decision from the store rather than from the
 authorization code, so a code carries the request and never the
 authority.
 
-An authorization that predates the control has no decision recorded, and
-its codes are refused: a code carries the generation of the consent that
-produced it, and one carrying none is not exchangeable. Every code minted
-for a person comes from an authorization that has been answered — consent
-records the answer, and auto-grant reaches its code only where one is
-already on record.
+An authorization nobody has answered has its codes refused, and there are
+two ways to be in that state. Its document may be absent, in which case the
+code carries no generation and is not exchangeable. Or the document may
+exist carrying no answer, which is what an
+[installation](#installing-a-service-client) leaves behind: it moves the
+generation without settling the lifetime question, so the exchange reads
+the answer rather than the row. Every code minted for a person otherwise
+comes from an authorization that has been answered — consent records the
+answer, and auto-grant reaches its code only where one is already on
+record.
 
 That refusal is also what makes the consent write order safe. Grants are
 written first and the answer second, so a run dying between them keeps the
@@ -289,9 +296,12 @@ with the answer either — it starts a fresh flow when the family ends,
 whatever it was told beforehand, which is the same reasoning that rules
 out `refresh_token_expires_in`. The person is told at the consent screen.
 
-Two flows mint no family at all, because nobody was asked in them: an
-anonymous `public-read` exchange and a service client's
-`client_credentials` are short-lived by construction. Authenticated
+Three flows mint no family at all. Two because nobody was asked in them:
+an anonymous `public-read` exchange and a service client's
+`client_credentials` are short-lived by construction. The third is an
+installation authority ("Installing a service client" below), where the
+refusal is the point of the flow. It makes `offline_access` a condition of
+nothing, so `SPS-AUTH-059` stands untouched by it. Authenticated
 `public-read` takes the ordinary path, and its lifetime is the consent
 answer like anybody else's.
 
@@ -425,7 +435,7 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 An unanswered lifetime question is what sends an authorization older than the
 control to the dialog, once, so it can acquire an answer at all; afterwards the
 auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
-code — but that code carries no generation and the token endpoint refuses it
+code — but the token endpoint refuses it, for want of a generation or of an answer
 ([`#offline_access`](#offline_access)). The redirect still carries a `code`, and
 spending it answers `invalid_grant`; the flow works again once the person has
 answered once, and does not arise at all on a pod that has run the clearing step
@@ -533,6 +543,44 @@ one place the rest of the value is read — it requires `public-read` and
 nothing else, so `scope=public-read <context>#read` without a session is
 `login_required` rather than an anonymous code. At token issuance and at
 resource access the union semantics described there apply.
+
+## Installing a service client
+
+`/authorize?scope=service-clients` asks the pod owner for the authority to register **one** service
+client. It is the first of the two consents an installation takes; the second grants that service
+its contexts once it exists, and is open work
+([#127](https://github.com/sempods/sempods-kotlin/issues/127)).
+
+- **The owner's to grant.** Ownership is alias-aware — any URI that names the owner does — and
+  anyone else is answered `invalid_scope`.
+- **It stands alone.** `service-clients` beside `public-read` or a context scope is refused rather
+  than trimmed: an installer that could read the owner's data is not the thing being asked for.
+  `offline_access` beside it is ignored, because the control it preselects is not on the screen.
+- **A screen of its own.** The dialog offers the installation unticked and carries no context rows,
+  no public-read toggle, no way to build a context, no lifetime control and no way out. Ticking
+  nothing declines the installation and leaves whatever that app already holds exactly as it was,
+  and a submission carrying any of the fields this screen does not render is refused rather than
+  obeyed — the disconnect included, which is the one that would remove something.
+- **It answers nothing else.** Both consents write the same `(pod, client, person)` decision, and an
+  installation moves only its generation: a lifetime answer already on record survives, and where
+  none is on record none is written. A `durable = false` for a question the screen never asked would
+  read as a withdrawal at the next rotation and end a connection the owner still wanted.
+- **Asked every time.** A standing consent never answers it: `prompt=none` is `consent_required`,
+  and a stored grant naming the scope is dropped rather than re-issued.
+- **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
+  and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
+  second registration finds nothing — concurrent calls included.
+- **No data at any point, and no capability either.** A token carrying the scope resolves no
+  context permissions and no public contexts, whether or not it has been spent: `GET
+  {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
+  person. It is not recognised as the pod owner, though its `sub` names them — recognition is a
+  catch-all allow, and a bearer holding it could create and delete contexts across the whole pod.
+  And it does not pass a gate that asks only for an app, which is how the AI routes ask: an empty
+  sandbox is no answer where nobody consults one.
+
+The protected registration route this authority is spent at does not exist yet
+([#126](https://github.com/sempods/sempods-kotlin/issues/126)). Until it does, the scope is
+requestable and grants nothing.
 
 ## Protected Resource Metadata (RFC 9728)
 

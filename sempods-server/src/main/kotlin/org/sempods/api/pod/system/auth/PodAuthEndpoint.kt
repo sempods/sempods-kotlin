@@ -299,7 +299,7 @@ class PodAuthEndpoint @Inject constructor(
   /**
    * Where the id-server sends the browser back after a sign-in this server started.
    *
-   * Everything of substance is server-side: `state` names a request parked by [runAuthorize], and
+   * Everything of substance is server-side: `state` names a request parked by [PodAuthorizeFlow.authorize], and
    * the identity is fetched from the id-server's token endpoint with a verifier that never
    * travelled through the browser and checked against the nonce that flow sent. What arrived here
    * is a code, which is worth nothing without both.

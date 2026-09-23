@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.mcp
 
 import com.google.inject.Inject
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.CapturedLog
@@ -3291,5 +3292,60 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val body = response.responseBody
     assertTrue(body.contains("\"isError\":true"), "an unknown argument must be a tool error, was: $body")
     assertTrue(body.contains("bogus"), "the error must name the offending argument, was: $body")
+  }
+
+
+  @Test
+  fun `tools call authorize with reauthorize=true ends nothing for an installation authority`() {
+    // `authorize` is the one MCP tool that changes state on the strength of the bearer's identity
+    // rather than of a context. An installation authority carries the same client and person as
+    // the app's ordinary connection, so without the scope check it would end it.
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, _) = createContextWithToken(pod, "main-${TestUtil.randomId()}")
+    val webId = "https://id.test/user"
+    val clientId = "did:web:test.example"
+    val scopes = setOf("${contextUri}#read")
+    val installer = mintScopedToken(pod.name, listOf(SERVICE_CLIENTS_SCOPE), webId = webId)
+    podGrantsDao.addGrants(
+      podId = checkNotNull(pod.id),
+      appId = clientId,
+      webId = webId,
+      grants = scopes,
+      grantedBy = webId,
+    )
+    val refreshToken = refreshTokenStore.issueNewFamily(
+      pod = pod.podId(),
+      podName = pod.name,
+      clientId = clientId,
+      webId = webId,
+      scopes = emptySet(),
+      lifetime = PodRefreshTokenStore.Lifetime.DURABLE,
+    ).plaintext
+
+    val response = httpClient.preparePost(mcpUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $installer")
+      .setBody(
+        objectMapper.writeValueAsString(
+          mapOf(
+            "jsonrpc" to "2.0",
+            "id" to 123,
+            "method" to "tools/call",
+            "params" to mapOf("name" to "authorize", "arguments" to mapOf("reauthorize" to true)),
+          ),
+        ),
+      )
+      .execute()
+    assertEquals(401, response.statusCode, response.responseBody)
+
+    // The app's own connection is untouched: this bearer was granted one registration, not the
+    // authority to end what the client it belongs to holds.
+    val refreshResponse = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token" +
+        "&refresh_token=${URLEncoder.encode(refreshToken, "UTF-8")}" +
+        "&client_id=${URLEncoder.encode(clientId, "UTF-8")}",
+    )
+    assertEquals(200, refreshResponse.statusCode, refreshResponse.responseBody)
   }
 }

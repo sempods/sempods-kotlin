@@ -78,16 +78,34 @@ class PodTokenIssuer(
    * An overload rather than a defaulted parameter on the public form, which would replace the JVM
    * descriptor that form has always had.
    */
-  internal fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>, ttlSeconds: Long): String {
-    return issueToken(
-      pod = pod,
-      subject = webId,
-      clientId = clientId,
-      scopes = scopes,
-      ttlSeconds = ttlSeconds,
-      clientType = null,
-    )
-  }
+  internal fun issue(pod: String, webId: String, clientId: String, scopes: Set<String>, ttlSeconds: Long): String =
+    issueWithId(pod, webId, clientId, scopes, ttlSeconds).token
+
+  /**
+   * The same, for a caller that has something to record against the token it just handed out.
+   *
+   * `PodInstallationAuthorityStore` is that caller: an installation authority is one row per
+   * issued installer token, and the `jti` is what names it. Reading the claim back off the
+   * serialized token would put a JWT library in the layer that decides — see
+   * `PodOAuthFlowsBoundaryTest`.
+   */
+  internal fun issueWithId(
+    pod: String,
+    webId: String,
+    clientId: String,
+    scopes: Set<String>,
+    ttlSeconds: Long,
+  ): IssuedToken = issueToken(
+    pod = pod,
+    subject = webId,
+    clientId = clientId,
+    scopes = scopes,
+    ttlSeconds = ttlSeconds,
+    clientType = null,
+  )
+
+  /** A signed access token and the `jti` it carries. */
+  internal data class IssuedToken(val token: String, val jti: String)
 
   /**
    * Issues a pod-scoped service access token (OAuth `client_credentials`).
@@ -112,7 +130,7 @@ class PodTokenIssuer(
       scopes = scopes,
       ttlSeconds = ttlSeconds,
       clientType = SERVICE_CLIENT_TYPE,
-    )
+    ).token
   }
 
   /**
@@ -260,8 +278,9 @@ class PodTokenIssuer(
     scopes: Set<String>,
     ttlSeconds: Long,
     clientType: String?,
-  ): String {
+  ): IssuedToken {
     val now = Instant.now()
+    val jti = UUID.randomUUID().toString()
     val issuer = "${apiBaseUrl.trimEnd('/')}/$pod/"
 
     val header = JWSHeader.Builder(JWSAlgorithm.RS256)
@@ -274,13 +293,13 @@ class PodTokenIssuer(
       .claim("scope", scopes.joinToString(" "))
       .issueTime(Date.from(now))
       .expirationTime(Date.from(now.plusSeconds(ttlSeconds)))
-      .jwtID(UUID.randomUUID().toString())
+      .jwtID(jti)
     if (clientType != null) {
       claimsBuilder.claim("client_type", clientType)
     }
     val jwt = SignedJWT(header, claimsBuilder.build())
     jwt.sign(RSASSASigner(signingKey))
-    return jwt.serialize()
+    return IssuedToken(token = jwt.serialize(), jti = jti)
   }
 
   companion object {

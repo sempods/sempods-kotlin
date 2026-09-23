@@ -15,6 +15,7 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
+import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopePermission
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -83,6 +84,9 @@ class PodConsentFlow @Inject internal constructor(
       return PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED)
     }
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
+    // What this screen put to the person, known as soon as the transaction is — the named actions
+    // below are answered differently on an installation screen, which offers neither of them.
+    val offeredPrivileged = transaction.offeredFeatureScopes
 
     // Ahead of the check below, which refuses a page rendered before this app was disconnected. That
     // check keeps an old page from writing grants back; a sign-out writes none, and refusing it would
@@ -104,16 +108,18 @@ class PodConsentFlow @Inject internal constructor(
     // that is merely older than the current answer, on an authorization that still holds
     // something, submits as it always did. A page that would resurrect a disconnected app does
     // not.
-    val standing = consentDecisionStore
-      .find(pod.id, normalizedClientId, listOf(identity.webId))
-      ?.generation
+    //
+    // Asked as the count of endings rather than as a moved generation, because the generation moves
+    // for things that remove nothing — an installation, a forced review — and an ordinary page open
+    // beside one of those has lost nothing and must still submit.
+    val standingDecision = consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))
     // Read once: the disconnect below asks the same question, and two reads could disagree.
     val holdsAnything = holdsAnything(pod, normalizedClientId, identity)
-    if (transaction.consentGeneration != standing && !holdsAnything) {
+    if (transaction.disconnects != (standingDecision?.disconnects ?: 0L)) {
       logger.info {
         "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${pod.name}', " +
-            "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
-            "standing=${standing ?: "(none)"})"
+            "clientId='$normalizedClientId', renderedAfter=${transaction.disconnects}, " +
+            "standing=${standingDecision?.disconnects ?: 0L})"
       }
       return PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED)
     }
@@ -123,6 +129,15 @@ class PodConsentFlow @Inject internal constructor(
     // an authorization. The empty-submission route to the same place is further down, because it
     // can only be recognised once the selection has been resolved.
     if (form.action?.trim() == DISCONNECT_ACTION) {
+      // Not from an installation screen. It renders no way out — ending an authorization it is not
+      // about is not one click's worth of decision — and every other field this form could carry
+      // across from another screen is refused below. This is the destructive one.
+      if (offeredPrivileged.isNotEmpty()) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_REQUEST,
+          "an installation screen does not end an app's access", clientState,
+        )
+      }
       return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
     }
 
@@ -136,6 +151,39 @@ class PodConsentFlow @Inject internal constructor(
       ?.filter { it.isNotBlank() }
       ?.toSet()
       ?: emptySet()
+
+    // ── A privileged feature scope is the whole of its own screen ─────────
+    // What was put to the person came from the transaction rather than from the form: it is the
+    // server's own record of which dialog this is, and it is what tells an unticked installation
+    // screen ("do not install") from an unticked ordinary one ("remove this app's access") below.
+    val submittedPrivileged = rawSubmitted.intersect(PodScopeValidator.privilegedFeatureScopes)
+    if (!offeredPrivileged.containsAll(submittedPrivileged)) {
+      logger.warn {
+        "[oauth/consent] rejected: a privileged feature scope this screen did not offer " +
+            "(pod='${pod.name}', clientId='$normalizedClientId', " +
+            "submitted='${submittedPrivileged.sorted().joinToString(" ")}')"
+      }
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+        "'${submittedPrivileged.sorted().joinToString(" ")}' was not offered on this screen", clientState,
+      )
+    }
+    if (offeredPrivileged.isNotEmpty()) {
+      return installation(
+        pod = pod,
+        clientId = normalizedClientId,
+        identity = identity,
+        form = form,
+        target = redirectTarget,
+        state = clientState,
+        session = session,
+        offered = offeredPrivileged,
+        submitted = submittedPrivileged,
+        rawSubmitted = rawSubmitted,
+        isOwner = isOwner,
+      )
+    }
+
     val publicReadRequested = PUBLIC_READ_SCOPE in rawSubmitted
     val perContextSubmitted = rawSubmitted - PUBLIC_READ_SCOPE
     val newContextsRequested = form.newContexts
@@ -334,6 +382,82 @@ class PodConsentFlow @Inject internal constructor(
   }
 
   /**
+   * What an installation dialog's submission is worth.
+   *
+   * **It writes no grant.** An installer never holds the rights it arranges: the code carries the
+   * feature scope alone, and the service it is about to create is granted its contexts at a
+   * consent of its own. The app's standing grants are left exactly as they were, which is why this
+   * sits ahead of every path below that treats an empty selection as a disconnect — the person
+   * declined an installation, they did not end an authorization.
+   *
+   * The decision is still recorded, because a code carrying no generation is refused at the
+   * exchange — but it answers nothing about how long this app stays connected. The screen has no
+   * lifetime control, and writing `false` for a question nobody was asked would end a durable
+   * family the app already holds. `PodConsentDecisionStore.recordWithoutLifetime` is that write.
+   *
+   * @param offered what the screen put to the person, which the refusals name. [submitted] is what
+   *   came back of it, and an empty one is the person saying no.
+   */
+  private fun installation(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+    form: PodConsentForm,
+    target: Redirectable,
+    state: String?,
+    session: PodTokenIssuer.SessionPrincipal,
+    offered: Set<String>,
+    submitted: Set<String>,
+    rawSubmitted: Set<String>,
+    isOwner: Boolean,
+  ): PodConsentResult {
+    // Authority first, then what the submission is shaped like, then what it says. The screen was
+    // rendered for an owner; a session that stopped being one in between decides nothing here.
+    val asked = offered.sorted().joinToString(" ")
+    if (!isOwner) {
+      return failed(target, OAuthErrorCode.INVALID_SCOPE, "'$asked' is the pod owner's to grant", state)
+    }
+    // An installation selects no data and creates no context. The request that opened this screen
+    // was refused if it asked for both, and a submission that asks for both is refused here.
+    if (rawSubmitted != submitted || !form.newContexts.isNullOrEmpty() || !form.newContextScopes.isNullOrEmpty()) {
+      return failed(
+        target, OAuthErrorCode.INVALID_SCOPE,
+        "'$asked' cannot be combined with access to data", state,
+      )
+    }
+    if (form.durable) {
+      return failed(target, OAuthErrorCode.INVALID_SCOPE, "'$asked' is granted once and does not renew", state)
+    }
+    if (submitted.isEmpty()) {
+      logger.info {
+        "[oauth/consent] Installation declined: pod='${pod.name}', clientId='$clientId', " +
+            "webId='${identity.webId}'"
+      }
+      return failed(target, OAuthErrorCode.ACCESS_DENIED, "installation declined", state)
+    }
+
+    val decision = recordDecisionWithoutLifetime(pod, clientId, identity)
+    logger.info {
+      "[oauth/consent] Installation authorized: pod='${pod.name}', clientId='$clientId', " +
+          "webId='${identity.webId}', scopes='${submitted.sorted().joinToString(" ")}', " +
+          "generation=${decision.generation}"
+    }
+    return codes.issue(
+      pod = pod,
+      clientId = clientId,
+      webId = identity.webId,
+      scopes = submitted,
+      target = target,
+      state = state,
+      codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
+      codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
+      via = PodCodeIssuance.INSTALLATION,
+      consentGeneration = decision.generation,
+      session = session,
+    ).asResult()
+  }
+
+  /**
    * The three ways to ask for the way out, answered once.
    *
    * The named action and a submission that ticks nothing mean the same thing, and both end the
@@ -379,6 +503,39 @@ class PodConsentFlow @Inject internal constructor(
   }
 
   /**
+   * [recordDecision] for the one write that ends what this app holds, which is what a stale page is
+   * compared against.
+   */
+  private fun recordDisconnect(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+  ): PodConsentDecisionStore.Decision {
+    val forSubject = consentDecisionStore.recordDisconnect(pod.id, clientId, identity.webId)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.recordDisconnect(pod.id, clientId, alias)
+    }
+    return forSubject
+  }
+
+  /**
+   * [recordDecision] for a dialog that put no lifetime question to the person.
+   *
+   * Written under every URI that names them for the same reason the other one is.
+   */
+  private fun recordDecisionWithoutLifetime(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+  ): PodConsentDecisionStore.Decision {
+    val forSubject = consentDecisionStore.recordWithoutLifetime(pod.id, clientId, identity.webId)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.recordWithoutLifetime(pod.id, clientId, alias)
+    }
+    return forSubject
+  }
+
+  /**
    * Whether this app holds anything for this person — the question that decides both whether the
    * way out is offered and whether taking it means anything. Asked over every URI that names the
    * person: an authorization stored under an alias is one they can still end.
@@ -414,7 +571,7 @@ class PodConsentFlow @Inject internal constructor(
         grantedBy = identity.webId,
       )
     }
-    val decision = recordDecision(pod, clientId, identity, durable = false)
+    val decision = recordDisconnect(pod, clientId, identity)
     val revoked = refreshTokenStore.revokeForUser(pod.id, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${pod.name}', clientId='$clientId', " +

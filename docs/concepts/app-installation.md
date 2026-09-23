@@ -1,8 +1,11 @@
 # Service-client provisioning and connection consent
 
 A service client currently needs host-operator provisioning.
-[Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the proposed pod-OAuth flow and its
-implementation iterations; it is not available yet.
+[Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the pod-OAuth flow
+that is to replace it, and its implementation iterations. The first of that flow's two consents is
+implemented: an owner can grant an installation authority at `/authorize`, described in
+[`../auth/oauth.md`](../auth/oauth.md#installing-a-service-client). The registration route that
+authority is spent at is not, so the flow as a whole is not available yet.
 
 ## Provisioning by the operator
 

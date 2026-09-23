@@ -32,8 +32,9 @@ Service clients are **registered out-of-band**, not via RFC 7591 DCR:
   requests run a dummy bcrypt verification so timing does not leak
   which clientIds exist.
 - Scopes are fixed at registration and restricted: only per-context
-  scopes (`<context-iri>#read|write|manage`) are accepted — no OIDC
-  scopes and no `public-read`. A service client is confined to the
+  scopes (`<context-iri>#read|write|manage`) are accepted. An OIDC scope
+  is refused, and so is every feature scope — `public-read` and
+  `service-clients` alike. A service client is confined to the
   subtree its `manage` root names, and that subtree can never be all of
   them: a `manage` root is refused when it sits at or above the context
   namespace `<pod>/_system/contexts`, because the slash-delimited rule

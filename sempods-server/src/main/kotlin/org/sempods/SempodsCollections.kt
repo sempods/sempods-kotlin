@@ -76,6 +76,9 @@ internal object SempodsCollections {
   /** One consent screen, once. */
   const val OAUTH_CONSENT_TRANSACTIONS = "oauth.consentTransactions"
 
+  /** The right to register one service client, spent on use — `(jti)`. */
+  const val OAUTH_INSTALLATION_AUTHORITIES = "oauth.installationAuthorities"
+
   /** Authorization codes. Owned by `:sempods-auth-core`; named there so all three services agree. */
   const val OAUTH_AUTH_CODES = SempodsAuthCoreModule.AUTHORIZATION_CODES
 
@@ -104,6 +107,7 @@ internal object SempodsCollections {
     OAUTH_SIGN_OUTS,
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,
+    OAUTH_INSTALLATION_AUTHORITIES,
     OAUTH_AUTH_CODES,
     OAUTH_REAUTH_CHALLENGES,
   )

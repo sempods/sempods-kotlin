@@ -7,6 +7,7 @@ import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -16,6 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -204,7 +206,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertEquals("app disconnected", delivery.description)
     assertTrue(owned.held().isEmpty(), "the grants go")
     val decision = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
-    assertTrue(!decision.durable, "a silence would read as an authorization that predates the control")
+    assertEquals(false, decision.durable, "a silence would read as an authorization that predates the control")
     assertTrue(decision.generation > before, "the generation moves, so a code minted before it cannot redeem")
   }
 
@@ -317,7 +319,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
 
     val decision = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
-    assertTrue(!decision.durable)
+    assertEquals(false, decision.durable, "the ordinary dialog asked, and this is the answer")
   }
 
   @Test
@@ -426,5 +428,278 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
     issuedCode(result)
     assertEquals(setOf(owned.readScope), owned.held())
+  }
+
+  // ── The installation screen's submission ───────────────────────────────────
+
+  @Test
+  fun `an approved installation mints a code for the feature scope and grants nothing`() {
+    val owned = Owned()
+
+    val code = issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val entry = assertNotNull(authorizationCodeStore.consume(code))
+    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), entry.scopes)
+    assertEquals(emptySet(), owned.held(), "an installer holds none of the rights it arranges")
+    assertNotNull(entry.consentGeneration, "a code with no generation is refused at the exchange")
+  }
+
+  @Test
+  fun `an installation the person left unticked declines it and ends nothing`() {
+    // The shape this closes: ticking nothing on an ordinary screen disconnects the app. On this
+    // screen it means "do not install", and an app's standing access is not what was being asked
+    // about.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), scopes = null, durable = false),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
+    assertEquals("installation declined", delivery.description)
+    assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
+  }
+
+  @Test
+  fun `an installation submitted beside a context scope is refused`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE, owned.readScope),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held(), "and nothing was rewritten on the way out")
+  }
+
+  @Test
+  fun `an installation asking to create a context is refused`() {
+    val owned = Owned()
+    val path = "installer-${randomId()}"
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          newContexts = listOf(path),
+          newContextScopes = listOf("$path#write"),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+  }
+
+  @Test
+  fun `an installation claiming the lifetime control is refused`() {
+    // The control is off the screen. A hand-built post is what is left, and the rule answers it.
+    val owned = Owned()
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = true,
+        ),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains("does not renew"), delivery.description)
+  }
+
+  @Test
+  fun `the installer scope on a screen that never offered it is refused`() {
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held())
+  }
+
+  @Test
+  fun `an installation approved by someone who does not own the pod is refused`() {
+    val owned = Owned()
+    val stranger = PodTokenIssuer.SessionPrincipal(
+      "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
+    )
+    val ticket = consentTransactionStore.issue(
+      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_SCOPE),
+    )
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        stranger,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
+    assertTrue(delivery.description.contains("owner"), delivery.description)
+  }
+
+
+  @Test
+  fun `an installation leaves the lifetime answer this app already carries`() {
+    // What this closes: the installation screen shares a consent document with the ordinary one.
+    // Writing `durable = false` into it for a question nobody was asked is a withdrawal, and
+    // `PodTokenExchange.endsOnRefusal` reads it as one — the app's durable family dies at its next
+    // refresh because its owner installed something.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+    owned.answered(durable = true)
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val standing = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
+    assertEquals(true, standing.durable, "the installation screen asked nothing about the connection")
+  }
+
+  @Test
+  fun `an installation on an authorization nobody has answered still answers nothing`() {
+    // The other half, and the one a preserved-if-present fix would miss: no answer on record is a
+    // state of its own, and a family grandfathered onto the long terms is left alone only while it
+    // stays that way.
+    val owned = Owned()
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val standing = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
+    assertNull(standing.durable, "a refusal nobody gave is not the answer to a question nobody asked")
+    assertTrue(standing.generation > 0, "and the code still has a generation to be bound to")
+  }
+
+
+  @Test
+  fun `an installation does not expire an ordinary page opened beside it`() {
+    // The generation is shared, the grants are not. An installation moves the first and clears
+    // nothing, so the page somebody had open for the same app has lost nothing and must still
+    // submit — screens coexist on purpose.
+    val owned = Owned()
+    val pageOpenedFirst = owned.ticket()
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(csrf = pageOpenedFirst, scopes = listOf(owned.readScope)),
+        owned.session,
+      ),
+    )
+    assertEquals(setOf(owned.readScope), owned.held(), "the page wrote the selection it carried")
+  }
+
+
+
+  @Test
+  fun `a page from before the app held anything cannot write grants back after a disconnect`() {
+    // The narrowing that let an installation through must not let this through with it: this page
+    // was rendered when there was nothing to lose, but by the time it submits the person has
+    // granted access in one tab and ended it in another. What it would write is what they removed.
+    val owned = Owned()
+    val pageOpenedFirst = owned.ticket()
+
+    issuedCode(
+      flow.submit(owned.pod, form(csrf = owned.ticket(), scopes = listOf(owned.readScope)), owned.session),
+    )
+    redirectedError(flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session))
+    assertTrue(owned.held().isEmpty(), "the disconnect landed")
+
+    assertEquals(
+      PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED),
+      flow.submit(owned.pod, form(csrf = pageOpenedFirst, scopes = listOf(owned.readScope)), owned.session),
+    )
+    assertTrue(owned.held().isEmpty(), "and nothing came back")
+  }
+
+
+  @Test
+  fun `an installation screen cannot be posted as a disconnect`() {
+    // The screen renders no way out, and every other field it could carry across from another
+    // dialog is refused. This is the destructive one, so it is refused too.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+
+    val delivery = redirectedError(
+      flow.submit(
+        owned.pod,
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), action = "disconnect"),
+        owned.session,
+      ),
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, delivery.code)
+    assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
   }
 }

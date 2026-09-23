@@ -197,4 +197,36 @@ class GrantStorePodAuthorizerTest {
     assertEquals(emptySet(), credentials.restrictedContexts)
     verify(exactly = 0) { resolver.resolveFromGrants(any(), any(), any(), any()) }
   }
+
+  // --- an installation authority reaches nothing ------------------------------------------------
+
+  @Test
+  fun `an installer token resolves no contexts, whatever the same client was granted`() {
+    // The case this exists for: context permissions never travel in a token, so a slim
+    // `service-clients` bearer would otherwise pick up whatever this client holds for this person
+    // from an earlier, ordinary authorization. An installer arranges rights and holds none.
+    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns grants(ctx("tasks"))
+
+    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_SCOPE))
+
+    assertEquals(emptySet(), credentials.restrictedContexts)
+    verify(exactly = 0) { resolver.resolveFromGrants(any(), any(), any(), any()) }
+  }
+
+  @Test
+  fun `an installer token sees no public contexts either`() {
+    // No authorization mints the two together — the request is refused — and this says so here
+    // rather than resting on that refusal.
+    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_SCOPE, "public-read"))
+
+    assertEquals(emptySet(), credentials.restrictedContexts)
+    verify(exactly = 0) { podFacade.getPublicContexts(podName = any()) }
+  }
+
+  @Test
+  fun `the scope itself still travels, so a route can ask what the bearer is for`() {
+    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns noGrants
+
+    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), authorizer.authorize(pod, userToken(SERVICE_CLIENTS_SCOPE)).oauthScopes)
+  }
 }

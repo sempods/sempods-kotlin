@@ -1,6 +1,7 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import com.nimbusds.jwt.SignedJWT
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
 import org.sempods.SempodsUriBuilder
@@ -11,12 +12,14 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.PodId
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -51,6 +54,9 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var refreshTokenStore: PodRefreshTokenStore
+
+  @Inject
+  private lateinit var installationAuthorities: PodInstallationAuthorityStore
 
   @Inject
   private lateinit var podGrantsFacade: PodGrantsFacade
@@ -401,4 +407,153 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       scopes = setOf("${sempodsUriBuilder.buildContext(pod.name, "apps/notes")}#manage"),
       label = "notes-app",
     )
+
+  // ── the installation authority ────────────────────────────────────────────
+
+  @Test
+  fun `an installation code is answered without a refresh token`() {
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+
+    val result = issued(authorized.redeem(code))
+
+    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), result.scopes)
+    assertNull(result.refreshToken, "an authority that could be renewed would not be one-shot")
+    assertEquals(
+      emptySet(),
+      refreshTokenStore.liveFamilies(authorized.podId, clientId, listOf(authorized.webId)),
+      "and no family was seeded behind it either",
+    )
+  }
+
+  @Test
+  fun `an installation whose consent answered durable still gets no family`() {
+    // The lifetime control is off the installation screen, and this is the other end of that rule:
+    // an answer recorded by some earlier ordinary authorization of the same app cannot reach in and
+    // make this authority renewable.
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = true), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+
+    val result = issued(authorized.redeem(code))
+
+    assertNull(result.refreshToken)
+    assertEquals(
+      emptySet(),
+      refreshTokenStore.liveFamilies(authorized.podId, clientId, listOf(authorized.webId)),
+    )
+  }
+
+  @Test
+  fun `a code carrying an installation authority beside another scope is refused`() {
+    val authorized = Authorized()
+    val code = authorized.code(
+      authorized.answer(durable = false),
+      scopes = setOf(SERVICE_CLIENTS_SCOPE, PUBLIC_READ_SCOPE),
+    )
+
+    val refusal = refused(authorized.redeem(code))
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refusal.code)
+    assertEquals("an installation authority cannot be combined with another scope", refusal.description)
+  }
+
+  @Test
+  fun `the authority an installation token carries is spent once`() {
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+
+    val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
+
+    assertNotNull(
+      installationAuthorities.consume(authorized.podId, jti),
+      "whoever registers first holds the authority",
+    )
+    assertNull(
+      installationAuthorities.consume(authorized.podId, jti),
+      "and the bearer is worth nothing afterwards",
+    )
+  }
+
+  @Test
+  fun `an ordinary code writes no installation authority`() {
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = false))
+
+    val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
+
+    assertNull(installationAuthorities.consume(authorized.podId, jti))
+  }
+
+  @Test
+  fun `a refresh row carrying an installation authority loses it when it rotates`() {
+    // No path in this server writes such a row — an installation seeds no family. This answers for
+    // one written before the rule, and it is the second half of the promise the code exchange makes.
+    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE))
+    val seeded = refreshTokenStore.issueNewFamily(
+      pod = authorized.podId,
+      podName = authorized.pod.name,
+      clientId = clientId,
+      webId = authorized.webId,
+      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE),
+      lifetime = PodRefreshTokenStore.Lifetime.SESSION,
+    )
+
+    val rotated = issued(authorized.refresh(seeded.plaintext))
+
+    assertEquals(setOf(PUBLIC_READ_SCOPE), rotated.scopes)
+  }
+
+  @Test
+  fun `a refresh cannot be down-scoped to an installation authority`() {
+    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE))
+    val seeded = refreshTokenStore.issueNewFamily(
+      pod = authorized.podId,
+      podName = authorized.pod.name,
+      clientId = clientId,
+      webId = authorized.webId,
+      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE),
+      lifetime = PodRefreshTokenStore.Lifetime.SESSION,
+    )
+
+    val refusal = refused(authorized.refresh(seeded.plaintext, scope = SERVICE_CLIENTS_SCOPE))
+
+    assertEquals(OAuthErrorCode.INVALID_SCOPE, refusal.code)
+  }
+
+  /** The `jti` the access token carries — what an installation authority is filed under. */
+  private fun jtiOf(accessToken: String): String =
+    checkNotNull(SignedJWT.parse(accessToken).jwtClaimsSet.jwtid) { "an access token always carries a jti" }
+
+
+  @Test
+  fun `an installation does not end a durable family the same app holds`() {
+    // The two consents share one decision document. This is what the installation screen must not
+    // be able to do to a connection it never asked about.
+    val authorized = Authorized()
+    val tokens = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
+    val refreshToken = assertNotNull(tokens.refreshToken)
+
+    // What `PodConsentFlow.installation` writes when the owner approves an installation.
+    consentDecisionStore.recordWithoutLifetime(authorized.podId, clientId, authorized.webId)
+
+    val rotated = issued(authorized.refresh(refreshToken))
+    assertNotNull(rotated.refreshToken, "the durable connection was never withdrawn")
+  }
+
+
+  @Test
+  fun `a code from an authorization nobody has answered is refused, generation or not`() {
+    // Grants on record and no lifetime answer is a state of its own — a consent that died between
+    // its two writes, or one older than the control. `decision == null` used to catch it. Once an
+    // installation can give that document a generation without answering it, the document exists
+    // and the refusal has to read the answer instead of the row.
+    val authorized = Authorized()
+    val generation = consentDecisionStore
+      .recordWithoutLifetime(authorized.podId, clientId, authorized.webId).generation
+
+    val refusal = refused(authorized.redeem(authorized.code(generation)))
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refusal.code)
+    assertEquals("this authorization has not been answered; re-authorize", refusal.description)
+  }
 }
