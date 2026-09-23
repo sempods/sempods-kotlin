@@ -41,6 +41,10 @@ Service clients are **registered out-of-band**, not via RFC 7591 DCR:
   would make any ancestor of it match every context on the pod. That
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
+- The scope set may be empty. Such a registration holds a credential and
+  no authority, and the token endpoint answers it `invalid_scope`. That
+  is what a registration looks like before any context is granted to it,
+  and what one looks like once its last anchor is deleted.
 
 ## Sandbox via manage-root
 
@@ -161,9 +165,10 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   than in the index, so a retention change is configuration, not a
   migration — it reaches only rows written afterwards.
 - Deleting a context cascades to service clients like it does to user
-  grants: scopes anchored at the deleted context are stripped,
-  scope-less registrations removed. Deleting the app root therefore
-  revokes the client; outstanding tokens ride out their ≤10-minute TTL.
+  grants: scopes anchored at the deleted context are stripped. Deleting
+  the app root therefore leaves the registration holding nothing and its
+  secret minting nothing; outstanding tokens ride out their ≤10-minute
+  TTL.
 - Pod deletion cascades to registrations and the audit log.
 
 ## Deviations and open points
@@ -198,5 +203,4 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   `TODO` in code).
 
 Open work across the auth model is named in [`README.md`](README.md)
-("Known limitations"). The admin surface that would own service-client
-provisioning does not exist yet.
+("Known limitations").

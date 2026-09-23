@@ -61,6 +61,29 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a registration holding no grants authenticates and mints nothing`() {
+    // What an installation looks like between the two consents: the credential exists, and the
+    // rights it will be given have not been granted yet. The refusal is `invalid_scope` rather
+    // than an authentication failure — the secret is the right one.
+    val pod = sempodsTestFactory.newPod()
+    val registered = podServiceClientStore.register(
+      pod = pod.hosted,
+      clientId = "no-grants",
+      scopes = emptySet(),
+      label = "no-grants",
+    )
+
+    val response = http.preparePost(tokenUrl(pod.name))
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
+      .setBody("grant_type=client_credentials")
+      .execute()
+
+    assertEquals(400, response.statusCode, "body=${response.responseBody}")
+    assertTrue("invalid_scope" in response.responseBody, response.responseBody)
+  }
+
+  @Test
   fun `client_credentials issues a service token bound to client_id with short TTL`() {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"

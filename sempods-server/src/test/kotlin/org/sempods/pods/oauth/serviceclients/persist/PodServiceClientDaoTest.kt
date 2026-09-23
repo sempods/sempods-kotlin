@@ -18,9 +18,8 @@ import kotlin.test.assertTrue
  * `grant_type=client_credentials` exchange is checked against — so a silent mapping mistake here
  * does not lose data, it stops a service client from authenticating against its own pods.
  *
- * **Two assertions here carry more than the rest**: the context cascade rests on what `$pullAll`
- * leaves behind, and `delete` is a compare-and-swap whose failure mode is deleting somebody else's
- * row.
+ * **One assertion here carries more than the rest**: `delete` is a compare-and-swap whose failure
+ * mode is deleting somebody else's row.
  */
 class PodServiceClientDaoTest : SempodsIntegrationTest() {
 
@@ -74,20 +73,21 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the context cascade strips scopes and sweeps the clients it emptied`() {
-    // The measurement the KDoc on `revokeByContextScope` refers to. `$pullAll` leaves an emptied
-    // array as `[]` rather than removing the field, and `Filters.size(scopes, 0)` matches `[]` but
-    // not an absent field — so the two halves of the cascade agree only because of what `$pullAll`
-    // does. That is a property of the server, not of this code, and it is asserted rather than
-    // assumed because the whole sweep silently stops working if it ever stops holding.
+  fun `the context cascade strips scopes and leaves the registrations it empties`() {
     create("only-events", setOf("$eventsRoot#manage"))
     create("also-notes", setOf("$eventsRoot#read", "$notesRoot#manage"))
     create("untouched", setOf("$notesRoot#manage"))
     create("other-pod", setOf("$eventsRoot#manage"), podId = otherPodId)
 
-    assertEquals(1L, serviceClientDao.revokeByContextScope(probePodId, eventsRoot), "the emptied one goes")
+    assertEquals(2L, serviceClientDao.revokeByContextScope(probePodId, eventsRoot), "two lost a scope")
 
-    assertNull(serviceClientDao.findByClientId(probePodId, "only-events"))
+    assertEquals(
+      emptySet(),
+      assertNotNull(
+        serviceClientDao.findByClientId(probePodId, "only-events"),
+        "the registration stays; what it held on the deleted context is gone",
+      ).scopes,
+    )
     assertEquals(
       setOf("$notesRoot#manage"),
       assertNotNull(serviceClientDao.findByClientId(probePodId, "also-notes")).scopes,
@@ -101,6 +101,18 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
       serviceClientDao.findByClientId(otherPodId, "other-pod"),
       "another pod's client anchored at the same URI is not touched",
     )
+  }
+
+  @Test
+  fun `a registration stored with no scopes reads back with none`() {
+    // A scope-less row has two spellings. Never written, the field is absent: `putStrings` omits
+    // an empty set. Emptied by the cascade, it is `[]`: `$pullAll` empties the array it finds.
+    // `getStringSet` answers both with an empty set, which is what makes them one state.
+    create("no-grants", emptySet())
+
+    assertEquals(emptySet(), assertNotNull(serviceClientDao.findByClientId(probePodId, "no-grants")).scopes)
+    assertEquals(0L, serviceClientDao.revokeByContextScope(probePodId, eventsRoot), "nothing to strip")
+    assertNotNull(serviceClientDao.findByClientId(probePodId, "no-grants"), "and no sweep behind it")
   }
 
   @Test

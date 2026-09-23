@@ -87,9 +87,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   /**
    * Context-deletion cascade — the static-registration counterpart of the user-grant deletion in
    * `PodGrantsFacade.revokeContextGrants`: strips every scope anchored exactly at
-   * [contextUri] from the pod's service clients and deletes registrations left with no
-   * scopes (the token endpoint refuses scopes outside the registered set, and a client
-   * without any scope could not have been registered in the first place). Without this,
+   * [contextUri] from the pod's service clients. Without this,
    * deleting a `#manage` root would revoke the user grants but leave the
    * static client able to mint fresh tokens for the deleted root — and with them manage
    * surviving descendants or recreate the root. A registration's context scopes are read by the
@@ -97,32 +95,21 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
    * row carries. Outstanding service tokens ride out
    * their ≤600 s TTL, same trade-off as for user access tokens.
    *
-   * Returns the number of registrations deleted outright (scope-stripped survivors are
-   * not counted).
+   * A registration this empties stays where it is, holding a credential and no authority —
+   * see `PodServiceClientStore.register`. Returns how many registrations lost a scope.
    *
    * **`updateMany`, and it has to be:** Morphia issued `UpdateOptions().multi(true)` here, and a
-   * pod can hold several clients anchored at the same context. The sweep that follows asks
-   * `Filters.size(scopes, 0)`, which works because `$pullAll` leaves an emptied array as `[]`
-   * rather than removing the field — an array that is *absent* would not match, and that is the
-   * shape a row inserted without scopes would have. Nothing inserts one, and this is the only
-   * place the two spellings could diverge, so it is measured in
-   * `PodServiceClientDaoTest` rather than argued about here.
+   * pod can hold several clients anchored at the same context.
    */
   internal fun revokeByContextScope(podId: ObjectId, contextUri: String): Long {
     val anchoredScopes = listOf("$contextUri#read", "$contextUri#write", "$contextUri#manage")
-    serviceClients.updateMany(
+    return serviceClients.updateMany(
       Filters.and(
         Filters.eq(PodServiceClientDboFields.podId, podId),
         Filters.`in`(PodServiceClientDboFields.scopes, anchoredScopes),
       ),
       Updates.pullAll(PodServiceClientDboFields.scopes, anchoredScopes),
-    )
-    return serviceClients.deleteMany(
-      Filters.and(
-        Filters.eq(PodServiceClientDboFields.podId, podId),
-        Filters.size(PodServiceClientDboFields.scopes, 0),
-      ),
-    ).deletedCount
+    ).modifiedCount
   }
 
   /**
