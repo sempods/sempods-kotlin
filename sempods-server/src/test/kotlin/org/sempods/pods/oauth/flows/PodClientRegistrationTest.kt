@@ -22,8 +22,9 @@ import kotlin.test.assertTrue
  * Registering a client, without a server in front of it.
  *
  * `PodAuthEndpointHttpTest` drives the same route over HTTP and is what says the endpoint
- * delegates; this says what it delegates to. The store is the real one — a fingerprint hit is a
- * unique index losing a race, so a fake store would be testing the fake.
+ * delegates; this says what it delegates to. What a body has to look like to get this far is
+ * `PodRegistrationMessagesTest`'s. The store is the real one — a fingerprint hit is a unique index
+ * losing a race, so a fake store would be testing the fake.
  */
 class PodClientRegistrationTest : SempodsStoreTest() {
 
@@ -44,19 +45,15 @@ class PodClientRegistrationTest : SempodsStoreTest() {
 
   @Test
   fun `a client that names no address it can be reached at is refused`() {
-    // Absent, not a list, empty, and present but blank all mean the same thing: this registration
-    // could never carry a login home.
-    for (body in listOf(null, mapOf("redirect_uris" to "not-a-list"), mapOf("redirect_uris" to emptyList<String>()),
-                        mapOf("redirect_uris" to listOf(" ", "")))) {
-      val refused = refusal(register(metadata = body))
-      assertEquals(PodRegistrationError.INVALID_REDIRECT_URI, refused.error, "body=$body")
-      assertEquals("at least one redirect_uri is required", refused.description)
-    }
+    val refused = refusal(register(client = PodClientMetadata()))
+
+    assertEquals(PodRegistrationError.INVALID_REDIRECT_URI, refused.error)
+    assertEquals("at least one redirect_uri is required", refused.description)
   }
 
   @Test
   fun `an address no login could honour is refused, and named`() {
-    val refused = refusal(register(metadata = mapOf("redirect_uris" to listOf("ftp://app.example/cb"))))
+    val refused = refusal(register(client = PodClientMetadata(redirectUris = setOf("ftp://app.example/cb"))))
 
     assertEquals(PodRegistrationError.INVALID_REDIRECT_URI, refused.error)
     assertTrue("ftp://app.example/cb" in refused.description, refused.description)
@@ -66,17 +63,25 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   fun `a script URL for something a person is shown is refused, and the field is named`() {
     // Four fields, one rule, and the answer says which one failed — a client with a bad `logo_uri`
     // cannot otherwise tell which of the four this server objected to.
-    for (field in listOf("client_uri", "logo_uri", "tos_uri", "policy_uri")) {
-      val refused = refusal(register(metadata = ordinary() + (field to "javascript:alert(1)")))
+    val script = "javascript:alert(1)"
+    val perturbed = mapOf<String, (PodClientMetadata) -> PodClientMetadata>(
+      "client_uri" to { it.copy(clientUri = script) },
+      "logo_uri" to { it.copy(logoUri = script) },
+      "tos_uri" to { it.copy(tosUri = script) },
+      "policy_uri" to { it.copy(policyUri = script) },
+    )
+
+    perturbed.forEach { (field, perturb) ->
+      val refused = refusal(register(client = perturb(ordinary())))
 
       assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, field)
-      assertEquals("$field must be https, or http on a loopback host: javascript:alert(1)", refused.description)
+      assertEquals("$field must be https, or http on a loopback host: $script", refused.description)
     }
   }
 
   @Test
   fun `a registered client is given an opaque identity and its metadata back`() {
-    val registered = registered(register(metadata = ordinary() + ("client_name" to "Notes ${randomId()}")))
+    val registered = registered(register(client = ordinary().copy(clientName = "Notes ${randomId()}")))
 
     assertTrue(registered.clientId.startsWith("dyn:"), registered.clientId)
     assertEquals(setOf(LOOPBACK_CALLBACK), registered.redirectUris)
@@ -89,12 +94,24 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     // The reconnect case: a client with no stored state registers again on every launch, and the
     // grants hang off the id it was given the first time.
     val pod = pod()
-    val body = ordinary() + ("client_name" to "Reconnecting ${randomId()}")
+    val client = ordinary().copy(clientName = "Reconnecting ${randomId()}")
 
-    val first = registered(register(pod, body, userAgent = "Agent/1.0"))
-    val again = registered(register(pod, body, userAgent = "Agent/1.0"))
+    val first = registered(register(pod, client, userAgent = "Agent/1.0"))
+    val again = registered(register(pod, client, userAgent = "Agent/1.0"))
 
     assertEquals(first.clientId, again.clientId)
+  }
+
+  @Test
+  fun `the body reaches the row verbatim, members this pod does not read included`() {
+    val pod = pod()
+    val name = "Verbatim ${randomId()}"
+    val raw = mapOf("client_name" to name, "some_extension" to listOf("kept"))
+
+    val registered = registered(register(pod, ordinary().copy(clientName = name), raw = raw))
+
+    val stored = assertNotNull(dynamicClientRegistrationDao.findByClientId(ObjectId(pod.id.value), registered.clientId))
+    assertEquals(raw, stored.rawRequest)
   }
 
   @Test
@@ -124,7 +141,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     )
 
     val hit = registered(
-      register(pod, mapOf("redirect_uris" to listOf(LOOPBACK_CALLBACK), "client_name" to clientName), userAgent),
+      register(pod, PodClientMetadata(redirectUris = setOf(LOOPBACK_CALLBACK), clientName = clientName), userAgent),
     )
 
     assertNull(hit.clientUri, "the refused value must not reach the answer")
@@ -138,7 +155,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     val name = "Proxied ${randomId()}"
 
     val registered = registered(
-      register(pod, ordinary() + ("client_name" to name), forwardedFor = "1.2.3.4, 203.0.113.7"),
+      register(pod, ordinary().copy(clientName = name), forwardedFor = "1.2.3.4, 203.0.113.7"),
     )
 
     val stored = dynamicClientRegistrationDao.findByClientId(ObjectId(pod.id.value), registered.clientId)
@@ -154,18 +171,19 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   private fun pod(): HostedPod = sempodsTestFactory.newPod().toHostedPod(sempodsUriBuilder)
 
   /** A registration that passes every check, so each case names only what it perturbs. */
-  private fun ordinary(): Map<String, Any?> = mapOf(
-    "redirect_uris" to listOf(LOOPBACK_CALLBACK),
-    "client_uri" to "https://app.example",
+  private fun ordinary() = PodClientMetadata(
+    redirectUris = setOf(LOOPBACK_CALLBACK),
+    clientUri = "https://app.example",
   )
 
   private fun register(
     pod: HostedPod = pod(),
-    metadata: Map<String, Any?>? = ordinary(),
+    client: PodClientMetadata = ordinary(),
     userAgent: String? = null,
     forwardedFor: String? = null,
+    raw: Map<String, Any?> = emptyMap(),
   ): PodRegistrationResult =
-    registration.register(pod, PodRegistrationRequest(metadata, userAgent, forwardedFor))
+    registration.register(pod, PodRegistrationRequest(client, raw, userAgent, forwardedFor))
 
   private fun refusal(result: PodRegistrationResult) = assertIs<PodRegistrationResult.Refused>(result)
 

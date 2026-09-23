@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import java.io.IOException
+import java.net.URI
 import java.time.Instant
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PodBrowserCookies
@@ -77,17 +78,30 @@ class PodAuthEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @HeaderParam("User-Agent") userAgent: String?,
     @HeaderParam("X-Forwarded-For") forwardedFor: String?,
-    request: Map<String, Any?>?,
-  ): Response = PodRegistrationResponses.render(
-    podClientRegistration.register(
-      pod = fetchPodOrThrow(pod).hosted,
-      request = PodRegistrationRequest(
-        metadata = request,
-        userAgent = userAgent,
-        forwardedFor = forwardedFor,
-      ),
-    ),
-  )
+    // The raw body, so that a body which is not JSON earns RFC 7591's `invalid_client_metadata`
+    // — an answer a registering client can act on.
+    body: String?,
+  ): Response {
+    val podDbo = fetchPodOrThrow(pod)
+    return when (val read = PodRegistrationMessages.read(registrationEndpoint(podDbo.name), body)) {
+      is PodRegistrationRead.Unreadable -> PodRegistrationResponses.refused(read.error, read.description)
+      is PodRegistrationRead.Metadata -> PodRegistrationResponses.render(
+        podClientRegistration.register(
+          pod = podDbo.hosted,
+          request = PodRegistrationRequest(
+            client = read.client,
+            raw = read.raw,
+            userAgent = userAgent,
+            forwardedFor = forwardedFor,
+          ),
+        ),
+      )
+    }
+  }
+
+  /** The address AS metadata advertises as `registration_endpoint`, which is this route. */
+  private fun registrationEndpoint(podName: String): URI =
+    URI.create("${config.apiBaseUrl}$podName/_system/auth/register")
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────
 

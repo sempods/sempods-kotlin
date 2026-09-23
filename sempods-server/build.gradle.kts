@@ -82,6 +82,7 @@ dependencies {
 
   implementation(libs.jacksonKotlin)
   implementation(libs.jwt)
+  implementation(libs.oidcSdk)
   implementation(libs.thymeleaf)
   // bcrypt for service-client secret hashing (see PodServiceClientStore)
   implementation(libs.bouncycastle)

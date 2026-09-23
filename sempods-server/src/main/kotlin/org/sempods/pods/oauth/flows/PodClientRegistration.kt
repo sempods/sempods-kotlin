@@ -24,19 +24,15 @@ class PodClientRegistration @Inject internal constructor(
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
-    val metadata = request.metadata
-    val redirectUris = (metadata?.get("redirect_uris") as? List<*>)
-      ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
-      ?.toSet()
-      ?: emptySet()
+    val client = request.client
 
-    if (redirectUris.isEmpty()) {
+    if (client.redirectUris.isEmpty()) {
       return refused(PodRegistrationError.INVALID_REDIRECT_URI, "at least one redirect_uri is required")
     }
 
     // The rule `/authorize` applies, through the same method: an address stored here that
     // `PodClientDirectory.permits` would refuse is a registration no login can honour.
-    redirectUris.forEach { uri ->
+    client.redirectUris.forEach { uri ->
       if (!RedirectUri.isValid(uri)) {
         return refused(
           PodRegistrationError.INVALID_REDIRECT_URI,
@@ -46,23 +42,13 @@ class PodClientRegistration @Inject internal constructor(
       }
     }
 
-    val clientName = (metadata?.get("client_name") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val clientUri = (metadata?.get("client_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val logoUri = (metadata?.get("logo_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val softwareId = (metadata?.get("software_id") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val softwareVersion = (metadata?.get("software_version") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val tosUri = (metadata?.get("tos_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val policyUri = (metadata?.get("policy_uri") as? String)?.trim()?.takeIf { it.isNotBlank() }
-    val contacts = (metadata?.get("contacts") as? List<*>)
-      ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotBlank() } }
-      ?: emptyList()
-
-    // The four members [ClientMetadataUri] is about.
+    // The four members [ClientMetadataUri] is about. Asked here and not at the parser: the SDK
+    // checks three of them and measurably not `logo_uri` — see [ClientMetadataUri].
     listOf(
-      "client_uri" to clientUri,
-      "logo_uri" to logoUri,
-      "tos_uri" to tosUri,
-      "policy_uri" to policyUri,
+      "client_uri" to client.clientUri,
+      "logo_uri" to client.logoUri,
+      "tos_uri" to client.tosUri,
+      "policy_uri" to client.policyUri,
     ).forEach { (field, value) ->
       if (value != null && !ClientMetadataUri.isValid(value)) {
         return refused(
@@ -75,16 +61,16 @@ class PodClientRegistration @Inject internal constructor(
     val registration = dynamicClientStore.register(
       registeredForPod = pod.id,
       registeredForPodName = pod.name,
-      redirectUris = redirectUris,
-      clientName = clientName,
-      clientUri = clientUri,
-      logoUri = logoUri,
-      softwareId = softwareId,
-      softwareVersion = softwareVersion,
-      contacts = contacts,
-      tosUri = tosUri,
-      policyUri = policyUri,
-      rawRequest = metadata ?: emptyMap(),
+      redirectUris = client.redirectUris,
+      clientName = client.clientName,
+      clientUri = client.clientUri,
+      logoUri = client.logoUri,
+      softwareId = client.softwareId,
+      softwareVersion = client.softwareVersion,
+      contacts = client.contacts,
+      tosUri = client.tosUri,
+      policyUri = client.policyUri,
+      rawRequest = request.raw,
       remoteAddr = ForwardedFor.clientIp(request.forwardedFor),
       userAgent = request.userAgent?.trim()?.takeIf { it.isNotBlank() },
     )
@@ -144,16 +130,37 @@ class PodClientRegistration @Inject internal constructor(
 }
 
 /**
- * A registration as the caller sent it — untrimmed, untyped, any of it absent.
+ * A registration, as the protocol adapter read it.
  *
- * [metadata] is the JSON body as a map. Nothing is a declared field: the body is stored verbatim,
- * RFC 7591 lets a client send members this server does not read, and a wrong-typed optional member
- * is read as absent.
+ * @param client the members this pod reads, already typed. Syntax is the adapter's question and
+ *   was answered before this exists.
+ * @param raw the JSON body as a map, verbatim. Kept beside [client] because it is what the
+ *   registration row stores, and because RFC 7591 lets a client send members this server does not
+ *   read — a member absent from [client] may still be present here.
  */
 internal data class PodRegistrationRequest(
-  val metadata: Map<String, Any?>?,
+  val client: PodClientMetadata,
+  val raw: Map<String, Any?>,
   val userAgent: String?,
   val forwardedFor: String?,
+)
+
+/**
+ * The RFC 7591 members this pod reads, trimmed, with a blank read as absent.
+ *
+ * Every default is "the client said nothing", so a body that carries none of these is expressible
+ * — which is what an empty registration body is.
+ */
+internal data class PodClientMetadata(
+  val redirectUris: Set<String> = emptySet(),
+  val clientName: String? = null,
+  val clientUri: String? = null,
+  val logoUri: String? = null,
+  val softwareId: String? = null,
+  val softwareVersion: String? = null,
+  val contacts: List<String> = emptyList(),
+  val tosUri: String? = null,
+  val policyUri: String? = null,
 )
 
 /** What a registration answers. */

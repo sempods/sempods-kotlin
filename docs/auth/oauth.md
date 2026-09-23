@@ -31,6 +31,12 @@ step see `identity.md`.
 
 Two `client_id` shapes, with different rules:
 
+`/register` reads a body with the OAuth SDK's RFC 7591 grammar. A member
+whose type the RFC does not allow — `contacts` as a string where a list
+belongs — is refused with `invalid_client_metadata`, and so is a body
+that is not JSON. The two rules below are the pod's own, applied on top
+of that grammar.
+
 Both shapes ask `RedirectUri.isValid` first, before any
 client-specific rule: absolute, no fragment, no `code`, `response` or
 `state` in the query, `https` on any host, `http` only on loopback.

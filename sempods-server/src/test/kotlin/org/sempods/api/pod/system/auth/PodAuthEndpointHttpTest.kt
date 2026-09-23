@@ -4032,18 +4032,16 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `register should silently ignore optional fields with wrong types`() {
+  fun `register refuses a member whose type RFC 7591 does not allow, and names it`() {
     val pod = sempodsTestFactory.newPod()
 
-    // contacts as a plain string instead of list, software_id as number — RFC 7591 lets the
-    // server ignore unknown / malformed metadata. We must not 400 just because a client got
-    // a field shape wrong.
+    // `contacts` holding a string where RFC 7591 puts a list. Refusing it is what tells the
+    // client that the address it named was never stored.
     val body = """
       {
         "redirect_uris": ["http://localhost:5173/callback"],
         "client_name": "Quirky Client",
-        "contacts": "single@example.com",
-        "software_id": 12345
+        "contacts": "single@example.com"
       }
     """.trimIndent()
 
@@ -4052,15 +4050,34 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(body)
       .execute()
 
-    assertEquals(201, response.statusCode)
+    assertEquals(400, response.statusCode, response.responseBody)
 
     @Suppress("UNCHECKED_CAST")
     val responseBody =
       JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
-    assertEquals("Quirky Client", responseBody["client_name"])
-    assertNull(responseBody["contacts"], "malformed contacts must not be echoed")
-    assertNull(responseBody["software_id"], "malformed software_id must not be echoed")
+    assertEquals("invalid_client_metadata", responseBody["error"], "RFC 7591 §3.2.2 names this code")
+    assertTrue("contacts" in responseBody["error_description"].toString(), responseBody.toString())
+  }
+
+  @Test
+  fun `register answers a body that is not JSON in the protocol's own terms`() {
+    // The container would answer this one with a message about entity deserialization, which says
+    // nothing a registering client can act on.
+    val pod = sempodsTestFactory.newPod()
+
+    val response = http.preparePost(registerUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .setBody("not json at all")
+      .execute()
+
+    assertEquals(400, response.statusCode, response.responseBody)
+
+    @Suppress("UNCHECKED_CAST")
+    val responseBody =
+      JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+
+    assertEquals("invalid_client_metadata", responseBody["error"])
   }
 
   @Test

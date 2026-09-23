@@ -74,10 +74,13 @@ dependencyAnalysis {
       includeDependency("software.amazon.awssdk:sdk-core")
     }
 
-    // Nimbus' JSON reader.
+    // The two artifacts the SDK's own API hands back and takes: its JSON reader, and the media
+    // type an `HTTPRequest` carries. Neither is a library choice of this project's — both track
+    // whatever version of the SDK is pinned.
     bundle("nimbus") {
       primary("com.nimbusds:oauth2-oidc-sdk")
       includeDependency("net.minidev:json-smart")
+      includeDependency("com.nimbusds:content-type")
     }
 
     // Ktor's plumbing. Not `ktor-utils`: `sempods-commons-ktor` puts `AttributeKey` in a public signature.
