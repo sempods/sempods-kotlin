@@ -5354,6 +5354,36 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(201, allowed.statusCode, allowed.responseBody)
   }
 
+  @Test
+  fun `an installer bearer spends no AI call, where any app token would be enough`() {
+    // `requirePodAppTokenOrThrow` asks for an app and nothing more, and the AI routes behind it
+    // spend a provider call on the strength of that. An empty context sandbox is no answer where
+    // nobody consults one: the bearer itself has to be refused.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val text2model = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/ai/semweb/text2model"
+
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+    val refused = http.preparePost(text2model)
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $installer")
+      .setBody("{}")
+      .execute()
+    assertEquals(403, refused.statusCode, refused.responseBody)
+    assertTrue(SERVICE_CLIENTS_SCOPE in refused.responseBody, refused.responseBody)
+
+    // An ordinary bearer gets past the gate and is stopped by the request body instead, so the
+    // refusal above is the scope rather than a route nobody can reach.
+    val ordinary = mintScopedToken(pod.name, emptyList(), webId = ownerWebId)
+    val admitted = http.preparePost(text2model)
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $ordinary")
+      .setBody("{}")
+      .execute()
+    assertEquals(400, admitted.statusCode, admitted.responseBody)
+  }
+
   /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
   @Suppress("UNCHECKED_CAST")
   private fun contextsReachableBy(podName: String, accessToken: String): List<String> {

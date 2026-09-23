@@ -568,11 +568,13 @@ its contexts once it exists, and is open work
 - **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
-- **No data at any point.** A token carrying the scope resolves no context permissions and no
-  public contexts, whether or not it has been spent. `GET {pod}/_system/contexts` with one lists
-  nothing, even where the same app holds grants for the same person. It is not recognised as the
-  pod owner either, though its `sub` names them: owner recognition is a catch-all allow, and a
-  bearer that carried it could create and delete contexts across the pod.
+- **No data at any point, and no capability either.** A token carrying the scope resolves no
+  context permissions and no public contexts, whether or not it has been spent: `GET
+  {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
+  person. It is not recognised as the pod owner, though its `sub` names them — recognition is a
+  catch-all allow, and a bearer holding it could create and delete contexts across the whole pod.
+  And it does not pass a gate that asks only for an app, which is how the AI routes ask: an empty
+  sandbox is no answer where nobody consults one.
 
 The protected registration route this authority is spent at does not exist yet
 ([#126](https://github.com/sempods/sempods-kotlin/issues/126)). Until it does, the scope is

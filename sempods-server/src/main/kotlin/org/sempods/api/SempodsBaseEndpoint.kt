@@ -200,12 +200,18 @@ open class SempodsBaseEndpoint(
    * The one place the failure classification differs from [authenticate]: a token that verifies
    * but was issued for another pod is a 403 here (the caller *has* a credential, it is simply not
    * for this resource) and a 401 there (where the answer must also advertise how to obtain one).
+   *
+   * **What this asks is "any app", which is why a privileged feature scope does not pass it.** An
+   * empty sandbox is no answer where a route never consults one: the AI routes behind this gate
+   * spend a provider call on the strength of the bearer alone, and an installation authority —
+   * granted to register one service client — would spend them for its hour. A route that wants
+   * such a bearer authenticates it deliberately; this one takes whoever turns up.
    */
   protected fun requirePodAppTokenOrThrow(pod: String): SempodsCredentials {
     val podDbo = fetchPodOrThrow(pod)
     val podRef = podDbo.toRef(sempodsUriBuilder)
     return when (val outcome = authenticateBearer(podDbo, podRef)) {
-      is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
+      is PodTokenAuthentication.Verified -> refuseIfPrivileged(authorizeAndAudit(podRef, outcome.token))
 
       is PodTokenAuthentication.Rejected ->
         if (outcome.reason == PodTokenRejection.podMismatch) {
@@ -221,6 +227,24 @@ open class SempodsBaseEndpoint(
 
       PodTokenAuthentication.NoToken -> throwMissingOrInvalidAppToken(pod)
     }
+  }
+
+  /**
+   * The bearer, unless what it carries is an authority for one named operation.
+   *
+   * A `403` rather than a `401`: the credential is valid and the caller is who they say, the scope
+   * simply does not cover this. Named after the scope, so the answer says which of the caller's
+   * assumptions is wrong.
+   */
+  private fun refuseIfPrivileged(credentials: SempodsCredentials): SempodsCredentials {
+    val privileged = credentials.oauthScopes.filter { it in PodScopeValidator.privilegedFeatureScopes }
+    if (privileged.isEmpty()) return credentials
+    throw WebApplicationException(
+      Response.status(403)
+        .entity("'${privileged.sorted().joinToString(" ")}' does not authorize this route")
+        .type("text/plain")
+        .build()
+    )
   }
 
   private fun throwMissingOrInvalidAppToken(pod: String): Nothing {
