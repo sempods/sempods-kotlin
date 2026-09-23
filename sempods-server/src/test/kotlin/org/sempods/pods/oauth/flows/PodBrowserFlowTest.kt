@@ -79,10 +79,14 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
 
     /** A ticket for the screen this person is looking at now, as `/authorize` would mint it. */
     fun ticket(): String =
-      consentTransactionStore.issue(pod.name, webId, standing(), emptySet(), held().isNotEmpty())
+      consentTransactionStore.issue(pod.name, webId, standing(), emptySet(), disconnects())
 
     /** The same, for a screen that put [offered] to the person — see `ConsentTransactionStore`. */
     fun ticketOffering(vararg offered: String): String =
-      consentTransactionStore.issue(pod.name, webId, standing(), offered.toSet(), held().isNotEmpty())
+      consentTransactionStore.issue(pod.name, webId, standing(), offered.toSet(), disconnects())
+
+    /** How many times this app's access has been ended, which every rendered page carries. */
+    fun disconnects(): Long =
+      consentDecisionStore.find(pod.id, clientId, listOf(webId))?.disconnects ?: 0L
   }
 }

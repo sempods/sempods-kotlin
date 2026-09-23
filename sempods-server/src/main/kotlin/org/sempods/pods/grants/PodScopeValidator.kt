@@ -35,6 +35,19 @@ const val OFFLINE_ACCESS_SCOPE = "offline_access"
  */
 const val SERVICE_CLIENTS_SCOPE = "service-clients"
 
+/**
+ * Whether this bearer carries an authority granted for one named operation.
+ *
+ * Three routes ask, and none of them resolves a context: owner recognition, the gate that asks only
+ * for an app, and the MCP call that ends what a client holds. An empty sandbox answers none of
+ * them, because none of them looks at one — so what such a token may do is the scope it carries,
+ * and the question has one owner here rather than three spellings of the same `any { }`.
+ *
+ * See [PodScopeValidator.privilegedFeatureScopes].
+ */
+val SempodsCredentials.carriesPrivilegedFeature: Boolean
+  get() = oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }
+
 class PodScopeValidator {
 
   fun validate(scope: String, podBaseUrl: String): ScopeValidationResult {

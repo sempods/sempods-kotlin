@@ -106,20 +106,17 @@ class PodConsentFlow @Inject internal constructor(
     // something, submits as it always did. A page that would resurrect a disconnected app does
     // not.
     //
-    // Three things, because a moved generation on an app holding nothing is not by itself a
-    // disconnect: an installation moves it and clears nothing, and the ordinary page somebody had
-    // open alongside would be thrown away for it. What the page carries is whether there was
-    // anything to lose when it was rendered, which is the half this request cannot reconstruct.
-    val standing = consentDecisionStore
-      .find(pod.id, normalizedClientId, listOf(identity.webId))
-      ?.generation
+    // Asked as the count of endings rather than as a moved generation, because the generation moves
+    // for things that remove nothing — an installation, a forced review — and an ordinary page open
+    // beside one of those has lost nothing and must still submit.
+    val standingDecision = consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))
     // Read once: the disconnect below asks the same question, and two reads could disagree.
     val holdsAnything = holdsAnything(pod, normalizedClientId, identity)
-    if (transaction.consentGeneration != standing && transaction.appHeldSomething && !holdsAnything) {
+    if (transaction.disconnects != (standingDecision?.disconnects ?: 0L)) {
       logger.info {
         "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${pod.name}', " +
-            "clientId='$normalizedClientId', rendered=${transaction.consentGeneration ?: "(none)"}, " +
-            "standing=${standing ?: "(none)"})"
+            "clientId='$normalizedClientId', renderedAfter=${transaction.disconnects}, " +
+            "standing=${standingDecision?.disconnects ?: 0L})"
       }
       return PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED)
     }
@@ -495,6 +492,22 @@ class PodConsentFlow @Inject internal constructor(
   }
 
   /**
+   * [recordDecision] for the one write that ends what this app holds, which is what a stale page is
+   * compared against.
+   */
+  private fun recordDisconnect(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+  ): PodConsentDecisionStore.Decision {
+    val forSubject = consentDecisionStore.recordDisconnect(pod.id, clientId, identity.webId)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.recordDisconnect(pod.id, clientId, alias)
+    }
+    return forSubject
+  }
+
+  /**
    * [recordDecision] for a dialog that put no lifetime question to the person.
    *
    * Written under every URI that names them for the same reason the other one is.
@@ -547,7 +560,7 @@ class PodConsentFlow @Inject internal constructor(
         grantedBy = identity.webId,
       )
     }
-    val decision = recordDecision(pod, clientId, identity, durable = false)
+    val decision = recordDisconnect(pod, clientId, identity)
     val revoked = refreshTokenStore.revokeForUser(pod.id, clientId, identity.allUris)
     logger.info {
       "[oauth/consent] App disconnected: pod='${pod.name}', clientId='$clientId', " +

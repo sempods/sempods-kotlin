@@ -39,6 +39,7 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.api.InvalidBearerException
 import org.sempods.api.OAuthUpgradeRequiredException
 import org.sempods.api.SempodsBaseEndpoint
+import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -886,7 +887,10 @@ class McpEndpoint @Inject constructor(
     return AuthorizeToolDecision(
       startOAuthFlow = true,
       recordReplayChallenge = true,
-      endWhatTheClientHolds = credentials.oauthClientId != null,
+      // An app may end what it holds. An authority granted to perform one named operation may not:
+      // it would raise the generation and revoke the families of the client it was minted for —
+      // the app's own standing connection — on a route that never looks at a context.
+      endWhatTheClientHolds = credentials.oauthClientId != null && !credentials.carriesPrivilegedFeature,
     )
   }
 

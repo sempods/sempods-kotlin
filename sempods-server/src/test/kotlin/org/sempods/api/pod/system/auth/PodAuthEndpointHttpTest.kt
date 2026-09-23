@@ -1967,20 +1967,22 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   /**
    * The token a freshly rendered page would carry: bound to the consent standing right now, and to
-   * what this app holds right now.
+   * the count of endings it stands under.
    *
-   * Both halves, because `/authorize` puts both on the page and the stale-page guard reads both. A
-   * shortcut that minted only the first would describe a page the server never renders, and the
-   * one test that needs the guard to fire would stop testing it.
+   * Both halves, because `/authorize` puts both on the page and the stale-page guard reads the
+   * second. A shortcut that minted only the first would describe a page the server never renders,
+   * and the one test that needs the guard to fire would stop testing it.
    */
-  private fun renderedFormToken(pod: org.sempods.pods.mongo.persist.PodDbo, webId: String): String =
-    consentTransactionStore.issue(
+  private fun renderedFormToken(pod: org.sempods.pods.mongo.persist.PodDbo, webId: String): String {
+    val standing = consentDecisionStore.find(pod.podId(), testClientId, listOf(webId))
+    return consentTransactionStore.issue(
       pod.name,
       webId,
-      consentDecisionStore.find(pod.podId(), testClientId, listOf(webId))?.generation,
+      standing?.generation,
       emptySet(),
-      podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(webId)).isNotEmpty(),
+      standing?.disconnects ?: 0L,
     )
+  }
 
   private fun codeFrom(response: org.sempods.commons.okhttp.TestHttpResponse): String {
     val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.responseBody}" }

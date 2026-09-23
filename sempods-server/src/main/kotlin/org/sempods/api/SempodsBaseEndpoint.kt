@@ -17,7 +17,7 @@ import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.PodFacade
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodAuthorizer
-import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
@@ -237,11 +237,10 @@ open class SempodsBaseEndpoint(
    * assumptions is wrong.
    */
   private fun refuseIfPrivileged(credentials: SempodsCredentials): SempodsCredentials {
-    val privileged = credentials.oauthScopes.filter { it in PodScopeValidator.privilegedFeatureScopes }
-    if (privileged.isEmpty()) return credentials
+    if (!credentials.carriesPrivilegedFeature) return credentials
     throw WebApplicationException(
       Response.status(403)
-        .entity("'${privileged.sorted().joinToString(" ")}' does not authorize this route")
+        .entity("'${credentials.oauthScopes.sorted().joinToString(" ")}' does not authorize this route")
         .type("text/plain")
         .build()
     )
@@ -317,7 +316,7 @@ open class SempodsBaseEndpoint(
    */
   protected fun resolvePodOwnerPrincipal(credentials: SempodsCredentials): PodOwnerPrincipal? {
     val subject = credentials.tokenSub?.trim()?.takeIf { it.isNotBlank() } ?: return null
-    if (credentials.oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }) return null
+    if (credentials.carriesPrivilegedFeature) return null
     if (credentials.pod.owner !in webIdUriDeriver.derivableAliases(subject)) return null
     logger.info { "[oauth] Resolved pod owner: pod='${credentials.pod.name}', webId='$subject'" }
     return PodOwnerPrincipal(webIdUri = subject)

@@ -660,4 +660,26 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertEquals(setOf(owned.readScope), owned.held(), "the page wrote the selection it carried")
   }
 
+
+
+  @Test
+  fun `a page from before the app held anything cannot write grants back after a disconnect`() {
+    // The narrowing that let an installation through must not let this through with it: this page
+    // was rendered when there was nothing to lose, but by the time it submits the person has
+    // granted access in one tab and ended it in another. What it would write is what they removed.
+    val owned = Owned()
+    val pageOpenedFirst = owned.ticket()
+
+    issuedCode(
+      flow.submit(owned.pod, form(csrf = owned.ticket(), scopes = listOf(owned.readScope)), owned.session),
+    )
+    redirectedError(flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session))
+    assertTrue(owned.held().isEmpty(), "the disconnect landed")
+
+    assertEquals(
+      PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED),
+      flow.submit(owned.pod, form(csrf = pageOpenedFirst, scopes = listOf(owned.readScope)), owned.session),
+    )
+    assertTrue(owned.held().isEmpty(), "and nothing came back")
+  }
 }

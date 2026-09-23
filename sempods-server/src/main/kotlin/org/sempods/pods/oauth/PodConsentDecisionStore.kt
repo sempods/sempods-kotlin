@@ -58,8 +58,17 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * @param durable whether the person granted a connection that outlives the access token, or
    *   `null` where this authorization has never been asked — see the note on this class.
    * @param generation how many times this authorization has been answered. Rises on every write.
+   * @param disconnects how many times the person has ended this app's access outright. A consent
+   *   page carries the count it was rendered under, which is the only way to tell a page that
+   *   would hand back removed access from one that is merely older than the current answer — the
+   *   generation moves for things that remove nothing.
    */
-  internal data class Decision(val durable: Boolean?, val generation: Long, val decidedAt: Instant)
+  internal data class Decision(
+    val durable: Boolean?,
+    val generation: Long,
+    val decidedAt: Instant,
+    val disconnects: Long,
+  )
 
   /**
    * The decision this authorization holds, or null when none was ever recorded.
@@ -104,6 +113,37 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
         Updates.set(FIELD_DURABLE, durable),
         Updates.set(FIELD_DECIDED_AT, Date.from(decidedAt)),
         Updates.inc(FIELD_GENERATION, 1L),
+      ),
+      FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
+    )
+    return checkNotNull(updated) { "upsert returned no document" }.toDecision()
+  }
+
+  /**
+   * The answer a disconnect produces: a refusal, and one more on the count of endings.
+   *
+   * Apart from [record] because the count is what a stale consent page is compared against, and
+   * only this write may move it. Every other write moves the generation — an ordinary consent, an
+   * installation, a forced review — and none of them removes anything, so a page that merely
+   * predates one of those has nothing to hand back and submits as it always did.
+   */
+  internal fun recordDisconnect(
+    pod: PodId,
+    appId: String,
+    webId: String,
+    at: Instant = Instant.now(),
+  ): Decision {
+    val updated = decisions.findOneAndUpdate(
+      Filters.and(
+        podFilter(pod),
+        Filters.eq(FIELD_APP_ID, appId),
+        Filters.eq(FIELD_WEB_ID, webId),
+      ),
+      Updates.combine(
+        Updates.set(FIELD_DURABLE, false),
+        Updates.set(FIELD_DECIDED_AT, Date.from(at.truncatedTo(ChronoUnit.MILLIS))),
+        Updates.inc(FIELD_GENERATION, 1L),
+        Updates.inc(FIELD_DISCONNECTS, 1L),
       ),
       FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
     )
@@ -195,6 +235,9 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     durable = if (containsKey(FIELD_DURABLE)) getBoolean(FIELD_DURABLE, false) else null,
     generation = get(FIELD_GENERATION, Number::class.java)?.toLong() ?: 0L,
     decidedAt = getInstant(FIELD_DECIDED_AT) ?: Instant.EPOCH,
+    // Absent on every row written before the count existed, which is the same as none: a page
+    // rendered then compares equal and submits as it always did.
+    disconnects = get(FIELD_DISCONNECTS, Number::class.java)?.toLong() ?: 0L,
   )
 
   private companion object {
@@ -204,5 +247,6 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
     const val FIELD_DURABLE = "durable"
     const val FIELD_GENERATION = "generation"
     const val FIELD_DECIDED_AT = "decidedAt"
+    const val FIELD_DISCONNECTS = "disconnects"
   }
 }
