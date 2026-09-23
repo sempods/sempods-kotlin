@@ -177,8 +177,18 @@ class PodTokenExchange @Inject internal constructor(
     // the authority. What the answer settles is how long the family lives, not whether there is
     // one — an app the person keeps in front of them needs a way back that does not run through a
     // third-party cookie.
+    // **An authorization nobody has answered mints nothing.** Before an installation could write a
+    // generation into this document without answering it, `decision == null` above caught this
+    // case; a row with no lifetime answer is the same state wearing a generation, and the same
+    // refusal. Picking a lifetime for it here would let the installation screen settle a question
+    // it never put to the person.
+    val durable = decision.durable
+      ?: return PodTokenResult.Refused(
+        OAuthErrorCode.INVALID_GRANT,
+        "this authorization has not been answered; re-authorize",
+      )
     val lifetime =
-      if (decision.durable == true) PodRefreshTokenStore.Lifetime.DURABLE
+      if (durable) PodRefreshTokenStore.Lifetime.DURABLE
       else PodRefreshTokenStore.Lifetime.SESSION
 
     // What this exchange supersedes, named *before* the successor exists — see

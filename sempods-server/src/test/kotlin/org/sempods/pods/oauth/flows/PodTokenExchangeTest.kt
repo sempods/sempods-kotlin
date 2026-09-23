@@ -539,4 +539,21 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val rotated = issued(authorized.refresh(refreshToken))
     assertNotNull(rotated.refreshToken, "the durable connection was never withdrawn")
   }
+
+
+  @Test
+  fun `a code from an authorization nobody has answered is refused, generation or not`() {
+    // Grants on record and no lifetime answer is a state of its own — a consent that died between
+    // its two writes, or one older than the control. `decision == null` used to catch it. Once an
+    // installation can give that document a generation without answering it, the document exists
+    // and the refusal has to read the answer instead of the row.
+    val authorized = Authorized()
+    val generation = consentDecisionStore
+      .recordWithoutLifetime(authorized.podId, clientId, authorized.webId).generation
+
+    val refusal = refused(authorized.redeem(authorized.code(generation)))
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refusal.code)
+    assertEquals("this authorization has not been answered; re-authorize", refusal.description)
+  }
 }

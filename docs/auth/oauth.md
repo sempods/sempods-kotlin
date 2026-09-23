@@ -271,12 +271,16 @@ The exchange reads the decision from the store rather than from the
 authorization code, so a code carries the request and never the
 authority.
 
-An authorization that predates the control has no decision recorded, and
-its codes are refused: a code carries the generation of the consent that
-produced it, and one carrying none is not exchangeable. Every code minted
-for a person comes from an authorization that has been answered — consent
-records the answer, and auto-grant reaches its code only where one is
-already on record.
+An authorization nobody has answered has its codes refused, and there are
+two ways to be in that state. Its document may be absent, in which case the
+code carries no generation and is not exchangeable. Or the document may
+exist carrying no answer, which is what an
+[installation](#installing-a-service-client) leaves behind: it moves the
+generation without settling the lifetime question, so the exchange reads
+the answer rather than the row. Every code minted for a person otherwise
+comes from an authorization that has been answered — consent records the
+answer, and auto-grant reaches its code only where one is already on
+record.
 
 That refusal is also what makes the consent write order safe. Grants are
 written first and the answer second, so a run dying between them keeps the
@@ -431,7 +435,7 @@ OIDC Core 1.0 §3.1.2.1 multi-valued, space-separated:
 An unanswered lifetime question is what sends an authorization older than the
 control to the dialog, once, so it can acquire an answer at all; afterwards the
 auto-grant is back. `prompt=none` has no dialog to render, so it keeps its silent
-code — but that code carries no generation and the token endpoint refuses it
+code — but the token endpoint refuses it, for want of a generation or of an answer
 ([`#offline_access`](#offline_access)). The redirect still carries a `code`, and
 spending it answers `invalid_grant`; the flow works again once the person has
 answered once, and does not arise at all on a pod that has run the clearing step
@@ -566,7 +570,9 @@ its contexts once it exists, and is open work
   second registration finds nothing — concurrent calls included.
 - **No data at any point.** A token carrying the scope resolves no context permissions and no
   public contexts, whether or not it has been spent. `GET {pod}/_system/contexts` with one lists
-  nothing, even where the same app holds grants for the same person.
+  nothing, even where the same app holds grants for the same person. It is not recognised as the
+  pod owner either, though its `sub` names them: owner recognition is a catch-all allow, and a
+  bearer that carried it could create and delete contexts across the pod.
 
 The protected registration route this authority is spent at does not exist yet
 ([#126](https://github.com/sempods/sempods-kotlin/issues/126)). Until it does, the scope is

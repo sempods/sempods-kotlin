@@ -388,7 +388,8 @@ class PodAuthorizeFlow @Inject internal constructor(
     // renders nothing — so it could never acquire one. Once, therefore, it falls through to the
     // dialog instead, which is where it picks one up. Only where there is a dialog to fall through
     // to: `prompt=none` has none, so it keeps its silent code and the redirect looks unchanged.
-    // What that code buys is nothing — carrying no generation, it is refused at the exchange — and
+    // What that code buys is nothing — the exchange refuses it for want of a generation or of an
+    // answer — and
     // answering `consent_required` here instead is not worth changing a live contract for a state
     // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
     val decisionRecorded = consentDecisionStore

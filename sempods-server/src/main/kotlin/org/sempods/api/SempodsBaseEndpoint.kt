@@ -17,6 +17,7 @@ import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.PodFacade
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodAuthorizer
+import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
@@ -280,9 +281,19 @@ open class SempodsBaseEndpoint(
    * Profile-linked aliases are deliberately *not* resolved, matching the rule the grant path
    * already states: a request carries one identity URI, and equivalences are applied when a grant
    * is written, not when it is read.
+   *
+   * **A bearer carrying a privileged feature scope is never the owner here**, whoever its `sub`
+   * names. Recognition is a catch-all allow wherever it is asked, so an installation authority —
+   * minted for the owner and meant to register one service client — would otherwise create and
+   * delete contexts on the whole pod, taking their statements and grants with them. What such a
+   * token may do is bounded by the scope it carries, and ownership is not one of the things it
+   * carries. The wider question, what an owner's *ordinary* token should inherit from the person,
+   * is [#131](https://github.com/sempods/sempods-kotlin/issues/131)'s; this is only the part the
+   * scope itself settles.
    */
   protected fun resolvePodOwnerPrincipal(credentials: SempodsCredentials): PodOwnerPrincipal? {
     val subject = credentials.tokenSub?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    if (credentials.oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }) return null
     if (credentials.pod.owner !in webIdUriDeriver.derivableAliases(subject)) return null
     logger.info { "[oauth] Resolved pod owner: pod='${credentials.pod.name}', webId='$subject'" }
     return PodOwnerPrincipal(webIdUri = subject)

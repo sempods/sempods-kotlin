@@ -5271,18 +5271,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "the grant has to authorize this context for an ordinary bearer, or the refusal below says nothing",
     )
 
-    val page = installationPage(pod, ownerWebId).responseBody
-    val submitted = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
-      .setBody(
-        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
-          "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_SCOPE)}",
-      )
-      .setFollowRedirect(false).execute()
-    assertEquals(303, submitted.statusCode, submitted.responseBody)
-
-    val tokens = exchangeCode(pod, codeFrom(submitted))
+    val tokens = approveInstallation(pod, ownerWebId)
     assertEquals(SERVICE_CLIENTS_SCOPE, tokens["scope"])
     assertNull(tokens["refresh_token"], "a one-shot authority cannot be renewed")
     assertEquals(
@@ -5297,6 +5286,63 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       contextsReachableBy(pod.name, tokens["access_token"] as String),
       "an installation authority arranges rights and holds none",
     )
+  }
+
+  /** Authorize, approve and redeem an installation — the whole first consent, as a browser runs it. */
+  @Suppress("UNCHECKED_CAST")
+  private fun approveInstallation(
+    pod: org.sempods.pods.mongo.persist.PodDbo,
+    ownerWebId: String,
+  ): Map<String, Any?> {
+    val page = installationPage(pod, ownerWebId).responseBody
+    val submitted = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setBody(
+        "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
+          "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_SCOPE)}",
+      )
+      .setFollowRedirect(false).execute()
+    assertEquals(303, submitted.statusCode, submitted.responseBody)
+    return exchangeCode(pod, codeFrom(submitted))
+  }
+
+  @Test
+  fun `an installer bearer manages no context, though its subject owns the pod`() {
+    // An installation authority is minted for the owner and carries their WebID as `sub`. Owner
+    // recognition is a catch-all allow wherever it is asked, so without the scope check this
+    // bearer could create and delete contexts across the whole pod — taking their statements and
+    // their grants with them, which is the opposite of what it was granted for.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "notes")
+    val manageUrl = "${SempodsModule.config.apiBaseUrl}${pod.name}/" +
+      "${SempodsUriBuilder.CONTEXT_PATH_PREFIX}notes"
+
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+
+    val created = http.preparePut("$manageUrl-2")
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $installer")
+      .setBody("{}")
+      .execute()
+    assertEquals(403, created.statusCode, created.responseBody)
+
+    val deleted = http.prepareDelete(manageUrl)
+      .addHeader("Authorization", "Bearer $installer")
+      .execute()
+    assertEquals(403, deleted.statusCode, deleted.responseBody)
+
+    // The same person's ordinary token still manages their own pod, so the refusal above is the
+    // scope's doing and not a broken owner path.
+    val ordinary = mintScopedToken(pod.name, emptyList(), webId = ownerWebId)
+    val allowed = http.preparePut("$manageUrl-3")
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $ordinary")
+      .setBody("{}")
+      .execute()
+    assertEquals(201, allowed.statusCode, allowed.responseBody)
   }
 
   /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
