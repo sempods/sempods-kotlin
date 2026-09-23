@@ -377,9 +377,10 @@ class PodConsentFlow @Inject internal constructor(
    * sits ahead of every path below that treats an empty selection as a disconnect — the person
    * declined an installation, they did not end an authorization.
    *
-   * The decision is still recorded. A code carrying no generation is refused at the exchange, and
-   * the answer is always `durable = false`: the screen has no lifetime control, and a submission
-   * that claims one anyway is refused rather than obeyed.
+   * The decision is still recorded, because a code carrying no generation is refused at the
+   * exchange — but it answers nothing about how long this app stays connected. The screen has no
+   * lifetime control, and writing `false` for a question nobody was asked would end a durable
+   * family the app already holds. `PodConsentDecisionStore.recordWithoutLifetime` is that write.
    *
    * @param offered what the screen put to the person, which the refusals name. [submitted] is what
    *   came back of it, and an empty one is the person saying no.
@@ -422,7 +423,7 @@ class PodConsentFlow @Inject internal constructor(
       return failed(target, OAuthErrorCode.ACCESS_DENIED, "installation declined", state)
     }
 
-    val decision = recordDecision(pod, clientId, identity, durable = false)
+    val decision = recordDecisionWithoutLifetime(pod, clientId, identity)
     logger.info {
       "[oauth/consent] Installation authorized: pod='${pod.name}', clientId='$clientId', " +
           "webId='${identity.webId}', scopes='${submitted.sorted().joinToString(" ")}', " +
@@ -484,6 +485,23 @@ class PodConsentFlow @Inject internal constructor(
     val forSubject = consentDecisionStore.record(pod.id, clientId, identity.webId, durable)
     identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
       consentDecisionStore.record(pod.id, clientId, alias, durable)
+    }
+    return forSubject
+  }
+
+  /**
+   * [recordDecision] for a dialog that put no lifetime question to the person.
+   *
+   * Written under every URI that names them for the same reason the other one is.
+   */
+  private fun recordDecisionWithoutLifetime(
+    pod: HostedPod,
+    clientId: String,
+    identity: PersonIdentity,
+  ): PodConsentDecisionStore.Decision {
+    val forSubject = consentDecisionStore.recordWithoutLifetime(pod.id, clientId, identity.webId)
+    identity.allUris.filterNot { it == identity.webId }.forEach { alias ->
+      consentDecisionStore.recordWithoutLifetime(pod.id, clientId, alias)
     }
     return forSubject
   }

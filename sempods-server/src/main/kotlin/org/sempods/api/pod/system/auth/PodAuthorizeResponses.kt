@@ -154,6 +154,10 @@ internal object PodAuthorizeResponses {
       "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
       "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
       "isOwner" to screen.isOwner,
+      // The owner may build a context, on a dialog that is about contexts. The installation screen
+      // is not: `PodConsentFlow.installation` refuses a `new_context` it is posted, so the form and
+      // the script behind it would only offer work that cannot land.
+      "contextCreationAvailable" to (screen.isOwner && screen.privilegedFeatures.isEmpty()),
       "publicContexts" to screen.publicContexts,
       "publicReadAvailable" to screen.publicContexts.isNotEmpty(),
       "publicReadPreselected" to screen.publicReadPreselected,

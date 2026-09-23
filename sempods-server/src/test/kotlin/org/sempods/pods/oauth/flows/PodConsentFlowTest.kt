@@ -17,6 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -205,7 +206,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertEquals("app disconnected", delivery.description)
     assertTrue(owned.held().isEmpty(), "the grants go")
     val decision = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
-    assertTrue(!decision.durable, "a silence would read as an authorization that predates the control")
+    assertEquals(false, decision.durable, "a silence would read as an authorization that predates the control")
     assertTrue(decision.generation > before, "the generation moves, so a code minted before it cannot redeem")
   }
 
@@ -318,7 +319,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
 
     val decision = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
-    assertTrue(!decision.durable)
+    assertEquals(false, decision.durable, "the ordinary dialog asked, and this is the answer")
   }
 
   @Test
@@ -575,5 +576,56 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
     assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
     assertTrue(delivery.description.contains("owner"), delivery.description)
+  }
+
+
+  @Test
+  fun `an installation leaves the lifetime answer this app already carries`() {
+    // What this closes: the installation screen shares a consent document with the ordinary one.
+    // Writing `durable = false` into it for a question nobody was asked is a withdrawal, and
+    // `PodTokenExchange.endsOnRefusal` reads it as one — the app's durable family dies at its next
+    // refresh because its owner installed something.
+    val owned = Owned()
+    owned.grant(owned.readScope)
+    owned.answered(durable = true)
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val standing = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
+    assertEquals(true, standing.durable, "the installation screen asked nothing about the connection")
+  }
+
+  @Test
+  fun `an installation on an authorization nobody has answered still answers nothing`() {
+    // The other half, and the one a preserved-if-present fix would miss: no answer on record is a
+    // state of its own, and a family grandfathered onto the long terms is left alone only while it
+    // stays that way.
+    val owned = Owned()
+
+    issuedCode(
+      flow.submit(
+        owned.pod,
+        form(
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          durable = false,
+        ),
+        owned.session,
+      ),
+    )
+
+    val standing = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
+    assertNull(standing.durable, "a refusal nobody gave is not the answer to a question nobody asked")
+    assertTrue(standing.generation > 0, "and the code still has a generation to be bound to")
   }
 }

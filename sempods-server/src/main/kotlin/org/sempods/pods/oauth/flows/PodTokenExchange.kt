@@ -178,7 +178,7 @@ class PodTokenExchange @Inject internal constructor(
     // one — an app the person keeps in front of them needs a way back that does not run through a
     // third-party cookie.
     val lifetime =
-      if (decision.durable) PodRefreshTokenStore.Lifetime.DURABLE
+      if (decision.durable == true) PodRefreshTokenStore.Lifetime.DURABLE
       else PodRefreshTokenStore.Lifetime.SESSION
 
     // What this exchange supersedes, named *before* the successor exists — see

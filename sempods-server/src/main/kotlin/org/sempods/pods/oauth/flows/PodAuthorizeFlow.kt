@@ -384,15 +384,15 @@ class PodAuthorizeFlow @Inject internal constructor(
     // pre-checked in the dialog, so repeat flows are one-click. /token exchanges
     // are unaffected (no dialog there), so in-session token refreshes stay silent.
     val isDynamicClient = normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)
-    // An authorization that predates the lifetime control has no decision recorded, and this branch
+    // An authorization that predates the lifetime control has no lifetime answer on record, and this branch
     // renders nothing — so it could never acquire one. Once, therefore, it falls through to the
     // dialog instead, which is where it picks one up. Only where there is a dialog to fall through
     // to: `prompt=none` has none, so it keeps its silent code and the redirect looks unchanged.
     // What that code buys is nothing — carrying no generation, it is refused at the exchange — and
     // answering `consent_required` here instead is not worth changing a live contract for a state
     // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
-    val decisionRecorded =
-      consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId)) != null
+    val decisionRecorded = consentDecisionStore
+      .find(pod.id, normalizedClientId, listOf(identity.webId))?.durable != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants

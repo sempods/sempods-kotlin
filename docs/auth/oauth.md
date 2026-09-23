@@ -553,8 +553,12 @@ its contexts once it exists, and is open work
   than trimmed: an installer that could read the owner's data is not the thing being asked for.
   `offline_access` beside it is ignored, because the control it preselects is not on the screen.
 - **A screen of its own.** The dialog offers the installation unticked and carries no context rows,
-  no public-read toggle and no lifetime control. Ticking nothing declines the installation and
-  leaves whatever that app already holds exactly as it was.
+  no public-read toggle, no way to build a context and no lifetime control. Ticking nothing declines
+  the installation and leaves whatever that app already holds exactly as it was.
+- **It answers nothing else.** Both consents write the same `(pod, client, person)` decision, and an
+  installation moves only its generation: a lifetime answer already on record survives, and where
+  none is on record none is written. A `durable = false` for a question the screen never asked would
+  read as a withdrawal at the next rotation and end a connection the owner still wanted.
 - **Asked every time.** A standing consent never answers it: `prompt=none` is `consent_required`,
   and a stored grant naming the scope is dropped rather than re-issued.
 - **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,

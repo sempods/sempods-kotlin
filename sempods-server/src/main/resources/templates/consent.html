@@ -504,8 +504,10 @@
       No contexts available on this pod.
     </div>
 
-    <!-- New context creation (owner only) -->
-    <div class="new-context-section" th:if="${isOwner}">
+    <!-- New context creation (owner only, and only where this dialog is about contexts at all:
+         an installation screen refuses a context it was posted, so offering to build one would be
+         inviting work that cannot land). -->
+    <div class="new-context-section" th:if="${contextCreationAvailable}">
       <h2>Create Context</h2>
       <div id="pendingContexts"></div>
       <div class="new-context-row">
@@ -576,7 +578,7 @@
   </form>
 </div>
 
-<script th:if="${isOwner}">
+<script th:if="${contextCreationAvailable}">
   (function() {
     var input = document.getElementById('newContextInput');
     var container = document.getElementById('pendingContexts');

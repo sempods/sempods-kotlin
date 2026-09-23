@@ -24,11 +24,12 @@ import java.util.Date
  * `(podId, appId, webId)`.
  *
  * There are three answers and only two of them are a decision: **granted**, **refused**, and
- * **nothing recorded** — the last being every authorization made before the consent dialog offered
- * the choice. An absent document *is* that third state, which is why this is a document of its own
- * rather than a flag on a grant row: nothing has to be written for the pods that already exist, and
- * a refusal stays distinguishable from a silence. Reading them as the same thing is a bug in both
- * directions — it either ends connections nobody ended, or lets a withdrawal be ignored.
+ * **nothing recorded** — every authorization made before the consent dialog offered the choice, and
+ * every one whose dialog did not ask ([recordWithoutLifetime]). An absent document is that third
+ * state, and so is a document carrying no `durable` field, which is why this is a document of its
+ * own rather than a flag on a grant row: nothing has to be written for the pods that already exist,
+ * and a refusal stays distinguishable from a silence. Reading them as the same thing is a bug in
+ * both directions — it either ends connections nobody ended, or lets a withdrawal be ignored.
  *
  * [Decision.generation] rises with every answer, a refusal included, and with every other event
  * that resets what the authorization stands at — see [bumpGeneration]. It is written from the
@@ -54,10 +55,11 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   }
 
   /**
-   * @param durable whether the person granted a connection that outlives the access token.
+   * @param durable whether the person granted a connection that outlives the access token, or
+   *   `null` where this authorization has never been asked — see the note on this class.
    * @param generation how many times this authorization has been answered. Rises on every write.
    */
-  internal data class Decision(val durable: Boolean, val generation: Long, val decidedAt: Instant)
+  internal data class Decision(val durable: Boolean?, val generation: Long, val decidedAt: Instant)
 
   /**
    * The decision this authorization holds, or null when none was ever recorded.
@@ -101,6 +103,39 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
       Updates.combine(
         Updates.set(FIELD_DURABLE, durable),
         Updates.set(FIELD_DECIDED_AT, Date.from(decidedAt)),
+        Updates.inc(FIELD_GENERATION, 1L),
+      ),
+      FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
+    )
+    return checkNotNull(updated) { "upsert returned no document" }.toDecision()
+  }
+
+  /**
+   * The same write, for a dialog that asked the person something other than the lifetime question.
+   *
+   * The installation screen is the one that does: it carries no lifetime control, so it has no
+   * answer to write, and writing `false` anyway would be a refusal nobody gave — enough to revoke
+   * a durable family this app already holds ([Decision.durable] is what `endsOnRefusal` reads).
+   * The field is therefore left exactly as it stands: preserved where an answer is on record,
+   * absent where none is.
+   *
+   * An upsert, unlike [bumpGeneration], because the caller needs a generation to bind its
+   * authorization code to and there may be no document yet.
+   */
+  internal fun recordWithoutLifetime(
+    pod: PodId,
+    appId: String,
+    webId: String,
+    at: Instant = Instant.now(),
+  ): Decision {
+    val updated = decisions.findOneAndUpdate(
+      Filters.and(
+        podFilter(pod),
+        Filters.eq(FIELD_APP_ID, appId),
+        Filters.eq(FIELD_WEB_ID, webId),
+      ),
+      Updates.combine(
+        Updates.set(FIELD_DECIDED_AT, Date.from(at.truncatedTo(ChronoUnit.MILLIS))),
         Updates.inc(FIELD_GENERATION, 1L),
       ),
       FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
@@ -156,7 +191,8 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
 
   private fun Document.toDecision() = Decision(
-    durable = getBoolean(FIELD_DURABLE, false),
+    // Absent where no dialog has put the question, which is a state of its own and not a refusal.
+    durable = if (containsKey(FIELD_DURABLE)) getBoolean(FIELD_DURABLE, false) else null,
     generation = get(FIELD_GENERATION, Number::class.java)?.toLong() ?: 0L,
     decidedAt = getInstant(FIELD_DECIDED_AT) ?: Instant.EPOCH,
   )

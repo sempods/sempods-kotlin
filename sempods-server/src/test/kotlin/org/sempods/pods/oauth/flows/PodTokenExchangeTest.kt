@@ -523,4 +523,20 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   /** The `jti` the access token carries — what an installation authority is filed under. */
   private fun jtiOf(accessToken: String): String =
     checkNotNull(SignedJWT.parse(accessToken).jwtClaimsSet.jwtid) { "an access token always carries a jti" }
+
+
+  @Test
+  fun `an installation does not end a durable family the same app holds`() {
+    // The two consents share one decision document. This is what the installation screen must not
+    // be able to do to a connection it never asked about.
+    val authorized = Authorized()
+    val tokens = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
+    val refreshToken = assertNotNull(tokens.refreshToken)
+
+    // What `PodConsentFlow.installation` writes when the owner approves an installation.
+    consentDecisionStore.recordWithoutLifetime(authorized.podId, clientId, authorized.webId)
+
+    val rotated = issued(authorized.refresh(refreshToken))
+    assertNotNull(rotated.refreshToken, "the durable connection was never withdrawn")
+  }
 }

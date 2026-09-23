@@ -5132,6 +5132,29 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the installation dialog offers no context creation, and an ordinary owner dialog does`() {
+    // The owner flag alone used to decide this, so the screen invited a context the submission
+    // then refused — work that could not land, on a dialog that is not about contexts.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    val installing = installationPage(pod, ownerWebId).responseBody
+    assertFalse("newContextInput" in installing, "no field to type a context into")
+    assertFalse("Create Context" in installing, "and nothing inviting one")
+
+    val ordinary = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "ordinary")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .setFollowRedirect(false).execute().responseBody
+    assertTrue("newContextInput" in ordinary, "the owner can still build one where it belongs")
+  }
+
+  @Test
   fun `a dynamic client is offered the installation on the same terms`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
