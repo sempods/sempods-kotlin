@@ -10,7 +10,6 @@ import org.sempods.SempodsConfig
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.pod.resources.WriteConditions
-import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.jaxrs.BaseEndpoint
 import org.sempods.commons.net.BearerAuth
 import org.sempods.mcp.core.BearerChallenge
@@ -45,9 +44,6 @@ open class SempodsBaseEndpoint(
    * that run before the injector — see [SempodsModule.config].
    */
   protected val config: SempodsConfig = SempodsModule.config
-
-  @Inject
-  private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   /** Applies this deployment's address, so a [PodRef] carries the pod's URI and not only its name. */
   @Inject
@@ -314,43 +310,6 @@ open class SempodsBaseEndpoint(
   }
 
   /**
-   * The pod owner, if [credentials] belong to them.
-   *
-   * Ownership is not a grant and not a scope — it is `pod.owner in webIds` and nothing else, so
-   * there is nothing for an owner to be granted or to consent to. What this resolves is only
-   * *recognition*: which person the request is from. That used to come from an identity JWT issued
-   * by the id-server and presented here as a bearer, which meant a token minted to prove who
-   * someone is doubled as a credential for their pod. It now comes from the pod's own access
-   * token, whose `sub` is the WebID the person signed in as.
-   *
-   * Matched against the deterministic twins of the subject ([WebIdUriDeriver.derivableAliases] —
-   * the `{id}/e/<hash>` and `urn:sempods:e:<hash>` spellings of one address). Today that is defence
-   * in depth rather than a live case: `PodDao.insert`/`setOwner` run `requireEmailBasedWebId`, so a
-   * stored owner is always the `https` spelling, which is also what the id-server puts in `sub`.
-   * It is here so that loosening that constraint cannot silently narrow who counts as the owner.
-   *
-   * Profile-linked aliases are deliberately *not* resolved, matching the rule the grant path
-   * already states: a request carries one identity URI, and equivalences are applied when a grant
-   * is written, not when it is read.
-   *
-   * **A bearer carrying a privileged feature scope is never the owner here**, whoever its `sub`
-   * names. Recognition is a catch-all allow wherever it is asked, so an installation authority —
-   * minted for the owner and meant to register one service client — would otherwise create and
-   * delete contexts on the whole pod, taking their statements and grants with them. What such a
-   * token may do is bounded by the scope it carries, and ownership is not one of the things it
-   * carries. The wider question, what an owner's *ordinary* token should inherit from the person,
-   * is [#131](https://github.com/sempods/sempods-kotlin/issues/131)'s; this is only the part the
-   * scope itself settles.
-   */
-  protected fun resolvePodOwnerPrincipal(credentials: SempodsCredentials): PodOwnerPrincipal? {
-    val subject = credentials.tokenSub?.trim()?.takeIf { it.isNotBlank() } ?: return null
-    if (credentials.carriesPrivilegedFeature) return null
-    if (credentials.pod.owner !in webIdUriDeriver.derivableAliases(subject)) return null
-    logger.info { "[oauth] Resolved pod owner: pod='${credentials.pod.name}', webId='$subject'" }
-    return PodOwnerPrincipal(webIdUri = subject)
-  }
-
-  /**
    * Writes one [PodServiceAuditLogDbo] row for the in-flight request. Called whenever the
    * authenticator recognises a service-client (`client_credentials`) token, so every request a
    * 2-leg caller makes leaves an audit entry.
@@ -410,7 +369,3 @@ class OAuthUpgradeRequiredException(
   podName: String,
   response: Response,
 ) : InvalidBearerException(podName, response)
-
-data class PodOwnerPrincipal(val webIdUri: String) {
-  fun toSubject(): String = webIdUri
-}

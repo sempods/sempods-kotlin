@@ -12,6 +12,7 @@ import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.client.SempodsContextCreate
 import org.sempods.client.SempodsGraphFormat
@@ -61,6 +62,9 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var podTokenIssuer: PodTokenIssuer
+
+  @Inject
+  private lateinit var consentDecisionStore: PodConsentDecisionStore
 
   private val jsonUtil = JsonUtil(JsonMappers.default())
 
@@ -141,7 +145,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `get returns the context at its own IRI, and only the registry's view of it`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     http.preparePut(contextManageUrl(pod.name, "apps/example/tasks"))
       .addHeader("Content-Type", "application/json")
       .addHeader("Authorization", "Bearer $ownerToken")
@@ -191,7 +195,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `put allows free names but reserves type names and the operation segment`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
 
     fun put(path: String) = http.preparePut(contextManageUrl(pod.name, path))
       .addHeader("Content-Type", "application/json")
@@ -221,7 +225,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
 
     val response = http.preparePut(contextManageUrl(pod.name, "apps/example/tasks"))
       .addHeader("Content-Type", "application/json")
@@ -240,7 +244,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
     val url = contextManageUrl(pod.name, "apps/example/tasks")
 
     val first = http.preparePut(url)
@@ -277,7 +281,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     // nothing else.
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
 
     // `null` is the request that carries no body at all — `TestHttpRequest` then sends
     // `Content-Length: 0`, which is the case `SPS-CTX-027` names explicitly.
@@ -317,7 +321,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
     val url = contextManageUrl(pod.name, "apps/example/tasks")
 
     http.preparePut(url)
@@ -337,7 +341,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     val registered = podServiceClientStore.register(
       pod = pod.hosted,
@@ -375,7 +379,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/other")
     val survivingScope = "${contextUri(pod.name, "apps/other")}#read"
@@ -403,7 +407,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
 
     val response = http.prepareDelete(contextManageUrl(pod.name, "apps/missing/tasks"))
       .addHeader("Authorization", "Bearer $ownerToken")
@@ -482,11 +486,11 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `owner can still create a context outside any service-client sandbox`() {
+  fun `the owner's contexts authority creates a context outside any service-client sandbox`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
 
     val response = http.preparePut(contextManageUrl(pod.name, "apps/other/owner-only"))
       .addHeader("Content-Type", "application/json")
@@ -494,22 +498,21 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("{}")
       .execute()
 
-    assertEquals(201, response.statusCode, "owner is the catch-all allow; body=${response.responseBody}")
+    assertEquals(201, response.statusCode, "contexts:manage reaches every context; body=${response.responseBody}")
   }
 
   @Test
-  fun `the owner is recognised from the token subject, with nothing granted and no contexts yet`() {
-    // Ownership is not a grant and not a scope — it follows from `podDbo.owner`, and the server
-    // reads which person is asking from the token's `sub`. So an owner with an empty grant set, on
-    // a pod that has no contexts at all, can still make the first one. That is the bootstrap the
-    // old flow covered with an identity JWT presented as a bearer.
+  fun `the owner's contexts authority makes the first context, with nothing granted and no contexts yet`() {
+    // Ownership is not a grant — the authority follows from `podDbo.owner`, compared against the
+    // URIs the dialog recognised the person by. So an owner with an empty grant set, on a pod that
+    // has no contexts at all, can still make the first one from a program.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
     val response = http.preparePut(contextManageUrl(pod.name, "first"))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintOwnerPodToken(pod.name, ownerWebId)}")
+      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
       .setBody("{}")
       .execute()
 
@@ -517,19 +520,125 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a token for somebody who is not the owner gets no owner authority`() {
+  fun `an app holding the owner's token creates and deletes nothing it was not granted`() {
+    // The gap #131 closes: the token's `sub` owns the pod, and the app holding it was approved for
+    // nothing. Ownership lets the person grant everything; it does not make every token naming
+    // them carry everything.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    val appToken = mintOwnerPodToken(pod.name, ownerWebId)
+
+    val put = http.preparePut(contextManageUrl(pod.name, "projects"))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $appToken")
+      .setBody("{}")
+      .execute()
+    val delete = http.prepareDelete(contextManageUrl(pod.name, "contacts"))
+      .addHeader("Authorization", "Bearer $appToken")
+      .execute()
+
+    assertEquals(403, put.statusCode, "body=${put.responseBody}")
+    assertEquals(403, delete.statusCode, "body=${delete.responseBody}")
+    assertNull(podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "projects")))
+    assertNotNull(podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "contacts")))
+  }
+
+  @Test
+  fun `an app the owner delegated a manage root reaches that root and nothing beside it`() {
+    // A delegated installer, both sides of the line: approved `apps/notely#manage` by the owner, it
+    // manages below that root and nowhere else, although its token names the owner.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notely")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    val appToken = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/notely")}#manage"), webId = ownerWebId)
+
+    fun put(path: String) = http.preparePut(contextManageUrl(pod.name, path))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $appToken")
+      .setBody("{}")
+      .execute()
+
+    fun delete(path: String) = http.prepareDelete(contextManageUrl(pod.name, path))
+      .addHeader("Authorization", "Bearer $appToken")
+      .execute()
+
+    assertEquals(201, put("apps/notely/drafts").statusCode)
+    assertEquals(204, delete("apps/notely/drafts").statusCode)
+    assertEquals(403, put("projects").statusCode)
+    assertEquals(403, delete("contacts").statusCode)
+    assertNotNull(podContextsDao.fetchByContextUri(checkNotNull(pod.id), contextUri(pod.name, "contacts")))
+  }
+
+  @Test
+  fun `a contexts authority for somebody who is not the owner reaches nothing`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val strangerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(sempodsTestFactory.newOwner().email))
 
-    // A valid pod token, correct pod, just a different person. Nothing is granted to them either.
+    // A valid pod token carrying the scope, correct pod, just a different person.
     val response = http.preparePut(contextManageUrl(pod.name, "apps/other/not-yours"))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintOwnerPodToken(pod.name, strangerWebId)}")
+      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, strangerWebId)}")
       .setBody("{}")
       .execute()
 
     assertEquals(403, response.statusCode, "body=${response.responseBody}")
+  }
+
+  @Test
+  fun `a contexts authority recognised through a linked alias is the owner's`() {
+    // The bearer carries the URI the person signed in under; the dialog recognised the owner's
+    // address beside it, and that set is what the check reads.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val alias = "https://accounts.example/alice#me"
+
+    val response = http.preparePut(contextManageUrl(pod.name, "projects"))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, alias, subjectUris = setOf(alias, ownerWebId))}")
+      .setBody("{}")
+      .execute()
+
+    assertEquals(201, response.statusCode, "body=${response.responseBody}")
+  }
+
+  @Test
+  fun `a contexts authority ends when the app is disconnected`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val token = mintContextsManagerToken(pod.name, ownerWebId)
+    consentDecisionStore.recordDisconnect(pod.hosted.id, CONTEXTS_MANAGER_CLIENT_ID, ownerWebId)
+
+    val response = http.preparePut(contextManageUrl(pod.name, "projects"))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("{}")
+      .execute()
+
+    assertEquals(401, response.statusCode, "body=${response.responseBody}")
+    assertTrue(response.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), response.getHeader("WWW-Authenticate"))
+  }
+
+  @Test
+  fun `a contexts authority reaches no data and sees no catalogue`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+
+    val response = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/json")
+      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
+      .execute()
+
+    assertEquals(200, response.statusCode, "body=${response.responseBody}")
+    assertFalse(response.responseBody.contains(contextUri(pod.name, "contacts")), response.responseBody)
   }
 
   @Test
@@ -692,7 +801,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `the client core creates a context and reads the description this endpoint answers with`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     val tasks = contextUri(pod.name, "apps/example/tasks")
     val label = "T\u00e2ches \"\u00f6ffentlich\" \\ \u2713"
 
@@ -736,7 +845,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `a context named in a caller's own language is created, read and removed through the core`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     // `SPS-CTX-009`: a freely chosen name that breaks no structural rule. The path carries it
     // percent-encoded and the endpoint takes it back decoded, so the IRI is the one the pod stored.
     val iri = contextUri(pod.name, "grüße/例")
@@ -870,7 +979,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
     val path = "apps/example/turtle"
 
     val refused = http.preparePut(contextManageUrl(pod.name, path))
@@ -971,7 +1080,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintOwnerPodToken(pod.name, ownerWebId)
+    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
     val path = "apps/example/tasks"
     fun put(label: String) = http.preparePut(contextManageUrl(pod.name, path))
       .addHeader("Content-Type", "application/json")
@@ -1122,7 +1231,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   fun `the RDF4J adapter creates a context and reads the registry as models`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintOwnerPodToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     val tasks = contextUri(pod.name, "apps/example/tasks")
     val tasksIri = Values.iri(tasks)
 

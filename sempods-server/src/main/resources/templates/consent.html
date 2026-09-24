@@ -420,6 +420,27 @@
       </label>
     </div>
 
+    <!-- The owner's own authority over the registry, on the terms of the two above: offered only
+         where asked for, never pre-ticked, alone on the screen. Without it an app creates and
+         deletes only the contexts it was granted `manage` on. -->
+    <div class="public-read-section" th:if="${contextsManagementRequested}">
+      <h2>Manage the contexts of this pod</h2>
+      <label class="public-read-toggle">
+        <input type="checkbox"
+               id="contextsManagementToggle"
+               name="scope"
+               th:value="${contextsManagementScope}"/>
+        <span class="text">
+          Let <th:block th:text="${clientName}">this app</th:block> create and delete any context on
+          this pod, for the next hour.
+          <span class="description">
+            Deleting a context deletes everything stored in it and every access granted to it, for
+            you and for every app. It gets no access to read or change your data.
+          </span>
+        </span>
+      </label>
+    </div>
+
     <!-- R7 (additive model, 2026-05-07): Public-Read is a normal additive
          scope. Visible when the pod has at least one server-defined
          public-read context. Default checked — most users want public-read

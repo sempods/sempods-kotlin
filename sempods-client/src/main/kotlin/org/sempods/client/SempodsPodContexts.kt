@@ -41,6 +41,11 @@ import java.io.OutputStream
  * A context the session cannot see answers exactly as one that was never registered: `404`, with no
  * body and no validator.
  *
+ * **Creating and deleting need authority over that context:** a `#manage` grant covering it, or the
+ * pod owner's (SPS-CTX-019). An app whose token names the owner holds what the owner approved for
+ * it, so without such a grant [create] and [delete] answer `403`. How a program is given the owner's
+ * authority is the pod's; a sempods pod asks the owner for `contexts:manage`.
+ *
  * **What the registry holds, and what anyone says about a context, are two reads.** A description
  * carries the registry's own view — the context as a named graph, its label, its description and when
  * it was created (SPS-CTX-032) — and points at the ordinary statements about that IRI with

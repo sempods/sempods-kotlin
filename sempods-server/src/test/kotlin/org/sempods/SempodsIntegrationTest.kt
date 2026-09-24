@@ -8,6 +8,9 @@ import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.api.system.admin.pods.AdminPodsEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -100,14 +103,46 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   private lateinit var fakeIdServer: FakeIdServerTransport
 
   /**
-   * A pod access token for the pod's owner, carrying no grants at all.
+   * A pod access token an app holds for the pod's owner, carrying no grants at all.
    *
-   * Ownership is not a grant: it follows from `podDbo.owner`, and the server recognises it from
-   * the token's `sub`. An owner therefore needs nothing granted to manage contexts — which is also
-   * what lets a pod with no contexts yet get its first one.
+   * Ownership is not a grant, and it is not this token's either: an app holding it reaches what the
+   * owner approved for that app — here nothing. What the owner may do in person reaches a program
+   * through [mintContextsManagerToken] instead.
    */
   protected fun mintOwnerPodToken(podName: String, ownerWebId: String): String =
     mintScopedToken(podName, scopes = emptyList(), webId = ownerWebId)
+
+  /**
+   * A bearer carrying [CONTEXTS_MANAGE_SCOPE], with the authority the owner's dialog would have
+   * recorded behind it — what the exchange writes, without the browser round trip.
+   * `PodContextsManagementHttpTest` walks that round trip once, which keeps this shortcut honest.
+   *
+   * @param subjectUris every URI the dialog recognised the person by; [webId] among them.
+   */
+  protected fun mintContextsManagerToken(
+    podName: String,
+    webId: String,
+    subjectUris: Set<String> = setOf(webId),
+    clientId: String = CONTEXTS_MANAGER_CLIENT_ID,
+  ): String {
+    val podId = checkNotNull(podDao.fetchByName(podName)) { "no pod named '$podName'" }.toHostedPod(sempodsUriBuilder).id
+    val disconnects = consentDecisionStore.recordWithoutLifetime(podId, clientId, webId).disconnects
+    val issued = podTokenIssuer.issueWithId(
+      pod = podName,
+      webId = webId,
+      clientId = clientId,
+      scopes = setOf(CONTEXTS_MANAGE_SCOPE),
+      ttlSeconds = PodTokenIssuer.USER_TOKEN_TTL_SECONDS,
+    )
+    managementAuthorities.record(podId, issued.jti, clientId, webId, disconnects, subjectUris)
+    return issued.token
+  }
+
+  @Inject
+  private lateinit var consentDecisionStore: PodConsentDecisionStore
+
+  @Inject
+  private lateinit var managementAuthorities: PodManagementAuthorityStore
 
   /**
    * Runs this `/authorize` request as someone who is signed in — through the sign-in, not around
@@ -278,6 +313,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   }
 
   companion object {
+
+    /** The app [mintContextsManagerToken] issues to unless told otherwise. */
+    const val CONTEXTS_MANAGER_CLIENT_ID = "did:web:contexts-manager.example"
 
     @BeforeAll
     @JvmStatic

@@ -5,6 +5,7 @@ import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
@@ -134,7 +135,8 @@ class RootOAuthMetadataEndpoint @Inject constructor(
 }
 
 /** RFC 9728 §2 and RFC 8414 §2 both call the field `scopes_supported`, and both mean this list. */
-private val SCOPES_SUPPORTED = listOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE, OFFLINE_ACCESS_SCOPE)
+private val SCOPES_SUPPORTED =
+  listOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE, OFFLINE_ACCESS_SCOPE)
 
 internal fun buildProtectedResourceMetadata(
   pod: PodDbo,

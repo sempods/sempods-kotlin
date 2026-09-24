@@ -15,7 +15,7 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
-import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopePermission
 import org.sempods.pods.oauth.DynamicClientStore
@@ -450,7 +450,7 @@ class PodConsentFlow @Inject internal constructor(
       state = state,
       codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
-      via = if (SERVICE_CLIENTS_MANAGE_SCOPE in submitted) PodCodeIssuance.MANAGEMENT else PodCodeIssuance.INSTALLATION,
+      via = if (SERVICE_CLIENTS_INSTALL_SCOPE in submitted) PodCodeIssuance.INSTALLATION else PodCodeIssuance.MANAGEMENT,
       consentGeneration = decision.generation,
       // Recorded here because here is where it is still known. `PodClientRegistration` asks
       // `isOwner` again against this set, an hour later and with no browser in front of it.

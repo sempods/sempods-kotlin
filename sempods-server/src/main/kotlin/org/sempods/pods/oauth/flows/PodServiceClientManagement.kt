@@ -5,9 +5,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
-import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.SempodsCredentials
-import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 
@@ -22,8 +20,7 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
  */
 class PodServiceClientManagement @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
-  private val authorities: PodManagementAuthorityStore,
-  private val podGrantsFacade: PodGrantsFacade,
+  private val ownerAuthority: PodOwnerAuthority,
 ) {
 
   /** Every registration on [pod], with no secret. */
@@ -85,26 +82,25 @@ class PodServiceClientManagement @Inject internal constructor(
   }
 
   /**
-   * The authority check every operation runs first: the scope by name, since an installer bearer
-   * passes `carriesPrivilegedFeature`; then the recorded authority, whose URI set names the owner
-   * where the bearer's one URI may not.
+   * The authority check every operation runs first: [PodOwnerAuthority] for
+   * [SERVICE_CLIENTS_MANAGE_SCOPE], asked by name, since an installer bearer passes
+   * `carriesPrivilegedFeature` too.
    */
   private inline fun <T> authorized(
     pod: HostedPod,
     caller: SempodsCredentials?,
     operation: () -> PodServiceClientManagementResult<T>,
-  ): PodServiceClientManagementResult<T> {
-    if (caller == null || SERVICE_CLIENTS_MANAGE_SCOPE !in caller.oauthScopes) {
-      return PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.SCOPE_REQUIRED)
+  ): PodServiceClientManagementResult<T> =
+    when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE)) {
+      is PodOwnerAuthorityCheck.Standing -> operation()
+      is PodOwnerAuthorityCheck.Refused -> PodServiceClientManagementResult.Refused(
+        when (check.reason) {
+          PodOwnerAuthorityRefusal.SCOPE_REQUIRED -> PodServiceClientManagementRefusal.SCOPE_REQUIRED
+          PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN -> PodServiceClientManagementRefusal.AUTHORITY_WITHDRAWN
+          PodOwnerAuthorityRefusal.NOT_OWNER -> PodServiceClientManagementRefusal.NOT_OWNER
+        },
+      )
     }
-    val authority = caller.tokenJti?.let { authorities.standing(pod.id, it) }
-      ?: return PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.AUTHORITY_WITHDRAWN)
-    if (authority.subjectUris.none { podGrantsFacade.isPodOwner(pod, it) }) {
-      logger.info { "[service-clients] refused: no URI this authority names owns pod '${pod.name}'" }
-      return PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_OWNER)
-    }
-    return operation()
-  }
 
   /** Runs [operation] where [clientId] is owner-installed, which its prefix alone tells. */
   private inline fun <T> changeable(
