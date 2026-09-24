@@ -4,13 +4,12 @@ import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
+import org.sempods.auth.core.Secrets
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.crypto.SecretCipher
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.bson.Document
 import io.github.oshai.kotlinlogging.KotlinLogging
-import java.security.SecureRandom
-import java.util.Base64
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
@@ -20,15 +19,15 @@ import java.util.concurrent.TimeUnit
  * completes on another.
  *
  * The opaque `state` sent to the pod binds to the full flow context so the callback resumes the
- * exact connect it was started for — the mix-up defense the concept doc calls for. One-time use
- * ([consume] = atomic `findOneAndDelete`), 15-min TTL. The `_id` is the SHA-256 of the state;
- * the PKCE [Pending.codeVerifier] is additionally encrypted at rest — unlike the other fields
- * it is a credential redeemable at an *external* token endpoint (verifier + intercepted pod
+ * exact connect it was started for — the mix-up defense `docs/concepts/hosted-mcp.md` calls for.
+ * One-time use ([consume] = atomic `findOneAndDelete`), 15-min TTL. The `_id` is the SHA-256 of
+ * the state; the PKCE [Pending.codeVerifier] is additionally encrypted at rest — unlike the other
+ * fields it is a credential redeemable at an *external* token endpoint (verifier + intercepted pod
  * authorization code), so key-hashing alone would not cover it.
- */
-/**
+ *
  * @param collectionName the production name is the default; a test points an instance at a
- *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions" states.
+ *   collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md`
+ *   §"Conventions" states.
  */
 class PodConnectStateStore(
   db: MongoDatabase,
@@ -56,14 +55,13 @@ class PodConnectStateStore(
   )
 
   private val states = db.getCollection(collectionName)
-  private val random = SecureRandom()
 
   init {
     states.createIndex(Indexes.ascending("expiresAt"), IndexOptions().expireAfter(0, TimeUnit.SECONDS))
   }
 
   fun create(build: (expiresAt: Long) -> Pending): String {
-    val state = newState()
+    val state = Secrets.newSecret()
     states.insertOne(build(System.currentTimeMillis() + TTL_MS).toDocument(sha256Hex(state)))
     return state
   }
@@ -77,12 +75,6 @@ class PodConnectStateStore(
       .onFailure { logger.warn(it) { "unreadable pod-connect state row — treating as invalid" } }
       .getOrNull()
       ?.takeIf { System.currentTimeMillis() < it.expiresAt }
-  }
-
-  private fun newState(): String {
-    val bytes = ByteArray(32)
-    random.nextBytes(bytes)
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
   }
 
   private fun Pending.toDocument(id: String) = Document().apply {

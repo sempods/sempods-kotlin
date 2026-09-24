@@ -60,6 +60,8 @@ import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.utils.appendEscapedHtml
 
+private val logger = KotlinLogging.logger("org.sempods.mcp.api.oauth")
+
 /**
  * The service's own OAuth authorization server (the AI-client → service layer): DCR
  * `/register`, `/authorize` + `/authorize/consent`, `/token`, `/jwks.json`, and the OIDC
@@ -72,8 +74,6 @@ import org.sempods.commons.utils.appendEscapedHtml
  *
  * The default and named profiles have distinct resource URLs and profile-bound tokens.
  */
-private val logger = KotlinLogging.logger("org.sempods.mcp.api.oauth")
-
 fun Application.authEndpoint(
   config: SempodsMcpConfig,
   dcrClientDao: DcrClientDao,
@@ -98,7 +98,6 @@ fun Application.authEndpoint(
 
   /** Where the id-server returns; also this client's registered redirect address. */
   val OIDC_CALLBACK_PATH = "/oidc/callback"
-
 
   // Login-CSRF pin: set on the `/authorize` → id-server redirect, required back at
   // `/oidc/callback`. See [LoginCsrfPin] for why `state` alone is not enough.
@@ -138,7 +137,7 @@ fun Application.authEndpoint(
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, profile, redirectUris)
 
     val fresh = DcrClient(
-      clientId = "dyn:" + newOpaqueId(),
+      clientId = "dyn:" + Secrets.newOpaqueId(),
       profile = profile,
       redirectUris = redirectUris,
       clientName = clientName,
@@ -182,10 +181,10 @@ fun Application.authEndpoint(
     val q = call.request.queryParameters
     val responseType = q["response_type"]
     // Trimmed at the door, because the check below trims too: `OAuthErrors.redirectTargetFor`
-    // validates the trimmed value, and parking the raw one meant a padded `client_id` passed the
-    // check and then matched no row at the callback — a flow started that could not finish, after
-    // costing the user an id-server round trip. Blank collapses to absent for the same reason it
-    // does for `state`: a value made of whitespace names nothing.
+    // validates the trimmed value, so parking the raw one lets a padded `client_id` pass the check
+    // and then match no row at the callback — a flow started that cannot finish, after costing the
+    // user an id-server round trip. Blank collapses to absent for the same reason it does for
+    // `state`: a value made of whitespace names nothing.
     val clientId = q["client_id"]?.trim()?.takeIf { it.isNotBlank() }
     val redirectUri = q["redirect_uri"]?.trim()?.takeIf { it.isNotBlank() }
     val clientState = q["state"]
@@ -211,10 +210,10 @@ fun Application.authEndpoint(
               if (known) "redirect_uri not registered for this client" else "unknown client_id"
           }
         }
-    // Ordered after the address is proven, not before: RFC 6749 §4.1.2.1 places this code at the
-    // redirect_uri, and a client that asked for the wrong response type is still a client that can
-    // be told so where it is listening. Checking it first — as this did — answered a well-behaved
-    // client's typo with an opaque 400 it had no way to correlate.
+    // Ordered after the address is proven: RFC 6749 §4.1.2.1 places this code at the redirect_uri,
+    // and a client that asked for the wrong response type is still a client that can be told so
+    // where it is listening. Checking it first answers a well-behaved client's typo with an opaque
+    // 400 it has no way to correlate.
     if (responseType != "code") {
       return call.respondOAuthError(
         OAuthErrorDelivery.Redirect(target, OAuthErrorCode.UNSUPPORTED_RESPONSE_TYPE, "only 'code' is supported", clientState),
@@ -243,8 +242,8 @@ fun Application.authEndpoint(
 
     // Federate login to the id-server as a standard OIDC relying party: what comes back through
     // the browser is a single-use code, and the token is fetched over a back channel using a
-    // verifier that never left this process. The previous flow had the id-server append the token
-    // to a `return_to` of this service's choosing — which it accepted from anyone.
+    // verifier that never left this process. Having the id-server append the token to a `return_to`
+    // instead hands the token to whoever supplied the `return_to`.
     val relyingParty = try {
       identityProvider.relyingPartyFor(OIDC_CALLBACK_PATH)
     } catch (e: Exception) {
@@ -499,9 +498,8 @@ fun Application.authEndpoint(
         codeChallenge = txn.codeChallenge,
         codeChallengeMethod = txn.codeChallengeMethod,
       )
-      // The last hand-built OAuth redirect in this file, and it goes the same way its error
-      // siblings did: the address is the client's own and may carry a query, so which separator
-      // it needs is nimbus's problem rather than a rule repeated per call site.
+      // The address is the client's own and may carry a query, so which separator it needs is
+      // nimbus's problem rather than a rule repeated per call site.
       call.respondRedirect(
         AuthorizationSuccessResponse(
           URI(txn.redirectUri),
@@ -564,9 +562,9 @@ private suspend fun handleAuthorizationCode(
   if (entry.realm != pathProfile) {
     return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "code was issued for a different profile"))
   }
-  // PKCE: the code was issued with an S256 challenge; require a matching verifier.
-  // Bound to a local because the store now lives in another module, where Kotlin will not smart-cast
-  // a public property across the boundary.
+  // PKCE: the code was issued with an S256 challenge; require a matching verifier. Bound to a
+  // local because the store is in another module, and Kotlin will not smart-cast a public property
+  // across that boundary.
   val issuedChallenge = entry.codeChallenge
   if (issuedChallenge.isNullOrBlank() || codeVerifier.isNullOrBlank() ||
     !Pkce.verifyS256(codeVerifier, issuedChallenge)
@@ -668,13 +666,6 @@ private fun redirectPolicyFor(dcrClientDao: DcrClientDao, profile: String) = Cli
 }
 
 private fun enc(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
-
-
-private fun newOpaqueId(): String {
-  val bytes = ByteArray(18)
-  java.security.SecureRandom().nextBytes(bytes)
-  return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-}
 
 /** Followed by the flow's `state`, so concurrent sign-ins do not share a cookie. */
 private const val LOGIN_NONCE_COOKIE_PREFIX = "mcp_login_"

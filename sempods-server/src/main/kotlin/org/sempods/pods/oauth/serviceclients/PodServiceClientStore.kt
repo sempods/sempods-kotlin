@@ -2,6 +2,7 @@ package org.sempods.pods.oauth.serviceclients
 
 import com.google.inject.Inject
 import com.mongodb.MongoWriteException
+import org.sempods.auth.core.Secrets
 import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
@@ -13,14 +14,13 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bouncycastle.crypto.generators.OpenBSDBCrypt
 import org.bson.types.ObjectId
 import java.security.SecureRandom
-import java.util.Base64
 
 /**
  * Issues and verifies secrets for statically-registered pod service clients
  * (OAuth 2-leg, `client_credentials`).
  *
  * Bcrypt (OpenBSD variant via BouncyCastle) is used for the secret-at-rest
- * hash: memory-hard, salt embedded in the encoded form, constant-time
+ * hash: deliberately slow, salt embedded in the encoded form, constant-time
  * comparison from the library. The plaintext is generated once at
  * registration and returned to the caller — never persisted.
  */
@@ -81,10 +81,10 @@ class PodServiceClientStore @Inject constructor(
       scopes = scopes,
       label = label,
     )
-    // The stored row rather than the one handed in. `datastore.save()` used to write the generated
-    // `_id` back into the instance it was passed, so reading it off `dbo` worked; `insertOne` does
-    // not, and the id is what the admin API returns as `registrationId` and what the
-    // compare-and-swap delete filters on. Discarding this return value hands out a `null` one.
+    // The stored row rather than the one handed in: `insertOne` does not write the generated `_id`
+    // back into the instance it was passed, and that id is what the admin API returns as
+    // `registrationId` and what the compare-and-swap delete filters on. Discarding this return
+    // value hands out a `null` one.
     val stored = try {
       dao.create(dbo)
     } catch (e: MongoWriteException) {
@@ -124,8 +124,7 @@ class PodServiceClientStore @Inject constructor(
    * row matches [clientId]. Without that an unknown clientId returns in
    * microseconds while a wrong-secret-on-known-clientId burns ~250 ms of
    * bcrypt work, letting an attacker enumerate valid clientIds at the
-   * `/token` endpoint by timing the response. The dummy hash lives in
-   * memory and is computed once at class load.
+   * `/token` endpoint by timing the response. [dummyHash] is that target.
    */
   // TODO: replace bcrypt with HMAC-SHA256 over a pod-local verifier key. Each
   //   call here burns ~250 ms of CPU (cost-12 bcrypt) regardless of
@@ -163,11 +162,7 @@ class PodServiceClientStore @Inject constructor(
   /** Everything this pod registered, for the pod's own deletion. */
   internal fun deleteByPod(pod: PodId): Long = dao.deleteByPod(pod.objectId())
 
-  private fun mintSecret(): String {
-    val bytes = ByteArray(32)
-    random.nextBytes(bytes)
-    return SECRET_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-  }
+  private fun mintSecret(): String = SECRET_PREFIX + Secrets.newSecret()
 
   private fun hashSecret(secret: String): String {
     val salt = ByteArray(16).also(random::nextBytes)
@@ -183,20 +178,11 @@ class PodServiceClientStore @Inject constructor(
   }
 
   /**
-   * Pre-computed bcrypt hash of a random plaintext nobody knows. Used as the
-   * comparison target when no row matches the supplied clientId so the
-   * timing of an unknown-client failure matches the timing of a
-   * wrong-secret-on-known-client failure. Computed lazily once.
+   * A bcrypt hash of a random plaintext nobody knows, computed once on first
+   * use. Verifying against it takes what verifying a real hash takes, which
+   * is what makes an unknown clientId and a wrong secret cost the same.
    */
-  private val dummyHash: String by lazy {
-    val dummySecret = ByteArray(32).also(random::nextBytes)
-    val salt = ByteArray(16).also(random::nextBytes)
-    OpenBSDBCrypt.generate(
-      Base64.getUrlEncoder().withoutPadding().encodeToString(dummySecret).toCharArray(),
-      salt,
-      BCRYPT_COST,
-    )
-  }
+  private val dummyHash: String by lazy { hashSecret(mintSecret()) }
 
   companion object {
     /** Lets operators recognise pod service-client secrets at a glance. */
