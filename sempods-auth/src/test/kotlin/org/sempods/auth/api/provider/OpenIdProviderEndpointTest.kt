@@ -226,6 +226,24 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
   }
 
   @Test
+  fun `a refusal that quotes the caller still reaches the client`() = withProvider(google, apple) { http ->
+    // An error description may only carry RFC 6749 §5.2's characters, and the SDK throws on any
+    // other. Quoting the caller verbatim turned these refusals into a 500.
+    val hostile = "fa\"ce\\bööök"
+    for (url in listOf(
+      authorizeUrl(extra = "&provider=${hostile.encodeURLParameter()}"),
+      authorizeUrl(scope = "openid $hostile"),
+    )) {
+      val response = http.get(url)
+      val location = response.headers["Location"].orEmpty()
+
+      assertEquals(HttpStatusCode.Found, response.status, location)
+      assertTrue(location.startsWith(redirect), "the refusal goes to the proven address: $location")
+      assertTrue("error=invalid_" in location, location)
+    }
+  }
+
+  @Test
   fun `a deployment with no provider says so to the client, at its own address`() = withProvider { http ->
     // A valid deployment state — someone running their own identity service owns no Google project.
     // The client learns it as an OAuth error rather than a page it cannot act on, and it travels by
