@@ -2,9 +2,10 @@ package org.sempods.client
 
 /**
  * What the pod's `/authorize` sent the browser back with (RFC 6749 §4.1.2): a code, or an error.
+ * [SempodsPodAuthorization.readRedirect] reads it.
  *
  * ```java
- * SempodsAuthorizationRedirect answer = SempodsAuthorizationRedirect.readQuery(exchange.getRequestURI().getRawQuery(), state);
+ * SempodsAuthorizationRedirect answer = authorization.readRedirect(exchange.getRequestURI().getRawQuery(), state);
  * if (!answer.isApproved()) { ... answer.getError() ... }
  * ```
  *
@@ -29,25 +30,9 @@ class SempodsAuthorizationRedirect private constructor(
 
   override fun toString(): String = "SempodsAuthorizationRedirect(approved=$isApproved, error=$error)"
 
-  companion object {
+  internal companion object {
 
-    /**
-     * Reads the redirect's [encodedQuery], as it arrived, after checking its `state` against
-     * [expectedState].
-     *
-     * @throws SempodsClientException when `state` is missing or different, when a member repeats,
-     *   or when the query carries neither `code` nor `error`.
-     */
-    @JvmStatic
-    @Throws(SempodsClientException::class)
-    fun readQuery(encodedQuery: String?, expectedState: String): SempodsAuthorizationRedirect {
-      val query = RedirectQuery.of(encodedQuery, expectedState, "authorization")
-      val code = query.single("code")
-      val error = query.single("error")
-      if ((code == null) == (error == null)) {
-        throw query.refused(if (code == null) "carries neither a code nor an error" else "carries both a code and an error")
-      }
-      return SempodsAuthorizationRedirect(code, error, query.single("error_description"))
-    }
+    @JvmSynthetic
+    internal fun of(code: String?, error: String?, errorDescription: String?) = SempodsAuthorizationRedirect(code, error, errorDescription)
   }
 }

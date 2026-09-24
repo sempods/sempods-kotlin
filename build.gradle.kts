@@ -333,6 +333,8 @@ subprojects {
     "sempods-client" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
       "tools.jackson." to "a JSON library",
+      "com.nimbusds." to "the OAuth library",
+      "net.minidev." to "the OAuth library's JSON library",
       "org.eclipse.rdf4j." to "an RDF library",
       "org.apache.jena." to "an RDF library",
     ),

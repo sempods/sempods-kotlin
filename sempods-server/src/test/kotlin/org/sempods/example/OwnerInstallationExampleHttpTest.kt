@@ -11,7 +11,6 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.client.SempodsAuthorizationRedirect
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPkce
@@ -236,7 +235,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val authorization = SempodsPodAuthorization(SempodsSession(owned.base), client)
     val installer = authorization.registerClient("Service installer", listOf(REDIRECT)).body!!.clientId
     browser.open(authorization.authorizationUrl(installer, REDIRECT, "service-clients:install", "s1", pkce))
-    return installer to SempodsAuthorizationRedirect.readQuery(browser.redirects.last().encodedQuery, "s1").code!!
+    return installer to authorization.readRedirect(browser.redirects.last().encodedQuery, "s1").code!!
   }
 
   private fun installerToken(owned: Owned, browser: OwnerBrowser): String {

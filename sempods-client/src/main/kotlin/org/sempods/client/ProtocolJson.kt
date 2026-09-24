@@ -58,7 +58,7 @@ internal interface ProtocolObject {
 @JvmSynthetic
 internal fun decodeObject(bytes: ByteArray): ProtocolObject = ProtocolJson.decodeObject(bytes)
 
-/** [members] as one JSON object, in their order. A value is a `String`, a `Boolean` or a `List<String>`. */
+/** [members] as one JSON object, in their order. A value is a `String` or a `Boolean`. */
 @JvmSynthetic
 internal fun encodeObject(members: Map<String, Any>): ByteArray = ProtocolJson.encodeObject(members)
 

@@ -94,7 +94,7 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
 | `SempodsPodTokens` | a pod's token endpoint: a service client's `client_credentials` grant, and redeeming an authorization code |
-| `SempodsPodAuthorization` | a public client's registration and the authorization URL its user opens, with `SempodsPkce` |
+| `SempodsPodAuthorization` | a public client's registration, the authorization URL its user opens, with `SempodsPkce`, and the answer that comes back |
 | `SempodsPodServiceClients` | a pod owner's service clients: installing one, the grant consent, and managing the ones that exist |
 
 ```java
@@ -321,7 +321,7 @@ String installer = authorization.registerClient("Service installer", List.of("ht
 
 SempodsPkce pkce = SempodsPkce.generate();
 browser.open(authorization.authorizationUrl(installer, loopback.redirectUri(), "service-clients:install", state, pkce));
-var answer = SempodsAuthorizationRedirect.readQuery(loopback.nextQuery(), state);
+var answer = authorization.readRedirect(loopback.nextQuery(), state);
 String token = new SempodsPodTokens(new SempodsSession(pod), client)
     .authorizationCode(installer, answer.getCode(), loopback.redirectUri(), pkce.getVerifier()).getBody().getAccessToken();
 
@@ -462,8 +462,11 @@ RDF4J's model, query and Rio APIs `api`, so a build depending on it can name the
 export is real.
 
 `:sempods-client` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
-Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
-public signature names:
+Jena or Jackson 2, directly or transitively. The protocol's JSON it reads with Jackson 3, and the
+OAuth client side — PKCE, the authorization request and its answer, registration metadata — with
+Nimbus's `oauth2-oidc-sdk`, the library the pod's authorization server speaks. No public signature
+names either, which `checkPublishedSignatures` holds; a consumer with a Nimbus of its own resolves one
+version for both:
 
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.2.0"))

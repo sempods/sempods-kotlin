@@ -45,7 +45,7 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     assertEquals(SempodsPublicClient.of("dyn:abc", "Installer", listOf("http://127.0.0.1/cb")), registered.body)
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals("POST", sent.method.value)
-    assertEquals("application/json", sent.getFirstHeader("Content-Type"))
+    assertEquals("application/json", sent.getFirstHeader("Content-Type").substringBefore(';'))
     assertEquals(
       json.readTree("""{"client_name":"Installer","redirect_uris":["http://127.0.0.1/cb"],"grant_types":["authorization_code"],""" +
         """"response_types":["code"],"token_endpoint_auth_method":"none"}"""),

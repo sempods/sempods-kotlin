@@ -14,7 +14,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
-import org.sempods.client.SempodsAuthorizationRedirect;
 import org.sempods.client.SempodsClientException;
 import org.sempods.client.SempodsCredentialSupplier;
 import org.sempods.client.SempodsGrantOutcome;
@@ -125,7 +124,7 @@ public final class OwnerInstallation {
     String state = newState();
     var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
     browser.open(authorization.authorizationUrl(installer(), loopback.redirectUri(), scope, state, pkce));
-    var answer = SempodsAuthorizationRedirect.readQuery(loopback.nextQuery(), state);
+    var answer = authorization.readRedirect(loopback.nextQuery(), state);
     if (!answer.isApproved()) {
       throw new SempodsClientException("The owner did not approve '" + scope + "': " + answer.getError());
     }

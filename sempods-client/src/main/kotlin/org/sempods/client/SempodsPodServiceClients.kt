@@ -1,5 +1,8 @@
 package org.sempods.client
 
+import com.nimbusds.oauth2.sdk.GrantType
+import com.nimbusds.oauth2.sdk.auth.ClientAuthenticationMethod
+import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -146,13 +149,11 @@ class SempodsPodServiceClients(
     session.newRequest("POST", REGISTER_ROUTE)
       .header("Accept", "application/json")
       .post(
-        encodeObject(
-          linkedMapOf(
-            "client_name" to clientName,
-            "grant_types" to listOf("client_credentials"),
-            "token_endpoint_auth_method" to "client_secret_basic",
-          ),
-        ).toRequestBody(JSON_MEDIA_TYPE),
+        ClientMetadata().apply {
+          name = clientName
+          grantTypes = setOf(GrantType.CLIENT_CREDENTIALS)
+          tokenEndpointAuthMethod = ClientAuthenticationMethod.CLIENT_SECRET_BASIC
+        }.toJSONObject().toJSONString().toRequestBody(JSON_MEDIA_TYPE),
       )
       .build()
 

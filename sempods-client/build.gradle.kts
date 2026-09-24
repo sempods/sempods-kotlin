@@ -14,6 +14,10 @@ dependencies {
   // Nothing here logs.
   implementation(libs.jackson3Databind)
 
+  // The OAuth client side — PKCE, the authorization request and its response, registration metadata —
+  // is Nimbus's, the library the pod's own authorization server speaks. Never on the surface.
+  implementation(libs.oidcSdk)
+
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
   testImplementation(libs.junitJupiterParams)

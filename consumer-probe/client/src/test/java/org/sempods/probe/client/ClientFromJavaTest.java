@@ -406,7 +406,7 @@ class ClientFromJavaTest {
     SempodsPkce pkce = SempodsPkce.generate();
     HttpUrl consent = authorization.authorizationUrl(installer.getClientId(), redirect, "service-clients:install", "s1", pkce);
     assertEquals(pkce.getChallenge(), consent.queryParameter("code_challenge"));
-    SempodsAuthorizationRedirect answer = SempodsAuthorizationRedirect.readQuery("code=c-1&state=s1", "s1");
+    SempodsAuthorizationRedirect answer = authorization.readRedirect("code=c-1&state=s1", "s1");
     assertTrue(answer.isApproved());
     SempodsTokenResponse token = new SempodsPodTokens(new SempodsSession(alice), client)
         .authorizationCode(installer.getClientId(), answer.getCode(), redirect, pkce.getVerifier()).getBody();
