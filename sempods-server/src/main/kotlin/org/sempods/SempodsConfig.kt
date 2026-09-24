@@ -152,6 +152,31 @@ data class SempodsConfig(
    * through a fake base URL.
    */
   val corsOrigins: Set<String> = deriveCorsOrigins(apiBaseUrl),
+
+  // The registration budgets come last, after every parameter that existed before them, so a
+  // caller passing arguments by position keeps the meaning of each.
+
+  /**
+   * Unauthenticated registrations one address may make per minute at `{pod}/_system/auth/register`.
+   * The tiers of that endpoint are independent: `0` turns off this one only. See
+   * `PodRegistrationRateLimiter`.
+   */
+  val registerRateLimitPublicPerMinute: Int = 0,
+
+  /** The spike allowed on that tier; `0` means the same as the rate. */
+  val registerRateLimitPublicBurst: Int = 0,
+
+  /** Registrations carrying a bearer that one address may make per minute, before verification. */
+  val registerRateLimitProtectedPerMinute: Int = 0,
+
+  /** The spike allowed on that tier; `0` means the same as the rate. */
+  val registerRateLimitProtectedBurst: Int = 0,
+
+  /** Installations that may be attempted per minute on one pod — only its owner can make them. */
+  val registerRateLimitInstallerPerMinute: Int = 0,
+
+  /** The spike allowed on that tier; `0` means the same as the rate. */
+  val registerRateLimitInstallerBurst: Int = 0,
 ) {
 
   init {
@@ -172,6 +197,16 @@ data class SempodsConfig(
     require(tokenRateLimitAddressBurst >= 0) {
       "tokenRateLimitAddressBurst must not be negative (0 means the same as the rate), got " +
           "$tokenRateLimitAddressBurst"
+    }
+    listOf(
+      "registerRateLimitPublicPerMinute" to registerRateLimitPublicPerMinute,
+      "registerRateLimitPublicBurst" to registerRateLimitPublicBurst,
+      "registerRateLimitProtectedPerMinute" to registerRateLimitProtectedPerMinute,
+      "registerRateLimitProtectedBurst" to registerRateLimitProtectedBurst,
+      "registerRateLimitInstallerPerMinute" to registerRateLimitInstallerPerMinute,
+      "registerRateLimitInstallerBurst" to registerRateLimitInstallerBurst,
+    ).forEach { (name, value) ->
+      require(value >= 0) { "$name must not be negative (0 disables the tier or follows the rate), got $value" }
     }
     // The off switch is a promise this type makes, so this type is where it has to hold.
     // `resolveAddressRateLimit` applies it on the way out of the environment, which covers an

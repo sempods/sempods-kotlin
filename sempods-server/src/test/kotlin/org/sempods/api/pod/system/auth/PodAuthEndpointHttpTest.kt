@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.auth
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
 import org.sempods.commons.logging.CapturedLog
@@ -17,12 +18,14 @@ import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
@@ -82,6 +85,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var installationAuthorities: PodInstallationAuthorityStore
+
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
 
@@ -117,9 +123,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // chose. Reading the first entry would put a value of the caller's own choosing on an audit
     // row — a forgery with a plausible shape, and nothing in the row would say so.
     val pod = sempodsTestFactory.newPod()
+    // The appended entry is unique to this case, because `/register` budgets by it.
+    val appended = TestUtil.randomId()
     val response = http.preparePost(registerUrl(pod.name))
       .addHeader("Content-Type", "application/json")
-      .addHeader("X-Forwarded-For", "1.2.3.4, 203.0.113.7")
+      .addHeader("X-Forwarded-For", "1.2.3.4, $appended")
       .setBody("""{"redirect_uris":["http://localhost:5173/callback"]}""")
       .execute()
     assertEquals(201, response.statusCode, response.responseBody)
@@ -129,7 +137,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val stored = assertNotNull(
       dynamicClientRegistrationDao.findByClientId(checkNotNull(pod.id), body["client_id"] as String)
     )
-    assertEquals("203.0.113.7", stored.remoteAddr)
+    assertEquals(appended, stored.remoteAddr)
   }
 
   @Test
@@ -5478,6 +5486,53 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val refused = registerAsInstaller(pod, bearer = "not-a-token", body = """{"redirect_uris":["$testRedirectUri"]}""")
 
     assertEquals(401, refused.statusCode, refused.responseBody)
+  }
+
+  // ── Installing a service client: the installer budget ──────────────────────
+  // What only a real connector shows: the budget reaches the wire as a 429 and leaves the authority
+  // spendable. Which authorities are charged is `PodClientRegistrationTest`'s; the arithmetic is
+  // `PodRegistrationRateLimiterTest`'s. Keyed by pod, so no forwarded-for header is needed.
+
+  private val installerBudget = SempodsModule.config.registerRateLimitInstallerBurst
+
+  /** A pod of its own and its owner's installer bearer factory. */
+  private fun installingOwner(): Pair<PodDbo, () -> String> {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    return pod to { approveInstallation(pod, ownerWebId)["access_token"] as String }
+  }
+
+  @Test
+  fun `a throttled installation is told 429 and keeps its authority`() {
+    assertTrue(installerBudget > 0, "the suite's environment must enable the installer budget")
+    val (pod, approve) = installingOwner()
+    repeat(installerBudget) { assertEquals(201, registerAsInstaller(pod, approve()).statusCode) }
+    val installer = approve()
+
+    val throttled = registerAsInstaller(pod, installer)
+
+    assertEquals(429, throttled.statusCode, throttled.responseBody)
+    assertEquals("60", throttled.getHeader("Retry-After"))
+    assertEquals("no-store", throttled.getHeader("Cache-Control"))
+    assertTrue("slow_down" in throttled.responseBody, throttled.responseBody)
+    val jti = SignedJWT.parse(installer).jwtClaimsSet.jwtid
+    assertNotNull(installationAuthorities.consume(pod.podId(), jti), "the authority must survive a 429")
+  }
+
+  @Test
+  fun `concurrent registrations on one authority create one client and nothing partial`() {
+    val (pod, approve) = installingOwner()
+    val installer = approve()
+    val attempts = installerBudget + 3
+
+    val statuses = Executors.newFixedThreadPool(attempts).use { pool ->
+      (1..attempts).map { pool.submit<Int> { registerAsInstaller(pod, installer).statusCode } }.map { it.get() }
+    }
+
+    assertEquals(1, statuses.count { it == 201 }, statuses.toString())
+    // Everyone else was either throttled or found the authority spent — nothing in between.
+    assertTrue(statuses.all { it in setOf(201, 401, 429) }, statuses.toString())
   }
 
   @Test

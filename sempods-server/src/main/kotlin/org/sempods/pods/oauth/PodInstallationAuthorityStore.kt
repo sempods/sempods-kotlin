@@ -33,8 +33,8 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * The authority behind [jti], spent in the same operation.
    *
    * Returns `null` where there is none to spend — see the note on this class about why that is one
-   * answer. A row belonging to another pod, or to a consent the person has since answered again,
-   * is consumed and refused: it was presented at the wrong door, and leaving it to be presented
+   * answer. A row belonging to another pod, or to an app the person has since disconnected, is
+   * consumed and refused: it was presented at the wrong door, and leaving it to be presented
    * again at a right one would be worse.
    *
    * **Whether the app was disconnected is read here and not at issuance.** An installer token
@@ -48,11 +48,19 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * nothing until the owner approves the second consent.
    */
   internal fun consume(pod: PodId, jti: String): Authority? =
-    rows.consume(jti)
-      ?.takeIf { it.pod == pod }
-      ?.takeIf { it.disconnects == null || disconnectsNow(pod, it) == it.disconnects }
+    rows.consume(jti)?.takeIf { it.standsOn(pod) }
 
-  private fun disconnectsNow(pod: PodId, authority: Authority): Long =
-    consentDecisions.find(pod, authority.clientId, listOf(authority.webId))?.disconnects ?: 0L
+  /**
+   * The authority [consume] would hand over for [jti] now, without spending it.
+   *
+   * For a budget that should be charged only by a token that can still register: a spent or
+   * withdrawn one is refused before any expensive work anyway. The answer can be stale by the time
+   * [consume] runs, which is fine for that purpose — a race costs at most one charge.
+   */
+  internal fun peek(pod: PodId, jti: String): Authority? =
+    rows.peek(jti)?.takeIf { it.standsOn(pod) }
+
+  private fun Authority.standsOn(pod: PodId): Boolean =
+    this.pod == pod &&
+      (disconnects == null || (consentDecisions.find(pod, clientId, listOf(webId))?.disconnects ?: 0L) == disconnects)
 }
-

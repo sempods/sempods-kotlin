@@ -37,10 +37,12 @@ import java.time.Instant
  * in the schema, and the only one carrying a nested body: [DynamicClientRegistrationDbo.rawRequest]
  * is stored verbatim, and omitted entirely when empty.
  */
-// TODO: this is the pod server's second unbounded collection, and the one `oauth.serviceAuditLog`
-//  no longer is. `/register` is pre-auth (RFC 7591, which MCP clients need) and unthrottled, so an
-//  anonymous caller varying clientName/userAgent/redirectUris writes a row per request — the
-//  fingerprint dedup absorbs a real client's re-register loop and nothing else. A TTL cannot fix
+// TODO(#251): this is the pod server's second unbounded collection, and the one
+//  `oauth.serviceAuditLog` no longer is. `/register` is pre-auth (RFC 7591, which MCP clients need),
+//  so an anonymous caller varying clientName/userAgent/redirectUris writes a row per request — at
+//  the rate `PodRegistrationRateLimiter` allows its address, which bounds how fast the collection
+//  grows and not how large. The fingerprint dedup absorbs a real client's re-register loop and
+//  nothing else. A TTL cannot fix
 //  it the way it fixed the audit log: a registration has no write-time deadline, since a live
 //  client's row must survive as long as it authorizes. It needs `lastAuthorizedAt` — already
 //  written for this, and read by nothing — plus what to do with the grants that hang off a swept

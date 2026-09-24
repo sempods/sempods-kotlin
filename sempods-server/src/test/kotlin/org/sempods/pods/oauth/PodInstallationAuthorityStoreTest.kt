@@ -65,6 +65,20 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `peeking at an authority does not spend it`() {
+    val jti = randomId()
+    record(jti)
+
+    assertNotNull(authorities.peek(pod, jti))
+    assertNotNull(authorities.peek(pod, jti), "peeking twice spends nothing either")
+    assertNull(authorities.peek(PodId(ObjectId().toHexString()), jti), "another pod")
+    assertNull(authorities.peek(pod, randomId()), "an unknown token")
+
+    assertNotNull(authorities.consume(pod, jti))
+    assertNull(authorities.peek(pod, jti), "spent")
+  }
+
+  @Test
   fun `the authority is handed over once and never again`() {
     val jti = randomId()
     record(jti)
