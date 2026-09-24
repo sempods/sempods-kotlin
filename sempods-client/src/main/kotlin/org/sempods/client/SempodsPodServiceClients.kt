@@ -6,6 +6,7 @@ import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.time.DateTimeException
@@ -165,9 +166,14 @@ class SempodsPodServiceClients(
   private fun grantRemoval(clientId: String, scopes: Collection<String>) =
     clientRequest("DELETE", clientId, "grants", query = mapOf("scope" to scopeText(scopes)))
 
-  /** A request to one client's route, its identifier encoded as one path segment ([podPath]). */
-  private fun clientRequest(method: String, clientId: String, below: String? = null, query: Map<String, String> = emptyMap()) =
-    session.newRequest(method, podPath(SERVICE_CLIENTS, listOfNotNull(clientId, below), query)).header("Accept", "application/json").build()
+  /** A request to one client's route, its identifier added as one path segment. */
+  private fun clientRequest(method: String, clientId: String, below: String? = null, query: Map<String, String> = emptyMap()): Request {
+    val built = session.newRequest(method, SERVICE_CLIENTS, *listOfNotNull(clientId, below).toTypedArray())
+      .header("Accept", "application/json")
+      .build()
+    val url = built.url.newBuilder().apply { query.forEach { (name, value) -> addQueryParameter(name, value) } }.build()
+    return built.newBuilder().url(url).build()
+  }
 
   private companion object {
 
