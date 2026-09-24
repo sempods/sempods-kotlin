@@ -2,7 +2,6 @@ package org.sempods.client
 
 import okhttp3.Call
 import okhttp3.HttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
@@ -74,7 +73,7 @@ class SempodsPodAuthorization(
       .build()
 
   private fun registration(clientName: String, redirectUris: List<String>) =
-    SempodsRepeatable.mark(session.newRequest("POST", REGISTER))
+    SempodsRepeatable.mark(session.newRequest("POST", REGISTER_ROUTE))
       .header("Accept", "application/json")
       .post(
         encodeObject(
@@ -85,17 +84,13 @@ class SempodsPodAuthorization(
             "response_types" to listOf("code"),
             "token_endpoint_auth_method" to "none",
           ),
-        ).toRequestBody(JSON),
+        ).toRequestBody(JSON_MEDIA_TYPE),
       )
       .build()
 
   private companion object {
 
-    const val REGISTER = "_system/auth/register"
-
     const val AUTHORIZE = "_system/auth/authorize"
-
-    val JSON = "application/json".toMediaType()
 
     val ANSWERS = (200..299).toSet()
 

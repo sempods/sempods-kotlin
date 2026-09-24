@@ -55,10 +55,12 @@ public final class OwnerInstallation {
   public record Installation(SempodsServiceClientRegistration service, SempodsGrantOutcome grants) {}
 
   private static final String CALLBACK = "/callback";
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   private final SempodsPodBase pod;
   private final OkHttpClient client;
   private final Browser browser;
+  private String installer;
 
   public OwnerInstallation(SempodsPodBase pod, OkHttpClient client, Browser browser) {
     this.pod = pod;
@@ -69,11 +71,8 @@ public final class OwnerInstallation {
   /** Installs {@code serviceName}, stores its credentials, then asks the owner to grant it {@code scopes}. */
   public Installation install(String serviceName, List<String> scopes, CredentialStore store) throws IOException {
     try (var loopback = Loopback.start()) {
-      var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
-      String installer = registerInstaller(authorization);
-
       // The first consent: the authority to register one service, and no data.
-      String token = authorize(authorization, installer, loopback, "service-clients:install");
+      String token = authorize(loopback, "service-clients:install");
       var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
       SempodsServiceClientRegistration service = installing.register(serviceName).getBody();
       // The secret exists only in that answer: store it before anything that can still fail.
@@ -84,7 +83,7 @@ public final class OwnerInstallation {
 
       // The second consent: the owner grants the service that now exists its contexts.
       String state = newState();
-      browser.open(installing.grantConsentUrl(installer, loopback.redirectUri(), state, service.getClientId(), scopes));
+      browser.open(installing.grantConsentUrl(installer(), loopback.redirectUri(), state, service.getClientId(), scopes));
       return new Installation(service, SempodsGrantOutcome.readQuery(loopback.nextQuery(), state));
     }
   }
@@ -95,8 +94,7 @@ public final class OwnerInstallation {
    */
   public SempodsPodServiceClients manage() throws IOException {
     try (var loopback = Loopback.start()) {
-      var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
-      String token = authorize(authorization, registerInstaller(authorization), loopback, "service-clients:manage");
+      String token = authorize(loopback, "service-clients:manage");
       return new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
     }
   }
@@ -109,28 +107,35 @@ public final class OwnerInstallation {
     return new SempodsPod(new SempodsSession(pod, SempodsRequestAuth.refreshable(mint)), client);
   }
 
-  /** A public client with a loopback redirect, which the pod accepts on any port (RFC 8252 §7.3). */
-  private String registerInstaller(SempodsPodAuthorization authorization) throws IOException {
-    return authorization.registerClient("Service installer", List.of("http://127.0.0.1" + CALLBACK)).getBody().getClientId();
+  /**
+   * This program's public client, registered once with a loopback redirect, which the pod accepts on
+   * any port (RFC 8252 §7.3). A program that runs again keeps the identifier rather than registering anew.
+   */
+  private String installer() throws IOException {
+    if (installer == null) {
+      var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
+      installer = authorization.registerClient("Service installer", List.of("http://127.0.0.1" + CALLBACK)).getBody().getClientId();
+    }
+    return installer;
   }
 
   /** One Authorization Code + PKCE round trip for {@code scope}, redeemed for its token. */
-  private String authorize(SempodsPodAuthorization authorization, String installer, Loopback loopback, String scope)
-      throws IOException {
+  private String authorize(Loopback loopback, String scope) throws IOException {
     SempodsPkce pkce = SempodsPkce.generate();
     String state = newState();
-    browser.open(authorization.authorizationUrl(installer, loopback.redirectUri(), scope, state, pkce));
+    var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
+    browser.open(authorization.authorizationUrl(installer(), loopback.redirectUri(), scope, state, pkce));
     var answer = SempodsAuthorizationRedirect.readQuery(loopback.nextQuery(), state);
     if (!answer.isApproved()) {
       throw new SempodsClientException("The owner did not approve '" + scope + "': " + answer.getError());
     }
     var tokens = new SempodsPodTokens(new SempodsSession(pod), client);
-    return tokens.authorizationCode(installer, answer.getCode(), loopback.redirectUri(), pkce.getVerifier()).getBody().getAccessToken();
+    return tokens.authorizationCode(installer(), answer.getCode(), loopback.redirectUri(), pkce.getVerifier()).getBody().getAccessToken();
   }
 
   private static String newState() {
     byte[] bytes = new byte[16];
-    new SecureRandom().nextBytes(bytes);
+    RANDOM.nextBytes(bytes);
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 

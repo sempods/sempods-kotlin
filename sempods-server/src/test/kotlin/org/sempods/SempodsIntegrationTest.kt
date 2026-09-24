@@ -215,6 +215,10 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
 
   protected fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
+  /** An attribute value from a rendered page, with `escapeHtml`'s five entities undone — what a browser submits. */
+  protected fun unescapeHtml(value: String): String =
+    value.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+
   /**
    * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
    *

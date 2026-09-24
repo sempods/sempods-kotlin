@@ -28,7 +28,7 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
 
   private val alice get() = SempodsPodBase.of("$origin/alice")
 
-  private fun serviceClients(bearer: String = "tok-1") = SempodsPodServiceClients(SempodsSession(alice, SempodsRequestAuth.bearer(bearer)), client)
+  private fun serviceClients() = SempodsPodServiceClients(SempodsSession(alice, SempodsRequestAuth.bearer("tok-1")), client)
 
   private fun answer(path: String, status: Int, body: String, vararg headers: Pair<String, String>) {
     val response = response().withStatusCode(status).withBody(body)
@@ -152,9 +152,11 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     assertEquals("POST", server.retrieveRecordedRequests(request()).single().method.value)
   }
 
-  @Test
-  fun `a client identifier holding a separator is refused before anything is sent`() {
-    assertThrows<SempodsClientException> { serviceClients().rotateSecret("a/b") }
+  @ParameterizedTest
+  @ValueSource(strings = ["a/b", "..", ".", ""])
+  fun `a client identifier that is not one path segment is refused before anything is sent`(clientId: String) {
+    assertThrows<IllegalArgumentException> { serviceClients().rotateSecret(clientId) }
+    assertThrows<IllegalArgumentException> { serviceClients().revoke(clientId) }
 
     assertTrue(server.retrieveRecordedRequests(request()).isEmpty())
   }

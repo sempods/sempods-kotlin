@@ -4,7 +4,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -15,7 +14,7 @@ class SempodsRedirectReadingTest {
 
   @Test
   fun `an approved authorization carries its code, which is not printed`() {
-    val answer = SempodsAuthorizationRedirect.read("http://127.0.0.1:4711/cb?code=c-123&state=s1".toHttpUrl(), "s1")
+    val answer = SempodsAuthorizationRedirect.readQuery("code=c-123&state=s1", "s1")
 
     assertTrue(answer.isApproved)
     assertEquals("c-123", answer.code)
@@ -50,7 +49,7 @@ class SempodsRedirectReadingTest {
 
   @Test
   fun `a refused consent is an outcome, not a failure`() {
-    val outcome = SempodsGrantOutcome.read("http://127.0.0.1:4711/cb?error=access_denied&state=g1".toHttpUrl(), "g1")
+    val outcome = SempodsGrantOutcome.readQuery("error=access_denied&state=g1", "g1")
 
     assertFalse(outcome.isGranted)
     assertTrue(outcome.scopes.isEmpty())

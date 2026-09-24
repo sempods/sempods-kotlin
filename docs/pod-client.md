@@ -317,6 +317,7 @@ has no HTTP server. The worked example is
 ```java
 var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
 String installer = authorization.registerClient("Service installer", List.of("http://127.0.0.1/callback")).getBody().getClientId();
+// Kept: registering again on every run spends the pod's registration budget.
 
 SempodsPkce pkce = SempodsPkce.generate();
 browser.open(authorization.authorizationUrl(installer, loopback.redirectUri(), "service-clients:install", state, pkce));

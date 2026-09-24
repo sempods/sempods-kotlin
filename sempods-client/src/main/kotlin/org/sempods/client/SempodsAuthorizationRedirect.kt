@@ -1,7 +1,5 @@
 package org.sempods.client
 
-import okhttp3.HttpUrl
-
 /**
  * What the pod's `/authorize` sent the browser back with (RFC 6749 §4.1.2): a code, or an error.
  *
@@ -43,20 +41,13 @@ class SempodsAuthorizationRedirect private constructor(
     @JvmStatic
     @Throws(SempodsClientException::class)
     fun readQuery(encodedQuery: String?, expectedState: String): SempodsAuthorizationRedirect {
-      val query = RedirectQuery.of(encodedQuery, expectedState, WHAT)
-      val code = query.single("code", WHAT)
-      val error = query.single("error", WHAT)
+      val query = RedirectQuery.of(encodedQuery, expectedState, "authorization")
+      val code = query.single("code")
+      val error = query.single("error")
       if ((code == null) == (error == null)) {
-        throw SempodsClientException("The $WHAT redirect carries ${if (code == null) "neither a code nor an error" else "both a code and an error"}.")
+        throw query.refused(if (code == null) "carries neither a code nor an error" else "carries both a code and an error")
       }
-      return SempodsAuthorizationRedirect(code, error, query.single("error_description", WHAT))
+      return SempodsAuthorizationRedirect(code, error, query.single("error_description"))
     }
-
-    /** [readQuery] on [redirect]'s query. */
-    @JvmStatic
-    @Throws(SempodsClientException::class)
-    fun read(redirect: HttpUrl, expectedState: String): SempodsAuthorizationRedirect = readQuery(redirect.encodedQuery, expectedState)
-
-    private const val WHAT = "authorization"
   }
 }

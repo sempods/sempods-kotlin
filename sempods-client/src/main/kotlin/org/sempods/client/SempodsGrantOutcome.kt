@@ -1,7 +1,5 @@
 package org.sempods.client
 
-import okhttp3.HttpUrl
-
 /**
  * What the pod's grant consent sent the browser back with: the scopes the owner granted a service
  * client, or a refusal. The shape is a sempods extension, which no OAuth library reads.
@@ -17,8 +15,6 @@ import okhttp3.HttpUrl
  * whole sequence.
  */
 class SempodsGrantOutcome private constructor(
-  /** Whether the owner granted anything. */
-  val isGranted: Boolean,
   /** The granted scopes, `<context-iri>#read` and the like. Empty when [isGranted] is false. */
   val scopes: Set<String>,
   /** The error code, null when [isGranted]. */
@@ -26,6 +22,9 @@ class SempodsGrantOutcome private constructor(
   /** The pod's `error_description`, when it sent one. */
   val errorDescription: String?,
 ) {
+
+  /** Whether the owner granted anything. */
+  val isGranted: Boolean get() = error == null
 
   override fun toString(): String = "SempodsGrantOutcome(granted=$isGranted, scopes=$scopes, error=$error)"
 
@@ -41,26 +40,14 @@ class SempodsGrantOutcome private constructor(
     @JvmStatic
     @Throws(SempodsClientException::class)
     fun readQuery(encodedQuery: String?, expectedState: String): SempodsGrantOutcome {
-      val query = RedirectQuery.of(encodedQuery, expectedState, WHAT)
-      val result = query.single("result", WHAT)
-      val error = query.single("error", WHAT)
+      val query = RedirectQuery.of(encodedQuery, expectedState, "grant consent")
+      val result = query.single("result")
+      val error = query.single("error")
       return when {
-        result == "granted" && error == null -> SempodsGrantOutcome(
-          isGranted = true,
-          scopes = query.single("scope", WHAT).orEmpty().split(' ').filter { it.isNotEmpty() }.toCollection(LinkedHashSet()),
-          error = null,
-          errorDescription = null,
-        )
-        result == null && error != null -> SempodsGrantOutcome(false, emptySet(), error, query.single("error_description", WHAT))
-        else -> throw SempodsClientException("The $WHAT redirect carries neither a granted result nor an error.")
+        result == "granted" && error == null -> SempodsGrantOutcome(scopesOf(query.single("scope")), error = null, errorDescription = null)
+        result == null && error != null -> SempodsGrantOutcome(emptySet(), error, query.single("error_description"))
+        else -> throw query.refused("carries neither a granted result nor an error")
       }
     }
-
-    /** [readQuery] on [redirect]'s query. */
-    @JvmStatic
-    @Throws(SempodsClientException::class)
-    fun read(redirect: HttpUrl, expectedState: String): SempodsGrantOutcome = readQuery(redirect.encodedQuery, expectedState)
-
-    private const val WHAT = "grant consent"
   }
 }

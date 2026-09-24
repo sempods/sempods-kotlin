@@ -2,8 +2,6 @@ package org.sempods.client
 
 import okhttp3.Call
 import okhttp3.HttpUrl
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.time.Instant
@@ -78,11 +76,11 @@ class SempodsPodServiceClients(
    */
   @Throws(IOException::class)
   fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> =
-    exchange.run(registration(clientName), SUCCESS, REGISTRATION)
+    exchange.run(registration(clientName), ANSWERS, REGISTRATION)
 
   /** The same answer with the body as the text the server sent, malformed or not. It holds the secret. */
   @Throws(IOException::class)
-  fun registerJson(clientName: String): SempodsResponse<String> = exchange.run(registration(clientName), SUCCESS, BodyReading.TEXT)
+  fun registerJson(clientName: String): SempodsResponse<String> = exchange.run(registration(clientName), ANSWERS, BodyReading.TEXT)
 
   /**
    * Where to send the owner's browser to grant [serviceClientId] the context [scopes]:
@@ -99,27 +97,27 @@ class SempodsPodServiceClients(
       .addQueryParameter("redirect_uri", redirectUri)
       .addQueryParameter("state", state)
       .addQueryParameter("service_client", serviceClientId)
-      .addQueryParameter("scope", scopes.joinToString(" "))
+      .addQueryParameter("scope", scopeText(scopes))
       .build()
 
   /** Every service client on the pod, with its grants and when it was last used. */
   @Throws(IOException::class)
-  fun list(): SempodsResponse<List<SempodsServiceClient>> = exchange.run(listRequest(), SUCCESS, LIST)
+  fun list(): SempodsResponse<List<SempodsServiceClient>> = exchange.run(listRequest(), ANSWERS, LIST)
 
   /** The same answer with the body as the text the server sent, malformed or not. */
   @Throws(IOException::class)
-  fun listJson(): SempodsResponse<String> = exchange.run(listRequest(), SUCCESS, BodyReading.TEXT)
+  fun listJson(): SempodsResponse<String> = exchange.run(listRequest(), ANSWERS, BodyReading.TEXT)
 
   /**
    * A new secret for [clientId], answered once. The old secret stops working at once; tokens it
    * already minted keep working until they expire.
    */
   @Throws(IOException::class)
-  fun rotateSecret(clientId: String): SempodsResponse<SempodsServiceClientSecret> = exchange.run(rotation(clientId), SUCCESS, SECRET)
+  fun rotateSecret(clientId: String): SempodsResponse<SempodsServiceClientSecret> = exchange.run(rotation(clientId), ANSWERS, SECRET)
 
   /** The same answer with the body as the text the server sent, malformed or not. It holds the secret. */
   @Throws(IOException::class)
-  fun rotateSecretJson(clientId: String): SempodsResponse<String> = exchange.run(rotation(clientId), SUCCESS, BodyReading.TEXT)
+  fun rotateSecretJson(clientId: String): SempodsResponse<String> = exchange.run(rotation(clientId), ANSWERS, BodyReading.TEXT)
 
   /**
    * Takes [scopes] away from [clientId] and answers what it holds afterwards. Removing the last one
@@ -127,12 +125,12 @@ class SempodsPodServiceClients(
    */
   @Throws(IOException::class)
   fun removeGrants(clientId: String, scopes: Collection<String>): SempodsResponse<SempodsServiceClient> =
-    exchange.run(grantRemoval(clientId, scopes), SUCCESS, DESCRIBED)
+    exchange.run(grantRemoval(clientId, scopes), ANSWERS, DESCRIBED)
 
   /** The same answer with the body as the text the server sent, malformed or not. */
   @Throws(IOException::class)
   fun removeGrantsJson(clientId: String, scopes: Collection<String>): SempodsResponse<String> =
-    exchange.run(grantRemoval(clientId, scopes), SUCCESS, BodyReading.TEXT)
+    exchange.run(grantRemoval(clientId, scopes), ANSWERS, BodyReading.TEXT)
 
   /**
    * Removes [clientId]'s registration; the contexts it wrote stay. It mints no token afterwards, and a
@@ -142,10 +140,10 @@ class SempodsPodServiceClients(
    * first attempt removed it and its answer was lost.
    */
   @Throws(IOException::class)
-  fun revoke(clientId: String): Boolean = exchange.status(clientRequest("DELETE", clientId).build(), REVOKE_ANSWERS) == 204
+  fun revoke(clientId: String): Boolean = exchange.status(clientRequest("DELETE", clientId), REVOKE_ANSWERS) == 204
 
   private fun registration(clientName: String) =
-    session.newRequest("POST", REGISTER)
+    session.newRequest("POST", REGISTER_ROUTE)
       .header("Accept", "application/json")
       .post(
         encodeObject(
@@ -154,37 +152,28 @@ class SempodsPodServiceClients(
             "grant_types" to listOf("client_credentials"),
             "token_endpoint_auth_method" to "client_secret_basic",
           ),
-        ).toRequestBody(JSON),
+        ).toRequestBody(JSON_MEDIA_TYPE),
       )
       .build()
 
   private fun listRequest() = session.newRequest("GET", SERVICE_CLIENTS).header("Accept", "application/json").build()
 
-  private fun rotation(clientId: String) = clientRequest("POST", clientId, "secret").build()
+  private fun rotation(clientId: String) = clientRequest("POST", clientId, "secret")
 
-  private fun grantRemoval(clientId: String, scopes: Collection<String>): Request {
-    val request = clientRequest("DELETE", clientId, "grants").build()
-    return request.newBuilder().url(request.url.newBuilder().addQueryParameter("scope", scopes.joinToString(" ")).build()).build()
-  }
+  private fun grantRemoval(clientId: String, scopes: Collection<String>) =
+    clientRequest("DELETE", clientId, "grants", query = mapOf("scope" to scopeText(scopes)))
 
-  /** A request to one client's route. Its identifier is one path segment, encoded as one. */
-  private fun clientRequest(method: String, clientId: String, vararg below: String): Request.Builder {
-    val built = session.newRequest(method, SERVICE_CLIENTS).header("Accept", "application/json").build()
-    val url = built.url.newBuilder().addPathSegment(clientId).apply { below.forEach(::addPathSegment) }.build()
-    return built.newBuilder().url(url)
-  }
+  /** A request to one client's route, its identifier encoded as one path segment ([podPath]). */
+  private fun clientRequest(method: String, clientId: String, below: String? = null, query: Map<String, String> = emptyMap()) =
+    session.newRequest(method, podPath(SERVICE_CLIENTS, listOfNotNull(clientId, below), query)).header("Accept", "application/json").build()
 
   private companion object {
-
-    const val REGISTER = "_system/auth/register"
 
     const val GRANT = "_system/auth/grant"
 
     const val SERVICE_CLIENTS = "_system/auth/service-clients"
 
-    val JSON = "application/json".toMediaType()
-
-    val SUCCESS = (200..299).toSet()
+    val ANSWERS = (200..299).toSet()
 
     val REVOKE_ANSWERS = setOf(204, 404)
 
@@ -214,7 +203,7 @@ class SempodsPodServiceClients(
       clientName = document.stringOrNull("client_name"),
       issuedAt = instant(document, "client_id_issued_at") ?: throw document.violation("client_id_issued_at: expected an integer"),
       lastUsedAt = instant(document, "last_used_at"),
-      scopes = document.string("scope").split(' ').filter { it.isNotEmpty() }.toCollection(LinkedHashSet()),
+      scopes = scopesOf(document.string("scope")),
       origin = document.string("origin"),
     )
 

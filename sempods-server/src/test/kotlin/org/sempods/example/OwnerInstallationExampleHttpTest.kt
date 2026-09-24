@@ -10,6 +10,7 @@ import org.junit.jupiter.api.assertThrows
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.auth.core.OAuthSyntax
 import org.sempods.client.SempodsAuthorizationRedirect
 import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsOkHttp
@@ -151,7 +152,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   fun `an installer's token registers once and reaches no management route`() {
     val owned = ownedPod()
     val browser = OwnerBrowser(owned, followRedirect = false)
-    val installer = installerToken(owned, browser, "service-clients:install")
+    val installer = installerToken(owned, browser)
     val installing = SempodsPodServiceClients(SempodsSession(owned.base, SempodsRequestAuth.bearer(installer)), client)
 
     installing.register("Notes Sync")
@@ -166,11 +167,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a code is redeemed only with the verifier its challenge was made from`() {
     val owned = ownedPod()
-    val browser = OwnerBrowser(owned, followRedirect = false)
-    val authorization = SempodsPodAuthorization(SempodsSession(owned.base), client)
-    val installer = authorization.registerClient("Service installer", listOf(REDIRECT)).body!!.clientId
-    browser.open(authorization.authorizationUrl(installer, REDIRECT, "service-clients:install", "s1", SempodsPkce.generate()))
-    val code = SempodsAuthorizationRedirect.read(browser.redirects.single(), "s1").code!!
+    val (installer, code) = approvedCode(owned, OwnerBrowser(owned, followRedirect = false), SempodsPkce.generate())
 
     val refused = assertThrows<SempodsStatusException> {
       SempodsPodTokens(SempodsSession(owned.base), client).authorizationCode(installer, code, REDIRECT, SempodsPkce.generate().verifier)
@@ -216,16 +213,12 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
       val cookie = signIn(owned.pod.name, owned.webId).cookie
       val page = http.prepareGet(url.toString()).addHeader("Cookie", cookie).setFollowRedirect(false).execute()
       assertEquals(200, page.statusCode, page.responseBody)
-      val asked = url.queryParameter("scope").orEmpty().split(' ').filter { it.isNotEmpty() }
       val isGrant = url.encodedPath.endsWith("/_system/auth/grant")
+      val tick = if (isGrant) grant else approve
       val fields = hiddenFields(page.responseBody).toMutableList()
-      if (isGrant) {
-        fields += "action" to if (grant) "grant" else "refuse"
-        if (grant) asked.forEach { fields += "scope" to it }
-      } else if (approve) {
-        asked.forEach { fields += "scope" to it }
-      }
-      val action = url.resolve(unescape(FORM_ACTION.find(page.responseBody)!!.groupValues[1]))!!
+      if (isGrant) fields += "action" to if (grant) "grant" else "refuse"
+      if (tick) OAuthSyntax.parseScope(url.queryParameter("scope")).forEach { fields += "scope" to it }
+      val action = url.resolve(unescapeHtml(FORM_ACTION.find(page.responseBody)!!.groupValues[1]))!!
       val submitted = http.preparePost(action.toString())
         .addHeader("Content-Type", "application/x-www-form-urlencoded")
         .addHeader("Cookie", cookie)
@@ -238,13 +231,17 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  /** One privileged authorization through the library pieces, without the example's loopback. */
-  private fun installerToken(owned: Owned, browser: OwnerBrowser, scope: String): String {
+  /** An installation the owner approved, through the library pieces and without the example's loopback: the installer and its code. */
+  private fun approvedCode(owned: Owned, browser: OwnerBrowser, pkce: SempodsPkce): Pair<String, String> {
     val authorization = SempodsPodAuthorization(SempodsSession(owned.base), client)
     val installer = authorization.registerClient("Service installer", listOf(REDIRECT)).body!!.clientId
+    browser.open(authorization.authorizationUrl(installer, REDIRECT, "service-clients:install", "s1", pkce))
+    return installer to SempodsAuthorizationRedirect.readQuery(browser.redirects.last().encodedQuery, "s1").code!!
+  }
+
+  private fun installerToken(owned: Owned, browser: OwnerBrowser): String {
     val pkce = SempodsPkce.generate()
-    browser.open(authorization.authorizationUrl(installer, REDIRECT, scope, "s1", pkce))
-    val code = SempodsAuthorizationRedirect.read(browser.redirects.last(), "s1").code!!
+    val (installer, code) = approvedCode(owned, browser, pkce)
     return SempodsPodTokens(SempodsSession(owned.base), client).authorizationCode(installer, code, REDIRECT, pkce.verifier).body!!.accessToken
   }
 
@@ -257,10 +254,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
 
   /** The hidden fields a browser submits: none inside a `<template>`, which is inert until a script clones it. */
   private fun hiddenFields(page: String): List<Pair<String, String>> =
-    HIDDEN.findAll(page.replace(TEMPLATE, "")).map { it.groupValues[1] to unescape(it.groupValues[2]) }.toList()
-
-  private fun unescape(text: String) =
-    text.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    HIDDEN.findAll(page.replace(TEMPLATE, "")).map { it.groupValues[1] to unescapeHtml(it.groupValues[2]) }.toList()
 
   companion object {
 
