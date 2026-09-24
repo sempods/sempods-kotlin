@@ -23,7 +23,7 @@ import org.sempods.spec.PodRef
  *
  * A token carrying one of [PodScopeValidator.privilegedFeatureScopes] reaches no data at all. That
  * has to be said here rather than left to the scope set, because context permissions never travel
- * in a token: a slim `service-clients` bearer would otherwise resolve whatever the same client was
+ * in a token: a slim `service-clients:install` bearer would otherwise resolve whatever the same client was
  * granted in some earlier, ordinary authorization of the same person. An installation authority
  * arranges rights and holds none.
  */

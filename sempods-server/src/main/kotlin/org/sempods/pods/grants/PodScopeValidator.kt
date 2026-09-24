@@ -33,7 +33,17 @@ const val OFFLINE_ACCESS_SCOPE = "offline_access"
  * It is the first of [PodScopeValidator.privilegedFeatureScopes], where the rules that follow from
  * being one live.
  */
-const val SERVICE_CLIENTS_SCOPE = "service-clients"
+const val SERVICE_CLIENTS_INSTALL_SCOPE = "service-clients:install"
+
+/**
+ * OAuth scope literal by which a program asks to list, rotate, narrow and revoke the service
+ * clients already on this pod. It grants nothing and reaches no data.
+ *
+ * Apart from [SERVICE_CLIENTS_INSTALL_SCOPE]: an installer approved for one service must not rotate the
+ * secret of another that holds `#manage` and inherit its access. The second of
+ * [PodScopeValidator.privilegedFeatureScopes].
+ */
+const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
 
 /**
  * Whether this bearer carries an authority granted for one named operation.
@@ -118,13 +128,13 @@ class PodScopeValidator {
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
-     * follow the `<context-uri>#<permission>` grammar. `public-read` and `service-clients` today;
+     * follow the `<context-uri>#<permission>` grammar. `public-read` and the two privileged ones today;
      * `ai` / `search` and similar capability gates may be added here. Keeping this an explicit
      * allow-list is what lets the validator tell a legitimate feature scope from a typo now that
      * access tokens carry only feature scopes (context permissions resolve server-side). See
      * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved server-side").
      */
-    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE)
+    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE)
 
     /**
      * The feature scopes an authorization holds only because this request asked for them.
@@ -138,7 +148,7 @@ class PodScopeValidator {
      * `public-read` stays outside this set. It is additive and unprivileged, and its stored grant
      * is what lets a reconnect skip the dialog.
      */
-    val privilegedFeatureScopes: Set<String> = setOf(SERVICE_CLIENTS_SCOPE)
+    val privilegedFeatureScopes: Set<String> = setOf(SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE)
   }
 }
 

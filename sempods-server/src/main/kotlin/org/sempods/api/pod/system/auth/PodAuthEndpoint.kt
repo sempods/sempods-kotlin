@@ -27,6 +27,10 @@ import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodRegistrationRequest
+import org.sempods.pods.oauth.flows.PodServiceClientGrantFlow
+import org.sempods.pods.oauth.flows.PodServiceClientGrantForm
+import org.sempods.pods.oauth.flows.PodServiceClientGrantRequest
+import org.sempods.pods.oauth.flows.PodServiceClientGrantResult
 import org.sempods.pods.oauth.flows.PodConsentForm
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
@@ -41,6 +45,7 @@ class PodAuthEndpoint @Inject constructor(
   private val podConsentFlow: PodConsentFlow,
   private val podTokenExchange: PodTokenExchange,
   private val podClientRegistration: PodClientRegistration,
+  private val podServiceClientGrantFlow: PodServiceClientGrantFlow,
   private val templateRenderer: TemplateRenderer,
   private val podTokenIssuer: PodTokenIssuer,
   private val podSignOut: PodSignOut,
@@ -226,6 +231,82 @@ class PodAuthEndpoint @Inject constructor(
       ),
     )
   }
+
+  // ─── Grant consent for an installed service client ────────────────────────
+
+  /** The grant consent — [PodServiceClientGrantFlow]. */
+  @GET
+  @Path("grant")
+  fun grant(
+    @PathParam("pod") pod: String,
+    @QueryParam("client_id") clientId: String?,
+    @QueryParam("redirect_uri") redirectUri: String?,
+    @QueryParam("state") state: String?,
+    @QueryParam("service_client") serviceClient: String?,
+    @QueryParam("scope") scope: String?,
+    @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
+  ): Response {
+    val podDbo = fetchPodOrThrow(pod)
+    val session = readSession(podDbo, sessionCookie)
+    val answer = render(
+      podDbo.name,
+      podServiceClientGrantFlow.open(
+        pod = podDbo.hosted,
+        request = PodServiceClientGrantRequest(
+          clientId = clientId,
+          redirectUri = redirectUri,
+          state = state,
+          serviceClient = serviceClient,
+          scope = scope,
+        ),
+        session = session,
+      ),
+    )
+    return withRenewedSession(pod, session, answer)
+  }
+
+  @POST
+  @Path("grant")
+  @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+  fun grantSubmit(
+    @PathParam("pod") pod: String,
+    @FormParam("csrf") csrf: String?,
+    @FormParam("service_client") serviceClient: String?,
+    @FormParam("scope") scopes: List<String>?,
+    @FormParam("action") action: String?,
+    @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
+  ): Response {
+    val podDbo = fetchPodOrThrow(pod)
+    val session = readSession(podDbo, sessionCookie)
+    return render(
+      podDbo.name,
+      podServiceClientGrantFlow.submit(
+        pod = podDbo.hosted,
+        form = PodServiceClientGrantForm(csrf = csrf, serviceClient = serviceClient, scopes = scopes, action = action),
+        session = session,
+      ),
+    )
+  }
+
+  /** Re-enters a grant consent parked behind a sign-in. */
+  private fun resumeGrant(
+    podDbo: PodDbo,
+    pending: PodLoginStateStore.Pending,
+    session: PodTokenIssuer.SessionPrincipal,
+  ): Response = render(
+    podDbo.name,
+    podServiceClientGrantFlow.open(
+      pod = podDbo.hosted,
+      request = PodServiceClientGrantRequest(
+        clientId = pending.clientId,
+        redirectUri = pending.redirectUri,
+        state = pending.clientState,
+        serviceClient = pending.serviceClient,
+        scope = pending.scope,
+      ),
+      session = session,
+    ),
+  )
 
   // ─── OAuth token ──────────────────────────────────────────────────────────
 
@@ -459,7 +540,8 @@ class PodAuthEndpoint @Inject constructor(
       podTokenIssuer.issueSession(
         podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
-    val answer = render(
+    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs, authTime)
+    val answer = if (pending.serviceClient != null) resumeGrant(podDbo, pending, principal) else render(
       podDbo.name,
       podAuthorizeFlow.authorize(
         pod = podDbo.hosted,
@@ -473,7 +555,7 @@ class PodAuthEndpoint @Inject constructor(
           prompt = pending.prompt,
           scope = pending.scope,
         ),
-        session = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs, authTime),
+        session = principal,
       ),
     )
     // Attached once to whatever the flow answered — consent page, auto-granted code, or an error.
@@ -525,6 +607,10 @@ class PodAuthEndpoint @Inject constructor(
 
   /** Whatever the authorization decided, on the wire — see [PodAuthorizeResponses]. */
   private fun render(podName: String, result: PodAuthorizeResult): Response =
+    PodAuthorizeResponses.render(result, podName, cookies, templateRenderer, config)
+
+  /** The grant consent's answers. */
+  private fun render(podName: String, result: PodServiceClientGrantResult): Response =
     PodAuthorizeResponses.render(result, podName, cookies, templateRenderer, config)
 
   /** The same, for the submission that answers it. */

@@ -62,21 +62,7 @@ class PodServiceClientStore @Inject constructor(
     scopes: Set<String>,
     label: String? = null,
   ): Registered {
-    val namespace = pod.baseUrl
-    val invalid = scopes.mapNotNull { scope ->
-      when (val parsed = podScopeValidator.validate(scope, namespace)) {
-        is ScopeValidationResult.Context -> null
-        is ScopeValidationResult.Invalid -> scope to parsed.reason
-        is ScopeValidationResult.Oidc ->
-          scope to "OIDC scope '${parsed.scope}' is not applicable to service clients"
-        is ScopeValidationResult.Feature ->
-          scope to "feature scope '${parsed.scope}' is not applicable to service clients"
-      }
-    }
-    require(invalid.isEmpty()) {
-      "rejected scopes for service client '$clientId': " +
-        invalid.joinToString(", ") { (s, reason) -> "'$s' ($reason)" }
-    }
+    requireGrantable(pod, clientId, scopes)
 
     val secret = mintSecret()
     val dbo = PodServiceClientDbo(
@@ -98,6 +84,68 @@ class PodServiceClientStore @Inject constructor(
       if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
     }
     return Registered(stored.toRegistration(), secret)
+  }
+
+  /** Why each of [scopes] cannot be held by a service client, by scope; empty when all can. */
+  internal fun ungrantable(pod: HostedPod, scopes: Set<String>): Map<String, String> =
+    scopes.mapNotNull { scope ->
+      when (val parsed = podScopeValidator.validate(scope, pod.baseUrl)) {
+        is ScopeValidationResult.Context -> null
+        is ScopeValidationResult.Invalid -> scope to parsed.reason
+        is ScopeValidationResult.Oidc ->
+          scope to "OIDC scope '${parsed.scope}' is not applicable to service clients"
+        is ScopeValidationResult.Feature ->
+          scope to "feature scope '${parsed.scope}' is not applicable to service clients"
+      }
+    }.toMap()
+
+  private fun requireGrantable(pod: HostedPod, clientId: String, scopes: Set<String>) {
+    val invalid = ungrantable(pod, scopes)
+    require(invalid.isEmpty()) {
+      "rejected scopes for service client '$clientId': " +
+        invalid.entries.joinToString(", ") { (s, reason) -> "'$s' ($reason)" }
+    }
+  }
+
+  /** Every registration on [pod], oldest first. No secret: see [ServiceClientRegistration]. */
+  internal fun list(pod: PodId): List<ServiceClientRegistration> =
+    dao.findByPod(pod.objectId()).map { it.toRegistration() }
+
+  /**
+   * Adds [scopes] to the registration [expected] names, and answers whether it was still there.
+   * Throws, like [register], for a scope a service client cannot hold.
+   */
+  internal fun addScopes(
+    pod: HostedPod,
+    clientId: String,
+    expected: ServiceClientRegistrationId,
+    scopes: Set<String>,
+  ): Boolean {
+    requireGrantable(pod, clientId, scopes)
+    return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes)
+  }
+
+  /** Removes [scopes] and answers the registration afterwards, or `null` where there is none. */
+  internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>): ServiceClientRegistration? =
+    dao.removeScopes(pod.objectId(), clientId, scopes)?.toRegistration()
+
+  /**
+   * Replaces the secret and answers the new one, the only time it is readable. The registration and
+   * its grants stay. [SecretRotation.Conflict] where another rotation landed in between: answering a
+   * second secret would hand out one that does not work.
+   */
+  internal fun rotateSecret(pod: PodId, clientId: String): SecretRotation {
+    val row = dao.findByClientId(pod.objectId(), clientId) ?: return SecretRotation.NotFound
+    val secret = mintSecret()
+    val replaced = dao.replaceSecretHash(pod.objectId(), clientId, row.secretHash, hashSecret(secret))
+    return if (replaced) SecretRotation.Rotated(row.toRegistration(), secret) else SecretRotation.Conflict
+  }
+
+  /** What [rotateSecret] did. */
+  internal sealed interface SecretRotation {
+    data class Rotated(val registration: ServiceClientRegistration, val secret: String) : SecretRotation
+    data object NotFound : SecretRotation
+    data object Conflict : SecretRotation
   }
 
   /** The registration for `(pod, clientId)`, or `null`. */
@@ -131,6 +179,7 @@ class PodServiceClientStore @Inject constructor(
     scopes = scopes,
     label = label,
     createdAt = createdAt,
+    lastUsedAt = lastUsedAt,
   )
 
   /**
@@ -244,7 +293,13 @@ internal data class ServiceClientRegistration(
   val label: String?,
   /** When this registration was made. RFC 7591 §3.2.1's `client_id_issued_at`. */
   val createdAt: Instant,
-)
+  /** When it last minted a token, or `null` if it never has. */
+  val lastUsedAt: Instant? = null,
+) {
+
+  /** Whether this pod named it at an owner's installation. `false` for an operator-provisioned client. */
+  val installed: Boolean get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)
+}
 
 /**
  * A handle to one registration, opaque to everyone holding it.

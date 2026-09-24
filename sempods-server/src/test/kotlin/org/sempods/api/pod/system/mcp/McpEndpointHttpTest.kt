@@ -1,7 +1,7 @@
 package org.sempods.api.pod.system.mcp
 
 import com.google.inject.Inject
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.CapturedLog
@@ -3305,7 +3305,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val webId = "https://id.test/user"
     val clientId = "did:web:test.example"
     val scopes = setOf("${contextUri}#read")
-    val installer = mintScopedToken(pod.name, listOf(SERVICE_CLIENTS_SCOPE), webId = webId)
+    val installer = mintScopedToken(pod.name, listOf(SERVICE_CLIENTS_INSTALL_SCOPE), webId = webId)
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
       appId = clientId,

@@ -10,11 +10,12 @@ import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
 import org.sempods.pods.grants.PodGrantsFacade
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodInstallationAuthorityStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 
@@ -29,7 +30,7 @@ import java.time.Instant
  * binds a code to the caller that asked for it.
  *
  * **With an installation authority.** The pod owner approved one registration at `/authorize`
- * (`service-clients`), and the bearer that carries it may create one confidential client here. The
+ * (`service-clients:install`), and the bearer that carries it may create one confidential client here. The
  * server names it, it is stored where Client Credentials reads its clients, and it starts with no
  * grants at all — the contexts are the owner's to approve in a second consent, against a service
  * that by then exists.
@@ -150,7 +151,7 @@ class PodClientRegistration @Inject internal constructor(
    *
    * **Ownership is answered from the row, so it is answered after the authority is gone.** The
    * comparison is the pod's *current* owner against the URIs the consent recognised the person by
-   * ([PodInstallationAuthorityStore.Authority.subjectUris]) — the same question the dialog asked,
+   * ([PrivilegedAuthorityRows.Authority.subjectUris][org.sempods.pods.oauth.PrivilegedAuthorityRows.Authority.subjectUris]) — the same question the dialog asked,
    * asked again an hour later. The bearer cannot answer it: it carries one identity URI, and the
    * `also_known_as` link between a person's two WebIDs — sign in with Google, own the pod under
    * the email address — is sempods-auth's and unreachable from here. What the comparison still
@@ -179,10 +180,10 @@ class PodClientRegistration @Inject internal constructor(
     // The scope this route wants, asked for by name. `carriesPrivilegedFeature` is the catch-all —
     // "an authority for some named operation" — and a second feature scope would pass it while
     // authorizing something else entirely.
-    if (SERVICE_CLIENTS_SCOPE !in caller.oauthScopes) {
+    if (SERVICE_CLIENTS_INSTALL_SCOPE !in caller.oauthScopes) {
       return unauthorized(
         PodRegistrationRefusal.NOT_AUTHORIZED,
-        "registering a service client needs an authorization carrying '$SERVICE_CLIENTS_SCOPE'",
+        "registering a service client needs an authorization carrying '$SERVICE_CLIENTS_INSTALL_SCOPE'",
       )
     }
     if (shape != PodClientShape.INSTALLATION) return wrongProfile()
@@ -222,7 +223,7 @@ class PodClientRegistration @Inject internal constructor(
       // client" on finishing the rollout first.
       logger.info {
         "[oauth/register] Installation refused: no URI this authority names owns pod " +
-            "'${pod.name}' (legacy=${authority.generation == null})"
+            "'${pod.name}' (legacy=${authority.disconnects == null})"
       }
       return unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "this pod's owner installs its service clients")
     }
@@ -255,7 +256,7 @@ class PodClientRegistration @Inject internal constructor(
     )
   }
 
-  private fun PodInstallationAuthorityStore.Authority.isFromOwnerOf(pod: HostedPod): Boolean =
+  private fun PrivilegedAuthorityRows.Authority.isFromOwnerOf(pod: HostedPod): Boolean =
     subjectUris.any { podGrantsFacade.isPodOwner(pod, it) }
 
   /**

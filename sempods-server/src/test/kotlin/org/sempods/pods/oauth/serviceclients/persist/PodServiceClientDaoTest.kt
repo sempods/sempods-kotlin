@@ -58,6 +58,32 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a secret is replaced only over the hash the caller read`() {
+    // Two rotations that read the same secret: the first write lands, and the second — still
+    // holding the hash the first replaced — writes nothing, so it cannot answer a secret that the
+    // store no longer holds.
+    create("notes-app", setOf("$eventsRoot#manage"))
+
+    assertTrue(serviceClientDao.replaceSecretHash(probePodId, "notes-app", SECRET_HASH, "first"))
+    assertFalse(serviceClientDao.replaceSecretHash(probePodId, "notes-app", SECRET_HASH, "second"))
+    assertEquals("first", assertNotNull(serviceClientDao.findByClientId(probePodId, "notes-app")).secretHash)
+  }
+
+  @Test
+  fun `scopes are added to the registration named, and removed down to none`() {
+    val created = create("notes-app", emptySet())
+    val id = checkNotNull(created.id)
+
+    assertTrue(serviceClientDao.addScopes(probePodId, "notes-app", id, setOf("$notesRoot#read", "$eventsRoot#read")))
+    assertFalse(serviceClientDao.addScopes(probePodId, "notes-app", org.bson.types.ObjectId(), setOf("$notesRoot#write")))
+    assertEquals(
+      emptySet(),
+      assertNotNull(serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$notesRoot#read", "$eventsRoot#read"))).scopes,
+    )
+    assertNull(serviceClientDao.removeScopes(otherPodId, "notes-app", setOf("$notesRoot#read")))
+  }
+
+  @Test
   fun `touchLastUsed bumps the row it finds and reports the one it does not`() {
     create("notes-app", setOf("$eventsRoot#manage"))
 

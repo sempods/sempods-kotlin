@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Grant an installed app access</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f7; color: #1d1d1f; line-height: 1.5; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem;
+    }
+    .card {
+      background: #fff; border-radius: 12px; max-width: 540px; width: 100%; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.06);
+    }
+    .header { padding: 1.5rem 1.5rem 1rem; border-bottom: 1px solid #e5e5e7; }
+    .header h1 { font-size: 1.25rem; font-weight: 600; }
+    .facts { margin-top: .75rem; font-size: .875rem; color: #6e6e73; }
+    .facts dt { font-weight: 600; color: #1d1d1f; }
+    .facts dd { margin-bottom: .25rem; word-break: break-all; }
+    .section { padding: 1rem 1.5rem; border-bottom: 1px solid #e5e5e7; }
+    .section h2 { font-size: 1rem; font-weight: 600; margin-bottom: .5rem; }
+    .row { display: flex; gap: .5rem; align-items: baseline; margin-bottom: .25rem; word-break: break-all; }
+    .note { font-size: .875rem; color: #6e6e73; }
+    .actions { display: flex; gap: .75rem; justify-content: flex-end; padding: 1rem 1.5rem; }
+    button { font: inherit; padding: .5rem 1rem; border-radius: 8px; border: 1px solid #d2d2d7; background: #fff; cursor: pointer; }
+    button.primary { background: #0071e3; color: #fff; border-color: #0071e3; }
+  </style>
+</head>
+<body>
+<!-- The second consent of an installation. The label is the registering program's own text, so the
+     two facts beside it are the pod's: the identifier it assigned and when. An owner who expected
+     one installation can tell it from a crafted one only by those. -->
+<div class="card">
+  <form method="post" th:action="${grantAction}">
+    <input type="hidden" name="csrf" th:value="${csrfToken}"/>
+    <input type="hidden" name="service_client" th:value="${serviceClientId}"/>
+
+    <div class="header">
+      <h1>Give <span th:text="${serviceLabel}">this app</span> access to your pod?</h1>
+      <p class="note">
+        Asked by <span th:text="${requesterName}">the installer</span>, signed in as
+        <span th:text="${webId}">you</span>.
+      </p>
+      <dl class="facts">
+        <dt>Identifier on this pod</dt>
+        <dd id="serviceClientId" th:text="${serviceClientId}">svc:…</dd>
+        <dt>Installed</dt>
+        <dd id="registeredAt" th:text="${registeredAt}">2026-01-01T00:00:00Z</dd>
+      </dl>
+      <p class="note">
+        If you did not just install this app, or the identifier and time are not the ones your
+        installer showed you, refuse.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>It asks for</h2>
+      <label class="row" th:each="row : ${requested}">
+        <input type="checkbox" name="scope" th:value="${row.scope}" checked/>
+        <span th:text="${row.context}">notes</span>
+        <span class="note" th:text="${row.permission}">read</span>
+      </label>
+      <p class="note">
+        It can use this access without you, until you remove it or the app. Untick what it should
+        not have.
+      </p>
+    </div>
+
+    <div class="section" th:if="${!held.isEmpty()}">
+      <h2>It already has</h2>
+      <div class="row" th:each="row : ${held}">
+        <span th:text="${row.context}">notes</span>
+        <span class="note" th:text="${row.permission}">read</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="submit" name="action" value="refuse">Refuse</button>
+      <button type="submit" name="action" value="grant" class="primary">Grant</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>

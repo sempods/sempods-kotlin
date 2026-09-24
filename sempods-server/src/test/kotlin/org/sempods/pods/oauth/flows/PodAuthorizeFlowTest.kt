@@ -7,7 +7,7 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -362,10 +362,10 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val owned = Owned()
 
     val screen = assertIs<PodAuthorizeResult.Consent>(
-      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session),
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_INSTALL_SCOPE), owned.session),
     ).screen
 
-    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+    assertEquals(listOf(SERVICE_CLIENTS_INSTALL_SCOPE), screen.privilegedFeatures)
     assertTrue(!screen.lifetimeAvailable, "a one-shot authority has no lifetime to choose")
     assertTrue(screen.contexts.isEmpty(), "an installer selects no data")
     assertTrue(screen.publicContexts.isEmpty(), "and is offered none")
@@ -390,7 +390,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     owned.grant(owned.readScope)
 
     val screen = assertIs<PodAuthorizeResult.Consent>(
-      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session),
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_INSTALL_SCOPE), owned.session),
     ).screen
 
     assertTrue(
@@ -404,10 +404,10 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val owned = Owned()
 
     val delivery = redirectedError(
-      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE ${owned.readScope}"), owned.session),
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_INSTALL_SCOPE ${owned.readScope}"), owned.session),
     )
     assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
-    assertTrue(delivery.description.contains(SERVICE_CLIENTS_SCOPE), delivery.description)
+    assertTrue(delivery.description.contains(SERVICE_CLIENTS_INSTALL_SCOPE), delivery.description)
   }
 
   @Test
@@ -417,7 +417,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val owned = Owned()
 
     val delivery = redirectedError(
-      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE $PUBLIC_READ_SCOPE"), owned.session),
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_INSTALL_SCOPE $PUBLIC_READ_SCOPE"), owned.session),
     )
     assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
   }
@@ -429,10 +429,10 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val owned = Owned()
 
     val screen = assertIs<PodAuthorizeResult.Consent>(
-      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_SCOPE offline_access"), owned.session),
+      flow.authorize(owned.pod, request(scope = "$SERVICE_CLIENTS_INSTALL_SCOPE offline_access"), owned.session),
     ).screen
 
-    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+    assertEquals(listOf(SERVICE_CLIENTS_INSTALL_SCOPE), screen.privilegedFeatures)
     assertTrue(!screen.lifetimeAvailable, "the control is still off the screen")
   }
 
@@ -444,7 +444,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     )
 
     val delivery = redirectedError(
-      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), stranger),
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_INSTALL_SCOPE), stranger),
     )
     assertEquals(OAuthErrorCode.INVALID_SCOPE, delivery.code)
     assertTrue(delivery.description.contains("owner"), delivery.description)
@@ -460,9 +460,9 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     )
 
     val screen = assertIs<PodAuthorizeResult.Consent>(
-      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), alias),
+      flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_INSTALL_SCOPE), alias),
     ).screen
-    assertEquals(listOf(SERVICE_CLIENTS_SCOPE), screen.privilegedFeatures)
+    assertEquals(listOf(SERVICE_CLIENTS_INSTALL_SCOPE), screen.privilegedFeatures)
   }
 
   @Test
@@ -472,7 +472,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     owned.answered()
 
     val delivery = redirectedError(
-      flow.authorize(owned.pod, request(prompt = "none", scope = SERVICE_CLIENTS_SCOPE), owned.session),
+      flow.authorize(owned.pod, request(prompt = "none", scope = SERVICE_CLIENTS_INSTALL_SCOPE), owned.session),
     )
     assertEquals(OAuthErrorCode.CONSENT_REQUIRED, delivery.code)
   }
@@ -485,7 +485,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     owned.grant(owned.readScope)
     owned.answered()
 
-    val result = flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_SCOPE), owned.session)
+    val result = flow.authorize(owned.pod, request(scope = SERVICE_CLIENTS_INSTALL_SCOPE), owned.session)
     assertIs<PodAuthorizeResult.Consent>(result, "was: $result")
   }
 
@@ -494,14 +494,14 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     // The shape this closes: a row that named the installer scope would otherwise be re-issued by
     // auto-grant, and an installation would recover itself out of an ordinary reconnect.
     val owned = Owned()
-    owned.grant(owned.readScope, SERVICE_CLIENTS_SCOPE)
+    owned.grant(owned.readScope, SERVICE_CLIENTS_INSTALL_SCOPE)
     owned.answered()
 
     val result = flow.authorize(owned.pod, request(), owned.session)
 
     val issued = assertIs<PodAuthorizeResult.Code>(result, "was: $result")
     val entry = assertNotNull(authorizationCodeStore.consume(issued.code))
-    assertTrue(SERVICE_CLIENTS_SCOPE !in entry.scopes, "was: ${entry.scopes}")
-    assertTrue(SERVICE_CLIENTS_SCOPE !in owned.held(), "and the row is gone: ${owned.held()}")
+    assertTrue(SERVICE_CLIENTS_INSTALL_SCOPE !in entry.scopes, "was: ${entry.scopes}")
+    assertTrue(SERVICE_CLIENTS_INSTALL_SCOPE !in owned.held(), "and the row is gone: ${owned.held()}")
   }
 }

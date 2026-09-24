@@ -15,6 +15,7 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopePermission
 import org.sempods.pods.oauth.DynamicClientStore
@@ -169,7 +170,7 @@ class PodConsentFlow @Inject internal constructor(
       )
     }
     if (offeredPrivileged.isNotEmpty()) {
-      return installation(
+      return privilegedAuthority(
         pod = pod,
         clientId = normalizedClientId,
         identity = identity,
@@ -382,13 +383,11 @@ class PodConsentFlow @Inject internal constructor(
   }
 
   /**
-   * What an installation dialog's submission is worth.
+   * What a privileged dialog's submission is worth.
    *
-   * **It writes no grant.** An installer never holds the rights it arranges: the code carries the
-   * feature scope alone, and the service it is about to create is granted its contexts at a
-   * consent of its own. The app's standing grants are left exactly as they were, which is why this
-   * sits ahead of every path below that treats an empty selection as a disconnect — the person
-   * declined an installation, they did not end an authorization.
+   * **It writes no grant.** The code carries the feature scope alone, and the app's standing grants
+   * stay as they were — which is why this sits ahead of every path below that reads an empty
+   * selection as a disconnect.
    *
    * The decision is still recorded, because a code carrying no generation is refused at the
    * exchange — but it answers nothing about how long this app stays connected. The screen has no
@@ -398,7 +397,7 @@ class PodConsentFlow @Inject internal constructor(
    * @param offered what the screen put to the person, which the refusals name. [submitted] is what
    *   came back of it, and an empty one is the person saying no.
    */
-  private fun installation(
+  private fun privilegedAuthority(
     pod: HostedPod,
     clientId: String,
     identity: PersonIdentity,
@@ -430,15 +429,15 @@ class PodConsentFlow @Inject internal constructor(
     }
     if (submitted.isEmpty()) {
       logger.info {
-        "[oauth/consent] Installation declined: pod='${pod.name}', clientId='$clientId', " +
+        "[oauth/consent] Privileged authority declined: pod='${pod.name}', clientId='$clientId', " +
             "webId='${identity.webId}'"
       }
-      return failed(target, OAuthErrorCode.ACCESS_DENIED, "installation declined", state)
+      return failed(target, OAuthErrorCode.ACCESS_DENIED, "'$asked' declined", state)
     }
 
     val decision = recordDecisionWithoutLifetime(pod, clientId, identity)
     logger.info {
-      "[oauth/consent] Installation authorized: pod='${pod.name}', clientId='$clientId', " +
+      "[oauth/consent] Privileged authority granted: pod='${pod.name}', clientId='$clientId', " +
           "webId='${identity.webId}', scopes='${submitted.sorted().joinToString(" ")}', " +
           "generation=${decision.generation}"
     }
@@ -451,7 +450,7 @@ class PodConsentFlow @Inject internal constructor(
       state = state,
       codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
       codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
-      via = PodCodeIssuance.INSTALLATION,
+      via = if (SERVICE_CLIENTS_MANAGE_SCOPE in submitted) PodCodeIssuance.MANAGEMENT else PodCodeIssuance.INSTALLATION,
       consentGeneration = decision.generation,
       // Recorded here because here is where it is still known. `PodClientRegistration` asks
       // `isOwner` again against this set, an hour later and with no browser in front of it.

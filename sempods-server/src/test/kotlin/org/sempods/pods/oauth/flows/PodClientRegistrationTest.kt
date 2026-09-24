@@ -13,7 +13,7 @@ import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodInstallationAuthorityStore
@@ -464,22 +464,21 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     subjectUris: Set<String> = setOf(webId),
   ): SempodsCredentials {
     val jti = randomId()
-    // The standing consent the authority hangs off: `consume` compares its generation, so an
-    // authority without one is already withdrawn.
-    val generation = consentDecisions.recordWithoutLifetime(pod.id, INSTALLER, webId).generation
+    // The standing consent the authority hangs off: `consume` compares its disconnect count.
+    val disconnects = consentDecisions.recordWithoutLifetime(pod.id, INSTALLER, webId).disconnects
     installationAuthorities.record(
       pod = pod.id,
       jti = jti,
       clientId = INSTALLER,
       webId = webId,
-      generation = generation,
+      disconnects = disconnects,
       subjectUris = subjectUris,
     )
     return SempodsCredentials(
       pod = pod.ref,
       restrictedContexts = emptySet(),
       oauthClientId = INSTALLER,
-      oauthScopes = setOf(SERVICE_CLIENTS_SCOPE),
+      oauthScopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE),
       tokenJti = jti,
       tokenSub = webId,
     )

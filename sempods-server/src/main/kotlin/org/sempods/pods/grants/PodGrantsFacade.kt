@@ -286,6 +286,13 @@ class PodGrantsFacade @Inject constructor(
   // ── context lifecycle ───────────────────────────────────────────────────────
 
   /**
+   * Strips the service-client scopes anchored at [contextUri]; answers how many registrations lost
+   * one. `PodFacade.removeContext` calls it a second time, after the registry row is gone.
+   */
+  internal fun revokeServiceClientScopes(pod: HostedPod, contextUri: String): Long =
+    podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)
+
+  /**
    * Revokes everything anchored at [contextUri] when the context itself is being deleted:
    * app-delegated grants, owner-level WebID grants, and static service-client registrations.
    *
@@ -350,7 +357,7 @@ class PodGrantsFacade @Inject constructor(
     // stripped — otherwise the client secret could keep minting tokens for the deleted root
     // (manage descendants, recreate the root). Unlike a refresh row, a registration's context
     // scopes *are* the authority the resolver reads.
-    val strippedClients = podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)
+    val strippedClients = revokeServiceClientScopes(pod, contextUri)
     if (strippedClients > 0) {
       logger.info {
         "Revoked the scopes $strippedClients service-client registration(s) held on deleted context $contextUri"

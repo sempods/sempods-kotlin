@@ -14,12 +14,16 @@ import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.PodId
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodInstallationAuthorityStore
+import org.sempods.pods.oauth.PodManagementAuthorityStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import java.time.Duration
@@ -53,6 +57,7 @@ class PodTokenExchange @Inject internal constructor(
   private val podTokenIssuer: PodTokenIssuer,
   private val serviceClients: PodServiceClientStore,
   private val installationAuthorities: PodInstallationAuthorityStore,
+  private val managementAuthorities: PodManagementAuthorityStore,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
 
@@ -154,7 +159,7 @@ class PodTokenExchange @Inject internal constructor(
     // quietly acquire a renewable neighbour.
     val privileged = featureScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     if (privileged.isNotEmpty()) {
-      if (featureScopes != privileged) {
+      if (featureScopes != privileged || privileged.size != 1) {
         logger.warn {
           "[oauth/token] mixed scope set on an installation code: pod='$podName', " +
               "clientId='${entry.clientId}', scopes=${featureScopes.sorted().joinToString(" ")}"
@@ -344,17 +349,22 @@ class PodTokenExchange @Inject internal constructor(
     // the bearer worth anything, so a run dying ahead of it leaves an inert token and the owner
     // runs the installer again. Written first, it would leave a live authority behind a token
     // this exchange then refused to hand out.
-    installationAuthorities.record(
+    val authorities: PrivilegedAuthorityRows = when (val scope = scopes.single()) {
+      SERVICE_CLIENTS_INSTALL_SCOPE -> installationAuthorities
+      SERVICE_CLIENTS_MANAGE_SCOPE -> managementAuthorities
+      else -> error("no authority store for privileged scope '$scope'")
+    }
+    authorities.record(
       pod = pod,
       jti = accessToken.jti,
       clientId = entry.clientId,
       webId = entry.subject,
-      generation = issuedUnder,
+      disconnects = standing?.disconnects ?: 0L,
       subjectUris = entry.subjectUris,
     )
 
     logger.info {
-      "[oauth/token] Installation authority issued: pod='$podName', clientId='${entry.clientId}', " +
+      "[oauth/token] Privileged authority issued: pod='$podName', clientId='${entry.clientId}', " +
           "webId='${entry.subject}', scopes='${scopes.sorted().joinToString(" ")}'"
     }
 

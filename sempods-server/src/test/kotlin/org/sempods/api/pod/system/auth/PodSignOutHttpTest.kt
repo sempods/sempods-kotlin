@@ -21,7 +21,6 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
-import java.net.URLEncoder
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Base64
@@ -486,5 +485,4 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     while (Instant.now().epochSecond <= instant.epochSecond) Thread.sleep(20)
   }
 
-  private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
 }

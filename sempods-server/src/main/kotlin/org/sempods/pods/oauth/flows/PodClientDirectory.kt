@@ -121,3 +121,11 @@ internal sealed interface PodClientIdentity {
   /** Absent, blank, outside RFC 6749's `*VSCHAR` ([ClientId]), or neither of the two shapes. */
   data object Malformed : PodClientIdentity
 }
+
+/** The registration behind a `dyn:` client; `null` for any other class. */
+internal fun DynamicClientStore.registrationOf(pod: PodId, clientId: String): DynamicClientStore.Registration? =
+  if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) lookup(pod, clientId) else null
+
+/** What a dialog calls a client: the name it registered with, or its identifier. */
+internal fun clientDisplayName(registration: DynamicClientStore.Registration?, clientId: String): String =
+  registration?.clientName?.takeIf { it.isNotBlank() } ?: clientId

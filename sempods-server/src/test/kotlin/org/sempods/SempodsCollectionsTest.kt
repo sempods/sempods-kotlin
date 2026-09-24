@@ -40,6 +40,8 @@ class SempodsCollectionsTest {
         "oauth.loginStates",
         "oauth.consentTransactions",
         "oauth.installationAuthorities",
+        "oauth.managementAuthorities",
+        "oauth.serviceClientGrantTransactions",
         "oauth.authCodes",
         "oauth.reauthChallenges",
       ),

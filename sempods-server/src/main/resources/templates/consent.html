@@ -398,6 +398,28 @@
       </label>
     </div>
 
+    <!-- The management screen's whole question, on the same terms as the installation above:
+         offered only where asked for, never pre-ticked, alone on the screen. It adds nothing: a
+         service is given contexts only at the consent that names it. -->
+    <div class="public-read-section" th:if="${managementRequested}">
+      <h2>Manage the apps installed on this pod</h2>
+      <label class="public-read-toggle">
+        <input type="checkbox"
+               id="managementToggle"
+               name="scope"
+               th:value="${managementScope}"/>
+        <span class="text">
+          Let <th:block th:text="${clientName}">this app</th:block> see, re-key and remove the apps
+          installed on this pod, for the next hour.
+          <span class="description">
+            It sees their names, when they were installed and last used, and what they may reach.
+            It can issue an app a new secret, which it then holds, take access away from an app or
+            remove it. It cannot give an app more access, and it gets no access to your data.
+          </span>
+        </span>
+      </label>
+    </div>
+
     <!-- R7 (additive model, 2026-05-07): Public-Read is a normal additive
          scope. Visible when the pod has at least one server-defined
          public-read context. Default checked — most users want public-read

@@ -3,8 +3,11 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
+import com.mongodb.client.model.ReturnDocument
+import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant
@@ -72,6 +75,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
 
   internal fun findByPod(podId: ObjectId): List<PodServiceClientDbo> =
     serviceClients.find(Filters.eq(PodServiceClientDboFields.podId, podId))
+      .sort(Sorts.ascending(PodServiceClientDboFields.createdAt))
       .map { it.toDbo() }
       .toList()
 
@@ -114,6 +118,34 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       Updates.pullAll(PodServiceClientDboFields.scopes, anchoredScopes),
     ).modifiedCount
   }
+
+  /**
+   * Adds [scopes] to the registration [expectedId] names, and answers whether it was still there.
+   * The id keeps an approval off a registration re-created under the same `clientId`.
+   */
+  internal fun addScopes(podId: ObjectId, clientId: String, expectedId: ObjectId, scopes: Set<String>): Boolean =
+    serviceClients.updateOne(
+      Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.id, expectedId)),
+      Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()),
+    ).matchedCount > 0L
+
+  /** Removes [scopes] and answers the row afterwards, or `null` where there is none. */
+  internal fun removeScopes(podId: ObjectId, clientId: String, scopes: Set<String>): PodServiceClientDbo? =
+    serviceClients.findOneAndUpdate(
+      keyFilter(podId, clientId),
+      Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()),
+      FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER),
+    )?.toDbo()
+
+  /**
+   * Replaces the secret hash if it is still [expectedHash]. Of two interleaved rotations only one
+   * writes, so neither answers a secret that does not work.
+   */
+  internal fun replaceSecretHash(podId: ObjectId, clientId: String, expectedHash: String, newHash: String): Boolean =
+    serviceClients.updateOne(
+      Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.secretHash, expectedHash)),
+      Updates.set(PodServiceClientDboFields.secretHash, newHash),
+    ).modifiedCount > 0L
 
   /**
    * Removes a single registration. Used by the provisioning bootstrap to replace a
