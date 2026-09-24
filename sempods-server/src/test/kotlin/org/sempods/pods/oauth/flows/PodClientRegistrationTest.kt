@@ -341,10 +341,13 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     // an owner: the identifier is 18 random bytes.
     val pod = pod()
 
-    val refused = refusal(register(pod, client = PodClientMetadata(), raw = installation(), caller = installer(pod)))
+    val caller = installer(pod)
+
+    val refused = refusal(register(pod, client = PodClientMetadata(), raw = installation(), caller = caller))
 
     assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error)
     assertTrue("client_name" in refused.description, refused.description)
+    assertTrue(spendAuthority(pod, caller), "a body this pod refuses leaves the authority to spend")
   }
 
   @Test

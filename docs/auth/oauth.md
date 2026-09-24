@@ -636,15 +636,16 @@ with:
 - **Those three members are all an installation may carry.** Any other is refused by name: the
   identity, the context root and the grants are the pod's, and so is every member it has not been
   asked about.
-- **Refusals, in the order they are asked.** A presented credential is answered first, so a bearer
-  this pod cannot verify is `401` whatever the body looks like. Then the body: `400
-  invalid_client_metadata` for a shape this pod does not serve, for an installer bearer sent with
-  a public body, and for a member outside the three. Then the authority — `403
-  insufficient_scope` without `service-clients` or from someone who no longer owns the pod, `401
-  invalid_token` once it is spent or withdrawn. Each carries the pod's usual RFC 6750 challenge.
-  Every refusal the body earns is decided before the authority is spent; ownership is answered
-  from the row, so a pod that changed hands takes the authority with the refusal — and installing
-  again reaches the same answer.
+- **Refusals, in the order they are asked.** What the bearer alone settles comes first: `401` for
+  one this pod cannot verify, `403 insufficient_scope` for one carrying no `service-clients`. Then
+  the body: `400 invalid_client_metadata` for a shape this pod does not serve, for an installer
+  bearer sent with a public body, and for a member outside the three. The authority is answered
+  last — `401 invalid_token` where it is spent or withdrawn, `403` where no address the consent
+  recognised owns the pod now. The 401 and the 403 carry the pod's usual RFC 6750 challenge.
+- **A refused body costs the authority nothing**, because every check above it runs first: a
+  caller that got its metadata wrong retries with the token it holds. Ownership is answered from
+  the row and therefore spends it, so a pod that changed hands takes the authority with the
+  refusal — and installing again reaches the same answer.
 
 **Finish the rollout before installing.** A node from before this release records an authority
 without the fields the ownership check reads, and a new node falls back to what the row does
