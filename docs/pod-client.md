@@ -302,8 +302,8 @@ the lifetimes, what may be repeated and every refusal are `SempodsPodServiceClie
 2. **Register** with it (`SempodsPodServiceClients.register`), and **store the secret** before
    anything else: the pod never answers it again.
 3. **Grant**: the owner approves the service's contexts at `grantConsentUrl`, and
-   `SempodsGrantOutcome` reads the answer. A refusal leaves a registered service with no grants,
-   which is an installation, and the program reports it as one.
+   `SempodsGrantOutcome` reads the answer. A refusal, or a consent that never comes back, leaves a
+   registered service with no grants, which is an installation, and the program reports it as one.
 4. **Run as the service** through `clientCredentials`, as in §"A service token".
 
 Listing, rotating, narrowing and revoking take a `service-clients:manage` authorization of their
@@ -329,8 +329,12 @@ var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsReq
 SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
 store.save(service.getClientId(), service.getClientSecret());
 
-browser.open(installing.grantConsentUrl(installer, loopback.redirectUri(), grantState, service.getClientId(), scopes));
-SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(loopback.nextQuery(), grantState);
+try {
+  browser.open(installing.grantConsentUrl(installer, loopback.redirectUri(), grantState, service.getClientId(), scopes));
+  SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(loopback.nextQuery(), grantState);
+} catch (IOException unfinished) {
+  // Installed all the same: the service holds no grants, and the owner can grant them later.
+}
 ```
 
 ### Asynchronous use

@@ -95,6 +95,28 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a grant consent that does not finish leaves the installation standing and says why`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val stored = mutableMapOf<String, String>()
+    val closedAtTheGrant = OwnerInstallation.Browser { url ->
+      if (url.encodedPath.endsWith("/_system/auth/grant")) throw java.io.IOException("the owner closed the browser")
+      OwnerBrowser(owned).open(url)
+    }
+
+    val installation = OwnerInstallation(owned.base, client, closedAtTheGrant).install("Notes Sync", listOf("$notes#read")) { id, secret ->
+      stored[id] = secret
+    }
+
+    assertNull(installation.grants())
+    assertEquals("the owner closed the browser", installation.grantsUnfinished().message)
+    assertEquals(mapOf(installation.service().clientId to installation.service().clientSecret), stored)
+    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned)).manage().list().body!!.single()
+    assertEquals(installation.service().clientId, listed.clientId)
+    assertTrue(listed.scopes.isEmpty())
+  }
+
+  @Test
   fun `an installation that asks for no contexts is complete once it is registered`() {
     val owned = ownedPod()
     val browser = OwnerBrowser(owned)
@@ -102,6 +124,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val installation = OwnerInstallation(owned.base, client, browser).install("Importer", emptyList()) { _, _ -> }
 
     assertNull(installation.grants())
+    assertNull(installation.grantsUnfinished())
     assertEquals(1, browser.opened.size, "no grant consent was needed")
   }
 

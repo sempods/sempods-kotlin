@@ -21,6 +21,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.URI
+import java.net.URISyntaxException
 
 /**
  * The browser half of a pod's OAuth for a public client: registering one, and the authorization
@@ -60,6 +61,8 @@ class SempodsPodAuthorization(
    * |---|---|
    * | any 2xx | the client |
    * | `400 invalid_redirect_uri` or `invalid_client_metadata`, `429 slow_down` and every other status | a [SempodsStatusException] whose `bodyExcerpt` holds the RFC 7591 §3.2.2 error document |
+   *
+   * @throws IllegalArgumentException when a redirect URI is not a URI at all, before anything is sent.
    */
   @Throws(IOException::class)
   fun registerClient(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsPublicClient> =
@@ -77,11 +80,13 @@ class SempodsPodAuthorization(
    *
    * [scope] is space-separated, as it goes on the wire. [state] is the caller's, and comes back with
    * the answer; make it unguessable and check it with [readRedirect].
+   *
+   * @throws IllegalArgumentException when [redirectUri] is not a URI.
    */
   fun authorizationUrl(clientId: String, redirectUri: String, scope: String, state: String, pkce: SempodsPkce): HttpUrl =
     AuthorizationRequest.Builder(ResponseType.CODE, ClientID(clientId))
       .endpointURI(session.podBase.resolve(AUTHORIZE).toUri())
-      .redirectionURI(URI(redirectUri))
+      .redirectionURI(redirectUri(redirectUri))
       .scope(Scope.parse(scope))
       .state(State(state))
       .codeChallenge(CodeVerifier(pkce.verifier), CodeChallengeMethod.S256)
@@ -135,7 +140,7 @@ class SempodsPodAuthorization(
       .post(
         ClientMetadata().apply {
           name = clientName
-          redirectionURIs = redirectUris.map(::URI).toSet()
+          redirectionURIs = redirectUris.map(::redirectUri).toSet()
           grantTypes = setOf(GrantType.AUTHORIZATION_CODE)
           responseTypes = setOf(ResponseType.CODE)
           tokenEndpointAuthMethod = ClientAuthenticationMethod.NONE
@@ -144,6 +149,14 @@ class SempodsPodAuthorization(
       .build()
 
   private companion object {
+
+    /** [value] as a URI. A malformed one is the caller's argument, not a checked exception Java cannot catch here. */
+    fun redirectUri(value: String): URI =
+      try {
+        URI(value)
+      } catch (malformed: URISyntaxException) {
+        throw IllegalArgumentException("'$value' is not a redirect URI: ${malformed.reason}", malformed)
+      }
 
     const val AUTHORIZE = "_system/auth/authorize"
 

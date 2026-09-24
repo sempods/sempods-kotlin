@@ -116,4 +116,14 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     assertEquals(400, failure.status)
     assertEquals(error, failure.bodyExcerpt)
   }
+
+  @Test
+  fun `a redirect that is not a URI is the caller's argument, refused before anything is sent`() {
+    assertThrows<IllegalArgumentException> { authorization.registerClient("Installer", listOf("http://127.0.0.1/cb path")) }
+    assertThrows<IllegalArgumentException> {
+      authorization.authorizationUrl("dyn:abc", "http://127.0.0.1/cb path", "service-clients:install", "s1", SempodsPkce.generate())
+    }
+
+    assertTrue(server.retrieveRecordedRequests(request()).isEmpty())
+  }
 }

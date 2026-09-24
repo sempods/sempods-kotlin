@@ -48,10 +48,18 @@ public final class OwnerInstallation {
   }
 
   /**
-   * The two outcomes of an installation, apart. {@code grants} is null when no contexts were asked
-   * for; a refused consent leaves {@code service} installed, with no grants.
+   * The outcomes of an installation, apart. {@code service} is always there: once registered, the
+   * service is installed and its secret stored, whatever the grant consent does.
+   *
+   * <ul>
+   *   <li>{@code grants} is what the owner answered, a refusal included. It is null when no contexts
+   *       were asked for, and when the consent did not finish.
+   *   <li>{@code grantsUnfinished} says why the consent did not finish: the browser did not come back,
+   *       or came back with an answer that was not this program's. The service holds no grants, and
+   *       the owner can grant them later.
+   * </ul>
    */
-  public record Installation(SempodsServiceClientRegistration service, SempodsGrantOutcome grants) {}
+  public record Installation(SempodsServiceClientRegistration service, SempodsGrantOutcome grants, IOException grantsUnfinished) {}
 
   private static final String CALLBACK = "/callback";
   private static final SecureRandom RANDOM = new SecureRandom();
@@ -77,13 +85,18 @@ public final class OwnerInstallation {
       // The secret exists only in that answer: store it before anything that can still fail.
       store.save(service.getClientId(), service.getClientSecret());
       if (scopes.isEmpty()) {
-        return new Installation(service, null);
+        return new Installation(service, null, null);
       }
 
-      // The second consent: the owner grants the service that now exists its contexts.
+      // The second consent: the owner grants the service that now exists its contexts. From here on
+      // nothing undoes the installation, so a consent that does not finish is reported, not thrown.
       String state = newState();
-      browser.open(installing.grantConsentUrl(installer(), loopback.redirectUri(), state, service.getClientId(), scopes));
-      return new Installation(service, SempodsGrantOutcome.readQuery(loopback.nextQuery(), state));
+      try {
+        browser.open(installing.grantConsentUrl(installer(), loopback.redirectUri(), state, service.getClientId(), scopes));
+        return new Installation(service, SempodsGrantOutcome.readQuery(loopback.nextQuery(), state), null);
+      } catch (IOException unfinished) {
+        return new Installation(service, null, unfinished);
+      }
     }
   }
 
