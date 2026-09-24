@@ -94,11 +94,10 @@ class PodAuthEndpoint @Inject constructor(
     val caller = resolveBearerOrNull(podDbo)
     // Before the registration, which is where the authority is spent: a throttled installation
     // keeps its approval.
-    if (caller != null && SERVICE_CLIENTS_SCOPE in caller.oauthScopes) {
-      val subject = caller.tokenSub
-      if (subject != null && !registrationRateLimiter.tryAcquireInstallation(podDbo.podId().value, subject)) {
-        return PodRegistrationResponses.rateLimited()
-      }
+    if (caller != null && SERVICE_CLIENTS_SCOPE in caller.oauthScopes &&
+      !registrationRateLimiter.tryAcquireInstallation(podDbo.podId().value)
+    ) {
+      return PodRegistrationResponses.rateLimited()
     }
     val result = when (val read = PodRegistrationMessages.read(body)) {
       is PodRegistrationRead.Unreadable -> read.refusal

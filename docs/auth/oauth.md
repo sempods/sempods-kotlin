@@ -668,7 +668,7 @@ flood of public registrations does not hold up an installation, and the other wa
 |---|---|---|---|
 | public | address | before the pod row, without a bearer | 10, 30 |
 | protected | address | before the pod row, with a bearer | 10, 20 |
-| installer | pod and verified `sub` | after the bearer is verified, before the body | 2, 5 |
+| installer | pod | after an installer bearer is verified, before the body | 2, 5 |
 
 - **The address** is read as at `/token`: the rightmost `X-Forwarded-For` entry. No proxy, no
   address limit.
@@ -677,9 +677,11 @@ flood of public registrations does not hold up an installation, and the other wa
   `dyn:` identifier but still spends a request; the public burst leaves room for that.
 - **Which address budget is charged depends on whether a bearer is present**, which the caller
   decides. Both are bounded, so choosing buys nothing.
-- **The installer budget** bounds secret minting across many authorities of one person, each of
-  which mints one bcrypt-hashed secret. Its key is verified, so it applies without a proxy too. It
-  is asked before the authority is spent, so a throttled installation keeps its approval.
+- **The installer budget** bounds secret minting across many authorities, each of which mints
+  one bcrypt-hashed secret. Only the pod's owner can hold one, under any linked identity, so a
+  budget per pod is a budget per person, however many identities they sign in with. It applies
+  without a proxy too, and is asked before the authority is spent, so a throttled installation
+  keeps its approval.
 - **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
   `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.
 - **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,INSTALLER}_PER_MINUTE` and

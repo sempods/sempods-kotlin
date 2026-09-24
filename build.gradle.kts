@@ -598,8 +598,8 @@ subprojects {
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_PER_MINUTE", 60)
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST", 60)
         // The registration budgets, for `PodAuthEndpointRegisterRateLimitHttpTest`. The address
-        // tiers follow the rule above. The installer tier is keyed by pod and person rather than
-        // address, so every installation case meets it; each creates its own pod and registers at
+        // tiers follow the rule above. The installer tier is keyed by pod rather than address, so
+        // every installation case meets it; each creates its own pod and registers at
         // most twice there, which 3 leaves room for.
         environment("SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE", 5)
         environment("SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_BURST", 5)

@@ -117,13 +117,12 @@ class PodRegistrationRateLimiterTest {
     }
   }
 
-  @Test fun `an installer is budgeted per pod and person, whatever the address`() {
+  @Test fun `an installer is budgeted per pod`() {
     val limiter = limiter()
-    repeat(2) { assertTrue(limiter.tryAcquireInstallation("pod-a", "https://id.example/alice")) }
-    assertFalse(limiter.tryAcquireInstallation("pod-a", "https://id.example/alice"))
+    repeat(2) { assertTrue(limiter.tryAcquireInstallation("pod-a")) }
+    assertFalse(limiter.tryAcquireInstallation("pod-a"))
 
-    assertTrue(limiter.tryAcquireInstallation("pod-b", "https://id.example/alice"), "another pod")
-    assertTrue(limiter.tryAcquireInstallation("pod-a", "https://id.example/bob"), "another person")
+    assertTrue(limiter.tryAcquireInstallation("pod-b"), "another pod")
   }
 
   @Test fun `a rate of zero turns that tier off and leaves the others`() {
@@ -170,12 +169,12 @@ class PodRegistrationRateLimiterTest {
     assertEquals(2, linesNaming("203.0.113.9").size)
   }
 
-  @Test fun `a subject carrying a line break cannot forge a log line`() {
-    val limiter = limiter(installer = 1)
-    val subject = "https://id.example/mallory\n[oauth/register] forged"
-    repeat(2) { limiter.tryAcquireInstallation("pod-c", subject) }
+  @Test fun `an address carrying a line break cannot forge a log line`() {
+    val limiter = limiter(public = 1)
+    val address = "203.0.113.10\n[oauth/register] forged"
+    repeat(2) { limiter.tryAcquireAddress(via(address), bearerPresented = false) }
 
-    val lines = appender.list.map { it.formattedMessage }.filter { "pod-c|" in it }
+    val lines = appender.list.map { it.formattedMessage }.filter { "203.0.113.10" in it }
     assertEquals(1, lines.size, lines.toString())
     assertFalse('\n' in lines.single(), lines.single())
   }

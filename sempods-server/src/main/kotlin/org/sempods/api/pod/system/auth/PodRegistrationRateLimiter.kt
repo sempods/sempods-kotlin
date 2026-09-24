@@ -18,7 +18,7 @@ import org.sempods.commons.utils.HashUtil
  * |---|---|---|
  * | [Tier.PUBLIC] | address | before the pod row, for a request without a bearer |
  * | [Tier.PROTECTED] | address | before the pod row, for a request with one |
- * | [Tier.INSTALLER] | pod and verified subject | after the bearer is verified, before the body |
+ * | [Tier.INSTALLER] | pod | after an installer bearer is verified, before the body |
  *
  * **The address tiers** bound what a caller costs before anything is known about it. A public
  * registration writes a `dyn:` row for every fingerprint it has not seen, and a protected one
@@ -27,9 +27,12 @@ import org.sempods.commons.utils.HashUtil
  * decides; both are bounded, so choosing buys nothing.
  *
  * **The installer tier** bounds secret minting across authorities. One authority mints one
- * secret, at bcrypt cost, and nothing stops a person from holding many. Its key is verified, so
- * it holds without a proxy header too. It is consulted before the authority is spent, so a
- * throttled installation keeps its approval — see `docs/auth/oauth.md` §"Rate limit".
+ * secret, at bcrypt cost, and nothing stops a person from holding many. Only the pod's owner can
+ * be given an installer authority, under any of their linked identities, so a budget per pod is a
+ * budget per person: keying it on the token's `sub` would give each linked identity a budget of
+ * its own. The key does not depend on the caller, so it holds without a proxy header too. It is
+ * consulted before the authority is spent, so a throttled installation keeps its approval — see
+ * `docs/auth/oauth.md` §"Registration rate limit".
  *
  * **No proxy header, no address limit**, as at the token endpoint: a single shared bucket for
  * every request would be an outage rather than a limit.
@@ -94,10 +97,9 @@ class PodRegistrationRateLimiter(
    * Whether a verified installer may go on to spend its authority.
    *
    * @param podId the pod the installation is for.
-   * @param subject the verified `sub` of the installer's token.
    */
-  fun tryAcquireInstallation(podId: String, subject: String): Boolean =
-    admit(installerBuckets, Tier.INSTALLER, "$podId|${bounded(subject)}", installerPerMinute)
+  fun tryAcquireInstallation(podId: String): Boolean =
+    admit(installerBuckets, Tier.INSTALLER, podId, installerPerMinute)
 
   private fun admit(buckets: TokenBucketRateLimiter, tier: Tier, key: String, perMinute: Int): Boolean {
     if (buckets.tryAcquire(key)) return true

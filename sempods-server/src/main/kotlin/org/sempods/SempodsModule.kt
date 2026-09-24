@@ -723,7 +723,7 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST = 20
 
     /**
-     * 2 installations a minute per person and pod after a burst of 5. Each one needs a consent in
+     * 2 installations a minute per pod after a burst of 5. Each one needs a consent in
      * the browser first, so a person installing by hand never comes near.
      */
     internal const val DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE = 2

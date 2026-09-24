@@ -139,7 +139,7 @@ data class SempodsConfig(
   /** The spike allowed on that tier; `0` means the same as the rate. */
   val registerRateLimitProtectedBurst: Int = 0,
 
-  /** Installations one verified person may attempt per minute on one pod. */
+  /** Installations that may be attempted per minute on one pod — only its owner can make them. */
   val registerRateLimitInstallerPerMinute: Int = 0,
 
   /** The spike allowed on that tier; `0` means the same as the rate. */
