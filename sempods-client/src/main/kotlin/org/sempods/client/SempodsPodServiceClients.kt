@@ -5,6 +5,7 @@ import com.nimbusds.oauth2.sdk.auth.ClientAuthenticationMethod
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.time.DateTimeException
@@ -85,15 +86,23 @@ class SempodsPodServiceClients(
    *
    * [callerClientId] and [redirectUri] name the caller as `/authorize` knows it; the installer's own
    * public client qualifies. A pair the pod does not know gets no redirect at all.
+   *
+   * @throws IllegalArgumentException when [redirectUri] is not a URL, or its query already carries a
+   *   member of the answer (`result`, `scope`, `state`, `error`, `error_description`, `error_uri`),
+   *   which would make the answer ambiguous.
    */
-  fun grantConsentUrl(callerClientId: String, redirectUri: String, state: String, serviceClientId: String, scopes: Collection<String>): HttpUrl =
-    session.podBase.resolve(GRANT).newBuilder()
+  fun grantConsentUrl(callerClientId: String, redirectUri: String, state: String, serviceClientId: String, scopes: Collection<String>): HttpUrl {
+    val redirect = requireNotNull(redirectUri.toHttpUrlOrNull()) { "'$redirectUri' is not a redirect URL." }
+    val carried = redirect.queryParameterNames.firstOrNull { it in GRANT_ANSWER_MEMBERS }
+    require(carried == null) { "'$redirectUri' carries '$carried', which the grant consent's answer adds itself." }
+    return session.podBase.resolve(GRANT).newBuilder()
       .addQueryParameter("client_id", callerClientId)
       .addQueryParameter("redirect_uri", redirectUri)
       .addQueryParameter("state", state)
       .addQueryParameter("service_client", serviceClientId)
       .addQueryParameter("scope", scopeText(scopes))
       .build()
+  }
 
   /** Every service client on the pod, with its grants and when it was last used. */
   @Throws(IOException::class)
@@ -163,6 +172,8 @@ class SempodsPodServiceClients(
   private companion object {
 
     const val GRANT = "_system/auth/grant"
+
+    val GRANT_ANSWER_MEMBERS = setOf("result", "scope", "state", "error", "error_description", "error_uri")
 
     const val SERVICE_CLIENTS = "_system/auth/service-clients"
 

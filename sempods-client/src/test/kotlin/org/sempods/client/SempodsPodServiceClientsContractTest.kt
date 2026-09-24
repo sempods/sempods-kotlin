@@ -120,6 +120,12 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     assertTrue(server.retrieveRecordedRequests(request()).isEmpty(), "building the URL sent a request")
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = ["http://127.0.0.1/cb?result=local", "http://127.0.0.1/cb?error=x", "not a url"])
+  fun `a grant redirect that is not a URL, or already carries a member of the answer, is refused`(redirect: String) {
+    assertThrows<IllegalArgumentException> { serviceClients().grantConsentUrl("dyn:abc", redirect, "g1", "svc:1", listOf("urn:a#read")) }
+  }
+
   @Test
   fun `the list reads every service client with its grants and last use`() {
     answer(
