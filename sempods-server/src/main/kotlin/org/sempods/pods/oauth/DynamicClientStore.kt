@@ -1,26 +1,23 @@
 package org.sempods.pods.oauth
 
 import org.sempods.auth.core.DynamicClientFingerprint
+import org.sempods.auth.core.Secrets
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.objectId
 import com.google.inject.Inject
-import java.security.SecureRandom
 import java.time.Instant
-import java.util.Base64
 
 /**
  * Persistent store for clients registered via RFC 7591 Dynamic Client Registration.
  *
  * MCP clients (Claude Desktop/Code/Web, ChatGPT, …) discover this pod's authorization server,
  * then POST to the advertised `registration_endpoint` to obtain a `client_id` they can use in
- * `/authorize`. We accept the full RFC 7591 metadata set so we can observe what real agents
- * actually send — later stages will use this to derive a stable per-agent identity across pods.
+ * `/authorize`. The full RFC 7591 metadata set is accepted, so what real agents send is on record.
  *
  * Storage is dedup-on-write via [DynamicClientRegistrationDao] +
  * [DynamicClientFingerprint]: a repeat `/register` from the same logical client
  * (matching fingerprint inputs) returns the existing row's `clientId` rather
- * than inserting a new document. Only first registrations write a fresh row,
- * preserving the verbatim request body for Stage-2 analysis. Hot-path lookups
+ * than inserting a new document. Only first registrations write a fresh row. Hot-path lookups
  * from `/authorize` hit the DAO directly (no in-memory cache — lookup is once per OAuth flow).
  */
 class DynamicClientStore @Inject constructor(
@@ -39,14 +36,11 @@ class DynamicClientStore @Inject constructor(
     val tosUri: String?,
     val policyUri: String?,
     val registeredAt: Instant,
-    // Verbatim request body — kept so later stages can mine fields we don't explicitly model yet.
+    /** The DCR request body as it arrived. */
     val rawRequest: Map<String, Any?>,
-    // When set, this is an existing row returned by fingerprint-dedup rather than a freshly
-    // inserted one. Lets callers log the dedup hit and differentiate observations.
+    /** The `registeredAt` of the row [register] deduplicated to; `null` when it inserted a row. */
     val deduplicatedFromRegisteredAt: Instant? = null,
   )
-
-  private val random = SecureRandom()
 
   internal fun register(
     registeredForPod: PodId,
@@ -82,7 +76,7 @@ class DynamicClientStore @Inject constructor(
         return existing.toRegistration(deduplicatedFromRegisteredAt = existing.registeredAt)
       }
       val dbo = dao.create(
-        clientId = "dyn:" + newOpaqueId(),
+        clientId = "dyn:" + Secrets.newOpaqueId(),
         registeredForPodId = registeredForPod.objectId(),
         registeredForPodName = registeredForPodName,
         redirectUris = redirectUris,
@@ -131,12 +125,6 @@ class DynamicClientStore @Inject constructor(
     rawRequest = rawRequest,
     deduplicatedFromRegisteredAt = deduplicatedFromRegisteredAt,
   )
-
-  private fun newOpaqueId(): String {
-    val bytes = ByteArray(18)
-    random.nextBytes(bytes)
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-  }
 
   private companion object {
     /** Lookup-then-insert passes before a client racing itself is somebody's problem. */
