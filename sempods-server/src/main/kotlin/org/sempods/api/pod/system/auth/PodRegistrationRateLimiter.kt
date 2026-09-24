@@ -18,7 +18,7 @@ import org.sempods.commons.utils.HashUtil
  * |---|---|---|
  * | [Tier.PUBLIC] | address | before the pod row, for a request without a bearer |
  * | [Tier.PROTECTED] | address | before the pod row, for a request with one |
- * | [Tier.INSTALLER] | pod | after an installer bearer is verified, before the body |
+ * | [Tier.INSTALLER] | pod | after an installer bearer is verified and found spendable, before the body |
  *
  * **The address tiers** bound what a caller costs before anything is known about it. A public
  * registration writes a `dyn:` row for every fingerprint it has not seen, and a protected one

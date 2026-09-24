@@ -93,8 +93,10 @@ class PodAuthEndpoint @Inject constructor(
     // no `Authorization` header this returns before anything is verified.
     val caller = resolveBearerOrNull(podDbo)
     // Before the registration, which is where the authority is spent: a throttled installation
-    // keeps its approval.
+    // keeps its approval. Charged only by a token that could still register, so a spent one cannot
+    // hold the pod's budget empty.
     if (caller != null && SERVICE_CLIENTS_SCOPE in caller.oauthScopes &&
+      podClientRegistration.holdsSpendableAuthority(podDbo.hosted, caller) &&
       !registrationRateLimiter.tryAcquireInstallation(podDbo.podId().value)
     ) {
       return PodRegistrationResponses.rateLimited()

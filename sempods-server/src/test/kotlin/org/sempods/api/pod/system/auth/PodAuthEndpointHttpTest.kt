@@ -5549,7 +5549,24 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(1, statuses.count { it == 201 }, statuses.toString())
     // Everyone else was either throttled or found the authority spent — nothing in between.
     assertTrue(statuses.all { it in setOf(201, 401, 429) }, statuses.toString())
-    assertTrue(statuses.count { it == 429 } >= attempts - installerBudget, statuses.toString())
+  }
+
+  @Test
+  fun `a spent installer token cannot drain the pod's installer budget`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val spent = approveInstallation(pod, ownerWebId)["access_token"] as String
+    assertEquals(201, registerAsInstaller(pod, spent).statusCode)
+
+    // Replayed past the budget, and answered on its merits every time rather than throttled.
+    repeat(installerBudget + 2) {
+      assertEquals(401, registerAsInstaller(pod, spent).statusCode)
+    }
+
+    val next = approveInstallation(pod, ownerWebId)["access_token"] as String
+    val registered = registerAsInstaller(pod, next)
+    assertEquals(201, registered.statusCode, registered.responseBody)
   }
 
   @Test

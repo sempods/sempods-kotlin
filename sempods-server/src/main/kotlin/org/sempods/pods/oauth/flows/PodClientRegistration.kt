@@ -60,6 +60,14 @@ class PodClientRegistration @Inject internal constructor(
     return registerService(pod, request, shape)
   }
 
+  /**
+   * Whether [caller] holds an installation authority on [pod] that it could still spend. Nothing is
+   * spent by asking. The endpoint charges its installer budget only when this is true, so a token
+   * whose authority is gone cannot drain the budget of the owner's next installation.
+   */
+  internal fun holdsSpendableAuthority(pod: HostedPod, caller: SempodsCredentials): Boolean =
+    caller.tokenJti?.let { installationAuthorities.isSpendable(pod.id, it) } == true
+
   // ─── The unauthenticated profile ──────────────────────────────────────────
 
   private fun registerDynamic(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {

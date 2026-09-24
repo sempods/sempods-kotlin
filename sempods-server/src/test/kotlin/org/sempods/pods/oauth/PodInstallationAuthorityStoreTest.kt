@@ -65,6 +65,20 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `asking whether an authority is spendable does not spend it`() {
+    val jti = randomId()
+    record(jti)
+
+    assertEquals(true, authorities.isSpendable(pod, jti))
+    assertEquals(true, authorities.isSpendable(pod, jti), "asking twice spends nothing either")
+    assertEquals(false, authorities.isSpendable(PodId(ObjectId().toHexString()), jti), "another pod")
+    assertEquals(false, authorities.isSpendable(pod, randomId()), "an unknown token")
+
+    assertNotNull(authorities.consume(pod, jti))
+    assertEquals(false, authorities.isSpendable(pod, jti), "spent")
+  }
+
+  @Test
   fun `the authority is handed over once and never again`() {
     val jti = randomId()
     record(jti)
