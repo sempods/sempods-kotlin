@@ -126,14 +126,14 @@ class PodInstallationAuthorityStore @Inject internal constructor(
     authorities.consume(jti)?.takeIf { it.standsOn(pod) }
 
   /**
-   * Whether [consume] would find an authority behind [jti] now, without spending it.
+   * The authority [consume] would hand over for [jti] now, without spending it.
    *
    * For a budget that should be charged only by a token that can still register: a spent or
    * withdrawn one is refused before any expensive work anyway. The answer can be stale by the time
    * [consume] runs, which is fine for that purpose — a race costs at most one charge.
    */
-  internal fun isSpendable(pod: PodId, jti: String): Boolean =
-    authorities.peek(jti)?.standsOn(pod) == true
+  internal fun peek(pod: PodId, jti: String): Authority? =
+    authorities.peek(jti)?.takeIf { it.standsOn(pod) }
 
   private fun Authority.standsOn(pod: PodId): Boolean =
     this.pod == pod &&

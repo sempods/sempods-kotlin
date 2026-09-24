@@ -276,6 +276,21 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `only an unspent authority from the current owner counts as spendable`() {
+    // What the endpoint charges its installer budget on. A former owner's token, or a spent one,
+    // must not count, or it could hold the current owner's budget empty.
+    val pod = pod()
+    val owner = installer(pod)
+    val formerOwner = installer(pod, webId = "https://id.sempods.org/e/${"1".repeat(64)}")
+
+    assertTrue(registration.holdsSpendableAuthority(pod, owner))
+    assertFalse(registration.holdsSpendableAuthority(pod, formerOwner), "a former owner's approval")
+
+    assertTrue(spendAuthority(pod, owner))
+    assertFalse(registration.holdsSpendableAuthority(pod, owner), "a spent one")
+  }
+
+  @Test
   fun `an approval from someone who no longer owns the pod registers nothing, and is spent`() {
     // Ownership is asked again here: the authority was granted an hour ago at most, and a pod can
     // change hands in that time. The answer is in the row, so it is given once the row is gone —

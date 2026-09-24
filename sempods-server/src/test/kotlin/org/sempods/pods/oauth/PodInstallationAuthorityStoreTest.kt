@@ -65,17 +65,17 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `asking whether an authority is spendable does not spend it`() {
+  fun `peeking at an authority does not spend it`() {
     val jti = randomId()
     record(jti)
 
-    assertEquals(true, authorities.isSpendable(pod, jti))
-    assertEquals(true, authorities.isSpendable(pod, jti), "asking twice spends nothing either")
-    assertEquals(false, authorities.isSpendable(PodId(ObjectId().toHexString()), jti), "another pod")
-    assertEquals(false, authorities.isSpendable(pod, randomId()), "an unknown token")
+    assertNotNull(authorities.peek(pod, jti))
+    assertNotNull(authorities.peek(pod, jti), "peeking twice spends nothing either")
+    assertNull(authorities.peek(PodId(ObjectId().toHexString()), jti), "another pod")
+    assertNull(authorities.peek(pod, randomId()), "an unknown token")
 
     assertNotNull(authorities.consume(pod, jti))
-    assertEquals(false, authorities.isSpendable(pod, jti), "spent")
+    assertNull(authorities.peek(pod, jti), "spent")
   }
 
   @Test

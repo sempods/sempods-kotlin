@@ -61,12 +61,17 @@ class PodClientRegistration @Inject internal constructor(
   }
 
   /**
-   * Whether [caller] holds an installation authority on [pod] that it could still spend. Nothing is
-   * spent by asking. The endpoint charges its installer budget only when this is true, so a token
-   * whose authority is gone cannot drain the budget of the owner's next installation.
+   * Whether [caller] holds an installation authority on [pod] that could still register: unspent,
+   * and granted by someone who owns the pod now — the two questions [registerService] asks before
+   * it creates anything. Nothing is spent by asking.
+   *
+   * The endpoint charges the pod's installer budget only when this is true, so neither a spent
+   * token nor one a former owner kept can drain the budget of the current owner's installations.
    */
-  internal fun holdsSpendableAuthority(pod: HostedPod, caller: SempodsCredentials): Boolean =
-    caller.tokenJti?.let { installationAuthorities.isSpendable(pod.id, it) } == true
+  internal fun holdsSpendableAuthority(pod: HostedPod, caller: SempodsCredentials): Boolean {
+    val authority = caller.tokenJti?.let { installationAuthorities.peek(pod.id, it) } ?: return false
+    return authority.subjectUris.any { podGrantsFacade.isPodOwner(pod, it) }
+  }
 
   // ─── The unauthenticated profile ──────────────────────────────────────────
 

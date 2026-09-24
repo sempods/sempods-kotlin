@@ -680,8 +680,8 @@ flood of public registrations does not hold up an installation, and the other wa
 - **The installer budget** bounds secret minting across many authorities, each of which mints
   one bcrypt-hashed secret. Only the pod's owner can hold one, under any linked identity, so a
   budget per pod is a budget per person, however many identities they sign in with. Only a token
-  whose authority is still unspent is charged, so a spent token, or one kept by a former owner,
-  cannot hold the budget empty. Requests racing on one unspent authority are each charged before
+  whose authority is unspent and was granted by the pod's current owner is charged, so a spent
+  token, or one kept by a former owner, cannot hold the budget empty. Requests racing on one unspent authority are each charged before
   one of them spends it, so an installer can empty the burst once per authority it holds, and each
   authority is an owner consent. It applies without a proxy too, and is asked before the authority
   is spent, so a throttled installation keeps its approval.
