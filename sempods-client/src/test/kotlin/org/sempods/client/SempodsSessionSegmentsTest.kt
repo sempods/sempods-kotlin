@@ -28,6 +28,13 @@ class SempodsSessionSegmentsTest {
   }
 
   @Test
+  fun `a query on the route stays after the segments`() {
+    val url = session.newRequest("GET", "items?view=compact", "abc").build().url
+    assertEquals("/alice/items/abc", url.encodedPath)
+    assertEquals("view=compact", url.encodedQuery)
+  }
+
+  @Test
   fun `a segment the URL would drop, collapse or split is refused`() {
     // Appended past the check, `..` addressed `/alice/_system` and `.` or `` addressed the route.
     listOf("..", ".", "", "a/b", "a\\b").forEach { segment ->

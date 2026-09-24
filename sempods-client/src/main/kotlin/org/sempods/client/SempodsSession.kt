@@ -81,7 +81,8 @@ class SempodsSession @JvmOverloads constructor(
    *
    * Use it for a value a caller supplies, such as a pod name or a client identifier:
    * `newRequest("DELETE", "_system/media", "a b")` addresses `_system/media/a%20b`. [route] is a
-   * pod-relative path as [newRequest] takes it, already encoded.
+   * pod-relative path as [newRequest] takes it, already encoded. A query it carries stays after the
+   * segments.
    *
    * @throws IllegalArgumentException for a segment that is empty, `.` or `..`, or holds `/` or `\`.
    * A URL builder drops or collapses the first three, so `..` would reach the route's parent, and a
@@ -96,7 +97,10 @@ class SempodsSession @JvmOverloads constructor(
         addPathSegment(it)
       }
     }.build().encodedPath.removePrefix("/")
-    return newRequest(method, if (route.isEmpty() || path.isEmpty()) route + path else "$route/$path")
+    val end = route.indexOfAny(charArrayOf('?', '#')).takeIf { it >= 0 } ?: route.length
+    val routePath = route.substring(0, end)
+    val joined = if (routePath.isEmpty() || path.isEmpty()) routePath + path else "$routePath/$path"
+    return newRequest(method, joined + route.substring(end))
   }
 
   /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
