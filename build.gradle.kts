@@ -586,9 +586,8 @@ subprojects {
         // The token endpoint's per-client budget, which defaults to off in development — and
         // `PodAuthEndpointRateLimitHttpTest` is the only thing that can show the limiter is
         // actually reached on a real connector rather than merely constructed. A small number,
-        // and safe to be one: the bucket is keyed by the caller's `X-Forwarded-For`, that test
-        // sends a fresh address per case, and no other test in the suite sends the header at all,
-        // so nothing else has a bucket to exhaust.
+        // and safe to be one: the bucket is keyed by the caller's `X-Forwarded-For`, and every
+        // test that sends the header sends a fresh address, so nothing else has a bucket to exhaust.
         environment("SEMPODS_TOKEN_RATE_LIMIT_PER_MINUTE", 5)
         // Both halves, because the production defaults differ: the burst there is sized for a
         // provisioning sweep, and inheriting it here would mean 300 requests per case.
@@ -598,6 +597,16 @@ subprojects {
         // `PodTokenRateLimiterTest`'s subject, where the budget is stated per case.
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_PER_MINUTE", 60)
         environment("SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST", 60)
+        // The registration budgets, for `PodAuthEndpointRegisterRateLimitHttpTest`. The address
+        // tiers follow the rule above. The installer tier is keyed by pod and person rather than
+        // address, so every installation case meets it; each creates its own pod and registers at
+        // most twice there, which 3 leaves room for.
+        environment("SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE", 5)
+        environment("SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_BURST", 5)
+        environment("SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE", 5)
+        environment("SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_BURST", 5)
+        environment("SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE", 3)
+        environment("SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_BURST", 3)
         // Off the default of 96, so the consent dialog test can tell a configured number from one
         // written into the template. 30 is not whole days, which the dialog then has to say in hours.
         environment("SEMPODS_SESSION_CONNECTION_IDLE_HOURS", 30)

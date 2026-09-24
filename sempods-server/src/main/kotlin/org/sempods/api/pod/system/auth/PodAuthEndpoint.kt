@@ -19,6 +19,7 @@ import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.pods.PodFacade
+import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
@@ -45,6 +46,7 @@ class PodAuthEndpoint @Inject constructor(
   private val podTokenIssuer: PodTokenIssuer,
   private val podSignOut: PodSignOut,
   private val tokenRateLimiter: PodTokenRateLimiter,
+  private val registrationRateLimiter: PodRegistrationRateLimiter,
   private val identityProvider: PodIdentityProvider,
   private val loginStateStore: PodLoginStateStore,
   podFacade: PodFacade,
@@ -81,11 +83,23 @@ class PodAuthEndpoint @Inject constructor(
     // — an answer a registering client can act on.
     body: String?,
   ): Response {
+    // Ahead of the pod row, as at `/token`, so a refused request costs no query at all.
+    if (!registrationRateLimiter.tryAcquireAddress(forwardedFor, bearerPresented = bearerToken() != null)) {
+      return PodRegistrationResponses.rateLimited()
+    }
     val podDbo = fetchPodOrThrow(pod)
     // Asked before the body is read, so that a caller which presented a credential hears about the
     // credential whatever its body looks like. It costs the unauthenticated profile nothing: with
     // no `Authorization` header this returns before anything is verified.
     val caller = resolveBearerOrNull(podDbo)
+    // Before the registration, which is where the authority is spent: a throttled installation
+    // keeps its approval.
+    if (caller != null && SERVICE_CLIENTS_SCOPE in caller.oauthScopes) {
+      val subject = caller.tokenSub
+      if (subject != null && !registrationRateLimiter.tryAcquireInstallation(podDbo.podId().value, subject)) {
+        return PodRegistrationResponses.rateLimited()
+      }
+    }
     val result = when (val read = PodRegistrationMessages.read(body)) {
       is PodRegistrationRead.Unreadable -> read.refusal
       is PodRegistrationRead.Metadata -> podClientRegistration.register(
