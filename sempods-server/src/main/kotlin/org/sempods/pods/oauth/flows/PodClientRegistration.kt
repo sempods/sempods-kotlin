@@ -119,10 +119,10 @@ class PodClientRegistration @Inject internal constructor(
     return PodRegistrationResult.Registered(
       clientId = registration.clientId,
       client = PodClientMetadata(
-        // Filtered on the way out, all five of them. A fingerprint hit answers with the stored
-        // row, so a value written before the rule that now refuses it would otherwise reach the
-        // answer — and an address is worse than the four below, because the answer *parses* it:
-        // a stored fragment or `?state=` is an exception where it used to be an echoed string.
+        // Filtered on the way out, all five of them: a fingerprint hit answers with the stored
+        // row, so a value written before the rule that refuses it would otherwise reach the
+        // answer. The address matters most, because building the answer *parses* it: a stored
+        // fragment or `?state=` would throw where every other value is merely dropped.
         redirectUris = registration.redirectUris.filter(RedirectUri::isValid).toSet(),
         clientName = registration.clientName,
         clientUri = registration.clientUri?.takeIf(ClientMetadataUri::isValid),

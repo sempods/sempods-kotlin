@@ -116,8 +116,8 @@ class PodServiceClientStore @Inject constructor(
    *
    * The identifier is the pod's to give. An installer that could name it could name an app the
    * owner already trusts into the installation, which is the boundary an owner-facing registration
-   * rests on. Its class is `svc:`, and `/authorize` answers no identifier of that class — a client
-   * authenticating with a secret has no browser flow to be answered in.
+   * rests on. Its class is [SERVICE_CLIENT_PREFIX], which
+   * [PodClientDirectory][org.sempods.pods.oauth.flows.PodClientDirectory] places nowhere.
    */
   internal fun registerInstallation(pod: HostedPod, label: String): Registered =
     register(pod, SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(), scopes = emptySet(), label = label)

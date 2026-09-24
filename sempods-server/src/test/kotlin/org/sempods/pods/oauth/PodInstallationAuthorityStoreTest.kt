@@ -31,8 +31,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   @Inject
   private lateinit var consentDecisions: PodConsentDecisionStore
 
-  // Real ids, because `consume` reads the standing consent and that collection keys on an
-  // ObjectId — the store no longer only compares the value it was handed.
+  // Real ids: `consume` reads the standing consent, and that collection keys on an ObjectId.
   private val pod = PodId(ObjectId().toHexString())
   private val clientId = "dyn:${randomId()}"
   private val webId = "https://id.test/${randomId()}"

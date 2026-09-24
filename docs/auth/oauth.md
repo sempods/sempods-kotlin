@@ -31,21 +31,13 @@ step see `identity.md`.
 
 Three `client_id` shapes, with different rules:
 
-`/register` reads a body with the OAuth SDK's RFC 7591 grammar. A member
-whose type the RFC does not allow — `contacts` as a string where a list
-belongs — is refused with `invalid_client_metadata`, and so is a body
-that is not JSON. The two rules below are the pod's own, applied on top
-of that grammar.
+A body asking for a secret — `token_endpoint_auth_method` other than
+`none`, or a grant type outside the browser flow — asks for the third
+shape; everything else is a public registration. Without an installation
+authority the first is refused, so an unauthenticated registration never
+earns service credentials. §"Installing a service client" has the rest.
 
-Which shape a registration produces is decided from the body as it
-arrived. A body asking for `token_endpoint_auth_method` other than
-`none`, or for a grant type outside the browser flow, is a request for a
-client that holds a secret; everything else is a public registration.
-Sent without an installation authority, the first is refused
-`invalid_client_metadata` — an unauthenticated registration never earns
-service credentials.
-
-Both shapes ask `RedirectUri.isValid` first, before any
+`did:web:*` and `dyn:*` ask `RedirectUri.isValid` first, before any
 client-specific rule: absolute, no fragment, no `code`, `response` or
 `state` in the query, `https` on any host, `http` only on loopback.
 `/register` applies it too, so an address a login could never honour is
@@ -115,14 +107,13 @@ at registration and omitted where it is read.
 - Assigned by the server at `/register`, against an installation
   authority. §"Installing a service client" is that flow, its rules and
   its refusals.
-- Confidential: `client_secret_basic` and `client_credentials`, in the
-  same registry an operator-provisioned service client lives in and read
-  by the same token exchange ([`service-clients.md`](service-clients.md)).
+- Confidential: `client_secret_basic` and `client_credentials`, and from
+  there an ordinary service client ([`service-clients.md`](service-clients.md)).
 - `/authorize` answers no identifier of this class. A service client
   authenticates with its secret and has no browser flow.
 
 `/token` exchanges are unaffected by the consent override — in-session
-refreshes stay silent for both client classes.
+refreshes stay silent for both browser-facing classes.
 
 ## Authorize flow (overview)
 
@@ -597,13 +588,10 @@ its contexts once it exists, and is open work
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
 - **It dies with the consent it was granted under.** The authority carries that consent's
-  generation, and registration compares it against what stands. Disconnecting the app therefore
-  takes an unspent authority with it, rather than leaving it live for the rest of its hour. A
-  registration already past that comparison runs to its end: it spent the authority before the
-  disconnect arrived, and what it leaves is a service client holding no grants — the same thing an
-  installation that stops after registering leaves, which
-  [#251](https://github.com/sempods/sempods-kotlin/issues/251) sweeps. Reaching any data still
-  needs the second consent, which the owner has by then declined to give.
+  generation, and registration compares it against what stands, so disconnecting the app spends
+  the hour the bearer had left. A registration already past that comparison runs to its end — the
+  authority was gone before the disconnect arrived — and leaves the orphan the bullet below
+  describes.
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
@@ -626,31 +614,31 @@ with:
 ```
 
 - **The server names it.** The answer carries a `svc:` identifier, `client_id_issued_at`, the
-  secret and `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for a secret that does not
+  secret and `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for one that does not
   expire. The identifier and the timestamp are what the caller opens the second consent with: the
   name is the installer's own text, so an owner shown only that cannot tell an expected
   installation from a crafted one.
 - **A lost answer costs the installation.** The secret lives only in that response
-  ([`service-clients.md`](service-clients.md#registration)), so a retry cannot be handed it again.
-  What is left holds no grants and is [#251](https://github.com/sempods/sempods-kotlin/issues/251)'s
-  to sweep.
+  ([`service-clients.md`](service-clients.md#registration)), so a retry is refused. What is left
+  holds no grants and is
+  [#251](https://github.com/sempods/sempods-kotlin/issues/251)'s to sweep.
 - **`client_name` is required.** It is what the second consent calls the service.
-- **No grants.** The registration starts with none and mints no token until the owner grants it
-  contexts; `client_credentials` answers `invalid_scope` until then.
+- **No grants**, until the owner gives it some — see
+  [`service-clients.md`](service-clients.md#registration) for what a registration holding none is
+  worth.
 - **Exactly once.** The authority is consumed before the client is created, so two calls arriving
   together produce one client and the loser hears what a second attempt hears: `401 invalid_token`.
   A run that dies between the two leaves neither, and the owner installs again.
-- **The three members above are all an installation may carry.** Any other is refused by name —
-  the identity, the context root and the grants are the pod's, and so is every member it has not
-  been asked about.
-- **Refusals, in the order they are asked.** A presented credential is answered first: one this
-  pod cannot verify is `401`, whatever the body looks like. Then the body — one this pod does not
-  serve is `400 invalid_client_metadata`, which covers an unauthenticated confidential
-  registration, a confidential shape other than the one above, an installer bearer sent with a
-  public body, and a body carrying a member that is not on the list. A bearer without
-  `service-clients`, or one whose subject no longer owns the pod, is `403 insufficient_scope`; a
-  spent or withdrawn authority is `401 invalid_token`. Each carries the pod's usual RFC 6750
-  challenge, and every refusal is decided before the authority is spent.
+- **Those three members are all an installation may carry.** Any other is refused by name: the
+  identity, the context root and the grants are the pod's, and so is every member it has not been
+  asked about.
+- **Refusals, in the order they are asked.** A presented credential is answered first, so a bearer
+  this pod cannot verify is `401` whatever the body looks like. Then the body: `400
+  invalid_client_metadata` for a shape this pod does not serve, for an installer bearer sent with
+  a public body, and for a member outside the three. Then the authority — `403
+  insufficient_scope` without `service-clients` or from someone who no longer owns the pod, `401
+  invalid_token` once it is spent or withdrawn. Each carries the pod's usual RFC 6750 challenge,
+  and all of them are decided before the authority is spent.
 
 The `dyn:` prefix and the grant types a registration response may advertise are bound to this
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)

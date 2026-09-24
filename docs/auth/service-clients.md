@@ -21,8 +21,8 @@ profile is neither of them.
 
 **The host operator** registers at
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}`
-(`api/system/admin/pods/AdminPodsEndpoint`), authorized by the
-admin-authority seam rather than by a pod scope. The caller names the
+(`api/system/admin/pods/AdminPodsEndpoint`). The admin-authority seam
+authorizes it, so no pod token reaches it. The caller names the
 `clientId`, and the sandbox below is derived from it.
 
 **The pod owner** registers at `POST /{pod}/_system/auth/register`
@@ -52,10 +52,10 @@ Either way:
   would make any ancestor of it match every context on the pod. That
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
-- The scope set may be empty. Such a registration holds a credential and
-  no authority, and the token endpoint answers it `invalid_scope`. That
-  is what a registration looks like before any context is granted to it,
-  and what one looks like once its last anchor is deleted.
+- The scope set may be empty: the registration holds a credential and no
+  authority, and the token endpoint answers it `invalid_scope`. That is
+  an installation between its two consents, and a registration whose last
+  anchor was deleted.
 
 ## Sandbox via manage-root
 
