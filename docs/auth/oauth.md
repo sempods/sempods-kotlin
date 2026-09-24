@@ -49,8 +49,9 @@ Both shapes ask `RedirectUri.isValid` first, before any
 client-specific rule: absolute, no fragment, no `code`, `response` or
 `state` in the query, `https` on any host, `http` only on loopback.
 `/register` applies it too, so an address a login could never honour is
-refused at registration, and omitted where a stored one is read back. A code therefore reaches a cleartext address
-only on the user's own machine, and that case is gated again below.
+refused at registration, and omitted where a stored one is read back. A
+code therefore reaches a cleartext address only on the user's own
+machine, and that case is gated again below.
 The query rule has the same reason as the fragment one: those names
 belong to the response, and a registered copy is read as the value this
 server chose.
@@ -597,7 +598,12 @@ its contexts once it exists, and is open work
   second registration finds nothing — concurrent calls included.
 - **It dies with the consent it was granted under.** The authority carries that consent's
   generation, and registration compares it against what stands. Disconnecting the app therefore
-  takes an unspent authority with it, rather than leaving it live for the rest of its hour.
+  takes an unspent authority with it, rather than leaving it live for the rest of its hour. A
+  registration already past that comparison runs to its end: it spent the authority before the
+  disconnect arrived, and what it leaves is a service client holding no grants — the same thing an
+  installation that stops after registering leaves, which
+  [#251](https://github.com/sempods/sempods-kotlin/issues/251) sweeps. Reaching any data still
+  needs the second consent, which the owner has by then declined to give.
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
