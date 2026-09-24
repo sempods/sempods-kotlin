@@ -146,6 +146,13 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
   }
 
   @Test
+  fun `a listed client without last_used_at is a decoding failure, and an explicit null is a client never used`() {
+    answer("/alice/_system/auth/service-clients", 200, """{"serviceClients":[${described.replace(""""last_used_at":1700000600,""", "")}]}""")
+
+    assertThrows<SempodsDecodingException> { serviceClients().list() }
+  }
+
+  @Test
   fun `a rotation posts to the client's own segment and reads the new secret`() {
     answer("/alice/_system/auth/service-clients/svc:1/secret", 200, """{"client_id":"svc:1","client_secret":"sc_new"}""")
 

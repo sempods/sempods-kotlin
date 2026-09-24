@@ -196,7 +196,8 @@ class SempodsPodServiceClients(
       clientId = document.string("client_id"),
       clientName = document.stringOrNull("client_name"),
       issuedAt = instant(document, "client_id_issued_at") ?: throw document.violation("client_id_issued_at: expected an integer"),
-      lastUsedAt = instant(document, "last_used_at"),
+      // Null says it never minted a token, so a missing member is not read as that.
+      lastUsedAt = if ("last_used_at" in document.names()) instant(document, "last_used_at") else throw document.violation("last_used_at: expected a member"),
       scopes = scopesOf(document.string("scope")),
       origin = document.string("origin"),
     )

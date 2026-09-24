@@ -62,7 +62,8 @@ class SempodsPodAuthorization(
    * | any 2xx | the client |
    * | `400 invalid_redirect_uri` or `invalid_client_metadata`, `429 slow_down` and every other status | a [SempodsStatusException] whose `bodyExcerpt` holds the RFC 7591 §3.2.2 error document |
    *
-   * @throws IllegalArgumentException when a redirect URI is not a URI at all, before anything is sent.
+   * @throws IllegalArgumentException when a redirect URI is not a URI, or its query carries a member of
+   *   the authorization answer, before anything is sent.
    */
   @Throws(IOException::class)
   fun registerClient(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsPublicClient> =
@@ -81,7 +82,8 @@ class SempodsPodAuthorization(
    * [scope] is space-separated, as it goes on the wire. [state] is the caller's, and comes back with
    * the answer; make it unguessable and check it with [readRedirect].
    *
-   * @throws IllegalArgumentException when [redirectUri] is not a URI.
+   * @throws IllegalArgumentException when [redirectUri] is not a URI, or its query carries a member of
+   *   the authorization answer.
    */
   fun authorizationUrl(clientId: String, redirectUri: String, scope: String, state: String, pkce: SempodsPkce): HttpUrl =
     AuthorizationRequest.Builder(ResponseType.CODE, ClientID(clientId))
@@ -152,13 +154,21 @@ class SempodsPodAuthorization(
 
   private companion object {
 
-    /** [value] as a URI. A malformed one is the caller's argument, not a checked exception Java cannot catch here. */
-    fun redirectUri(value: String): URI =
-      try {
+    /**
+     * [value] as a URI. A malformed one is the caller's argument, not a checked exception Java cannot
+     * catch here. So is one whose query already carries a member of the answer, such as `iss`: the
+     * answer would be ambiguous, and [readRedirect] would refuse it.
+     */
+    fun redirectUri(value: String): URI {
+      val uri = try {
         URI(value)
       } catch (malformed: URISyntaxException) {
         throw IllegalArgumentException("'$value' is not a redirect URI: ${malformed.reason}", malformed)
       }
+      val carried = URLUtils.parseParameters(uri.rawQuery).keys.firstOrNull { it in RESPONSE_MEMBERS }
+      require(carried == null) { "'$value' carries '$carried', which the authorization answer adds itself." }
+      return uri
+    }
 
     const val AUTHORIZE = "_system/auth/authorize"
 
