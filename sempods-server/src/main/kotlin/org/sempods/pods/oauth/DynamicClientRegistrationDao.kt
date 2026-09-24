@@ -31,8 +31,7 @@ import java.time.Instant
  * The one mutating operation is [touchLastAuthorized] — the sweep it was written
  * for is the TODO below.
  *
- * `findByClientId()` serves the hot-path `/authorize` lookup. Richer analysis
- * queries belong to Stage 2 and are not added pre-emptively.
+ * `findByClientId()` serves the hot-path `/authorize` lookup.
  *
  * **On the MongoDB driver, mapped by hand** — see `sempods-commons-mongo/docs/document-contract.md`. The widest row
  * in the schema, and the only one carrying a nested body: [DynamicClientRegistrationDbo.rawRequest]
