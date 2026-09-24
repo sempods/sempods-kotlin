@@ -646,6 +646,12 @@ with:
   from the row, so a pod that changed hands takes the authority with the refusal — and installing
   again reaches the same answer.
 
+**Finish the rollout before installing.** A node from before this release records an authority
+without the fields the ownership check reads, and a new node falls back to what the row does
+carry. One case that fallback cannot cover: an owner whose sign-in address reaches the pod's owner
+only through a profile-linked alias, whose code an old node redeemed — that set is not in the row
+to recover. The install is answered `403`, and works once the fleet is uniform.
+
 The `dyn:` prefix and the grant types a registration response may advertise are bound to this
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
 and [`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011),

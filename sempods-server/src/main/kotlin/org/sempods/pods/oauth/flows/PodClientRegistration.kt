@@ -206,6 +206,14 @@ class PodClientRegistration @Inject internal constructor(
 
     // The pod's owner as it stands now, against the URIs the consent recognised the person by.
     if (authority.subjectUris.none { podGrantsFacade.isPodOwner(pod, it) }) {
+      // `legacy` is the one case where this refusal is not about who the person is: a node from
+      // before this release recorded no URI set, so an owner recognised through a profile-linked
+      // alias cannot be reconstructed from the row — `docs/auth/oauth.md` §"Installing a service
+      // client" on finishing the rollout first.
+      logger.info {
+        "[oauth/register] Installation refused: no URI this authority names owns pod " +
+            "'${pod.name}' (legacy=${authority.generation == null})"
+      }
       return unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "this pod's owner installs its service clients")
     }
 
