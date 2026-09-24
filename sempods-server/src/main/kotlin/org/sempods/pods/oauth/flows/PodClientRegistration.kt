@@ -8,6 +8,7 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.HostedPod
+import org.sempods.pods.PodId
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
@@ -48,6 +49,7 @@ class PodClientRegistration @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
   private val installationAuthorities: PodInstallationAuthorityStore,
   private val podGrantsFacade: PodGrantsFacade,
+  private val installationBudget: PodInstallationBudget,
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
@@ -198,6 +200,14 @@ class PodClientRegistration @Inject internal constructor(
         "client_name is required: it is what names this service in the consent that grants it contexts",
       )
 
+    // The budget is charged only by an authority that could still register — unspent, and from
+    // the pod's owner now — so a spent token or one a former owner kept cannot hold it empty. And
+    // before the authority is spent, so a throttled installation keeps its approval.
+    val pending = caller.tokenJti?.let { installationAuthorities.peek(pod.id, it) }
+    if (pending != null && pending.isFromOwnerOf(pod) && !installationBudget.tryAcquire(pod.id)) {
+      return PodRegistrationResult.RateLimited
+    }
+
     val authority = caller.tokenJti?.let { installationAuthorities.consume(pod.id, it) }
       ?: return unauthorized(
         PodRegistrationRefusal.AUTHORITY_SPENT,
@@ -205,7 +215,7 @@ class PodClientRegistration @Inject internal constructor(
       )
 
     // The pod's owner as it stands now, against the URIs the consent recognised the person by.
-    if (authority.subjectUris.none { podGrantsFacade.isPodOwner(pod, it) }) {
+    if (!authority.isFromOwnerOf(pod)) {
       // `legacy` is the one case where this refusal is not about who the person is: a node from
       // before this release recorded no URI set, so an owner recognised through a profile-linked
       // alias cannot be reconstructed from the row — `docs/auth/oauth.md` §"Installing a service
@@ -244,6 +254,9 @@ class PodClientRegistration @Inject internal constructor(
       secret = registered.secret,
     )
   }
+
+  private fun PodInstallationAuthorityStore.Authority.isFromOwnerOf(pod: HostedPod): Boolean =
+    subjectUris.any { podGrantsFacade.isPodOwner(pod, it) }
 
   /**
    * Which client the body asks for, read from the two members that decide it.
@@ -407,6 +420,18 @@ internal sealed interface PodRegistrationResult {
 
   /** The caller's own credential is what this answer is about — see [PodRegistrationRefusal]. */
   data class Unauthorized(val reason: PodRegistrationRefusal, val description: String) : PodRegistrationResult
+
+  /** The pod's [PodInstallationBudget] is spent. The authority is not: the caller retries later. */
+  data object RateLimited : PodRegistrationResult
+}
+
+/**
+ * How fast installations on one pod may spend their authorities — each spend mints a secret at
+ * bcrypt cost. A port, so the budget is decided where the authority is and kept by the adapter
+ * that keeps the other registration budgets.
+ */
+fun interface PodInstallationBudget {
+  fun tryAcquire(pod: PodId): Boolean
 }
 
 /**

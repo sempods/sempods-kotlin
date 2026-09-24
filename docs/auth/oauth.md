@@ -186,8 +186,7 @@ published at `jwks.json` and rotation-prepared
 
 ### Rate limit
 
-`/token` is the one OAuth endpoint with a budget, and it exists because it
-was measured without one: a client holding a refresh token this server did
+`/token`'s budget exists because it was measured without one: a client holding a refresh token this server did
 not recognise sent 102,642 requests in twenty-one hours — 819 inside its
 densest minute — and stopped only when its user re-authorised by hand.
 
@@ -646,6 +645,8 @@ with:
   caller that got its metadata wrong retries with the token it holds. Ownership is answered from
   the row and therefore spends it, so a pod that changed hands takes the authority with the
   refusal — and installing again reaches the same answer.
+- **A throttled call costs the authority nothing either.** Both budgets that apply to it answer
+  `429` before the authority is spent — see §"Registration rate limit".
 
 **Finish the rollout before installing.** A node from before this release records an authority
 without the fields the ownership check reads, and a new node falls back to what the row does
@@ -657,6 +658,47 @@ The `dyn:` prefix and the grant types a registration response may advertise are 
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
 and [`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011),
 so this profile is an experimental extension with known deviations — sempods-spec#69 carries them.
+
+## Registration rate limit
+
+`/register` has three budgets, in the order a request meets them. Each profile has its own, so a
+flood of public registrations does not hold up an installation, and the other way round.
+
+| Budget | Key | Asked | Default (rate/min, burst) |
+|---|---|---|---|
+| public | address | before the pod row, without a bearer | 10, 30 |
+| protected | address | before the pod row, with a bearer | 10, 20 |
+| installer | pod | after the body is accepted, before the authority is spent | 2, 5 |
+
+- **The address** is read as at `/token`: the rightmost `X-Forwarded-For` entry. No proxy, no
+  address limit.
+- **The pod is not in an address key**, so one address spends one budget across all pods.
+- **A reconnect is counted.** A client registering the same metadata again gets its existing
+  `dyn:` identifier but still spends a request; the public burst leaves room for that.
+- **Which address budget is charged depends on whether a bearer is present**, which the caller
+  decides. Both are bounded, so choosing buys nothing.
+- **A service registering on behalf of many people shares one address.** The hosted MCP service
+  registers once per pod and profile a user connects; reaching the pod server through the public
+  proxy, all of it spends one public budget. An operator running it raises
+  `SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*`, or routes it to the pod server without the proxy.
+- **The installer budget** bounds secret minting across many authorities, each of which mints
+  one bcrypt-hashed secret. Only the pod's owner can hold one, under any linked identity, so a
+  budget per pod is a budget per person, however many identities they sign in with. Only a
+  request that would otherwise mint is charged: an accepted body, and an authority that is unspent
+  and was granted by the pod's current owner. A refused body, a spent token or one kept by a former
+  owner cannot hold the budget empty. Requests racing on one unspent authority are each charged
+  before one of them spends it, so an installer can empty the burst once per authority it holds,
+  and each authority is an owner consent. The budget is asked before the authority is spent, so a
+  throttled installation keeps its approval.
+- **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
+  `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.
+- **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,INSTALLER}_PER_MINUTE` and
+  `…_BURST`. A rate of `0` turns that budget off and leaves the others; a burst of `0` follows the
+  rate. All are off outside a deployment, and a negative value is refused at boot. The buckets are
+  in memory per process, as at `/token`.
+
+The rows a registration leaves behind are bounded by rate, not removed:
+[#251](https://github.com/sempods/sempods-kotlin/issues/251) sweeps unused ones.
 
 ## Protected Resource Metadata (RFC 9728)
 
@@ -678,15 +720,10 @@ These are not deviations from the model; they're known operational
 constraints. The full list is in [`README.md`](README.md)
 ("Known limitations"); the two that bear on this document:
 
-- **No rate limiting on `/authorize` or `/register`** beyond what the
-  surrounding infrastructure provides. `/register`'s public profile is
-  unauthenticated per RFC 7591 and accepts registrations from anyone who
-  can reach the pod. Neither can key on a client identity the way `/token`
-  does — `/authorize` carries one in the query string, `/register`'s public
-  profile carries none at all — so what they want is an address-keyed limit
-  rather than a copy of that one. Its installation profile is bounded by
-  the authority instead: one owner consent, one registration, one minted
-  secret.
+- **No rate limiting on `/authorize`** beyond what the surrounding
+  infrastructure provides. It carries a client identity only in the query
+  string, so what it wants is an address-keyed limit like `/register`'s
+  (§"Registration rate limit") rather than a copy of `/token`'s.
 - **The HTTP timeouts on the two OIDC legs are nobody's decision, bar
   one.** A sign-in crosses two of them, and they are bounded differently
   for different reasons:

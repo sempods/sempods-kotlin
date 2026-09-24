@@ -33,6 +33,7 @@ import org.sempods.pods.oauth.PodSigningKeyStore
 import org.sempods.pods.oauth.flows.PodAuthorizationCodes
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
+import org.sempods.pods.oauth.flows.PodInstallationBudget
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
@@ -185,6 +186,8 @@ class SempodsModule : BaseModule() {
     bindPodAuthorizer()
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
+    bind<PodRegistrationRateLimiter>().asSingleton()
+    bind<PodInstallationBudget>().to(PodRegistrationRateLimiter::class.java)
     bind<DynamicClientRegistrationDao>().asSingleton()
     bind<DynamicClientStore>().asSingleton()
     bind<TemplateRenderer>().asSingleton()
@@ -624,6 +627,16 @@ class SempodsModule : BaseModule() {
     /** The spike allowed on that tier. */
     internal const val TOKEN_RATE_LIMIT_ADDRESS_BURST_ENV_VARIABLE = "SEMPODS_TOKEN_RATE_LIMIT_ADDRESS_BURST"
 
+    /** The three registration budgets — see [SempodsConfig.registerRateLimitPublicPerMinute]. */
+    internal const val REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE"
+    internal const val REGISTER_RATE_LIMIT_PUBLIC_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_BURST"
+    internal const val REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE_ENV_VARIABLE =
+      "SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE"
+    internal const val REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_BURST"
+    internal const val REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE =
+      "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE"
+    internal const val REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_BURST"
+
     /**
      * How long a connection lives — see [SempodsConfig.sessionConnectionIdleHours].
      *
@@ -698,6 +711,27 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_BURST = 1000
 
     /**
+     * 10 public registrations a minute per address after a burst of 30, and off in development.
+     *
+     * A client registers once per install and again when its stored registration is lost. A
+     * reconnect with the same metadata answers the existing `dyn:` client, but is still counted,
+     * so the burst leaves room for a handful of clients reconnecting together behind one address.
+     */
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE = 10
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST = 30
+
+    /** 10 bearer-carrying registrations a minute per address after a burst of 20. */
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE = 10
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST = 20
+
+    /**
+     * 2 installations a minute per pod after a burst of 5. Each one needs a consent in
+     * the browser first, so a person installing by hand never comes near.
+     */
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE = 2
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST = 5
+
+    /**
      * 96 hours unused and 7 days at most, for a connection the person left unticked.
      *
      * 96 hours covers a long weekend: somebody who last used an app on Friday at 18:00 opens it again
@@ -713,6 +747,10 @@ class SempodsModule : BaseModule() {
     /** 90 days unused and 180 days at most, for a connection the person ticked. */
     internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
     internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
+
+    /** A registration budget from [variable]: off in development, [default] in a deployment. */
+    private fun registerBudget(variable: String, default: Int): Int =
+      Env.int(variable, default = if (Env.isDevelopment) 0 else default)
 
     /**
      * The pod server's configuration, read once from the environment.
@@ -786,6 +824,24 @@ class SempodsModule : BaseModule() {
         tokenRateLimitAddressBurst = Env.int(
           TOKEN_RATE_LIMIT_ADDRESS_BURST_ENV_VARIABLE,
           default = if (Env.isDevelopment) 0 else DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_BURST,
+        ),
+        registerRateLimitPublicPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE,
+        ),
+        registerRateLimitPublicBurst = registerBudget(
+          REGISTER_RATE_LIMIT_PUBLIC_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST,
+        ),
+        registerRateLimitProtectedPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE,
+        ),
+        registerRateLimitProtectedBurst = registerBudget(
+          REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST,
+        ),
+        registerRateLimitInstallerPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE,
+        ),
+        registerRateLimitInstallerBurst = registerBudget(
+          REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST,
         ),
         sessionConnectionIdleHours = Env.int(
           SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE,

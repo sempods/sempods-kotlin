@@ -80,6 +80,16 @@ class SempodsConfigTest {
     assertEquals(0, withoutOpinion.tokenRateLimitBurst)
     assertEquals(0, withoutOpinion.tokenRateLimitAddressPerMinute)
     assertEquals(0, withoutOpinion.tokenRateLimitAddressBurst)
+    // The registration budgets — `DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE` says why these.
+    assertEquals(10, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE)
+    assertEquals(30, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST)
+    assertEquals(10, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE)
+    assertEquals(20, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST)
+    assertEquals(2, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE)
+    assertEquals(5, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST)
+    assertEquals(0, withoutOpinion.registerRateLimitPublicPerMinute)
+    assertEquals(0, withoutOpinion.registerRateLimitProtectedPerMinute)
+    assertEquals(0, withoutOpinion.registerRateLimitInstallerPerMinute)
     // How long a connection lives, which the consent dialog promises the person;
     // `DEFAULT_SESSION_CONNECTION_IDLE_HOURS` says why 96. The type carries the same numbers, since
     // a lifetime has no "off" to fall back to.
@@ -160,6 +170,17 @@ class SempodsConfigTest {
     assertFailsWith<IllegalArgumentException> { configWith(rate = 20, addressBurst = -1) }
     // Zero is the documented way to turn it off, and stays legal.
     assertEquals(0, configWith(rate = 0).tokenRateLimitPerMinute)
+  }
+
+  @Test
+  fun `a negative registration budget is refused rather than read as off`() {
+    val base = configWith(rate = 0)
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitPublicPerMinute = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitPublicBurst = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitProtectedPerMinute = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitProtectedBurst = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerPerMinute = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerBurst = -1) }
   }
 
   /**
