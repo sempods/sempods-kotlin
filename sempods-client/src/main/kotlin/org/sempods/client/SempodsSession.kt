@@ -99,7 +99,7 @@ class SempodsSession @JvmOverloads constructor(
     }.build().encodedPath.removePrefix("/")
     val end = route.indexOfAny(charArrayOf('?', '#')).takeIf { it >= 0 } ?: route.length
     val routePath = route.substring(0, end)
-    val joined = if (routePath.isEmpty() || path.isEmpty()) routePath + path else "$routePath/$path"
+    val joined = if (routePath.isEmpty() || routePath.endsWith('/') || path.isEmpty()) routePath + path else "$routePath/$path"
     return newRequest(method, joined + route.substring(end))
   }
 

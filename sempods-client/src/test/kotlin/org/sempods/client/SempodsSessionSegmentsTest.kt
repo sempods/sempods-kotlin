@@ -28,6 +28,11 @@ class SempodsSessionSegmentsTest {
   }
 
   @Test
+  fun `a route ending in a slash takes the segments without another`() {
+    assertEquals("/alice/items/abc", path("items/", "abc"))
+  }
+
+  @Test
   fun `a query on the route stays after the segments`() {
     val url = session.newRequest("GET", "items?view=compact", "abc").build().url
     assertEquals("/alice/items/abc", url.encodedPath)
