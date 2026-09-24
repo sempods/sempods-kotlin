@@ -13,6 +13,7 @@ import org.sempods.api.pod.resources.WriteConditions
 import org.sempods.commons.jaxrs.BaseEndpoint
 import org.sempods.commons.net.BearerAuth
 import org.sempods.mcp.core.BearerChallenge
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.PodFacade
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodAuthorizer
@@ -307,6 +308,29 @@ open class SempodsBaseEndpoint(
       resourceMetadataUrl = "$podBaseUrl/.well-known/oauth-protected-resource",
       error = error,
     )
+  }
+
+  /**
+   * A bearer holding no owner authority for [scope], answered the same on every route that asks
+   * [org.sempods.pods.oauth.flows.PodOwnerAuthority]: `401 invalid_token` where the authority was
+   * withdrawn, `403 insufficient_scope` otherwise, each with the pod's RFC 6750 challenge.
+   *
+   * @param manages what the owner manages on this route, for the wording: "contexts".
+   */
+  internal fun ownerAuthorityRefused(podName: String, reason: PodOwnerAuthorityRefusal, scope: String, manages: String): Response {
+    val (status, code, description) = when (reason) {
+      PodOwnerAuthorityRefusal.SCOPE_REQUIRED ->
+        Triple(403, BearerChallenge.INSUFFICIENT_SCOPE, "this needs an authorization carrying '$scope'")
+      PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN ->
+        Triple(401, BearerChallenge.INVALID_TOKEN, "this authorization no longer stands")
+      PodOwnerAuthorityRefusal.NOT_OWNER ->
+        Triple(403, BearerChallenge.INSUFFICIENT_SCOPE, "this pod's owner manages its $manages")
+    }
+    return Response.status(status)
+      .header(HttpHeaders.WWW_AUTHENTICATE, buildBearerChallenge(podName, code))
+      .entity(mapOf("error" to code, "error_description" to description))
+      .type(MediaType.APPLICATION_JSON)
+      .build()
   }
 
   /**

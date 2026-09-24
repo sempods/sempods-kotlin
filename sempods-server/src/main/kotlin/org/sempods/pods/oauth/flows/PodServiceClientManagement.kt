@@ -93,13 +93,7 @@ class PodServiceClientManagement @Inject internal constructor(
   ): PodServiceClientManagementResult<T> =
     when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE)) {
       is PodOwnerAuthorityCheck.Standing -> operation()
-      is PodOwnerAuthorityCheck.Refused -> PodServiceClientManagementResult.Refused(
-        when (check.reason) {
-          PodOwnerAuthorityRefusal.SCOPE_REQUIRED -> PodServiceClientManagementRefusal.SCOPE_REQUIRED
-          PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN -> PodServiceClientManagementRefusal.AUTHORITY_WITHDRAWN
-          PodOwnerAuthorityRefusal.NOT_OWNER -> PodServiceClientManagementRefusal.NOT_OWNER
-        },
-      )
+      is PodOwnerAuthorityCheck.Refused -> PodServiceClientManagementResult.Unauthorized(check.reason)
     }
 
   /** Runs [operation] where [clientId] is owner-installed, which its prefix alone tells. */
@@ -119,19 +113,13 @@ class PodServiceClientManagement @Inject internal constructor(
 internal sealed interface PodServiceClientManagementResult<out T> {
   data class Done<T>(val value: T) : PodServiceClientManagementResult<T>
   data class Refused(val reason: PodServiceClientManagementRefusal) : PodServiceClientManagementResult<Nothing>
+
+  /** The bearer holds no owner authority for [SERVICE_CLIENTS_MANAGE_SCOPE]. */
+  data class Unauthorized(val reason: PodOwnerAuthorityRefusal) : PodServiceClientManagementResult<Nothing>
 }
 
-/** Why a management operation did nothing. The adapter words each one. */
+/** Why a management operation the bearer was authorized for did nothing. The adapter words each one. */
 internal enum class PodServiceClientManagementRefusal {
-
-  /** No bearer, or one that does not carry [SERVICE_CLIENTS_MANAGE_SCOPE]. */
-  SCOPE_REQUIRED,
-
-  /** The authority recorded for this bearer is gone: expired, another pod's, or disconnected. */
-  AUTHORITY_WITHDRAWN,
-
-  /** No URI the dialog recognised the person by owns the pod now. */
-  NOT_OWNER,
 
   /** No registration by that identifier on this pod. */
   NOT_FOUND,

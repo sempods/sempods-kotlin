@@ -12,12 +12,10 @@ import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.ContextPermissionEntry
-import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
-import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
@@ -267,7 +265,8 @@ class PodContextsEndpoint @Inject constructor(
     if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
       when (val check = ownerAuthority.check(podDbo.hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
         is PodOwnerAuthorityCheck.Standing -> return check.authority.webId
-        is PodOwnerAuthorityCheck.Refused -> throw ownerAuthorityRefused(pod, check.reason)
+        is PodOwnerAuthorityCheck.Refused ->
+          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
       }
     }
 
@@ -287,23 +286,6 @@ class PodContextsEndpoint @Inject constructor(
     }
     throw WebApplicationException(
       Response.status(status).entity(message).type("text/plain").build()
-    )
-  }
-
-  /** A [CONTEXTS_MANAGE_SCOPE] bearer whose authority does not stand, with the pod's RFC 6750 challenge. */
-  private fun ownerAuthorityRefused(pod: String, reason: PodOwnerAuthorityRefusal): WebApplicationException {
-    val (status, code, message) = when (reason) {
-      PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN ->
-        Triple(401, BearerChallenge.INVALID_TOKEN, "this authorization no longer stands")
-      PodOwnerAuthorityRefusal.NOT_OWNER, PodOwnerAuthorityRefusal.SCOPE_REQUIRED ->
-        Triple(403, BearerChallenge.INSUFFICIENT_SCOPE, "this pod's owner manages its contexts")
-    }
-    return WebApplicationException(
-      Response.status(status)
-        .header(HttpHeaders.WWW_AUTHENTICATE, buildBearerChallenge(pod, code))
-        .entity(message)
-        .type(MediaType.TEXT_PLAIN)
-        .build()
     )
   }
 
