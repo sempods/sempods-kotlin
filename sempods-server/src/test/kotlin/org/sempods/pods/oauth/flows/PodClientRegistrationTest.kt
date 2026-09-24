@@ -14,6 +14,7 @@ import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -60,6 +61,9 @@ class PodClientRegistrationTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var installationAuthorities: PodInstallationAuthorityStore
+
+  @Inject
+  private lateinit var consentDecisions: PodConsentDecisionStore
 
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
@@ -397,7 +401,16 @@ class PodClientRegistrationTest : SempodsStoreTest() {
    */
   private fun installer(pod: HostedPod): SempodsCredentials {
     val jti = randomId()
-    installationAuthorities.record(pod = pod.id, jti = jti, clientId = INSTALLER, webId = pod.owner)
+    // The standing consent the authority hangs off: `consume` compares its generation, so an
+    // authority without one is already withdrawn.
+    val generation = consentDecisions.recordWithoutLifetime(pod.id, INSTALLER, pod.owner).generation
+    installationAuthorities.record(
+      pod = pod.id,
+      jti = jti,
+      clientId = INSTALLER,
+      webId = pod.owner,
+      generation = generation,
+    )
     return SempodsCredentials(
       pod = pod.ref,
       restrictedContexts = emptySet(),

@@ -5411,6 +5411,28 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an app disconnected after it was approved installs nothing`() {
+    // The authority outlives its consent by up to an hour, so an app removed in between would
+    // otherwise still mint a confidential credential — past the one act the owner performed to
+    // stop it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    // The app is connected first, because a disconnect removes what an app holds and an
+    // installation authority on its own is not something the dialog offers to remove.
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "first").statusCode)
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "gone", disconnect = true).statusCode)
+
+    val refused = registerAsInstaller(pod, installer)
+
+    assertEquals(401, refused.statusCode, refused.responseBody)
+    assertTrue("""error="invalid_token"""" in checkNotNull(refused.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
   fun `an ordinary bearer registers no service client`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)

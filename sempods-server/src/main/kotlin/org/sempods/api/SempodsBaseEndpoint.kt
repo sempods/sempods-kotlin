@@ -302,6 +302,7 @@ open class SempodsBaseEndpoint(
    * The pod is the protected resource for every caller, MCP or REST, so there is one
    * `resource_metadata` URL rather than a per-surface one.
    */
+  @JvmOverloads
   protected fun buildBearerChallenge(podName: String, error: String = BearerChallenge.INVALID_TOKEN): String {
     val podBaseUrl = "${config.apiBaseUrl}${podName}"
     return BearerChallenge.forResource(

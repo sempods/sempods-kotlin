@@ -82,6 +82,10 @@ class PodAuthEndpoint @Inject constructor(
     body: String?,
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
+    // Asked before the body is read, so that a caller which presented a credential hears about the
+    // credential whatever its body looks like. It costs the unauthenticated profile nothing: with
+    // no `Authorization` header this returns before anything is verified.
+    val caller = resolveBearerOrNull(podDbo)
     val result = when (val read = PodRegistrationMessages.read(body)) {
       is PodRegistrationRead.Unreadable -> read.refusal
       is PodRegistrationRead.Metadata -> podClientRegistration.register(
@@ -91,7 +95,7 @@ class PodAuthEndpoint @Inject constructor(
           raw = read.raw,
           userAgent = userAgent,
           forwardedFor = forwardedFor,
-          caller = resolveBearerOrNull(podDbo),
+          caller = caller,
         ),
       )
     }

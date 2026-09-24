@@ -19,13 +19,17 @@ import java.time.Duration
  * Keyed by the token's `jti`, which every access token already carries. A claim of its own would
  * have been a change to the token shape `context7.json` pins.
  *
- * **One answer, not three.** Unknown, already spent and expired are the same `null`: for the caller
- * they are the same refusal, and telling them apart would mean keeping a tombstone for every
- * installer token ever issued — a retention design, on rows whose whole point is to disappear.
+ * **One answer, not three.** Unknown, already spent, expired and withdrawn are the same `null`: for
+ * the caller they are the same refusal, and telling them apart would mean keeping a tombstone for
+ * every installer token ever issued — a retention design, on rows whose whole point is to
+ * disappear.
  *
  * #126 binds this to a successful registration and owns what a crash between the two costs.
  */
-class PodInstallationAuthorityStore @Inject internal constructor(db: MongoDatabase) {
+class PodInstallationAuthorityStore @Inject internal constructor(
+  db: MongoDatabase,
+  private val consentDecisions: PodConsentDecisionStore,
+) {
 
   /**
    * @param pod the pod the authority was granted on. Compared on consumption, so a token minted
@@ -33,8 +37,15 @@ class PodInstallationAuthorityStore @Inject internal constructor(db: MongoDataba
    * @param clientId the app the person authorized — the installer program, not the service it is
    *   about to create.
    * @param webId the person who granted it.
+   * @param generation the consent generation this authority was granted under. Compared on
+   *   consumption, so that disconnecting the app takes the authority with it.
    */
-  internal data class Authority(val pod: PodId, val clientId: String, val webId: String)
+  internal data class Authority(
+    val pod: PodId,
+    val clientId: String,
+    val webId: String,
+    val generation: Long,
+  )
 
   private val authorities = OneTimeStore(
     db = db,
@@ -46,28 +57,38 @@ class PodInstallationAuthorityStore @Inject internal constructor(db: MongoDataba
       put("podId", it.pod.value)
       put("clientId", it.clientId)
       put("webId", it.webId)
+      put("generation", it.generation)
     },
     read = {
       Authority(
         pod = PodId(getString("podId") ?: return@OneTimeStore null),
         clientId = getString("clientId") ?: return@OneTimeStore null,
         webId = getString("webId") ?: return@OneTimeStore null,
+        generation = get("generation", Number::class.java)?.toLong() ?: return@OneTimeStore null,
       )
     },
   )
 
   /** Records the authority an installer token carries. Called once, where that token is signed. */
-  internal fun record(pod: PodId, jti: String, clientId: String, webId: String) {
-    authorities.create(jti, Authority(pod = pod, clientId = clientId, webId = webId))
+  internal fun record(pod: PodId, jti: String, clientId: String, webId: String, generation: Long) {
+    authorities.create(jti, Authority(pod = pod, clientId = clientId, webId = webId, generation = generation))
   }
 
   /**
    * The authority behind [jti], spent in the same operation.
    *
    * Returns `null` where there is none to spend — see the note on this class about why that is one
-   * answer. A row belonging to another pod is consumed and refused: it was presented at the wrong
-   * door, and leaving it to be presented again at the right one would be worse.
+   * answer. A row belonging to another pod, or to a consent the person has since answered again,
+   * is consumed and refused: it was presented at the wrong door, and leaving it to be presented
+   * again at a right one would be worse.
+   *
+   * **The consent generation is read here and not at issuance.** Disconnecting an app bumps it,
+   * and an installer token outlives that by up to its hour — so an authority checked only when it
+   * was written would let an app the owner has just disconnected mint a service credential
+   * afterwards.
    */
   internal fun consume(pod: PodId, jti: String): Authority? =
-    authorities.consume(jti)?.takeIf { it.pod == pod }
+    authorities.consume(jti)
+      ?.takeIf { it.pod == pod }
+      ?.takeIf { consentDecisions.find(pod, it.clientId, listOf(it.webId))?.generation == it.generation }
 }

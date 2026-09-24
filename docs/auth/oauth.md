@@ -595,6 +595,9 @@ its contexts once it exists, and is open work
 - **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
+- **It dies with the consent it was granted under.** The authority carries that consent's
+  generation, and registration compares it against what stands. Disconnecting the app therefore
+  takes an unspent authority with it, rather than leaving it live for the rest of its hour.
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
@@ -634,13 +637,14 @@ with:
 - **The three members above are all an installation may carry.** Any other is refused by name —
   the identity, the context root and the grants are the pod's, and so is every member it has not
   been asked about.
-- **Refusals, in the order they are asked.** A body this pod does not serve is
-  `400 invalid_client_metadata` — an unauthenticated confidential registration, a confidential
-  shape other than the one above, an installer bearer sent with a public body, a body carrying a
-  member that is not on the list. A bearer without `service-clients`, or one whose subject no
-  longer owns the pod, is `403 insufficient_scope`; a spent authority is `401 invalid_token`. Each
-  carries the pod's usual RFC 6750 challenge, and every refusal is decided before the authority is
-  spent.
+- **Refusals, in the order they are asked.** A presented credential is answered first: one this
+  pod cannot verify is `401`, whatever the body looks like. Then the body — one this pod does not
+  serve is `400 invalid_client_metadata`, which covers an unauthenticated confidential
+  registration, a confidential shape other than the one above, an installer bearer sent with a
+  public body, and a body carrying a member that is not on the list. A bearer without
+  `service-clients`, or one whose subject no longer owns the pod, is `403 insufficient_scope`; a
+  spent or withdrawn authority is `401 invalid_token`. Each carries the pod's usual RFC 6750
+  challenge, and every refusal is decided before the authority is spent.
 
 The `dyn:` prefix and the grant types a registration response may advertise are bound to this
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
