@@ -142,6 +142,18 @@ class PodGrantsFacade @Inject constructor(
     pod.owner in webIds
 
   /**
+   * Whether [subject] is the pod owner, over the pair of spellings one address has
+   * ([WebIdUriDeriver.derivableAliases]).
+   *
+   * The form a **request** asks in: a token carries one identity URI, and the twins are all this
+   * server can derive from it. A browser session asks the other form instead and passes
+   * `PersonIdentity.allUris`, which also covers the profile-linked aliases only the identity
+   * service knows.
+   */
+  internal fun isPodOwner(pod: HostedPod, subject: String): Boolean =
+    isPodOwner(pod, webIdUriDeriver.derivableAliases(subject))
+
+  /**
    * Grants [grants] to [webId] on top of what they already hold.
    *
    * Deliberately does **not** cascade: widening a person's authority never widens an app
@@ -335,12 +347,14 @@ class PodGrantsFacade @Inject constructor(
     // grants above — a manage/write/read grant must not outlive its context.
     podWebIdGrantsDao.deleteByContext(podId = storedPodId, contextUri = contextUri)
     // Static service clients are revoked like grants: scopes anchored at the deleted context are
-    // stripped, grant-less registrations removed — otherwise the client secret could keep minting
-    // tokens for the deleted root (manage descendants, recreate the root). Unlike a refresh row, a
-    // registration's context scopes *are* the authority the resolver reads.
-    val revokedClients = podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)
-    if (revokedClients > 0) {
-      logger.info { "Revoked $revokedClients service-client registration(s) anchored at deleted context $contextUri" }
+    // stripped — otherwise the client secret could keep minting tokens for the deleted root
+    // (manage descendants, recreate the root). Unlike a refresh row, a registration's context
+    // scopes *are* the authority the resolver reads.
+    val strippedClients = podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)
+    if (strippedClients > 0) {
+      logger.info {
+        "Revoked the scopes $strippedClients service-client registration(s) held on deleted context $contextUri"
+      }
     }
 
     // Second pass: sweep the app grants that were *derived* from an authority this deletion just

@@ -44,6 +44,16 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
      * answered again — a code is a request, and it must not pick up an authority granted after it.
      */
     val consentGeneration: Long? = null,
+    /**
+     * Every identity URI the person was recognised by at the dialog, for an exchange that has to
+     * ask about them again. Always holds [subject], and holds only that where nothing else was
+     * recorded.
+     *
+     * [subject] is one URI, and what links it to the others belongs to the identity service. The
+     * set is recorded while the browser is there so a later check can ask the same question —
+     * `PodGrantDbo.subjectUris` is that same set, recorded for that same reason.
+     */
+    val subjectUris: Set<String> = emptySet(),
   )
 
   /**
@@ -67,10 +77,12 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       putNotNull("codeChallengeMethod", it.codeChallengeMethod)
       putNotNull("nonce", it.nonce)
       putNotNull("consentGeneration", it.consentGeneration)
+      putStrings("subjectUris", it.subjectUris)
     },
     read = {
+      val subject = getString("subject") ?: return@OneTimeStore null
       Entry(
-        subject = getString("subject") ?: return@OneTimeStore null,
+        subject = subject,
         realm = getString("realm") ?: return@OneTimeStore null,
         clientId = getString("clientId") ?: return@OneTimeStore null,
         scopes = getStringSet("scopes"),
@@ -79,6 +91,10 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         codeChallengeMethod = getString("codeChallengeMethod"),
         nonce = getString("nonce"),
         consentGeneration = get("consentGeneration", Number::class.java)?.toLong(),
+        // A code issued before this field existed carries none, and the rolling deploy this
+        // class's wire format is kept stable for puts exactly such a code in front of a node
+        // that reads it. The subject is the one URI it does record.
+        subjectUris = getStringSet("subjectUris").ifEmpty { setOf(subject) },
       )
     },
   )
@@ -93,6 +109,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     codeChallengeMethod: String?,
     nonce: String? = null,
     consentGeneration: Long? = null,
+    subjectUris: Set<String> = emptySet(),
   ): String = codes.issue(
     Entry(
       subject = subject,
@@ -104,6 +121,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       codeChallengeMethod = codeChallengeMethod,
       nonce = nonce,
       consentGeneration = consentGeneration,
+      subjectUris = subjectUris,
     ),
   )
 

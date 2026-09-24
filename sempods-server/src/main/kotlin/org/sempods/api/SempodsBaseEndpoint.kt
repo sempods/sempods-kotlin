@@ -122,11 +122,37 @@ open class SempodsBaseEndpoint(
    * Endpoints that require authentication (writes, MCP `authorize` tool, etc.) must call
    * [requireAuthenticatedOrThrow] on the returned credentials.
    */
-  protected fun authenticate(pod: String): SempodsCredentials {
-    val podDbo = fetchPodOrThrow(pod)
+  protected fun authenticate(pod: String): SempodsCredentials =
+    checkNotNull(resolveCredentials(fetchPodOrThrow(pod), podAuthorizer::anonymous)) {
+      "an anonymous caller resolves to a sandbox, never to nothing"
+    }
+
+  /**
+   * The bearer this request carries, or `null` where it carries none.
+   *
+   * [requirePodAppTokenOrThrow] asks for "any app" and refuses a privileged feature scope. This
+   * asks for whoever turned up: the one route that exists for such a bearer has to be able to see
+   * it, and the same route answers unauthenticated callers too. `null` rather than
+   * [PodAuthorizer.anonymous] because that resolves the pod's public contexts, and a registration
+   * consults none.
+   */
+  internal fun resolveBearerOrNull(podDbo: PodDbo): SempodsCredentials? = resolveCredentials(podDbo) { null }
+
+  /**
+   * What every bearer on this server goes through, with the one arm its callers disagree about.
+   *
+   * A credential that is presented and does not verify is always a 401 — a request that showed an
+   * ID is not a request that showed none — and a verified one is always signed-out-checked and
+   * audited. Only the absent bearer means different things to different routes, so only that is
+   * [onNoToken]'s.
+   */
+  private fun resolveCredentials(
+    podDbo: PodDbo,
+    onNoToken: (PodRef) -> SempodsCredentials?,
+  ): SempodsCredentials? {
     val podRef = podDbo.ref
     return when (val outcome = authenticateBearer(podDbo, podRef)) {
-      PodTokenAuthentication.NoToken -> podAuthorizer.anonymous(podRef)
+      PodTokenAuthentication.NoToken -> onNoToken(podRef)
       is PodTokenAuthentication.Verified -> authorizeAndAudit(podRef, outcome.token)
       is PodTokenAuthentication.Rejected -> throwInvalidBearer(podName = podRef.name)
     }
@@ -276,12 +302,14 @@ open class SempodsBaseEndpoint(
    * The pod is the protected resource for every caller, MCP or REST, so there is one
    * `resource_metadata` URL rather than a per-surface one.
    */
-  protected fun buildBearerChallenge(podName: String): String {
+  @JvmOverloads
+  protected fun buildBearerChallenge(podName: String, error: String = BearerChallenge.INVALID_TOKEN): String {
     val podBaseUrl = "${config.apiBaseUrl}${podName}"
     return BearerChallenge.forResource(
       realm = podName,
       resource = podBaseUrl,
       resourceMetadataUrl = "$podBaseUrl/.well-known/oauth-protected-resource",
+      error = error,
     )
   }
 

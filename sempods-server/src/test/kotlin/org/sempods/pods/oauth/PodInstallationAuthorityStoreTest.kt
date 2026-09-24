@@ -3,6 +3,14 @@ package org.sempods.pods.oauth
 import com.google.inject.Inject
 import org.sempods.SempodsStoreTest
 import org.sempods.commons.tests.TestUtil.randomId
+import com.mongodb.client.MongoDatabase
+import org.bson.Document
+import org.bson.types.ObjectId
+import org.sempods.SempodsCollections
+import org.sempods.commons.mongo.putInstant
+import org.sempods.commons.utils.HashUtil
+import java.time.Duration
+import java.time.Instant
 import org.sempods.pods.PodId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -27,12 +35,33 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   @Inject
   private lateinit var authorities: PodInstallationAuthorityStore
 
-  private val pod = PodId("pod-${randomId()}")
+  @Inject
+  private lateinit var consentDecisions: PodConsentDecisionStore
+
+  @Inject
+  private lateinit var db: MongoDatabase
+
+  // Real ids: `consume` reads the standing consent, and that collection keys on an ObjectId.
+  private val pod = PodId(ObjectId().toHexString())
   private val clientId = "dyn:${randomId()}"
   private val webId = "https://id.test/${randomId()}"
 
-  private fun record(jti: String, pod: PodId = this.pod) {
-    authorities.record(pod = pod, jti = jti, clientId = clientId, webId = webId)
+  /** A second URI for the same person, the kind only sempods-auth can resolve. */
+  private val alias = "https://id.test/e/${randomId()}"
+
+  /** The consent the authority hangs off, and the generation it is granted under. */
+  private fun approve(pod: PodId = this.pod): Long =
+    consentDecisions.recordWithoutLifetime(pod = pod, appId = clientId, webId = webId).generation
+
+  private fun record(jti: String, pod: PodId = this.pod, generation: Long = approve(pod)) {
+    authorities.record(
+      pod = pod,
+      jti = jti,
+      clientId = clientId,
+      webId = webId,
+      generation = generation,
+      subjectUris = setOf(webId, alias),
+    )
   }
 
   @Test
@@ -44,8 +73,45 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     assertEquals(clientId, first.clientId)
     assertEquals(webId, first.webId)
     assertEquals(pod, first.pod)
+    assertEquals(
+      setOf(webId, alias),
+      first.subjectUris,
+      "registration asks who owns the pod now, and this is the set it asks about",
+    )
 
     assertNull(authorities.consume(pod, jti), "a second registration has nothing to stand on")
+  }
+
+  @Test
+  fun `a row a pre-upgrade node wrote is still worth its one registration`() {
+    // The rolling deploy: an old node redeemed the code and wrote the shape it knew — no
+    // generation, no URI set. Refusing it would spend an authority the owner is still holding,
+    // for a flow that node could not serve anyway.
+    val jti = randomId()
+    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
+      Document().apply {
+        put("_id", HashUtil.sha256Hex(jti))
+        put("podId", pod.value)
+        put("clientId", clientId)
+        put("webId", webId)
+        putInstant("expiresAt", Instant.now().plus(Duration.ofHours(1)))
+      },
+    )
+
+    val authority = assertNotNull(authorities.consume(pod, jti), "an owner mid-deploy keeps their install")
+    assertEquals(setOf(webId), authority.subjectUris, "the person it names is the one it recorded")
+    assertNull(authority.generation, "and it says it cannot be compared")
+  }
+
+  @Test
+  fun `an app the person has answered again since holds nothing`() {
+    // Disconnecting an app raises the generation, and an installer token outlives that by up to
+    // its hour. Checked here rather than at issuance, so the bearer dies with the consent.
+    val jti = randomId()
+    record(jti)
+    consentDecisions.bumpGeneration(pod = pod, appId = clientId, webIds = listOf(webId))
+
+    assertNull(authorities.consume(pod, jti), "the authority goes with the consent it was granted under")
   }
 
   @Test
@@ -58,7 +124,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     // The token is pod-bound by its issuer already; this is the store saying the same thing, so a
     // row cannot be spent at a door it was not granted for.
     val jti = randomId()
-    record(jti, pod = PodId("other-${randomId()}"))
+    record(jti, pod = PodId(ObjectId().toHexString()))
 
     assertNull(authorities.consume(pod, jti))
   }

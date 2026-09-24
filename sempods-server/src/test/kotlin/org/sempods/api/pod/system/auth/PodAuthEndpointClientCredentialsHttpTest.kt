@@ -22,7 +22,6 @@ import org.sempods.client.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -50,14 +49,27 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   private fun podBaseUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/"
 
-  /**
-   * RFC 6749 §2.3.1 `client_secret_basic`: clients form-urlencode `client_id`
-   * and `client_secret` before joining with `:` and base64-encoding.
-   */
-  private fun basicHeader(clientId: String, secret: String): String {
-    val encId = java.net.URLEncoder.encode(clientId, Charsets.UTF_8)
-    val encSecret = java.net.URLEncoder.encode(secret, Charsets.UTF_8)
-    return "Basic " + Base64.getEncoder().encodeToString("$encId:$encSecret".toByteArray(Charsets.UTF_8))
+  @Test
+  fun `a registration holding no grants authenticates and mints nothing`() {
+    // What an installation looks like between the two consents: the credential exists, and the
+    // rights it will be given have not been granted yet. The refusal is `invalid_scope` rather
+    // than an authentication failure — the secret is the right one.
+    val pod = sempodsTestFactory.newPod()
+    val registered = podServiceClientStore.register(
+      pod = pod.hosted,
+      clientId = "no-grants",
+      scopes = emptySet(),
+      label = "no-grants",
+    )
+
+    val response = http.preparePost(tokenUrl(pod.name))
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
+      .setBody("grant_type=client_credentials")
+      .execute()
+
+    assertEquals(400, response.statusCode, "body=${response.responseBody}")
+    assertTrue("invalid_scope" in response.responseBody, response.responseBody)
   }
 
   @Test

@@ -14,6 +14,7 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bouncycastle.crypto.generators.OpenBSDBCrypt
 import org.bson.types.ObjectId
 import java.security.SecureRandom
+import java.time.Instant
 
 /**
  * Issues and verifies secrets for statically-registered pod service clients
@@ -49,6 +50,11 @@ class PodServiceClientStore @Inject constructor(
    * which a downstream string-matching authorizer could mistake for a
    * pod-wide wildcard — throws [IllegalArgumentException] before the row is
    * persisted, so the bad scope never reaches a JWT or the resource layer.
+   *
+   * [scopes] may be empty. Such a registration holds a credential and no authority: the token
+   * endpoint refuses it `invalid_scope`, and [revokeByContextScope] leaves it where it is. That is
+   * the state an owner-facing installation passes through between registering a service and
+   * granting it contexts.
    */
   internal fun register(
     pod: HostedPod,
@@ -56,7 +62,6 @@ class PodServiceClientStore @Inject constructor(
     scopes: Set<String>,
     label: String? = null,
   ): Registered {
-    require(scopes.isNotEmpty()) { "service client must be registered with at least one scope" }
     val namespace = pod.baseUrl
     val invalid = scopes.mapNotNull { scope ->
       when (val parsed = podScopeValidator.validate(scope, namespace)) {
@@ -106,6 +111,17 @@ class PodServiceClientStore @Inject constructor(
   internal fun remove(pod: PodId, clientId: String, expected: ServiceClientRegistrationId): Boolean =
     dao.delete(pod.objectId(), clientId, expectedId = expected.objectId())
 
+  /**
+   * Registers a service client under an identifier this server assigns, holding no grants.
+   *
+   * The identifier is the pod's to give. An installer that could name it could name an app the
+   * owner already trusts into the installation, which is the boundary an owner-facing registration
+   * rests on. Its class is [SERVICE_CLIENT_PREFIX], which
+   * [PodClientDirectory][org.sempods.pods.oauth.flows.PodClientDirectory] places nowhere.
+   */
+  internal fun registerInstallation(pod: HostedPod, label: String): Registered =
+    register(pod, SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(), scopes = emptySet(), label = label)
+
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
     // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
     // as the pre-insert shape. Asserting it keeps a `null` from reaching [remove] as
@@ -114,6 +130,7 @@ class PodServiceClientStore @Inject constructor(
     clientId = clientId,
     scopes = scopes,
     label = label,
+    createdAt = createdAt,
   )
 
   /**
@@ -150,11 +167,13 @@ class PodServiceClientStore @Inject constructor(
   internal fun touchLastUsed(pod: PodId, clientId: String): Boolean = dao.touchLastUsed(pod.objectId(), clientId)
 
   /**
-   * Strips the scopes anchored at [contextUri] and removes the registrations left holding none.
+   * Strips the scopes anchored at [contextUri] from this pod's registrations, and answers how many
+   * lost one.
    *
    * A registration's context scopes *are* the authority the resolver reads, so a deleted context
    * has to reach them the way it reaches a grant — otherwise the secret keeps minting tokens for a
-   * root the owner removed. Answers how many registrations went.
+   * root the owner removed. A registration left holding nothing stays: see [register] on what an
+   * empty scope set is worth.
    */
   internal fun revokeByContextScope(pod: PodId, contextUri: String): Long =
     dao.revokeByContextScope(pod.objectId(), contextUri)
@@ -185,6 +204,19 @@ class PodServiceClientStore @Inject constructor(
   private val dummyHash: String by lazy { hashSecret(mintSecret()) }
 
   companion object {
+
+    /**
+     * The identifier class of a client this server named, held apart from the `dyn:` an
+     * unauthenticated registration earns.
+     *
+     * The `:` is what makes the two namespaces disjoint: `AdminPodsEndpoint` accepts
+     * `[A-Za-z0-9._-]+` for an operator-chosen `clientId`, because that identifier becomes a
+     * context path segment. It survives HTTP Basic because a client encodes its credentials the
+     * way [org.sempods.client.SempodsRequestAuth] does — `docs/auth/service-clients.md`
+     * §"Token exchange".
+     */
+    internal const val SERVICE_CLIENT_PREFIX = "svc:"
+
     /** Lets operators recognise pod service-client secrets at a glance. */
     private const val SECRET_PREFIX = "sc_"
 
@@ -210,6 +242,8 @@ internal data class ServiceClientRegistration(
   val scopes: Set<String>,
   /** What an operator called it — a server-assigned `clientId` alone gives them nothing to recognise. */
   val label: String?,
+  /** When this registration was made. RFC 7591 §3.2.1's `client_id_issued_at`. */
+  val createdAt: Instant,
 )
 
 /**

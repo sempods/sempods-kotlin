@@ -16,17 +16,28 @@ sempods-spec `spec/core/grants.md`.
 
 ## Registration
 
-Service clients are **registered out-of-band**, not via RFC 7591 DCR:
+Two routes lead into one registry, and the unauthenticated RFC 7591
+profile is neither of them.
 
-- Registration happens through the host-level admin surface,
-  `POST /_system/admin/pods/{pod}/service-clients/{clientId}`
-  (`api/system/admin/pods/AdminPodsEndpoint`) — authorized by the admin-authority seam, not by a pod
-  scope. Registering an app is a host-operator act, not something a pod token can do.
+**The host operator** registers at
+`POST /_system/admin/pods/{pod}/service-clients/{clientId}`
+(`api/system/admin/pods/AdminPodsEndpoint`). The admin-authority seam
+authorizes it, so no pod token reaches it. The caller names the
+`clientId`, and the sandbox below is derived from it.
+
+**The pod owner** registers at `POST /{pod}/_system/auth/register`
+carrying an installation authority — [`oauth.md`](oauth.md#installing-a-service-client)
+is that flow, what the body must say and what the answer carries. There
+the server names the client `svc:…`, and there is no sandbox to derive:
+the owner names the contexts in a second consent.
+
+Either way:
+
 - Registration is per pod (`PodServiceClientDbo`,
   `oauth.serviceClients`), keyed `(podId, clientId)`. The pod's
   AS metadata advertises `client_credentials` in
-  `grant_types_supported`; DCR responses do not — dynamic clients
-  cannot obtain service tokens.
+  `grant_types_supported`; a public DCR response does not — a `dyn:`
+  client cannot obtain a service token.
 - The secret is an opaque random value, minted once at registration,
   stored only as a bcrypt hash on the pod side. Unknown-clientId
   requests run a dummy bcrypt verification so timing does not leak
@@ -41,6 +52,10 @@ Service clients are **registered out-of-band**, not via RFC 7591 DCR:
   would make any ancestor of it match every context on the pod. That
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
+- The scope set may be empty: the registration holds a credential and no
+  authority, and the token endpoint answers it `invalid_scope`. That is
+  an installation between its two consents, and a registration whose last
+  anchor was deleted.
 
 ## Sandbox via manage-root
 
@@ -128,9 +143,14 @@ user-delegated — Authorization Code + PKCE with an explicit user grant
 
 ```
 POST /{pod}/_system/auth/token
-Authorization: Basic base64(clientId:secret)
+Authorization: Basic base64(formEncode(clientId):formEncode(secret))
 grant_type=client_credentials
 ```
+
+The form-encoding step is RFC 6749 §2.3.1's and matters here: an
+owner-installed `client_id` carries a `:`, so it travels as `svc%3A…`. A
+client that joins the raw strings sends a username of `svc` and is
+answered `invalid_client`.
 
 Service tokens are RS256 JWTs signed by the pod like user tokens
 (`iss = pod base URL`), with three differences:
@@ -161,9 +181,10 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   than in the index, so a retention change is configuration, not a
   migration — it reaches only rows written afterwards.
 - Deleting a context cascades to service clients like it does to user
-  grants: scopes anchored at the deleted context are stripped,
-  scope-less registrations removed. Deleting the app root therefore
-  revokes the client; outstanding tokens ride out their ≤10-minute TTL.
+  grants: scopes anchored at the deleted context are stripped. Deleting
+  the app root therefore leaves the registration holding nothing and its
+  secret minting nothing; outstanding tokens ride out their ≤10-minute
+  TTL.
 - Pod deletion cascades to registrations and the audit log.
 
 ## Deviations and open points
@@ -198,5 +219,4 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   `TODO` in code).
 
 Open work across the auth model is named in [`README.md`](README.md)
-("Known limitations"). The admin surface that would own service-client
-provisioning does not exist yet.
+("Known limitations").

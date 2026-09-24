@@ -22,7 +22,11 @@ class PodAuthorizationCodes @Inject internal constructor(
   private val podSignOut: PodSignOut,
 ) {
 
-  /** @param session the sign-in this code is issued under, or `null` for the anonymous one. */
+  /**
+   * @param session the sign-in this code is issued under, or `null` for the anonymous one.
+   * @param subjectUris every identity URI the person was recognised by, for a code whose exchange
+   *   records them. Empty on every other code.
+   */
   internal fun issue(
     pod: HostedPod,
     clientId: String,
@@ -34,6 +38,7 @@ class PodAuthorizationCodes @Inject internal constructor(
     codeChallengeMethod: String?,
     via: PodCodeIssuance,
     consentGeneration: Long? = null,
+    subjectUris: Set<String> = emptySet(),
     session: PodTokenIssuer.SessionPrincipal?,
   ): PodCodeResult {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
@@ -62,6 +67,7 @@ class PodAuthorizationCodes @Inject internal constructor(
       codeChallenge = codeChallenge,
       codeChallengeMethod = codeChallengeMethod,
       consentGeneration = consentGeneration,
+      subjectUris = subjectUris,
     )
 
     logger.info {

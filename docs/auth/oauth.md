@@ -24,19 +24,26 @@ step see `identity.md`.
 | `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, remove an app's access, sign out |
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
-| `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration |
+| `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration, and — with an installation authority — one service client |
 | `GET /{pod}/.well-known/oauth-protected-resource` | RFC 9728 Protected Resource Metadata |
 
-## Client identity: `did:web:*` vs `dyn:*`
+## Client identity: `did:web:*`, `dyn:*` and `svc:*`
 
-Two `client_id` shapes, with different rules:
+Three `client_id` shapes, with different rules:
 
-Both shapes ask `RedirectUri.isValid` first, before any
+A body asking for a secret — `token_endpoint_auth_method` other than
+`none`, or a grant type outside the browser flow — asks for the third
+shape; everything else is a public registration. Without an installation
+authority the first is refused, so an unauthenticated registration never
+earns service credentials. §"Installing a service client" has the rest.
+
+`did:web:*` and `dyn:*` ask `RedirectUri.isValid` first, before any
 client-specific rule: absolute, no fragment, no `code`, `response` or
 `state` in the query, `https` on any host, `http` only on loopback.
 `/register` applies it too, so an address a login could never honour is
-refused at registration. A code therefore reaches a cleartext address
-only on the user's own machine, and that case is gated again below.
+refused at registration, and omitted where a stored one is read back. A
+code therefore reaches a cleartext address only on the user's own
+machine, and that case is gated again below.
 The query rule has the same reason as the fragment one: those names
 belong to the response, and a registered copy is read as the value this
 server chose.
@@ -95,8 +102,18 @@ at registration and omitted where it is read.
   confirmation is wanted; `did:web:*` clients hit `/authorize` from
   background-facing UI where a pop-up would be disruptive.
 
+### `svc:*` — service clients the owner installed
+
+- Assigned by the server at `/register`, against an installation
+  authority. §"Installing a service client" is that flow, its rules and
+  its refusals.
+- Confidential: `client_secret_basic` and `client_credentials`, and from
+  there an ordinary service client ([`service-clients.md`](service-clients.md)).
+- `/authorize` answers no identifier of this class. A service client
+  authenticates with its secret and has no browser flow.
+
 `/token` exchanges are unaffected by the consent override — in-session
-refreshes stay silent for both client classes.
+refreshes stay silent for both browser-facing classes.
 
 ## Authorize flow (overview)
 
@@ -570,6 +587,15 @@ its contexts once it exists, and is open work
 - **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
+- **It carries the URIs the owner was recognised by.** Sign in with Google, own the pod under the
+  email address: the two are linked by `also_known_as`, which lives in sempods-auth, while the
+  bearer this dialog leads to carries one URI. So the authority records the set the dialog
+  recognised, and registration compares the pod's *current* owner against it.
+- **It dies with the consent it was granted under.** The authority carries that consent's
+  generation, and registration compares it against what stands, so disconnecting the app spends
+  the hour the bearer had left. A registration already past that comparison runs to its end — the
+  authority was gone before the disconnect arrived — and leaves the orphan the bullet below
+  describes.
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
@@ -578,9 +604,59 @@ its contexts once it exists, and is open work
   And it does not pass a gate that asks only for an app, which is how the AI routes ask: an empty
   sandbox is no answer where nobody consults one.
 
-The protected registration route this authority is spent at does not exist yet
-([#126](https://github.com/sempods/sempods-kotlin/issues/126)). Until it does, the scope is
-requestable and grants nothing.
+### Spending it
+
+`POST {pod}/_system/auth/register`, with that bearer and the metadata an installation is spelled
+with:
+
+```json
+{
+  "client_name": "Notes Sync",
+  "grant_types": ["client_credentials"],
+  "token_endpoint_auth_method": "client_secret_basic"
+}
+```
+
+- **The server names it.** The answer carries a `svc:` identifier, `client_id_issued_at`, the
+  secret and `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for one that does not
+  expire. The identifier and the timestamp are what the caller opens the second consent with: the
+  name is the installer's own text, so an owner shown only that cannot tell an expected
+  installation from a crafted one.
+- **A lost answer costs the installation.** The secret lives only in that response
+  ([`service-clients.md`](service-clients.md#registration)), so a retry is refused. What is left
+  holds no grants and is
+  [#251](https://github.com/sempods/sempods-kotlin/issues/251)'s to sweep.
+- **`client_name` is required.** It is what the second consent calls the service.
+- **No grants**, until the owner gives it some — see
+  [`service-clients.md`](service-clients.md#registration) for what a registration holding none is
+  worth.
+- **Exactly once.** The authority is consumed before the client is created, so two calls arriving
+  together produce one client and the loser hears what a second attempt hears: `401 invalid_token`.
+  A run that dies between the two leaves neither, and the owner installs again.
+- **Those three members are all an installation may carry.** Any other is refused by name: the
+  identity, the context root and the grants are the pod's, and so is every member it has not been
+  asked about.
+- **Refusals, in the order they are asked.** What the bearer alone settles comes first: `401` for
+  one this pod cannot verify, `403 insufficient_scope` for one carrying no `service-clients`. Then
+  the body: `400 invalid_client_metadata` for a shape this pod does not serve, for an installer
+  bearer sent with a public body, and for a member outside the three. The authority is answered
+  last — `401 invalid_token` where it is spent or withdrawn, `403` where no address the consent
+  recognised owns the pod now. The 401 and the 403 carry the pod's usual RFC 6750 challenge.
+- **A refused body costs the authority nothing**, because every check above it runs first: a
+  caller that got its metadata wrong retries with the token it holds. Ownership is answered from
+  the row and therefore spends it, so a pod that changed hands takes the authority with the
+  refusal — and installing again reaches the same answer.
+
+**Finish the rollout before installing.** A node from before this release records an authority
+without the fields the ownership check reads, and a new node falls back to what the row does
+carry. One case that fallback cannot cover: an owner whose sign-in address reaches the pod's owner
+only through a profile-linked alias, whose code an old node redeemed — that set is not in the row
+to recover. The install is answered `403`, and works once the fleet is uniform.
+
+The `dyn:` prefix and the grant types a registration response may advertise are bound to this
+endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
+and [`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011),
+so this profile is an experimental extension with known deviations — sempods-spec#69 carries them.
 
 ## Protected Resource Metadata (RFC 9728)
 
@@ -603,11 +679,14 @@ constraints. The full list is in [`README.md`](README.md)
 ("Known limitations"); the two that bear on this document:
 
 - **No rate limiting on `/authorize` or `/register`** beyond what the
-  surrounding infrastructure provides. `/register` is unauthenticated per
-  RFC 7591 and accepts registrations from anyone who can reach the pod.
-  Neither can key on a client identity the way `/token` does — `/authorize`
-  carries one in the query string, `/register` carries none at all — so what
-  they want is an address-keyed limit rather than a copy of that one.
+  surrounding infrastructure provides. `/register`'s public profile is
+  unauthenticated per RFC 7591 and accepts registrations from anyone who
+  can reach the pod. Neither can key on a client identity the way `/token`
+  does — `/authorize` carries one in the query string, `/register`'s public
+  profile carries none at all — so what they want is an address-keyed limit
+  rather than a copy of that one. Its installation profile is bounded by
+  the authority instead: one owner consent, one registration, one minted
+  secret.
 - **The HTTP timeouts on the two OIDC legs are nobody's decision, bar
   one.** A sign-in crosses two of them, and they are bounded differently
   for different reasons:

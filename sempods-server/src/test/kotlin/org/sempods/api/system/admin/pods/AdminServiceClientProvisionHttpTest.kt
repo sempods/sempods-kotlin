@@ -16,7 +16,6 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.junit.jupiter.api.Test
 import java.net.URI
-import java.util.Base64
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -72,13 +71,6 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     objectMapper.readTree(responseBody).has(name)
 
   private fun rootContext(pod: PodDbo): URI = sempodsUriBuilder.buildContext(pod.name, "apps/$CLIENT_ID")
-
-  /** RFC 6749 §2.3.1 `client_secret_basic` (form-urlencoded before base64). */
-  private fun basicHeader(clientId: String, secret: String): String {
-    val encId = java.net.URLEncoder.encode(clientId, Charsets.UTF_8)
-    val encSecret = java.net.URLEncoder.encode(secret, Charsets.UTF_8)
-    return "Basic " + Base64.getEncoder().encodeToString("$encId:$encSecret".toByteArray(Charsets.UTF_8))
-  }
 
   @Test
   fun `a fresh pod is provisioned with a private root context, a sandboxed registration and the secret`() {

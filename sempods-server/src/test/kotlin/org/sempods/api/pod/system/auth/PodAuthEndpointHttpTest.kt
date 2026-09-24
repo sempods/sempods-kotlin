@@ -190,7 +190,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       clientId = legacyId,
       registeredForPodId = checkNotNull(pod.id),
       registeredForPodName = pod.name,
-      redirectUris = setOf(redirectUri),
+      // The fragment is the one an answer cannot merely echo: building the response parses every
+      // address, and `RedirectURIValidator` refuses this one.
+      redirectUris = setOf(redirectUri, "https://app.example/cb#x"),
       clientName = clientName,
       clientUri = "javascript:alert(1)",
       logoUri = "data:text/html,<script>alert(1)</script>",
@@ -219,6 +221,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertNull(body["client_uri"], "a stored script URL must not be handed back")
     assertNull(body["logo_uri"], "a stored data URL must not be handed back")
     assertNull(body["tos_uri"], "a stored script URL must not be handed back")
+    assertEquals(listOf(redirectUri), body["redirect_uris"], "a stored address the rule refuses is dropped")
     // The one legal value on the same row survives: this filters, it does not blank the client.
     assertEquals("https://app.example/privacy", body["policy_uri"])
   }
@@ -4032,18 +4035,16 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `register should silently ignore optional fields with wrong types`() {
+  fun `register refuses a member whose type RFC 7591 does not allow, and names it`() {
     val pod = sempodsTestFactory.newPod()
 
-    // contacts as a plain string instead of list, software_id as number — RFC 7591 lets the
-    // server ignore unknown / malformed metadata. We must not 400 just because a client got
-    // a field shape wrong.
+    // `contacts` holding a string where RFC 7591 puts a list. Refusing it is what tells the
+    // client that the address it named was never stored.
     val body = """
       {
         "redirect_uris": ["http://localhost:5173/callback"],
         "client_name": "Quirky Client",
-        "contacts": "single@example.com",
-        "software_id": 12345
+        "contacts": "single@example.com"
       }
     """.trimIndent()
 
@@ -4052,15 +4053,34 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(body)
       .execute()
 
-    assertEquals(201, response.statusCode)
+    assertEquals(400, response.statusCode, response.responseBody)
 
     @Suppress("UNCHECKED_CAST")
     val responseBody =
       JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
-    assertEquals("Quirky Client", responseBody["client_name"])
-    assertNull(responseBody["contacts"], "malformed contacts must not be echoed")
-    assertNull(responseBody["software_id"], "malformed software_id must not be echoed")
+    assertEquals("invalid_client_metadata", responseBody["error"], "RFC 7591 §3.2.2 names this code")
+    assertTrue("contacts" in responseBody["error_description"].toString(), responseBody.toString())
+  }
+
+  @Test
+  fun `register answers a body that is not JSON in the protocol's own terms`() {
+    // The container would answer this one with a message about entity deserialization, which says
+    // nothing a registering client can act on.
+    val pod = sempodsTestFactory.newPod()
+
+    val response = http.preparePost(registerUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .setBody("not json at all")
+      .execute()
+
+    assertEquals(400, response.statusCode, response.responseBody)
+
+    @Suppress("UNCHECKED_CAST")
+    val responseBody =
+      JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+
+    assertEquals("invalid_client_metadata", responseBody["error"])
   }
 
   @Test
@@ -5304,11 +5324,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private fun approveInstallation(
     pod: org.sempods.pods.mongo.persist.PodDbo,
     ownerWebId: String,
+    alsoKnownAs: List<String> = emptyList(),
   ): Map<String, Any?> {
-    val page = installationPage(pod, ownerWebId).responseBody
+    val page = installationPage(pod, ownerWebId, alsoKnownAs = alsoKnownAs).responseBody
     val submitted = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .addHeader("Cookie", signIn(pod.name, ownerWebId, alsoKnownAs).cookie)
       .setBody(
         "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
           "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_SCOPE)}",
@@ -5316,6 +5337,174 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
     assertEquals(303, submitted.statusCode, submitted.responseBody)
     return exchangeCode(pod, codeFrom(submitted))
+  }
+
+  // ── Installing a service client: the registration ──────────────────────────
+
+  private val installationBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
+    """"token_endpoint_auth_method":"client_secret_basic"}"""
+
+  private fun registerAsInstaller(
+    pod: org.sempods.pods.mongo.persist.PodDbo,
+    bearer: String?,
+    body: String = installationBody,
+    cookie: String? = null,
+  ): TestHttpResponse = http.preparePost(registerUrl(pod.name))
+    .addHeader("Content-Type", "application/json")
+    .apply {
+      bearer?.let { addHeader("Authorization", "Bearer $it") }
+      cookie?.let { addHeader("Cookie", it) }
+    }
+    .setBody(body)
+    .execute()
+
+  @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an owner installs one service client, and the authority is spent on it`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+
+    val registered = registerAsInstaller(pod, installer)
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertEquals("no-store", registered.getHeader("Cache-Control"), registered.responseBody)
+    val body = JsonMappers.default().readValue(registered.responseBody, Map::class.java) as Map<String, Any?>
+    val clientId = body["client_id"] as String
+    val secret = body["client_secret"] as String
+    assertTrue(clientId.startsWith("svc:"), clientId)
+    assertEquals(0, body["client_secret_expires_at"], "RFC 7591 §3.2.1 spells a secret that never expires as 0")
+    assertNotNull(body["client_id_issued_at"], "the caller opens the grant consent with this and the id")
+    assertEquals("Notes Sync", body["client_name"])
+
+    // The secret is the right one and the client holds nothing yet: `invalid_scope` rather than an
+    // authentication failure is what says both at once.
+    val minted = http.preparePost(tokenUrl(pod.name))
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Authorization", basicHeader(clientId, secret))
+      .setBody("grant_type=client_credentials")
+      .execute()
+    assertEquals(400, minted.statusCode, minted.responseBody)
+    assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
+
+    // One approval, one client. The bearer is inert afterwards, and the way out is another consent.
+    val again = registerAsInstaller(pod, installer)
+    assertEquals(401, again.statusCode, again.responseBody)
+    assertTrue("""error="invalid_token"""" in checkNotNull(again.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an owner signed in under a linked alias installs, at the wire`() {
+    // The two halves of one installation have to ask one ownership question. The dialog answers it
+    // over `also_known_as`, which lives in sempods-auth; an hour later the registration has only
+    // the bearer, and a bearer carries one URI. So the approved set travels with the authority, or
+    // this owner is approved at the dialog and refused at the door.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val signedInAs = "https://id.test/oidc/${TestUtil.randomId()}"
+
+    val installer = approveInstallation(pod, signedInAs, alsoKnownAs = listOf(ownerWebId))["access_token"] as String
+    assertEquals(
+      signedInAs,
+      SignedJWT.parse(installer).jwtClaimsSet.subject,
+      "the bearer names the alias, and nothing in it reaches the pod's stored owner",
+    )
+
+    val registered = registerAsInstaller(pod, installer)
+
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    val body = JsonMappers.default().readValue(registered.responseBody, Map::class.java) as Map<String, Any?>
+    assertTrue((body["client_id"] as String).startsWith("svc:"), registered.responseBody)
+  }
+
+  @Test
+  fun `an unauthenticated registration gains no service credentials, and a cookie is not an authority`() {
+    // The boundary the whole profile rests on. A browser session is not a bearer: a built-in UI
+    // that could install on the strength of one would be a bypass of the consent itself.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+
+    for (attempt in listOf(
+      registerAsInstaller(pod, bearer = null),
+      registerAsInstaller(pod, bearer = null, cookie = signIn(pod.name, ownerWebId).cookie),
+    )) {
+      assertEquals(400, attempt.statusCode, attempt.responseBody)
+      assertTrue("invalid_client_metadata" in attempt.responseBody, attempt.responseBody)
+      assertFalse("client_secret" in attempt.responseBody, attempt.responseBody)
+    }
+  }
+
+  @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an app disconnected after it was approved installs nothing`() {
+    // The authority outlives its consent by up to an hour, so an app removed in between would
+    // otherwise still mint a confidential credential — past the one act the owner performed to
+    // stop it.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    // The app is connected first, because a disconnect removes what an app holds and an
+    // installation authority on its own is not something the dialog offers to remove.
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "first").statusCode)
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+
+    assertEquals(303, submitConsent(pod, ownerWebId, state = "gone", disconnect = true).statusCode)
+
+    val refused = registerAsInstaller(pod, installer)
+
+    assertEquals(401, refused.statusCode, refused.responseBody)
+    assertTrue("""error="invalid_token"""" in checkNotNull(refused.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
+  fun `an ordinary bearer registers no service client`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val ordinary = mintScopedToken(pod.name, emptyList(), webId = ownerWebId)
+
+    val refused = registerAsInstaller(pod, ordinary)
+
+    assertEquals(403, refused.statusCode, refused.responseBody)
+    assertTrue("""error="insufficient_scope"""" in checkNotNull(refused.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
+  fun `a registration presenting a bearer this pod cannot verify is a 401`() {
+    val pod = sempodsTestFactory.newPod()
+
+    val refused = registerAsInstaller(pod, bearer = "not-a-token", body = """{"redirect_uris":["$testRedirectUri"]}""")
+
+    assertEquals(401, refused.statusCode, refused.responseBody)
+  }
+
+  @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an installed client is not an identifier the authorize endpoint answers`() {
+    // A service client authenticates with a secret and has no browser flow. `/authorize` places
+    // `did:web:` and `dyn:` and nothing else.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+    val registered = registerAsInstaller(pod, installer)
+    val clientId = (JsonMappers.default().readValue(registered.responseBody, Map::class.java)
+      as Map<String, Any?>)["client_id"] as String
+
+    val response = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", clientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "nope")
+      .addQueryParam("code_challenge", testCodeChallenge)
+      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+      .setFollowRedirect(false).execute()
+
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertTrue(response.getHeader("Location").isNullOrBlank(), "and no code goes anywhere")
   }
 
   @Test

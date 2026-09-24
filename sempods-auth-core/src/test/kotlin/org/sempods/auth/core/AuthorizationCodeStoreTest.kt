@@ -77,6 +77,16 @@ class AuthorizationCodeStoreTest {
   }
 
   @Test
+  fun `a code issued before the URI set existed still names its subject`() {
+    // The rolling deploy this store keeps its wire format stable for: an old node issues the code,
+    // a new one redeems it. An empty set here would refuse an owner who is one — the installation
+    // check asks whether any of these URIs owns the pod.
+    val entry = assertNotNull(store.consume(issue()))
+
+    assertEquals(setOf("https://id.test/e/u1"), entry.subjectUris)
+  }
+
+  @Test
   fun `the code is stored hashed, never as plaintext id`() {
     val code = issue()
     assertNull(raw.find(Filters.eq("_id", code)).firstOrNull(), "plaintext code must not be an _id")
@@ -123,7 +133,7 @@ class AuthorizationCodeStoreTest {
     )
     val doc = requireNotNull(raw.find(Filters.eq("_id", sha256Hex(code))).first())
 
-    for (absent in listOf("codeChallenge", "codeChallengeMethod", "nonce", "scopes")) {
+    for (absent in listOf("codeChallenge", "codeChallengeMethod", "nonce", "scopes", "subjectUris")) {
       assertFalse(doc.containsKey(absent), "$absent should have been omitted, got: ${doc[absent]}")
     }
     assertTrue(doc.containsKey("subject"))
@@ -140,11 +150,13 @@ class AuthorizationCodeStoreTest {
       codeChallenge = "challenge",
       codeChallengeMethod = "S256",
       nonce = "n-1",
+      subjectUris = setOf("u", "urn:sempods:e:u"),
     )
     val entry = requireNotNull(store.consume(code))
 
     assertEquals(setOf("openid"), entry.scopes)
     assertEquals("challenge", entry.codeChallenge)
     assertEquals("n-1", entry.nonce)
+    assertEquals(setOf("u", "urn:sempods:e:u"), entry.subjectUris)
   }
 }

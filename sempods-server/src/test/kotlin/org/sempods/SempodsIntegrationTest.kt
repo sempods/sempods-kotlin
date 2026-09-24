@@ -25,6 +25,7 @@ import org.eclipse.jetty.server.Server
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
 import java.net.URI
+import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import java.time.Instant
@@ -213,6 +214,16 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   }
 
   private fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
+
+  /**
+   * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
+   *
+   * One copy, because an owner-installed `client_id` carries a `:` of its own: a test that joins
+   * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug
+   * in the store.
+   */
+  protected fun basicHeader(clientId: String, secret: String): String =
+    "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
 
   /**
    * Deletes a pod the way anything deletes a pod: `DELETE /_system/admin/pods/{pod}` with the host

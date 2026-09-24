@@ -453,6 +453,9 @@ class PodConsentFlow @Inject internal constructor(
       codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       via = PodCodeIssuance.INSTALLATION,
       consentGeneration = decision.generation,
+      // Recorded here because here is where it is still known. `PodClientRegistration` asks
+      // `isOwner` again against this set, an hour later and with no browser in front of it.
+      subjectUris = identity.allUris.toSet(),
       session = session,
     ).asResult()
   }

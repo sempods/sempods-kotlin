@@ -70,16 +70,6 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/token"
 
   /**
-   * RFC 6749 §2.3.1 `client_secret_basic`: form-urlencode `client_id` and
-   * `client_secret`, join with `:`, base64-encode.
-   */
-  private fun basicHeader(clientId: String, secret: String): String {
-    val encId = java.net.URLEncoder.encode(clientId, Charsets.UTF_8)
-    val encSecret = java.net.URLEncoder.encode(secret, Charsets.UTF_8)
-    return "Basic " + Base64.getEncoder().encodeToString("$encId:$encSecret".toByteArray(Charsets.UTF_8))
-  }
-
-  /**
    * Register a service client with the given scopes and mint a `client_credentials`
    * access token via `{pod}/_system/auth/token` — the real client_credentials token path.
    */
@@ -343,7 +333,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `delete of a manage root revokes the anchored service-client registration`() {
+  fun `delete of a manage root revokes what the service client held on it`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -361,18 +351,23 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     assertEquals(204, deleteResponse.statusCode)
 
-    // the registration is revoked with its anchor — the secret must not mint new tokens
-    // for the deleted root (manage surviving descendants, recreate the root)
-    assertNull(
-      podServiceClientDao.findByClientId(podId, "notes-app"),
-      "service-client registration anchored at the deleted root must be revoked",
+    // The authority is revoked with its anchor — the secret must not mint new tokens for the
+    // deleted root (manage surviving descendants, recreate the root). The registration itself
+    // stays, holding a credential and nothing else.
+    assertEquals(
+      emptySet(),
+      assertNotNull(
+        podServiceClientDao.findByClientId(podId, "notes-app"),
+        "the registration outlives the context it was anchored at",
+      ).scopes,
     )
     val tokenResponse = http.preparePost(tokenUrl(pod.name))
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
       .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
       .setBody("grant_type=client_credentials")
       .execute()
-    assertEquals(401, tokenResponse.statusCode, "revoked client must not mint tokens; body=${tokenResponse.responseBody}")
+    assertEquals(400, tokenResponse.statusCode, "a client with no scopes mints nothing; body=${tokenResponse.responseBody}")
+    assertTrue("invalid_scope" in tokenResponse.responseBody, tokenResponse.responseBody)
   }
 
   @Test

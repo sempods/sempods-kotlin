@@ -77,17 +77,30 @@ class PodAuthEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @HeaderParam("User-Agent") userAgent: String?,
     @HeaderParam("X-Forwarded-For") forwardedFor: String?,
-    request: Map<String, Any?>?,
-  ): Response = PodRegistrationResponses.render(
-    podClientRegistration.register(
-      pod = fetchPodOrThrow(pod).hosted,
-      request = PodRegistrationRequest(
-        metadata = request,
-        userAgent = userAgent,
-        forwardedFor = forwardedFor,
-      ),
-    ),
-  )
+    // The raw body, so that a body which is not JSON earns RFC 7591's `invalid_client_metadata`
+    // — an answer a registering client can act on.
+    body: String?,
+  ): Response {
+    val podDbo = fetchPodOrThrow(pod)
+    // Asked before the body is read, so that a caller which presented a credential hears about the
+    // credential whatever its body looks like. It costs the unauthenticated profile nothing: with
+    // no `Authorization` header this returns before anything is verified.
+    val caller = resolveBearerOrNull(podDbo)
+    val result = when (val read = PodRegistrationMessages.read(body)) {
+      is PodRegistrationRead.Unreadable -> read.refusal
+      is PodRegistrationRead.Metadata -> podClientRegistration.register(
+        pod = podDbo.hosted,
+        request = PodRegistrationRequest(
+          client = read.client,
+          raw = read.raw,
+          userAgent = userAgent,
+          forwardedFor = forwardedFor,
+          caller = caller,
+        ),
+      )
+    }
+    return PodRegistrationResponses.render(result) { error -> buildBearerChallenge(podDbo.name, error) }
+  }
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────
 
