@@ -10,9 +10,7 @@ package org.sempods.client
  * | `error=access_denied` | false | empty | `access_denied` — refused, nothing ticked, or not grantable; the pod does not say which |
  * | `error=invalid_scope` or `invalid_request` | false | empty | the error code: the request or the form was wrong |
  *
- * **A refusal is not a failed installation.** The registration and its secret stand, holding no
- * grants, and the owner can grant later through another consent. [SempodsPodServiceClients] has the
- * whole sequence.
+ * A refusal leaves the service installed ([SempodsPodServiceClients]).
  */
 class SempodsGrantOutcome private constructor(
   /** The granted scopes, `<context-iri>#read` and the like. Empty when [isGranted] is false. */

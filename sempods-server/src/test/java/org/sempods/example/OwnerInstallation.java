@@ -48,16 +48,9 @@ public final class OwnerInstallation {
   }
 
   /**
-   * The outcomes of an installation, apart. {@code service} is always there: once registered, the
-   * service is installed and its secret stored, whatever the grant consent does.
-   *
-   * <ul>
-   *   <li>{@code grants} is what the owner answered, a refusal included. It is null when no contexts
-   *       were asked for, and when the consent did not finish.
-   *   <li>{@code grantsUnfinished} says why the consent did not finish: the browser did not come back,
-   *       or came back with an answer that was not this program's. The service holds no grants, and
-   *       the owner can grant them later.
-   * </ul>
+   * An installation, and what became of its grant consent. {@code grants} is the owner's answer, and
+   * null when no contexts were asked for or the consent did not finish; {@code grantsUnfinished} says
+   * why it did not. The service is installed either way.
    */
   public record Installation(SempodsServiceClientRegistration service, SempodsGrantOutcome grants, IOException grantsUnfinished) {}
 

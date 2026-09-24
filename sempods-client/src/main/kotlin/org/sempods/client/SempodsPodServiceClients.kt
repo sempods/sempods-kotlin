@@ -23,24 +23,15 @@ import java.time.Instant
  * | its secret | until it is rotated or the registration is revoked | answered once, by [register] or [rotateSecret] |
  *
  * ```java
- * // 1. The owner approves the installation: SempodsPodAuthorization, then
- * SempodsTokenResponse installer = tokens.authorizationCode(clientId, code, redirectUri, pkce.getVerifier()).getBody();
- * // 2. Register, and store the secret before anything else can fail.
- * var installing = new SempodsPodServiceClients(new SempodsSession(alice, SempodsRequestAuth.bearer(installer.getAccessToken())), client);
+ * var installing = new SempodsPodServiceClients(new SempodsSession(alice, SempodsRequestAuth.bearer(installerToken)), client);
  * SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
- * store(service.getClientId(), service.getClientSecret());
- * // 3. The owner grants it contexts in a second browser round trip.
- * HttpUrl grant = installing.grantConsentUrl(clientId, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
- * SempodsGrantOutcome outcome = SempodsGrantOutcome.readQuery(redirectQuery, state);
- * // 4. The service mints its own tokens: SempodsPodTokens.clientCredentials.
+ * HttpUrl grant = installing.grantConsentUrl(installer, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
  * ```
  *
- * `docs/pod-client.md` §"Installing a service client" has the whole program, with the loopback
- * redirect.
+ * `docs/pod-client.md` §"Installing a service client" has the whole sequence.
  *
- * **Two outcomes, reported apart.** A registration that succeeded is an installation, whatever the
- * grant consent answers: a refused or abandoned consent leaves a service with a secret and no grants,
- * which can be granted later, and an installation with no grants is a valid one.
+ * **A registration is an installation**, whatever the grant consent answers. A refused, abandoned or
+ * unreadable consent leaves a service with its secret and no grants, which the owner can grant later.
  *
  * **Built on a session of its own**, whose credential is the authority the operation needs: the
  * installer's bearer for [register], a `service-clients:manage` bearer for the rest. Neither is a pod

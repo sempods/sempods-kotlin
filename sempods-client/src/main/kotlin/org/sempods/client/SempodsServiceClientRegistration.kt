@@ -6,9 +6,8 @@ import java.time.Instant
  * A service client the pod just registered for an installation (RFC 7591 §3.2.1), with its secret.
  * Members this class does not name are ignored.
  *
- * **The secret is in this object and nowhere else.** The pod keeps only a one-way hash of it, and
- * never answers it again. Store it before doing anything that can still fail. It stays valid until it
- * is rotated or the registration is revoked. [toString] leaves it out.
+ * **The pod never answers [clientSecret] again**: store it before anything that can still fail.
+ * [toString] leaves it out.
  */
 class SempodsServiceClientRegistration private constructor(
   /** The identifier the pod assigned, `svc:…` on a sempods pod. It authenticates with [clientSecret]. */

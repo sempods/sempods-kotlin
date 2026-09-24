@@ -292,50 +292,27 @@ var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
 
 ### Installing a service client
 
-A pod owner installs a service client from a program in two browser round trips, and the service
-then runs on its own secret. The protocol is [`auth/oauth.md`](auth/oauth.md#installing-a-service-client)'s;
-the lifetimes, what may be repeated and every refusal are `SempodsPodServiceClients`' KDoc.
-
-1. **Authorize** a public client of the program's own for `service-clients:install`, with
-   Authorization Code + PKCE (`SempodsPodAuthorization`, `SempodsPodTokens.authorizationCode`).
-   The token registers once and reaches no data.
-2. **Register** with it (`SempodsPodServiceClients.register`), and **store the secret** before
-   anything else: the pod never answers it again.
-3. **Grant**: the owner approves the service's contexts at `grantConsentUrl`, and
-   `SempodsGrantOutcome` reads the answer. A refusal, or a consent that never comes back, leaves a
-   registered service with no grants, which is an installation, and the program reports it as one.
-4. **Run as the service** through `clientCredentials`, as in §"A service token".
-
-Listing, rotating, narrowing and revoking take a `service-clients:manage` authorization of their
-own, through the same round trip as step 1.
-
-Every round trip comes back to one loopback redirect, which the program serves itself — the client
-has no HTTP server. The worked example is
-[`OwnerInstallation.java`](../sempods-server/src/test/java/org/sempods/example/OwnerInstallation.java);
-`OwnerInstallationExampleHttpTest` runs it against a pod, as the owner's browser. Its core:
+A program installs a service client for a pod owner in two browser round trips, and the service then
+mints its own tokens (§"A service token"). The protocol is
+[`auth/oauth.md`](auth/oauth.md#installing-a-service-client)'s; the lifetimes, what may be sent again
+and the refusals are `SempodsPodServiceClients`' KDoc.
 
 ```java
-var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
-String installer = authorization.registerClient("Service installer", List.of("http://127.0.0.1/callback")).getBody().getClientId();
-// Kept: registering again on every run spends the pod's registration budget.
-
-SempodsPkce pkce = SempodsPkce.generate();
-browser.open(authorization.authorizationUrl(installer, loopback.redirectUri(), "service-clients:install", state, pkce));
-var answer = authorization.readRedirect(loopback.nextQuery(), state);
-String token = new SempodsPodTokens(new SempodsSession(pod), client)
-    .authorizationCode(installer, answer.getCode(), loopback.redirectUri(), pkce.getVerifier()).getBody().getAccessToken();
+browser.open(authorization.authorizationUrl(installer, redirectUri, "service-clients:install", state, pkce));
+String code = authorization.readRedirect(query, state).getCode();
+String token = tokens.authorizationCode(installer, code, redirectUri, pkce.getVerifier()).getBody().getAccessToken();
 
 var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
 SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
 store.save(service.getClientId(), service.getClientSecret());
 
-try {
-  browser.open(installing.grantConsentUrl(installer, loopback.redirectUri(), grantState, service.getClientId(), scopes));
-  SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(loopback.nextQuery(), grantState);
-} catch (IOException unfinished) {
-  // Installed all the same: the service holds no grants, and the owner can grant them later.
-}
+browser.open(installing.grantConsentUrl(installer, redirectUri, grantState, service.getClientId(), scopes));
+SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(grantQuery, grantState);
 ```
+
+The client has no HTTP server: the program serves its own loopback redirect.
+[`OwnerInstallation.java`](../sempods-server/src/test/java/org/sempods/example/OwnerInstallation.java)
+is the whole program, and `OwnerInstallationExampleHttpTest` runs it against a pod.
 
 ### Asynchronous use
 
