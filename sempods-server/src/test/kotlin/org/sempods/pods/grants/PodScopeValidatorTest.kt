@@ -87,10 +87,10 @@ class PodScopeValidatorTest {
 
   @Test
   fun `should accept the installer scope as a feature scope`() {
-    val result = validator.validate(scope = SERVICE_CLIENTS_SCOPE, podBaseUrl = podBaseUrl)
+    val result = validator.validate(scope = SERVICE_CLIENTS_INSTALL_SCOPE, podBaseUrl = podBaseUrl)
 
     val feature = assertIs<ScopeValidationResult.Feature>(result)
-    assertEquals(SERVICE_CLIENTS_SCOPE, feature.scope)
+    assertEquals(SERVICE_CLIENTS_INSTALL_SCOPE, feature.scope)
   }
 
   @Test
@@ -99,7 +99,7 @@ class PodScopeValidatorTest {
     // classification that reached for the substring instead would silently widen a context grant
     // into an installation authority.
     val result = validator.validate(
-      scope = "https://sempods.org/my-pod/_system/contexts/$SERVICE_CLIENTS_SCOPE#read",
+      scope = "https://sempods.org/my-pod/_system/contexts/$SERVICE_CLIENTS_INSTALL_SCOPE#read",
       podBaseUrl = podBaseUrl,
     )
 

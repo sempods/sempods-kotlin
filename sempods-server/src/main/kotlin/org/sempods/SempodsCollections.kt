@@ -79,6 +79,12 @@ internal object SempodsCollections {
   /** The right to register one service client, spent on use — `(jti)`. */
   const val OAUTH_INSTALLATION_AUTHORITIES = "oauth.installationAuthorities"
 
+  /** The right to manage a pod's service clients, read for a bearer's hour — `(jti)`. */
+  const val OAUTH_MANAGEMENT_AUTHORITIES = "oauth.managementAuthorities"
+
+  /** One grant consent for one service client, once. */
+  const val OAUTH_SERVICE_CLIENT_GRANT_TRANSACTIONS = "oauth.serviceClientGrantTransactions"
+
   /** Authorization codes. Owned by `:sempods-auth-core`; named there so all three services agree. */
   const val OAUTH_AUTH_CODES = SempodsAuthCoreModule.AUTHORIZATION_CODES
 
@@ -108,6 +114,8 @@ internal object SempodsCollections {
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,
     OAUTH_INSTALLATION_AUTHORITIES,
+    OAUTH_MANAGEMENT_AUTHORITIES,
+    OAUTH_SERVICE_CLIENT_GRANT_TRANSACTIONS,
     OAUTH_AUTH_CODES,
     OAUTH_REAUTH_CHALLENGES,
   )

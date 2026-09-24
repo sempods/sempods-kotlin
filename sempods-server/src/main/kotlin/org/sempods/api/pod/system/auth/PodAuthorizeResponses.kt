@@ -8,14 +8,20 @@ import org.sempods.auth.PodBrowserCookies
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
 import org.sempods.pods.oauth.flows.PodConsentRefusal
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodConsentScreen
+import org.sempods.pods.oauth.flows.PodServiceClientGrantRefusal
+import org.sempods.pods.oauth.flows.PodServiceClientGrantResult
+import org.sempods.pods.oauth.flows.PodServiceClientGrantScreen
 import java.net.URI
 import java.time.Duration
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 /**
  * Every answer the pod's two browser routes give — `GET authorize` and the consent submission it
@@ -71,6 +77,73 @@ internal object PodAuthorizeResponses {
 
     is PodConsentResult.Refused -> refusal(result.reason)
   }
+
+  /** The grant consent's answers. */
+  fun render(
+    result: PodServiceClientGrantResult,
+    podName: String,
+    cookies: PodBrowserCookies,
+    templates: TemplateRenderer,
+    config: SempodsConfig,
+  ): Response = when (result) {
+    is PodServiceClientGrantResult.Screen ->
+      Response.ok(grantPage(result.screen, templates, config), MediaType.TEXT_HTML).build()
+
+    is PodServiceClientGrantResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
+      .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
+      .build()
+
+    is PodServiceClientGrantResult.Granted -> {
+      // Overwriting, never appending, for the reason [codeRedirect] gives.
+      var uri = UrlUtil.addOrUpdateQueryParameter(URI(result.target.uri), "result", GRANTED)
+      uri = UrlUtil.addOrUpdateQueryParameter(uri, "scope", result.scopes.sorted().joinToString(" "))
+      result.state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
+      Response.seeOther(uri).build()
+    }
+
+    is PodServiceClientGrantResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+
+    is PodServiceClientGrantResult.Refused -> when (result.reason) {
+      PodServiceClientGrantRefusal.MISSING_REDIRECT_URI -> refusal(PodAuthorizeRefusal.MISSING_REDIRECT_URI)
+      PodServiceClientGrantRefusal.UNREGISTERED_CLIENT -> refusal(PodAuthorizeRefusal.UNREGISTERED_CLIENT)
+      PodServiceClientGrantRefusal.MALFORMED_CLIENT_ID -> refusal(PodAuthorizeRefusal.MALFORMED_CLIENT_ID)
+      PodServiceClientGrantRefusal.REDIRECT_URI_NOT_ALLOWED -> refusal(PodAuthorizeRefusal.REDIRECT_URI_NOT_ALLOWED)
+      PodServiceClientGrantRefusal.IDENTITY_PROVIDER_UNAVAILABLE -> refusal(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
+      PodServiceClientGrantRefusal.SESSION_EXPIRED -> text(401, "session expired — please open the grant again")
+      PodServiceClientGrantRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please open the grant again")
+    }
+  }
+
+  /** The grant dialog. Each scope shows as its context path relative to the pod, and the permission. */
+  private fun grantPage(
+    screen: PodServiceClientGrantScreen,
+    templates: TemplateRenderer,
+    config: SempodsConfig,
+  ): String = templates.render(
+    "service-client-grant", mapOf(
+      "grantAction" to "${config.apiBaseUrl}${screen.podName}/_system/auth/grant",
+      "requesterName" to screen.requesterName,
+      "serviceClientId" to screen.serviceClientId,
+      "serviceLabel" to screen.serviceLabel,
+      "registeredAt" to DateTimeFormatter.ISO_INSTANT.format(screen.registeredAt.truncatedTo(ChronoUnit.SECONDS)),
+      "requested" to screen.requested.map { GrantRow.of(it, screen.podBaseUrl) },
+      "held" to screen.held.map { GrantRow.of(it, screen.podBaseUrl) },
+      "csrfToken" to screen.csrfToken,
+      "webId" to screen.webId,
+    ))
+
+  /** One scope as the grant dialog shows it. Read by the template by name. */
+  internal data class GrantRow(val scope: String, val context: String, val permission: String) {
+    companion object {
+      fun of(scope: String, podBaseUrl: String): GrantRow {
+        val context = scope.substringBeforeLast('#')
+        val base = podBaseUrl.trimEnd('/') + "/"
+        return GrantRow(scope, context.removePrefix(base).ifEmpty { context }, scope.substringAfterLast('#'))
+      }
+    }
+  }
+
+  private const val GRANTED = "granted"
 
   /**
    * Where the code goes, with `state` beside it exactly as
@@ -155,7 +228,7 @@ internal object PodAuthorizeResponses {
       "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
       "isOwner" to screen.isOwner,
       // The owner may build a context, on a dialog that is about contexts. The installation screen
-      // is not: `PodConsentFlow.installation` refuses a `new_context` it is posted, so the form and
+      // is not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
       // the script behind it would only offer work that cannot land.
       "contextCreationAvailable" to (screen.isOwner && screen.privilegedFeatures.isEmpty()),
       "publicContexts" to screen.publicContexts,
@@ -171,8 +244,10 @@ internal object PodAuthorizeResponses {
       "disconnectAvailable" to screen.disconnectAvailable,
       // A flag per feature: the template's sentence says what this one allows, and a generic one
       // over a list would say nothing a person could weigh.
-      "installerRequested" to (SERVICE_CLIENTS_SCOPE in screen.privilegedFeatures),
-      "installerScope" to SERVICE_CLIENTS_SCOPE,
+      "installerRequested" to (SERVICE_CLIENTS_INSTALL_SCOPE in screen.privilegedFeatures),
+      "installerScope" to SERVICE_CLIENTS_INSTALL_SCOPE,
+      "managementRequested" to (SERVICE_CLIENTS_MANAGE_SCOPE in screen.privilegedFeatures),
+      "managementScope" to SERVICE_CLIENTS_MANAGE_SCOPE,
     ))
 
   /**

@@ -45,6 +45,11 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
      * is a bearer, so without this a captured login URL completes in whoever's browser opens it.
      */
     val browserPin: String,
+    /**
+     * The service client a parked grant consent is about; `null` for a parked `/authorize`, and on
+     * every row from before the field existed.
+     */
+    val serviceClient: String? = null,
   )
 
   private val states = OneTimeStore(
@@ -63,6 +68,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
       put("codeVerifier", it.codeVerifier)
       put("nonce", it.nonce)
       put("browserPin", it.browserPin)
+      putNotNull("serviceClient", it.serviceClient)
     },
     read = {
       Pending(
@@ -77,6 +83,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
         codeVerifier = getString("codeVerifier") ?: return@OneTimeStore null,
         nonce = getString("nonce") ?: return@OneTimeStore null,
         browserPin = getString("browserPin") ?: return@OneTimeStore null,
+        serviceClient = getString("serviceClient"),
       )
     },
   )

@@ -53,6 +53,10 @@ consumes the row, so the authority the token carries is spent — and `findOneAn
 "once" mean once when two registration calls arrive together. Its TTL is the access token's own
 hour, derived from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS` so the row cannot outlive the bearer.
 
+`oauth.managementAuthorities` has the same row for a management token, read with `peek` for the
+bearer's hour. `oauth.serviceClientGrantTransactions` is one grant consent, consumed on its answer
+like `oauth.consentTransactions`.
+
 ## Two collections with no field order, and one filter that misses rows
 
 Both are instances of a rule stated in the document contract, and both are this server's.

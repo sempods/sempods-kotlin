@@ -49,17 +49,17 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   /** A second URI for the same person, the kind only sempods-auth can resolve. */
   private val alias = "https://id.test/e/${randomId()}"
 
-  /** The consent the authority hangs off, and the generation it is granted under. */
+  /** The consent the authority hangs off, and how often the app had been disconnected by then. */
   private fun approve(pod: PodId = this.pod): Long =
-    consentDecisions.recordWithoutLifetime(pod = pod, appId = clientId, webId = webId).generation
+    consentDecisions.recordWithoutLifetime(pod = pod, appId = clientId, webId = webId).disconnects
 
-  private fun record(jti: String, pod: PodId = this.pod, generation: Long = approve(pod)) {
+  private fun record(jti: String, pod: PodId = this.pod, disconnects: Long = approve(pod)) {
     authorities.record(
       pod = pod,
       jti = jti,
       clientId = clientId,
       webId = webId,
-      generation = generation,
+      disconnects = disconnects,
       subjectUris = setOf(webId, alias),
     )
   }
@@ -85,7 +85,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   @Test
   fun `a row a pre-upgrade node wrote is still worth its one registration`() {
     // The rolling deploy: an old node redeemed the code and wrote the shape it knew — no
-    // generation, no URI set. Refusing it would spend an authority the owner is still holding,
+    // disconnect count, no URI set. Refusing it would spend an authority the owner is still holding,
     // for a flow that node could not serve anyway.
     val jti = randomId()
     db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
@@ -100,18 +100,30 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
 
     val authority = assertNotNull(authorities.consume(pod, jti), "an owner mid-deploy keeps their install")
     assertEquals(setOf(webId), authority.subjectUris, "the person it names is the one it recorded")
-    assertNull(authority.generation, "and it says it cannot be compared")
+    assertNull(authority.disconnects, "and it says it cannot be compared")
   }
 
   @Test
-  fun `an app the person has answered again since holds nothing`() {
-    // Disconnecting an app raises the generation, and an installer token outlives that by up to
-    // its hour. Checked here rather than at issuance, so the bearer dies with the consent.
+  fun `an app the person has disconnected since holds nothing`() {
+    // An installer token outlives a disconnect by up to its hour. Checked here rather than at
+    // issuance, so the bearer dies with the app's access.
     val jti = randomId()
     record(jti)
+    consentDecisions.recordDisconnect(pod = pod, appId = clientId, webId = webId)
+
+    assertNull(authorities.consume(pod, jti), "the authority goes when the app is disconnected")
+  }
+
+  @Test
+  fun `another consent for the same app leaves the authority standing`() {
+    // A management consent, an ordinary one or a forced review moves the generation and removes
+    // nothing. Binding to the generation made one privileged authority cancel the other.
+    val jti = randomId()
+    record(jti)
+    consentDecisions.recordWithoutLifetime(pod = pod, appId = clientId, webId = webId)
     consentDecisions.bumpGeneration(pod = pod, appId = clientId, webIds = listOf(webId))
 
-    assertNull(authorities.consume(pod, jti), "the authority goes with the consent it was granted under")
+    assertNotNull(authorities.consume(pod, jti))
   }
 
   @Test
@@ -142,7 +154,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     val pool = Executors.newFixedThreadPool(callers)
     try {
       val attempts = (1..callers).map {
-        pool.submit<PodInstallationAuthorityStore.Authority?> {
+        pool.submit<PrivilegedAuthorityRows.Authority?> {
           ready.countDown()
           go.await()
           authorities.consume(pod, jti)

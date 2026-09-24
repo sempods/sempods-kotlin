@@ -11,7 +11,6 @@ import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
 import org.junit.jupiter.api.Test
 import java.net.URI
-import java.net.URLEncoder
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -200,5 +199,4 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
 
   private fun quoted(state: String?): String = state?.let { "'$it'" } ?: "(absent)"
 
-  private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
 }

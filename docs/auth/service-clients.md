@@ -42,20 +42,24 @@ Either way:
   stored only as a bcrypt hash on the pod side. Unknown-clientId
   requests run a dummy bcrypt verification so timing does not leak
   which clientIds exist.
-- Scopes are fixed at registration and restricted: only per-context
+- Scopes are restricted: only per-context
   scopes (`<context-iri>#read|write|manage`) are accepted. An OIDC scope
   is refused, and so is every feature scope — `public-read` and
-  `service-clients` alike. A service client is confined to the
+  `service-clients:install` alike. A service client is confined to the
   subtree its `manage` root names, and that subtree can never be all of
   them: a `manage` root is refused when it sits at or above the context
   namespace `<pod>/_system/contexts`, because the slash-delimited rule
   would make any ancestor of it match every context on the pod. That
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
+- An operator-provisioned client holds the scope it was provisioned with.
+  An installed one starts with none; the owner grants it contexts at the
+  [grant consent](oauth.md#granting-it-contexts) and takes them away
+  [below](#managing-an-installed-service-client).
 - The scope set may be empty: the registration holds a credential and no
   authority, and the token endpoint answers it `invalid_scope`. That is
-  an installation between its two consents, and a registration whose last
-  anchor was deleted.
+  an installation between its two consents, one whose last grant was
+  removed, and a registration whose last anchor was deleted.
 
 ## Sandbox via manage-root
 
@@ -128,6 +132,35 @@ The caller keeps its own bookkeeping — the encrypted credential row,
 its internal user ids (which must never reach the pod: sempods knows
 persons only as WebID URIs) and the health decision. None of that is the
 pod's business, and none of it is defined here.
+
+## Managing an installed service client
+
+The owner manages the registrations on their pod with a bearer carrying
+`service-clients:manage` — [`oauth.md`](oauth.md#managing-service-clients)
+is how one is granted. The client id travels path-encoded (`svc%3A…`).
+
+| Route | What it does |
+|---|---|
+| `GET {pod}/_system/auth/service-clients` | Every registration: `client_id`, `client_name`, `client_id_issued_at`, `last_used_at`, `scope`, `origin`. Never a secret |
+| `POST …/service-clients/{clientId}/secret` | A new `client_secret`, answered once with `Cache-Control: no-store`. `409` when another rotation landed in between |
+| `DELETE …/service-clients/{clientId}/grants?scope=…` | Takes the named scopes away and answers what is left. Removing the last one keeps the registration |
+| `DELETE …/service-clients/{clientId}` | Removes the registration. The contexts it wrote to stay |
+
+- **`last_used_at`** is when the client last minted a token. A secret does
+  not expire, so this is what makes a forgotten installation visible.
+- **`origin`** is `installed` for a `svc:` client and `provisioned` for an
+  operator's. A provisioned one is listed and refused every change (`403`).
+- Any other bearer, an installer's included, is `403 insufficient_scope`.
+
+What each change does to tokens the service already holds:
+
+| Change | The old secret | A token already minted |
+|---|---|---|
+| Grant removed | Still mints, for what is left | Reaches only what is left, from its next request |
+| Rotated | Stops minting at once | Keeps its grants until it expires (≤ 10 minutes) |
+| Revoked | Stops minting at once | Authenticates until it expires and reaches no context |
+
+Where a secret may have leaked, revoke the client: its tokens then reach nothing.
 
 ## When not to use a service client
 
@@ -212,8 +245,9 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   way the collections were moved between databases. Skipping it is safe and
   leaves a fixed floor of rows that never expire; the trail is bounded from
   the change forward either way.
-- Secret rotation is manual (unregister + re-register); overlapping-
-  validity rotation is open.
+- An operator-provisioned client rotates by provisioning again; an
+  installed one at `POST …/secret`. Neither overlaps validity: the old
+  secret stops at once.
 - Clients are expected to handle a 401 by re-minting; a transparent
   single-retry in a client's token provider is still open (tracked as
   `TODO` in code).

@@ -17,8 +17,6 @@ import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -175,5 +173,4 @@ class PodResourceRevocationHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $token")
       .execute()
 
-  private fun enc(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
 }

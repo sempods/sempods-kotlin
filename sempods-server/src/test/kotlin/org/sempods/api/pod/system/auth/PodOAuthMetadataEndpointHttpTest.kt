@@ -82,7 +82,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     // grants rather than scopes, and `offline_access` is on it because a client that reads only
     // this document has no other way to learn the extension exists. `openid` is not: no `id_token`.
     assertEquals(
-      listOf("public-read", "service-clients", "offline_access"),
+      listOf("public-read", "service-clients:install", "service-clients:manage", "offline_access"),
       body["scopes_supported"],
       "scopes_supported must name the feature scopes and the refresh-token extension",
     )
@@ -160,7 +160,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       body["token_endpoint_auth_methods_supported"],
     )
     assertEquals(
-      listOf("public-read", "service-clients", "offline_access"),
+      listOf("public-read", "service-clients:install", "service-clients:manage", "offline_access"),
       body["scopes_supported"],
       "the AS metadata must name the same scope set as the protected-resource metadata",
     )

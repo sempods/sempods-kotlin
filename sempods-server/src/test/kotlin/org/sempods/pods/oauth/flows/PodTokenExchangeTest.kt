@@ -12,7 +12,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.PodId
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -418,11 +418,11 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   @Test
   fun `an installation code is answered without a refresh token`() {
     val authorized = Authorized()
-    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE))
 
     val result = issued(authorized.redeem(code))
 
-    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), result.scopes)
+    assertEquals(setOf(SERVICE_CLIENTS_INSTALL_SCOPE), result.scopes)
     assertNull(result.refreshToken, "an authority that could be renewed would not be one-shot")
     assertEquals(
       emptySet(),
@@ -437,7 +437,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     // an answer recorded by some earlier ordinary authorization of the same app cannot reach in and
     // make this authority renewable.
     val authorized = Authorized()
-    val code = authorized.code(authorized.answer(durable = true), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+    val code = authorized.code(authorized.answer(durable = true), scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE))
 
     val result = issued(authorized.redeem(code))
 
@@ -453,7 +453,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val authorized = Authorized()
     val code = authorized.code(
       authorized.answer(durable = false),
-      scopes = setOf(SERVICE_CLIENTS_SCOPE, PUBLIC_READ_SCOPE),
+      scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE, PUBLIC_READ_SCOPE),
     )
 
     val refusal = refused(authorized.redeem(code))
@@ -465,7 +465,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   @Test
   fun `the authority an installation token carries is spent once`() {
     val authorized = Authorized()
-    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE))
 
     val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
 
@@ -485,7 +485,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     // must still name somebody, because registration compares the pod's owner against this set
     // and consumes the authority before it asks.
     val authorized = Authorized()
-    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE))
 
     val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
 
@@ -502,7 +502,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val alias = "https://id.test/e/${randomId()}"
     val code = authorized.code(
       authorized.answer(durable = false),
-      scopes = setOf(SERVICE_CLIENTS_SCOPE),
+      scopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE),
       subjectUris = setOf(authorized.webId, alias),
     )
 
@@ -526,13 +526,13 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   fun `a refresh row carrying an installation authority loses it when it rotates`() {
     // No path in this server writes such a row — an installation seeds no family. This answers for
     // one written before the rule, and it is the second half of the promise the code exchange makes.
-    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE))
+    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE))
     val seeded = refreshTokenStore.issueNewFamily(
       pod = authorized.podId,
       podName = authorized.pod.name,
       clientId = clientId,
       webId = authorized.webId,
-      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE),
+      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE),
       lifetime = PodRefreshTokenStore.Lifetime.SESSION,
     )
 
@@ -543,17 +543,17 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
   @Test
   fun `a refresh cannot be down-scoped to an installation authority`() {
-    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE))
+    val authorized = Authorized(grants = setOf(contextScope, PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE))
     val seeded = refreshTokenStore.issueNewFamily(
       pod = authorized.podId,
       podName = authorized.pod.name,
       clientId = clientId,
       webId = authorized.webId,
-      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_SCOPE),
+      scopes = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE),
       lifetime = PodRefreshTokenStore.Lifetime.SESSION,
     )
 
-    val refusal = refused(authorized.refresh(seeded.plaintext, scope = SERVICE_CLIENTS_SCOPE))
+    val refusal = refused(authorized.refresh(seeded.plaintext, scope = SERVICE_CLIENTS_INSTALL_SCOPE))
 
     assertEquals(OAuthErrorCode.INVALID_SCOPE, refusal.code)
   }

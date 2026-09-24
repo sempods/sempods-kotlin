@@ -19,7 +19,7 @@ import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextsDao
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.toPodId
@@ -2005,7 +2005,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
   }
 
-  private fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
   @Test
   fun `a consent token from one person is not spendable by another`() {
@@ -5098,7 +5097,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     pod: org.sempods.pods.mongo.persist.PodDbo,
     ownerWebId: String,
     client: String = testClientId,
-    scope: String = SERVICE_CLIENTS_SCOPE,
+    scope: String = SERVICE_CLIENTS_INSTALL_SCOPE,
     alsoKnownAs: List<String> = emptyList(),
   ): TestHttpResponse = http.prepareGet(authorizeUrl(pod.name))
     .addQueryParam("response_type", "code")
@@ -5230,7 +5229,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(checkNotNull(pod.id), pod.name, "notes")
 
     for (beside in listOf("${contextUri(pod.name, "notes")}#write", "public-read")) {
-      val response = installationPage(pod, ownerWebId, scope = "$SERVICE_CLIENTS_SCOPE $beside")
+      val response = installationPage(pod, ownerWebId, scope = "$SERVICE_CLIENTS_INSTALL_SCOPE $beside")
 
       assertEquals(303, response.statusCode, response.responseBody)
       val location = checkNotNull(response.getHeader("Location"))
@@ -5303,10 +5302,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
 
     val tokens = approveInstallation(pod, ownerWebId)
-    assertEquals(SERVICE_CLIENTS_SCOPE, tokens["scope"])
+    assertEquals(SERVICE_CLIENTS_INSTALL_SCOPE, tokens["scope"])
     assertNull(tokens["refresh_token"], "a one-shot authority cannot be renewed")
     assertEquals(
-      SERVICE_CLIENTS_SCOPE,
+      SERVICE_CLIENTS_INSTALL_SCOPE,
       SignedJWT.parse(tokens["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
     )
 
@@ -5332,7 +5331,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", signIn(pod.name, ownerWebId, alsoKnownAs).cookie)
       .setBody(
         "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
-          "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_SCOPE)}",
+          "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_INSTALL_SCOPE)}",
       )
       .setFollowRedirect(false).execute()
     assertEquals(303, submitted.statusCode, submitted.responseBody)
@@ -5562,7 +5561,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("{}")
       .execute()
     assertEquals(403, refused.statusCode, refused.responseBody)
-    assertTrue(SERVICE_CLIENTS_SCOPE in refused.responseBody, refused.responseBody)
+    assertTrue(SERVICE_CLIENTS_INSTALL_SCOPE in refused.responseBody, refused.responseBody)
 
     // An ordinary bearer gets past the gate and is stopped by the request body instead, so the
     // refusal above is the scope rather than a route nobody can reach.

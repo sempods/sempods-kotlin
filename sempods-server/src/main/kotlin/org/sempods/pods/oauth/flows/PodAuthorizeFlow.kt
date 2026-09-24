@@ -4,7 +4,6 @@ import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PersonIdentity
-import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
@@ -13,7 +12,6 @@ import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.Redirectable
-import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodFacade
@@ -52,8 +50,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val consentDecisionStore: PodConsentDecisionStore,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentTransactionStore: ConsentTransactionStore,
-  private val identityProvider: PodIdentityProvider,
-  private val loginStateStore: PodLoginStateStore,
+  private val signIn: PodSignIn,
   private val podScopeValidator: PodScopeValidator,
 ) {
 
@@ -187,6 +184,13 @@ class PodAuthorizeFlow @Inject internal constructor(
           "'$asked' cannot be combined with $PUBLIC_READ_SCOPE or a context scope", clientState,
         )
       }
+      // One per authorization: a bearer holding both would be an installer that reaches every
+      // service's secret.
+      if (privilegedRequested.size > 1) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_SCOPE, "'$asked' are granted one at a time", clientState,
+        )
+      }
     }
 
     // ── R1: forced re-authentication ──────────────────────────────────────
@@ -246,20 +250,12 @@ class PodAuthorizeFlow @Inject internal constructor(
       if ("none" in promptValues) {
         return failed(redirectTarget, OAuthErrorCode.LOGIN_REQUIRED, "user is not authenticated", clientState)
       }
-      // Federate the login to the id-server as an ordinary OIDC relying party. The whole request
-      // stays here, under a `state` this server minted; what comes back through the browser is a
-      // single-use code, and the identity is fetched over a back channel with a verifier that
-      // never left this process.
+      // Federate the login to the id-server as an ordinary OIDC relying party — [PodSignIn].
       //
       // It used to put this request's own URI into a `return_to` parameter and let the id-server
       // append an identity token to it — an address the id-server accepted from anyone, which is
       // what made that token collectable by whoever asked.
-      val relyingParty = try {
-        identityProvider.relyingParty(pod.name)
-      } catch (e: Exception) {
-        logger.warn(e) { "[oauth/authorize] identity provider discovery failed: pod='${pod.name}'" }
-        return PodAuthorizeResult.Refused(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
-      }
+      //
       // Forward `prompt=login` / `prompt=select_account` so the upstream provider re-prompts (OIDC
       // Core 1.0 §3.1.2.1). If both are set, prefer `select_account`: it is the more specific
       // signal and implies login as well. Apple does not document `prompt`, so forced
@@ -270,14 +266,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         "login" in promptValues -> "login"
         else -> null
       }
-      val loginState = loginStateStore.newState()
-      val started = relyingParty.beginAuthorization(prompt = forwardedPrompt, state = loginState)
-      // The `state` ties the callback to this request; it does not tie it to this *browser*, and
-      // it is a bearer — a login URL captured by one party would otherwise complete in somebody
-      // else's browser and hand them a session for the wrong identity. This is that second factor.
-      val browserPin = Secrets.newSecret()
-      loginStateStore.create(
-        started.state,
+      val started = signIn.park(pod, forwardedPrompt) { codeVerifier, nonce, browserPin ->
         PodLoginStateStore.Pending(
           pod = pod.name,
           clientId = normalizedClientId,
@@ -290,11 +279,11 @@ class PodAuthorizeFlow @Inject internal constructor(
           prompt = promptValues.minus(OAuthSyntax.FORCE_REAUTH_PROMPTS).sorted().joinToString(" ").takeIf { it.isNotEmpty() },
           codeChallenge = trimmedCodeChallenge,
           codeChallengeMethod = trimmedCodeChallengeMethod,
-          codeVerifier = started.codeVerifier,
-          nonce = started.nonce,
+          codeVerifier = codeVerifier,
+          nonce = nonce,
           browserPin = browserPin,
-        ),
-      )
+        )
+      } ?: return PodAuthorizeResult.Refused(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
       logger.info {
         "[oauth/authorize] Redirecting to login: pod='${pod.name}', " +
             "clientId='$normalizedClientId', forceReauth=$forceReauth, forwardedPrompt=${forwardedPrompt ?: "(none)"}"
@@ -307,7 +296,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       return PodAuthorizeResult.Login(
         authorizationUrl = started.authorizationUrl,
         state = started.state,
-        browserPin = browserPin,
+        browserPin = started.browserPin,
       )
     }
 
@@ -563,10 +552,8 @@ class PodAuthorizeFlow @Inject internal constructor(
     privilegedFeatures: List<String> = emptyList(),
   ): PodAuthorizeResult {
     val contexts = consentContexts(userGrants, existingGrants)
-    val registration = if (normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) {
-      dynamicClientStore.lookup(pod.id, normalizedClientId)
-    } else null
-    val displayName = registration?.clientName?.takeIf { it.isNotBlank() } ?: normalizedClientId
+    val registration = dynamicClientStore.registrationOf(pod.id, normalizedClientId)
+    val displayName = clientDisplayName(registration, normalizedClientId)
 
     // What the person decided last time outranks what the client asked for this time: a request
     // cannot quietly re-tick a box somebody cleared. With nothing recorded the request decides,

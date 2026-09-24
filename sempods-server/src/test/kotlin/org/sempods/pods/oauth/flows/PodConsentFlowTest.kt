@@ -7,7 +7,7 @@ import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -440,8 +440,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -449,7 +449,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
 
     val entry = assertNotNull(authorizationCodeStore.consume(code))
-    assertEquals(setOf(SERVICE_CLIENTS_SCOPE), entry.scopes)
+    assertEquals(setOf(SERVICE_CLIENTS_INSTALL_SCOPE), entry.scopes)
     assertEquals(emptySet(), owned.held(), "an installer holds none of the rights it arranges")
     assertNotNull(entry.consentGeneration, "a code with no generation is refused at the exchange")
   }
@@ -465,13 +465,13 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), scopes = null, durable = false),
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE), scopes = null, durable = false),
         owned.session,
       ),
     )
 
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
-    assertEquals("installation declined", delivery.description)
+    assertEquals("'service-clients:install' declined", delivery.description)
     assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
   }
 
@@ -484,8 +484,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE, owned.readScope),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE, owned.readScope),
           durable = false,
         ),
         owned.session,
@@ -505,8 +505,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           newContexts = listOf(path),
           newContextScopes = listOf("$path#write"),
           durable = false,
@@ -527,8 +527,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           durable = true,
         ),
         owned.session,
@@ -547,7 +547,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE), durable = false),
         owned.session,
       ),
     )
@@ -563,13 +563,13 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
     )
     val ticket = consentTransactionStore.issue(
-      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_SCOPE),
+      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_INSTALL_SCOPE),
     )
 
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_SCOPE), durable = false),
+        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE), durable = false),
         stranger,
       ),
     )
@@ -593,8 +593,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -616,8 +616,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -642,8 +642,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -694,7 +694,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_SCOPE), action = "disconnect"),
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE), action = "disconnect"),
         owned.session,
       ),
     )

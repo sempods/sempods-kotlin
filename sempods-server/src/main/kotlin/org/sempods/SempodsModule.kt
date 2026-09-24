@@ -23,6 +23,8 @@ import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodInstallationAuthorityStore
+import org.sempods.pods.oauth.PodManagementAuthorityStore
+import org.sempods.pods.oauth.ServiceClientGrantTransactionStore
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.OAuthSigningKeyDao
@@ -34,6 +36,9 @@ import org.sempods.pods.oauth.flows.PodAuthorizationCodes
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodConsentFlow
+import org.sempods.pods.oauth.flows.PodServiceClientGrantFlow
+import org.sempods.pods.oauth.flows.PodSignIn
+import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.PodTokenAuthenticator
@@ -191,6 +196,8 @@ class SempodsModule : BaseModule() {
     bind<OAuthSigningKeyDao>().asSingleton()
     bind<PodConsentDecisionStore>().asSingleton()
     bind<PodInstallationAuthorityStore>().asSingleton()
+    bind<PodManagementAuthorityStore>().asSingleton()
+    bind<ServiceClientGrantTransactionStore>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
@@ -199,6 +206,9 @@ class SempodsModule : BaseModule() {
     bind<PodClientRegistration>().asSingleton()
     bind<PodConsentFlow>().asSingleton()
     bind<PodServiceClientProvisioning>().asSingleton()
+    bind<PodServiceClientManagement>().asSingleton()
+    bind<PodServiceClientGrantFlow>().asSingleton()
+    bind<PodSignIn>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()
@@ -239,6 +249,7 @@ class SempodsModule : BaseModule() {
       // no registry method builds (`SPS-CTX-036`).
       ContextRegistryCacheFilter::class.java,
       PodAuthEndpoint::class.java,
+      PodServiceClientsEndpoint::class.java,
       PodOAuthMetadataEndpoint::class.java,
       RootOAuthMetadataEndpoint::class.java,
       McpEndpoint::class.java,

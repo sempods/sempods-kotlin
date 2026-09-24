@@ -213,7 +213,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     val csrf: String get() = consentTransactionStore.issue(pod, webId)
   }
 
-  private fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
+  protected fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
   /**
    * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
