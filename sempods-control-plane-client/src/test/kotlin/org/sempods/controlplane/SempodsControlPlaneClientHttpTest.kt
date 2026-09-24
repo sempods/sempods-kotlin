@@ -127,6 +127,26 @@ class SempodsControlPlaneClientHttpTest {
     )
   }
 
+  /**
+   * OkHttp collapses `..` and drops `.` and ``, so each of them appended to the route would reach
+   * another one: `..` as a pod name addressed `/_system/admin`, and the confinement lets that through
+   * because it is still on this server.
+   */
+  @Test
+  fun `a pod name or client id that is not one path segment is refused and nothing is sent`() {
+    mockServer.`when`(request()).respond(response().withStatusCode(204))
+
+    listOf("..", ".", "", "a/b").forEach { bad ->
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.createPod(bad, "alice@example.com") }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.deletePod(bad) }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.podExists(bad) }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.provisionServiceClient(bad, "app", null) }
+      assertThrows<IllegalArgumentException>("client '$bad'") { client.provisionServiceClient("alice", bad, null) }
+    }
+
+    assertEquals(0, mockServer.retrieveRecordedRequests(request()).size, "nothing left this client")
+  }
+
   // ─── deletePod ────────────────────────────────────────────────────────────────
 
   @Test

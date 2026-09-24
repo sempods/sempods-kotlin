@@ -62,6 +62,10 @@ import java.net.URI
  * `Call.cancel()` reaches it. A request built here therefore never reaches a pod under some other
  * session's credential, and no pod call carries this one.
  *
+ * **A pod name and a client identifier are one path segment each.** One that
+ * [SempodsSession.newRequest] cannot take as a segment — `..` among them, which would otherwise
+ * address `{server}/_system/admin` — is an [IllegalArgumentException], and nothing is sent.
+ *
  * An application backend uses this authority to provision pods for its users. Proposed
  * owner/operator surfaces are tracked in https://github.com/sempods/sempods-kotlin/issues/139.
  */
@@ -158,19 +162,9 @@ class SempodsControlPlaneClient(
     return exchange.text(request, 200).map { ControlPlaneJson.provisioned(it, clientId) }
   }
 
-  /**
-   * The admin pods route under this server, with the segments a call addresses.
-   *
-   * The request is built through the session, so it carries it — the URL is then extended rather
-   * than composed, which leaves the encoding to OkHttp and the server's address to the session. A
-   * segment arrives from a caller, and one holding a separator is refused by the confinement rather
-   * than quietly addressing something else.
-   */
-  private fun pods(method: String, vararg segments: String): Request.Builder {
-    val built = session.newRequest(method, ADMIN_PODS).build()
-    val url = built.url.newBuilder().apply { segments.forEach(::addPathSegment) }.build()
-    return built.newBuilder().url(url)
-  }
+  /** The admin pods route under this server, with the segments a call addresses. */
+  private fun pods(method: String, vararg segments: String): Request.Builder =
+    session.newRequest(method, ADMIN_PODS, *segments)
 
   private fun json(body: String) = SempodsContent.of(body).requestBody(APPLICATION_JSON.toMediaType())
 

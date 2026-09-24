@@ -1,6 +1,7 @@
 package org.sempods.client
 
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -75,6 +76,29 @@ class SempodsSession @JvmOverloads constructor(
       .tag(SempodsSession::class.java, this)
   }
 
+  /**
+   * Starts a request against [route] followed by [segments], each encoded as one path segment.
+   *
+   * Use it for a value a caller supplies, such as a pod name or a client identifier:
+   * `newRequest("DELETE", "_system/media", "a b")` addresses `_system/media/a%20b`. [route] is a
+   * pod-relative path as [newRequest] takes it, already encoded.
+   *
+   * @throws IllegalArgumentException for a segment that is empty, `.` or `..`, or holds `/` or `\`.
+   * A URL builder drops or collapses the first three, so `..` would reach the route's parent, and a
+   * server that decodes before it routes splits at the other two. Nothing is sent.
+   */
+  fun newRequest(method: String, route: String, vararg segments: String): Request.Builder {
+    val path = SEGMENT_BASE.newBuilder().apply {
+      segments.forEach {
+        require(it.isNotEmpty() && it != "." && it != ".." && '/' !in it && '\\' !in it) {
+          "'$it' cannot be one path segment."
+        }
+        addPathSegment(it)
+      }
+    }.build().encodedPath.removePrefix("/")
+    return newRequest(method, if (route.isEmpty() || path.isEmpty()) route + path else "$route/$path")
+  }
+
   /** [request] with the pod's host in place of the placeholder, refused when it is not under this pod. */
   @JvmSynthetic
   internal fun bind(request: Request): Request {
@@ -117,6 +141,8 @@ class SempodsSession @JvmOverloads constructor(
     val BODILESS_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE")
 
     val EMPTY_BODY = ByteArray(0).toRequestBody(null)
+
+    val SEGMENT_BASE = "http://segment.invalid/".toHttpUrl()
   }
 }
 

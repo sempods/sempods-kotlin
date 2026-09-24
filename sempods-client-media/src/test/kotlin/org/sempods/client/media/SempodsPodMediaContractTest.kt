@@ -11,7 +11,6 @@ import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
-import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsDecodingException
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPod
@@ -125,16 +124,14 @@ class SempodsPodMediaContractTest {
     assertEquals("/alice/_system/media/abc123", sent.path.value)
   }
 
-  /**
-   * The id arrives from a caller, and one carrying separators is refused before anything is sent:
-   * `%2F` is a separator to a server that decodes before it routes, so the session does not treat the
-   * encoded form as a segment that stays under the pod.
-   */
   @Test
-  fun `a media id that would leave its route is refused rather than sent`() {
-    server.`when`(request().withMethod("DELETE")).respond(response().withStatusCode(204))
+  fun `a media id that is not one path segment is refused and nothing is sent`() {
+    server.`when`(request()).respond(response().withStatusCode(204))
 
-    assertThrows<SempodsClientException> { media.unassign("../../../etc/passwd", tasks) }
+    listOf("..", ".", "", "a/b", "../../../etc/passwd").forEach { id ->
+      assertThrows<IllegalArgumentException>(id) { media.unassign(id, tasks) }
+      assertThrows<IllegalArgumentException>(id) { media.assign(id, tasks) }
+    }
 
     assertEquals(0, server.retrieveRecordedRequests(request()).size, "nothing left this client")
   }

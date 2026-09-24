@@ -110,7 +110,9 @@ try (Response response = client.newCall(request).execute()) {
 
 `newRequest` plus a call on such a client is also the **extension seam**: an endpoint group, a
 protocol module or a consumer's own route gets authentication, confinement, the guard, the deadline
-and admission by using it, and needs nothing private. `SempodsExchange` is its other half — it sends
+and admission by using it, and needs nothing private. A caller's value in the path, such as a pod
+name or an id, goes in as a segment: `newRequest("DELETE", route, id)` encodes it and refuses `..`.
+`SempodsExchange` is its other half — it sends
 such a request and turns the answer into a `SempodsResponse`, with the same statuses, the same 16 MiB
 bound and the same failures an endpoint group answers with, so a module speaking its own route needs
 neither a result type nor a failure hierarchy of its own. `:sempods-client-media` is built that way. A module that answers in another
