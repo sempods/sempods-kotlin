@@ -567,6 +567,8 @@ resource access the union semantics described there apply.
 `/authorize?scope=service-clients:install` asks the pod owner for the authority to register **one** service
 client. It is the first of the two consents an installation takes; the second,
 [§"Granting it contexts"](#granting-it-contexts), grants that service its contexts once it exists.
+A JVM program runs the whole installation through `sempods-client`
+([`../pod-client.md`](../pod-client.md#installing-a-service-client)).
 
 - **The owner's to grant.** Ownership is alias-aware — any URI that names the owner does — and
   anyone else is answered `invalid_scope`.

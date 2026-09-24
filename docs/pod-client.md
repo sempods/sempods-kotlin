@@ -93,7 +93,9 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsAdmission` | how many calls may run, and how many may wait |
 | `SempodsUrlPolicy` / `SempodsOutboundGuard` | the two address layers |
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
-| `SempodsPodTokens` | a pod's token endpoint, for a service client's `client_credentials` grant |
+| `SempodsPodTokens` | a pod's token endpoint: a service client's `client_credentials` grant, and redeeming an authorization code |
+| `SempodsPodAuthorization` | a public client's registration, the authorization URL its user opens, with `SempodsPkce`, and the answer that comes back |
+| `SempodsPodServiceClients` | a pod owner's service clients: installing one, the grant consent, and managing the ones that exist |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -290,6 +292,30 @@ var podBearer = SempodsRequestAuth.refreshable((forceRefresh, attempt) ->
 var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
 ```
 
+### Installing a service client
+
+A program installs a service client for a pod owner in two browser round trips, and the service then
+mints its own tokens (§"A service token"). The protocol is
+[`auth/oauth.md`](auth/oauth.md#installing-a-service-client)'s; the lifetimes, what may be sent again
+and the refusals are `SempodsPodServiceClients`' KDoc.
+
+```java
+browser.open(authorization.authorizationUrl(installer, redirectUri, "service-clients:install", state, pkce));
+String code = authorization.readRedirect(query, state).getCode();
+String token = tokens.authorizationCode(installer, code, redirectUri, pkce.getVerifier()).getBody().getAccessToken();
+
+var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
+SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
+store.save(service.getClientId(), service.getClientSecret());
+
+browser.open(installing.grantConsentUrl(installer, redirectUri, grantState, service.getClientId(), scopes));
+SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(grantQuery, grantState);
+```
+
+The client has no HTTP server: the program serves its own loopback redirect.
+[`OwnerInstallation.java`](../sempods-server/src/test/java/org/sempods/example/OwnerInstallation.java)
+is the whole program, and `OwnerInstallationExampleHttpTest` runs it against a pod.
+
 ### Asynchronous use
 
 `SempodsAsync` runs blocking work away from the caller's thread, on one virtual thread per operation.
@@ -419,8 +445,11 @@ RDF4J's model, query and Rio APIs `api`, so a build depending on it can name the
 export is real.
 
 `:sempods-client` is the coordinate for a consumer that only speaks HTTP. It resolves no RDF4J,
-Jena or Jackson 2, directly or transitively; the protocol's JSON it reads with Jackson 3, which no
-public signature names:
+Jena or Jackson 2, directly or transitively. The protocol's JSON it reads with Jackson 3, and the
+OAuth client side — PKCE, the authorization request and its answer, registration metadata — with
+Nimbus's `oauth2-oidc-sdk`, the library the pod's authorization server speaks. No public signature
+names either, which `checkPublishedSignatures` holds; a consumer with a Nimbus of its own resolves one
+version for both:
 
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.2.0"))
@@ -465,7 +494,8 @@ root, with a host credential, on the same installed OkHttp client.
 
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsSession`,
   `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
-  `SempodsForeignTarget`, and `net/` for the outbound guard
+  `SempodsForeignTarget`, `SempodsPodTokens`, `SempodsPodAuthorization`,
+  `SempodsPodServiceClients`, and `net/` for the outbound guard
 - `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its
   groups, `Rdf4jCodec` for the pinned parser and writer settings
 - `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the media

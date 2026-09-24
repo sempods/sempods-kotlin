@@ -193,8 +193,7 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
       "the consent page carries no state field"
     }.value
     val value = checkNotNull(Regex("""value="([^"]*)"""").find(field)) { "no value in $field" }.groupValues[1]
-    return value.replace("&lt;", "<").replace("&gt;", ">")
-      .replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+    return unescapeHtml(value)
   }
 
   private fun quoted(state: String?): String = state?.let { "'$it'" } ?: "(absent)"

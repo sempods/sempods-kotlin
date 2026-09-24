@@ -6,8 +6,9 @@ import java.io.IOException
 import java.time.Duration
 
 /**
- * A pod's token endpoint, `POST {pod}/_system/auth/token` (SPS-AUTH-027), for a service client's
- * `client_credentials` grant (RFC 6749 §4.4).
+ * A pod's token endpoint, `POST {pod}/_system/auth/token` (SPS-AUTH-027): a service client's
+ * `client_credentials` grant (RFC 6749 §4.4), and a public client redeeming an authorization code
+ * (RFC 6749 §4.1.3).
  *
  * ```java
  * SempodsSession clientSession = new SempodsSession(alice,
@@ -23,9 +24,11 @@ import java.time.Duration
  * reaches this endpoint. A supplier that mints through the client it serves passes
  * [SempodsAuthAttempt.calls], as above. What to cache and when to mint again is the caller's.
  *
- * Every method sends the same request: `Accept: application/json` and the form
- * `grant_type=client_credentials`, without `scope`, which a pod refuses for this grant (SPS-AUTH-032). It
- * is not sent again after a lost connection.
+ * [clientCredentials] sends `Accept: application/json` and the form `grant_type=client_credentials`,
+ * without `scope`, which a pod refuses for this grant (SPS-AUTH-032). [authorizationCode] sends the
+ * code, its redirect, the client's identifier and the PKCE verifier; its session is anonymous, since a
+ * public client authenticates with the verifier. Neither is sent again after a lost connection: a
+ * code is redeemed once.
  *
  * | The pod answers | The caller gets |
  * |---|---|
@@ -57,11 +60,36 @@ class SempodsPodTokens(
   @Throws(IOException::class)
   fun clientCredentialsBytes(): SempodsResponse<ByteArray> = exchange.run(request(), ANSWERS, BodyReading.BYTES)
 
-  private fun request() =
-    session.newRequest("POST", ROUTE)
-      .header("Accept", "application/json")
-      .post(FormBody.Builder().add("grant_type", "client_credentials").build())
-      .build()
+  /**
+   * Redeems [code] for the token response, under the same answers and decoding as [clientCredentials].
+   *
+   * A pod mints no refresh token for an installation or a management authority, and this response
+   * reads none: [SempodsTokenResponse.expiresIn] is how long the token lasts, and a new one takes a new
+   * authorization. A code that was already redeemed, has expired, or does not match [codeVerifier] or
+   * [redirectUri] is `400 invalid_grant`.
+   */
+  @Throws(IOException::class)
+  fun authorizationCode(clientId: String, code: String, redirectUri: String, codeVerifier: String): SempodsResponse<SempodsTokenResponse> =
+    exchange.run(codeRequest(clientId, code, redirectUri, codeVerifier), ANSWERS, TOKEN)
+
+  /** The same answer with the body as the text the server sent, malformed or not. */
+  @Throws(IOException::class)
+  fun authorizationCodeJson(clientId: String, code: String, redirectUri: String, codeVerifier: String): SempodsResponse<String> =
+    exchange.run(codeRequest(clientId, code, redirectUri, codeVerifier), ANSWERS, BodyReading.TEXT)
+
+  private fun request() = post(FormBody.Builder().add("grant_type", "client_credentials").build())
+
+  private fun codeRequest(clientId: String, code: String, redirectUri: String, codeVerifier: String) = post(
+    FormBody.Builder()
+      .add("grant_type", "authorization_code")
+      .add("code", code)
+      .add("redirect_uri", redirectUri)
+      .add("client_id", clientId)
+      .add("code_verifier", codeVerifier)
+      .build(),
+  )
+
+  private fun post(form: FormBody) = session.newRequest("POST", ROUTE).header("Accept", "application/json").post(form).build()
 
   private companion object {
 
