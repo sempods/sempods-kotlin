@@ -1,6 +1,5 @@
 package org.sempods.client.media
 
-import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import org.sempods.client.SempodsContent
@@ -9,6 +8,7 @@ import org.sempods.client.SempodsExchange
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsRepeatable
 import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsSession
 import org.sempods.commons.net.SempodsPodRoutes
 import org.sempods.media.PodMediaSource
 import org.sempods.media.UploadedMedia
@@ -43,6 +43,10 @@ import java.io.IOException
  * it — and has stored the media all the same. Why such a status is listed rather than refused is
  * `docs/pod-client.md` §"Endpoint groups"; [SempodsResponse.status] is where a caller who wants to
  * notice looks.
+ *
+ * **A media id is one path segment**, so [assign] and [unassign] refuse an id
+ * [SempodsSession.newRequest] cannot take as one — `..` among them — with an
+ * [IllegalArgumentException], and nothing is sent.
  *
  * Every call runs on [pod]'s session, so it carries that credential and its recovery, the admission
  * budget, the outbound guard and the call's deadline, and `Call.cancel()` reaches it.
@@ -155,31 +159,15 @@ class SempodsPodMedia(pod: SempodsPod) {
     exchange.text(request, 200, 201).map { MediaJson.uploaded(it) }
 
   private fun collection(contextUri: String, filename: String?): Request.Builder =
-    addressed("POST", "context" to contextUri, "filename" to filename)
+    withQuery(session.newRequest("POST", SempodsPodRoutes.MEDIA), "context" to contextUri, "filename" to filename)
 
-  /**
-   * A media's own URL with the context it is assigned to or removed from.
-   *
-   * [mediaId] is added as a path segment, which OkHttp encodes, although a well-formed one is
-   * base64url and survives unchanged: the id arrives from a caller, and a segment builder that only
-   * works for well-formed input is a path traversal waiting for the first malformed one.
-   */
   private fun one(method: String, mediaId: String, contextUri: String): Request =
-    addressed(method, "context" to contextUri) { it.addPathSegment(mediaId) }.build()
+    withQuery(session.newRequest(method, SempodsPodRoutes.MEDIA, mediaId), "context" to contextUri).build()
 
-  /**
-   * The media route under this pod, with the query a call carries.
-   *
-   * The request is built through the session, so it carries it — the URL is then extended rather than
-   * composed, which leaves the encoding to OkHttp and the pod's address to [SempodsPod].
-   */
-  private fun addressed(
-    method: String,
-    vararg query: Pair<String, String?>,
-    segments: (HttpUrl.Builder) -> HttpUrl.Builder = { it },
-  ): Request.Builder {
-    val built = session.newRequest(method, SempodsPodRoutes.MEDIA).build()
-    val url = segments(built.url.newBuilder()).apply {
+  /** [request] with the query a call carries; a `null` value leaves its parameter out. */
+  private fun withQuery(request: Request.Builder, vararg query: Pair<String, String?>): Request.Builder {
+    val built = request.build()
+    val url = built.url.newBuilder().apply {
       query.forEach { (name, value) -> value?.let { addQueryParameter(name, it) } }
     }.build()
     return built.newBuilder().url(url)
