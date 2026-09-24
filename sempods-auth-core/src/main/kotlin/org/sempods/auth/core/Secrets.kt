@@ -6,16 +6,12 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
- * The two primitives every bearer value in this codebase needs, in one place.
+ * The primitives every random credential needs, in one place: minting one, and comparing one
+ * without leaking it.
  *
- * Neither is hard, and that is the problem: both were written out by hand wherever a secret was
- * needed — six mints and five comparisons across the three services — and each copy is a chance to
- * get the entropy or the comparison wrong in a way nothing catches. Reviewing one `ByteArray(32)`
- * against another proves nothing about the sixth.
- *
- * Everything on the login and CSRF path goes through here, and so does [RefreshTokenStore], which
- * moved when it was next opened. The two left (`PodServiceClientStore`, `PodConnectStateStore`)
- * still mint their own and should do the same — they are the same two lines.
+ * Neither is hard, and that is the problem. Written out by hand at each call site, every copy is a
+ * chance to get the entropy or the comparison wrong in a way nothing catches — and reviewing one
+ * `ByteArray(32)` against another proves nothing about the next.
  */
 object Secrets {
 
@@ -28,6 +24,20 @@ object Secrets {
    */
   fun newSecret(): String {
     val bytes = ByteArray(SECRET_BYTES)
+    random.nextBytes(bytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+  }
+
+  /**
+   * A 144-bit URL-safe identifier.
+   *
+   * These name a row and are handed out to be quoted back — a `client_id` is the usual one. Holding
+   * one authenticates nobody; the request carrying it still has to prove itself. 144 bits keeps two
+   * mints from colliding and a row from being found by guessing. Where the value *is* what grants
+   * access, [newSecret] is the one to mint.
+   */
+  fun newOpaqueId(): String {
+    val bytes = ByteArray(OPAQUE_ID_BYTES)
     random.nextBytes(bytes)
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
   }
@@ -64,6 +74,7 @@ object Secrets {
     candidate != null && candidate.length == SECRET_CHARS && candidate.all { it in SECRET_ALPHABET }
 
   private const val SECRET_BYTES = 32
+  private const val OPAQUE_ID_BYTES = 18
 
   /** 32 bytes, base64url, unpadded. */
   private const val SECRET_CHARS = 43
