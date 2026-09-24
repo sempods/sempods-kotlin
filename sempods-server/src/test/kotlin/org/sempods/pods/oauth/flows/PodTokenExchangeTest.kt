@@ -100,7 +100,11 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     fun answer(durable: Boolean): Long =
       consentDecisionStore.record(podId, clientId, webId, durable).generation
 
-    fun code(generation: Long?, scopes: Set<String> = emptySet()): String =
+    fun code(
+      generation: Long?,
+      scopes: Set<String> = emptySet(),
+      subjectUris: Set<String> = emptySet(),
+    ): String =
       authorizationCodeStore.issue(
         subject = webId,
         realm = pod.name,
@@ -110,6 +114,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
         codeChallenge = null,
         codeChallengeMethod = null,
         consentGeneration = generation,
+        subjectUris = subjectUris,
       )
 
     fun redeem(
@@ -472,6 +477,25 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       installationAuthorities.consume(authorized.podId, jti),
       "and the bearer is worth nothing afterwards",
     )
+  }
+
+  @Test
+  fun `the authority carries the URIs the consent recognised the owner by`() {
+    // The registration asks who owns the pod now against exactly this set, and `also_known_as`
+    // cannot be resolved from a token — so a set the exchange dropped here is a gap nothing
+    // downstream can close.
+    val authorized = Authorized()
+    val alias = "https://id.test/e/${randomId()}"
+    val code = authorized.code(
+      authorized.answer(durable = false),
+      scopes = setOf(SERVICE_CLIENTS_SCOPE),
+      subjectUris = setOf(authorized.webId, alias),
+    )
+
+    val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
+
+    val authority = assertNotNull(installationAuthorities.consume(authorized.podId, jti))
+    assertEquals(setOf(authorized.webId, alias), authority.subjectUris)
   }
 
   @Test

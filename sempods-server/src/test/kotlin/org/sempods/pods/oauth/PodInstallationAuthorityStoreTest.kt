@@ -36,12 +36,22 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   private val clientId = "dyn:${randomId()}"
   private val webId = "https://id.test/${randomId()}"
 
+  /** A second URI for the same person, the kind only sempods-auth can resolve. */
+  private val alias = "https://id.test/e/${randomId()}"
+
   /** The consent the authority hangs off, and the generation it is granted under. */
   private fun approve(pod: PodId = this.pod): Long =
     consentDecisions.recordWithoutLifetime(pod = pod, appId = clientId, webId = webId).generation
 
   private fun record(jti: String, pod: PodId = this.pod, generation: Long = approve(pod)) {
-    authorities.record(pod = pod, jti = jti, clientId = clientId, webId = webId, generation = generation)
+    authorities.record(
+      pod = pod,
+      jti = jti,
+      clientId = clientId,
+      webId = webId,
+      generation = generation,
+      subjectUris = setOf(webId, alias),
+    )
   }
 
   @Test
@@ -53,6 +63,11 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     assertEquals(clientId, first.clientId)
     assertEquals(webId, first.webId)
     assertEquals(pod, first.pod)
+    assertEquals(
+      setOf(webId, alias),
+      first.subjectUris,
+      "registration asks who owns the pod now, and this is the set it asks about",
+    )
 
     assertNull(authorities.consume(pod, jti), "a second registration has nothing to stand on")
   }

@@ -5324,11 +5324,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private fun approveInstallation(
     pod: org.sempods.pods.mongo.persist.PodDbo,
     ownerWebId: String,
+    alsoKnownAs: List<String> = emptyList(),
   ): Map<String, Any?> {
-    val page = installationPage(pod, ownerWebId).responseBody
+    val page = installationPage(pod, ownerWebId, alsoKnownAs = alsoKnownAs).responseBody
     val submitted = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
+      .addHeader("Cookie", signIn(pod.name, ownerWebId, alsoKnownAs).cookie)
       .setBody(
         "client_id=${enc(testClientId)}&redirect_uri=${enc(testRedirectUri)}" +
           "&state=install&csrf=${enc(formToken(page))}&scope=${enc(SERVICE_CLIENTS_SCOPE)}",
@@ -5390,6 +5391,32 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val again = registerAsInstaller(pod, installer)
     assertEquals(401, again.statusCode, again.responseBody)
     assertTrue("""error="invalid_token"""" in checkNotNull(again.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
+  @Suppress("UNCHECKED_CAST")
+  fun `an owner signed in under a linked alias installs, at the wire`() {
+    // The two halves of one installation have to ask one ownership question. The dialog answers it
+    // over `also_known_as`, which lives in sempods-auth; an hour later the registration has only
+    // the bearer, and a bearer carries one URI. So the approved set travels with the authority, or
+    // this owner is approved at the dialog and refused at the door.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val signedInAs = "https://id.test/oidc/${TestUtil.randomId()}"
+
+    val installer = approveInstallation(pod, signedInAs, alsoKnownAs = listOf(ownerWebId))["access_token"] as String
+    assertEquals(
+      signedInAs,
+      SignedJWT.parse(installer).jwtClaimsSet.subject,
+      "the bearer names the alias, and nothing in it reaches the pod's stored owner",
+    )
+
+    val registered = registerAsInstaller(pod, installer)
+
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    val body = JsonMappers.default().readValue(registered.responseBody, Map::class.java) as Map<String, Any?>
+    assertTrue((body["client_id"] as String).startsWith("svc:"), registered.responseBody)
   }
 
   @Test

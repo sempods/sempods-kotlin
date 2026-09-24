@@ -587,6 +587,10 @@ its contexts once it exists, and is open work
 - **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
+- **It carries the URIs the owner was recognised by.** Sign in with Google, own the pod under the
+  email address: the two are linked by `also_known_as`, which lives in sempods-auth, while the
+  bearer this dialog leads to carries one URI. So the authority records the set the dialog
+  recognised, and registration compares the pod's *current* owner against it.
 - **It dies with the consent it was granted under.** The authority carries that consent's
   generation, and registration compares it against what stands, so disconnecting the app spends
   the hour the bearer had left. A registration already past that comparison runs to its end — the
@@ -637,8 +641,10 @@ with:
   invalid_client_metadata` for a shape this pod does not serve, for an installer bearer sent with
   a public body, and for a member outside the three. Then the authority — `403
   insufficient_scope` without `service-clients` or from someone who no longer owns the pod, `401
-  invalid_token` once it is spent or withdrawn. Each carries the pod's usual RFC 6750 challenge,
-  and all of them are decided before the authority is spent.
+  invalid_token` once it is spent or withdrawn. Each carries the pod's usual RFC 6750 challenge.
+  Every refusal the body earns is decided before the authority is spent; ownership is answered
+  from the row, so a pod that changed hands takes the authority with the refusal — and installing
+  again reaches the same answer.
 
 The `dyn:` prefix and the grant types a registration response may advertise are bound to this
 endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)

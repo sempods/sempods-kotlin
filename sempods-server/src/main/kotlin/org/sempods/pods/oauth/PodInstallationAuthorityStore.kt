@@ -4,6 +4,8 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsCollections
 import org.sempods.auth.core.OneTimeStore
+import org.sempods.commons.mongo.getStringSet
+import org.sempods.commons.mongo.putStrings
 import org.sempods.pods.PodId
 import java.time.Duration
 
@@ -39,12 +41,16 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * @param webId the person who granted it.
    * @param generation the consent generation this authority was granted under. Compared on
    *   consumption, so that disconnecting the app takes the authority with it.
+   * @param subjectUris every identity URI that person was recognised by at the dialog, [webId]
+   *   among them. What `PodClientRegistration` asks ownership of when the authority is spent; an
+   *   empty set recognises nobody.
    */
   internal data class Authority(
     val pod: PodId,
     val clientId: String,
     val webId: String,
     val generation: Long,
+    val subjectUris: Set<String>,
   )
 
   private val authorities = OneTimeStore(
@@ -58,6 +64,7 @@ class PodInstallationAuthorityStore @Inject internal constructor(
       put("clientId", it.clientId)
       put("webId", it.webId)
       put("generation", it.generation)
+      putStrings("subjectUris", it.subjectUris)
     },
     read = {
       Authority(
@@ -65,13 +72,30 @@ class PodInstallationAuthorityStore @Inject internal constructor(
         clientId = getString("clientId") ?: return@OneTimeStore null,
         webId = getString("webId") ?: return@OneTimeStore null,
         generation = get("generation", Number::class.java)?.toLong() ?: return@OneTimeStore null,
+        subjectUris = getStringSet("subjectUris"),
       )
     },
   )
 
   /** Records the authority an installer token carries. Called once, where that token is signed. */
-  internal fun record(pod: PodId, jti: String, clientId: String, webId: String, generation: Long) {
-    authorities.create(jti, Authority(pod = pod, clientId = clientId, webId = webId, generation = generation))
+  internal fun record(
+    pod: PodId,
+    jti: String,
+    clientId: String,
+    webId: String,
+    generation: Long,
+    subjectUris: Set<String>,
+  ) {
+    authorities.create(
+      jti,
+      Authority(
+        pod = pod,
+        clientId = clientId,
+        webId = webId,
+        generation = generation,
+        subjectUris = subjectUris,
+      ),
+    )
   }
 
   /**

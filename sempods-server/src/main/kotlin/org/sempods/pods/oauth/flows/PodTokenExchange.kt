@@ -350,6 +350,7 @@ class PodTokenExchange @Inject internal constructor(
       clientId = entry.clientId,
       webId = entry.subject,
       generation = issuedUnder,
+      subjectUris = entry.subjectUris,
     )
 
     logger.info {

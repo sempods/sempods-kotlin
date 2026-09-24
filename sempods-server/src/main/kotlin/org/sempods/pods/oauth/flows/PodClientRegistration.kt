@@ -141,10 +141,19 @@ class PodClientRegistration @Inject internal constructor(
   /**
    * One registration per approved installation.
    *
-   * Everything that can refuse refuses before the authority is spent, so a body with a typo in it
-   * costs the owner nothing. After that the order is fixed: consume, then create. The other order
-   * lets two calls arriving together create two clients from one approval, which is the whole
-   * point of the authority being one-shot.
+   * Everything the body can be refused for is refused before the authority is spent, so a typo in
+   * it costs the owner nothing. After that the order is fixed: consume, then ask who owns the pod
+   * now, then create. The other order lets two calls arriving together create two clients from one
+   * approval, which is the whole point of the authority being one-shot.
+   *
+   * **Ownership is answered from the row, so it is answered after the authority is gone.** The
+   * comparison is the pod's *current* owner against the URIs the consent recognised the person by
+   * ([PodInstallationAuthorityStore.Authority.subjectUris]) — the same question the dialog asked,
+   * asked again an hour later. The bearer cannot answer it: it carries one identity URI, and the
+   * `also_known_as` link between a person's two WebIDs — sign in with Google, own the pod under
+   * the email address — is sempods-auth's and unreachable from here. What the comparison still
+   * catches is a pod that changed hands in the hour, and an approval from someone who has since
+   * stopped owning the pod is nothing to leave spendable.
    *
    * What the fixed order costs, and what the owner is told to do about it:
    *
@@ -152,6 +161,7 @@ class PodClientRegistration @Inject internal constructor(
    * |---|---|
    * | Two calls arrive together | One client. The other call is answered like a second attempt |
    * | The server dies between consuming and creating | Neither. The owner installs again |
+   * | The pod changed hands since the approval | Neither, and the spent authority with it |
    * | The answer is lost on the way back | A client whose secret nobody holds, and no grants. The retry is refused, because the secret exists only in the answer that was lost |
    */
   private fun registerService(
@@ -188,19 +198,15 @@ class PodClientRegistration @Inject internal constructor(
         "client_name is required: it is what names this service in the consent that grants it contexts",
       )
 
-    val subject = caller.tokenSub?.trim()?.takeIf { it.isNotBlank() }
-    // Asked again here, and not read off the token: the consent that issued this authority is up
-    // to an hour old, and a pod can change hands in that time.
-    if (subject == null || !podGrantsFacade.isPodOwner(pod, subject)) {
-      return unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "this pod's owner installs its service clients")
-    }
-
-    val tokenId = caller.tokenJti
-    if (tokenId == null || installationAuthorities.consume(pod.id, tokenId) == null) {
-      return unauthorized(
+    val authority = caller.tokenJti?.let { installationAuthorities.consume(pod.id, it) }
+      ?: return unauthorized(
         PodRegistrationRefusal.AUTHORITY_SPENT,
         "this authorization has already registered a service client",
       )
+
+    // The pod's owner as it stands now, against the URIs the consent recognised the person by.
+    if (authority.subjectUris.none { podGrantsFacade.isPodOwner(pod, it) }) {
+      return unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "this pod's owner installs its service clients")
     }
 
     val registered = try {
@@ -219,7 +225,8 @@ class PodClientRegistration @Inject internal constructor(
     logger.info {
       "[oauth/register] Service client installed: pod='${pod.name}', " +
           "clientId='${registered.registration.clientId}', label='${LogSafeText.of(label)}', " +
-          "installer='${LogSafeText.of(caller.oauthClientId ?: "(unset)")}', owner='${LogSafeText.of(subject)}'"
+          "installer='${LogSafeText.of(caller.oauthClientId ?: "(unset)")}', " +
+          "owner='${LogSafeText.of(authority.webId)}'"
     }
 
     return PodRegistrationResult.ServiceRegistered(

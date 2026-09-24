@@ -23,6 +23,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -275,16 +276,17 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `an installer authority granted by someone who is not the owner registers nothing`() {
+  fun `an approval from someone who no longer owns the pod registers nothing, and is spent`() {
     // Ownership is asked again here: the authority was granted an hour ago at most, and a pod can
-    // change hands in that time.
+    // change hands in that time. The answer is in the row, so it is given once the row is gone —
+    // which takes nothing from a former owner that they could still have spent.
     val pod = pod()
-    val stranger = installer(pod).copy(tokenSub = "https://id.sempods.org/e/${"0".repeat(64)}")
+    val formerOwner = installer(pod, webId = "https://id.sempods.org/e/${"0".repeat(64)}")
 
-    val refused = unauthorized(register(pod, client = named("Stranger"), raw = installation(), caller = stranger))
+    val refused = unauthorized(register(pod, client = named("Stranger"), raw = installation(), caller = formerOwner))
 
     assertEquals(PodRegistrationRefusal.NOT_AUTHORIZED, refused.reason)
-    assertTrue(spendAuthority(pod, stranger), "a refusal before the authority is spent leaves it to be spent")
+    assertFalse(spendAuthority(pod, formerOwner), "and there is nothing left to present a second time")
   }
 
   @Test
@@ -294,9 +296,24 @@ class PodClientRegistrationTest : SempodsStoreTest() {
       webIdUriDeriver.derivableAliases(pod.owner).firstOrNull { it.startsWith("urn:sempods:") },
       "the owner's address has a urn twin",
     )
-    val caller = installer(pod).copy(tokenSub = urn)
+    val caller = installer(pod, webId = urn)
 
     val installed = installed(register(pod, client = named("Aliased"), raw = installation(), caller = caller))
+
+    assertTrue(installed.clientId.startsWith("svc:"))
+  }
+
+  @Test
+  fun `an owner whose pod records them under a linked alias installs`() {
+    // Sign in with Google, own the pod under the email address: `pod.owner` and the WebID this
+    // person signed in as are linked by `also_known_as` alone, which lives in sempods-auth. The
+    // consent resolved it while the browser was there, and the authority is where that answer is
+    // kept — nothing this call carries could derive it.
+    val pod = pod()
+    val signedInAs = "https://id.sempods.org/oidc/${"1".repeat(64)}"
+    val caller = installer(pod, webId = signedInAs, subjectUris = setOf(signedInAs, pod.owner))
+
+    val installed = installed(register(pod, client = named("Merged"), raw = installation(), caller = caller))
 
     assertTrue(installed.clientId.startsWith("svc:"))
   }
@@ -398,18 +415,27 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   /**
    * An owner bearer carrying one recorded, unspent installation authority — what the code exchange
    * leaves behind when the owner approves an installation.
+   *
+   * @param webId who approved, and [subjectUris] the URIs the consent recognised them by. Both
+   *   default to the pod's own owner, spelled the one way it is stored; a case naming either
+   *   describes a person the pod does not record under the URI they signed in as.
    */
-  private fun installer(pod: HostedPod): SempodsCredentials {
+  private fun installer(
+    pod: HostedPod,
+    webId: String = pod.owner,
+    subjectUris: Set<String> = setOf(webId),
+  ): SempodsCredentials {
     val jti = randomId()
     // The standing consent the authority hangs off: `consume` compares its generation, so an
     // authority without one is already withdrawn.
-    val generation = consentDecisions.recordWithoutLifetime(pod.id, INSTALLER, pod.owner).generation
+    val generation = consentDecisions.recordWithoutLifetime(pod.id, INSTALLER, webId).generation
     installationAuthorities.record(
       pod = pod.id,
       jti = jti,
       clientId = INSTALLER,
-      webId = pod.owner,
+      webId = webId,
       generation = generation,
+      subjectUris = subjectUris,
     )
     return SempodsCredentials(
       pod = pod.ref,
@@ -417,7 +443,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
       oauthClientId = INSTALLER,
       oauthScopes = setOf(SERVICE_CLIENTS_SCOPE),
       tokenJti = jti,
-      tokenSub = pod.owner,
+      tokenSub = webId,
     )
   }
 

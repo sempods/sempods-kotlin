@@ -123,7 +123,7 @@ class AuthorizationCodeStoreTest {
     )
     val doc = requireNotNull(raw.find(Filters.eq("_id", sha256Hex(code))).first())
 
-    for (absent in listOf("codeChallenge", "codeChallengeMethod", "nonce", "scopes")) {
+    for (absent in listOf("codeChallenge", "codeChallengeMethod", "nonce", "scopes", "subjectUris")) {
       assertFalse(doc.containsKey(absent), "$absent should have been omitted, got: ${doc[absent]}")
     }
     assertTrue(doc.containsKey("subject"))
@@ -140,11 +140,13 @@ class AuthorizationCodeStoreTest {
       codeChallenge = "challenge",
       codeChallengeMethod = "S256",
       nonce = "n-1",
+      subjectUris = setOf("u", "urn:sempods:e:u"),
     )
     val entry = requireNotNull(store.consume(code))
 
     assertEquals(setOf("openid"), entry.scopes)
     assertEquals("challenge", entry.codeChallenge)
     assertEquals("n-1", entry.nonce)
+    assertEquals(setOf("u", "urn:sempods:e:u"), entry.subjectUris)
   }
 }
