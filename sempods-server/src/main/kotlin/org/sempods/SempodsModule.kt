@@ -33,6 +33,7 @@ import org.sempods.pods.oauth.PodSigningKeyStore
 import org.sempods.pods.oauth.flows.PodAuthorizationCodes
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
+import org.sempods.pods.oauth.flows.PodInstallationBudget
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
@@ -186,6 +187,7 @@ class SempodsModule : BaseModule() {
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
     bind<PodRegistrationRateLimiter>().asSingleton()
+    bind<PodInstallationBudget>().to(PodRegistrationRateLimiter::class.java)
     bind<DynamicClientRegistrationDao>().asSingleton()
     bind<DynamicClientStore>().asSingleton()
     bind<TemplateRenderer>().asSingleton()
@@ -746,6 +748,10 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
     internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
 
+    /** A registration budget from [variable]: off in development, [default] in a deployment. */
+    private fun registerBudget(variable: String, default: Int): Int =
+      Env.int(variable, default = if (Env.isDevelopment) 0 else default)
+
     /**
      * The pod server's configuration, read once from the environment.
      *
@@ -819,29 +825,23 @@ class SempodsModule : BaseModule() {
           TOKEN_RATE_LIMIT_ADDRESS_BURST_ENV_VARIABLE,
           default = if (Env.isDevelopment) 0 else DEFAULT_TOKEN_RATE_LIMIT_ADDRESS_BURST,
         ),
-        registerRateLimitPublicPerMinute = Env.int(
-          REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE,
+        registerRateLimitPublicPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_PER_MINUTE,
         ),
-        registerRateLimitPublicBurst = Env.int(
-          REGISTER_RATE_LIMIT_PUBLIC_BURST_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST,
+        registerRateLimitPublicBurst = registerBudget(
+          REGISTER_RATE_LIMIT_PUBLIC_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST,
         ),
-        registerRateLimitProtectedPerMinute = Env.int(
-          REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE,
+        registerRateLimitProtectedPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE,
         ),
-        registerRateLimitProtectedBurst = Env.int(
-          REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST,
+        registerRateLimitProtectedBurst = registerBudget(
+          REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST,
         ),
-        registerRateLimitInstallerPerMinute = Env.int(
-          REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE,
+        registerRateLimitInstallerPerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE,
         ),
-        registerRateLimitInstallerBurst = Env.int(
-          REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE,
-          default = if (Env.isDevelopment) 0 else DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST,
+        registerRateLimitInstallerBurst = registerBudget(
+          REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST,
         ),
         sessionConnectionIdleHours = Env.int(
           SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE,

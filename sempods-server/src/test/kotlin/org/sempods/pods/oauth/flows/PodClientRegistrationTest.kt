@@ -2,6 +2,7 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import org.bson.types.ObjectId
+import org.sempods.SempodsModule
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
 import org.sempods.SempodsUriBuilder
@@ -276,19 +277,35 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `only an unspent authority from the current owner counts as spendable`() {
-    // What the endpoint charges its installer budget on. A former owner's token, or a spent one,
-    // must not count, or it could hold the current owner's budget empty.
+  fun `a throttled installation keeps its authority`() {
     val pod = pod()
-    val owner = installer(pod)
-    val formerOwner = installer(pod, webId = "https://id.sempods.org/e/${"1".repeat(64)}")
+    repeat(installerBudget) {
+      installed(register(pod, client = named("Filler $it"), raw = installation(), caller = installer(pod)))
+    }
+    val caller = installer(pod)
 
-    assertTrue(registration.holdsSpendableAuthority(pod, owner))
-    assertFalse(registration.holdsSpendableAuthority(pod, formerOwner), "a former owner's approval")
-
-    assertTrue(spendAuthority(pod, owner))
-    assertFalse(registration.holdsSpendableAuthority(pod, owner), "a spent one")
+    assertEquals(PodRegistrationResult.RateLimited, register(pod, client = named("Late"), raw = installation(), caller = caller))
+    assertTrue(spendAuthority(pod, caller), "the budget refused before the authority was spent")
   }
+
+  @Test
+  fun `only an authority that could still register spends the budget`() {
+    // A spent token, a former owner's approval and a body refused before the spend all reach no
+    // secret minting, so none may hold the current owner's budget empty.
+    val pod = pod()
+    val spent = installer(pod)
+    installed(register(pod, client = named("First"), raw = installation(), caller = spent))
+    val formerOwner = "https://id.sempods.org/e/${"1".repeat(64)}"
+
+    repeat(installerBudget + 1) {
+      unauthorized(register(pod, client = named("Again"), raw = installation(), caller = spent))
+      unauthorized(register(pod, client = named("Former"), raw = installation(), caller = installer(pod, webId = formerOwner)))
+      refusal(register(pod, client = PodClientMetadata(), raw = installation(), caller = installer(pod)))
+    }
+
+    installed(register(pod, client = named("Next"), raw = installation(), caller = installer(pod)))
+  }
+
 
   @Test
   fun `an approval from someone who no longer owns the pod registers nothing, and is spent`() {
@@ -421,6 +438,9 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     caller: SempodsCredentials? = null,
   ): PodRegistrationResult =
     registration.register(pod, PodRegistrationRequest(client, raw, userAgent, forwardedFor, caller))
+
+  /** What a fresh pod may install before it is throttled — the build sets it for this JVM. */
+  private val installerBudget = SempodsModule.config.registerRateLimitInstallerBurst
 
   private fun named(clientName: String) = PodClientMetadata(clientName = clientName)
 

@@ -81,11 +81,11 @@ internal object PodTokenResponses {
    * refills continuously, so any single value is a hint rather than a deadline, and the hint worth
    * giving is the window the budget itself is stated in.
    */
-  fun rateLimited(): Response =
+  fun rateLimited(description: String = "too many token requests — retry later"): Response =
     finish(
       Response.status(429)
         .header("Retry-After", RETRY_AFTER_SECONDS)
-        .entity(errorBody("slow_down", "too many token requests — retry later")),
+        .entity(errorBody("slow_down", description)),
     )
 
   /**

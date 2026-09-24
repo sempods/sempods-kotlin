@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.auth
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import ch.qos.logback.core.AppenderBase
 import com.google.inject.Inject
 import org.sempods.commons.logging.CapturedLog
@@ -17,12 +18,14 @@ import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
+import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.SERVICE_CLIENTS_SCOPE
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
@@ -83,7 +86,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   @Inject
-  private lateinit var installationAuthorities: org.sempods.pods.oauth.PodInstallationAuthorityStore
+  private lateinit var installationAuthorities: PodInstallationAuthorityStore
 
   private val testClientId = "did:web:localhost%3A5173"
   private val testRedirectUri = "http://localhost:5173/callback"
@@ -5487,25 +5490,26 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   // ── Installing a service client: the installer budget ──────────────────────
-  // Keyed by pod and person, so these cases need no forwarded-for header. The build sets the
-  // budget (`SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_*`); each case makes its own pod.
+  // What only a real connector shows: the budget reaches the wire as a 429 and leaves the authority
+  // spendable. Which authorities are charged is `PodClientRegistrationTest`'s; the arithmetic is
+  // `PodRegistrationRateLimiterTest`'s. Keyed by pod, so no forwarded-for header is needed.
 
   private val installerBudget = SempodsModule.config.registerRateLimitInstallerBurst
 
-  /** An installation body refused before the authority is spent: it names no client. */
-  private val namelessInstallationBody =
-    """{"grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic"}"""
-
-  @Test
-  fun `a throttled installation keeps its authority`() {
-    assertTrue(installerBudget > 0, "the suite's environment must enable the installer budget")
+  /** A pod of its own and its owner's installer bearer factory. */
+  private fun installingOwner(): Pair<PodDbo, () -> String> {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
-    repeat(installerBudget) {
-      assertEquals(400, registerAsInstaller(pod, installer, body = namelessInstallationBody).statusCode)
-    }
+    return pod to { approveInstallation(pod, ownerWebId)["access_token"] as String }
+  }
+
+  @Test
+  fun `a throttled installation is told 429 and keeps its authority`() {
+    assertTrue(installerBudget > 0, "the suite's environment must enable the installer budget")
+    val (pod, approve) = installingOwner()
+    repeat(installerBudget) { assertEquals(201, registerAsInstaller(pod, approve()).statusCode) }
+    val installer = approve()
 
     val throttled = registerAsInstaller(pod, installer)
 
@@ -5513,60 +5517,23 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals("60", throttled.getHeader("Retry-After"))
     assertEquals("no-store", throttled.getHeader("Cache-Control"))
     assertTrue("slow_down" in throttled.responseBody, throttled.responseBody)
-    // Still spendable: the throttle answered before the registration could consume it.
     val jti = SignedJWT.parse(installer).jwtClaimsSet.jwtid
     assertNotNull(installationAuthorities.consume(pod.podId(), jti), "the authority must survive a 429")
   }
 
   @Test
-  fun `the installer budget is per pod`() {
-    val ownerUser = sempodsTestFactory.newOwner()
-    val first = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val second = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val onFirst = approveInstallation(first, ownerWebId)["access_token"] as String
-    repeat(installerBudget) { registerAsInstaller(first, onFirst, body = namelessInstallationBody) }
-    assertEquals(429, registerAsInstaller(first, onFirst).statusCode)
-
-    val onSecond = approveInstallation(second, ownerWebId)["access_token"] as String
-    val registered = registerAsInstaller(second, onSecond)
-
-    assertEquals(201, registered.statusCode, registered.responseBody)
-  }
-
-  @Test
   fun `concurrent registrations on one authority create one client and nothing partial`() {
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+    val (pod, approve) = installingOwner()
+    val installer = approve()
     val attempts = installerBudget + 3
 
-    val statuses = java.util.concurrent.Executors.newFixedThreadPool(attempts).use { pool ->
+    val statuses = Executors.newFixedThreadPool(attempts).use { pool ->
       (1..attempts).map { pool.submit<Int> { registerAsInstaller(pod, installer).statusCode } }.map { it.get() }
     }
 
     assertEquals(1, statuses.count { it == 201 }, statuses.toString())
     // Everyone else was either throttled or found the authority spent — nothing in between.
     assertTrue(statuses.all { it in setOf(201, 401, 429) }, statuses.toString())
-  }
-
-  @Test
-  fun `a spent installer token cannot drain the pod's installer budget`() {
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val spent = approveInstallation(pod, ownerWebId)["access_token"] as String
-    assertEquals(201, registerAsInstaller(pod, spent).statusCode)
-
-    // Replayed past the budget, and answered on its merits every time rather than throttled.
-    repeat(installerBudget + 2) {
-      assertEquals(401, registerAsInstaller(pod, spent).statusCode)
-    }
-
-    val next = approveInstallation(pod, ownerWebId)["access_token"] as String
-    val registered = registerAsInstaller(pod, next)
-    assertEquals(201, registered.statusCode, registered.responseBody)
   }
 
   @Test

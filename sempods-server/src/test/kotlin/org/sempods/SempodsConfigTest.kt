@@ -181,8 +181,6 @@ class SempodsConfigTest {
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitProtectedBurst = -1) }
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerPerMinute = -1) }
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerBurst = -1) }
-    // Each tier turns off on its own.
-    assertEquals(10, base.copy(registerRateLimitProtectedPerMinute = 10).registerRateLimitProtectedPerMinute)
   }
 
   /**

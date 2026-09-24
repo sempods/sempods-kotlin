@@ -1,14 +1,9 @@
 package org.sempods.api.pod.system.auth
 
-import ch.qos.logback.classic.Logger
-import ch.qos.logback.classic.LoggerContext
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.sempods.SempodsConfig
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.ratelimit.FakeClock
-import org.slf4j.LoggerFactory
+import org.sempods.pods.PodId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,40 +12,10 @@ import kotlin.test.assertTrue
 /**
  * Pure unit: the three registration budgets and what each is keyed by.
  *
- * Every case uses addresses and subjects of its own, so the cases share nothing, the log
- * appender included: a line is attributed to a case by the key it names.
+ * Every case uses addresses and pods of its own, so a log line is attributed to a case by the key
+ * it names.
  */
 class PodRegistrationRateLimiterTest {
-
-  private val appender = ListAppender<ILoggingEvent>()
-
-  private lateinit var logger: Logger
-
-  @BeforeEach
-  fun attachAppender() {
-    logger = logbackContext().getLogger(PodRegistrationRateLimiter::class.java)
-    appender.start()
-    logger.addAppender(appender)
-  }
-
-  @AfterEach
-  fun detachAppender() {
-    logger.detachAppender(appender)
-    appender.stop()
-  }
-
-  /** The window `PodTokenRateLimiterTest.logbackContext` waits out, for the same reason. */
-  private fun logbackContext(): LoggerContext {
-    repeat(500) {
-      val factory = LoggerFactory.getILoggerFactory()
-      if (factory is LoggerContext) return factory
-      Thread.sleep(10)
-    }
-    error("logback never became the SLF4J binding of this test JVM")
-  }
-
-  private fun linesNaming(key: String): List<String> =
-    appender.list.map { it.formattedMessage }.filter { "key='$key'" in it }
 
   private fun limiter(
     clock: FakeClock = FakeClock(),
@@ -60,8 +25,11 @@ class PodRegistrationRateLimiterTest {
   ) = PodRegistrationRateLimiter(
     clock = clock,
     publicPerMinute = public,
+    publicBurst = public,
     protectedPerMinute = protected,
+    protectedBurst = protected,
     installerPerMinute = installer,
+    installerBurst = installer,
   )
 
   /** A proxied request whose appended address is [address]. */
@@ -89,9 +57,7 @@ class PodRegistrationRateLimiterTest {
     repeat(2) { limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = false) }
     assertFalse(limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = false))
 
-    assertTrue(limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = true))
-
-    repeat(1) { limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = true) }
+    repeat(2) { assertTrue(limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = true)) }
     assertFalse(limiter.tryAcquireAddress(via("203.0.113.3"), bearerPresented = true))
   }
 
@@ -117,15 +83,15 @@ class PodRegistrationRateLimiterTest {
     }
   }
 
-  @Test fun `an installer is budgeted per pod`() {
+  @Test fun `an installation is budgeted per pod`() {
     val limiter = limiter()
-    repeat(2) { assertTrue(limiter.tryAcquireInstallation("pod-a")) }
-    assertFalse(limiter.tryAcquireInstallation("pod-a"))
+    repeat(2) { assertTrue(limiter.tryAcquire(PodId("pod-a"))) }
+    assertFalse(limiter.tryAcquire(PodId("pod-a")))
 
-    assertTrue(limiter.tryAcquireInstallation("pod-b"), "another pod")
+    assertTrue(limiter.tryAcquire(PodId("pod-b")), "another pod")
   }
 
-  @Test fun `a rate of zero turns that tier off and leaves the others`() {
+  @Test fun `a rate of zero turns that budget off and leaves the others`() {
     val limiter = limiter(public = 0)
     repeat(10) { assertTrue(limiter.tryAcquireAddress(via("203.0.113.7"), bearerPresented = false)) }
 
@@ -133,7 +99,7 @@ class PodRegistrationRateLimiterTest {
     assertFalse(limiter.tryAcquireAddress(via("203.0.113.7"), bearerPresented = true))
   }
 
-  @Test fun `the configured burst is allowed at once`() {
+  @Test fun `the configured burst is allowed at once, and a burst of 0 is the rate`() {
     val limiter = PodRegistrationRateLimiter(
       SempodsConfig(
         httpPort = 8090,
@@ -150,31 +116,29 @@ class PodRegistrationRateLimiterTest {
     repeat(4) { assertTrue(limiter.tryAcquireAddress(via("203.0.113.8"), bearerPresented = false)) }
     assertFalse(limiter.tryAcquireAddress(via("203.0.113.8"), bearerPresented = false))
 
-    // A burst of 0 is the rate.
     assertTrue(limiter.tryAcquireAddress(via("203.0.113.8"), bearerPresented = true))
     assertFalse(limiter.tryAcquireAddress(via("203.0.113.8"), bearerPresented = true))
   }
 
-  @Test fun `a hammered key is logged once a minute and names its tier`() {
+  @Test fun `a hammered key is logged once a minute and names its budget`() {
     val clock = FakeClock()
     val limiter = limiter(clock)
-    repeat(20) { limiter.tryAcquireAddress(via("203.0.113.9"), bearerPresented = false) }
+    val lines = CapturedLog.linesFrom(PodRegistrationRateLimiter::class.java) {
+      repeat(20) { limiter.tryAcquireAddress(via("203.0.113.9"), bearerPresented = false) }
+      clock.advance(60_000)
+      repeat(20) { limiter.tryAcquireAddress(via("203.0.113.9"), bearerPresented = false) }
+    }.filter { "key='203.0.113.9'" in it }
 
-    val lines = linesNaming("203.0.113.9")
-    assertEquals(1, lines.size, lines.toString())
-    assertTrue("public budget" in lines.single(), lines.single())
-
-    clock.advance(60_000)
-    repeat(20) { limiter.tryAcquireAddress(via("203.0.113.9"), bearerPresented = false) }
-    assertEquals(2, linesNaming("203.0.113.9").size)
+    assertEquals(2, lines.size, lines.toString())
+    assertTrue(lines.all { "public budget" in it }, lines.toString())
   }
 
   @Test fun `an address carrying a line break cannot forge a log line`() {
     val limiter = limiter(public = 1)
-    val address = "203.0.113.10\n[oauth/register] forged"
-    repeat(2) { limiter.tryAcquireAddress(via(address), bearerPresented = false) }
+    val lines = CapturedLog.linesFrom(PodRegistrationRateLimiter::class.java) {
+      repeat(2) { limiter.tryAcquireAddress(via("203.0.113.10\n[oauth/register] forged"), bearerPresented = false) }
+    }.filter { "203.0.113.10" in it }
 
-    val lines = appender.list.map { it.formattedMessage }.filter { "203.0.113.10" in it }
     assertEquals(1, lines.size, lines.toString())
     assertFalse('\n' in lines.single(), lines.single())
   }

@@ -45,6 +45,7 @@ internal object PodRegistrationResponses {
     is PodRegistrationResult.Registered -> created(publicClient(result))
     is PodRegistrationResult.ServiceRegistered -> created(serviceClient(result))
     is PodRegistrationResult.Refused -> refused(result)
+    PodRegistrationResult.RateLimited -> rateLimited()
 
     is PodRegistrationResult.Unauthorized -> Response.status(result.reason.status)
       .header(HttpHeaders.WWW_AUTHENTICATE, challenge(result.reason.error))
@@ -59,15 +60,7 @@ internal object PodRegistrationResponses {
    * RFC 7591 registers no code for this, so the answer is the token endpoint's: 429, `slow_down`
    * and `Retry-After` in the window the budget is stated in.
    */
-  fun rateLimited(): Response =
-    Response.status(429)
-      .type(MediaType.APPLICATION_JSON)
-      .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
-      .header(HttpHeaders.CACHE_CONTROL, "no-store")
-      .entity("""{"error":"slow_down","error_description":"too many registration requests — retry later"}""")
-      .build()
-
-  private const val RETRY_AFTER_SECONDS = 60
+  fun rateLimited(): Response = PodTokenResponses.rateLimited("too many registration requests — retry later")
 
   private fun refused(result: PodRegistrationResult.Refused): Response {
     // RFC 6749 §5.2's character set for `error_description` excludes `"` and `\`, and a refusal

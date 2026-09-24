@@ -7,7 +7,6 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
-import org.sempods.commons.utils.HashUtil
 
 /**
  * The budget one client gets at `POST {pod}/_system/auth/token`.
@@ -62,19 +61,16 @@ class PodTokenRateLimiter(
    * a Kotlin default compiles to a second constructor and Guice then refuses the class outright —
    * the same reason `ApiExceptionMapper` states for its own signature.
    *
-   * A burst of `0` is read as "the same as the rate" here rather than in the limiter, which keeps
-   * that class's contract strict: a capacity of zero beside a positive rate refuses everything, and
-   * is exactly what a config default of `0` would otherwise mean.
+   * A burst of `0` is read as "the same as the rate" — see [burstOrRate].
    */
   @Inject constructor(config: SempodsConfig) : this(
     permitsPerMinute = config.tokenRateLimitPerMinute,
     // Left to the limiter, which reads a monotonic source: nothing here reports a point in time,
     // and a budget that follows a wall clock through an NTP correction is wrong in both directions.
     clock = TokenBucketRateLimiter.monotonicMillis(),
-    burstCapacity = config.tokenRateLimitBurst.takeIf { it > 0 } ?: config.tokenRateLimitPerMinute,
+    burstCapacity = burstOrRate(config.tokenRateLimitBurst, config.tokenRateLimitPerMinute),
     addressPerMinute = config.tokenRateLimitAddressPerMinute,
-    addressBurst = config.tokenRateLimitAddressBurst.takeIf { it > 0 }
-      ?: config.tokenRateLimitAddressPerMinute,
+    addressBurst = burstOrRate(config.tokenRateLimitAddressBurst, config.tokenRateLimitAddressPerMinute),
   )
 
   /**
@@ -119,7 +115,7 @@ class PodTokenRateLimiter(
     clientId: String?,
     authorizationHeader: String?,
   ): Boolean {
-    val address = bounded(ForwardedFor.clientIp(forwardedFor) ?: return true)
+    val address = boundedKeyPart(ForwardedFor.clientIp(forwardedFor) ?: return true)
 
     // The address first, and its refusal is final: a caller must not be able to reach the
     // per-client tier — nor allocate a bucket in it — by presenting a name nobody checked.
@@ -128,7 +124,7 @@ class PodTokenRateLimiter(
       return false
     }
 
-    val key = "$address|${bounded(clientIdentity(grantType, clientId, authorizationHeader))}"
+    val key = "$address|${boundedKeyPart(clientIdentity(grantType, clientId, authorizationHeader))}"
     if (!buckets.tryAcquire(key)) {
       logRefusal(address, "client", key, permitsPerMinute)
       return false
@@ -186,18 +182,6 @@ class PodTokenRateLimiter(
       clientId?.trim()?.takeIf { it.isNotBlank() } ?: UNIDENTIFIED
     }
 
-  /**
-   * A key part, at a length this server chose rather than the caller.
-   *
-   * The ceiling on the bucket map bounds how many keys are held, not how big they are, and both
-   * halves of this key arrive from the request: a `client_id` is a form field on an unauthenticated
-   * endpoint and has no length anyone here agreed to. Kept whole while it is a plausible name —
-   * every real one is far shorter — and folded to a digest beyond that, so a caller cannot decide
-   * what a retained key, or the warning that names it, costs.
-   */
-  private fun bounded(part: String): String =
-    if (part.length <= MAX_KEY_PART_LENGTH) part else "sha256:" + HashUtil.sha256Hex(part).take(16)
-
   companion object {
 
     private val logger = KotlinLogging.logger {}
@@ -207,12 +191,5 @@ class PodTokenRateLimiter(
 
     /** The one grant whose caller is named in the `Authorization` header rather than in the form. */
     private const val CLIENT_CREDENTIALS_GRANT = "client_credentials"
-
-    /**
-     * Well past any real client id — a `did:web:` one runs to a few dozen characters and a `dyn:`
-     * registration to about forty — and short enough that four thousand of them are a rounding
-     * error rather than a heap.
-     */
-    private const val MAX_KEY_PART_LENGTH = 128
   }
 }
