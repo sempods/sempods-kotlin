@@ -16,9 +16,7 @@ import java.time.Instant
  * carries fields we don't explicitly model yet.
  *
  * A plain data class: the collection name, the five indexes and the mapping onto a BSON document
- * live in [DynamicClientRegistrationDao], which talks to the driver. There is no no-arg constructor
- * either — it existed only so Morphia's `PojoCodec` had an entry point, and its `MorphiaUtil`
- * sentinels were values no reader ever saw.
+ * live in [DynamicClientRegistrationDao], which talks to the driver.
  *
  * **The declaration order is the wire order** and is not free: it is what a row already on disk
  * carries, and `DynamicClientRegistrationDao.toDocument` writes the fields in exactly this
@@ -35,8 +33,7 @@ internal data class DynamicClientRegistrationDbo(
   val registeredForPodName: String,
   val registeredAt: Instant = Instant.now(),
 
-  // Extracted RFC 7591 fields. These are projections of `rawRequest` kept at top-level for
-  // query ergonomics; the verbatim body remains the source of truth.
+  // Extracted RFC 7591 fields.
   val redirectUris: Set<String>,
   val clientName: String?,
   val clientUri: String?,
@@ -47,12 +44,11 @@ internal data class DynamicClientRegistrationDbo(
   val tosUri: String?,
   val policyUri: String?,
 
-  // Verbatim DCR body. Preserves every key the client sent, including fields not yet modeled.
-  // Stage 2 mines this to decide which additional fields are worth promoting to top-level.
-  // Stored as a nested document; an empty body is omitted the way an empty collection is.
+  // Verbatim DCR body, stored as a nested document; an empty body is omitted the way an empty
+  // collection is.
   val rawRequest: Map<String, Any?>,
 
-  // Optional request-context observations captured for Stage-2 agent fingerprinting.
+  // Request-context observations captured at `/register`.
   val remoteAddr: String? = null,
   val userAgent: String? = null,
 
