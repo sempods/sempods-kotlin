@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -33,6 +34,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -47,30 +49,38 @@ import org.sempods.client.SempodsAdmission;
 import org.sempods.client.SempodsAsync;
 import org.sempods.client.SempodsAsyncOperation;
 import org.sempods.client.SempodsAuthAttempt;
+import org.sempods.client.SempodsAuthorizationRedirect;
 import org.sempods.client.SempodsContent;
 import org.sempods.client.SempodsContextCreate;
 import org.sempods.client.SempodsContextSelection;
 import org.sempods.client.SempodsCredentialSupplier;
 import org.sempods.client.SempodsDecodingException;
 import org.sempods.client.SempodsForeignTarget;
+import org.sempods.client.SempodsGrantOutcome;
 import org.sempods.client.SempodsGraphFormat;
 import org.sempods.client.SempodsOkHttp;
+import org.sempods.client.SempodsPkce;
 import org.sempods.client.SempodsPod;
+import org.sempods.client.SempodsPodAuthorization;
 import org.sempods.client.SempodsPodBase;
 import org.sempods.client.SempodsPodContexts;
 import org.sempods.client.SempodsPodDateModified;
 import org.sempods.client.SempodsPodResources;
+import org.sempods.client.SempodsPodServiceClients;
 import org.sempods.client.SempodsPodSlots;
 import org.sempods.client.SempodsPodSparql;
 import org.sempods.client.SempodsPodSubjects;
+import org.sempods.client.SempodsPodTokens;
+import org.sempods.client.SempodsPublicClient;
 import org.sempods.client.SempodsReadOptions;
 import org.sempods.client.SempodsRequestAuth;
-import org.sempods.client.SempodsResponseFacts;
 import org.sempods.client.SempodsResponse;
+import org.sempods.client.SempodsResponseFacts;
+import org.sempods.client.SempodsServiceClient;
+import org.sempods.client.SempodsServiceClientRegistration;
 import org.sempods.client.SempodsSession;
 import org.sempods.client.SempodsSparqlResults;
 import org.sempods.client.SempodsSparqlTermKind;
-import org.sempods.client.SempodsPodTokens;
 import org.sempods.client.SempodsTokenResponse;
 import org.sempods.client.SempodsWriteOptions;
 
@@ -104,6 +114,28 @@ class ClientFromJavaTest {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     // A thread per exchange, so the slow route below holds up no other.
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    // Both registration profiles on one route, told apart as the pod tells them apart: by the bearer.
+    server.createContext("/alice/_system/auth/register", exchange -> {
+      exchange.getResponseHeaders().add("X-Saw-Body", new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+      if (header(exchange, "Authorization").isEmpty()) {
+        json(exchange, 201, "{\"client_id\":\"dyn:1\",\"client_name\":\"Installer\",\"redirect_uris\":[\"http://127.0.0.1/cb\"]}");
+      } else {
+        json(exchange, 201, "{\"client_id\":\"svc:1\",\"client_secret\":\"sc_1\",\"client_id_issued_at\":1700000000,"
+            + "\"client_secret_expires_at\":0,\"client_name\":\"Notes Sync\"}");
+      }
+    });
+    server.createContext("/alice/_system/auth/service-clients", exchange -> {
+      String path = exchange.getRequestURI().getRawPath();
+      if (path.endsWith("/secret")) {
+        json(exchange, 200, "{\"client_id\":\"svc:1\",\"client_secret\":\"sc_2\"}");
+      } else if (exchange.getRequestMethod().equals("DELETE")) {
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
+      } else {
+        json(exchange, 200, "{\"serviceClients\":[{\"client_id\":\"svc:1\",\"client_name\":\"Notes Sync\","
+            + "\"client_id_issued_at\":1700000000,\"last_used_at\":null,\"scope\":\"urn:a#read\",\"origin\":\"installed\"}]}");
+      }
+    });
     server.createContext("/alice/_system/slow", exchange -> {
       try {
         Thread.sleep(10_000);
@@ -361,6 +393,41 @@ class ClientFromJavaTest {
     SempodsPodTokens bob = new SempodsPodTokens(
         new SempodsSession(SempodsPodBase.of(base("bob")), SempodsRequestAuth.clientSecretBasic("notes-app", "s")), client);
     assertNull(bob.clientCredentials().getBody().getExpiresIn());
+  }
+
+  @Test
+  void installsAndManagesAServiceClientFromJava() throws IOException {
+    SempodsPodBase alice = SempodsPodBase.of(base("alice"));
+    String redirect = "http://127.0.0.1:4711/cb";
+
+    SempodsPodAuthorization authorization = new SempodsPodAuthorization(new SempodsSession(alice), client);
+    SempodsPublicClient installer = authorization.registerClient("Installer", List.of("http://127.0.0.1/cb")).getBody();
+    assertEquals("dyn:1", installer.getClientId());
+    SempodsPkce pkce = SempodsPkce.generate();
+    HttpUrl consent = authorization.authorizationUrl(installer.getClientId(), redirect, "service-clients:install", "s1", pkce);
+    assertEquals(pkce.getChallenge(), consent.queryParameter("code_challenge"));
+    SempodsAuthorizationRedirect answer = SempodsAuthorizationRedirect.readQuery("code=c-1&state=s1", "s1");
+    assertTrue(answer.isApproved());
+    SempodsTokenResponse token = new SempodsPodTokens(new SempodsSession(alice), client)
+        .authorizationCode(installer.getClientId(), answer.getCode(), redirect, pkce.getVerifier()).getBody();
+
+    SempodsPodServiceClients installing =
+        new SempodsPodServiceClients(new SempodsSession(alice, SempodsRequestAuth.bearer(token.getAccessToken())), client);
+    SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
+    assertEquals("sc_1", service.getClientSecret());
+    assertEquals(Instant.ofEpochSecond(1700000000), service.getIssuedAt());
+    assertNull(service.getSecretExpiresAt());
+    HttpUrl grant = installing.grantConsentUrl(installer.getClientId(), redirect, "g1", service.getClientId(), List.of("urn:a#read"));
+    assertEquals("svc:1", grant.queryParameter("service_client"));
+    SempodsGrantOutcome outcome = SempodsGrantOutcome.readQuery("error=access_denied&state=g1", "g1");
+    assertFalse(outcome.isGranted());
+    assertEquals("access_denied", outcome.getError());
+
+    SempodsServiceClient listed = installing.list().getBody().get(0);
+    assertEquals(Set.of("urn:a#read"), listed.getScopes());
+    assertNull(listed.getLastUsedAt());
+    assertEquals("sc_2", installing.rotateSecret("svc:1").getBody().getClientSecret());
+    assertTrue(installing.revoke("svc:1"));
   }
 
   @Test

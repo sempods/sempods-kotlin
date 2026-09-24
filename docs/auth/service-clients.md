@@ -138,6 +138,8 @@ pod's business, and none of it is defined here.
 The owner manages the registrations on their pod with a bearer carrying
 `service-clients:manage` — [`oauth.md`](oauth.md#managing-service-clients)
 is how one is granted. The client id travels path-encoded (`svc%3A…`).
+From a JVM program these are `SempodsPodServiceClients`
+([`../pod-client.md`](../pod-client.md#installing-a-service-client)).
 
 | Route | What it does |
 |---|---|

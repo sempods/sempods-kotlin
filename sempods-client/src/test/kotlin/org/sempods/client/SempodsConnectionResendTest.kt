@@ -407,6 +407,47 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `an installation, a secret rotation and a code exchange are not resent`() {
+    val operations: List<(SempodsSession, OkHttpClient) -> Unit> = listOf(
+      { a, client -> SempodsPodServiceClients(a, client).registerJson("Notes Sync") },
+      { a, client -> SempodsPodServiceClients(a, client).rotateSecretJson("svc:1") },
+      { a, client -> SempodsPodTokens(a, client).authorizationCodeJson("dyn:1", "code", "http://127.0.0.1/cb", "v".repeat(43)) },
+    )
+    sempodsClient().closing { client ->
+      val a = session()
+      operations.forEach { operation ->
+        leaveAStaleConnection(client, a)
+        requestHeads.clear()
+
+        assertThrows<IOException> { operation(a, client) }
+
+        assertTrue(requestHeads.isEmpty(), requestHeads.toString())
+      }
+    }
+  }
+
+  @Test
+  fun `a public registration, a service-client list and a grant removal are resent`() {
+    val operations: List<(SempodsSession, OkHttpClient) -> SempodsResponse<String>> = listOf(
+      { a, client -> SempodsPodAuthorization(a, client).registerClientJson("Installer", listOf("http://127.0.0.1/cb")) },
+      { a, client -> SempodsPodServiceClients(a, client).listJson() },
+      { a, client -> SempodsPodServiceClients(a, client).removeGrantsJson("svc:1", listOf("urn:c#read")) },
+    )
+    sempodsClient().closing { client ->
+      val a = session()
+      operations.forEach { operation ->
+        leaveAStaleConnection(client, a)
+        requestHeads.clear()
+
+        assertEquals(200, operation(a, client).status)
+
+        assertEquals(1, requestHeads.size, "the attempt on the dropped connection never reached the server")
+        assertTrue(requestHeads[0].contains("X-Attempt: 2"), requestHeads[0])
+      }
+    }
+  }
+
+  @Test
   fun `the repeatable mark holds when an interceptor ahead rebuilds the request without its tags`() {
     val rebuilding = Interceptor { chain ->
       val original = chain.request()
