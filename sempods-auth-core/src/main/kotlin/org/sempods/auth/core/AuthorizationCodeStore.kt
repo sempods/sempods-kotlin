@@ -46,7 +46,8 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     val consentGeneration: Long? = null,
     /**
      * Every identity URI the person was recognised by at the dialog, for an exchange that has to
-     * ask about them again; empty where none was recorded.
+     * ask about them again. Always holds [subject], and holds only that where nothing else was
+     * recorded.
      *
      * [subject] is one URI, and what links it to the others belongs to the identity service. The
      * set is recorded while the browser is there so a later check can ask the same question —
@@ -79,8 +80,9 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       putStrings("subjectUris", it.subjectUris)
     },
     read = {
+      val subject = getString("subject") ?: return@OneTimeStore null
       Entry(
-        subject = getString("subject") ?: return@OneTimeStore null,
+        subject = subject,
         realm = getString("realm") ?: return@OneTimeStore null,
         clientId = getString("clientId") ?: return@OneTimeStore null,
         scopes = getStringSet("scopes"),
@@ -89,7 +91,10 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         codeChallengeMethod = getString("codeChallengeMethod"),
         nonce = getString("nonce"),
         consentGeneration = get("consentGeneration", Number::class.java)?.toLong(),
-        subjectUris = getStringSet("subjectUris"),
+        // A code issued before this field existed carries none, and the rolling deploy this
+        // class's wire format is kept stable for puts exactly such a code in front of a node
+        // that reads it. The subject is the one URI it does record.
+        subjectUris = getStringSet("subjectUris").ifEmpty { setOf(subject) },
       )
     },
   )

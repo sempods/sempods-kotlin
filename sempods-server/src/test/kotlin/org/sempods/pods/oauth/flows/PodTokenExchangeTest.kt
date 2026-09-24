@@ -480,6 +480,20 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `a code from before the URI set existed installs on its subject alone`() {
+    // The rolling-deploy case: an old node issued the code, so the field is absent. The authority
+    // must still name somebody, because registration compares the pod's owner against this set
+    // and consumes the authority before it asks.
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_SCOPE))
+
+    val jti = jtiOf(issued(authorized.redeem(code)).accessToken)
+
+    val authority = assertNotNull(installationAuthorities.consume(authorized.podId, jti))
+    assertEquals(setOf(authorized.webId), authority.subjectUris)
+  }
+
+  @Test
   fun `the authority carries the URIs the consent recognised the owner by`() {
     // The registration asks who owns the pod now against exactly this set, and `also_known_as`
     // cannot be resolved from a token — so a set the exchange dropped here is a gap nothing
