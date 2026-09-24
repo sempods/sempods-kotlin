@@ -40,7 +40,8 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    *   about to create.
    * @param webId the person who granted it.
    * @param generation the consent generation this authority was granted under. Compared on
-   *   consumption, so that disconnecting the app takes the authority with it.
+   *   consumption, so that disconnecting the app takes the authority with it. `null` on a row a
+   *   node wrote before the field existed — see [consume] for what that costs.
    * @param subjectUris every identity URI that person was recognised by at the dialog, [webId]
    *   among them. What `PodClientRegistration` asks ownership of when the authority is spent; an
    *   empty set recognises nobody.
@@ -49,7 +50,7 @@ class PodInstallationAuthorityStore @Inject internal constructor(
     val pod: PodId,
     val clientId: String,
     val webId: String,
-    val generation: Long,
+    val generation: Long?,
     val subjectUris: Set<String>,
   )
 
@@ -67,12 +68,15 @@ class PodInstallationAuthorityStore @Inject internal constructor(
       putStrings("subjectUris", it.subjectUris)
     },
     read = {
+      val webId = getString("webId") ?: return@OneTimeStore null
       Authority(
         pod = PodId(getString("podId") ?: return@OneTimeStore null),
         clientId = getString("clientId") ?: return@OneTimeStore null,
-        webId = getString("webId") ?: return@OneTimeStore null,
-        generation = get("generation", Number::class.java)?.toLong() ?: return@OneTimeStore null,
-        subjectUris = getStringSet("subjectUris"),
+        webId = webId,
+        // Both absent on a row written before this release, which a rolling deploy puts in front
+        // of a node that reads it. The row lives an hour, so this reaches no further than that.
+        generation = get("generation", Number::class.java)?.toLong(),
+        subjectUris = getStringSet("subjectUris").ifEmpty { setOf(webId) },
       )
     },
   )
@@ -86,6 +90,7 @@ class PodInstallationAuthorityStore @Inject internal constructor(
     generation: Long,
     subjectUris: Set<String>,
   ) {
+    require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
     authorities.create(
       jti,
       Authority(
@@ -110,9 +115,15 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * and an installer token outlives that by up to its hour — so an authority checked only when it
    * was written would let an app the owner has just disconnected mint a service credential
    * afterwards.
+   *
+   * **A row from before that field existed carries no generation and is accepted without the
+   * comparison.** Refusing it instead would spend an authority an owner is holding for a flow the
+   * old node could not serve anyway, and the row's own hour bounds how long any of them survive a
+   * deploy. What such an authority can create is a service client holding no grants, which reaches
+   * nothing until the owner approves the second consent.
    */
   internal fun consume(pod: PodId, jti: String): Authority? =
     authorities.consume(jti)
       ?.takeIf { it.pod == pod }
-      ?.takeIf { consentDecisions.find(pod, it.clientId, listOf(it.webId))?.generation == it.generation }
+      ?.takeIf { it.generation == null || consentDecisions.find(pod, it.clientId, listOf(it.webId))?.generation == it.generation }
 }

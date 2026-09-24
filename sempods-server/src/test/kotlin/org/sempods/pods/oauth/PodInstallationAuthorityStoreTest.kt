@@ -3,7 +3,14 @@ package org.sempods.pods.oauth
 import com.google.inject.Inject
 import org.sempods.SempodsStoreTest
 import org.sempods.commons.tests.TestUtil.randomId
+import com.mongodb.client.MongoDatabase
+import org.bson.Document
 import org.bson.types.ObjectId
+import org.sempods.SempodsCollections
+import org.sempods.commons.mongo.putInstant
+import org.sempods.commons.utils.HashUtil
+import java.time.Duration
+import java.time.Instant
 import org.sempods.pods.PodId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -30,6 +37,9 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var consentDecisions: PodConsentDecisionStore
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   // Real ids: `consume` reads the standing consent, and that collection keys on an ObjectId.
   private val pod = PodId(ObjectId().toHexString())
@@ -70,6 +80,27 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     )
 
     assertNull(authorities.consume(pod, jti), "a second registration has nothing to stand on")
+  }
+
+  @Test
+  fun `a row a pre-upgrade node wrote is still worth its one registration`() {
+    // The rolling deploy: an old node redeemed the code and wrote the shape it knew — no
+    // generation, no URI set. Refusing it would spend an authority the owner is still holding,
+    // for a flow that node could not serve anyway.
+    val jti = randomId()
+    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
+      Document().apply {
+        put("_id", HashUtil.sha256Hex(jti))
+        put("podId", pod.value)
+        put("clientId", clientId)
+        put("webId", webId)
+        putInstant("expiresAt", Instant.now().plus(Duration.ofHours(1)))
+      },
+    )
+
+    val authority = assertNotNull(authorities.consume(pod, jti), "an owner mid-deploy keeps their install")
+    assertEquals(setOf(webId), authority.subjectUris, "the person it names is the one it recorded")
+    assertNull(authority.generation, "and it says it cannot be compared")
   }
 
   @Test
