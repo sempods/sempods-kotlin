@@ -7,6 +7,7 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.time.DateTimeException
 import java.time.Instant
 
 /**
@@ -171,13 +172,14 @@ class SempodsPodServiceClients(
 
     val REGISTRATION = BodyReading<SempodsServiceClientRegistration> { bytes, _ ->
       val document = decodeObject(bytes)
-      val expires = document.longOrNull("client_secret_expires_at")
+      // RFC 7591 §3.2.1: required with a secret. `0` is a secret that does not expire.
+      val expires = instant(document, "client_secret_expires_at") ?: throw ProtocolViolation("/client_secret_expires_at: expected an integer")
       SempodsServiceClientRegistration.of(
         clientId = document.string("client_id"),
         clientSecret = document.string("client_secret"),
         clientName = document.stringOrNull("client_name"),
         issuedAt = instant(document, "client_id_issued_at") ?: throw ProtocolViolation("/client_id_issued_at: expected an integer"),
-        secretExpiresAt = expires?.takeIf { it != 0L }?.let(Instant::ofEpochSecond),
+        secretExpiresAt = expires.takeIf { it != Instant.EPOCH },
       )
     }
 
@@ -199,7 +201,13 @@ class SempodsPodServiceClients(
       origin = document.string("origin"),
     )
 
-    /** Seconds since the epoch, as RFC 7591 writes a time. */
-    fun instant(document: ProtocolObject, name: String): Instant? = document.longOrNull(name)?.let(Instant::ofEpochSecond)
+    /** Seconds since the epoch, as RFC 7591 writes a time. One beyond what an [Instant] holds is a [ProtocolViolation]. */
+    fun instant(document: ProtocolObject, name: String): Instant? = document.longOrNull(name)?.let {
+      try {
+        Instant.ofEpochSecond(it)
+      } catch (_: DateTimeException) {
+        throw document.violation("$name: expected a time an Instant can hold")
+      }
+    }
   }
 }

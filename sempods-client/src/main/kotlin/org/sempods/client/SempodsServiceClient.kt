@@ -1,6 +1,7 @@
 package org.sempods.client
 
 import java.time.Instant
+import java.util.Collections
 
 /** One service client on a pod, as its owner's list shows it. It never carries a secret. */
 class SempodsServiceClient private constructor(
@@ -14,14 +15,16 @@ class SempodsServiceClient private constructor(
    * shows here, since a service secret does not expire.
    */
   val lastUsedAt: Instant?,
-  /** The scopes it holds, such as `<context-iri>#read`. Empty for a registration without grants. */
-  val scopes: Set<String>,
+  scopes: Set<String>,
   /**
    * `installed` for one an owner installed, `provisioned` for one the host operator set up. The pod
    * lists both and changes only the first.
    */
   val origin: String,
 ) {
+
+  /** The scopes it holds, such as `<context-iri>#read`. Empty for a registration without grants. */
+  val scopes: Set<String> = Collections.unmodifiableSet(LinkedHashSet(scopes))
 
   override fun equals(other: Any?): Boolean =
     other is SempodsServiceClient && other.clientId == clientId && other.clientName == clientName && other.issuedAt == issuedAt &&

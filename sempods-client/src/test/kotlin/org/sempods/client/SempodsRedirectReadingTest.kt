@@ -37,6 +37,11 @@ class SempodsRedirectReadingTest {
   }
 
   @Test
+  fun `a redirect URI's own members may repeat`() {
+    assertEquals("c-1", authorization.readRedirect("tag=a&tag=b&code=c-1&state=s1", "s1").code)
+  }
+
+  @Test
   fun `an issuer that is this pod's is accepted (RFC 9207)`() {
     val answer = authorization.readRedirect("code=c-1&state=s1&iss=https%3A%2F%2Fpods.example%2Falice%2F_system%2Fauth", "s1")
 
@@ -46,7 +51,7 @@ class SempodsRedirectReadingTest {
   @ParameterizedTest
   @ValueSource(
     strings = [
-      "code=c&state=other", "code=c", "code=c&state=s1&state=s1", "state=s1", "code=c&code=d&state=s1",
+      "code=c&state=other", "code=c", "code=c&state=s1&state=s1", "state=s1", "code=c&code=d&state=s1", "code=c&state=s1&iss=a&iss=b",
       "code=c&state=s1&iss=https%3A%2F%2Fevil.example%2F_system%2Fauth",
       "error=access_denied&state=s1&iss=https%3A%2F%2Fpods.example%2Fbob%2F_system%2Fauth",
     ],
@@ -73,8 +78,20 @@ class SempodsRedirectReadingTest {
     assertEquals("access_denied", outcome.error)
   }
 
+  @Test
+  fun `the granted scopes cannot be changed by the caller`() {
+    val outcome = SempodsGrantOutcome.readQuery("result=granted&scope=urn%3Aa%23read&state=g1", "g1")
+
+    assertThrows<UnsupportedOperationException> { (outcome.scopes as MutableSet<String>).clear() }
+  }
+
   @ParameterizedTest
-  @ValueSource(strings = ["result=granted&scope=a&state=other", "result=granted&scope=a", "state=g1", "result=maybe&state=g1", "result=granted&error=x&state=g1"])
+  @ValueSource(
+    strings = [
+      "result=granted&scope=a&state=other", "result=granted&scope=a", "state=g1", "result=maybe&state=g1",
+      "result=granted&error=x&state=g1", "result=granted&state=g1", "result=granted&scope=&state=g1",
+    ],
+  )
   fun `a grant redirect that is not this caller's single answer is refused`(query: String) {
     assertThrows<SempodsClientException> { SempodsGrantOutcome.readQuery(query, "g1") }
   }

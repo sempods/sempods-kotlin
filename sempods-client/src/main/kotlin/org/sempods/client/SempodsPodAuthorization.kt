@@ -104,12 +104,14 @@ class SempodsPodAuthorization(
    * - a `state` other than [expectedState], or none (RFC 6749 §10.12);
    * - an `iss` other than this pod's issuer, `{pod}/_system/auth` (RFC 9207). A pod that sends none is
    *   answered as it is;
-   * - a member that appears twice, and a query that is neither a code nor an error.
+   * - a response member (`code`, `state`, `iss`, `error`, `error_description`, `error_uri`) that
+   *   appears twice, and a query that is neither a code nor an error. A redirect URI's own members may
+   *   repeat.
    */
   @Throws(SempodsClientException::class)
   fun readRedirect(encodedQuery: String?, expectedState: String): SempodsAuthorizationRedirect {
     val parameters = URLUtils.parseParameters(encodedQuery)
-    parameters.filterValues { it.size > 1 }.keys.firstOrNull()?.let {
+    parameters.filter { (name, values) -> name in RESPONSE_MEMBERS && values.size > 1 }.keys.firstOrNull()?.let {
       throw SempodsClientException("The authorization redirect carries '$it' more than once.")
     }
     val response = try {
@@ -161,6 +163,8 @@ class SempodsPodAuthorization(
     const val AUTHORIZE = "_system/auth/authorize"
 
     const val ISSUER = "_system/auth"
+
+    val RESPONSE_MEMBERS = setOf("code", "state", "iss", "error", "error_description", "error_uri")
 
     /** Nimbus reads a response against a redirect URI; the members are all it looks at here. */
     val REDIRECT: URI = URI("http://redirect.invalid/")

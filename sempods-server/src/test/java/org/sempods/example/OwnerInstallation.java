@@ -62,10 +62,21 @@ public final class OwnerInstallation {
   private final Browser browser;
   private String installer;
 
-  public OwnerInstallation(SempodsPodBase pod, OkHttpClient client, Browser browser) {
+  /**
+   * @param installer this program's public client on {@code pod}, as {@link #installerClientId()}
+   *     answered on an earlier run, or null to register one. Keep it between runs: registering again
+   *     spends the pod's registration budget.
+   */
+  public OwnerInstallation(SempodsPodBase pod, OkHttpClient client, Browser browser, String installer) {
     this.pod = pod;
     this.client = client;
     this.browser = browser;
+    this.installer = installer;
+  }
+
+  /** This program's public client on the pod, registering it on first use. Save it for the next run. */
+  public String installerClientId() throws IOException {
+    return installer();
   }
 
   /** Installs {@code serviceName}, stores its credentials, then asks the owner to grant it {@code scopes}. */
@@ -112,10 +123,7 @@ public final class OwnerInstallation {
     return new SempodsPod(new SempodsSession(pod, SempodsRequestAuth.refreshable(mint)), client);
   }
 
-  /**
-   * This program's public client, registered once with a loopback redirect, which the pod accepts on
-   * any port (RFC 8252 §7.3). A program that runs again keeps the identifier rather than registering anew.
-   */
+  /** A loopback redirect, which the pod accepts on any port (RFC 8252 §7.3). */
   private String installer() throws IOException {
     if (installer == null) {
       var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);

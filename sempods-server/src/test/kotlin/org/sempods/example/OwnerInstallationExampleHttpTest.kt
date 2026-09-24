@@ -55,7 +55,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val browser = OwnerBrowser(owned)
     val stored = mutableMapOf<String, String>()
 
-    val installation = OwnerInstallation(owned.base, client, browser).install("Notes Sync", listOf("$notes#write")) { id, secret ->
+    val installation = OwnerInstallation(owned.base, client, browser, null).install("Notes Sync", listOf("$notes#write")) { id, secret ->
       stored[id] = secret
     }
 
@@ -69,7 +69,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     assertEquals("service-clients:install", browser.opened.first().queryParameter("scope"))
     assertTrue(browser.opened.first().queryParameter("client_id")!!.startsWith("dyn:"))
 
-    val catalogue = checkNotNull(OwnerInstallation(owned.base, client, browser).asService(service.clientId, service.clientSecret).contexts().listText().body)
+    val catalogue = checkNotNull(OwnerInstallation(owned.base, client, browser, null).asService(service.clientId, service.clientSecret).contexts().listText().body)
     assertTrue(catalogue.contains(notes), catalogue)
     assertFalse(catalogue.contains(diary), catalogue)
   }
@@ -78,7 +78,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   fun `a refused grant consent is reported apart from an installation that stands`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
-    val example = OwnerInstallation(owned.base, client, OwnerBrowser(owned, grant = false))
+    val example = OwnerInstallation(owned.base, client, OwnerBrowser(owned, grant = false), null)
 
     val installation = example.install("Notes Sync", listOf("$notes#read")) { _, _ -> }
 
@@ -89,7 +89,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     assertEquals(400, refused.status)
     assertTrue(refused.bodyExcerpt.contains("invalid_scope"), refused.bodyExcerpt)
 
-    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned)).manage().list().body!!.single()
+    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned), null).manage().list().body!!.single()
     assertEquals(service.clientId, listed.clientId)
     assertTrue(listed.scopes.isEmpty())
   }
@@ -104,16 +104,29 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
       OwnerBrowser(owned).open(url)
     }
 
-    val installation = OwnerInstallation(owned.base, client, closedAtTheGrant).install("Notes Sync", listOf("$notes#read")) { id, secret ->
+    val installation = OwnerInstallation(owned.base, client, closedAtTheGrant, null).install("Notes Sync", listOf("$notes#read")) { id, secret ->
       stored[id] = secret
     }
 
     assertNull(installation.grants())
     assertEquals("the owner closed the browser", installation.grantsUnfinished().message)
     assertEquals(mapOf(installation.service().clientId to installation.service().clientSecret), stored)
-    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned)).manage().list().body!!.single()
+    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned), null).manage().list().body!!.single()
     assertEquals(installation.service().clientId, listed.clientId)
     assertTrue(listed.scopes.isEmpty())
+  }
+
+  @Test
+  fun `a program that keeps its installer identifier registers it once across runs`() {
+    val owned = ownedPod()
+    // Registered under another name than the example's, so its own registration would answer another identifier.
+    val installer = SempodsPodAuthorization(SempodsSession(owned.base), client)
+      .registerClient("Installer from an earlier run", listOf("http://127.0.0.1/callback")).body!!.clientId
+    val browser = OwnerBrowser(owned)
+
+    OwnerInstallation(owned.base, client, browser, installer).install("Importer", emptyList()) { _, _ -> }
+
+    assertEquals(installer, browser.opened.single().queryParameter("client_id"))
   }
 
   @Test
@@ -121,7 +134,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
     val browser = OwnerBrowser(owned)
 
-    val installation = OwnerInstallation(owned.base, client, browser).install("Importer", emptyList()) { _, _ -> }
+    val installation = OwnerInstallation(owned.base, client, browser, null).install("Importer", emptyList()) { _, _ -> }
 
     assertNull(installation.grants())
     assertNull(installation.grantsUnfinished())
@@ -133,11 +146,11 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
 
     val declined = assertThrows<SempodsClientException> {
-      OwnerInstallation(owned.base, client, OwnerBrowser(owned, approve = false)).install("Notes Sync", emptyList()) { _, _ -> }
+      OwnerInstallation(owned.base, client, OwnerBrowser(owned, approve = false), null).install("Notes Sync", emptyList()) { _, _ -> }
     }
 
     assertTrue(declined.message!!.contains("access_denied"), declined.message)
-    assertTrue(OwnerInstallation(owned.base, client, OwnerBrowser(owned)).manage().list().body!!.isEmpty())
+    assertTrue(OwnerInstallation(owned.base, client, OwnerBrowser(owned), null).manage().list().body!!.isEmpty())
   }
 
   @Test
@@ -145,7 +158,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
-    val example = OwnerInstallation(owned.base, client, OwnerBrowser(owned))
+    val example = OwnerInstallation(owned.base, client, OwnerBrowser(owned), null)
     val service = example.install("Notes Sync", listOf("$notes#read", "$diary#read")) { _, _ -> }.service()
     example.asService(service.clientId, service.clientSecret).contexts().listText()
 

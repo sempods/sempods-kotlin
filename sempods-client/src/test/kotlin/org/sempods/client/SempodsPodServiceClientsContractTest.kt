@@ -77,10 +77,13 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     strings = [
       """{"client_id":"svc:1","client_id_issued_at":1700000000}""",
       """{"client_id":"svc:1","client_secret":"sc_secret"}""",
-      """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":"1700000000"}""",
+      """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":"1700000000","client_secret_expires_at":0}""",
+      """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":1700000000}""",
+      """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":9223372036854775807,"client_secret_expires_at":0}""",
+      """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":1700000000,"client_secret_expires_at":-9223372036854775808}""",
     ],
   )
-  fun `a registration answer without the secret or the time is a decoding failure that quotes nothing`(body: String) {
+  fun `a registration answer without the secret, a time or the secret's expiry is a decoding failure that quotes nothing`(body: String) {
     answer("/alice/_system/auth/register", 201, body)
 
     val failure = assertThrows<SempodsDecodingException> { serviceClients().register("Notes Sync") }
@@ -126,6 +129,7 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     )
 
     val listed = checkNotNull(serviceClients().list().body)
+    assertThrows<UnsupportedOperationException> { (listed[0].scopes as MutableSet<String>).clear() }
 
     assertEquals(
       listOf(
