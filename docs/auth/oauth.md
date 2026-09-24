@@ -681,7 +681,9 @@ flood of public registrations does not hold up an installation, and the other wa
   one bcrypt-hashed secret. Only the pod's owner can hold one, under any linked identity, so a
   budget per pod is a budget per person, however many identities they sign in with. Only a token
   whose authority is still unspent is charged, so a spent token, or one kept by a former owner,
-  cannot hold the budget empty. It applies without a proxy too, and is asked before the authority
+  cannot hold the budget empty. Requests racing on one unspent authority are each charged before
+  one of them spends it, so an installer can empty the burst once per authority it holds, and each
+  authority is an owner consent. It applies without a proxy too, and is asked before the authority
   is spent, so a throttled installation keeps its approval.
 - **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
   `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.

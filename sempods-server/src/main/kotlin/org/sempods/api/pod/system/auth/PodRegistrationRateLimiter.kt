@@ -32,7 +32,8 @@ import org.sempods.commons.utils.HashUtil
  * budget per person: keying it on the token's `sub` would give each linked identity a budget of
  * its own. The key does not depend on the caller, so it holds without a proxy header too. It is
  * consulted before the authority is spent, so a throttled installation keeps its approval — see
- * `docs/auth/oauth.md` §"Registration rate limit".
+ * `docs/auth/oauth.md` §"Registration rate limit". Requests racing on one unspent authority are
+ * each charged, so one authority can empty the burst once.
  *
  * **No proxy header, no address limit**, as at the token endpoint: a single shared bucket for
  * every request would be an outage rather than a limit.
