@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.client.SempodsPodBase
 import java.net.URI
 
 /**
@@ -274,6 +275,25 @@ data class SempodsConfig(
 
     fun normalizeErrorDocBase(raw: String?): String? =
       raw?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+
+    /**
+     * [value], the public base URL read from [name], or a boot failure saying what is wrong with it.
+     *
+     * Every pod base is this value with a pod name appended, so a value that breaks
+     * [SPS-CORE-019](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
+     * or [SPS-CORE-020](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020)
+     * — `http` off loopback, a dot segment, a backslash, a percent-encoded octet — cannot produce a
+     * conforming pod whatever the server does afterwards. The rules are [SempodsPodBase.reject]'s,
+     * so the server and its clients refuse the same bases.
+     *
+     * Here rather than in `Env.baseUrl`: that is a general helper in a published module, and this
+     * is the one caller whose value is a pod base prefix.
+     */
+    fun checkPublicBaseUrl(name: String, value: String): String {
+      val reason = SempodsPodBase.reject(value)
+      check(reason == null) { "$name is not a usable pod base URL: $reason, got '$value'" }
+      return value
+    }
 
     /**
      * The origins a pod server at [apiBaseUrl] accepts credentialed requests from.
