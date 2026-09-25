@@ -261,6 +261,31 @@ class PodTokenProviderTest {
   }
 
   @Test
+  fun `a refresh is refused when another server's metadata claims the pinned issuer`() = runBlocking {
+    // The pod now lists another authorization server, and that server's document claims the issuer
+    // this token is pinned to. RFC 8414 §3.3 refuses the document, so the pin never sees the claim
+    // and the refresh token is never posted to the other server's token endpoint.
+    seedConnection()
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
+    val other = "http://localhost:${server.port}/other"
+    server.reset()
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$other"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/other/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody(
+        """{"issuer":"$authBase","authorization_endpoint":"$other/authorize","token_endpoint":"$other/token"}""",
+      ))
+
+    assertNull(provider.validAccessToken(key), "a document claiming another issuer must not reach the pin")
+    assertTrue(
+      server.retrieveRecordedRequests(request().withMethod("POST")).isEmpty(),
+      "the refresh token is posted nowhere",
+    )
+    assertEquals("at-1", vault.find(key)!!.accessToken, "the stored token is left untouched")
+    verify(exactly = 1) { auditLog.podTokenRefreshed(key, ok = false, detail = "refresh_failed") }
+  }
+
+  @Test
   fun `a pod-refused refresh yields null and is audited as a failed refresh`() = runBlocking {
     seedConnection()
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))

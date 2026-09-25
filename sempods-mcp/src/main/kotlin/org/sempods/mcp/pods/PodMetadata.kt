@@ -6,7 +6,10 @@ package org.sempods.mcp.pods
  * needs to register, authorize, and exchange/refresh tokens against the pod.
  */
 data class PodOAuthMetadata(
-  /** The pod's AS issuer, e.g. `https://sempods.org/alice/_system/auth`. */
+  /**
+   * The pod's AS issuer, e.g. `https://sempods.org/alice/_system/auth`: the first
+   * `authorization_servers` entry of its RFC 9728 metadata, without a terminating `/`.
+   */
   val issuer: String,
   val authorizationEndpoint: String,
   val tokenEndpoint: String,
