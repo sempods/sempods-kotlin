@@ -101,14 +101,15 @@ class OneTimeStoreTest {
   }
 
   @Test
-  fun `findLive returns the live rows a filter matches and leaves them where they are`() {
+  fun `findLive returns a live row a filter matches and leaves it where it is`() {
     val subject = "https://id.test/e/${UUID.randomUUID()}"
     val mine = parked.copy(subject = subject)
+    store(ttl = Duration.ZERO).issue(mine)
+    assertNull(store().findLive(Filters.eq("subject", subject)), "an expired row is not found")
     val key = store().issue(mine)
     store().issue(parked.copy(subject = "https://id.test/e/${UUID.randomUUID()}"))
-    store(ttl = Duration.ZERO).issue(mine)
 
-    assertEquals(listOf(mine), store().findLive(Filters.eq("subject", subject)), "the expired twin is left out")
+    assertEquals(mine, store().findLive(Filters.eq("subject", subject)), "the live one is, past the expired twin")
     assertEquals(mine, store().consume(key), "finding it spends nothing")
   }
 

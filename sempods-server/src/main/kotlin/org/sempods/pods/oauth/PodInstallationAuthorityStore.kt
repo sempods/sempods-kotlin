@@ -48,7 +48,7 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * nothing until the owner approves the second consent.
    */
   internal fun consume(pod: PodId, jti: String): Authority? =
-    rows.consume(jti)?.takeIf { it.pod == pod && stands(it) }
+    rows.consume(jti)?.takeIf { it.standsOn(pod) }
 
   /**
    * The authority [consume] would hand over for [jti] now, without spending it.
@@ -58,9 +58,9 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    * [consume] runs, which is fine for that purpose — a race costs at most one charge.
    */
   internal fun peek(pod: PodId, jti: String): Authority? =
-    rows.peek(jti)?.takeIf { it.pod == pod && stands(it) }
+    rows.peek(jti)?.takeIf { it.standsOn(pod) }
 
-  override fun stands(authority: Authority): Boolean =
-    authority.disconnects == null ||
-      (consentDecisions.find(authority.pod, authority.clientId, listOf(authority.webId))?.disconnects ?: 0L) == authority.disconnects
+  private fun Authority.standsOn(pod: PodId): Boolean =
+    this.pod == pod &&
+      (disconnects == null || (consentDecisions.find(pod, clientId, listOf(webId))?.disconnects ?: 0L) == disconnects)
 }

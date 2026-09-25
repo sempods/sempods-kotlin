@@ -96,13 +96,14 @@ class OneTimeStore<T>(
   fun peek(key: String): T? = rows.find(Filters.eq("_id", sha256Hex(key))).firstOrNull()?.readIfLive()
 
   /**
-   * Every live payload on a row matching [filter], left where it is.
+   * A live payload on a row matching [filter], left where it is; `null` if there is none.
    *
    * For the question a key cannot answer: whether anything is parked for someone at all. [filter]
-   * names fields [write] put on the row. An expired row the TTL index has not reaped yet is left out,
-   * as [peek] leaves it out.
+   * names fields [write] put on the row, and the caller indexes them. Only one row is read, so a
+   * condition that decides the answer belongs in [filter] rather than in a check afterwards.
    */
-  fun findLive(filter: Bson): List<T> = rows.find(filter).mapNotNull { it.readIfLive() }
+  fun findLive(filter: Bson): T? =
+    rows.find(Filters.and(filter, Filters.gt(FIELD_EXPIRES_AT, Date()))).first()?.readIfLive()
 
   /**
    * [peek], and slide the expiry out by a full [ttl] if the row is still alive.
