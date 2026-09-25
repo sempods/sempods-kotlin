@@ -128,12 +128,18 @@ open class SempodsBaseEndpoint(
    * The bearer this request carries, or `null` where it carries none.
    *
    * [requirePodAppTokenOrThrow] asks for "any app" and refuses a privileged feature scope. This
-   * asks for whoever turned up: the one route that exists for such a bearer has to be able to see
-   * it, and the same route answers unauthenticated callers too. `null` rather than
-   * [PodAuthorizer.anonymous] because that resolves the pod's public contexts, and a registration
-   * consults none.
+   * asks for whoever turned up: the routes that exist for such a bearer have to be able to see it.
+   * Registration answers unauthenticated callers too. `null` rather than [PodAuthorizer.anonymous]
+   * because that resolves the pod's public contexts, and a registration consults none.
    */
   internal fun resolveBearerOrNull(podDbo: PodDbo): SempodsCredentials? = resolveCredentials(podDbo) { null }
+
+  /**
+   * [resolveBearerOrNull] for a route that requires authentication. A missing bearer is refused
+   * like a rejected one: `401 invalid_token` with the pod's challenge (`SPS-CORE-015`).
+   */
+  internal fun requireBearerOrThrow(podDbo: PodDbo): SempodsCredentials =
+    resolveBearerOrNull(podDbo) ?: throwInvalidBearer(podName = podDbo.name)
 
   /**
    * What every bearer on this server goes through, with the one arm its callers disagree about.
@@ -292,12 +298,12 @@ open class SempodsBaseEndpoint(
   }
 
   /**
-   * Build an RFC 6750 `WWW-Authenticate: Bearer` challenge that points MCP-style clients to
-   * the pod's RFC 9728 protected-resource metadata. Used on 401 responses so clients can
-   * discover the authorization server and required scopes without out-of-band config.
+   * The pod's RFC 6750 `WWW-Authenticate: Bearer` challenge. Its `resource_metadata` is
+   * `{pod}/.well-known/oauth-protected-resource` (`SPS-AUTH-064`), so a client finds the
+   * authorization server without out-of-band config.
    *
-   * The pod is the protected resource for every caller, MCP or REST, so there is one
-   * `resource_metadata` URL rather than a per-surface one.
+   * The MCP endpoint sends it too; `docs/mcp/authentication.md` §"Bearer challenge format" says
+   * how that deviates from `SPS-MCP-009`.
    */
   @JvmOverloads
   protected fun buildBearerChallenge(podName: String, error: String = BearerChallenge.INVALID_TOKEN): String {

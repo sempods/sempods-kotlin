@@ -288,10 +288,12 @@ class PodContextsEndpoint @Inject constructor(
    *
    * [authenticate] validates the pod OAuth token (401 on invalid/expired/foreign) and records the
    * service-client audit row. Anonymous callers → 401; a withdrawn [CONTEXTS_MANAGE_SCOPE]
-   * authority → 401; an authenticated caller outside its sandbox → 403.
+   * authority → 401; an authenticated caller outside its sandbox → 403. Every 401 carries the pod's
+   * Bearer challenge (`SPS-AUTH-064`).
    */
   private fun authorizeContextManageOrThrow(pod: String, podDbo: PodDbo, contextUri: URI): String {
     val credentials = authenticate(pod)
+    requireAuthenticatedOrThrow(credentials)
 
     if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
       when (val check = ownerAuthority.check(podDbo.hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
@@ -302,21 +304,11 @@ class PodContextsEndpoint @Inject constructor(
     }
 
     if (contextWriteAuthorizer.isCoveredByManageScope(credentials, contextUri)) {
-      return credentials.tokenSub
-        ?: credentials.oauthClientId
-        ?: throw WebApplicationException(
-          Response.status(401).entity("missing or invalid credentials").type("text/plain").build()
-        )
+      return credentials.tokenSub ?: checkNotNull(credentials.oauthClientId)
     }
 
-    val status = if (credentials.oauthClientId == null) 401 else 403
-    val message = if (status == 401) {
-      "missing or invalid credentials"
-    } else {
-      "missing manage permission for context '$contextUri'"
-    }
     throw WebApplicationException(
-      Response.status(status).entity(message).type("text/plain").build()
+      Response.status(403).entity("missing manage permission for context '$contextUri'").type("text/plain").build()
     )
   }
 

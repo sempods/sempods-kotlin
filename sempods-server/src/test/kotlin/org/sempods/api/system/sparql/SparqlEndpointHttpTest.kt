@@ -3,6 +3,7 @@ package org.sempods.api.system.sparql
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.client.SempodsContextSelection
 import org.sempods.client.SempodsGraphFormat
 import org.sempods.client.SempodsOkHttp
@@ -366,24 +367,20 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `SPARQL with invalid bearer should return 401 with WWW-Authenticate`() {
+  fun `SPARQL answers an anonymous query and challenges a rejected bearer`() {
     val pod = sempodsTestFactory.newPod()
 
-    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/sparql/query")
-      .addHeader("Content-Type", "application/sparql-query")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer not-a-real-jwt")
-      .setBody("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
-      .execute()
+    fun query(authorization: String?): TestHttpResponse {
+      val request = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/sparql/query")
+        .addHeader("Content-Type", "application/sparql-query")
+        .addHeader("Accept", "application/n-quads")
+        .setBody("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
+      authorization?.let { request.addHeader("Authorization", it) }
+      return request.execute()
+    }
 
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(authHeader.startsWith("Bearer "), "WWW-Authenticate should be a Bearer challenge, was: $authHeader")
-    assertTrue(
-      authHeader.contains("/.well-known/oauth-protected-resource"),
-      "Challenge must point at RFC 9728 metadata URL, was: $authHeader"
-    )
+    assertEquals(200, query(authorization = null).statusCode)
+    assertPodBearerChallenge(query(authorization = "Bearer not-a-real-jwt"), pod.name)
   }
 
   @Test

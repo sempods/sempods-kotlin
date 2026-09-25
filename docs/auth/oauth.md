@@ -725,7 +725,7 @@ Without it, a bearer is an app, whatever its `sub` names. It creates and deletes
 | `contexts:manage`, approved by the pod's current owner | every context |
 | a `#manage` grant, the owner's app included | what the grant covers (`SPS-GRANT-007`) |
 | any other bearer | `403` |
-| no bearer | `401` |
+| no bearer | `401 invalid_token` |
 | `contexts:manage` after the app was disconnected | `401 invalid_token` |
 
 It reads no data, but deleting a context deletes what it holds. The catalogue lists every registered

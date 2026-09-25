@@ -26,26 +26,33 @@ import java.io.IOException
  * | [put] | `200`, `204`; `412` without a body only when conditional |
  * | [add] | `201`, with `Location` for a new IRI value; `200` for a value already present (SPS-CRUD-047); `204`; `412` only when conditional |
  * | [clear] | `200`, `204`; `412` only when conditional |
- * | [removeEdge] | `200`, `204` |
+ * | [removeEdge] | `200`, `204`; `412` only when conditional |
  *
  * **`204` is listed for [add], [clear] and [removeEdge] ahead of the specification.** The mutation
  * recommendation in sempods-spec's access-control proposal, adopted through sempods/sempods-spec#68,
  * replaces the outcome bodies and the `201`/`200` distinction with it, and this group reads such a pod
  * unchanged.
  *
- * **[removeEdge] takes no condition.** The pod ignores `If-Match` on an edge (SPS-CRUD-054), and a
- * condition there has nothing to test: the removal names one statement, and its outcome is the same
- * whether or not it was there. A tag in either field of its options is an [IllegalArgumentException],
- * and nothing is sent.
- *
  * A read's selection, `include_contexts` (SPS-CRUD-057) and [SempodsContextSelection.none] behave as on
  * [SempodsPodResources]. A slot read in exactly one context carries an `ETag`, one spanning several
- * does not (SPS-CRUD-050, SPS-CRUD-051), and [put], [add] and [clear] answer with the slot's new one
+ * does not (SPS-CRUD-050, SPS-CRUD-051), and every write answers with the slot's new one
  * (SPS-CRUD-052).
+ *
+ * **A condition names the slot's tag in the target context**, on [removeEdge] too: an edge has no tag
+ * of its own (SPS-CRUD-059). It catches a slot that changed since the caller read it. A caller that
+ * mirrors a source outside the pod reads the slot's tag first, then the source, and sends the tag with
+ * the write it derives, or `If-None-Match: *` when the read found the slot empty. On `412` it reads
+ * both again.
+ *
+ * The tag describes what the slot holds, so it does not order the source's changes: a write that
+ * changes nothing leaves it as it was. Worker A reads tag `e0` and finds `u2` in the source. Then `u2`
+ * leaves the source; worker B reads `e0`, removes `u2` and gets `already_absent`, still at `e0`. A's
+ * add of `u2` under `e0` then succeeds, and the slot keeps a value the source no longer has.
  *
  * **After a connection lost before an answer**, a read, [put], [clear] and [removeEdge] are sent once
  * more; [add] is not, and a write with stream content never is. When the first attempt already took
- * effect, a clear then reports `already_empty` and an edge removal `already_absent`.
+ * effect, a clear then reports `already_empty`, an edge removal `already_absent` and a conditional
+ * write `412`.
  */
 class SempodsPodSlots private constructor(
   private val operations: ResourceOperations,
@@ -118,13 +125,15 @@ class SempodsPodSlots private constructor(
     predicateUri: String,
     targetUri: String,
     options: SempodsWriteOptions,
-  ): SempodsResponse<ByteArray> {
-    val path = ResourceAddress.SystemRoute.edgePath(subjectUri, predicateUri, targetUri)
-    require(!options.isConditional) {
-      "An edge removal takes no condition: the pod ignores If-Match there (SPS-CRUD-054); leave If-Match and If-None-Match unset."
-    }
-    return operations.writeAt("DELETE", path, content = null, mediaType = null, options, CLEAR_OR_REMOVE_ANSWERS)
-  }
+  ): SempodsResponse<ByteArray> =
+    operations.writeAt(
+      "DELETE",
+      ResourceAddress.SystemRoute.edgePath(subjectUri, predicateUri, targetUri),
+      content = null,
+      mediaType = null,
+      options,
+      CLEAR_OR_REMOVE_ANSWERS,
+    )
 
   internal companion object {
 

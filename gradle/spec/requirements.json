@@ -958,7 +958,7 @@
       "id": "SPS-CRUD-052",
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
-      "summary": "`PUT`, `POST` and slot `DELETE` MUST echo the slot's new `ETag`, so a client can chain conditional writes without an intervening `GET`.",
+      "summary": "`PUT`, `POST`, slot `DELETE` and single-edge `DELETE` MUST echo the slot's new `ETag`, so a client can chain conditional writes without an intervening `GET`.",
       "withdrawn": false
     },
     {
@@ -1001,6 +1001,27 @@
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MAY advertise edit URLs in `Link` headers on successful resource `GET` and `HEAD` responses.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CRUD-059",
+      "part": "core",
+      "chapter": "spec/core/lod-crud.md",
+      "summary": "Single-edge `DELETE` MUST evaluate `If-Match` and `If-None-Match` against the slot `(subject, predicate)` in the write context ([`SPS-CRUD-007`](#SPS-CRUD-007)).",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CRUD-060",
+      "part": "core",
+      "chapter": "spec/core/lod-crud.md",
+      "summary": "Single-edge `DELETE` MUST evaluate its preconditions and remove the edge as one atomic step with respect to every other write that changes the same slot, through any route.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-CRUD-061",
+      "part": "core",
+      "chapter": "spec/core/lod-crud.md",
+      "summary": "Single-edge `DELETE` MUST evaluate preconditions only after authorizing the write.",
       "withdrawn": false
     },
     {

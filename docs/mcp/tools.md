@@ -327,8 +327,7 @@ All property-value tools:
   operations internally. MCP callers pass IRIs, not base64url path
   segments;
 - return the slot's new `etag` in their result, and accept an optional
-  `if_match` (except `remove_property_value`, which is idempotent and
-  returns no tag). Read a slot's current `etag` with
+  `if_match` (except `remove_property_value`). Read a slot's current `etag` with
   `get_property_values` (single `context_iri`);
 - report `outcome` where the operation is idempotent and the status
   cannot say what happened — `created`/`already_present`,

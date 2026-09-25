@@ -4,14 +4,17 @@ import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.commons.okhttp.TestHttpRequest
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
@@ -42,6 +45,9 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var serviceClientStore: PodServiceClientStore
+
+  @Inject
+  private lateinit var podDao: PodDao
 
   private val installerClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
@@ -548,6 +554,47 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(401, listed.statusCode, listed.responseBody)
   }
 
+  // ── Refused callers ─────────────────────────────────────────────────────────
+
+  @Test
+  fun `a missing bearer is answered exactly like a rejected one on every route`() {
+    // SPS-CORE-015: every route here requires authentication.
+    val owned = ownedPod()
+    val existing = install(owned)
+
+    for (route in managementRoutes(owned, existing.clientId)) {
+      val missing = route(null)
+      val rejected = route("not-a-token")
+
+      assertPodBearerChallenge(missing, owned.pod.name)
+      assertEquals(rejected.statusCode, missing.statusCode)
+      assertEquals(rejected.getHeader("WWW-Authenticate"), missing.getHeader("WWW-Authenticate"))
+      assertEquals(rejected.getHeader("Content-Type"), missing.getHeader("Content-Type"))
+      assertEquals(rejected.responseBody, missing.responseBody)
+    }
+    assertSecretStands(owned, existing)
+  }
+
+  @Test
+  fun `a valid bearer without the owner's authority is 403 insufficient_scope on every route`() {
+    val owned = ownedPod()
+    val existing = install(owned)
+    val someoneElsesApp = mintScopedToken(owned.pod.name, scopes = emptyList(), webId = "https://id.test/someone-else")
+    val formerOwner = approveManagement(owned)
+    podDao.setOwner(checkNotNull(owned.pod.id), webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email))
+
+    for (bearer in listOf(someoneElsesApp, formerOwner)) {
+      for (route in managementRoutes(owned, existing.clientId)) {
+        val response = route(bearer)
+        assertEquals(403, response.statusCode, response.responseBody)
+        val challenge = checkNotNull(response.getHeader("WWW-Authenticate"))
+        assertTrue("error=\"insufficient_scope\"" in challenge, challenge)
+        assertTrue("resource_metadata=\"${podBase(owned)}/.well-known/oauth-protected-resource\"" in challenge, challenge)
+      }
+    }
+    assertSecretStands(owned, existing)
+  }
+
   // ── Fixture ─────────────────────────────────────────────────────────────────
 
   private inner class Owned(val pod: PodDbo, val webId: String) {
@@ -702,10 +749,29 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("grant_type=client_credentials")
       .execute()
 
+  /** The secret still authenticates, so nothing rotated or revoked it: `invalid_scope`, not `invalid_client`. */
+  private fun assertSecretStands(owned: Owned, installed: Installed) {
+    val minted = mint(owned, installed.clientId, installed.secret)
+    assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
+  }
+
   private fun serviceToken(owned: Owned, clientId: String, secret: String): String {
     val minted = mint(owned, clientId, secret)
     assertEquals(200, minted.statusCode, minted.responseBody)
     return json(minted)["access_token"] as String
+  }
+
+  /** List, rotate, remove grants and revoke [clientId], each sent with a bearer or without one. */
+  private fun managementRoutes(owned: Owned, clientId: String): List<(String?) -> TestHttpResponse> {
+    val registration = "${serviceClientsUrl(owned)}/${enc(clientId)}"
+    fun TestHttpRequest.send(bearer: String?) =
+      apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }.execute()
+    return listOf(
+      { bearer -> http.prepareGet(serviceClientsUrl(owned)).send(bearer) },
+      { bearer -> http.preparePost("$registration/secret").send(bearer) },
+      { bearer -> http.prepareDelete("${grantsUrl(owned, clientId)}?scope=${enc("${podBase(owned)}/_system/contexts/notes#read")}").send(bearer) },
+      { bearer -> http.prepareDelete(registration).send(bearer) },
+    )
   }
 
   private fun listServiceClients(owned: Owned, bearer: String): List<Map<String, Any?>> {

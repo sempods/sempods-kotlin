@@ -42,13 +42,14 @@ import java.net.URI
  * (`did:web:bob.example`, `urn:isbn:...`, etc.). The System layer is the only path through which
  * external URIs can be addressed.
  *
- * Conditional requests on slots (`SPS-CRUD-050` to `SPS-CRUD-054`), with tags from [RepresentationTags]:
+ * Conditional requests on slots (`SPS-CRUD-050` to `SPS-CRUD-054`, `SPS-CRUD-059`), with tags from
+ * [RepresentationTags]:
  * - A `GET` in exactly one context carries a strong `ETag` over the slot's statements there, and
  *   answers a matching `If-None-Match` with `304`. A read spanning several contexts carries none.
- * - `PUT` honors `If-Match` and `If-None-Match: *` (the slot is empty in the target context);
- *   `POST` and whole-slot `DELETE` honor `If-Match` when given. [PodSlotWriteService] evaluates
- *   them once the write is authorized.
- * - Single-edge `DELETE` ignores both.
+ * - `PUT`, `POST`, whole-slot `DELETE` and single-edge `DELETE` honor `If-Match` and
+ *   `If-None-Match` against the slot in the target context, where `*` asks whether it holds a
+ *   statement. [PodSlotWriteService] evaluates them once the write is authorized, and each write
+ *   answers with the slot's new tag.
  */
 @Path("{pod}/_system/resources")
 class PodSystemResourcesEndpoint @Inject constructor(
@@ -247,11 +248,6 @@ class PodSystemResourcesEndpoint @Inject constructor(
       .build()
   }
 
-  /**
-   * Single-edge DELETE: unconditional. `If-Match` / `If-None-Match` headers are ignored —
-   * removing one IRI value is idempotent (a missing edge yields the same outcome as removing
-   * a present one), so optimistic-concurrency control adds no value here.
-   */
   @DELETE
   @Path("{subjectB64}/{predicateB64}/{targetB64}")
   fun removeSlotEdge(
@@ -268,13 +264,14 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val targetUri = decodeUriSegmentOrThrow(targetB64, "target")
     val contextUri = resolveSingleWriteContext(pod, contextParams)
 
-    val removed = podSlotWriteService.removeSlotEdge(
+    val (removed, tag) = podSlotWriteService.removeSlotEdge(
       pod = pod,
       subjectUri = subjectUri,
       predicateUri = predicateUri,
       contextUri = contextUri,
       targetIri = org.eclipse.rdf4j.model.util.Values.iri(targetUri.toString()),
       credentials = credentials,
+      conditions = writeConditions(),
     )
     logSlotAudit(
       outcome = "remove_edge",
@@ -295,6 +292,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     // (not a custom header) keeps it browser-readable without CORS
     // expose-header gymnastics.
     return Response.status(200)
+      .tag(tag)
       .entity(outcomeBody(if (removed) "removed" else "already_absent"))
       .type(MediaType.APPLICATION_JSON)
       .build()
