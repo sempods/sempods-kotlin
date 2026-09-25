@@ -91,7 +91,8 @@ internal object PodOAuthErrorResponses {
    * One structured line per authorize error, so a spike run can be reconstructed per client by
    * grepping `[oauth/authorize-audit]`.
    *
-   * [description] is this server's own and stays plain; `state` and the address came from a client.
+   * [description] is this server's own, or a provider's held to RFC 6749's character set, and stays
+   * plain; `state` and the address came from a client.
    */
   private fun audit(error: OAuthErrorCode, description: String, state: String?, redirectUri: String?) {
     logger.info {
