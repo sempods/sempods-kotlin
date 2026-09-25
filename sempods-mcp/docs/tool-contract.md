@@ -172,18 +172,14 @@ This matters because a tag forwarded verbatim without quotes is rejected by the 
 which then proceeds **unconditionally** — silently losing the lost-update protection the caller asked
 for. An empty value, or one whose opaque part contains a `"`, cannot be normalized and is a tool error.
 
-**No reserved-area guard.** The service does not pre-judge which IRIs a write may address. It used
-to: anything under the target pod's `_system` / `.well-known` was refused, with an exemption for
-`_system/apps/…` so app contexts stayed writable. That was neither necessary nor correct.
-
-Not necessary, because the pod checks `?context=` itself: a control-plane path is not a context the
-caller holds a grant on, so it comes back **403**, like every such context, registered or not.
-
-Not correct, twice over. It refused resource subjects under `_system`, which the pod allows on
-purpose: a control-plane IRI is describable like any foreign resource, and a statement *about* a
-context is ordinary data. And the exemption carried a copy of the context namespace, which went
-stale the moment contexts moved to `_system/contexts/` — every write into a migrated context was
-refused here before the pod was ever asked.
+**No reserved-area guard.** The service does not pre-judge which IRIs a write may address; the pod
+decides, and its answer is forwarded. A control-plane path in `context_iri` is not a context the
+caller holds a grant on, so the pod answers **403**. What a statement may be about is the pod's rule
+too. `SPS-CTX-026` lets a pod hold statements about a `_system` IRI, and a sempods pod refuses a
+subject under its own `_system/contexts/` with **400**, a deviation until
+[sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides. A guard here would
+copy one pod's rules into a service that faces any pod. Such a copy went stale once already, when
+contexts moved to `_system/contexts/`, and refused every write into a migrated context.
 
 `target` is still checked, for a different reason: it must be a pod this user has connected. That is
 this service's own state, not the pod's.

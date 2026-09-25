@@ -1475,7 +1475,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `ordinary statements about a context IRI change neither the registry's answer nor its validator`() {
+  fun `statements about a context IRI are refused, and stored ones change neither the registry's answer nor its validator`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -1491,7 +1491,16 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $token")
       .setBody("""{"@id":"$iri","${SempodsVocabulary.PUBLIC}":[{"@value":true}]}""")
       .execute()
-    assertTrue(claim.statusCode in 200..201, "the claim is an ordinary write; body=${claim.responseBody}")
+    assertEquals(400, claim.statusCode, "the context namespace is reserved; body=${claim.responseBody}")
+
+    // Such statements were accepted before, so a store may still hold them.
+    podFacade.addSlotValue(
+      podName = pod.name,
+      subjectUri = URI(iri),
+      predicateUri = URI(SempodsVocabulary.PUBLIC),
+      contextUri = URI(iri),
+      value = Values.literal(true),
+    )
 
     val after = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
     assertEquals(before.responseBody, after.responseBody, "the registry answers for what it holds")

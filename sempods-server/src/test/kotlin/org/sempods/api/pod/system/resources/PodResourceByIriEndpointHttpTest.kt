@@ -238,33 +238,34 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
   // ── Guards ───────────────────────────────────────────────────────────────────────────
 
   @Test
-  fun `a control-plane IRI can be described like any other, and stays a claim`() {
+  fun `a control-plane IRI outside the context namespace can be described, one inside it cannot`() {
     // Statements about a control-plane IRI are statements — they live in the caller's context and
-    // cannot change control-plane state, which is held in MongoDB and not in the graph. Same
-    // arrangement as writing about another pod's resources: the IRI's own answer comes from
-    // whoever owns it, here the control plane itself.
+    // cannot change control-plane state, which is held in MongoDB and not in the graph.
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
+    val podBase = "${SempodsModule.config.apiBaseUrl}${pod.name}"
 
-    // The subject is an IRI inside the pod's reserved area — precisely what the removed guard used
-    // to reject with 404. The write context is a separate, ordinary one: the claim lives there,
-    // the IRI it talks about is control plane.
-    val systemIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/example/tasks"
-    val writeContext = contextUri.toString()
-
+    val mediaIri = "$podBase/_system/media/m1/content"
     val write = put(
-      resourceUrl(pod.name, systemIri) + "?context=$writeContext",
+      withContext(resourceUrl(pod.name, mediaIri), contextUri),
       token,
-      """{"@id":"$systemIri","https://schema.org/name":[{"@value":"my note about this context"}]}""",
+      """{"@id":"$mediaIri","https://schema.org/name":[{"@value":"my note about this media"}]}""",
     )
-    assertTrue(write.statusCode in listOf(200, 201), "body=${write.responseBody}")
-
-    // Readable back through the operations route, with the claim in the caller's own context.
-    // That the context's *own* representation stays unaffected is covered where it belongs, in
-    // `PodContextsEndpointHttpTest` — the registry is the source of truth for what a context is.
-    val read = get(resourceUrl(pod.name, systemIri), token)
+    assertEquals(201, write.statusCode, write.responseBody)
+    val read = get(resourceUrl(pod.name, mediaIri), token)
     assertEquals(200, read.statusCode, "body=${read.responseBody}")
-    assertTrue(read.responseBody.contains("my note about this context"), read.responseBody)
+    assertTrue(read.responseBody.contains("my note about this media"), read.responseBody)
+
+    // `GET` under `_system/contexts/` is the context registry, so the pod refuses a subject there.
+    // `ContextNamespaceWriteHttpTest` covers the rest of that rule.
+    val contextIri = "$podBase/_system/contexts/apps/example/tasks"
+    val refused = put(
+      withContext(resourceUrl(pod.name, contextIri), contextUri),
+      token,
+      """{"@id":"$contextIri","https://schema.org/name":[{"@value":"my note about this context"}]}""",
+    )
+    assertEquals(400, refused.statusCode, refused.responseBody)
+    assertTrue(refused.responseBody.contains("'$podBase/_system/contexts/'"), refused.responseBody)
   }
 
   @Test

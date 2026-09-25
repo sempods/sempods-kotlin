@@ -113,8 +113,7 @@ class PodContextsEndpoint @Inject constructor(
     val existing = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
     if (existing != null) {
       // PUT is idempotent: an existing context is a no-op. Field-level updates
-      // (label/description/public toggle) are intentionally out of scope here;
-      // see the in-file TODO below for the owner-facing visibility toggle.
+      // (label/description/public toggle) are intentionally out of scope here.
       return contextResponse(status = 200, row = existing, format = format, podBaseUrl = podBaseUrl)
     }
 
@@ -143,23 +142,14 @@ class PodContextsEndpoint @Inject constructor(
    * The context itself, at its own IRI — `GET {pod}/_system/contexts/apps/notes/public` returns
    * what the registry holds for `{pod}/_system/contexts/apps/notes/public`.
    *
-   * This is what makes a context IRI dereferenceable, and it is what separates the *original* from
-   * what anyone may say *about* it. Triples whose subject is a context IRI are ordinary statements
-   * living in some context — the same way a pod can hold statements about `did:web:bob.example` or
-   * another pod's resources (sempods-spec `spec/core/lod-crud.md` §4 §"Writes": resource IRI and target graph are
-   * independent dimensions). They are read back through `_system/resources/{b64url(iri)}`. What the
-   * registry says about the context comes from here, and RDF cannot change it: contexts, grants and
-   * registrations live in MongoDB, not in the graph.
+   * This is what makes a context IRI dereferenceable. What the registry says about the context comes
+   * from here, and RDF cannot change it: contexts, grants and registrations live in MongoDB, not in
+   * the graph. Every path below `_system/contexts/` lands here, so a write about a subject under it
+   * is refused ([ContextPathRules.reservedSubjectReason]): no resource shares an IRI with a context.
    *
    * Visibility follows the listing: a caller sees a context exactly when [list] would include it,
    * and gets 404 otherwise — never a 403, which would confirm that the context exists.
    */
-  // TODO: this route also swallows *resources* whose IRI happens to sit below a context IRI —
-  //  `{pod}/_system/contexts/tasks/res-1` matches here and answers JSON, so an RDF-accepting client
-  //  gets a 406 instead of the resource. `create_resource` over MCP mints exactly such IRIs when the
-  //  caller derives them from `context_iri`. Either decide that a subject under the reserved context
-  //  namespace is not addressable at the LOD layer and say so (400 on the write), or fall through to
-  //  `PodResourceEndpoint` when the path does not name a registered context.
   @GET
   @Path("{contextPath: .+}")
   @Produces("application/ld+json", "application/json", "application/n-quads")

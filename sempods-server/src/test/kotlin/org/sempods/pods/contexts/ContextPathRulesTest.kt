@@ -1,6 +1,7 @@
 package org.sempods.pods.contexts
 
 import org.junit.jupiter.api.Test
+import org.sempods.client.SempodsPodBaseVectors
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -146,5 +147,48 @@ class ContextPathRulesTest {
     notResolvable("   ", because = "missing context path")
     notResolvable("/", because = "missing context path")
     notResolvable("a b", because = "invalid context path")
+  }
+
+  // ─── reservedSubjectReason: what a write may not be about ─────────────────
+
+  private fun reserved(subject: String, podBaseUrl: String = podBase) {
+    val reason = assertNotNull(ContextPathRules.reservedSubjectReason(podBaseUrl, subject), "'$subject' should be reserved")
+    assertTrue(reason.contains("'${podBaseUrl}_system/contexts/'"), "the refusal names the namespace: $reason")
+  }
+
+  private fun ordinary(subject: String) =
+    assertNull(ContextPathRules.reservedSubjectReason(podBase, subject), "'$subject' should be an ordinary subject")
+
+  @Test
+  fun `a subject under the context namespace is reserved, a context IRI included`() {
+    reserved("${podBase}_system/contexts/tasks")
+    reserved("${podBase}_system/contexts/tasks/res-1")
+    reserved("${podBase}_system/contexts/apps/notes/public#it")
+    reserved("${podBase}_system/contexts/")
+    // Written under the namespace, whatever a URL parser makes of the rest.
+    reserved("${podBase}_system/contexts/a%2Fb")
+  }
+
+  @Test
+  fun `the namespace is matched under every spelling of the pod base a client binds`() {
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      reserved("${given.removeSuffix("/")}/_system/contexts/tasks", podBaseUrl = "${bound.removeSuffix("/")}/")
+    }
+    reserved("https://sempods.org/alice/%5Fsystem/contexts/tasks")
+    reserved("https://sempods.org/alice/notes/../_system/contexts/tasks")
+  }
+
+  @Test
+  fun `a subject beside the namespace or in another pod stays ordinary`() {
+    ordinary("${podBase}_system/contexts")
+    ordinary("${podBase}_system;x/contexts/tasks")
+    ordinary("${podBase}_system/contexts;x/tasks")
+    ordinary("${podBase}_system/resources/abc")
+    ordinary("${podBase}notes/tasks")
+    ordinary("https://sempods.org/bob/_system/contexts/tasks")
+    ordinary("https://sempods.org/alice-archive/_system/contexts/tasks")
+    ordinary("https://example.org/alice/_system/contexts/tasks")
+    ordinary("did:web:bob.example")
+    ordinary("urn:isbn:0451450523")
   }
 }
