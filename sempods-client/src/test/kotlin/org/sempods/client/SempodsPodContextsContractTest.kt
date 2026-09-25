@@ -178,11 +178,14 @@ class SempodsPodContextsContractTest : MockPodTest() {
     assertEquals("0", sent.headers["Content-Length"])
     assertEquals(204, removed.status)
 
-    // The last context a caller can see stays (SPS-CTX-029), and one that is gone answers 404.
-    listOf(409, 404).forEach { status ->
+    // One that is gone answers 404. A conflict is not a removal outcome, so it is refused like 403.
+    server.reset()
+    answer(404, "no")
+    assertEquals(404, contexts().delete(tasks).status)
+    listOf(403, 409).forEach { status ->
       server.reset()
       answer(status, "no")
-      assertEquals(status, contexts().delete(tasks).status)
+      assertEquals(status, assertThrows<SempodsStatusException> { contexts().delete(tasks) }.status)
     }
   }
 

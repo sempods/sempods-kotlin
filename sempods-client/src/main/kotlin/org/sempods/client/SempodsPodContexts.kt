@@ -35,7 +35,7 @@ import java.io.OutputStream
  * |---|---|
  * | [listText], [listBytes], [getText], [getBytes] | `200`; `404` without a body; `304` without a body only with an entity tag |
  * | [create] | `201` for a context this call created, `200` for one that was already there (SPS-CTX-016) |
- * | [delete] | `204`; `404`; `409` for the last context the caller can see (SPS-CTX-029) |
+ * | [delete] | `204` (SPS-CTX-017); `404` |
  * | [exportTo], [export] | `200`, streamed; every other status is a [SempodsStatusException] |
  *
  * A context the session cannot see answers exactly as one that was never registered: `404`, with no
@@ -129,10 +129,10 @@ class SempodsPodContexts private constructor(
    * Removes [contextUri]: the statements it holds and the grants that named it (SPS-CTX-017), and
    * nothing of the contexts below it (SPS-CTX-018).
    *
-   * `404` for a context that was never registered, `409` for the last one this caller can see, which
-   * a pod keeps so that every pod has a context (SPS-CTX-028, SPS-CTX-029). It asks for no
-   * representation: the answer carries no body. A pod that refuses the removal outright answers
-   * `403`, which is a [SempodsStatusException] like any other status the operation does not list.
+   * `404` for a context that is not registered, when the caller's authority covers it. It asks for no
+   * representation: the answer carries no body. A caller without that authority gets `403` whether
+   * the context exists or not (SPS-CORE-018), and that is a [SempodsStatusException] like any other
+   * status the operation does not list.
    */
   @Throws(IOException::class)
   fun delete(contextUri: String): SempodsResponse<ByteArray> =
@@ -191,6 +191,6 @@ class SempodsPodContexts private constructor(
 
     private val CREATED = setOf(200, 201)
 
-    private val REMOVED = setOf(204, 404, 409)
+    private val REMOVED = setOf(204, 404)
   }
 }
