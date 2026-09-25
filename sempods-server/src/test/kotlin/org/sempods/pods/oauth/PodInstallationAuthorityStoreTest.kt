@@ -12,6 +12,7 @@ import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.utils.HashUtil
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import org.sempods.pods.PodId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -123,15 +124,18 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   fun `an authority lives as long as the bearer it stands behind, and no longer`() {
     // The installer token is good for an hour; a row that outlived it would be an authority no
     // bearer can present, and one that died first would refuse an owner whose token still works.
-    val before = Instant.now()
+    // Bounded around the write alone, and at the store's millisecond precision.
     val jti = randomId()
-    record(jti)
+    val disconnects = approve()
+    val before = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+    record(jti, disconnects = disconnects)
+    val after = Instant.now()
     val expiresAt = checkNotNull(
       db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES)
         .find(Document("_id", HashUtil.sha256Hex(jti))).first()?.getInstant("expiresAt"),
     )
-    val lifetime = Duration.between(before, expiresAt).seconds
-    assertTrue(lifetime in PodTokenIssuer.USER_TOKEN_TTL_SECONDS..PodTokenIssuer.USER_TOKEN_TTL_SECONDS + 5, "lifetime=$lifetime")
+    val hour = Duration.ofSeconds(PodTokenIssuer.USER_TOKEN_TTL_SECONDS)
+    assertTrue(expiresAt in before.plus(hour)..after.plus(hour), "expiresAt=$expiresAt, written between $before and $after")
 
     // The pre-upgrade shape, which carries nothing else to refuse it on.
     val lapsed = randomId()
