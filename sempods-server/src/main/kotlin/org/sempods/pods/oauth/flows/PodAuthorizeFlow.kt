@@ -52,6 +52,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val consentTransactionStore: ConsentTransactionStore,
   private val signIn: PodSignIn,
   private val podScopeValidator: PodScopeValidator,
+  private val appHoldings: PodAppHoldings,
 ) {
 
   internal fun authorize(
@@ -620,7 +621,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         // later one. Asked over the person rather than over this URI, because that is what the
         // action itself clears.
         disconnectAvailable = privilegedFeatures.isEmpty() &&
-            podGrantsFacade.appGrants(pod.id, normalizedClientId, identity.allUris).isNotEmpty(),
+            appHoldings.holdsAnything(pod.id, normalizedClientId, identity.allUris),
         privilegedFeatures = privilegedFeatures,
         lifetimeAvailable = privilegedFeatures.isEmpty(),
       ),

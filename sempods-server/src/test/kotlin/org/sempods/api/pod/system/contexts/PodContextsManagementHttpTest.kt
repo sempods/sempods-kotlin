@@ -9,6 +9,7 @@ import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDbo
 import org.junit.jupiter.api.Test
@@ -89,6 +90,31 @@ class PodContextsManagementHttpTest : SempodsIntegrationTest() {
       assertEquals(303, response.statusCode, "$scope: ${response.responseBody}")
       assertEquals("invalid_scope", query(response)["error"], scope)
     }
+  }
+
+  @Test
+  fun `the authority approved on its own is disconnected in the ordinary dialog`() {
+    // It writes no grant, so a dialog that asked only about grants offered no way to end it early.
+    val owned = ownedPod()
+    val bearer = approve(owned, authorizePage(owned, CONTEXTS_MANAGE_SCOPE))["access_token"] as String
+
+    val page = authorizePage(owned, PUBLIC_READ_SCOPE)
+    assertTrue("disconnectBtn" in page.responseBody, "the authority is something this app holds")
+    val csrf = Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)?.groupValues?.get(1)
+      ?: error("no form token in the rendered page")
+    val disconnected = http.preparePost("${podBase(owned)}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", signIn(owned.pod.name, owned.webId).cookie)
+      .setBody("client_id=${enc(clientId)}&redirect_uri=${enc(redirectUri)}&state=contexts&csrf=${enc(csrf)}&action=disconnect")
+      .setFollowRedirect(false).execute()
+    assertEquals("app disconnected", query(disconnected)["error_description"], disconnected.getHeader("Location"))
+
+    val created = http.preparePut(contextUrl(owned, "projects"))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .setBody("{}")
+      .execute()
+    assertEquals(401, created.statusCode, created.responseBody)
   }
 
   // ── Fixture ─────────────────────────────────────────────────────────────────

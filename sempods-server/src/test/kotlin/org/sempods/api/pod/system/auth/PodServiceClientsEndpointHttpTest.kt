@@ -9,6 +9,7 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.mongo.persist.PodDbo
@@ -439,6 +440,36 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, listed.statusCode, listed.responseBody)
   }
 
+  @Test
+  fun `a management authority approved on its own is disconnected in the ordinary dialog`() {
+    // It writes no grant, so a dialog that asked only about grants offered no way to end it early.
+    val owned = ownedPod()
+    val manager = approveManagement(owned)
+
+    val page = authorizePage(owned, PUBLIC_READ_SCOPE)
+    assertTrue("disconnectBtn" in page.responseBody, "the authority is something this app holds")
+    val disconnected = disconnect(owned, page)
+    assertEquals("app disconnected", query(disconnected)["error_description"], disconnected.getHeader("Location"))
+
+    val listed = http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $manager").execute()
+    assertEquals(401, listed.statusCode, listed.responseBody)
+    assertFalse("disconnectBtn" in authorizePage(owned, PUBLIC_READ_SCOPE).responseBody, "nothing is left to end")
+  }
+
+  @Test
+  fun `a management authority approved under an alias is disconnected by whoever the person signs in as`() {
+    val owned = ownedPod()
+    val alias = "https://id.test/oidc/${org.sempods.commons.tests.TestUtil.randomId()}"
+    val manager = approveManagement(owned, signedInAs = alias, alsoKnownAs = listOf(owned.webId))
+
+    val page = authorizePage(owned, PUBLIC_READ_SCOPE, alsoKnownAs = listOf(alias))
+    assertTrue("disconnectBtn" in page.responseBody, "the alias is among the URIs that name the person")
+    disconnect(owned, page, alsoKnownAs = listOf(alias))
+
+    val listed = http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $manager").execute()
+    assertEquals(401, listed.statusCode, listed.responseBody)
+  }
+
   // ── Fixture ─────────────────────────────────────────────────────────────────
 
   private inner class Owned(val pod: PodDbo, val webId: String) {
@@ -505,6 +536,25 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
     return json(exchanged)
+  }
+
+  /** Takes the disconnect on an ordinary [page], the way its "Remove access" button does. */
+  private fun disconnect(
+    owned: Owned,
+    page: TestHttpResponse,
+    signedInAs: String = owned.webId,
+    alsoKnownAs: List<String> = emptyList(),
+  ): TestHttpResponse {
+    val submitted = http.preparePost("${podBase(owned)}/_system/auth/authorize/consent")
+      .addHeader("Content-Type", "application/x-www-form-urlencoded")
+      .addHeader("Cookie", signIn(owned.pod.name, signedInAs, alsoKnownAs).cookie)
+      .setBody(
+        "client_id=${enc(installerClientId)}&redirect_uri=${enc(redirectUri)}" +
+          "&state=privileged&csrf=${enc(formToken(page))}&action=disconnect",
+      )
+      .setFollowRedirect(false).execute()
+    assertEquals(303, submitted.statusCode, submitted.responseBody)
+    return submitted
   }
 
   private fun approveInstallation(owned: Owned): String =

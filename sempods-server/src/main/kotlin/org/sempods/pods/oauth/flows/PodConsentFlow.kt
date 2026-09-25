@@ -42,6 +42,7 @@ class PodConsentFlow @Inject internal constructor(
   private val consentTransactionStore: ConsentTransactionStore,
   private val refreshTokenStore: PodRefreshTokenStore,
   private val podSignOut: PodSignOut,
+  private val appHoldings: PodAppHoldings,
 ) {
 
   internal fun submit(
@@ -114,7 +115,7 @@ class PodConsentFlow @Inject internal constructor(
     // beside one of those has lost nothing and must still submit.
     val standingDecision = consentDecisionStore.find(pod.id, normalizedClientId, listOf(identity.webId))
     // Read once: the disconnect below asks the same question, and two reads could disagree.
-    val holdsAnything = holdsAnything(pod, normalizedClientId, identity)
+    val holdsAnything = appHoldings.holdsAnything(pod.id, normalizedClientId, identity.allUris)
     if (transaction.disconnects != (standingDecision?.disconnects ?: 0L)) {
       logger.info {
         "[oauth/consent] rejected: page rendered before the app was disconnected (pod='${pod.name}', " +
@@ -537,20 +538,12 @@ class PodConsentFlow @Inject internal constructor(
   }
 
   /**
-   * Whether this app holds anything for this person — the question that decides both whether the
-   * way out is offered and whether taking it means anything. Asked over every URI that names the
-   * person: an authorization stored under an alias is one they can still end.
-   */
-  private fun holdsAnything(pod: HostedPod, clientId: String, identity: PersonIdentity): Boolean =
-    podGrantsFacade.appGrants(pod.id, clientId, identity.allUris).isNotEmpty()
-
-  /**
    * End what this app holds for this person.
    *
    * The grants go, the decision is written as a refusal — a silence would read as an authorization
-   * that predates the control and be left alone — and the refresh families are revoked, because
-   * withholding that is merely declining to extend would leave the person's most emphatic gesture
-   * with nothing to show for it. The client is still told `access_denied`: the request really was
+   * that predates the control and be left alone, and the count it moves withdraws a management
+   * authority — and the refresh families are revoked, because withholding that is merely declining
+   * to extend would leave the person's most emphatic gesture with nothing to show for it. The client is still told `access_denied`: the request really was
    * denied, and what changed is that the denial now has an effect.
    */
   private fun disconnectApp(
