@@ -61,7 +61,7 @@ class PodConnectStateStoreTest {
       profile = "default",
       pod = "https://pod.test/p",
       metadata = PodOAuthMetadata(
-        issuer = "https://pod.test/p/_system/auth",
+        issuer = "https://pod.test/p",
         authorizationEndpoint = "https://pod.test/p/_system/auth/authorize",
         tokenEndpoint = "https://pod.test/p/_system/auth/token",
         registrationEndpoint = null,
@@ -80,7 +80,7 @@ class PodConnectStateStoreTest {
     val state = create(returnTo = "https://mcp.test/consent/resume")
     val pending = store.consume(state)
     assertNotNull(pending)
-    assertEquals("https://pod.test/p/_system/auth", pending.metadata.issuer)
+    assertEquals("https://pod.test/p", pending.metadata.issuer)
     assertNull(pending.metadata.registrationEndpoint)
     assertEquals("verifier-secret", pending.codeVerifier)
     assertEquals("https://mcp.test/consent/resume", pending.returnTo)

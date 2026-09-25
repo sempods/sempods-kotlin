@@ -170,21 +170,23 @@ bearer is verified independently of this best-effort redaction.
 ## OAuth discovery routes
 
 A pod-bound MCP needs to advertise where to obtain a bearer. Different
-clients probe different paths; the pod serves all of them. The protected
-resource is always the pod URL, and the pod has exactly one issuer.
+clients probe different paths; the pod serves all of them. The pod URL
+`https://<host>/<pod>` is always the protected resource and the one
+issuer. The auth endpoints live below it, under `/_system/auth`.
 
-Three of the six below are append forms under the pod's own base URL, one of them `SPS-AUTH-045`'s.
-The other three are *host-rooted*: the well-known segment is inserted in front of the path, so the
-route lives on the origin and no pod can serve it alone. [`../auth/README.md`](../auth/README.md)
-§"What this implementation adds" says why this deployment serves all of them.
+Three of the six below are append forms under the pod's own base URL; two of them are the ones the
+specification requires (`SPS-AUTH-045`, `SPS-AUTH-066`). The other three are *host-rooted*: the
+well-known segment is inserted in front of the path, so the route lives on the origin and no pod can
+serve it alone. [`../auth/README.md`](../auth/README.md) §"What this implementation adds" says why
+this deployment serves them.
 
 ### Pod-level
 
 ```
-GET /{pod}/.well-known/oauth-protected-resource                    ← SPS-AUTH-045
-GET /.well-known/oauth-protected-resource/{pod}                    ← host-rooted, this deployment's
-GET /{pod}/_system/auth/.well-known/oauth-authorization-server     ← this deployment's
-GET /.well-known/oauth-authorization-server/{pod}/_system/auth     ← host-rooted, this deployment's
+GET /{pod}/.well-known/oauth-protected-resource        ← SPS-AUTH-045
+GET /{pod}/.well-known/oauth-authorization-server      ← SPS-AUTH-066
+GET /.well-known/oauth-protected-resource/{pod}        ← host-rooted, this deployment's
+GET /.well-known/oauth-authorization-server/{pod}      ← host-rooted, this deployment's
 ```
 
 ### At the MCP URL
@@ -199,10 +201,10 @@ GET /.well-known/oauth-protected-resource/{pod}/_system/mcp        ← host-root
 ```
 
 There is deliberately **no** `oauth-authorization-server` route under the
-MCP URL. The MCP URL is not an issuer identifier, and RFC 8414 §3.3 wants
-the served `issuer` to match the URL it was fetched from. Both probes
-return 404; clients reach the issuer through `authorization_servers` in
-the PRM.
+MCP URL or under `/{pod}/_system/auth`. Neither is an issuer identifier,
+and RFC 8414 §3.3 wants the served `issuer` to match the URL it was
+fetched from. Those probes return 404; clients reach the issuer through
+`authorization_servers` in the PRM.
 
 ### Body shape
 
@@ -211,7 +213,7 @@ Protected-resource metadata (RFC 9728 + sempods extensions):
 ```json
 {
   "resource": "https://<host>/<pod>",
-  "authorization_servers": ["https://<host>/<pod>/_system/auth"],
+  "authorization_servers": ["https://<host>/<pod>"],
   "bearer_methods_supported": ["header"],
   "scopes_supported": ["public-read", "offline_access"],
   "public_contexts": 2,
@@ -221,8 +223,8 @@ Protected-resource metadata (RFC 9728 + sempods extensions):
 
 Notes:
 
-- `authorization_servers` is the pod's single issuer, whichever of the
-  four PRM routes the client asked.
+- `authorization_servers` names the pod itself, its one issuer, whichever
+  of the four PRM routes the client asked.
 - `public_contexts` is a **count**, never the URI list — pods do not
   leak topology to advertise the existence of public-read content.
 - `name` is `PodDbo.displayName` when set; SDKs surface it as
@@ -238,7 +240,7 @@ Authorization-server metadata (RFC 8414):
 
 ```json
 {
-  "issuer":                                "https://<host>/<pod>/_system/auth",
+  "issuer":                                "https://<host>/<pod>",
   "authorization_endpoint":                "https://<host>/<pod>/_system/auth/authorize",
   "token_endpoint":                        "https://<host>/<pod>/_system/auth/token",
   "registration_endpoint":                 "https://<host>/<pod>/_system/auth/register",

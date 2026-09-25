@@ -5,6 +5,7 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.utils.UriEncodingUtil.encodeUriToUrlSafeBase64
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.rdf.RdfWriterUtil
@@ -220,7 +221,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `GET resource with invalid bearer should return 401 with WWW-Authenticate`() {
+  fun `a public resource answers an anonymous read and challenges a rejected bearer`() {
     val pod = sempodsTestFactory.newPod()
     val eventId = TestUtil.randomId()
     val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
@@ -233,19 +234,17 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     )
 
     val url = "${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId"
-    val response = httpClient.prepareGet(url)
+    val anonymous = httpClient.prepareGet(url)
+      .addHeader("Accept", "application/ld+json")
+      .execute()
+    assertEquals(200, anonymous.statusCode, anonymous.responseBody)
+
+    // The same read with a bearer that does not verify is not downgraded to the anonymous one.
+    val rejected = httpClient.prepareGet(url)
       .addHeader("Accept", "application/ld+json")
       .addHeader("Authorization", "Bearer not-a-real-jwt")
       .execute()
-
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(authHeader.startsWith("Bearer "), "WWW-Authenticate should be a Bearer challenge, was: $authHeader")
-    assertTrue(
-      authHeader.contains("/.well-known/oauth-protected-resource"),
-      "Challenge must point at RFC 9728 metadata URL, was: $authHeader"
-    )
+    assertPodBearerChallenge(rejected, pod.name)
   }
 
   @Test
@@ -1440,7 +1439,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `PUT without bearer should return 401 with WWW-Authenticate`() {
+  fun `PUT without a bearer or with a rejected one is challenged`() {
     val pod = sempodsTestFactory.newPod()
     val writeContext = "apps/test-app/tasks"
     val (writeContextUri, _) = createContextWithToken(pod, writeContext)
@@ -1450,17 +1449,15 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     val nQuads = """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${writeContextUri}> .
     """.trimIndent()
-    val response = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .setBody(nQuads)
-      .execute()
-
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(authHeader.contains("/.well-known/oauth-protected-resource"))
+    for (authorization in listOf(null, "Bearer not-a-real-jwt")) {
+      val request = httpClient.preparePut(
+        withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
+      )
+        .addHeader("Content-Type", "application/n-quads")
+        .setBody(nQuads)
+      authorization?.let { request.addHeader("Authorization", it) }
+      assertPodBearerChallenge(request.execute(), pod.name)
+    }
   }
 
   @Test

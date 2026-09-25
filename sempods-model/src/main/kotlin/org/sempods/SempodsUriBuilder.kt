@@ -41,7 +41,7 @@ class SempodsUriBuilder {
    * The pod's own URI — its global identifier in a decentralized sempods world, and the prefix
    * every resource / context / view URI hangs off (e.g. `https://sempods.org/alice`). Canonical
    * form has **no trailing slash**, matching how all resource URIs are minted and the inverse of
-   * [parsePodName]. Distinct from the OAuth issuer / RFC 9728 resource base used in the auth layer.
+   * [parsePodName]. The same string is the pod's OAuth issuer and its RFC 9728 resource.
    */
   fun buildPodUri(podName: String): URI {
     return URI.create("$baseUrl/$podName")

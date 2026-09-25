@@ -130,8 +130,8 @@ class WriteToolsIntegrationTest {
     server.`when`(request().withMethod("PATCH").withPath("/p/_system/resources/$patchSlot").withHeader("If-Match", "\"v1\""))
       .respond(response().withStatusCode(204).withHeader("ETag", "\"v2\""))
 
-    registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
+    registry.upsert(PodConnection(user, profile, pod, issuer = pod, podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
+    vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(), issuer = pod, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
   }
 
   @AfterEach
@@ -163,7 +163,7 @@ class WriteToolsIntegrationTest {
     val foreignWebId = "https://voicesappdev.example/api/pod/u/7"
     registry.upsert(
       PodConnection(
-        user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
+        user, profile, pod, issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = foreignWebId,
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -172,7 +172,7 @@ class WriteToolsIntegrationTest {
       PodTokens(
         user, profile, pod, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$pod/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = pod, podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
@@ -187,7 +187,7 @@ class WriteToolsIntegrationTest {
     val acting = "https://pod.example/u/whose-token-this-is"
     registry.upsert(
       PodConnection(
-        user, profile, pod, issuer = "$pod/_system/auth", podClientId = "did:web:mcp.test",
+        user, profile, pod, issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/from-a-later-connect",
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -196,7 +196,7 @@ class WriteToolsIntegrationTest {
       PodTokens(
         user, profile, pod, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$pod/_system/auth", podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = pod, podSubject = acting, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
 
@@ -261,11 +261,10 @@ class WriteToolsIntegrationTest {
   }
 
   @Test
-  fun `a control-plane subject is forwarded, the pod decides, and it allows one`() = runBlocking {
-    // `PodReservedArea` was removed on purpose: a `_system` IRI is describable like any foreign
-    // resource, and a statement *about* a context is ordinary data living in some context
-    // (sempods-spec `spec/core/lod-crud.md` §4). This service refusing it was a policy the pod does
-    // not have — the write still lands in a context the caller holds `#write` on.
+  fun `a control-plane subject is forwarded, and the pod decides`() = runBlocking {
+    // What a statement may be about is the pod's rule: `SPS-CTX-026` lets a pod hold statements
+    // about a `_system` IRI, and a sempods pod refuses one at or under its `_system/contexts`. This
+    // service faces any pod, so it forwards; the mock pod here accepts.
     val subject = "$pod/_system/contexts/contacts"
     server.`when`(request().withMethod("POST").withPath("/p/_system/resources/${b64(subject)}/${b64("https://schema.org/name")}"))
       .respond(response().withStatusCode(201).withHeader("ETag", "\"about-v1\""))

@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.find
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
@@ -15,7 +16,6 @@ import java.io.ByteArrayInputStream
 import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -457,12 +457,6 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer not-a-real-jwt")
       .execute()
 
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(
-      authHeader.contains("/.well-known/oauth-protected-resource"),
-      "challenge must point at RFC 9728 metadata URL, was: $authHeader",
-    )
+    assertPodBearerChallenge(response, pod.name)
   }
 }

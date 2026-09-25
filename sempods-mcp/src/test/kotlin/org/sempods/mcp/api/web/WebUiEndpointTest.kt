@@ -131,7 +131,7 @@ class WebUiEndpointTest {
       user, profile, pod, accessToken = "at", refreshToken = "rt",
       accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
       podClientId = podClientId, deadGrantSince = deadGrantSince, podRedirectUri = podRedirectUri,
-      issuer = "$pod/_system/auth", podSubject = user,
+      issuer = pod, podSubject = user,
     ),
   )
 
@@ -169,7 +169,7 @@ class WebUiEndpointTest {
     val tokenIssuer = installWebUi()
     val key = PodKey(user, PodKey.DEFAULT_PROFILE, pod)
     ConnectionRegistryDao(db!!).upsert(PodConnection(
-      user, PodKey.DEFAULT_PROFILE, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x",
+      user, PodKey.DEFAULT_PROFILE, pod, issuer = pod, podClientId = "dyn:x",
       scopes = emptySet(), podSubject = "https://pod.example/u/stale",
       createdAt = Date(), updatedAt = Date(),
     ))
@@ -379,7 +379,7 @@ class WebUiEndpointTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
-        issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
+        issuer = "https://pod.example/p", podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"),
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -404,7 +404,7 @@ class WebUiEndpointTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
-        issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
+        issuer = "https://pod.example/p", podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -425,7 +425,7 @@ class WebUiEndpointTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
-        issuer = "https://pod.example/p/_system/auth", podClientId = "did:web:mcp.test",
+        issuer = "https://pod.example/p", podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -541,11 +541,11 @@ class WebUiEndpointTest {
     // only way out was to disconnect the pod first and connect it again.
     val user = "https://id.test/e/web-user-rereg"
     val tokenIssuer = installWebUi()
-    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
-          issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -567,11 +567,11 @@ class WebUiEndpointTest {
     // fresh DCR above is reserved for a connection the pod has already declared finished.
     val user = "https://id.test/e/web-user-keepid"
     val tokenIssuer = installWebUi()
-    withSimulatedPod(registersAs = "dyn:fresh") { pod, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:fresh") { pod, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
-          issuer = authBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -594,11 +594,11 @@ class WebUiEndpointTest {
     // have cleared, which dead-ends on its 400: the case dead-grant re-registration exists for.
     val user = "https://id.test/e/web-user-unreadable"
     val tokenIssuer = installWebUi()
-    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
-          issuer = authBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:gone", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -608,7 +608,7 @@ class WebUiEndpointTest {
         PodTokens(
           user, PodKey.DEFAULT_PROFILE, podBase, accessToken = "at", refreshToken = "rt",
           accessTokenExpiresAt = Date(), updatedAt = Date(), deadGrantSince = Date(),
-          issuer = "$podBase/_system/auth", podSubject = user,
+          issuer = podBase, podSubject = user,
           podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
         ),
       )
@@ -636,11 +636,11 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-split-rows"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "dyn:unused") { pod, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:unused") { pod, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
-          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -676,11 +676,11 @@ class WebUiEndpointTest {
         val user = "https://id.test/e/web-user-incomplete-registration-$index"
         ProfileDao(db!!).create(user, profile)
         val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
-        withSimulatedPod(registersAs = "dyn:unused", tokenSubject = user) { pod, podBase, authBase ->
+        withSimulatedPod(registersAs = "dyn:unused", tokenSubject = user) { pod, podBase ->
           val key = PodKey(user, profile, podBase)
           ConnectionRegistryDao(db!!).upsert(
             PodConnection(
-              user = user, profile = profile, pod = podBase, issuer = authBase,
+              user = user, profile = profile, pod = podBase, issuer = podBase,
               podClientId = "dyn:registry", podRedirectUri = redirectUri, scopes = setOf("public-read"),
               createdAt = Date(), updatedAt = Date(),
             ),
@@ -721,7 +721,7 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-named-profile"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "dyn:cron") { pod, podBase, _ ->
+    withSimulatedPod(registersAs = "dyn:cron") { pod, podBase ->
       val authorize = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
 
       assertEquals("dyn:cron", authorize.parameters["client_id"])
@@ -742,7 +742,7 @@ class WebUiEndpointTest {
     // every existing connection pays a re-consent for nothing.
     val user = "https://id.test/e/web-user-default-profile"
     val tokenIssuer = installWebUi()
-    withSimulatedPod(registersAs = "dyn:root") { pod, podBase, _ ->
+    withSimulatedPod(registersAs = "dyn:root") { pod, podBase ->
       val authorize = Url(connect(tokenIssuer, user, podBase))
 
       assertEquals("$BASE/_system/ui/pods/callback", authorize.parameters["redirect_uri"], "$authorize")
@@ -759,7 +759,7 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-didweb-profile"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "unused", publishesAsMetadata = false) { _, podBase, _ ->
+    withSimulatedPod(registersAs = "unused", publishesAsMetadata = false) { _, podBase ->
       val named = Url(connect(tokenIssuer, user, podBase, profile = "cron-agent"))
       assertEquals("did:web:mcp.test:_system:ui:pods:callback:cron-agent", named.parameters["client_id"], "$named")
 
@@ -775,11 +775,11 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-legacy-callback"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "dyn:fresh") { pod, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:fresh") { pod, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
-          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -802,11 +802,11 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-reconnect"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "dyn:profile-own") { pod, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:profile-own") { pod, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
-          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -831,11 +831,11 @@ class WebUiEndpointTest {
     val user = "https://id.test/e/web-user-dead-legacy"
     val tokenIssuer = installWebUi()
     ProfileDao(db!!).create(user, "cron-agent")
-    withSimulatedPod(registersAs = "dyn:shared") { pod, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:shared") { pod, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
-          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -864,7 +864,7 @@ class WebUiEndpointTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = user, profile = "cron-agent", pod = "https://pod.example/p",
-        issuer = "https://pod.example/p/_system/auth", podClientId = "dyn:shared",
+        issuer = "https://pod.example/p", podClientId = "dyn:shared",
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -872,7 +872,7 @@ class WebUiEndpointTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = user, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example/p",
-        issuer = "https://pod.example/p/_system/auth", podClientId = "dyn:shared",
+        issuer = "https://pod.example/p", podClientId = "dyn:shared",
         scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date(),
       ),
     )
@@ -897,11 +897,11 @@ class WebUiEndpointTest {
     val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
     val client = createClient { followRedirects = false }
 
-    withSimulatedPod(registersAs = "dyn:separated", tokenSubject = user) { _, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:separated", tokenSubject = user) { _, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = "cron-agent", pod = podBase,
-          issuer = authBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:shared", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -949,21 +949,25 @@ class WebUiEndpointTest {
     val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
     val client = createClient { followRedirects = false }
 
-    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = "https://pod.example/u/on-the-pod") { _, podBase, authBase ->
-      val authorize = Url(connect(tokenIssuer, user, podBase))
+    // Both issuers a pod may name: its base, and the auth route of a pod server without the switch.
+    for (issuerPath in listOf("", "/_system/auth")) {
+      val subject = "https://pod.example/u/on-the-pod"
+      withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = subject, issuerPath = issuerPath) { _, podBase ->
+        val authorize = Url(connect(tokenIssuer, user, podBase))
 
-      val callback = client.get(
-        "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
-      ) { header(HttpHeaders.Cookie, cookie) }
-      assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
+        val callback = client.get(
+          "/_system/ui/pods/callback?state=${enc(authorize.parameters["state"]!!)}&code=a-code",
+        ) { header(HttpHeaders.Cookie, cookie) }
+        assertTrue("error=" !in callback.headers[HttpHeaders.Location]!!, callback.headers[HttpHeaders.Location]!!)
 
-      val stored = assertNotNull(
-        TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)),
-      )
-      assertEquals(authBase, stored.issuer, "the authorization server that minted this family")
-      assertEquals("https://pod.example/u/on-the-pod", stored.podSubject, "and the identity it minted it for")
-      assertEquals("dyn:fresh", stored.podClientId, "beside the registration it was issued to")
-      assertFalse(stored.subjectVerified, "the simulated pod advertises no JWKS")
+        val stored = assertNotNull(
+          TokenVaultDao(db!!, testSecretCipher()).find(PodKey(user, PodKey.DEFAULT_PROFILE, podBase)),
+        )
+        assertEquals("$podBase$issuerPath", stored.issuer, "the pod's issuer, which minted this family")
+        assertEquals(subject, stored.podSubject, "and the identity it minted it for")
+        assertEquals("dyn:fresh", stored.podClientId, "beside the registration it was issued to")
+        assertFalse(stored.subjectVerified, "the simulated pod advertises no JWKS")
+      }
     }
   }
 
@@ -976,7 +980,7 @@ class WebUiEndpointTest {
     val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
     val client = createClient { followRedirects = false }
 
-    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = user) { _, podBase, _ ->
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = user) { _, podBase ->
       val key = PodKey(user, PodKey.DEFAULT_PROFILE, podBase)
       val authorize = Url(connect(tokenIssuer, user, podBase))
       every { registry.upsert(any()) } answers {
@@ -1041,11 +1045,11 @@ class WebUiEndpointTest {
     withSimulatedPod(
       registersAs = "dyn:fresh",
       advertisedScopes = listOf("public-read", "offline_access"),
-    ) { _, podBase, authBase ->
+    ) { _, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
-          issuer = authBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -1065,11 +1069,11 @@ class WebUiEndpointTest {
     // pod hands out unasked anyway.
     val user = "https://id.test/e/web-user-no-offline"
     val tokenIssuer = installWebUi()
-    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase, authBase ->
+    withSimulatedPod(registersAs = "dyn:fresh") { _, podBase ->
       ConnectionRegistryDao(db!!).upsert(
         PodConnection(
           user = user, profile = PodKey.DEFAULT_PROFILE, pod = podBase,
-          issuer = authBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
+          issuer = podBase, podClientId = "dyn:stored", scopes = setOf("public-read"),
           createdAt = Date(), updatedAt = Date(),
         ),
       )
@@ -1198,24 +1202,27 @@ class WebUiEndpointTest {
     publishesAsMetadata: Boolean = true,
     /** When set, the pod's `/token` answers a signed access token carrying this `sub`. */
     tokenSubject: String? = null,
-    body: suspend (pod: ClientAndServer, podBase: String, authBase: String) -> Unit,
+    /** The pod's issuer below its base: none, or `/_system/auth` for a pod server without the #193 switch. */
+    issuerPath: String = "",
+    body: suspend (pod: ClientAndServer, podBase: String) -> Unit,
   ) {
     val pod = ClientAndServer.startClientAndServer(0)
     try {
       val podBase = "http://localhost:${pod.port}/p"
       val authBase = "$podBase/_system/auth"
+      val issuer = "$podBase$issuerPath"
       val scopes = advertisedScopes.joinToString(",") { "\"$it\"" }
         .let { if (it.isEmpty()) "" else ",\"scopes_supported\":[$it]" }
       pod.`when`(request().withMethod("GET").withPath("/p/.well-known/oauth-protected-resource"))
         .respond(
           response().withStatusCode(200)
-            .withBody("""{"resource":"$podBase","authorization_servers":["$authBase"]$scopes}"""),
+            .withBody("""{"resource":"$podBase","authorization_servers":["$issuer"]$scopes}"""),
         )
-      pod.`when`(request().withMethod("GET").withPath("/p/_system/auth/.well-known/oauth-authorization-server"))
+      pod.`when`(request().withMethod("GET").withPath("/p$issuerPath/.well-known/oauth-authorization-server"))
         .respond(
           if (publishesAsMetadata) {
             response().withStatusCode(200).withBody(
-              """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize",""" +
+              """{"issuer":"$issuer","authorization_endpoint":"$authBase/authorize",""" +
                 """"token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register"}""",
             )
           } else {
@@ -1232,7 +1239,7 @@ class WebUiEndpointTest {
         // is trusted by the transport and never checked — any key will do.
         val token = JwtTestSupport.sign(
           JwtTestSupport.generateKey("pod-key"),
-          JwtTestSupport.webIdClaims(authBase, tokenSubject),
+          JwtTestSupport.webIdClaims(podBase, tokenSubject),
         )
         pod.`when`(request().withMethod("POST").withPath("/p/_system/auth/token"))
           .respond(
@@ -1241,7 +1248,7 @@ class WebUiEndpointTest {
             ),
           )
       }
-      body(pod, podBase, authBase)
+      body(pod, podBase)
     } finally {
       pod.stop()
     }

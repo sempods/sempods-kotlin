@@ -1,6 +1,8 @@
 package org.sempods.pods.contexts
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.sempods.SempodsUriBuilder.Companion.CONTEXT_PATH_PREFIX
+import org.sempods.client.SempodsPodBase
 import java.net.URI
 
 /**
@@ -34,6 +36,9 @@ import java.net.URI
  * - **[resolve] — can this be a context IRI at all.** Everywhere, and also on stored strings during
  *   migration. A name may be disallowed *today* and still have to stay addressable; a string that
  *   no route can reach was never a context, whenever it was written.
+ *
+ * It also owns the namespace these names live in: [reservedSubjectReason] keeps resource writes out
+ * of it.
  */
 object ContextPathRules {
 
@@ -177,6 +182,70 @@ object ContextPathRules {
     }
     return null
   }
+
+  /**
+   * Why a write may not add statements about [subject], or `null` when it may.
+   *
+   * Refused: the catalogue IRI `<podBaseUrl>_system/contexts` and every IRI under
+   * `<podBaseUrl>_system/contexts/`, a registered context IRI included. `GET` there is the catalogue
+   * or the registry route, so a resource there cannot be read at its own address. And a context
+   * path has several segments: after a write about `<pod>/_system/contexts/tasks/res-1`, the owner
+   * can still register `tasks/res-1`, and one IRI would name two things. A context's label and
+   * description belong in the registry.
+   *
+   * | [subject], for the pod `https://sempods.org/alice/` | Answer |
+   * |---|---|
+   * | `https://sempods.org/alice/_system/contexts`, the catalogue | refused |
+   * | `https://sempods.org/alice/_system/contexts/tasks` | refused |
+   * | `https://sempods.org/alice/_system/contexts/tasks/res-1` | refused |
+   * | `HTTPS://Sempods.org:443/alice/_system/contexts/tasks` | refused: the same URL, spelled otherwise |
+   * | `https://sempods.org/alice/_system/contextsX`, `…/_system/contexts;x` | `null`: another segment |
+   * | `https://sempods.org/alice/_system;x/contexts/tasks` | `null`: `_system;x` is another segment |
+   * | `https://sempods.org/bob/_system/contexts/tasks`, `did:web:bob.example` | `null`: not this pod's |
+   *
+   * The spellings are those `SempodsPodBase` binds to one URL: case of scheme and host, a default
+   * port, a percent-encoded or a dot segment. The server's own base URL is the bound one
+   * (`SempodsConfig.checkPublicBaseUrl`). A query or a fragment on the catalogue IRI still reaches
+   * the catalogue route, so it is refused too.
+   *
+   * The writes that add statements ask this: resource `PUT` and `PATCH`, slot `PUT` and `POST`.
+   * Deleting a resource, a slot or an edge does not, so statements stored before this rule can
+   * still be removed.
+   *
+   * This deviates from `SPS-CTX-026`, which forbids refusing a statement for its subject, until
+   * [sempods/sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides.
+   *
+   * [podBaseUrl] ends in `/`, as for [resolve].
+   */
+  fun reservedSubjectReason(podBaseUrl: String, subject: String): String? {
+    val namespace = "$podBaseUrl$CONTEXT_PATH_PREFIX"
+    val catalogue = namespace.removeSuffix("/")
+    val reserved = subject == catalogue || subject.startsWith(namespace) || reachesContextNamespace(podBaseUrl, subject)
+    if (!reserved) return null
+    return "'$subject' is reserved for this pod's contexts: '$catalogue' and everything under " +
+      "'$namespace'. A write may not add statements about it. Use an IRI outside that namespace."
+  }
+
+  /**
+   * Whether [subject], parsed as a URL, is under this pod in any spelling
+   * ([SempodsPodBase.contains]) and then at or under `_system/contexts` below it.
+   *
+   * A decoded segment holding a `/` or `\` is several segments to a server that decodes before it
+   * routes: `_system%2Fcontexts` reaches `_system/contexts` there. [SempodsPodBase.contains] refuses
+   * such a URL outright, which here would let it through, so it is split first and then asked.
+   */
+  private fun reachesContextNamespace(podBaseUrl: String, subject: String): Boolean {
+    val parsed = subject.toHttpUrlOrNull() ?: return false
+    val segments = parsed.pathSegments.flatMap { it.split('/', '\\') }
+    val target = parsed.newBuilder().encodedPath("/").apply { segments.forEach(::addPathSegment) }.build()
+    val pod = SempodsPodBase.of(podBaseUrl)
+    if (target !in pod) return false
+    val below = target.pathSegments.drop(pod.url.pathSegments.dropLastWhile { it.isEmpty() }.size)
+    return below.take(NAMESPACE_SEGMENTS.size) == NAMESPACE_SEGMENTS
+  }
+
+  /** [CONTEXT_PATH_PREFIX] as path segments: `_system`, `contexts`. */
+  private val NAMESPACE_SEGMENTS = CONTEXT_PATH_PREFIX.trimEnd('/').split('/')
 }
 
 /** Outcome of [ContextPathRules.resolve] — the IRI a path maps to, or why it maps to none. */

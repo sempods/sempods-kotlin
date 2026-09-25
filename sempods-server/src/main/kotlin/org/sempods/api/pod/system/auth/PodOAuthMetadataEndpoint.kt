@@ -17,33 +17,28 @@ import jakarta.ws.rs.core.Response
 /**
  * OAuth discovery documents for the pod.
  *
- * Identifier layout:
- *
- *  - `resource` (RFC 9728) = `{pod}` — the pod is the unit of access control.
- *  - `issuer`   (RFC 8414) = `{pod}/_system/auth` — keeps discovery and the AS endpoints in one
- *    subtree. The append-style `oauth-authorization-server` well-known path therefore lives on
- *    [PodAuthEndpoint] (which owns `{pod}/_system/auth`); JAX-RS routes sub-paths of a class to
- *    that class only, so it has to sit there.
+ * The pod base `P`, e.g. `https://host/alice`, is both the protected resource and the issuer
+ * (SPS-AUTH-028, SPS-AUTH-065, SPS-AUTH-066). The authorization, token, registration and JWKS
+ * endpoints live below it, under `P/_system/auth`.
  *
  * Routes we serve (and why):
  *
- *  1. `{pod}/.well-known/oauth-protected-resource` — append-style PRM. Canonical target of the
- *     `WWW-Authenticate: …, resource_metadata=…` hint returned on 401. Claude Code follows this.
- *  2. `{pod}/_system/auth/.well-known/oauth-authorization-server` — append-style AS-metadata
- *     (on [PodAuthEndpoint]). Canonical target of `authorization_servers[0]` in the PRM body.
- *  3. `/.well-known/oauth-authorization-server/{pod}/_system/auth` — RFC-8414-strict AS-metadata
- *     for the pod's issuer. claude.ai Web reads `authorization_servers[0]` from the PRM and then
- *     probes this host-rooted path; the append-style variant at (2) is not enough for it.
- *  4. `/.well-known/oauth-protected-resource/{pod}` — RFC-9728-strict PRM for the pod resource.
- *     Browser SPAs that drive RFC-9728 discovery through `oauth4webapi` (and any client that
- *     follows the §3.1 host-rooted form) probe this first. Body is identical to (1).
- *  5. `/.well-known/oauth-protected-resource/{pod}/_system/mcp` — MCP 2025-11-25 clients
+ *  1. `P/.well-known/oauth-protected-resource` (SPS-AUTH-045) — the target of the
+ *     `WWW-Authenticate: …, resource_metadata=…` hint on a 401. Claude Code follows this.
+ *  2. `P/.well-known/oauth-authorization-server` (SPS-AUTH-066) — the issuer's metadata, at the
+ *     address SPS-AUTH-067 builds from `P`.
+ *  3. `/.well-known/oauth-protected-resource/{pod}` and `/.well-known/oauth-authorization-server/{pod}`
+ *     on [RootOAuthMetadataEndpoint] — the host-rooted RFC 9728 §3.1 and RFC 8414 §3.1 addresses for
+ *     `P`, which SPS-AUTH-067 allows beside the two above. Browser SPAs on `oauth4webapi` probe the
+ *     first before they see a 401; claude.ai Web reads `authorization_servers[0]` and probes the
+ *     second.
+ *  4. `/.well-known/oauth-protected-resource/{pod}/_system/mcp` — MCP 2025-11-25 clients
  *     (claude.ai Web) treat the MCP URL itself as the protected-resource identifier and
  *     proactively probe the RFC-9728-strict path with that identifier. Body is identical to
  *     the pod-level variants — the pod remains the unit of access control. There is no
  *     `oauth-authorization-server` counterpart: the MCP URL is not an issuer identifier, and
  *     RFC 8414 §3.3 requires the served `issuer` to match the URL it was fetched from.
- *  6. `{pod}/_system/mcp/.well-known/oauth-protected-resource` — the MCP-URL append-style
+ *  5. `{pod}/_system/mcp/.well-known/oauth-protected-resource` — the MCP-URL append-style
  *     counterpart (on [org.sempods.api.pod.system.mcp.McpEndpoint]), kept alongside the strict
  *     form because the exact claude.ai probe set is not fully documented.
  *
@@ -77,12 +72,18 @@ class PodOAuthMetadataEndpoint @Inject constructor(
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
     )
   }
+
+  @GET
+  @Path(".well-known/oauth-authorization-server")
+  @Produces(MediaType.APPLICATION_JSON)
+  fun authorizationServerMetadata(@PathParam("pod") pod: String): Response =
+    buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
 }
 
 /**
- * Host-rooted (RFC-strict) OAuth discovery for MCP 2025-11-25 clients, which use the MCP URL
- * as the protected-resource identifier and insert the well-known suffix between host and the
- * identifier's path.
+ * Host-rooted OAuth discovery: RFC 9728 §3.1 and RFC 8414 §3.1 insert the well-known segment between
+ * the host and the identifier's path. SPS-AUTH-067 allows the two addresses for `P` beside the
+ * pod-local ones on [PodOAuthMetadataEndpoint], each answering the same pod's metadata.
  */
 @Path(".well-known")
 class RootOAuthMetadataEndpoint @Inject constructor(
@@ -94,15 +95,11 @@ class RootOAuthMetadataEndpoint @Inject constructor(
 ) {
 
   @GET
-  @Path("oauth-authorization-server/{pod}/_system/auth")
+  @Path("oauth-authorization-server/{pod}")
   @Produces(MediaType.APPLICATION_JSON)
-  fun authorizationServerMetadataForPodIssuer(@PathParam("pod") pod: String): Response =
+  fun authorizationServerMetadataForPod(@PathParam("pod") pod: String): Response =
     buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
 
-  // RFC-9728-strict host-rooted PRM for the pod resource itself (no MCP suffix). Body is the
-  // same as the append-style PRM at `{pod}/.well-known/oauth-protected-resource`; this just
-  // satisfies the §3.1 "insert /.well-known/<…> between authority and path" probe form that
-  // browser SPAs and oauth4webapi-based clients use.
   @GET
   @Path("oauth-protected-resource/{pod}")
   @Produces(MediaType.APPLICATION_JSON)
@@ -140,14 +137,13 @@ internal fun buildProtectedResourceMetadata(
   publicContextsCount: Int,
 ): Response {
   val podBaseUrl = "$apiBaseUrl${pod.name}"
-  val authIssuer = "$podBaseUrl/_system/auth"
   // sempods extensions on top of RFC 9728 §3: optional `name` and always-present
   // `public_contexts` count. Consumers that don't know these fields ignore them.
   // `public_contexts` is a count, not the URI list, so a pod does not have to leak
   // its public-context topology to advertise that it has any.
   val body = linkedMapOf<String, Any>(
     "resource" to podBaseUrl,
-    "authorization_servers" to listOf(authIssuer),
+    "authorization_servers" to listOf(podBaseUrl),
     "bearer_methods_supported" to listOf("header"),
     "scopes_supported" to SCOPES_SUPPORTED,
     "public_contexts" to publicContextsCount,
@@ -160,13 +156,14 @@ internal fun buildAuthorizationServerMetadata(
   pod: PodDbo,
   apiBaseUrl: String,
 ): Response {
-  val authIssuer = "$apiBaseUrl${pod.name}/_system/auth"
+  val issuer = "$apiBaseUrl${pod.name}"
+  val endpoints = "$issuer/_system/auth"
   val body = linkedMapOf(
-    "issuer" to authIssuer,
-    "authorization_endpoint" to "$authIssuer/authorize",
-    "token_endpoint" to "$authIssuer/token",
-    "registration_endpoint" to "$authIssuer/register",
-    "jwks_uri" to "$authIssuer/jwks.json",
+    "issuer" to issuer,
+    "authorization_endpoint" to "$endpoints/authorize",
+    "token_endpoint" to "$endpoints/token",
+    "registration_endpoint" to "$endpoints/register",
+    "jwks_uri" to "$endpoints/jwks.json",
     "response_types_supported" to listOf("code"),
     // `client_credentials` is the 2-leg flow consumed by statically-registered
     // pod service clients (see [PodServiceClientStore]). DCR-based clients

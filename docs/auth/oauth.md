@@ -28,6 +28,7 @@ step see `identity.md`.
 | `GET`, `POST /{pod}/_system/auth/grant` | The grant consent: the owner gives an installed service client its contexts |
 | `/{pod}/_system/auth/service-clients` | An owner's list, rotation, grant removal and revocation — [`service-clients.md`](service-clients.md#managing-an-installed-service-client) |
 | `GET /{pod}/.well-known/oauth-protected-resource` | RFC 9728 Protected Resource Metadata |
+| `GET /{pod}/.well-known/oauth-authorization-server` | RFC 8414 Authorization Server Metadata. Its `issuer` is the pod base URL; the endpoints above stay under `/_system/auth` |
 
 ## Client identity: `did:web:*`, `dyn:*` and `svc:*`
 
@@ -725,7 +726,7 @@ Without it, a bearer is an app, whatever its `sub` names. It creates and deletes
 | `contexts:manage`, approved by the pod's current owner | every context |
 | a `#manage` grant, the owner's app included | what the grant covers (`SPS-GRANT-007`) |
 | any other bearer | `403` |
-| no bearer | `401` |
+| no bearer | `401 invalid_token` |
 | `contexts:manage` after the app was disconnected | `401 invalid_token` |
 
 It reads no data, but deleting a context deletes what it holds. The catalogue lists every registered

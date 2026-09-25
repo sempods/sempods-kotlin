@@ -3,6 +3,7 @@ package org.sempods.api.pod.system.contexts
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.net.UrlUtil
@@ -114,7 +115,7 @@ class PodContextsManagementHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $bearer")
       .setBody("{}")
       .execute()
-    assertEquals(401, created.statusCode, created.responseBody)
+    assertPodBearerChallenge(created, owned.pod.name)
   }
 
   // ── Fixture ─────────────────────────────────────────────────────────────────

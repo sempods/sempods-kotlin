@@ -1,6 +1,7 @@
 package org.sempods.pods.contexts
 
 import org.junit.jupiter.api.Test
+import org.sempods.client.SempodsPodBaseVectors
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -146,5 +147,77 @@ class ContextPathRulesTest {
     notResolvable("   ", because = "missing context path")
     notResolvable("/", because = "missing context path")
     notResolvable("a b", because = "invalid context path")
+  }
+
+  // ─── reservedSubjectReason: what a write may not be about ─────────────────
+
+  private fun reserved(subject: String, podBaseUrl: String = podBase) {
+    val reason = assertNotNull(ContextPathRules.reservedSubjectReason(podBaseUrl, subject), "'$subject' should be reserved")
+    assertTrue(reason.contains("'${podBaseUrl}_system/contexts/'"), "the refusal names the namespace: $reason")
+  }
+
+  private fun ordinary(subject: String) =
+    assertNull(ContextPathRules.reservedSubjectReason(podBase, subject), "'$subject' should be an ordinary subject")
+
+  @Test
+  fun `a subject under the context namespace is reserved, a context IRI included`() {
+    reserved("${podBase}_system/contexts/tasks")
+    reserved("${podBase}_system/contexts/tasks/res-1")
+    reserved("${podBase}_system/contexts/apps/notes/public#it")
+    reserved("${podBase}_system/contexts/")
+    // Written under the namespace, whatever a URL parser makes of the rest.
+    reserved("${podBase}_system/contexts/a%2Fb")
+  }
+
+  @Test
+  fun `the namespace is matched under every spelling of the pod base a client binds`() {
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      reserved("${given.removeSuffix("/")}/_system/contexts/tasks", podBaseUrl = "${bound.removeSuffix("/")}/")
+    }
+    reserved("https://sempods.org/alice/%5Fsystem/contexts/tasks")
+    reserved("https://sempods.org/alice/notes/../_system/contexts/tasks")
+  }
+
+  @Test
+  fun `an encoded separator reaches the namespace as a plain one does`() {
+    // A server that decodes before it routes reads `%2F` and `%5C` as separators.
+    reserved("${podBase}_system%2Fcontexts/tasks")
+    reserved("${podBase}_system%2fcontexts/tasks")
+    reserved("${podBase}_system%5Ccontexts/tasks")
+    reserved("${podBase}_system%2Fcontexts")
+    reserved("${podBase}notes%2F..%2F_system%2Fcontexts/tasks")
+    reserved("https://sempods.org/alice%2F_system%2Fcontexts/tasks")
+    ordinary("${podBase}_system%2FcontextsX/tasks")
+    ordinary("https://sempods.org/bob%2F_system%2Fcontexts/tasks")
+  }
+
+  @Test
+  fun `the catalogue IRI is reserved in every spelling that reaches the catalogue route`() {
+    reserved("${podBase}_system/contexts")
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      reserved("${given.removeSuffix("/")}/_system/contexts", podBaseUrl = "${bound.removeSuffix("/")}/")
+    }
+    reserved("https://sempods.org/alice/%5Fsystem/contexts")
+    reserved("https://sempods.org/alice/notes/../_system/contexts")
+    // The route ignores both, so these reach the catalogue as well.
+    reserved("${podBase}_system/contexts?view=x")
+    reserved("${podBase}_system/contexts#top")
+  }
+
+  @Test
+  fun `a subject beside the namespace or in another pod stays ordinary`() {
+    // Another segment than `contexts`: the route answers neither with the catalogue. A `;` stays in
+    // its segment (`PathSemicolonFilter`).
+    ordinary("${podBase}_system/contextsX")
+    ordinary("${podBase}_system/contexts;x")
+    ordinary("${podBase}_system;x/contexts/tasks")
+    ordinary("${podBase}_system/contexts;x/tasks")
+    ordinary("${podBase}_system/resources/abc")
+    ordinary("${podBase}notes/tasks")
+    ordinary("https://sempods.org/bob/_system/contexts/tasks")
+    ordinary("https://sempods.org/alice-archive/_system/contexts/tasks")
+    ordinary("https://example.org/alice/_system/contexts/tasks")
+    ordinary("did:web:bob.example")
+    ordinary("urn:isbn:0451450523")
   }
 }
