@@ -6,7 +6,8 @@ This document explains the current behavior of:
 
 - `POST /{pod}/_system/ai/semweb/text2model`
 
-It is intentionally high-level. Exact API contracts are documented in code.
+The route is available only when an [AI provider](../../ai-layer.md#providers-ist) is enabled.
+Exact API contracts are documented in code.
 
 ## Contract Source (Code)
 

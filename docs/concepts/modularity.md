@@ -19,7 +19,8 @@ fourth:
   `FindService`) and `PodChangeListener` (the write-path sinks). Adding a participant does
   not touch the code that consumes them.
 - **Configuration selects the binding at boot.** `AI_PROVIDER=ollama|openai` picks the
-  `AiService` implementation in `SempodsModule.bindAiService()`. This is the closest
+  `AiService` implementation in `SempodsModule.bindAiService()`; `disabled` (the default) leaves
+  the service and its routes unbound. This is the closest
   existing precedent for "the deployment shapes the server".
 
 A seam is worth introducing when a deployment class genuinely needs different behavior —

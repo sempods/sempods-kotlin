@@ -21,7 +21,7 @@ services:
   #
   # Pull a model once the container is up:
   #
-  #   docker compose -f deployments/local/compose.yaml exec ollama ollama pull qwen2.5:7b
+  #   docker compose -f deployments/local/compose.yaml exec ollama ollama pull qwen3.5:4b
   #
   # Nothing else needs it: the server, the test suite and every route except the AI endpoints run
   # without a model. Those are mounted regardless and answer `500 ai_provider_error` without one.

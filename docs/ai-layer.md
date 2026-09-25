@@ -42,16 +42,15 @@ val response = aiService.generateStructuredOutput(
 
 ## Providers (IST)
 
+- `AI_PROVIDER=disabled`, unset or blank -> no AI service or AI routes
 - `AI_PROVIDER=ollama` -> `OllamaAiService`
 - `AI_PROVIDER=openai` -> `OpenAiService`
-- unset -> `ollama`, and any other value fails the boot
+- any other value fails the boot
 
-**There is no off state.** `SempodsModule.bindAiService` always binds an `AiService`, so the AI
-endpoints exist in every deployment. A deployment with no provider running does not answer them
-with `404` or `503`: the call reaches the binding, the provider request fails, and
-`PodAiSemWebEndpoint` maps the `AiServiceException` to `500 ai_provider_error`. Ollama's address and
-model default too (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`), while `AI_PROVIDER=openai` requires
-`OPENAI_API_KEY` and `OPENAI_MODEL` and fails the boot without them.
+AI is opt-in. Disabled deployments do not register the `text2model` or `model2model` endpoints
+and never construct a provider client. Ollama defaults to `http://localhost:11434` and
+`qwen3.5:4b`, configurable through `OLLAMA_BASE_URL` and `OLLAMA_MODEL`. Selecting `openai`
+requires `OPENAI_API_KEY` and `OPENAI_MODEL`; missing values fail the boot.
 
 ## Testing (IST)
 
