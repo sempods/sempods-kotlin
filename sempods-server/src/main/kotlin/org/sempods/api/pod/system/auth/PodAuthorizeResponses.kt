@@ -8,6 +8,7 @@ import org.sempods.auth.PodBrowserCookies
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
@@ -248,6 +249,8 @@ internal object PodAuthorizeResponses {
       "installerScope" to SERVICE_CLIENTS_INSTALL_SCOPE,
       "managementRequested" to (SERVICE_CLIENTS_MANAGE_SCOPE in screen.privilegedFeatures),
       "managementScope" to SERVICE_CLIENTS_MANAGE_SCOPE,
+      "contextsManagementRequested" to (CONTEXTS_MANAGE_SCOPE in screen.privilegedFeatures),
+      "contextsManagementScope" to CONTEXTS_MANAGE_SCOPE,
     ))
 
   /**

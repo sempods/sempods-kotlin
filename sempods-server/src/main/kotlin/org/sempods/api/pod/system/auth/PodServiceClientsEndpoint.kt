@@ -22,7 +22,6 @@ import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientManagementRefusal
 import org.sempods.pods.oauth.flows.PodServiceClientManagementResult
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
-import org.sempods.mcp.core.BearerChallenge
 
 /**
  * [PodServiceClientManagement] on the wire. Every route takes a bearer carrying
@@ -76,7 +75,9 @@ class PodServiceClientsEndpoint @Inject constructor(
     val podDbo = fetchPodOrThrow(pod)
     return when (val result = operation(podDbo.hosted, resolveBearerOrNull(podDbo))) {
       is PodServiceClientManagementResult.Done -> done(result.value)
-      is PodServiceClientManagementResult.Refused -> refused(podDbo.name, result.reason)
+      is PodServiceClientManagementResult.Refused -> refused(result.reason)
+      is PodServiceClientManagementResult.Unauthorized ->
+        ownerAuthorityRefused(podDbo.name, result.reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
     }
   }
 
@@ -89,27 +90,14 @@ class PodServiceClientsEndpoint @Inject constructor(
     "origin" to if (registration.installed) "installed" else "provisioned",
   )
 
-  /** Each refusal in words. The three about the bearer carry the pod's RFC 6750 challenge. */
-  private fun refused(podName: String, reason: PodServiceClientManagementRefusal): Response = when (reason) {
-    PodServiceClientManagementRefusal.SCOPE_REQUIRED ->
-      challenged(403, podName, BearerChallenge.INSUFFICIENT_SCOPE, "this needs an authorization carrying '$SERVICE_CLIENTS_MANAGE_SCOPE'")
-    PodServiceClientManagementRefusal.AUTHORITY_WITHDRAWN ->
-      challenged(401, podName, BearerChallenge.INVALID_TOKEN, "this authorization no longer stands")
-    PodServiceClientManagementRefusal.NOT_OWNER ->
-      challenged(403, podName, BearerChallenge.INSUFFICIENT_SCOPE, "this pod's owner manages its service clients")
+  /** Each refusal in words. */
+  private fun refused(reason: PodServiceClientManagementRefusal): Response = when (reason) {
     PodServiceClientManagementRefusal.NOT_FOUND -> error(404, "no such service client on this pod")
     PodServiceClientManagementRefusal.PROVISIONED_BY_OPERATOR ->
       error(403, "this service client was provisioned by the host operator and is not changed here")
     PodServiceClientManagementRefusal.CONFLICT -> error(409, "the service client changed in between; read it again")
     PodServiceClientManagementRefusal.NO_SCOPE -> error(400, "name the scopes to remove")
   }
-
-  private fun challenged(status: Int, podName: String, code: String, description: String): Response =
-    Response.status(status)
-      .header(HttpHeaders.WWW_AUTHENTICATE, buildBearerChallenge(podName, code))
-      .entity(mapOf("error" to code, "error_description" to description))
-      .type(MediaType.APPLICATION_JSON)
-      .build()
 
   private fun error(status: Int, description: String): Response =
     Response.status(status).entity(mapOf("error_description" to description)).type(MediaType.APPLICATION_JSON).build()

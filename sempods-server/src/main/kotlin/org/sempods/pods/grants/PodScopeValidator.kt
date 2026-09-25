@@ -46,12 +46,23 @@ const val SERVICE_CLIENTS_INSTALL_SCOPE = "service-clients:install"
 const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
 
 /**
+ * OAuth scope literal by which a program asks to create and delete any context on this pod — the
+ * owner's own authority over the registry (`SPS-CTX-019`), handed to one program for one hour.
+ *
+ * Without it a bearer is an application whatever its `sub` names, and creates or deletes only what
+ * a `#manage` grant covers (`SPS-GRANT-011`, `SPS-GRANT-013`). An app the owner approved for one
+ * context must not delete the rest of the pod because the person behind its token owns it. The
+ * third of [PodScopeValidator.privilegedFeatureScopes]; it reaches no data.
+ */
+const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
+
+/**
  * Whether this bearer carries an authority granted for one named operation.
  *
- * Three routes ask, and none of them resolves a context: owner recognition, the gate that asks only
- * for an app, and the MCP call that ends what a client holds. An empty sandbox answers none of
+ * The routes that ask resolve no context — the gate that asks only for an app, the registration
+ * profile check, and the MCP call that ends what a client holds. An empty sandbox answers none of
  * them, because none of them looks at one — so what such a token may do is the scope it carries,
- * and the question has one owner here rather than three spellings of the same `any { }`.
+ * and the question has one owner here.
  *
  * See [PodScopeValidator.privilegedFeatureScopes].
  */
@@ -127,16 +138,6 @@ class PodScopeValidator {
     val oidcScopes: Set<String> = setOf("openid", OFFLINE_ACCESS_SCOPE)
 
     /**
-     * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
-     * follow the `<context-uri>#<permission>` grammar. `public-read` and the two privileged ones today;
-     * `ai` / `search` and similar capability gates may be added here. Keeping this an explicit
-     * allow-list is what lets the validator tell a legitimate feature scope from a typo now that
-     * access tokens carry only feature scopes (context permissions resolve server-side). See
-     * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved server-side").
-     */
-    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE, SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE)
-
-    /**
      * The feature scopes an authorization holds only because this request asked for them.
      *
      * Five rules follow, and every site reads them from here instead of naming the literal again:
@@ -148,7 +149,18 @@ class PodScopeValidator {
      * `public-read` stays outside this set. It is additive and unprivileged, and its stored grant
      * is what lets a reconnect skip the dialog.
      */
-    val privilegedFeatureScopes: Set<String> = setOf(SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE)
+    val privilegedFeatureScopes: Set<String> =
+      setOf(SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
+
+    /**
+     * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
+     * follow the `<context-uri>#<permission>` grammar. `public-read` and the privileged ones today;
+     * `ai` / `search` and similar capability gates may be added here. Keeping this an explicit
+     * allow-list is what lets the validator tell a legitimate feature scope from a typo now that
+     * access tokens carry only feature scopes (context permissions resolve server-side). See
+     * sempods-spec `spec/core/grants.md` ("Why context permissions are resolved server-side").
+     */
+    val featureScopes: Set<String> = setOf(PUBLIC_READ_SCOPE) + privilegedFeatureScopes
   }
 }
 

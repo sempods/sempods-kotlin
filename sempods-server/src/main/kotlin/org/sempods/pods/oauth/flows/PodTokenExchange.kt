@@ -14,6 +14,7 @@ import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.PodId
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
@@ -351,7 +352,7 @@ class PodTokenExchange @Inject internal constructor(
     // this exchange then refused to hand out.
     val authorities: PrivilegedAuthorityRows = when (val scope = scopes.single()) {
       SERVICE_CLIENTS_INSTALL_SCOPE -> installationAuthorities
-      SERVICE_CLIENTS_MANAGE_SCOPE -> managementAuthorities
+      SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE -> managementAuthorities
       else -> error("no authority store for privileged scope '$scope'")
     }
     authorities.record(

@@ -1,5 +1,8 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.AuthorizationCodeStore
@@ -108,7 +111,7 @@ internal sealed interface PodCodeResult {
   data class Refused(val delivery: OAuthErrorDelivery) : PodCodeResult
 }
 
-/** Which of the five ways to an authorization code was taken. Both log lines name it as `via=`. */
+/** Which of the ways to an authorization code was taken. Both log lines name it as `via=`. */
 internal enum class PodCodeIssuance(val tag: String) {
 
   /** `scope=public-read&prompt=none` with nobody signed in. The one code with no person behind it. */
@@ -128,4 +131,19 @@ internal enum class PodCodeIssuance(val tag: String) {
 
   /** A management dialog was submitted. Counted apart from [INSTALLATION]: its authority is not spent. */
   MANAGEMENT("oauth/management"),
+
+  /** A contexts-management dialog was submitted: the owner's authority over the whole registry. */
+  CONTEXTS_MANAGEMENT("oauth/contexts-management"),
+  ;
+
+  companion object {
+
+    /** The way a privileged dialog's code was issued, by the one scope it grants. */
+    fun privileged(scope: String): PodCodeIssuance = when (scope) {
+      SERVICE_CLIENTS_INSTALL_SCOPE -> INSTALLATION
+      SERVICE_CLIENTS_MANAGE_SCOPE -> MANAGEMENT
+      CONTEXTS_MANAGE_SCOPE -> CONTEXTS_MANAGEMENT
+      else -> error("no issuance for privileged scope '$scope'")
+    }
+  }
 }

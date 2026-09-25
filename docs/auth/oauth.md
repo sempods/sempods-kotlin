@@ -153,11 +153,12 @@ replayable form could restore a selection the person has since
 narrowed.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
-What it carries is the three values the discovery documents advertise:
+What it carries is the values the discovery documents advertise:
 `public-read` ("Public-read flow" below), `service-clients:install`
-("Installing a service client" below) and
+("Installing a service client" below), `service-clients:manage` and
+`contexts:manage` (the two "Managing …" sections below), and
 [`offline_access`](#offline_access), which preselects the lifetime control
-rather than deciding it. All three are optional, and a delegation flow that
+rather than deciding it. All are optional, and a delegation flow that
 sends none of them is the ordinary case.
 
 ## Token exchange
@@ -599,10 +600,8 @@ A JVM program runs the whole installation through `sempods-client`
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
-  person. It is not recognised as the pod owner, though its `sub` names them — recognition is a
-  catch-all allow, and a bearer holding it could create and delete contexts across the whole pod.
-  And it does not pass a gate that asks only for an app, which is how the AI routes ask: an empty
-  sandbox is no answer where nobody consults one.
+  person. It does not pass a gate that asks only for an app, which is how the AI routes ask: an
+  empty sandbox is no answer where nobody consults one.
 
 ### Spending it
 
@@ -708,6 +707,25 @@ It follows the installation's rules above, with two differences:
 
 It grants nothing. The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
+
+## Managing contexts
+
+`/authorize?scope=contexts:manage` asks the pod owner for the authority to create and delete any
+context on the pod, through `PUT` and `DELETE {pod}/_system/contexts/{path}`. It follows the rules of
+the management scope above.
+
+Without it, a bearer is an app, whatever its `sub` names. It creates and deletes only what a
+`#manage` grant covers, so an app the owner approved for `apps/notes` cannot delete `contacts`.
+
+| Bearer | `PUT` / `DELETE` on a context |
+|---|---|
+| `contexts:manage`, approved by the pod's current owner | every context |
+| a `#manage` grant, the owner's app included | what the grant covers (`SPS-GRANT-007`) |
+| any other bearer | `403` |
+| no bearer | `401` |
+| `contexts:manage` after the app was disconnected | `401 invalid_token` |
+
+It reads no data and lists no context in the catalogue, but deleting a context deletes what it holds.
 
 ## Registration rate limit
 
