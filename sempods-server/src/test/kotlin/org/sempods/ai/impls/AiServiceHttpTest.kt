@@ -27,9 +27,8 @@ import kotlin.test.assertFailsWith
  * says what the provider said, and assistant content that is not the JSON the schema asked for.
  *
  * Against a loopback `com.sun.net.httpserver.HttpServer` — in the JDK, so no dependency, and local,
- * so no test here reaches a model provider. Both services are constructed directly rather than
- * through the injector: `SempodsTestModule` binds `AiService` to a test double, which is the right
- * seam for everything *above* these two classes and no help at all for the HTTP inside them.
+ * so no test here reaches a model provider. Both provider clients are constructed directly
+ * with the local server URL.
  */
 class AiServiceHttpTest {
 

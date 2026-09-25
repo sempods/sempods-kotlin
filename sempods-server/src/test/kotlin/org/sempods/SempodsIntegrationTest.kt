@@ -3,7 +3,6 @@ package org.sempods
 import com.google.inject.Guice
 import com.google.inject.Inject
 import com.google.inject.Injector
-import com.google.inject.spi.Elements
 import com.google.inject.util.Modules
 import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
@@ -338,7 +337,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
  */
 internal val sempodsInjector: Injector by lazy {
   Guice.createInjector(
-    Modules.override(Elements.getModule(sempodsElementsWithAiProvider("ollama")))
+    Modules.override(SempodsModule())
       .with(SempodsTestModule())
   )
 }

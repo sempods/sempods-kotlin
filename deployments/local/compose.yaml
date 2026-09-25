@@ -25,7 +25,7 @@ services:
   # Enable the pod server's AI routes separately: set AI_PROVIDER=ollama in
   # deployments/local/env/local.env before starting the server. Unset, blank or disabled leaves
   # those routes unregistered; starting this profile and pulling a model does not enable them.
-  # The test suite uses a provider test double and needs no Ollama runtime.
+  # The test suite needs no Ollama runtime.
   ollama:
     profiles: [ai]
     image: ollama/ollama:latest
