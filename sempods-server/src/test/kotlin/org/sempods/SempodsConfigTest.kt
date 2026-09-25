@@ -288,6 +288,18 @@ class SempodsConfigTest {
     }
   }
 
+  @Test
+  fun `the default public base URL is spelled the way a client binds it`() {
+    mapOf(
+      SempodsConfig.defaultPublicBaseUrl(development = true, httpPort = 80) to "http://localhost/",
+      SempodsConfig.defaultPublicBaseUrl(development = true, httpPort = 8090) to "http://localhost:8090/",
+      SempodsConfig.defaultPublicBaseUrl(development = false, httpPort = 80) to "https://sempods.org/",
+    ).forEach { (default, expected) ->
+      assertEquals(expected, default)
+      assertEquals(default, SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", default))
+    }
+  }
+
   /**
    * The CORS allowlist used to be computed in two places — an application config derived a
    * referer-host set and turned it back into origins, and a filter recomputed the same derivation

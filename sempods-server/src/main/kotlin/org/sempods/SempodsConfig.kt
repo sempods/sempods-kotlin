@@ -294,6 +294,19 @@ data class SempodsConfig(
     }
 
     /**
+     * The public base URL when none is configured: `http://localhost:<httpPort>/` in
+     * [development], `https://sempods.org/` otherwise. Port 80 is left out, so the default passes
+     * [checkPublicBaseUrl]: `http://localhost/`.
+     *
+     * A pure function for the same reason [resolveAddressRateLimit] is one.
+     */
+    fun defaultPublicBaseUrl(development: Boolean, httpPort: Int): String = when {
+      !development -> "https://sempods.org/"
+      httpPort == 80 -> "http://localhost/"
+      else -> "http://localhost:$httpPort/"
+    }
+
+    /**
      * The origins a pod server at [apiBaseUrl] accepts credentialed requests from.
      *
      * A pure function so the rule can be checked without an injector — the shape
