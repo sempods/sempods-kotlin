@@ -46,6 +46,9 @@ class SempodsResourceAddressTest {
       "https://pods.example/alice-archive/events/1",
       "http://pods.example/alice/events/1",
       "https://pods.example:8443/alice/events/1",
+      // The pod's own base, spelled another way: an IRI is its string.
+      "https://pods.example:443/alice/events/1",
+      "https://Pods.Example/alice/events/1",
       "https://other.example/alice/events/1",
       "did:web:bob.example",
       "",
@@ -135,6 +138,7 @@ class SempodsResourceAddressTest {
     assertEquals(outside, reason("https://pods.example/alice/_system/contexts"))
     assertEquals(outside, reason("https://pods.example/alice/events/1"))
     assertEquals(outside, reason("did:web:bob.example"))
+    assertEquals(outside, reason("https://pods.example:443/alice/_system/contexts/tasks"))
     assertEquals("names no context under 'https://pods.example/alice/_system/contexts/'", reason("https://pods.example/alice/_system/contexts/"))
     assertEquals("has a query or a fragment, which a context IRI cannot carry", reason("https://pods.example/alice/_system/contexts/a?b"))
     // The pod reads this path back decoded, so a `%` would name another context, or none.

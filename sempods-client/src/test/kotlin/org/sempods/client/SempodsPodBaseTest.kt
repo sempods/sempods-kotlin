@@ -27,6 +27,14 @@ class SempodsPodBaseTest {
   }
 
   @Test
+  fun `a base is bound as a URL parser writes it`() {
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      assertNull(SempodsPodBase.reject(given), given)
+      assertEquals(bound, SempodsPodBase.of(given).toString(), given)
+    }
+  }
+
+  @Test
   fun `a base the specification forbids is refused, naming the clause`() {
     SempodsPodBaseVectors.refused.forEach { (url, requirement) ->
       val reason = SempodsPodBase.reject(url) ?: ""

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.client.SempodsPodBaseVectors
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -273,6 +274,17 @@ class SempodsConfigTest {
         SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", base)
       }
       assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
+    }
+  }
+
+  @Test
+  fun `a public base URL is refused where a client binds another spelling, naming that spelling`() {
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      val failure = assertFailsWith<IllegalStateException>(given) {
+        SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", "${given.removeSuffix("/")}/")
+      }
+      assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
+      assertContains(failure.message!!, "use '${bound.removeSuffix("/")}/'")
     }
   }
 

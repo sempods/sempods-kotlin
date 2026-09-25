@@ -27,7 +27,16 @@ import java.util.Locale
  * preserved**: a deployment serving pods under `https://example.org/pods/alice` keeps both
  * segments.
  *
- * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too.
+ * **The spelling bound is the one a URL parser writes.** `https://Pods.Example:443/alice` binds
+ * `https://pods.example/alice`: `HttpUrl` lowercases the host and drops the default port. No clause
+ * forbids the first spelling, so it is accepted. A pod's IRIs are compared against [url] as
+ * strings, though, because an IRI is its string
+ * ([RDF 1.1 Concepts §3.2](https://www.w3.org/TR/rdf11-concepts/#section-IRIs)). Requests to a pod
+ * that mints `https://pods.example:443/alice/events/1` pass [contains], but `resources()` and
+ * `contexts()` refuse every IRI it hands out.
+ *
+ * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
+ * would bind under another spelling.
  */
 class SempodsPodBase private constructor(
   /** The canonical form: no trailing slash, no query, no fragment. */
