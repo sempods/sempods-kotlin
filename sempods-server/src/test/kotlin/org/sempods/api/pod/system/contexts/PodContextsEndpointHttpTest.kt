@@ -870,6 +870,50 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a semicolon in a context path names the context with it, on every verb and for a row the dialog wrote`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val podId = checkNotNull(pod.id)
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val plain = contextUri(pod.name, "notes/a")
+    val semicolon = contextUri(pod.name, "notes/a;b")
+    // The consent dialog registers what `ContextPathRules.resolve` gives it, `;` included.
+    val fromDialog = contextUri(pod.name, "notes/c;d")
+    createContextViaDao(podId, pod.name, "notes/a")
+    createContextViaDao(podId, pod.name, "notes/c;d")
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      assertEquals(201, contexts.create(semicolon).status)
+    }
+    assertNotNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = semicolon))
+
+    val reader = mintScopedToken(pod.name, listOf("$semicolon#read", "$fromDialog#read"))
+    withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
+      listOf(semicolon, fromDialog).forEach { iri ->
+        val read = contexts.getText(iri)
+        assertEquals(200, read.status, read.body)
+        assertEquals(iri, objectMapper.readTree(read.body).path("@id").asText())
+      }
+    }
+
+    // A `;` stays in its segment, so these name no context — least of all `notes/a`, checked below.
+    listOf("_system;x/contexts/notes/a", "_system/contexts;x/notes/a").forEach { path ->
+      val refused = http.prepareDelete("${SempodsModule.config.apiBaseUrl}${pod.name}/$path")
+        .addHeader("Authorization", "Bearer $ownerToken")
+        .execute()
+      assertTrue(refused.statusCode >= 400, "$path: ${refused.statusCode}")
+    }
+
+    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
+      assertEquals(204, contexts.delete(semicolon).status)
+      assertEquals(204, contexts.delete(fromDialog).status)
+    }
+    assertNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = semicolon))
+    assertNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = fromDialog))
+    assertNotNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = plain), "no verb on 'a;b' reached 'a'")
+  }
+
+  @Test
   fun `the client core reads the catalogue its session sees, and nothing beyond it`() {
     val pod = sempodsTestFactory.newPod()
     val path = "test/core-listing"

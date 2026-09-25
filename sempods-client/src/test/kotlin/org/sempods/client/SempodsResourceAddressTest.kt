@@ -22,7 +22,8 @@ class SempodsResourceAddressTest {
     assertEquals("events/1", alice.path("https://pods.example/alice/events/1"))
     assertEquals("events/gr%C3%BC%C3%9Fe", alice.path("https://pods.example/alice/events/grüße"))
     assertEquals("notes/", alice.path("https://pods.example/alice/notes/"))
-    assertEquals("a!\$&'()*+,=:@-._~b", alice.path("https://pods.example/alice/a!\$&'()*+,=:@-._~b"))
+    assertEquals("a!\$&'()*+,;=:@-._~b", alice.path("https://pods.example/alice/a!\$&'()*+,;=:@-._~b"))
+    assertEquals("events/a;jsessionid=1/b;c", alice.path("https://pods.example/alice/events/a;jsessionid=1/b;c"))
     assertEquals("_systemx/a", alice.path("https://pods.example/alice/_systemx/a"))
     assertEquals("events/_system/.well-known", alice.path("https://pods.example/alice/events/_system/.well-known"))
     assertEquals("..a/.b", alice.path("https://pods.example/alice/..a/.b"))
@@ -65,8 +66,6 @@ class SempodsResourceAddressTest {
       "https://pods.example/alice/events/1#me",
       "https://pods.example/alice/events/a%20b",
       "https://pods.example/alice/events/a%2Fb",
-      "https://pods.example/alice/events/a;b",
-      "https://pods.example/alice/events/a;jsessionid=1",
       "https://pods.example/alice/events/a b",
       "https://pods.example/alice/events/a\\b",
       "https://pods.example/alice/events/a\"b",
@@ -115,7 +114,8 @@ class SempodsResourceAddressTest {
   fun `a context's path is its IRI under the pod's context namespace`() {
     assertEquals("_system/contexts/tasks", registry.path("https://pods.example/alice/_system/contexts/tasks"))
     assertEquals("_system/contexts/apps/example/tasks", registry.path("https://pods.example/alice/_system/contexts/apps/example/tasks"))
-    assertEquals("_system/contexts/a!\$&'()*+,=:@-._~b", registry.path("https://pods.example/alice/_system/contexts/a!\$&'()*+,=:@-._~b"))
+    assertEquals("_system/contexts/a!\$&'()*+,;=:@-._~b", registry.path("https://pods.example/alice/_system/contexts/a!\$&'()*+,;=:@-._~b"))
+    assertEquals("_system/contexts/a;b/c", registry.path("https://pods.example/alice/_system/contexts/a;b/c"))
     // What a context is named is the pod's to say (SPS-CTX-009); the path carries it percent-encoded.
     assertEquals("_system/contexts/gr%C3%BC%C3%9Fe", registry.path("https://pods.example/alice/_system/contexts/grüße"))
     assertEquals("_system/contexts/apps/%E4%BE%8B/a", registry.path("https://pods.example/alice/_system/contexts/apps/例/a"))
@@ -137,8 +137,8 @@ class SempodsResourceAddressTest {
     assertEquals(outside, reason("did:web:bob.example"))
     assertEquals("names no context under 'https://pods.example/alice/_system/contexts/'", reason("https://pods.example/alice/_system/contexts/"))
     assertEquals("has a query or a fragment, which a context IRI cannot carry", reason("https://pods.example/alice/_system/contexts/a?b"))
-    // The pod reads this path back decoded, so `%` and `;` would name another context, or none.
-    listOf("a%20b" to 45, "a;b" to 45, "a b" to 45).forEach { (path, position) ->
+    // The pod reads this path back decoded, so a `%` would name another context, or none.
+    listOf("a%20b" to 45, "a b" to 45).forEach { (path, position) ->
       assertEquals(
         "has a character at position $position that a context path cannot carry as it is",
         reason("https://pods.example/alice/_system/contexts/$path"),

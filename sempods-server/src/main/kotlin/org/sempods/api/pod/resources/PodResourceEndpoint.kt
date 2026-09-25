@@ -1,7 +1,6 @@
 package org.sempods.api.pod.resources
 
 import com.google.inject.Inject
-import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.SempodsCredentials
@@ -77,8 +76,8 @@ class PodResourceEndpoint @Inject constructor(
     logLodAudit(auditOutcome, pod, resourceUri, contextUri, credentials)
     return when (outcome) {
       PodResourceWriteService.PutResourceOutcome.CREATED -> {
-        val location = "${SempodsModule.config.apiBaseUrl}${pod}/${resourcePath}"
-        Response.status(201).header("Location", location).build()
+        // A header carries the IRI's URI form: `Location` holds a URI reference (RFC 9110 §10.2.2).
+        Response.status(201).header("Location", resourceUri.toASCIIString()).build()
       }
       PodResourceWriteService.PutResourceOutcome.UPDATED -> Response.status(200).build()
     }

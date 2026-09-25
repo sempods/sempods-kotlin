@@ -56,7 +56,7 @@ import java.io.OutputStream
  * well as the identity, and this client composes neither. What a context may be named is the pod's to
  * say (SPS-CTX-009) — `grüße` travels percent-encoded and arrives as it was written. What is refused
  * is an IRI that could not be addressed as itself: one outside this pod's `_system/contexts/`, or
- * carrying a query, a fragment, a percent-encoded octet, a `;`, an empty or a dot segment. That is an
+ * carrying a query, a fragment, a percent-encoded octet, an empty or a dot segment. That is an
  * [IllegalArgumentException], and nothing is sent.
  *
  * **After a connection lost before an answer**, a read, [create] and [delete] are sent once more, as

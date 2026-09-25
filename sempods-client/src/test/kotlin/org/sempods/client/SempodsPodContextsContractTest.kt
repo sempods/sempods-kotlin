@@ -218,7 +218,6 @@ class SempodsPodContextsContractTest : MockPodTest() {
       "/alice/_system/contexts/tasks?v=1",
       "/alice/_system/contexts/tasks#top",
       "/alice/_system/contexts/ta%2Fsks",
-      "/alice/_system/contexts/tasks;v=1",
       "/alice/_system/contexts/a b",
       "/alice/_system/contexts/tasks/",
       "/alice/_system/contexts/a//b",
@@ -242,12 +241,12 @@ class SempodsPodContextsContractTest : MockPodTest() {
   fun `a context of this pod is taken as the pod gave it`() {
     answer(200, description)
 
-    listOf("tasks", "a!\$&'()*+,=:@-._~b", "apps/example/tasks", "2026-sommer", "grüße").forEach { path ->
+    listOf("tasks", "a!\$&'()*+,;=:@-._~b", "apps/example/tasks", "2026-sommer", "grüße", "tasks;v=1").forEach { path ->
       contexts().getText(context(path))
     }
 
     assertEquals(
-      listOf("tasks", "a!\$&'()*+,=:@-._~b", "apps/example/tasks", "2026-sommer", "gr%C3%BC%C3%9Fe")
+      listOf("tasks", "a!\$&'()*+,;=:@-._~b", "apps/example/tasks", "2026-sommer", "gr%C3%BC%C3%9Fe", "tasks;v=1")
         .map { "/alice/_system/contexts/$it" },
       sent.map { it.url.encodedPath },
     )

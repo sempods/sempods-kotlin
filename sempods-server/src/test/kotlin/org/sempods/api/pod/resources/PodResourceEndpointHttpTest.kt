@@ -443,6 +443,96 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a semicolon in a resource path names the resource with it on every verb`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val base = "${SempodsModule.config.apiBaseUrl}${pod.name}"
+    val plain = "$base/notes/a"
+    val semicolon = "$base/notes/a;b"
+    fun put(iri: String, name: String) = httpClient.preparePut(withContext(iri, writeContextUri.toString()))
+      .addHeader("Content-Type", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"@id":"$iri","https://schema.org/name":"$name"}""")
+      .execute()
+    fun get(iri: String, accept: String = "application/ld+json") = httpClient.prepareGet(iri)
+      .addHeader("Accept", accept)
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+
+    assertEquals(201, put(plain, "Plain").statusCode)
+    val created = put(semicolon, "Semicolon")
+    assertEquals(201, created.statusCode, created.responseBody)
+    assertEquals(semicolon, created.getHeader("Location"))
+
+    assertTrue(get(semicolon).responseBody.contains("Semicolon"))
+    assertTrue(get(semicolon, "application/n-quads").responseBody.contains("<$semicolon> <https://schema.org/name> \"Semicolon\""))
+    val head = httpClient.prepareHead(semicolon).addHeader("Accept", "application/ld+json").addHeader("Authorization", "Bearer $token").execute()
+    assertEquals(get(semicolon).getHeader("ETag"), head.getHeader("ETag"))
+    assertEquals(200, httpClient.prepareOptions(semicolon).addHeader("Authorization", "Bearer $token").execute().statusCode)
+
+    val patched = preparePatch(withContext(semicolon, writeContextUri.toString()))
+      .addHeader("Content-Type", "application/merge-patch+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"https://schema.org/name":"Patched"}""")
+      .execute()
+    assertEquals(204, patched.statusCode, patched.responseBody)
+    assertTrue(get(semicolon).responseBody.contains("Patched"))
+
+    val deleted = httpClient.prepareDelete(withContext(semicolon, writeContextUri.toString()))
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    assertEquals(204, deleted.statusCode)
+    assertEquals(404, get(semicolon).statusCode)
+    assertTrue(get(plain).responseBody.contains("Plain"), "no verb on 'a;b' reached 'a'")
+  }
+
+  @Test
+  fun `a semicolon outside a resource path stays in its segment and reaches nothing a cut would leave`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val api = SempodsModule.config.apiBaseUrl
+    val underAnotherPod = "$api${pod.name};x/notes/a"
+    fun put(url: String, iri: String) = httpClient.preparePut(withContext(url, writeContextUri.toString()))
+      .addHeader("Content-Type", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"@id":"$iri","https://schema.org/name":"Here"}""")
+      .execute()
+
+    listOf(
+      underAnotherPod,
+      "$api${pod.name}/_system/sparql;x",
+      "$api${pod.name}/.well-known;x/oauth-protected-resource",
+      "${api}_system;x/admin/pods",
+    ).forEach { url ->
+      val response = httpClient.prepareGet(url).addHeader("Accept", "application/ld+json").addHeader("Authorization", "Bearer $token").execute()
+      assertEquals(404, response.statusCode, url)
+    }
+    assertEquals(404, put(underAnotherPod, "$api${pod.name}/notes/a").statusCode)
+    assertEquals(404, httpClient.prepareGet("$api${pod.name}/notes/a").addHeader("Accept", "application/ld+json").execute().statusCode)
+
+    // Only `_system` itself is reserved (SPS-CRUD-004); `_system;x` is a segment like any other.
+    val beside = "$api${pod.name}/_system;x/a"
+    assertEquals(201, put(beside, beside).statusCode)
+    assertEquals(200, httpClient.prepareGet(beside).addHeader("Accept", "application/ld+json").addHeader("Authorization", "Bearer $token").execute().statusCode)
+  }
+
+  @Test
+  fun `a created resource with a non-ASCII IRI is located at its URI form`() {
+    val pod = sempodsTestFactory.newPod()
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val iri = "${SempodsModule.config.apiBaseUrl}${pod.name}/notes/grüße"
+
+    val created = httpClient.preparePut(withContext(iri, writeContextUri.toString()))
+      .addHeader("Content-Type", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"@id":"$iri","https://schema.org/name":"Grüße"}""")
+      .execute()
+
+    assertEquals(201, created.statusCode, created.responseBody)
+    assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}/notes/gr%C3%BC%C3%9Fe", created.getHeader("Location"))
+  }
+
+  @Test
   fun `PUT should replace all outgoing edges of a resource`() {
     val pod = sempodsTestFactory.newPod()
     val writeContext = "apps/test-app/tasks"
@@ -2164,14 +2254,14 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an awkward IRI under the pod reads the same through both groups, and one its path cannot carry through subjects`() {
+  fun `an awkward IRI under the pod reads the same through both groups`() {
     val pod = sempodsTestFactory.newPod()
     val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
     val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
     val base = "${SempodsModule.config.apiBaseUrl}${pod.name}"
 
     withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      listOf("$base/notes/grüße", "$base/notes/a!\$&'()*+,=:@-._~b").forEach { iri ->
+      listOf("$base/notes/grüße", "$base/notes/a!\$&'()*+,;=:@-._~b", "$base/notes/a;b/c").forEach { iri ->
         val jsonLd = """{"@id":"$iri","https://schema.org/name":"Grüße ✓"}"""
 
         val created = core.resources().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
@@ -2184,13 +2274,6 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
         assertEquals(viaAddress.headers["ETag"], viaSubjects.headers["ETag"], iri)
         assertTrue(String(assertNotNull(viaSubjects.body), Charsets.UTF_8).contains("Grüße ✓"), iri)
       }
-
-      // The pod would cut this path at `;` and address `notes/a`.
-      val cut = "$base/notes/a;b"
-      assertFailsWith<IllegalArgumentException> { core.resources().getText(cut) }
-      val jsonLd = """{"@id":"$cut","https://schema.org/name":"Semicolon"}"""
-      assertEquals(201, core.subjects().put(cut, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks).status)
-      assertTrue(core.subjects().getText(cut).body.orEmpty().contains("Semicolon"))
     }
   }
 

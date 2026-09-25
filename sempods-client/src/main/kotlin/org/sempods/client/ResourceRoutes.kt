@@ -5,9 +5,9 @@ import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import java.util.Base64
 
-/** RFC 3986 `pchar` without `%` and `;`: the ASCII a path segment carries to the pod as it is. */
+/** RFC 3986 `pchar` without `%`: the ASCII a path segment carries to the pod as it is. */
 private val PATH_CHARACTERS: Set<Char> =
-  (('A'..'Z') + ('a'..'z') + ('0'..'9') + "-._~!$&'()*+,=:@".toList()).toSet()
+  (('A'..'Z') + ('a'..'z') + ('0'..'9') + "-._~!$&'()*+,;=:@".toList()).toSet()
 
 /** Where a group's operations go for an IRI. */
 internal sealed class ResourceAddress {
@@ -37,8 +37,7 @@ internal sealed class ResourceAddress {
       if (!iri.startsWith(base)) return "is not under the pod '$podBase'"
       val path = iri.substring(base.length)
       if ('?' in path || '#' in path) return "has a query or a fragment"
-      // The pod decodes the path and cuts a segment at `;` (#181) before it composes the IRI, so an escape
-      // or a `;` sent here would name another resource.
+      // The pod decodes the path before it composes the IRI, so an escape sent here would name another resource.
       val unfit = path.indexOfFirst { it.code < 0x80 && it != '/' && it !in PATH_CHARACTERS }
       if (unfit >= 0) return "has a character at position ${base.length + unfit} that its path under the pod cannot carry as it is"
       val segments = path.split('/')
@@ -57,9 +56,9 @@ internal sealed class ResourceAddress {
    * The IRI is taken as the pod gave it and the prefix cut off, so nothing here composes one
    * (SPS-CTX-023). **What a context may be named is the pod's to say** (SPS-CTX-009): this refuses
    * only what could not be addressed as itself, because the pod takes this path decoded and builds
-   * the IRI from it — a percent-encoded octet, a `;` (#181), an empty or a dot segment would name
-   * another context, or none at all (SPS-CTX-013). Anything else travels percent-encoded and arrives
-   * as it was written, `grüße` included.
+   * the IRI from it — a percent-encoded octet, an empty or a dot segment would name another context,
+   * or none at all (SPS-CTX-013). Anything else travels percent-encoded or as it is and arrives as it
+   * was written, `grüße` and `a;b` included.
    */
   class RegistryPath(private val podBase: SempodsPodBase) : ResourceAddress() {
 
