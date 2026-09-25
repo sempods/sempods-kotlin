@@ -71,7 +71,7 @@ jobs:
       - name: Publish JUnit Test Report
         if: always()
         continue-on-error: true
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0
         with:
           report_paths: "**/build/test-results/test/TEST-*.xml"
           check_name: "JUnit Test Report"
@@ -119,7 +119,7 @@ jobs:
         with:
           java-version: 25
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Check dependency declarations
         run: ./gradlew buildHealth --max-workers=2
