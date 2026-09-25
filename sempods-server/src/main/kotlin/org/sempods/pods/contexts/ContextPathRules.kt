@@ -229,9 +229,15 @@ object ContextPathRules {
   /**
    * Whether [subject], parsed as a URL, is under this pod in any spelling
    * ([SempodsPodBase.contains]) and then at or under `_system/contexts` below it.
+   *
+   * A decoded segment holding a `/` or `\` is several segments to a server that decodes before it
+   * routes: `_system%2Fcontexts` reaches `_system/contexts` there. [SempodsPodBase.contains] refuses
+   * such a URL outright, which here would let it through, so it is split first and then asked.
    */
   private fun reachesContextNamespace(podBaseUrl: String, subject: String): Boolean {
-    val target = subject.toHttpUrlOrNull() ?: return false
+    val parsed = subject.toHttpUrlOrNull() ?: return false
+    val segments = parsed.pathSegments.flatMap { it.split('/', '\\') }
+    val target = parsed.newBuilder().encodedPath("/").apply { segments.forEach(::addPathSegment) }.build()
     val pod = SempodsPodBase.of(podBaseUrl)
     if (target !in pod) return false
     val below = target.pathSegments.drop(pod.url.pathSegments.dropLastWhile { it.isEmpty() }.size)

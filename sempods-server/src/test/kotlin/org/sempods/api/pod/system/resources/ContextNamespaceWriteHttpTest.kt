@@ -142,8 +142,9 @@ class ContextNamespaceWriteHttpTest : SempodsIntegrationTest() {
     val token = mintScopedToken(pod.name, listOf("$tasks#read", "$tasks#write"))
     val upperCase = "${api.replace("http://localhost", "HTTP://LOCALHOST")}${pod.name}/_system/contexts/tasks/res-1"
     val encoded = "$api${pod.name}/%5Fsystem/contexts/tasks/res-1"
+    val encodedSeparator = "$api${pod.name}/_system%2Fcontexts/tasks/res-1"
 
-    listOf(upperCase, encoded).forEach { subject ->
+    listOf(upperCase, encoded, encodedSeparator).forEach { subject ->
       additions(pod, subject, tasks, token).forEach { (label, response) ->
         assertRefusedForTheNamespace(pod, "$label <$subject>", response)
       }

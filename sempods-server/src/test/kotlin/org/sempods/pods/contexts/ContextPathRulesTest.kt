@@ -179,6 +179,19 @@ class ContextPathRulesTest {
   }
 
   @Test
+  fun `an encoded separator reaches the namespace as a plain one does`() {
+    // A server that decodes before it routes reads `%2F` and `%5C` as separators.
+    reserved("${podBase}_system%2Fcontexts/tasks")
+    reserved("${podBase}_system%2fcontexts/tasks")
+    reserved("${podBase}_system%5Ccontexts/tasks")
+    reserved("${podBase}_system%2Fcontexts")
+    reserved("${podBase}notes%2F..%2F_system%2Fcontexts/tasks")
+    reserved("https://sempods.org/alice%2F_system%2Fcontexts/tasks")
+    ordinary("${podBase}_system%2FcontextsX/tasks")
+    ordinary("https://sempods.org/bob%2F_system%2Fcontexts/tasks")
+  }
+
+  @Test
   fun `the catalogue IRI is reserved in every spelling that reaches the catalogue route`() {
     reserved("${podBase}_system/contexts")
     SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
