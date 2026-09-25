@@ -32,7 +32,7 @@ class FakeIdServerTransport @Inject constructor() : HttpTransport {
   private val key: RSAKey = RSAKeyGenerator(2048).keyID("id-key-1").keyUse(KeyUse.SIGNATURE).generate()
 
   /** What one armed sign-in will assert, once its code is redeemed. */
-  private data class Login(val webId: String?, val nonce: String, val alsoKnownAs: List<String>)
+  private data class Login(val webId: String?, val nonce: String, val claims: Map<String, Any?>)
 
   /**
    * One entry per armed sign-in, keyed by the authorization code that redeems it — which is what
@@ -55,12 +55,14 @@ class FakeIdServerTransport @Inject constructor() : HttpTransport {
    *
    * @param webId `null` makes the id-server refuse the exchange, which is how a test reaches the
    *   pod server's "login failed" branch without having to forge anything.
+   * @param claims further claims of the ID Token, written verbatim — a `null` value included, so
+   *   a test can send a malformed equivalent-identity claim as well as a valid one.
    * @return the authorization code this login is armed for. Put it in the callback the test
    *   drives; it is fresh on every call, which is what keeps two sign-ins in flight apart.
    */
-  fun expect(webId: String?, nonce: String, alsoKnownAs: List<String> = emptyList()): String {
+  fun expect(webId: String?, nonce: String, claims: Map<String, Any?> = emptyMap()): String {
     val code = "fake-authorization-code-${codes.incrementAndGet()}"
-    logins[code] = Login(webId = webId, nonce = nonce, alsoKnownAs = alsoKnownAs)
+    logins[code] = Login(webId = webId, nonce = nonce, claims = claims)
     return code
   }
 
@@ -87,9 +89,10 @@ class FakeIdServerTransport @Inject constructor() : HttpTransport {
       .audience(form["client_id"])
       .claim("nonce", login.nonce)
       .claim("webid", subject)
-      .apply { if (login.alsoKnownAs.isNotEmpty()) claim("also_known_as", login.alsoKnownAs) }
+      .apply { login.claims.forEach { (name, value) -> claim(name, value) } }
       .issueTime(Date())
       .expirationTime(Date(System.currentTimeMillis() + 300_000))
+      .serializeNullClaims(true)
       .build()
     val idToken = SignedJWT(JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.keyID).build(), claims)
       .apply { sign(RSASSASigner(key)) }

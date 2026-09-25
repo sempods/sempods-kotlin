@@ -39,11 +39,12 @@ access token is minted from what it said (see `oauth.md`).
 Standard OIDC shape, with three sempods-specific points:
 
 - **`sub`** is the canonical WebID URI.
-- **`also_known_as`** lists every equivalent identity URI known for this
-  person (e.g. the Layer-0 `urn:sempods:e:*` form, alternative WebIDs
-  linked by identity merge). It is applied where a grant or ownership is
-  *decided* — at consent — not on every later request; see the trust
-  model below.
+- **`https://schema.sempods.org/claims/equivalent-identities`** lists the
+  person's other WebIDs, such as one an identity merge linked
+  (`SPS-OIDC-005`). HTTP and HTTPS WebIDs only; the pod derives the
+  Layer-0 `urn:sempods:e:*` twin itself. It is applied where a grant or
+  ownership is *decided* — at consent — not on every later request; see
+  the trust model below.
 - **`aud` names the client it was issued to**, so a token minted for one
   relying party is refused by another.
 
@@ -109,9 +110,32 @@ through a scope approved for one operation, such as
 [`contexts:manage`](oauth.md#managing-contexts). Grants are resolved
 server-side per request from the grant store, keyed by the subject.
 
-Equivalent identity URIs (`also_known_as`) are applied when a grant is
-*written*, at consent, not when it is read: a request carries one
-identity URI. See `PodContextPermissionResolver.resolveFromGrants`.
+### Equivalent identities
+
+The pod trusts its identity issuer to say which WebIDs name the same
+person (`SPS-OIDC-018`), because it derives its people's WebIDs under
+that same `ID_BASE_URL`. The hosted MCP service trusts its issuer for
+login alone and uses no equivalent identity. The setting is
+`OidcRelyingParty.trustsEquivalentIdentities`.
+
+The relying party reads the claim once, at the login callback, after the
+token has validated:
+
+| Claim | Outcome |
+|---|---|
+| absent, or `[]` | no other identity in this sign-in |
+| `["https://id.sempods.org/e/<hash>", …]` | a set: order, duplicates and `sub` itself change nothing (`SPS-OIDC-017`) |
+| `null`, a string, an object, or an array with any other entry — `""`, `/alice`, `urn:example:alice` | the whole sign-in is refused (`SPS-OIDC-016`) |
+
+The session then carries these WebIDs plus the URN twin of each one and
+of `sub` (`PodIdentityProvider.aliasesOf`). Nothing reads OIDC's
+registered `also_known_as` claim, a human pseudonym, as an identity.
+
+Equivalent identity URIs are applied when a grant is *written*, at
+consent, not when it is read: a request carries one identity URI. See
+`PodContextPermissionResolver.resolveFromGrants`. A later sign-in whose
+token names fewer of them revokes nothing: an app's grants are checked
+against the URIs its consent recorded as well (`SPS-OIDC-017`).
 
 ## Anonymous identity for public reads
 

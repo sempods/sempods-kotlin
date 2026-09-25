@@ -29,13 +29,17 @@ class FakeIdentityProvider(
   /** Set from the authorization URL before the callback is driven. */
   @Volatile private var nonce: String? = null
   @Volatile private var subject: String? = null
-  @Volatile private var alsoKnownAs: List<String> = emptyList()
+  @Volatile private var extraClaims: Map<String, Any?> = emptyMap()
 
-  /** What the next token exchange will assert about the person signing in. */
-  fun expect(webId: String, nonce: String, alsoKnownAs: List<String> = emptyList()) = apply {
+  /**
+   * What the next token exchange will assert about the person signing in.
+   *
+   * @param claims further claims of the ID Token, written verbatim — a `null` value included.
+   */
+  fun expect(webId: String, nonce: String, claims: Map<String, Any?> = emptyMap()) = apply {
     this.subject = webId
     this.nonce = nonce
-    this.alsoKnownAs = alsoKnownAs
+    this.extraClaims = claims
   }
 
   val transport: HttpTransport = object : HttpTransport {
@@ -61,9 +65,10 @@ class FakeIdentityProvider(
         .audience(audience)
         .claim("nonce", nonce)
         .claim("webid", webId)
-        .apply { if (alsoKnownAs.isNotEmpty()) claim("also_known_as", alsoKnownAs) }
+        .apply { extraClaims.forEach { (name, value) -> claim(name, value) } }
         .issueTime(Date.from(now))
         .expirationTime(Date.from(now.plusSeconds(300)))
+        .serializeNullClaims(true)
         .build()
       return """
         {"token_type":"Bearer","access_token":"fake-access-token","expires_in":300,

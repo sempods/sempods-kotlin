@@ -239,15 +239,12 @@ fun Application.openIdProviderEndpoint(
         return@post tokenError(OAuth2Error.INVALID_GRANT.setDescription("PKCE verification failed"))
       }
 
-      // Server-derived, and only server-derived. `also_known_as` is what a pod resolves grants
-      // and ownership against, so nothing a client can influence may reach it. Asking
-      // `LoginService` rather than the profile directly is what keeps the deterministic URN in:
-      // the profile alone holds only the links an identity merge recorded, and a first-time user
-      // has none.
+      // Server-derived, and only server-derived. A pod decides grants and ownership with the
+      // equivalent identities, so nothing a client can influence may reach them.
       val idToken = jwtIssuer.issueIdToken(
         webIdUri = entry.subject,
         audience = entry.clientId,
-        alsoKnownAs = loginService.aliasesFor(entry.subject),
+        equivalentIdentities = loginService.equivalentIdentitiesFor(entry.subject),
         nonce = entry.nonce,
       )
       val accessToken = jwtIssuer.issueAccessToken(webIdUri = entry.subject, scopes = entry.scopes)

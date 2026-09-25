@@ -159,10 +159,11 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    *
    * @param signAs `null` means the id-server refuses. Use it where a test needs the login itself
    *   to fail rather than the request that started it.
+   * @param claims further claims of the id-server's token ([FakeIdServerTransport.expect]).
    */
   protected fun TestHttpRequest.executeSignedInAs(
     signAs: String?,
-    alsoKnownAs: List<String> = emptyList(),
+    claims: Map<String, Any?> = emptyMap(),
     nonce: String? = null,
   ): TestHttpResponse {
     val started = setFollowRedirect(false).execute()
@@ -180,7 +181,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     val code = fakeIdServer.expect(
       webId = signAs,
       nonce = nonce ?: checkNotNull(query["nonce"]) { "authorization request carries no nonce" },
-      alsoKnownAs = alsoKnownAs,
+      claims = claims,
     )
     return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&code=$code")
       .addHeader("Cookie", pin)
@@ -196,8 +197,8 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    * authorization code that callback has to carry. Two sign-ins get two codes, which is what keeps
    * them apart when methods run concurrently.
    */
-  protected fun fakeIdServerExpect(webId: String?, nonce: String, alsoKnownAs: List<String> = emptyList()): String =
-    fakeIdServer.expect(webId = webId, nonce = nonce, alsoKnownAs = alsoKnownAs)
+  protected fun fakeIdServerExpect(webId: String?, nonce: String, claims: Map<String, Any?> = emptyMap()): String =
+    fakeIdServer.expect(webId = webId, nonce = nonce, claims = claims)
 
   /**
    * Signs [webId] in on [pod] and hands back the session cookie plus its CSRF token — what a

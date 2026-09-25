@@ -181,7 +181,7 @@ class PodTokenIssuer(
       // this does not. It is what [renewSession] measures the absolute limit against, and it is
       // OIDC Core 1.0 §2's `auth_time` because that is the claim that already means this.
       .claim(CLAIM_AUTH_TIME, authTime.epochSecond)
-      // The equivalent identity URIs the id-server asserted. Ownership and grants are decided
+      // The person's other URIs, as the sign-in found them. Ownership and grants are decided
       // against all of them, so a session that dropped them would silently demote someone whose
       // pod records an alias — and would write app grants under a narrower subject set than the
       // consent actually covers.
@@ -331,6 +331,13 @@ class PodTokenIssuer(
     /** Says a token is a browser session, so nothing can mistake it for an access token. */
     const val CLAIM_TOKEN_USE = "token_use"
     const val TOKEN_USE_SESSION = "session"
+
+    /**
+     * The session's list of the person's other URIs. This pod's own field, read back only by this
+     * pod: the OIDC claim of the same name is a human pseudonym, and the id-server's equivalent
+     * identities arrive under another name. Frozen: sessions in browsers carry it
+     * (`docs/naming.md` §3).
+     */
     const val CLAIM_ALSO_KNOWN_AS = "also_known_as"
 
     /** OIDC Core 1.0 §2 — when the person authenticated, not when this cookie was written. */

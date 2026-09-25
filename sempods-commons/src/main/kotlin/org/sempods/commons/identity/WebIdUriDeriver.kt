@@ -58,9 +58,9 @@ class WebIdUriDeriver(private val idBaseUrl: String) {
    * compute without sempods-auth) while the revocation names the canonical WebID, or the other
    * way round.
    *
-   * Nothing beyond these pairs is derivable. Arbitrary `also_known_as` links — including the
-   * bridge between a person's `e:` and `oidc:` identities after an identity merge — live in the
-   * sempods-auth WebID profile (separate service, separate database). `urn:sempods:anon:<uuid>`
+   * Nothing beyond these pairs is derivable. Other equivalences — including the bridge between a
+   * person's `e:` and `oidc:` identities after an identity merge — live in the sempods-auth WebID
+   * profile (separate service, separate database). `urn:sempods:anon:<uuid>`
    * has no twin at all. Callers that must cover the non-derivable links have to carry the
    * subject's URI set with them from the point where an identity JWT was verified — see
    * `PodGrantDbo.subjectUris`.

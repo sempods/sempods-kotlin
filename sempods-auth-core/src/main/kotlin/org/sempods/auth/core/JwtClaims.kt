@@ -18,6 +18,9 @@ import java.time.Instant
  *
  * So: a claim of the wrong type is the same answer as a claim that is absent. Both mean "this
  * token does not say that".
+ *
+ * One claim is outside this rule. A malformed equivalent-identity claim refuses the whole identity
+ * assertion (`SPS-OIDC-016`), so [EquivalentIdentities.read] reads it, never these helpers.
  */
 fun JWTClaimsSet.stringClaimOrNull(name: String): String? =
   runCatching { getStringClaim(name) }.getOrNull()

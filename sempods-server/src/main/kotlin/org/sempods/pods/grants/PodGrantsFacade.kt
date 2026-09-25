@@ -84,6 +84,17 @@ class PodGrantsFacade @Inject constructor(
   internal fun appGrants(pod: PodId, appId: String, webIds: Collection<String>): Set<String> =
     podGrantsDao.fetchGrantStrings(pod.objectId(), appId, webIds.toList())
 
+  /**
+   * [webIds], plus every URI [webId]'s rows for [appId] were consented under
+   * ([PodGrantDbo.subjectUris]). A check of whether those rows are still backed judges them over
+   * this set, as [cascadeToAppGrants] does: a later sign-in that does not assert an equivalence
+   * again has not withdrawn it (`SPS-OIDC-017`).
+   */
+  internal fun consentedSubjectUris(pod: PodId, appId: String, webId: String, webIds: Collection<String>): Set<String> =
+    podGrantsDao.fetchGrantsForSubject(pod.objectId(), listOf(webId))
+      .filter { it.appId == appId && it.webId == webId }
+      .flatMapTo(webIds.toMutableSet()) { it.subjectUris ?: listOf(it.webId) }
+
   // ── user level: what a person may do on this pod ────────────────────────────
 
   /**

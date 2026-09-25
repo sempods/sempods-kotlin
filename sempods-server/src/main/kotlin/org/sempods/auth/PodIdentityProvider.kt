@@ -7,6 +7,7 @@ import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.HttpTransport
 import org.sempods.auth.core.OidcRelyingParty
 import org.sempods.auth.core.OidcRelyingPartyCache
+import org.sempods.commons.identity.WebIdUriDeriver
 
 /**
  * The id-server, as this pod server's OpenID Provider.
@@ -20,6 +21,11 @@ import org.sempods.auth.core.OidcRelyingPartyCache
  * a callback outside that prefix would need a second resource class for no gain. What is shared,
  * and worth being, is the discovered metadata: one round trip for the server, not one per pod —
  * which is [OidcRelyingPartyCache]'s job, since a pod here is exactly one redirect address.
+ *
+ * **It is trusted to say which WebIDs name the same person** (`SPS-OIDC-018`). The pod derives its
+ * people's WebIDs under this same `idBaseUrl` ([WebIdUriDeriver]), so the service that mints them
+ * is the one that knows which of them belong together. Its equivalent identities reach the pod
+ * through [aliasesOf] alone.
  */
 class PodIdentityProvider @Inject constructor(
   @param:Named("idBaseUrl") idBaseUrl: String,
@@ -30,6 +36,7 @@ class PodIdentityProvider @Inject constructor(
    * open its own connection past whatever policy a deployment put on the client.
    */
   transport: HttpTransport,
+  private val webIdUriDeriver: WebIdUriDeriver,
 ) {
 
   private val apiBaseUrl = config.apiBaseUrl.trimEnd('/')
@@ -37,7 +44,7 @@ class PodIdentityProvider @Inject constructor(
   /** This server's client identifier at the id-server. */
   val clientId: String = DidWeb.clientId(apiBaseUrl)
 
-  private val relyingParties = OidcRelyingPartyCache(idBaseUrl, clientId, transport)
+  private val relyingParties = OidcRelyingPartyCache(idBaseUrl, clientId, transport, trustsEquivalentIdentities = true)
 
   /** Where the id-server sends the browser back for a login started at [pod]. */
   fun callbackUri(pod: String): String = "$apiBaseUrl/$pod$CALLBACK_SUFFIX"
@@ -47,6 +54,25 @@ class PodIdentityProvider @Inject constructor(
    *   the user that sign-in is unavailable, not by sending them to a login page that cannot work.
    */
   fun relyingParty(pod: String): OidcRelyingParty = relyingParties.forRedirectUri(callbackUri(pod))
+
+  /**
+   * Every other URI the pod knows [verified]'s person by: the equivalent identities the id-server
+   * asserted, and the URN twin of each of them and of the WebID
+   * ([WebIdUriDeriver.derivableAliases]).
+   *
+   * The twins are this server's own derivation. The claim carries no URN (`SPS-OIDC-005`), and a
+   * grant recorded under `urn:sempods:e:<hash>` before the person ever signed in still resolves:
+   *
+   * | Signed in as | Claim | Aliases |
+   * |---|---|---|
+   * | `{idBaseUrl}/e/<a>` | absent | `urn:sempods:e:<a>` |
+   * | `{idBaseUrl}/oidc/<b>` | `[{idBaseUrl}/e/<a>]` | `urn:sempods:oidc:<b>`, `{idBaseUrl}/e/<a>`, `urn:sempods:e:<a>` |
+   */
+  fun aliasesOf(verified: OidcRelyingParty.VerifiedIdentity): List<String> =
+    (listOf(verified.webId) + verified.equivalentIdentities)
+      .flatMap(webIdUriDeriver::derivableAliases)
+      .distinct()
+      .filter { it != verified.webId }
 
   companion object {
     /** Appended to `{apiBaseUrl}/{pod}`. Matches the JAX-RS route on `PodAuthEndpoint`. */
