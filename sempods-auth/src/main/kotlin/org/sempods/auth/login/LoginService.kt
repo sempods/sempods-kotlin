@@ -2,6 +2,7 @@ package org.sempods.auth.login
 
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.auth.SempodsAuthConfig
+import org.sempods.auth.core.EquivalentIdentities
 import org.sempods.auth.oidc.OidcClaims
 import org.sempods.auth.persist.WebIdNamespace
 import org.sempods.auth.persist.WebIdProfile
@@ -44,26 +45,29 @@ class LoginService(
   }
 
   /**
-   * Every identity URI equivalent to [webIdUri] — what a pod matches a grant against.
+   * The other WebIDs of the person [webIdUri] names, for the ID Token's equivalent-identity claim
+   * (`SPS-OIDC-005`).
    *
-   * Two halves, and leaving out either one breaks something specific:
+   * They are the links an identity merge recorded on the profile. The claim carries HTTP and HTTPS
+   * WebIDs only, so each link goes out in that form:
    *
-   * - The **URN twin** is derivable, because a WebID and its URN carry the same hash across the
-   *   namespace (`WebIdUriDeriver.derivableAliases`). It is what a pod without a sempods-auth
-   *   configuration can compute on its own, and therefore what an invitation sent to an email
-   *   address resolves to *before that person has ever logged in*. Omit it and grant-before-login
-   *   silently does nothing — the flow `identity-service.md` §"Email → Grant Flow" describes.
-   * - The **linked identities** are what an identity merge recorded, and nothing can derive them.
+   * | Recorded link | In the claim |
+   * |---|---|
+   * | `{idBaseUrl}/oidc/<hash>`, `https://alice.example/card#me` | as recorded |
+   * | `urn:sempods:e:<hash>` | its twin `{idBaseUrl}/e/<hash>` (`WebIdUriDeriver.derivableAliases`) |
+   * | anything else | left out: one bad entry makes a relying party refuse the whole login |
    *
-   * One method rather than one per caller: this is a property of the person, not of whichever
-   * flow is asking, and the two flows disagreeing about it is exactly how the URN went missing
-   * from the provider flow once it stopped reusing the legacy token.
+   * The URN twin of [webIdUri] itself is not sent. A pod derives it from `sub`, which is what an
+   * invitation made before the first login resolves against (`identity-service.md`
+   * §"Email → Grant Flow").
    */
-  fun aliasesFor(webIdUri: String, linkedIdentities: List<String>? = null): List<String> {
+  fun equivalentIdentitiesFor(webIdUri: String, linkedIdentities: List<String>? = null): List<String> {
     val linked = linkedIdentities ?: webIdProfileDao.findByUri(webIdUri)?.linkedIdentities.orEmpty()
-    // `derivableAliases` includes the WebID itself; `sub` already carries it.
-    val derivable = webIdDeriver.derivableAliases(webIdUri) - webIdUri
-    return (derivable + linked).distinct()
+    return linked
+      .flatMap(webIdDeriver::derivableAliases)
+      .filter(EquivalentIdentities::isWebIdUri)
+      .distinct()
+      .filter { it != webIdUri }
   }
 
   /**

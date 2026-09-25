@@ -10,6 +10,7 @@ import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.pkce.CodeChallengeMethod
 import com.nimbusds.openid.connect.sdk.SubjectType
 import com.nimbusds.openid.connect.sdk.op.OIDCProviderMetadata
+import org.sempods.auth.core.EquivalentIdentities
 import java.net.URI
 
 /**
@@ -68,7 +69,7 @@ object OpenIdConfiguration {
       tokenEndpointAuthMethods = listOf(ClientAuthenticationMethod.NONE)
       // Sempods-specific, advertised so a consumer knows to expect them rather than discovering
       // them in a token. A standard client ignores both.
-      claims = listOf("iss", "sub", "aud", "exp", "iat", "nonce", "webid", "also_known_as")
+      claims = listOf("iss", "sub", "aud", "exp", "iat", "nonce", "webid", EquivalentIdentities.CLAIM)
     }
     return metadata.toJSONObject().toJSONString()
   }

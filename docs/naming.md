@@ -130,7 +130,14 @@ across the three services — one concept, one spelling.
 - `https://sempods.org/ontology#` with prefix `sempods:` — emitted in WebID documents, so it is
   third-party-visible.
 - `urn:sempods:` — the URN prefix behind `urn:sempods:e:<hash>` and `urn:sempods:oidc:<hash>`.
-  These land in stored grants and in the `also_known_as` claim of issued JWTs.
+  These land in stored grants and in a pod's session cookie. An ID Token never carries them: its
+  equivalent-identity claim takes HTTP and HTTPS WebIDs only (`SPS-OIDC-005`).
+- `https://schema.sempods.org/claims/equivalent-identities` — the ID Token claim for a person's
+  other WebIDs. The specification owns the name; `sempods-auth` issues it and the relying parties
+  here read it.
+- `also_known_as` in a pod's session cookie (`PodTokenIssuer.CLAIM_ALSO_KNOWN_AS`) — the pod's own
+  field for the person's other URIs, read back only by the pod. Live sessions carry it. OIDC's
+  registered claim of that name is a human pseudonym and unrelated.
 - `application/vnd.sempods.media-source+json` — the media-source media type.
 - MCP: `serverInfo.name` `sempods-mcp`, the DCR `CLIENT_NAME` registered at remote pods, and the
   `Bearer realm="sempods-mcp"` challenge.

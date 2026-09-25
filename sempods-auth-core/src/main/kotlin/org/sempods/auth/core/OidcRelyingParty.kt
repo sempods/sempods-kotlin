@@ -51,12 +51,18 @@ import java.net.URL
  * riding the SDK's default retriever. The URL form is deliberate over handing it a fixed key set:
  * the SDK re-fetches, so a provider that rotates a signing key does not lock every relying party
  * out until it restarts.
+ *
+ * @param trustsEquivalentIdentities whether this provider may tell the caller which other WebIDs
+ *   name the same person (`SPS-OIDC-018`). Trusting a provider for login does not make it that
+ *   authority, so the default is `false`: the claim is still checked, and nothing it names reaches
+ *   [VerifiedIdentity.equivalentIdentities].
  */
 class OidcRelyingParty(
   val metadata: OidcProviderMetadata,
   private val clientId: String,
   private val redirectUri: String,
   private val transport: HttpTransport,
+  val trustsEquivalentIdentities: Boolean = false,
 ) {
 
   private val validator = IDTokenValidator(
@@ -76,10 +82,16 @@ class OidcRelyingParty(
     val codeVerifier: String,
   )
 
-  /** Who the provider says this is. SDK types stay inside; a caller gets what it needs. */
+  /**
+   * Who the provider says this is. SDK types stay inside; a caller gets what it needs.
+   *
+   * @property equivalentIdentities the WebIDs the provider asserts for the same person
+   *   ([EquivalentIdentities.read]). Empty when the provider asserted none, and always empty unless
+   *   [trustsEquivalentIdentities].
+   */
   data class VerifiedIdentity(
     val webId: String,
-    val alsoKnownAs: List<String>,
+    val equivalentIdentities: Set<String>,
     val issuer: String,
   )
 
@@ -129,9 +141,10 @@ class OidcRelyingParty(
    * @param expectedNonce the value stored alongside [codeVerifier] when the flow began. Required
    *   rather than optional: without it a token minted for an earlier login of the same person at
    *   the same client — still signed, still unexpired — passes (OIDC Core §3.1.3.7).
-   * @throws IllegalStateException when the provider returned an error, or the response carries no
-   *   `id_token`. The provider's own reason is carried into the message: it is the only thing
-   *   that says *why*, and losing it turns a diagnosable failure into "login did not work".
+   * @throws IllegalStateException when the provider returned an error, the response carries no
+   *   `id_token`, or the token's equivalent-identity claim is malformed ([EquivalentIdentities.read]).
+   *   The provider's own reason is carried into the message: it is the only thing that says *why*,
+   *   and losing it turns a diagnosable failure into "login did not work".
    * @throws Exception when the token does not validate.
    */
   fun completeAuthorization(code: String, codeVerifier: String, expectedNonce: String): VerifiedIdentity {
@@ -157,10 +170,13 @@ class OidcRelyingParty(
       ?: error("token response carries no id_token")
 
     val claims = validator.validate(idToken, Nonce(expectedNonce))
+    // Read from the token itself. The SDK's claims set drops a claim whose value is `null`, which
+    // would make a value that must be refused look absent. Read whether or not this provider is
+    // trusted with it, because a malformed claim refuses the login either way.
+    val equivalentIdentities = EquivalentIdentities.read(idToken.jwtClaimsSet)
     return VerifiedIdentity(
       webId = claims.subject.value,
-      // sempods-specific and safely absent: a provider that is not sempods-auth has no such claim.
-      alsoKnownAs = claims.getStringListClaim("also_known_as").orEmpty(),
+      equivalentIdentities = if (trustsEquivalentIdentities) equivalentIdentities else emptySet(),
       issuer = claims.issuer.value,
     )
   }
@@ -168,7 +184,13 @@ class OidcRelyingParty(
   companion object {
 
     /** Reads the provider's metadata. One call at wiring time, not one per login. */
-    fun discover(issuer: String, clientId: String, redirectUri: String, transport: HttpTransport): OidcRelyingParty {
+    fun discover(
+      issuer: String,
+      clientId: String,
+      redirectUri: String,
+      transport: HttpTransport,
+      trustsEquivalentIdentities: Boolean = false,
+    ): OidcRelyingParty {
       val document = transport.get(OidcProviderMetadata.discoveryUrl(issuer))
       val metadata = OidcProviderMetadata.parse(document)
       check(metadata.issuer == issuer) {
@@ -176,7 +198,7 @@ class OidcRelyingParty(
         // would be rejected one by one at verification with nothing pointing here.
         "provider at $issuer advertises issuer '${metadata.issuer}'"
       }
-      return OidcRelyingParty(metadata, clientId, redirectUri, transport)
+      return OidcRelyingParty(metadata, clientId, redirectUri, transport, trustsEquivalentIdentities)
     }
 
     private fun String.toJsonObject(): JSONObject =

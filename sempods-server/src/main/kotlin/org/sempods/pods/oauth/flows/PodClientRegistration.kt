@@ -153,8 +153,8 @@ class PodClientRegistration @Inject internal constructor(
    * comparison is the pod's *current* owner against the URIs the consent recognised the person by
    * ([PrivilegedAuthorityRows.Authority.subjectUris][org.sempods.pods.oauth.PrivilegedAuthorityRows.Authority.subjectUris]) — the same question the dialog asked,
    * asked again an hour later. The bearer cannot answer it: it carries one identity URI, and the
-   * `also_known_as` link between a person's two WebIDs — sign in with Google, own the pod under
-   * the email address — is sempods-auth's and unreachable from here. What the comparison still
+   * equivalence between a person's two WebIDs — sign in with Google, own the pod under the email
+   * address — is sempods-auth's and unreachable from here. What the comparison still
    * catches is a pod that changed hands in the hour, and an approval from someone who has since
    * stopped owning the pod is nothing to leave spendable.
    *

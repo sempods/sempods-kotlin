@@ -45,7 +45,8 @@ id.sempods.org/e/<sha256(normalize(email))>    ← WebID URI (dereferenceable)
 
 The pod graph gains a `sameAs` link to the WebID URI, bridging the local
 anchor to the external identity document.
-Multi-identity support via `also_known_as` in the JWT becomes available.
+Multi-identity support through the ID Token's equivalent-identity claim
+becomes available.
 
 Any pod can independently compute the WebID URI from an email — no server
 call needed for URI derivation. The document at that URI may not exist yet
@@ -183,22 +184,23 @@ Clients are **`did:web:` static identities** — an origin, no secret, nothing r
 establish that: the host match is the whole check, so there is no SSRF surface and no third party
 in the login path. PKCE is required with no exemption.
 
-The `id_token` carries `aud`, which is the difference that matters against the token below: a copy
-is worth nothing anywhere except at the client it was issued to.
+The `id_token` carries `aud`: a copy is worth nothing anywhere except at the client it was issued to.
 
-### Token format (v0)
+### Token format
+
+A person who signed in without an email and later linked one:
 
 ```json
 {
   "iss": "https://id.sempods.org",
-  "sub": "https://id.sempods.org/e/<hash>",
-  "webid": "https://id.sempods.org/e/<hash>",
-  "also_known_as": [
-    "urn:sempods:e:<hash>",
-    "urn:sempods:oidc:<hash2>",
-    "https://id.sempods.org/oidc/<hash2>"
+  "sub": "https://id.sempods.org/oidc/<hash2>",
+  "aud": "did:web:pod.example.org",
+  "nonce": "<from the authorization request>",
+  "webid": "https://id.sempods.org/oidc/<hash2>",
+  "https://schema.sempods.org/claims/equivalent-identities": [
+    "https://id.sempods.org/e/<hash>"
   ],
-  "exp": 1744300800,
+  "exp": 1744198100,
   "iat": 1744197200
 }
 ```
@@ -207,55 +209,24 @@ is worth nothing anywhere except at the client it was issued to.
 Doubles as `webid` in v0 (no distinction needed until profile management
 becomes richer in later phases).
 
-**`also_known_as`** — all equivalent identity URIs known for this person,
-collected from the WebID profile's linked identities. Always includes the
-`urn:sempods:e:` form so pods without sempods-auth config can match Layer 0
-grants. A standard JWT consumer that does not know this claim ignores it safely
-— backward compatible.
+**`https://schema.sempods.org/claims/equivalent-identities`** — the person's other WebIDs, from the
+links an identity merge recorded on the profile (`SPS-OIDC-005`). HTTP and HTTPS WebIDs only:
 
-**No `aud` claim** — the token is valid across all pods that trust
-`id.sempods.org` as issuer. One login, multiple pods.
+| Recorded link | In the claim |
+|---|---|
+| `https://id.sempods.org/oidc/<hash2>` | as recorded |
+| `urn:sempods:e:<hash>` | its WebID twin, `https://id.sempods.org/e/<hash>` |
+| anything else | left out |
+
+The URN twin of `sub` is never sent: a pod derives it. A person with no links gets no claim at all,
+which is every first sign-in. A standard consumer ignores the claim.
+`LoginService.equivalentIdentitiesFor` owns the rules, and
+[`docs/auth/identity.md`](../../docs/auth/identity.md#equivalent-identities) how a pod reads it.
+
+Grant-before-login is not possible for a subject without an email: the pod owner waits for the first
+login, or the person links an email via identity merge.
 
 Signed with `id.sempods.org`'s private key (RS256).
-
-### Token format — OIDC login without email
-
-```json
-{
-  "iss": "https://id.sempods.org",
-  "sub": "https://id.sempods.org/oidc/<hash>",
-  "webid": "https://id.sempods.org/oidc/<hash>",
-  "also_known_as": [
-    "urn:sempods:oidc:<hash>"
-  ],
-  "exp": 1744300800,
-  "iat": 1744197200
-}
-```
-
-Note: grant-before-login is not possible for no-email subjects — the pod
-owner must wait for first login, or the user must link an email via identity
-merge.
-
-### Pod trust configuration
-
-Each pod configures 0..n trusted sempods-auth issuers:
-
-```
-sempods_auth_issuers:
-  - https://id.sempods.org
-  - https://id.alice.org
-```
-
-For each request with a Bearer token, the pod:
-1. Verifies `iss` is in the configured issuers list
-2. Verifies signature via JWKS from `<iss>/.well-known/jwks.json` (cached)
-3. Verifies `exp`
-4. Grant check: `grant.subject IN ([sub] + also_known_as)`
-   — `also_known_as` only evaluated when `iss` is in the trusted list
-
-With zero configured issuers, the pod accepts any standard OIDC JWT but
-performs only single-sub grant matching.
 
 ---
 
@@ -267,8 +238,8 @@ performs only single-sub grant matching.
    (or WebID URI if sempods-auth connected — same sha256 formula)
 3. Bob logs in with Google (email: bob@example.com)
 4. sempods-auth derives: sub = id.sempods.org/e/<sha256("bob@example.com")>
-5. JWT also_known_as includes: urn:sempods:e:<sha256("bob@example.com")>
-6. Grant matches via also_known_as — no identity linking needed
+5. The pod derives the twin of sub: urn:sempods:e:<sha256("bob@example.com")>
+6. Grant matches via that twin — no identity linking needed
 ```
 
 No pre-registration. No placeholder. URI is deterministic from the open formula.
@@ -283,8 +254,8 @@ hash and the grant in step 2 does not match.
 This is the formula working as specified, not a defect in it — the person genuinely did not
 present the address they were invited under. Resolving it belongs to
 [identity merge](#identity-merge): once the user links their real address, the grant matches
-through `also_known_as` without anything being regranted. Until that is available to users, an
-Apple login with a hidden address needs a grant against the WebID it actually produces.
+through the equivalent-identity claim without anything being regranted. Until that is available to
+users, an Apple login with a hidden address needs a grant against the WebID it actually produces.
 
 The relay case is logged at login so that "the invitation did nothing" has a visible cause.
 
@@ -294,21 +265,18 @@ The relay case is logged at login so that "the invitation did nothing" has a vis
 
 The WebID profile at `id.sempods.org` stores all verified identity links for
 a person. On each login, `id.sempods.org` collects all linked identities
-and puts them in `also_known_as`.
+and puts them in the equivalent-identity claim.
 
 ```
 Bob logs in without email
   → sub = id.sempods.org/oidc/<hash>
-  → also_known_as = ["urn:sempods:oidc:<hash>"]
+  → no claim; the pod derives urn:sempods:oidc:<hash>
 
 Bob links bob@example.com (email verification)
   → linked identity added to profile
-  → next login: also_known_as = [
-      "urn:sempods:oidc:<hash>",
-      "urn:sempods:e:<sha256(email)>",
-      "id.sempods.org/e/<sha256(email)>"
-    ]
-  → grants against any of these URIs now match
+  → next login: equivalent identities = ["https://id.sempods.org/e/<sha256(email)>"]
+  → the pod derives urn:sempods:e:<sha256(email)> as well
+  → grants against any of these four URIs now match
 ```
 
 Verification requirements:

@@ -496,7 +496,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
   @Test
   fun `the authority carries the URIs the consent recognised the owner by`() {
-    // The registration asks who owns the pod now against exactly this set, and `also_known_as`
+    // The registration asks who owns the pod now against exactly this set, and an equivalence
     // cannot be resolved from a token — so a set the exchange dropped here is a gap nothing
     // downstream can close.
     val authorized = Authorized()

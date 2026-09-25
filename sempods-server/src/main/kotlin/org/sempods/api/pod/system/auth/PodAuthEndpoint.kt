@@ -528,11 +528,12 @@ class PodAuthEndpoint @Inject constructor(
     // One instant for both: the cookie's `auth_time` and the principal this request runs under
     // describe the same sign-in, and two `Instant.now()` calls would date it twice.
     val authTime = Instant.now()
+    val aliases = identityProvider.aliasesOf(verified)
     val sessionToken =
       podTokenIssuer.issueSession(
-        podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
+        podDbo.name, verified.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
-    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs, authTime)
+    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, aliases, authTime)
     val answer = if (pending.serviceClient != null) resumeGrant(podDbo, pending, principal) else render(
       podDbo.name,
       podAuthorizeFlow.authorize(

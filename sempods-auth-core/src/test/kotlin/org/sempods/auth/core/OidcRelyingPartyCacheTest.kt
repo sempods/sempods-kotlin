@@ -76,6 +76,21 @@ class OidcRelyingPartyCacheTest {
   }
 
   @Test
+  fun `every relying party carries the trust the cache was given`() {
+    // Two construction paths, the discovering one and the one reusing its metadata. The second is
+    // the one a forgotten argument would quietly make trust nothing.
+    for (trusted in listOf(true, false)) {
+      val cache = OidcRelyingPartyCache(ISSUER, clientId, CountingTransport(), trustsEquivalentIdentities = trusted)
+
+      val discovered = cache.forRedirectUri("https://service.example.invalid/a/cb")
+      val reused = cache.forRedirectUri("https://service.example.invalid/b/cb")
+
+      assertEquals(trusted, discovered.trustsEquivalentIdentities)
+      assertEquals(trusted, reused.trustsEquivalentIdentities)
+    }
+  }
+
+  @Test
   fun `a provider advertising another issuer is still refused`() {
     // `discover` runs once now rather than per address, so this is worth saying: the check that
     // catches a misconfigured provider at wiring time did not become optional.

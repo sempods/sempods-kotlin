@@ -249,6 +249,24 @@ class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: Strin
   }
 
   /**
+   * Adds [subjectUris] to every row [webId] holds for [appId] on [podId], leaving the grants and
+   * their `grantedAt` as they are. A row written before [PodGrantDbo.subjectUris] existed reads as
+   * its `webId` alone, so the caller passes that URI too.
+   */
+  internal fun addSubjectUris(podId: ObjectId, appId: String, webId: String, subjectUris: Collection<String>) {
+    val uris = subjectUris.map(String::trim).filter(String::isNotBlank).distinct()
+    if (uris.isEmpty()) return
+    grantRows.updateMany(
+      Filters.and(
+        Filters.eq(PodGrantDboFields.podId, podId),
+        Filters.eq(PodGrantDboFields.appId, appId),
+        Filters.eq(PodGrantDboFields.webId, webId),
+      ),
+      Updates.addEachToSet(PodGrantDboFields.subjectUris, uris),
+    )
+  }
+
+  /**
    * Returns `true` if any grant row exists for [podId]. Used by cascade-deletion
    * tests to assert that pod-scoped grant rows survived or were swept.
    */

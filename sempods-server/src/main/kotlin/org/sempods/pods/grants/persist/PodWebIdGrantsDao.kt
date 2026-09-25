@@ -162,7 +162,7 @@ class PodWebIdGrantsDao internal constructor(db: MongoDatabase, collectionName: 
   /**
    * The app-independent grant strings (`<context-iri>#read|write|manage`) granted to any of
    * [webIds] on [podId]. Pass every URI the caller is known by (`identity.allUris` — the WebID
-   * plus `also_known_as`) so a grant made under one identity URI still resolves when the person
+   * plus its aliases) so a grant made under one identity URI still resolves when the person
    * authenticates under an equivalent one, mirroring the owner check and [PodGrantsDao]. Empty
    * when none of the WebIDs has an owner-level grant.
    */

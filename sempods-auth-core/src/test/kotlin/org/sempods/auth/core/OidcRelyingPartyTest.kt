@@ -58,8 +58,21 @@ class OidcRelyingPartyTest {
     }
   }
 
-  private fun rp(provider: FakeProvider = FakeProvider()) =
-    OidcRelyingParty.discover(ISSUER, clientId, redirectUri, RecordingTransport(ISSUER, provider))
+  private fun rp(provider: FakeProvider = FakeProvider(), trustsEquivalentIdentities: Boolean = false) =
+    OidcRelyingParty.discover(
+      ISSUER, clientId, redirectUri, RecordingTransport(ISSUER, provider), trustsEquivalentIdentities,
+    )
+
+  /** Completes one sign-in against [provider], answering with the nonce this flow sent. */
+  private fun signIn(provider: FakeProvider, trusted: Boolean = true): OidcRelyingParty.VerifiedIdentity {
+    val rp = rp(provider, trustsEquivalentIdentities = trusted)
+    val started = rp.beginAuthorization()
+    provider.nonceToEcho = started.nonce
+    return rp.completeAuthorization("the-code", started.codeVerifier, started.nonce)
+  }
+
+  /** A provider whose token carries the equivalent-identity claim with [value], `null` included. */
+  private fun claiming(value: Any?) = FakeProvider(claims = mapOf(EquivalentIdentities.CLAIM to value))
 
   // ─── discovery ────────────────────────────────────────────────────────────
 
@@ -124,16 +137,18 @@ class OidcRelyingPartyTest {
 
   @Test
   fun `a full round trip yields the identity the provider asserted`() {
-    val provider = FakeProvider()
+    val provider = FakeProvider(claims = mapOf(EquivalentIdentities.CLAIM to listOf(ALIAS)))
     val transport = RecordingTransport(ISSUER, provider)
-    val rp = OidcRelyingParty.discover(ISSUER, clientId, redirectUri, transport)
+    val rp = OidcRelyingParty.discover(
+      ISSUER, clientId, redirectUri, transport, trustsEquivalentIdentities = true,
+    )
     val started = rp.beginAuthorization()
     provider.nonceToEcho = started.nonce
 
     val identity = rp.completeAuthorization("the-code", started.codeVerifier, started.nonce)
 
     assertEquals("$ISSUER/e/abc", identity.webId)
-    assertContains(identity.alsoKnownAs, "urn:sempods:e:abc")
+    assertEquals(setOf(ALIAS), identity.equivalentIdentities)
     // The exchange must present the verifier and no secret — these clients have none.
     val form = transport.postedForms.single()
     assertEquals(started.codeVerifier, form["code_verifier"])
@@ -204,6 +219,79 @@ class OidcRelyingPartyTest {
     assertContains(failure.message.orEmpty(), "code is expired")
   }
 
+  // ─── equivalent identities ────────────────────────────────────────────────
+
+  @Test
+  fun `an omitted or empty claim asserts no equivalent identity`() {
+    assertEquals(emptySet(), signIn(FakeProvider()).equivalentIdentities)
+    assertEquals(emptySet(), signIn(claiming(emptyList<String>())).equivalentIdentities)
+  }
+
+  @Test
+  fun `the claim is a set, whatever its order, duplicates or repetition of sub`() {
+    val other = "http://other.example.invalid/people/alice"
+
+    val identity = signIn(claiming(listOf(other, ALIAS, "$ISSUER/e/abc", ALIAS)))
+
+    assertEquals(setOf(ALIAS, other), identity.equivalentIdentities)
+  }
+
+  @Test
+  fun `a malformed claim refuses the sign-in`() {
+    for (value in listOf(null, ALIAS, mapOf("id" to ALIAS), listOf(ALIAS, "urn:example:alice"), listOf("/alice"))) {
+      // Refused by this code as a decision. A typed read would throw the library's `ParseException`.
+      val failure = assertFailsWith<IllegalStateException>("value $value") { signIn(claiming(value)) }
+      assertContains(failure.message.orEmpty(), EquivalentIdentities.CLAIM)
+    }
+  }
+
+  @Test
+  fun `a provider trusted for login alone adds no equivalent identity`() {
+    val identity = signIn(claiming(listOf(ALIAS)), trusted = false)
+
+    assertEquals("$ISSUER/e/abc", identity.webId, "the login itself stands")
+    assertEquals(emptySet(), identity.equivalentIdentities)
+  }
+
+  @Test
+  fun `a provider trusted for login alone is still refused a malformed claim`() {
+    assertFailsWith<IllegalStateException> { signIn(claiming(listOf("urn:example:alice")), trusted = false) }
+  }
+
+  @Test
+  fun `the registered also_known_as claim asserts no equivalent identity`() {
+    // A human pseudonym in OIDC's registered claims, whatever shape it arrives in.
+    val provider = FakeProvider(claims = mapOf("also_known_as" to listOf(ALIAS, "urn:sempods:e:abc")))
+
+    assertEquals(emptySet(), signIn(provider).equivalentIdentities)
+  }
+
+  @Test
+  fun `signature, audience, issuer, expiry and nonce still decide first`() {
+    // `SPS-OIDC-006` runs before the claim is read. With a valid claim the token is still refused.
+    // With a malformed one the check still gives the reason, because the claim is read from a
+    // validated token only.
+    for (claimed in listOf(listOf(ALIAS), listOf("urn:example:alice"))) {
+      val claims = mapOf(EquivalentIdentities.CLAIM to claimed)
+      for (provider in listOf(
+        FakeProvider(claims = claims, tokenAudience = "did:web:someone.else"),
+        FakeProvider(claims = claims, tokenIssuer = "https://evil.invalid"),
+        FakeProvider(claims = claims, expiresAt = Date(System.currentTimeMillis() - 60_000)),
+        FakeProvider(claims = claims, signingKey = strangerKeyPair.private as RSAPrivateKey),
+      )) {
+        val failure = assertFails { signIn(provider) }
+        assertTrue(EquivalentIdentities.CLAIM !in failure.message.orEmpty(), "refused for the check: $failure")
+      }
+
+      val replayed = FakeProvider(claims = claims)
+      val rp = rp(replayed, trustsEquivalentIdentities = true)
+      val started = rp.beginAuthorization()
+      replayed.nonceToEcho = "the-nonce-of-an-earlier-login"
+      val failure = assertFails { rp.completeAuthorization("c", started.codeVerifier, started.nonce) }
+      assertTrue(EquivalentIdentities.CLAIM !in failure.message.orEmpty(), "refused for the nonce: $failure")
+    }
+  }
+
   // ─── the provider ─────────────────────────────────────────────────────────
 
   /** Answers like an OpenID Provider, and can be told to answer wrongly. */
@@ -221,6 +309,9 @@ class OidcRelyingPartyTest {
     private val tokenAudience: String = "did:web:pod.example.invalid",
     private val expiresAt: Date? = Date(System.currentTimeMillis() + 600_000),
     private val error: Pair<String, String>? = null,
+    /** Further claims, written verbatim — a `null` value included. */
+    private val claims: Map<String, Any?> = emptyMap(),
+    private val signingKey: RSAPrivateKey = keyPair.private as RSAPrivateKey,
   ) {
     val discoveryDocument = """
       {"issuer":"$advertisedIssuer","authorization_endpoint":"$ISSUER/authorize",
@@ -233,7 +324,10 @@ class OidcRelyingPartyTest {
       }
       // The nonce the client sent is not visible to a token endpoint, so a provider echoes what it
       // stored with the code. Echoing the *request's* nonce would make the replay test vacuous.
-      val idToken = signedIdToken(nonce = nonceToEcho, issuer = tokenIssuer, audience = tokenAudience, expiresAt = expiresAt)
+      val idToken = signedIdToken(
+        nonce = nonceToEcho, issuer = tokenIssuer, audience = tokenAudience, expiresAt = expiresAt,
+        claims = claims, signingKey = signingKey,
+      )
       return """{"access_token":"at","token_type":"Bearer","expires_in":900,"id_token":"$idToken"}"""
     }
   }
@@ -244,19 +338,29 @@ class OidcRelyingPartyTest {
 
     private const val JWKS_URL = "$ISSUER/.well-known/jwks.json"
 
+    private const val ALIAS = "https://other.example.invalid/alice#me"
+
     private val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+    private val strangerKeyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
     private val jwks = JWKSet(RSAKey.Builder(keyPair.public as RSAPublicKey).keyID(KEY_ID).build()).toString()
 
-    private fun signedIdToken(nonce: String, issuer: String, audience: String, expiresAt: Date?): String {
-      val claims = JWTClaimsSet.Builder()
+    private fun signedIdToken(
+      nonce: String,
+      issuer: String,
+      audience: String,
+      expiresAt: Date?,
+      claims: Map<String, Any?>,
+      signingKey: RSAPrivateKey,
+    ): String {
+      val claimsSet = JWTClaimsSet.Builder()
         .issuer(issuer).subject("$ISSUER/e/abc").audience(audience)
-        .claim("also_known_as", listOf("urn:sempods:e:abc"))
         .issueTime(Date())
         .apply { expiresAt?.let { expirationTime(it) }; if (nonce.isNotEmpty()) claim("nonce", nonce) }
+        .apply { claims.forEach { (name, value) -> claim(name, value) } }
+        .serializeNullClaims(true)
         .build()
-      return SignedJWT(JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY_ID).type(JOSEObjectType.JWT).build(), claims)
-        .apply { sign(RSASSASigner(keyPair.private as RSAPrivateKey)) }
-        .serialize()
+      val header = JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY_ID).type(JOSEObjectType.JWT).build()
+      return SignedJWT(header, claimsSet).apply { sign(RSASSASigner(signingKey)) }.serialize()
     }
 
   }

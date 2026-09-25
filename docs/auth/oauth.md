@@ -592,7 +592,7 @@ A JVM program runs the whole installation through `sempods-client`
   and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
   second registration finds nothing — concurrent calls included.
 - **It carries the URIs the owner was recognised by.** Sign in with Google, own the pod under the
-  email address: the two are linked by `also_known_as`, which lives in sempods-auth, while the
+  email address: the two are linked by an equivalence that lives in sempods-auth, while the
   bearer this dialog leads to carries one URI. So the authority records the set the dialog
   recognised, and registration compares the pod's *current* owner against it.
 - **It dies when the app is disconnected**, whatever the bearer has left of its hour. Another

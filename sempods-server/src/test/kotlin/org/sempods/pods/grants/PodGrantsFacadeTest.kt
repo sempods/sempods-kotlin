@@ -400,7 +400,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   fun `cascade reaches app grants consented under a different identity URI`() {
     // The owner writes the grant under an alias URI; the person consents under their primary one,
     // so the app row is keyed by the primary WebID. `subjectUris`, recorded at consent, is what
-    // connects the two — `also_known_as` itself lives in sempods-auth and is not resolvable here.
+    // connects the two — the equivalence itself lives in sempods-auth and is not resolvable here.
     val pod = sempodsTestFactory.newPod()
     val user = sempodsTestFactory.newOwner()
     val primaryWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(user.email))
@@ -443,7 +443,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   @Test
   fun `cascade reaches the urn twin of an OIDC-based WebID`() {
     // sempods-auth mints `{idBaseUrl}/oidc/<hash>` for logins without an email, with
-    // `urn:sempods:oidc:<hash>` as its `also_known_as` twin. A pod owner can only pre-record a
+    // `urn:sempods:oidc:<hash>` as its URN twin. A pod owner can only pre-record a
     // grant under the URN form, so revoking by the canonical WebID has to bridge the pair — the
     // same rule as the email namespace, which is easy to implement for `e:` only and forget here.
     val pod = sempodsTestFactory.newPod()
