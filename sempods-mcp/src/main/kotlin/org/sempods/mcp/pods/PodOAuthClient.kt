@@ -8,7 +8,6 @@ import com.nimbusds.oauth2.sdk.AuthorizationRequest
 import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.ResponseType
 import com.nimbusds.oauth2.sdk.Scope
-import com.nimbusds.oauth2.sdk.`as`.AuthorizationServerMetadata
 import com.nimbusds.oauth2.sdk.client.ClientInformation
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import com.nimbusds.oauth2.sdk.id.ClientID
@@ -123,25 +122,22 @@ class PodOAuthClient(
       val asm = runCatching { JSONObjectUtils.parse(asmBody) }.getOrElse {
         throw PodOAuthException("pod AS metadata is not a JSON object")
       }
+      // RFC 8414 §3.3: a document whose `issuer` is not the one it was fetched for MUST NOT be used.
+      // Checked here because nimbus's `resolve` would fetch the document itself, around
+      // [podUrlPolicy]. A terminating `/` is not compared: both spellings fetch this same document,
+      // and [PodOAuthMetadata.issuer] is kept without it.
+      val declaredIssuer = asm["issuer"] as? String
+      if (declaredIssuer?.trimEnd('/') != issuer) {
+        val declared = declaredIssuer?.let { "issuer '${forLog(it)}'" } ?: "no issuer"
+        throw PodOAuthException("pod AS metadata declares $declared, expected '${forLog(issuer)}'")
+      }
       fun str(field: String): String? = (asm[field] as? String)?.trim()?.takeIf { it.isNotBlank() }
       // The pod declares RFC 8414 → require a complete document (endpoints must be present).
-      // nimbus makes both endpoints optional, so the completeness rule stays ours; what nimbus
-      // decides is the **issuer**, which RFC 8414 §2 says carries no query and no fragment.
-      // A document it refuses that way still connects, on the RFC 9728 issuer the pod itself
-      // named — the strictness is worth having, but not at the price of a pod that worked before.
+      // nimbus makes both endpoints optional, so the completeness rule stays ours.
       fun req(field: String): String = str(field)
         ?: throw PodOAuthException("pod AS metadata missing '$field'")
-      val declaredIssuer = runCatching { AuthorizationServerMetadata.parse(asm).issuer.value }
-        .onFailure {
-          // nimbus quotes the rejected URI back in its message, control characters included —
-          // so the exception text is pod-authored too, not only the values around it.
-          logger.info {
-            "pod '${forLog(base)}' AS metadata has no usable issuer (${forLog(it.message)}) — keeping '${forLog(issuer)}'"
-          }
-        }
-        .getOrNull()
       PodOAuthMetadata(
-        issuer = declaredIssuer?.trimEnd('/') ?: issuer,
+        issuer = issuer,
         authorizationEndpoint = req("authorization_endpoint"),
         tokenEndpoint = req("token_endpoint"),
         registrationEndpoint = str("registration_endpoint"),
