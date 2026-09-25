@@ -128,12 +128,18 @@ open class SempodsBaseEndpoint(
    * The bearer this request carries, or `null` where it carries none.
    *
    * [requirePodAppTokenOrThrow] asks for "any app" and refuses a privileged feature scope. This
-   * asks for whoever turned up: the one route that exists for such a bearer has to be able to see
-   * it, and the same route answers unauthenticated callers too. `null` rather than
-   * [PodAuthorizer.anonymous] because that resolves the pod's public contexts, and a registration
-   * consults none.
+   * asks for whoever turned up: the routes that exist for such a bearer have to be able to see it.
+   * Registration answers unauthenticated callers too. `null` rather than [PodAuthorizer.anonymous]
+   * because that resolves the pod's public contexts, and a registration consults none.
    */
   internal fun resolveBearerOrNull(podDbo: PodDbo): SempodsCredentials? = resolveCredentials(podDbo) { null }
+
+  /**
+   * [resolveBearerOrNull] for a route that requires authentication. A missing bearer is refused
+   * like a rejected one: `401 invalid_token` with the pod's challenge (`SPS-CORE-015`).
+   */
+  internal fun requireBearerOrThrow(podDbo: PodDbo): SempodsCredentials =
+    resolveBearerOrNull(podDbo) ?: throwInvalidBearer(podName = podDbo.name)
 
   /**
    * What every bearer on this server goes through, with the one arm its callers disagree about.

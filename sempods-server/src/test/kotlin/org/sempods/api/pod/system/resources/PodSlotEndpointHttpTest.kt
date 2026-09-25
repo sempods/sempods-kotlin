@@ -31,7 +31,6 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -874,7 +873,7 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `DELETE single edge ignores If-Match (unconditional by design)`() {
+  fun `DELETE single edge with stale If-Match returns 412 and keeps the edge`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
@@ -886,13 +885,12 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $token")
       .addHeader("If-Match", "\"obviously-stale\"")
       .execute()
-    // Edge removal is idempotent — If-Match must be ignored, edge gone,
-    // 200 with the outcome body (RFC 9110 §9.3.5).
-    assertEquals(200, resp.statusCode)
-    assertEquals(
-      "removed",
-      objectMapper.readValue(resp.responseBody, Map::class.java)["outcome"],
-    )
+    assertEquals(412, resp.statusCode)
+
+    val slot = httpClient.prepareGet(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    assertTrue(carol in slot.responseBody, slot.responseBody)
   }
 
   // ── The client core against these routes ────────────────────────────────────
@@ -967,7 +965,7 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"stale"}]"""), stale).status)
       assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"again"}]"""), inContacts.withIfNoneMatch("*")).status)
       assertEquals(412, slots.clear(bob, schemaName, stale).status)
-      assertFailsWith<IllegalArgumentException> { slots.removeEdge(bob, schemaName, carol, stale) }
+      assertEquals(412, slots.removeEdge(bob, schemaName, carol, stale).status)
 
       val read = slots.getJson(bob, schemaName, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
       assertTrue(read.body.orEmpty().contains("Bob Smith"), read.body)

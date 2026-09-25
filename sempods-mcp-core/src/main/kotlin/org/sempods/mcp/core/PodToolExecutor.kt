@@ -316,8 +316,7 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
               "remove_property_value" -> {
                 val targetIri = ToolArguments.string(arguments, "target_iri")
                   ?: return PodToolPlan.InvalidArguments("missing required argument: target_iri")
-                // No precondition: removing one edge is idempotent, the catalog does not offer
-                // `if_match` on this tool, and the route refuses a condition it would have to ignore.
+                // No precondition: the catalog does not offer `if_match` on this tool.
                 val edgeIds = LinkedHashMap(ids).apply { put("target_iri", targetIri) }
                 call { pod ->
                   written(edgeIds, pod.slots().removeEdge(subjectIri, predicateIri, targetIri, inContext))

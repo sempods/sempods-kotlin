@@ -69,11 +69,11 @@ class PodServiceClientsEndpoint @Inject constructor(
   /** Reads the pod and the bearer, runs [operation], and words a refusal; [done] renders the rest. */
   private inline fun <T> answer(
     pod: String,
-    operation: (HostedPod, SempodsCredentials?) -> PodServiceClientManagementResult<T>,
+    operation: (HostedPod, SempodsCredentials) -> PodServiceClientManagementResult<T>,
     done: (T) -> Response,
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
-    return when (val result = operation(podDbo.hosted, resolveBearerOrNull(podDbo))) {
+    return when (val result = operation(podDbo.hosted, requireBearerOrThrow(podDbo))) {
       is PodServiceClientManagementResult.Done -> done(result.value)
       is PodServiceClientManagementResult.Refused -> refused(result.reason)
       is PodServiceClientManagementResult.Unauthorized ->

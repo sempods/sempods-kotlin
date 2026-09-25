@@ -601,7 +601,7 @@ class ClientFromJavaTest {
     assertEquals("{\"outcome\":\"removed\"}", new String(removed.getBody(), StandardCharsets.UTF_8));
     assertTrue(removed.getHeaders().get("X-Saw-Path").endsWith("/dXJuOng"), removed.getHeaders().get("X-Saw-Path"));
 
-    assertThrows(IllegalArgumentException.class, () -> slots.removeEdge(bob, knows, "urn:x", inTasks.withIfMatch("\"v1\"")));
+    assertEquals("\"v1\"", slots.removeEdge(bob, knows, "urn:x", inTasks.withIfMatch("\"v1\"")).getHeaders().get("X-Saw-If-Match"));
   }
 
   @Test
