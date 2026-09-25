@@ -60,7 +60,7 @@ internal object PodRegistrationResponses {
    * RFC 7591 registers no code for this, so the answer is the token endpoint's: 429, `slow_down`
    * and `Retry-After` in the window the budget is stated in.
    */
-  fun rateLimited(): Response = PodTokenResponses.rateLimited("too many registration requests — retry later")
+  fun rateLimited(): Response = PodTokenResponses.rateLimited("too many registration requests; retry later")
 
   private fun refused(result: PodRegistrationResult.Refused): Response {
     // RFC 6749 §5.2's character set for `error_description` excludes `"` and `\`, and a refusal

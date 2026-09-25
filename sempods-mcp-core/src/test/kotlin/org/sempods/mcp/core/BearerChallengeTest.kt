@@ -34,4 +34,32 @@ class BearerChallengeTest {
       ),
     )
   }
+
+  @Test
+  fun `a double quote in the realm, the resource or the metadata url is escaped`() {
+    assertEquals(
+      """Bearer realm="al\"ice", error="invalid_token", resource="https://sempods.org/al\"ice", """ +
+        """resource_metadata="https://sempods.org/al\"ice/.well-known/oauth-protected-resource"""",
+      BearerChallenge.forResource(
+        realm = """al"ice""",
+        resource = """https://sempods.org/al"ice""",
+        resourceMetadataUrl = """https://sempods.org/al"ice/.well-known/oauth-protected-resource""",
+      ),
+    )
+  }
+
+  @Test
+  fun `a backslash is escaped, including one right before a double quote`() {
+    // `a\"b` is a backslash and then a quote: each gets its own escape, so neither can close the
+    // quoted-string early.
+    assertEquals(
+      """Bearer realm="a\\b", error="invalid_token", resource="https://sempods.org/a\\\"b", """ +
+        """resource_metadata="https://sempods.org/.well-known/oauth-protected-resource"""",
+      BearerChallenge.forResource(
+        realm = """a\b""",
+        resource = """https://sempods.org/a\"b""",
+        resourceMetadataUrl = "https://sempods.org/.well-known/oauth-protected-resource",
+      ),
+    )
+  }
 }

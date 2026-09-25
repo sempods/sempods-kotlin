@@ -127,6 +127,26 @@ class PodRegistrationResponsesTest {
     assertEquals("challenge-for=insufficient_scope", unscoped.getHeaderString("WWW-Authenticate"))
   }
 
+  @Test
+  fun `a caller over its budget gets the token endpoint's refusal`() {
+    val response = PodRegistrationResponses.rateLimited()
+
+    assertEquals(429, response.status)
+    assertEquals(
+      mapOf(
+        "Content-Type" to "application/json",
+        "Cache-Control" to "no-store",
+        "Pragma" to "no-cache",
+        "Retry-After" to "60",
+      ),
+      response.stringHeaders.mapValues { (_, values) -> values.single() },
+    )
+    assertEquals(
+      mapOf("error" to "slow_down", "error_description" to "too many registration requests; retry later"),
+      json(response),
+    )
+  }
+
   private fun client(
     clientName: String? = null,
     clientUri: String? = null,
