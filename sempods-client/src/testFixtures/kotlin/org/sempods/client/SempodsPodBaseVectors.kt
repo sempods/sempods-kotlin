@@ -5,7 +5,7 @@ package org.sempods.client
  *
  * Shared as a fixture rather than written twice because two places enforce the same two
  * requirements: this client, and the pod server's own configuration validation
- * ([#56](https://github.com/sempods/sempods-kotlin/issues/56)) over `SEMPODS_PUBLIC_BASE_URL`. Two
+ * (`SempodsConfig.checkPublicBaseUrl`) over `SEMPODS_PUBLIC_BASE_URL`. Two
  * tables would agree on the day the second was written and not much longer — the spellings of a
  * dot segment alone (`%2e%2e`, `.%2e`, a backslash separator) are not a list anyone closes twice.
  *

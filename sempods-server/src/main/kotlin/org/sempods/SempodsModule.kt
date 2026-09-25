@@ -796,7 +796,7 @@ class SempodsModule : BaseModule() {
 
       SempodsConfig(
         httpPort = httpPort,
-        apiBaseUrl = publicBaseUrl,
+        apiBaseUrl = SempodsConfig.checkPublicBaseUrl(PUBLIC_BASE_URL_ENV_VARIABLE, publicBaseUrl),
         mongoUrl = Env.get(MONGODB_URL_ENV_VARIABLE, default = DEFAULT_MONGODB_URL),
         mongoDb = Env.get(MONGODB_DB_NAME_ENV_VARIABLE, default = DEFAULT_MONGODB_DB_NAME),
         // No default: unset means the redirects carry no `error_uri`. The normalisation rule

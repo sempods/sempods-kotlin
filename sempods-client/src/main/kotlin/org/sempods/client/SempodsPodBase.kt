@@ -27,9 +27,7 @@ import java.util.Locale
  * preserved**: a deployment serving pods under `https://example.org/pods/alice` keeps both
  * segments.
  *
- * This is the client-side half. Server configuration validation is
- * [#56](https://github.com/sempods/sempods-kotlin/issues/56); the test vectors are shared through
- * this module's test fixtures so the two cannot drift.
+ * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too.
  */
 class SempodsPodBase private constructor(
   /** The canonical form: no trailing slash, no query, no fragment. */
