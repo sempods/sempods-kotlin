@@ -254,7 +254,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
       readTool(
         "list_contexts",
         "Return the contexts (named graphs) $scopeOwner can see, with the permission level on each. " +
-          "Call this FIRST before write tools — a `context_iri` returned here is the only valid value " +
+          "An entry with `manage` alone is registry authority with no read or write; do not reauthorize " +
+          "for data because of it. Call this FIRST before write tools — a `context_iri` returned here is the only valid value " +
           "for ANY write tool: `create_resource` / `update_resource` / `delete_resource` AND the " +
           "property-value tools `add_property_value` / `set_property_values` / `remove_property_value` / " +
           "`clear_property_values`. Results are grouped$perPod." +

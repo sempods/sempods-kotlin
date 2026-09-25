@@ -180,7 +180,8 @@ class McpEndpoint @Inject constructor(
 
       ENTRY POINT — call `list_contexts` FIRST:
       - Returns the exact `context_iri` values this session can see and the permission
-        level on each (`read`, `read+write`, `read+write+manage`). This is the
+        level on each (`read`, `read+write`, `read+write+manage`, or `manage` alone:
+        registry authority with no read or write, no reason to reauthorize). This is the
         authoritative source — some MCP clients do not surface this `instructions`
         text to the model, so `list_contexts` is the only reliable way to know which
         contexts are writable. `writable_contexts` is authoritative for BOTH the
