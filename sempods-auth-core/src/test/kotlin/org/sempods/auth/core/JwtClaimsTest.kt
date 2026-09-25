@@ -46,7 +46,8 @@ class JwtClaimsTest {
   fun `an absent claim and one of the wrong type are the same answer`() {
     // The rule this file is built on: a token that does not say a thing, and one that says it in a
     // shape nobody can read, both mean "this token does not say that" — never an exception on a
-    // public endpoint.
+    // public endpoint. The equivalent-identity claim is outside it (`SPS-OIDC-016`):
+    // `EquivalentIdentitiesTest` pins the refusal.
     val parsed = roundTrip(
       JWTClaimsSet.Builder()
         .claim("auth_time", "not-a-number")

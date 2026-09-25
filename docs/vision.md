@@ -81,7 +81,12 @@ are possible as long as they follow the standard.
     - Protected does not mean undescribable: statements *about* a `_system` IRI are ordinary
       data, because the control plane lives in MongoDB and is not reachable through the data
       path at all. See [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md)
-      §"Contexts as the permission boundary".
+      §4.
+    - One exception, and a deviation from that chapter until
+      [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides: a write
+      about `/_system/contexts` or a subject under it is refused, because that namespace holds
+      the catalogue and the context IRIs and `GET` there is the registry. `ContextPathRules`
+      owns the rule.
 
 ## What comes later (extensions)
 

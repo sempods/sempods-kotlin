@@ -24,11 +24,11 @@ internal data class PodGrantDbo(
   val scope: String,
   /**
    * Every identity URI the consenting person was known by at consent time — `identity.allUris`
-   * (their WebID plus `also_known_as`). [webId] alone is not enough for revocation: a pod owner
+   * (their WebID plus its aliases). [webId] alone is not enough for revocation: a pod owner
    * may have written the owner-level grant ([PodWebIdGrantDbo]) under an alias URI, while this
-   * row always carries the *primary* WebID. `also_known_as` lives in sempods-auth (separate
-   * service, separate database) and cannot be resolved pod-side, so the alias set is recorded
-   * here at the one moment it is known.
+   * row always carries the *primary* WebID. The equivalences live in sempods-auth (separate
+   * service, separate database) and reach the pod only in a sign-in's ID Token, so the alias set
+   * is recorded here at the one moment it is known.
    *
    * `null` on rows written before this field existed. Treat that as `listOf(webId)` — exactly
    * the pre-existing behaviour — so no backfill is needed.

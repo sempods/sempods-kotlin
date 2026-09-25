@@ -30,6 +30,7 @@ import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.PodTokens
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.auth.core.EquivalentIdentities
 import org.sempods.auth.core.SigningKeys
 import org.sempods.mcp.persist.oauth.McpSigningKeyStore
 import org.sempods.mcp.persist.oauth.SigningKeyDao
@@ -340,6 +341,32 @@ class WebUiEndpointTest {
     }
     assertEquals(HttpStatusCode.Unauthorized, resp.status)
     assertNull(resp.sessionCookie(), "a token from another login must not establish a session")
+  }
+
+  @Test
+  fun `a token with a malformed equivalent-identity claim signs nobody in`() = testApplication {
+    // `SPS-OIDC-016` binds this service too, though it trusts its issuer for login alone and never
+    // uses the identities the claim names.
+    installWebUi()
+    val client = createClient { followRedirects = false }
+    suspend fun signIn(value: Any?): io.ktor.client.statement.HttpResponse {
+      val (started, pin) = client.startUiLogin()
+      idServer.expect(
+        webId = "https://id.test/e/web-user",
+        nonce = started.parameters["nonce"]!!,
+        claims = mapOf(EquivalentIdentities.CLAIM to value),
+      )
+      return client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&code=c") {
+        header(HttpHeaders.Cookie, pin)
+      }
+    }
+
+    for (malformed in listOf(null, listOf("https://id.test/e/other", "urn:example:alice"))) {
+      val resp = signIn(malformed)
+      assertEquals(HttpStatusCode.Unauthorized, resp.status, "claim $malformed")
+      assertNull(resp.sessionCookie(), "claim $malformed")
+    }
+    assertEquals(HttpStatusCode.Found, signIn(listOf("https://id.test/e/other")).status, "a valid claim signs in")
   }
 
   @Test

@@ -5,6 +5,7 @@ import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import org.sempods.auth.core.EquivalentIdentities
 import org.sempods.auth.core.SigningKeys
 import java.time.Instant
 import java.util.Date
@@ -40,22 +41,28 @@ class JwtIssuer(
    *   wrong recipient stops being an account takeover.
    * @param nonce echoed from the authorization request so the client can tie this response to it
    *   and reject a replayed one. Absent only when the client did not send one.
-   * @param alsoKnownAs every equivalent identity URI known for this person. Sempods-specific and
-   *   safely ignored by a standard consumer; a pod matches grants against it.
+   * @param equivalentIdentities the other WebIDs of this person, for the claim
+   *   [EquivalentIdentities.CLAIM] (`SPS-OIDC-005`). WebID URIs only
+   *   ([EquivalentIdentities.isWebIdUri]); a relying party refuses the whole token for one bad
+   *   entry. Empty leaves the claim out. A standard consumer ignores it; a pod decides grants and
+   *   ownership with it.
    */
   fun issueIdToken(
     webIdUri: String,
     audience: String,
-    alsoKnownAs: List<String>,
+    equivalentIdentities: List<String>,
     nonce: String? = null,
     issuedAt: Instant = Instant.now(),
   ): String {
+    require(equivalentIdentities.all(EquivalentIdentities::isWebIdUri)) {
+      "equivalent identities must be WebID URIs: $equivalentIdentities"
+    }
     val claims = JWTClaimsSet.Builder()
       .issuer(issuer)
       .subject(webIdUri)
       .audience(audience)
       .claim("webid", webIdUri)
-      .claim("also_known_as", alsoKnownAs)
+      .apply { if (equivalentIdentities.isNotEmpty()) claim(EquivalentIdentities.CLAIM, equivalentIdentities) }
       .jwtID(UUID.randomUUID().toString())
       .issueTime(Date.from(issuedAt))
       .expirationTime(Date.from(issuedAt.plusSeconds(ID_TOKEN_TTL_SECONDS)))
@@ -87,8 +94,8 @@ class JwtIssuer(
    * - `aud` names **this service**, the resource it is for — not the client, which is what the
    *   `id_token` names. A verifier that checks either one cannot confuse them.
    *
-   * `also_known_as` is deliberately absent: it is what a pod resolves grants against, and this
-   * token is not an identity assertion.
+   * [EquivalentIdentities.CLAIM] is deliberately absent: a pod decides grants and ownership with
+   * it, and this token is not an identity assertion.
    */
   fun issueAccessToken(
     webIdUri: String,

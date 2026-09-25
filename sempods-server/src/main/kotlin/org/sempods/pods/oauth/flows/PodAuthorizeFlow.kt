@@ -388,7 +388,17 @@ class PodAuthorizeFlow @Inject internal constructor(
     if ("consent" !in promptValues && !isDynamicClient && existingGrants.isNotEmpty()) {
       // Re-issue auth-code when the user still has a grant for this app. Per-context grants
       // stay in the durable store and are resolved server-side per request.
-      val effectiveContextGrants = existingGrants.intersect(userGrants)
+      //
+      // Stale is judged over the URIs the consent recorded as well as this session's. A sign-in
+      // whose identity service names fewer equivalent identities than the one before has not
+      // revoked the others (`SPS-OIDC-017`), and the cascade this repairs judges the same set.
+      val recordedUris = podGrantsFacade.consentedSubjectUris(pod.id, normalizedClientId, identity.webId, emptyList())
+      val consentedUris = recordedUris + identity.allUris
+      val backing = when (consentedUris) {
+        identity.allUris.toSet() -> userGrants
+        else -> podGrantsFacade.resolveUserGrants(pod, consentedUris)
+      }
+      val effectiveContextGrants = existingGrants.intersect(backing)
       // The feature scopes a row may still hand back without asking anyone. Privileged ones never
       // can: an installation authority is granted at a dialog, every time, and a stored grant that
       // named one would let an ordinary reconnect hand it back in silence. `public-read` keeps its
@@ -411,7 +421,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           pod = pod,
           appId = normalizedClientId,
           webId = identity.webId,
-          subjectUris = identity.allUris,
+          subjectUris = consentedUris,
           grants = persisted,
           grantedBy = identity.webId,
         )
@@ -419,6 +429,11 @@ class PodAuthorizeFlow @Inject internal constructor(
           "[oauth/auto-grant] Narrowed stale grants: pod='${pod.name}', clientId='$normalizedClientId', " +
               "webId='${identity.webId}', before=${existingGrants.size}, after=${persisted.size}"
         }
+      } else if (!recordedUris.containsAll(consentedUris)) {
+        // An equivalent identity this sign-in names for the first time, recorded although the grants
+        // stand as they were: it may be what backs them now, and a later sign-in that omits it has
+        // not withdrawn it (`SPS-OIDC-017`).
+        podGrantsFacade.recordConsentedSubjectUris(pod.id, normalizedClientId, identity.webId, consentedUris)
       }
       // Auto-grant if anything is still granted and the person has answered once; the slim token
       // carries only feature scopes. Falls through to the consent UI when nothing survived, rather

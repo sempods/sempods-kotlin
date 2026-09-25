@@ -338,7 +338,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   @Test
   fun `an owner whose pod records them under a linked alias installs`() {
     // Sign in with Google, own the pod under the email address: `pod.owner` and the WebID this
-    // person signed in as are linked by `also_known_as` alone, which lives in sempods-auth. The
+    // person signed in as are linked by an equivalence alone, which lives in sempods-auth. The
     // consent resolved it while the browser was there, and the authority is where that answer is
     // kept — nothing this call carries could derive it.
     val pod = pod()

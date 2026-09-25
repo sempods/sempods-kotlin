@@ -61,17 +61,6 @@ class PodAuthEndpoint @Inject constructor(
   podDao = podDao,
 ) {
 
-  // ─── OAuth discovery (RFC 8414) ──────────────────────────────────────────
-  // Lives here (not on PodOAuthMetadataEndpoint) because JAX-RS routes sub-paths of
-  // `{pod}/_system/auth/*` exclusively to this class. The body is shared with the
-  // RFC-strict sibling endpoint (see buildAuthorizationServerMetadata).
-
-  @GET
-  @Path(".well-known/oauth-authorization-server")
-  @Produces(MediaType.APPLICATION_JSON)
-  fun authorizationServerMetadata(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
-
   // ─── OAuth Dynamic Client Registration (RFC 7591) ────────────────────────
   // One route: a pod has one registration endpoint, which is what `registration_endpoint` in
   // AS-metadata points at. What it answers is [PodClientRegistration]'s.
@@ -539,11 +528,12 @@ class PodAuthEndpoint @Inject constructor(
     // One instant for both: the cookie's `auth_time` and the principal this request runs under
     // describe the same sign-in, and two `Instant.now()` calls would date it twice.
     val authTime = Instant.now()
+    val aliases = identityProvider.aliasesOf(verified)
     val sessionToken =
       podTokenIssuer.issueSession(
-        podDbo.name, verified.webId, verified.alsoKnownAs, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
+        podDbo.name, verified.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
-    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, verified.alsoKnownAs, authTime)
+    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, aliases, authTime)
     val answer = if (pending.serviceClient != null) resumeGrant(podDbo, pending, principal) else render(
       podDbo.name,
       podAuthorizeFlow.authorize(

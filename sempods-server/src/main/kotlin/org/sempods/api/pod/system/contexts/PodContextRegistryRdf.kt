@@ -21,8 +21,10 @@ import java.net.URI
  *
  * **Built from the registry alone** — the rows and the request's effective permissions. Nothing here
  * reads the graph, which is what makes the validator of `SPS-CTX-035` independent of a context's
- * contents: ordinary statements about a context IRI live in some context and are read through
- * `_system/resources/{b64url(iri)}`, where the description's `rdfs:seeAlso` points.
+ * contents and of any statement about a context IRI. The description's `rdfs:seeAlso` points at
+ * `_system/resources/{b64url(iri)}`, as `SPS-CTX-032` requires. This pod refuses new statements
+ * about a context IRI ([org.sempods.pods.contexts.ContextPathRules.reservedSubjectReason]), so
+ * following the link usually answers `404`.
  *
  * **The catalogue joins rows and permissions here.** Effective permissions are keyed by the
  * credential's visible contexts, which can name a context whose registry row is gone; the rows are

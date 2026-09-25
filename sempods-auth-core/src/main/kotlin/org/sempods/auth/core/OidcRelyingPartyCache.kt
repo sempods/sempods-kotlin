@@ -23,11 +23,14 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * @param issuer non-null on purpose. Whether a deployment configured one, and what to say when it
  *   did not, is the calling service's answer to give — it knows which setting is missing.
+ * @param trustsEquivalentIdentities handed to every relying party this cache builds
+ *   ([OidcRelyingParty.trustsEquivalentIdentities]).
  */
 class OidcRelyingPartyCache(
   private val issuer: String,
   private val clientId: String,
   private val transport: HttpTransport,
+  private val trustsEquivalentIdentities: Boolean = false,
 ) {
 
   private val byRedirectUri = ConcurrentHashMap<String, OidcRelyingParty>()
@@ -50,9 +53,10 @@ class OidcRelyingPartyCache(
     // replacing one another caller is already holding a warm key cache in.
     val known = metadata
     val relyingParty = if (known != null) {
-      OidcRelyingParty(known, clientId, redirectUri, transport)
+      OidcRelyingParty(known, clientId, redirectUri, transport, trustsEquivalentIdentities)
     } else {
-      OidcRelyingParty.discover(issuer, clientId, redirectUri, transport).also { metadata = it.metadata }
+      OidcRelyingParty.discover(issuer, clientId, redirectUri, transport, trustsEquivalentIdentities)
+        .also { metadata = it.metadata }
     }
     return byRedirectUri.putIfAbsent(redirectUri, relyingParty) ?: relyingParty
   }

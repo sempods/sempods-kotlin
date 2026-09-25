@@ -9,8 +9,9 @@ package org.sempods.auth
  * was called `PersonIdentity` because it was parsed out of an identity JWT presented as a
  * bearer — the arrangement the OIDC cutover removed.
  *
- * @param alsoKnownAs equivalent identity URIs for the same person. Ownership and grants are
- *   decided against [allUris], so an owner whose pod records an alias still resolves.
+ * @param alsoKnownAs the other URIs of the same person, as the sign-in found them
+ *   (`PodIdentityProvider.aliasesOf`). Ownership and grants are decided against [allUris], so an
+ *   owner whose pod records an alias still resolves.
  */
 data class PersonIdentity(
   val webId: String,

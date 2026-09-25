@@ -1,6 +1,8 @@
 package org.sempods.auth.api.provider
 
+import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import com.nimbusds.openid.connect.sdk.op.OIDCProviderMetadata
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -18,6 +20,7 @@ import org.sempods.auth.SempodsAuthIntegrationTest
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.DidWebRedirectPolicy
+import org.sempods.auth.core.EquivalentIdentities
 import org.sempods.auth.core.OidcPrompt
 import org.sempods.auth.core.OidcProviderMetadata
 import org.sempods.auth.core.Pkce
@@ -26,7 +29,11 @@ import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
 import org.sempods.auth.oidc.OidcClaims
 import org.sempods.auth.oidc.OidcProviderClient
+import org.sempods.auth.persist.WebIdNamespace
+import org.sempods.auth.persist.WebIdProfile
+import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.logging.CapturedLog
+import java.util.Date
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -119,6 +126,9 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     assertEquals("${testConfig.idBaseUrl}/.well-known/jwks.json", metadata.jwksUri)
     assertTrue("\"response_types_supported\":[\"code\"]" in body, body)
     assertTrue("\"code_challenge_methods_supported\":[\"S256\"]" in body, body)
+    val claimsSupported = OIDCProviderMetadata.parse(body).claims
+    assertTrue(EquivalentIdentities.CLAIM in claimsSupported, "the claim a pod reads is advertised: $claimsSupported")
+    assertTrue("also_known_as" !in claimsSupported, "OIDC's human pseudonym is not something this provider issues")
 
     // Advertised is one thing; mounted is another. An endpoint named in the document and not
     // served is worse than one that is merely undocumented.
@@ -381,63 +391,73 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
   }
 
   @Test
-  fun `also_known_as comes from the profile, never from the request`() = withProvider(google) { http ->
-    // The chain this closes: `also_known_as` is what a pod resolves grants and ownership against,
-    // and the pod's verifier does not check `aud`. A client that could get a `urn:sempods:e:<other
-    // person>` into the claim could present the token to any pod and be that person — without
-    // luring anyone, since it authenticates as itself.
+  fun `equivalent identities come from the profile, never from the request`() = withProvider(google) { http ->
+    // The chain this closes: a pod decides grants and ownership with the equivalent identities. A
+    // client that could get another person's WebID into the claim could present the token and be
+    // that person, without luring anyone, since it authenticates as itself.
+    val victim = "${testConfig.idBaseUrl}/e/${hash64()}"
     val store = injector.getInstance(AuthorizationCodeStore::class.java)
     val code = store.issue(
-      subject = "${testConfig.idBaseUrl}/e/${uniqueHash()}",
+      subject = "${testConfig.idBaseUrl}/e/${hash64()}",
       realm = testConfig.idBaseUrl,
       clientId = podClientId,
       // Straight into the store, as if the scope check above had been bypassed.
-      scopes = setOf("openid", "urn:sempods:e:victimhash"),
+      scopes = setOf("openid", victim),
       redirectUri = redirect,
       codeChallenge = challenge,
       codeChallengeMethod = Pkce.METHOD_S256,
     )
 
-    val body = postToken(http, code, verifier)
-    val idToken = Regex("\"id_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1)
-      ?: error("no id_token in $body")
-    val claims = SignedJWT.parse(idToken).jwtClaimsSet
+    val claims = idTokenClaims(postToken(http, code, verifier))
 
-    val aliases = claims.getStringListClaim("also_known_as").orEmpty()
-    assertTrue(
-      aliases.none { "victimhash" in it },
-      "a requested value must never become an identity alias, got: $aliases",
-    )
+    assertTrue(EquivalentIdentities.CLAIM !in claims.claims, "a requested value must never become an identity: $claims")
   }
 
   @Test
-  fun `an email-based identity keeps its deterministic URN`() = withProvider(google) { http ->
-    // The half that grant-before-login stands on. A pod owner invites `bob@example.com` before Bob
-    // has ever signed in; the grant is recorded against `urn:sempods:e:<sha256(email)>`, which any
-    // pod can compute without asking this service. If the token omits it, the invitation resolves
-    // to nothing and does so silently — `identity-service.md` §"Email → Grant Flow".
-    //
-    // A first-time user has an empty profile, so reading `linkedIdentities` alone yields nothing:
-    // the URN has to be derived from the subject.
-    val hash = "a".repeat(64)
-    val webId = "${testConfig.idBaseUrl}/e/$hash"
-    val store = injector.getInstance(AuthorizationCodeStore::class.java)
-    val code = store.issue(
-      subject = webId,
-      realm = testConfig.idBaseUrl,
-      clientId = podClientId,
-      scopes = setOf("openid"),
-      redirectUri = redirect,
-      codeChallenge = challenge,
-      codeChallengeMethod = Pkce.METHOD_S256,
+  fun `the equivalent-identity claim carries the profile's links as WebIDs`() = withProvider(google) { http ->
+    // `SPS-OIDC-005`: HTTP and HTTPS WebIDs only. A link recorded as a URN goes out as its WebID
+    // twin; one that is neither is left out, because a relying party refuses the whole token for
+    // one bad entry, and that would lock the person out of every pod.
+    val webId = "${testConfig.idBaseUrl}/e/${hash64()}"
+    val linkedHash = hash64()
+    val external = "https://alice.example/card#me"
+    webIdProfileDao.insert(
+      WebIdProfile(
+        id = webId,
+        namespace = WebIdNamespace.EMAIL,
+        displayName = "Alice",
+        createdAt = Date(),
+        linkedIdentities = listOf(
+          "urn:sempods:oidc:$linkedHash",
+          "${testConfig.idBaseUrl}/oidc/$linkedHash",
+          external,
+          "not a uri",
+          webId,
+        ),
+      ),
     )
 
-    val body = postToken(http, code, verifier)
-    val idToken = Regex("\"id_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1)
-      ?: error("no id_token in $body")
-    val aliases = SignedJWT.parse(idToken).jwtClaimsSet.getStringListClaim("also_known_as").orEmpty()
+    val claims = idTokenClaims(postToken(http, codeFor(webId), verifier))
 
-    assertTrue("urn:sempods:e:$hash" in aliases, "the Layer-0 form must be present, got: $aliases")
+    assertEquals(
+      setOf("${testConfig.idBaseUrl}/oidc/$linkedHash", external),
+      claims.getStringListClaim(EquivalentIdentities.CLAIM).toSet(),
+    )
+    assertNull(claims.getClaim("also_known_as"), "OIDC's human pseudonym carries no identity")
+  }
+
+  @Test
+  fun `a first sign-in asserts nothing, and the pod derives its URN twin`() = withProvider(google) { http ->
+    // Grant-before-login still stands: a pod owner invites `bob@example.com` before Bob has ever
+    // signed in, and the grant may name `urn:sempods:e:<sha256(email)>`. The claim cannot carry a
+    // URN (`SPS-OIDC-005`), and it does not need to: a pod derives that twin from `sub` itself
+    // (`WebIdUriDeriver.derivableAliases`), so this token says nothing beyond `sub`.
+    val webId = "${testConfig.idBaseUrl}/e/${hash64()}"
+
+    val claims = idTokenClaims(postToken(http, codeFor(webId), verifier))
+
+    assertEquals(webId, claims.subject)
+    assertTrue(EquivalentIdentities.CLAIM !in claims.claims, "no URN, and no empty claim either: $claims")
   }
 
   @Test
@@ -473,8 +493,27 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
         "an access token names the resource; the id_token names the client",
       )
       assertNull(
-        access.jwtClaimsSet.getClaim("also_known_as"),
+        access.jwtClaimsSet.getClaim(EquivalentIdentities.CLAIM),
         "an access token is not an identity assertion and must carry no aliases",
       )
     }
+
+  /** A 64-digit hex hash, the shape `WebIdUriDeriver` recognises in both identity namespaces. */
+  private fun hash64(): String = WebIdUriDeriver.sha256Hex(uniqueHash())
+
+  private fun codeFor(webId: String): String = injector.getInstance(AuthorizationCodeStore::class.java).issue(
+    subject = webId,
+    realm = testConfig.idBaseUrl,
+    clientId = podClientId,
+    scopes = setOf("openid"),
+    redirectUri = redirect,
+    codeChallenge = challenge,
+    codeChallengeMethod = Pkce.METHOD_S256,
+  )
+
+  private fun idTokenClaims(tokenResponse: String): JWTClaimsSet {
+    val idToken = Regex("\"id_token\":\"([^\"]+)\"").find(tokenResponse)?.groupValues?.get(1)
+      ?: error("no id_token in $tokenResponse")
+    return SignedJWT.parse(idToken).jwtClaimsSet
+  }
 }

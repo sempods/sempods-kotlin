@@ -5460,7 +5460,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   @Suppress("UNCHECKED_CAST")
   fun `an owner signed in under a linked alias installs, at the wire`() {
     // The two halves of one installation have to ask one ownership question. The dialog answers it
-    // over `also_known_as`, which lives in sempods-auth; an hour later the registration has only
+    // over the equivalent identities, which live in sempods-auth; an hour later the registration has only
     // the bearer, and a bearer carries one URI. So the approved set travels with the authority, or
     // this owner is approved at the dialog and refused at the door.
     val ownerUser = sempodsTestFactory.newOwner()

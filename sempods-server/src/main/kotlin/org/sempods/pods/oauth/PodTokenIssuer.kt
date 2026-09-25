@@ -53,7 +53,7 @@ class PodTokenIssuer(
    * Service-client tokens take a different route via [issueServiceToken].
    *
    * Claims:
-   * - iss: `{apiBaseUrl}{pod}/` (pod-specific issuer)
+   * - iss: the pod base URL, `{apiBaseUrl}{pod}` (SPS-AUTH-028)
    * - sub: user's WebID
    * - client_id: the app's did:web identity
    * - scope: space-separated granted scopes
@@ -174,14 +174,14 @@ class PodTokenIssuer(
   ): String {
     val now = Instant.now()
     val claims = JWTClaimsSet.Builder()
-      .issuer("${apiBaseUrl.trimEnd('/')}/$pod/")
+      .issuer(issuerOf(pod))
       .subject(webId)
       .claim(CLAIM_TOKEN_USE, TOKEN_USE_SESSION)
       // When the person actually signed in, carried unchanged across every renewal — `exp` moves,
       // this does not. It is what [renewSession] measures the absolute limit against, and it is
       // OIDC Core 1.0 §2's `auth_time` because that is the claim that already means this.
       .claim(CLAIM_AUTH_TIME, authTime.epochSecond)
-      // The equivalent identity URIs the id-server asserted. Ownership and grants are decided
+      // The person's other URIs, as the sign-in found them. Ownership and grants are decided
       // against all of them, so a session that dropped them would silently demote someone whose
       // pod records an alias — and would write app grants under a narrower subject set than the
       // consent actually covers.
@@ -216,7 +216,7 @@ class PodTokenIssuer(
     // Still read defensively: this pod signs no such token today, but a claim of the wrong type is
     // the same answer as an absent one, and that should not depend on who signed it.
     if (claims.stringClaimOrNull(CLAIM_TOKEN_USE) != TOKEN_USE_SESSION) return null
-    if (claims.issuer != "${apiBaseUrl.trimEnd('/')}/$pod/") return null
+    if (!isPodIssuer(claims.issuer, issuerOf(pod))) return null
     val webId = claims.subject?.takeIf { it.isNotBlank() } ?: return null
     return SessionPrincipal(
       webId = webId,
@@ -281,13 +281,12 @@ class PodTokenIssuer(
   ): IssuedToken {
     val now = Instant.now()
     val jti = UUID.randomUUID().toString()
-    val issuer = "${apiBaseUrl.trimEnd('/')}/$pod/"
 
     val header = JWSHeader.Builder(JWSAlgorithm.RS256)
       .keyID(signingKey.keyID)
       .build()
     val claimsBuilder = JWTClaimsSet.Builder()
-      .issuer(issuer)
+      .issuer(issuerOf(pod))
       .subject(subject)
       .claim("client_id", clientId)
       .claim("scope", scopes.joinToString(" "))
@@ -301,6 +300,9 @@ class PodTokenIssuer(
     jwt.sign(RSASSASigner(signingKey))
     return IssuedToken(token = jwt.serialize(), jti = jti)
   }
+
+  /** The pod base URL `P`, which is the `iss` of every token and session cookie this pod signs. */
+  private fun issuerOf(pod: String): String = "${apiBaseUrl.trimEnd('/')}/$pod"
 
   companion object {
     /** Default TTL for user access tokens (1 h). */
@@ -331,6 +333,13 @@ class PodTokenIssuer(
     /** Says a token is a browser session, so nothing can mistake it for an access token. */
     const val CLAIM_TOKEN_USE = "token_use"
     const val TOKEN_USE_SESSION = "session"
+
+    /**
+     * The session's list of the person's other URIs. This pod's own field, read back only by this
+     * pod: the OIDC claim of the same name is a human pseudonym, and the id-server's equivalent
+     * identities arrive under another name. Frozen: sessions in browsers carry it
+     * (`docs/naming.md` §3).
+     */
     const val CLAIM_ALSO_KNOWN_AS = "also_known_as"
 
     /** OIDC Core 1.0 §2 — when the person authenticated, not when this cookie was written. */
@@ -344,3 +353,16 @@ class PodTokenIssuer(
     const val SERVICE_TOKEN_TTL_SECONDS: Long = 600
   }
 }
+
+/**
+ * Whether a verified token's [issuer] is the pod whose base URL is [podBase] (SPS-AUTH-028).
+ *
+ * No other pod's issuer matches, on this host or another: a pod name is one path segment, so no
+ * other pod's base is [podBase] with a slash after it.
+ */
+internal fun isPodIssuer(issuer: String?, podBase: String): Boolean =
+  // TODO: accept `podBase` alone from the release after 0.2. Before 0.2 a pod minted `iss` with a
+  //  trailing slash; the longest-lived such credential, a session cookie, expires
+  //  [PodTokenIssuer.SESSION_TTL_SECONDS] after it was minted. Dropping the spelling earlier costs a
+  //  person a sign-in and a client a refresh.
+  issuer == podBase || issuer == "$podBase/"

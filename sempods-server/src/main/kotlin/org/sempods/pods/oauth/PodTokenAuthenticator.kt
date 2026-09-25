@@ -68,11 +68,9 @@ class PodTokenAuthenticator @Inject constructor(
       JwtVerification.Inconclusive -> return PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
     }
 
-    // The trailing-slash form of the pod's own URI: `PodRef.uri` is canonical without one, and
-    // `SempodsUriBuilder.buildPodUri` records that the OAuth issuer is the variant with it.
-    val expectedIssuer = "${pod.uri}/"
+    val expectedIssuer = pod.uri.toString()
     val tokenIssuer = claims.issuer?.trim()
-    if (tokenIssuer != expectedIssuer) {
+    if (!isPodIssuer(tokenIssuer, expectedIssuer)) {
       logger.info {
         "[oauth/access] Issuer mismatch: pod='${pod.name}', expected='$expectedIssuer', got='$tokenIssuer'"
       }
