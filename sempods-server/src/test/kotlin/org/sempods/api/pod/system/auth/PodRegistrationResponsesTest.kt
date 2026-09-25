@@ -142,7 +142,7 @@ class PodRegistrationResponsesTest {
       response.stringHeaders.mapValues { (_, values) -> values.single() },
     )
     assertEquals(
-      mapOf("error" to "slow_down", "error_description" to "too many registration requests — retry later"),
+      mapOf("error" to "slow_down", "error_description" to "too many registration requests; retry later"),
       json(response),
     )
   }

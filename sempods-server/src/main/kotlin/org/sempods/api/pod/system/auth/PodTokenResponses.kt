@@ -1,5 +1,12 @@
 package org.sempods.api.pod.system.auth
 
+import com.nimbusds.oauth2.sdk.AccessTokenResponse
+import com.nimbusds.oauth2.sdk.ErrorObject
+import com.nimbusds.oauth2.sdk.Scope
+import com.nimbusds.oauth2.sdk.TokenErrorResponse
+import com.nimbusds.oauth2.sdk.token.BearerAccessToken
+import com.nimbusds.oauth2.sdk.token.RefreshToken
+import com.nimbusds.oauth2.sdk.token.Tokens
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.sempods.auth.core.OAuthErrorCode
@@ -9,7 +16,8 @@ import org.sempods.auth.core.OAuthErrorCode
  *
  * The endpoint decides *what* to answer — which scopes survived, whether a family is already over,
  * whether a caller has spent its budget. This decides how that reaches the wire. It takes values
- * already computed, mints nothing and reads no store.
+ * already computed, mints nothing and reads no store. The SDK's `AccessTokenResponse` and
+ * `TokenErrorResponse` write the bodies; the status and the headers are set here.
  *
  * **RFC 6749 §5.1/§5.2 — every answer carries `Cache-Control: no-store` and `Pragma: no-cache`,
  * the refusals included.** Strict OAuth clients (observed: GitHub Copilot CLI) silently drop tokens
@@ -21,6 +29,7 @@ internal object PodTokenResponses {
   /**
    * A successful token response (RFC 6749 §5.1).
    *
+   * @param expiresInSeconds positive. The SDK leaves `expires_in` out for zero or less.
    * @param scope the `scope` member verbatim, or `null` to leave it out. The endpoint's three
    *   success shapes differ only here and in [refreshToken], and the difference is deliberate: a
    *   user token omits the member when it carries no feature scope at all — §3.3's grammar is one
@@ -33,9 +42,7 @@ internal object PodTokenResponses {
    *   member as the scope of the *access token*, and a credential's lifetime has no standing in it.
    *   A client could do nothing with it either — it starts a fresh flow when the family ends,
    *   whatever it knew beforehand. The consent screen is where the person is told.
-   * @param refreshToken absent rather than null when none is handed back: §5.1 makes the member
-   *   optional, and a client reading `"refresh_token": null` as a token is a bug this response
-   *   should not be able to provoke.
+   * @param refreshToken `null` where none is handed back; the member is then absent.
    */
   fun tokens(
     accessToken: String,
@@ -43,14 +50,9 @@ internal object PodTokenResponses {
     scope: String?,
     refreshToken: String? = null,
   ): Response {
-    val body = linkedMapOf<String, Any>(
-      "access_token" to accessToken,
-      "token_type" to "Bearer",
-      "expires_in" to expiresInSeconds,
-    )
-    scope?.let { body["scope"] = it }
-    refreshToken?.let { body["refresh_token"] = it }
-    return finish(Response.ok(body))
+    val bearer = BearerAccessToken(accessToken, expiresInSeconds, Scope.parse(scope))
+    val body = AccessTokenResponse(Tokens(bearer, refreshToken?.let(::RefreshToken))).toJSONObject()
+    return finish(Response.ok(body.toJSONString()))
   }
 
   /** A refusal naming the request's fault (RFC 6749 §5.2). */
@@ -81,7 +83,7 @@ internal object PodTokenResponses {
    * refills continuously, so any single value is a hint rather than a deadline, and the hint worth
    * giving is the window the budget itself is stated in.
    */
-  fun rateLimited(description: String = "too many token requests — retry later"): Response =
+  fun rateLimited(description: String = "too many token requests; retry later"): Response =
     finish(
       Response.status(429)
         .header("Retry-After", RETRY_AFTER_SECONDS)
@@ -89,15 +91,15 @@ internal object PodTokenResponses {
     )
 
   /**
-   * The error document, assembled as text.
+   * The error document (RFC 6749 §5.2).
    *
-   * [description] is interpolated unescaped, which holds only because every value reaching here is
-   * a literal this server wrote: one carrying a `"` or a `\` would produce a body no client can
-   * parse. A description derived from a request has to be escaped before it is passed in — or this
-   * has to become a map, which is what a conversion to a protocol library would do anyway.
+   * [description] passes the section's character set first. The SDK refuses a `"`, a `\` or any
+   * non-ASCII character with an exception, which would turn a refusal into a 500.
    */
-  private fun errorBody(code: String, description: String): String =
-    """{"error":"$code","error_description":"$description"}"""
+  private fun errorBody(code: String, description: String): String {
+    val error = ErrorObject(code, ErrorObject.removeIllegalChars(description))
+    return TokenErrorResponse(error).toJSONObject().toJSONString()
+  }
 
   /** The media type and the cache rules every answer from this endpoint carries. */
   private fun finish(builder: Response.ResponseBuilder): Response =

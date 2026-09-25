@@ -123,7 +123,19 @@ class PodTokenResponsesTest {
     assertEquals(429, response.status)
     assertEquals(cacheRules + ("Retry-After" to "60"), response.headerMap())
     assertEquals(
-      mapOf("error" to "slow_down", "error_description" to "too many token requests — retry later"),
+      mapOf("error" to "slow_down", "error_description" to "too many token requests; retry later"),
+      response.json(),
+    )
+  }
+
+  @Test
+  fun `a description keeps to the character set RFC 6749 allows it`() {
+    // §5.2 allows printable ASCII except `"` and `\`, so a dash, a quote and a backslash are dropped.
+    val response = PodTokenResponses.error(OAuthErrorCode.INVALID_GRANT, """a "quoted" \value — here""")
+
+    assertEquals(400, response.status)
+    assertEquals(
+      mapOf("error" to "invalid_grant", "error_description" to "a quoted value  here"),
       response.json(),
     )
   }
@@ -139,13 +151,7 @@ class PodTokenResponsesTest {
   private fun Response.headerMap(): Map<String, String> =
     stringHeaders.mapValues { (_, values) -> values.single() }
 
-  /**
-   * The body as a client decodes it. A map entity is written the way Jersey writes it, with
-   * [org.sempods.jaxrs.SempodsObjectMapperResolver]'s mapper.
-   */
-  private fun Response.json(): Map<String, Any?> {
-    val mapper = JsonMappers.default()
-    val text = entity as? String ?: mapper.writeValueAsString(entity)
-    return mapper.readValue(text, JsonUtil.dynamicTypeRef)
-  }
+  /** The body as a client decodes it. */
+  private fun Response.json(): Map<String, Any?> =
+    JsonMappers.default().readValue(entity as String, JsonUtil.dynamicTypeRef)
 }
