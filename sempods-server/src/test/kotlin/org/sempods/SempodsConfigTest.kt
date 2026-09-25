@@ -7,6 +7,7 @@ import org.sempods.client.SempodsPodBaseVectors
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -286,6 +287,17 @@ class SempodsConfigTest {
       assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
       assertContains(failure.message!!, "use '${bound.removeSuffix("/")}/'")
     }
+  }
+
+  @Test
+  fun `a public base URL with a non-ASCII path is refused without a spelling the next boot refuses`() {
+    val failure = assertFailsWith<IllegalStateException> {
+      SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", "https://example.org/pöds/")
+    }
+
+    assertContains(failure.message!!, "'https://example.org/p%C3%B6ds/'")
+    assertContains(failure.message!!, "SPS-CORE-020")
+    assertFalse("use '" in failure.message!!, failure.message)
   }
 
   @Test

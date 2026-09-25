@@ -283,13 +283,22 @@ data class SempodsConfig(
      * It is also a boot failure when [SempodsPodBase.of] binds [value] under another spelling:
      * `https://Pods.Example:443/` is bound as `https://pods.example/`, and the message names that
      * spelling. [SempodsPodBase] says why a client could not address this pod's IRIs otherwise.
+     *
+     * A path a client can bind only percent-encoded has no spelling to name: `/pöds` is bound as
+     * `/p%C3%B6ds`, which `SPS-CORE-020` refuses, so the message names no spelling (#304).
      */
     fun checkPublicBaseUrl(name: String, value: String): String {
       val reason = SempodsPodBase.reject(value)
       check(reason == null) { "$name is not a usable pod base URL: $reason, got '$value'" }
       // `of` drops the trailing slash `Env.baseUrl` adds, except on the host root.
       val bound = "${SempodsPodBase.of(value).toString().removeSuffix("/")}/"
-      check(bound == value) { "$name is not spelled the way a client binds it: use '$bound', got '$value'" }
+      check(bound == value) {
+        when (val unusable = SempodsPodBase.reject(bound)) {
+          null -> "$name is not spelled the way a client binds it: use '$bound', got '$value'"
+          else -> "$name has a path a client binds only as '$bound' ($unusable): " +
+            "use a path with no character that needs percent-encoding, got '$value'"
+        }
+      }
       return value
     }
 
