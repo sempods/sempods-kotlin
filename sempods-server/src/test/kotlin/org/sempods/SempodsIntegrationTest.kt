@@ -336,7 +336,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
  */
 internal val sempodsInjector: Injector by lazy {
   Guice.createInjector(
-    Modules.override(SempodsModule(aiProvider = "ollama"))
+    Modules.override(SempodsModule())
       .with(SempodsTestModule())
   )
 }

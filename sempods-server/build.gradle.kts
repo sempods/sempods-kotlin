@@ -133,3 +133,11 @@ dependencies {
   // and the binding itself comes from the root build script. Same reasoning as `:sempods-commons-jaxrs`.
   testImplementation(libs.logbackClassic)
 }
+
+tasks.test {
+  // The integration suite enables AI and replaces its provider with a test double. Clear an
+  // inherited environment value so the isolated binding tests can exercise the disabled states
+  // through Env's system-property fallback, restoring this setting after each case.
+  environment("AI_PROVIDER", "")
+  systemProperty("AI_PROVIDER", "ollama")
+}

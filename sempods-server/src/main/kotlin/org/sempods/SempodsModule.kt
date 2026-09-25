@@ -128,11 +128,8 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * binds a client that goes over the pod's **public HTTP surface**, the path every external caller
  * takes. That is the rule being honoured, not bent — the MCP surface stopped being a second way in
  * and became one more caller of the first.
- *
- * @param aiProvider AI runtime selected at boot: `disabled` (also null or blank), `ollama`, or
- * `openai`. Disabled deployments bind no AI service and register no AI endpoints.
  */
-class SempodsModule(private val aiProvider: String? = Env.get("AI_PROVIDER")) : BaseModule() {
+class SempodsModule : BaseModule() {
 
   override fun configure() {
 
@@ -458,7 +455,7 @@ class SempodsModule(private val aiProvider: String? = Env.get("AI_PROVIDER")) : 
   }
 
   private fun bindAiService() {
-    val provider = aiProvider
+    val provider = Env.get("AI_PROVIDER")
       ?.trim()
       ?.lowercase()
       ?.takeIf { it.isNotEmpty() }
