@@ -95,6 +95,15 @@ class PodGrantsFacade @Inject constructor(
       .filter { it.appId == appId && it.webId == webId }
       .flatMapTo(webIds.toMutableSet()) { it.subjectUris ?: listOf(it.webId) }
 
+  /**
+   * Records [subjectUris] as URIs [webId]'s rows for [appId] were consented under, beside the ones
+   * they already name. For an equivalent identity a sign-in names for the first time: a later
+   * sign-in that omits it has not withdrawn it (`SPS-OIDC-017`), and [consentedSubjectUris] knows
+   * only what was recorded.
+   */
+  internal fun recordConsentedSubjectUris(pod: PodId, appId: String, webId: String, subjectUris: Collection<String>) =
+    podGrantsDao.addSubjectUris(pod.objectId(), appId, webId, subjectUris)
+
   // ── user level: what a person may do on this pod ────────────────────────────
 
   /**

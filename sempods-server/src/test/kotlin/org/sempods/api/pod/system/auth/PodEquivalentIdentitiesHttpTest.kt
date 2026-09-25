@@ -151,6 +151,28 @@ class PodEquivalentIdentitiesHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `an alias a later sign-in names first is recorded, so omitting it afterwards revokes nothing`() {
+    // The consent recorded alias A. The owner-level grant moves to alias B, which the next sign-in
+    // names beside A: the grant is still backed, so nothing is narrowed, and B has to be recorded
+    // anyway. A sign-in after that names neither, and B still backs the grant (`SPS-OIDC-017`).
+    val pod = sempodsTestFactory.newPod()
+    val ctx = context(pod, "reports")
+    val first = "https://acme.example/people/${ObjectId()}"
+    val second = "https://acme.example/people/${ObjectId()}"
+    podWebIdGrantsDao.addGrants(checkNotNull(pod.id), first, listOf("$ctx#read"), grantedBy = null)
+    val signedInAs = oidcWebId()
+    assertEquals(303, consent(pod, signedInAs, listOf("$ctx#read"), claims = claim(listOf(first))).statusCode)
+    podWebIdGrantsDao.addGrants(checkNotNull(pod.id), second, listOf("$ctx#read"), grantedBy = null)
+    podWebIdGrantsDao.deleteGrants(checkNotNull(pod.id), first, listOf("$ctx#read"))
+
+    authorize(pod).executeSignedInAs(signedInAs, claims = claim(listOf(first, second)))
+    assertEquals(setOf("$ctx#read"), appGrants(pod, signedInAs), "the grant is backed by the alias named now")
+
+    authorize(pod).executeSignedInAs(signedInAs)
+    assertEquals(setOf("$ctx#read"), appGrants(pod, signedInAs), "the recorded alias still backs it")
+  }
+
+  @Test
   fun `a grant its alias no longer backs is still repaired away`() {
     // The other side of the rule above: what the consent recorded keeps the equivalence alive, and
     // the grant behind it still has to exist. An owner-level revocation whose cascade never landed
