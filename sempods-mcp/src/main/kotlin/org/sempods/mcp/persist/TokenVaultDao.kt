@@ -82,9 +82,10 @@ data class PodTokens(
    */
   val deadGrantSince: Date? = null,
   /**
-   * The pod's OAuth authorization server as it stood when [refreshToken] was minted, and what a
-   * refresh pins the freshly discovered metadata against: a pod whose metadata now names a different
-   * one (DNS/domain takeover, misconfig) never receives this token.
+   * The pod's issuer as last discovered, written by the connect and by every refresh. A refresh
+   * posts [refreshToken] only while this and the freshly discovered issuer are both the pod's own
+   * (`PodTokenProvider`): a pod whose metadata now names another server (DNS/domain takeover,
+   * misconfig) never receives this token.
    *
    * Required: `PodOAuthClient.discoverMetadata` refuses a pod naming no authorization server.
    * A row predating this field reads as unreadable.

@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.utils.UriEncodingUtil
@@ -30,7 +31,6 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -494,6 +494,25 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `slot and edge writes without a bearer or with a rejected one are challenged`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, _) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+
+    for (authorization in listOf(null, "Bearer not-a-real-jwt")) {
+      val slot = httpClient.preparePost(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
+        .addHeader("Content-Type", "application/ld+json")
+        .setBody("""{"@id":"$carol"}""")
+      val edge = httpClient.prepareDelete(withContext(edgeUrl(pod.name, bob, schemaChildren, carol), contextUri))
+      for (request in listOf(slot, edge)) {
+        authorization?.let { request.addHeader("Authorization", it) }
+        assertPodBearerChallenge(request.execute(), pod.name)
+      }
+    }
+  }
+
+  @Test
   fun `POST without ?context= returns 400`() {
     val pod = sempodsTestFactory.newPod()
     val (_, token) = createContextWithToken(pod, "contacts")
@@ -854,7 +873,7 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `DELETE single edge ignores If-Match (unconditional by design)`() {
+  fun `DELETE single edge with stale If-Match returns 412 and keeps the edge`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
@@ -866,13 +885,12 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $token")
       .addHeader("If-Match", "\"obviously-stale\"")
       .execute()
-    // Edge removal is idempotent — If-Match must be ignored, edge gone,
-    // 200 with the outcome body (RFC 9110 §9.3.5).
-    assertEquals(200, resp.statusCode)
-    assertEquals(
-      "removed",
-      objectMapper.readValue(resp.responseBody, Map::class.java)["outcome"],
-    )
+    assertEquals(412, resp.statusCode)
+
+    val slot = httpClient.prepareGet(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    assertTrue(carol in slot.responseBody, slot.responseBody)
   }
 
   // ── The client core against these routes ────────────────────────────────────
@@ -947,7 +965,7 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"stale"}]"""), stale).status)
       assertEquals(412, slots.put(bob, schemaName, SempodsContent.of("""[{"@value":"again"}]"""), inContacts.withIfNoneMatch("*")).status)
       assertEquals(412, slots.clear(bob, schemaName, stale).status)
-      assertFailsWith<IllegalArgumentException> { slots.removeEdge(bob, schemaName, carol, stale) }
+      assertEquals(412, slots.removeEdge(bob, schemaName, carol, stale).status)
 
       val read = slots.getJson(bob, schemaName, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
       assertTrue(read.body.orEmpty().contains("Bob Smith"), read.body)

@@ -19,6 +19,8 @@ import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Values
 import org.junit.jupiter.api.Test
 import java.net.URI
 import java.net.URLEncoder
@@ -1145,22 +1147,32 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `create_resource may describe a control-plane IRI like any other`() {
-    // An agent may say things about a context — those are claims in the caller's own context and
-    // cannot alter control-plane state, which lives in MongoDB rather than in the graph. The
-    // authoritative answer for the IRI still comes from the control plane itself.
+  fun `a write tool about a subject under the context namespace is a tool error in the pod's words`() {
+    // The tools write through the System routes, so the pod's `400` is what refuses them
+    // (`ContextPathRules.reservedSubjectReason`).
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
-    // Subject inside the pod's reserved area — what `parseResourceUriOrThrow` used to refuse.
-    // The write context is an ordinary one, so only the subject exercises the change.
-    val systemIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/example/tasks"
+    val namespace = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/"
 
-    val response = toolCall(pod.name, token, "create_resource", mapOf(
-      "context_iri" to contextUri.toString(),
-      "resource_iri" to systemIri,
-      "jsonld" to mapOf("@id" to systemIri, "https://schema.org/name" to "an agent's note"),
-    ))
-    assertFalse(response.contains("\"isError\":true"), "describing a control-plane IRI must succeed: $response")
+    // The context IRI itself, and the IRI a model derives from it.
+    listOf(contextUri.toString(), "$contextUri/res-1").forEach { subject ->
+      val created = toolCall(pod.name, token, "create_resource", mapOf(
+        "context_iri" to contextUri.toString(),
+        "resource_iri" to subject,
+        "jsonld" to mapOf("@id" to subject, "https://schema.org/name" to "an agent's note"),
+      ))
+      val added = toolCall(pod.name, token, "add_property_value", mapOf(
+        "context_iri" to contextUri.toString(),
+        "subject_iri" to subject,
+        "predicate_iri" to "https://schema.org/name",
+        "value" to mapOf("@value" to "an agent's note"),
+      ))
+      listOf(created, added).forEach { response ->
+        assertTrue(response.contains("\"isError\":true"), "<$subject> must be refused: $response")
+        assertTrue(response.contains("400"), "the pod's status reaches the model: $response")
+        assertTrue(response.contains("'$namespace'"), "the pod's refusal names the namespace: $response")
+      }
+    }
   }
 
   @Test
@@ -1373,11 +1385,11 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "contacts")
     val systemIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/example/tasks"
-    toolCall(pod.name, token, "create_resource", mapOf(
-      "context_iri" to contextUri.toString(),
-      "resource_iri" to systemIri,
-      "jsonld" to mapOf("@id" to systemIri, "https://schema.org/name" to "an agent's note"),
-    ))
+    // Stored before the pod refused such writes; the tools cannot write it any more, so the store does.
+    val claim = LinkedHashModel().apply {
+      add(URI(systemIri).toIri(), URI("https://schema.org/name").toIri(), Values.literal("an agent's note"), contextUri.toIri())
+    }
+    podFacade.patchResource(podName = pod.name, resourceUri = URI(systemIri), contextUri = contextUri, replacementModel = claim)
 
     val response = toolCall(pod.name, token, "get_resource", mapOf(
       "resource_iri" to systemIri,
@@ -2703,10 +2715,8 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val (contextB, _) = createContextWithToken(pod, "events-${TestUtil.randomId()}", webId = "https://id.test/user-b-${TestUtil.randomId()}")
 
     // Seeded over HTTP like any client write. The subjects sit in the pod's resource namespace and
-    // not under the context IRI: `_system/contexts/{path}` is the context registry's own route, so
-    // a subject below it is not dereferenceable over the LOD layer and the resource PUT answers
-    // 406. Which graph holds a statement is what this test is about; where the subject is minted
-    // is not.
+    // not under the context IRI, where the pod refuses a subject with 400. Which graph holds a
+    // statement is what this test is about; where the subject is minted is not.
     val resourceAUri = sempodsTestFactory.seedEvent(
       pod = pod.name,
       context = contextA,
@@ -2746,7 +2756,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "tasks-${TestUtil.randomId()}")
 
-    val resourceIri = "${contextUri}/task-${TestUtil.randomId()}"
+    val resourceIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/tasks/task-${TestUtil.randomId()}"
     val resourceName = "MCP created task ${TestUtil.randomId()}"
 
     val createRequest = mapOf(
@@ -2887,6 +2897,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     // A client that follows only WWW-Authenticate (instead of probing PRM under the MCP
     // URL) has to land on the pod's protected-resource metadata: the pod is the resource,
     // and its `/register` is the one registration endpoint.
+    // This deviates from SPS-MCP-009, which names the endpoint's own metadata (#305).
     val pod = sempodsTestFactory.newPod()
     val (contextUri, _) = createContextWithToken(pod, "tasks-${TestUtil.randomId()}")
     val resourceIri = "${contextUri}/task-${TestUtil.randomId()}"

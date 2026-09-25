@@ -22,9 +22,9 @@ data class PodConnection(
   val profile: String,
   val pod: String,
   /**
-   * The pod's OAuth authorization-server issuer, discovered via the pod's metadata — what
-   * `list_pods` reports. [PodTokens.issuer] is what a refresh pins against, and says why this copy
-   * is not.
+   * The pod's issuer as discovered at connect — what `list_pods` reports where the token row
+   * records none. [PodTokens.issuer] is what a refresh pins against and updates, and says why this
+   * copy is not.
    */
   val issuer: String,
   /**

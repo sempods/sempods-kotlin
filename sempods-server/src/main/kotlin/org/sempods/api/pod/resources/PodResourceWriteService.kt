@@ -8,6 +8,7 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.errors.PodResourceErrors
 import org.sempods.pods.PodFacade
+import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
@@ -55,6 +56,10 @@ class PodResourceWriteService @Inject constructor(
    *
    * [conditions] are evaluated against the resource's statements in [contextUri] alone, so
    * `If-None-Match: *` creates it there even when another context already holds it.
+   *
+   * A subject under the pod's context namespace, [resourceUri] or one in the body, is `400`
+   * ([ContextPathRules.reservedSubjectReason]). For [resourceUri] that comes before authorization,
+   * so it says nothing about [contextUri].
    */
   fun putResource(
     pod: String,
@@ -65,6 +70,7 @@ class PodResourceWriteService @Inject constructor(
     credentials: SempodsCredentials,
     conditions: WriteConditions,
   ): PutResourceOutcome {
+    rejectReservedSubject(credentials, resourceUri.toString())
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
     return podFacade.exclusively(pod) {
       val preExisting = podFacade.loadResourceStatementsInContext(
@@ -79,6 +85,7 @@ class PodResourceWriteService @Inject constructor(
         resourceUri = resourceUri,
         targetContextUri = contextUri,
         allowEmptyModel = false,
+        credentials = credentials,
       )
       podFacade.patchResource(
         podName = pod,
@@ -104,6 +111,9 @@ class PodResourceWriteService @Inject constructor(
    * RFC 7396 array-replace semantics apply unchanged: writing a multivalued property
    * replaces every existing value. Use the System-layer property-value tools for additive
    * multivalued operations.
+   *
+   * A subject under the pod's context namespace is `400`, as for [putResource] — also when
+   * statements about [resourceUri] are already stored there. [deleteResource] removes them.
    */
   fun mergePatchResource(
     pod: String,
@@ -113,6 +123,7 @@ class PodResourceWriteService @Inject constructor(
     credentials: SempodsCredentials,
     conditions: WriteConditions,
   ): Boolean {
+    rejectReservedSubject(credentials, resourceUri.toString())
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
 
     return podFacade.exclusively(pod) {
@@ -156,6 +167,7 @@ class PodResourceWriteService @Inject constructor(
         resourceUri = resourceUri,
         targetContextUri = contextUri,
         allowEmptyModel = true,
+        credentials = credentials,
       )
 
       podFacade.patchResource(
@@ -230,6 +242,7 @@ class PodResourceWriteService @Inject constructor(
     resourceUri: URI,
     targetContextUri: URI,
     allowEmptyModel: Boolean,
+    credentials: SempodsCredentials,
   ) {
     val resourceIri = resourceUri.toIri()
     val subjects = model.map { it.subject }.toSet()
@@ -263,6 +276,8 @@ class PodResourceWriteService @Inject constructor(
           .build()
       )
     }
+    // Before the foreign-subject check, so a nested subject is refused for the namespace too.
+    subjects.forEach { rejectReservedSubject(credentials, it.stringValue()) }
     if (subjects.any { it != resourceIri }) {
       throw WebApplicationException(
         Response.status(400)
@@ -383,6 +398,10 @@ class PodResourceWriteService @Inject constructor(
     WebApplicationException(
       Response.status(400).entity(message).type(MediaType.TEXT_PLAIN).build()
     )
+
+  private fun rejectReservedSubject(credentials: SempodsCredentials, subject: String) {
+    ContextPathRules.reservedSubjectReason("${credentials.pod.uri}/", subject)?.let { throw badRequest(it) }
+  }
 
   /**
    * A canonical absolute IRI — strict enough to reject JSON-LD compact terms like

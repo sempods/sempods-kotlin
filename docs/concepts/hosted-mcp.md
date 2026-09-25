@@ -124,8 +124,9 @@ inside its own JSON-RPC stream (see
 [`../mcp/authentication.md`](../mcp/authentication.md#the-authorize-tool)).
 
 1. The user enters a pod base URL. The service vets it ([SSRF](#security--pod-urls-and-ssrf)) and
-   reads the pod's OAuth metadata. A registration endpoint means DCR; RFC 9728 alone means the
-   service's static `did:web:<mcp-host>` client.
+   reads the pod's OAuth metadata, which has to describe that URL
+   ([runtime](../../sempods-mcp/docs/runtime.md#pod-connections-and-token-renewal)). A registration
+   endpoint means DCR; RFC 9728 alone means the service's static `did:web:<mcp-host>` client.
 2. Authorization Code + PKCE at the pod's `authorize`, with `scope=offline_access` where the pod
    advertises it (see [what it buys](#what-it-buys--and-what-it-costs)).
 3. `state` is an opaque handle to a one-time, expiring server-side row

@@ -173,9 +173,7 @@ canonical JSON-LD. Read with `context_iri` naming the one context you will
 write and it is the read half of a safe read-modify-write: pass the returned
 `etag` to `update_resource` / `delete_resource` in that context as
 `if_match`. Prefer it over hand-written SPARQL when the IRI is known. `resource_iri` may be local or
-external (same rule as `create_resource`; only the pod's own `_system` /
-`.well-known` area is excluded). 404-style tool error if no statements are
-visible.
+external. 404-style tool error if no statements are visible.
 
 Arguments:
 - `resource_iri: string` — local or external.
@@ -236,10 +234,15 @@ Arguments:
 - `resource_iri: string` — any absolute IRI: a resource in this pod **or
   an external URI** (`did:`, `urn:`, foreign `https://...`), so an external
   identity (e.g. a `foaf:`/`schema:Person`) can be enriched with pod-local
-  statements. There is **no** exclusion — not even this pod's own `_system`
-  IRIs, because a statement *about* a control-plane IRI is a statement, and
-  where it is stored is what the writable *context* decides. That context,
-  not the resource IRI, is the authorization boundary.
+  statements. The writable *context* decides where statements are stored,
+  and it is the authorization boundary. One namespace is refused: this
+  pod's `_system/contexts` and any IRI under it, where `GET` is the
+  context catalogue or registry. The pod answers `400`, and the tool
+  reports it as an error.
+  This deviates from `SPS-CTX-026` until
+  [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116)
+  decides; [`ContextPathRules.reservedSubjectReason`](../../sempods-server/src/main/kotlin/org/sempods/pods/contexts/ContextPathRules.kt)
+  owns the rule.
 - `jsonld: object` — JSON-LD body. Predicates and `@type` MUST resolve
   to absolute IRIs (bare keys expand to nothing and the request fails
   with `parsed to 0 RDF statements`). The `@id` is set to `resource_iri`,
@@ -302,8 +305,9 @@ context. Returns the write shape above, with `status` `204`.
 Remove a resource from a consented context. Same scope rule as
 `create_resource`.
 
-Arguments: `context_iri`, `resource_iri` (local or external, same as
-`create_resource`). Optional `if_match` (ETag from `get_resource` read
+Arguments: `context_iri`, `resource_iri` (local or external, and also one
+at or under this pod's `_system/contexts`, so older data there can be removed).
+Optional `if_match` (ETag from `get_resource` read
 in this context) makes the delete conditional → precondition error if the
 resource changed there since then.
 
@@ -320,6 +324,10 @@ All property-value tools:
 - require `context_iri` from `list_contexts.writable_contexts`;
 - accept full absolute IRIs only (`subject_iri`, `predicate_iri`, and
   `target_iri` where applicable);
+- refuse a `subject_iri` at or under this pod's `_system/contexts` on
+  `add_property_value` and `set_property_values`, as `create_resource` does.
+  `remove_property_value` and `clear_property_values` accept it, so older
+  data there can be removed;
 - perform no CURIE or prefix expansion;
 - use the same `<context>#write` / `<root>#manage` authorization rule as
   resource writes;
@@ -327,8 +335,7 @@ All property-value tools:
   operations internally. MCP callers pass IRIs, not base64url path
   segments;
 - return the slot's new `etag` in their result, and accept an optional
-  `if_match` (except `remove_property_value`, which is idempotent and
-  returns no tag). Read a slot's current `etag` with
+  `if_match` (except `remove_property_value`). Read a slot's current `etag` with
   `get_property_values` (single `context_iri`);
 - report `outcome` where the operation is idempotent and the status
   cannot say what happened — `created`/`already_present`,

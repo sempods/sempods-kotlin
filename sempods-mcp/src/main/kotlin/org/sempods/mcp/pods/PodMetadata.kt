@@ -1,5 +1,7 @@
 package org.sempods.mcp.pods
 
+import org.sempods.client.SempodsPodBase
+
 /**
  * The OAuth endpoints discovered for a pod (RFC 8414 authorization-server metadata), resolved
  * from the pod's protected-resource metadata (RFC 9728). This is what the service-as-client
@@ -7,8 +9,9 @@ package org.sempods.mcp.pods
  */
 data class PodOAuthMetadata(
   /**
-   * The pod's AS issuer, e.g. `https://sempods.org/alice/_system/auth`: the first
-   * `authorization_servers` entry of its RFC 9728 metadata, without a terminating `/`.
+   * The pod's issuer, e.g. `https://sempods.org/alice`: the sole `authorization_servers` entry of
+   * its RFC 9728 metadata, without a terminating `/`. Always one of [podIssuers] for the pod it was
+   * discovered for.
    */
   val issuer: String,
   val authorizationEndpoint: String,
@@ -35,6 +38,27 @@ data class PodOAuthMetadata(
    */
   val scopesSupported: Set<String> = emptySet(),
 )
+
+/**
+ * The issuers the pod at [pod] may name: its base URL (SPS-AUTH-028), for example
+ * `https://sempods.org/alice`, and `{pod}/_system/auth`. Both in the spelling of [canonicalPodBase].
+ */
+internal fun podIssuers(pod: String): Set<String> {
+  val base = canonicalPodBase(pod)
+  // TODO: drop `{pod}/_system/auth`, which pod servers without the issuer switch of #193 still
+  //  name, once that switch is deployed everywhere and every connection has refreshed since. The
+  //  preservation tier refreshes each one within POD_TOKEN_FAMILY_PRESERVE_SECONDS.
+  return setOf(base, "$base/_system/auth")
+}
+
+/**
+ * [pod] in the spelling a pod names itself by: the one [SempodsPodBase] binds, without a
+ * terminating `/`. `https://Pods.Example:443/alice` is `https://pods.example/alice`.
+ *
+ * Admission ([PodUrlPolicy.reject]) accepts every spelling that binds, and a connection is stored
+ * under the one the person typed, so what a pod publishes is compared against this form.
+ */
+internal fun canonicalPodBase(pod: String): String = SempodsPodBase.of(pod).toString().removeSuffix("/")
 
 /** A pod token-endpoint response (authorization_code or refresh_token grant). */
 data class PodTokenResponse(

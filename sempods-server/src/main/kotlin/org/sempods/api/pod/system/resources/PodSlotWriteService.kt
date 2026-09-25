@@ -10,6 +10,7 @@ import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.api.pod.resources.RepresentationTags
 import org.sempods.api.pod.resources.WriteConditions
 import org.sempods.pods.PodFacade
+import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
@@ -30,6 +31,9 @@ import java.net.URI
  * concerns: parse JSON-LD value objects into RDF [Value]s, validate the `?context=`
  * parameter, run the `<ctx>#write` / `<root>#manage` authorization check, then evaluate the
  * write's [WriteConditions] against the slot in the write context.
+ *
+ * [replaceSlot] and [addSlotValue] first refuse a subject under the pod's context namespace with
+ * `400` ([ContextPathRules.reservedSubjectReason]), before authorization. The removals do not.
  */
 class PodSlotWriteService @Inject constructor(
   private val podFacade: PodFacade,
@@ -45,6 +49,9 @@ class PodSlotWriteService @Inject constructor(
 
   /** @property cleared whether the slot held anything. @property tag as on [SlotAddResult]. */
   data class SlotClearResult(val cleared: Boolean, val tag: EntityTag)
+
+  /** @property removed whether the edge was there. @property tag as on [SlotAddResult]. */
+  data class EdgeRemoveResult(val removed: Boolean, val tag: EntityTag)
 
   fun resolveWriteContextOrThrow(pod: String, rawContext: String?): URI =
     podContextWriteAuthorizer.resolveWriteContextOrThrow(pod, rawContext)
@@ -98,6 +105,7 @@ class PodSlotWriteService @Inject constructor(
     credentials: SempodsCredentials,
     conditions: WriteConditions,
   ): EntityTag {
+    rejectReservedSubject(credentials, subjectUri)
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
     return podFacade.exclusively(pod) {
       requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
@@ -121,6 +129,7 @@ class PodSlotWriteService @Inject constructor(
     credentials: SempodsCredentials,
     conditions: WriteConditions,
   ): SlotAddResult {
+    rejectReservedSubject(credentials, subjectUri)
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
     return podFacade.exclusively(pod) {
       requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
@@ -140,9 +149,12 @@ class PodSlotWriteService @Inject constructor(
    * Remove the single edge `(subject, predicate, target)` in [contextUri]. The route is
    * `SPS-CRUD-042`; that this operation is **idempotent**, and the `removed` / `already_absent`
    * words it answers with, are `SPS-CRUD-044` — a missing edge yields the same outcome as
-   * removing a present one. The
-   * returned boolean lets callers (HTTP audit, MCP outcome) distinguish "actually removed"
-   * from "already absent" — it is NOT a success/failure signal.
+   * removing a present one. [EdgeRemoveResult.removed] tells the two apart for the audit log and
+   * the outcome body; it is not a success/failure signal.
+   *
+   * An edge has no tag of its own, so [conditions] are evaluated against its slot in [contextUri]
+   * (`SPS-CRUD-059`), under the same lock as the removal (`SPS-CRUD-060`). An absent edge is
+   * `already_absent` when they hold and `412` when they do not.
    */
   fun removeSlotEdge(
     pod: String,
@@ -151,15 +163,20 @@ class PodSlotWriteService @Inject constructor(
     contextUri: URI,
     targetIri: IRI,
     credentials: SempodsCredentials,
-  ): Boolean {
+    conditions: WriteConditions,
+  ): EdgeRemoveResult {
     podContextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
-    return podFacade.removeSlotEdge(
-      podName = pod,
-      subjectUri = subjectUri,
-      predicateUri = predicateUri,
-      contextUri = contextUri,
-      targetIri = targetIri,
-    )
+    return podFacade.exclusively(pod) {
+      requireConditions(conditions, pod, subjectUri, predicateUri, contextUri)
+      val removed = podFacade.removeSlotEdge(
+        podName = pod,
+        subjectUri = subjectUri,
+        predicateUri = predicateUri,
+        contextUri = contextUri,
+        targetIri = targetIri,
+      )
+      EdgeRemoveResult(removed = removed, tag = slotTag(pod, subjectUri, predicateUri, contextUri))
+    }
   }
 
   /**
@@ -302,6 +319,10 @@ class PodSlotWriteService @Inject constructor(
     WebApplicationException(
       Response.status(400).entity(message).type(MediaType.TEXT_PLAIN).build()
     )
+
+  private fun rejectReservedSubject(credentials: SempodsCredentials, subjectUri: URI) {
+    ContextPathRules.reservedSubjectReason("${credentials.pod.uri}/", subjectUri.toString())?.let { throw badRequest(it) }
+  }
 
   companion object {
     private val objectMapper = JsonMappers.default()

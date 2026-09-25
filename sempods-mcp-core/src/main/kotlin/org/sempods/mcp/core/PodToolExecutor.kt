@@ -240,13 +240,12 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
 
       // --- writes: one pod, one context, never a fan-out ---
       //
-      // Who may write where is entirely the pod's decision — it resolves `context_iri` against its
-      // own registry and enforces the `<context_iri>#write` scope, answering 404 or 403. What is
-      // checked here is argument *shape* and nothing else. There used to be a reserved-area guard
-      // refusing anything under a pod's `_system` / `.well-known`; it was neither necessary (the
-      // pod's registry already answers) nor correct (it refused resource subjects the pod allows on
-      // purpose, and carried a copy of the context namespace that went stale when contexts moved to
-      // `_system/contexts/`). Do not reintroduce it.
+      // Who may write where, and about what, is entirely the pod's decision. It resolves
+      // `context_iri` against its own registry and enforces the `<context_iri>#write` scope,
+      // answering 404 or 403; a sempods pod also refuses a subject at or under its
+      // `_system/contexts` with 400. What is checked here is argument *shape* and nothing else. Do not add a
+      // reserved-area guard: it would copy one pod's rules into a client that faces any pod, and
+      // such a copy went stale once already, when contexts moved to `_system/contexts/`.
 
       else -> {
         val contextIri = ToolArguments.string(arguments, "context_iri")
@@ -316,8 +315,7 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
               "remove_property_value" -> {
                 val targetIri = ToolArguments.string(arguments, "target_iri")
                   ?: return PodToolPlan.InvalidArguments("missing required argument: target_iri")
-                // No precondition: removing one edge is idempotent, the catalog does not offer
-                // `if_match` on this tool, and the route refuses a condition it would have to ignore.
+                // No precondition: the catalog does not offer `if_match` on this tool.
                 val edgeIds = LinkedHashMap(ids).apply { put("target_iri", targetIri) }
                 call { pod ->
                   written(edgeIds, pod.slots().removeEdge(subjectIri, predicateIri, targetIri, inContext))

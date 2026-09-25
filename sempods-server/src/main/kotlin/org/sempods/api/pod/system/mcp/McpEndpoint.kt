@@ -226,10 +226,13 @@ class McpEndpoint @Inject constructor(
       - BEFORE calling a write tool, confirm the target `context_iri` with the user unless
         (a) the user's message named it explicitly, or (b) exactly one writable context
         is available and the user's intent clearly matches what that context is for.
-      - `resource_iri` may be ANY absolute IRI — a resource in this pod, an external URI
-        (`did:`, `urn:`, foreign `https://...`), or even one of this pod's own control-plane
-        IRIs. What a statement is *about* is independent of where it is stored: the
-        `context_iri` decides that, and its write scope is what governs the call.
+      - `resource_iri` may be ANY absolute IRI — a resource in this pod or an external URI
+        (`did:`, `urn:`, foreign `https://...`). What a statement is *about* is independent
+        of where it is stored: the `context_iri` decides that, and its write scope is what
+        governs the call.
+      - Do NOT derive `resource_iri` from `context_iri`. Nothing at or under
+        $podBaseUrl/_system/contexts can be a resource: that is where this pod's context
+        catalogue and context IRIs live, and it answers a write about one with 400.
       - `create_resource` upserts (replaces the resource's statements in the context). The
         `jsonld` argument may still carry "@context" + compact terms — `create_resource`
         runs full JSON-LD expansion on input.
@@ -245,7 +248,8 @@ class McpEndpoint @Inject constructor(
       - Operate at triple granularity on the slot `(subject_iri, predicate_iri)` within
         one `context_iri`.
       - `subject_iri` does NOT have to live in this pod's namespace — it may be any external
-        URI (`did:web:bob.example`, `urn:isbn:...`, etc.). These are the GRANULAR (per-value)
+        URI (`did:web:bob.example`, `urn:isbn:...`, etc.), under the same rule as
+        `resource_iri` above. These are the GRANULAR (per-value)
         path for triples about external URIs; `create_resource` / `update_resource` /
         `delete_resource` are the WHOLE-RESOURCE path for the same external IRIs.
       - All arguments must be absolute IRIs. `predicate_iri` is the full property URI
@@ -290,9 +294,7 @@ class McpEndpoint @Inject constructor(
       - Omitting `if_match` is the default — writes go through unconditionally.
       - `create_resource` accepts `if_none_match: "*"` for create-or-fail (fails if the
         resource already exists) instead of its default upsert.
-      - `remove_property_value` does NOT take `if_match`: single-edge removal is idempotent
-        (present or not, the outcome is the same), so optimistic-concurrency control adds
-        nothing.
+      - `remove_property_value` does NOT take `if_match`; it removes unconditionally.
 
       REJECTED IN SPARQL: INSERT / DELETE / LOAD / CLEAR / CREATE / DROP / COPY / MOVE / ADD
       and SERVICE (SSRF protection). Use the write tools for mutations.

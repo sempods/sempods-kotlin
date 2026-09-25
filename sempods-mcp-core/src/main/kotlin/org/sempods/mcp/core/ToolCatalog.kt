@@ -430,8 +430,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "  - Either write every predicate as an absolute IRI, or declare shorthand in \"@context\".\n\n" +
         "WORKING EXAMPLE (copy this shape, swap IRIs/values):\n\n" +
         "  {" + exampleTarget + "\n" +
-        "    \"context_iri\": \"https://sempods.org/alice/ai-playground\",\n" +
-        "    \"resource_iri\": \"https://sempods.org/alice/ai-playground/message/chatgpt-1\",\n" +
+        "    \"context_iri\": \"https://sempods.org/alice/_system/contexts/ai-playground\",\n" +
+        "    \"resource_iri\": \"https://sempods.org/alice/messages/chatgpt-1\",\n" +
         "    \"jsonld\": {\n" +
         "      \"@context\": {\n" +
         "        \"schema\": \"https://schema.org/\",\n" +
@@ -439,7 +439,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "        \"text\":   \"schema:text\",\n" +
         "        \"intent\": \"https://sempods.org/vocab/intent\"\n" +
         "      },\n" +
-        "      \"@id\":    \"https://sempods.org/alice/ai-playground/message/chatgpt-1\",\n" +
+        "      \"@id\":    \"https://sempods.org/alice/messages/chatgpt-1\",\n" +
         "      \"@type\":  \"schema:Message\",\n" +
         "      \"sender\": \"ChatGPT\",\n" +
         "      \"intent\": \"agent_collaboration\",\n" +
@@ -450,8 +450,10 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "`resource_iri` must equal `jsonld[\"@id\"]`. It may be ANY absolute IRI — a resource in the " +
         "pod or an external URI (`did:`, `urn:`, foreign `https://…`) — so you can enrich an external " +
         "identity (say a `foaf:`/`schema:Person`) with pod-local statements. Where a statement is " +
-        "stored is decided by `context_iri`, not by what it is about. Pass `if_none_match: \"*\"` for " +
-        "create-or-fail; omit it for upsert.",
+        "stored is decided by `context_iri`, not by what it is about. Do NOT derive `resource_iri` " +
+        "from `context_iri`, and do not put it under a pod's `_system/contexts/`: that namespace " +
+        "holds the context IRIs, and a pod may refuse a resource there. Pass `if_none_match: \"*\"` " +
+        "for create-or-fail; omit it for upsert.",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the writable context (graph) the resource belongs to. Use one of the writable_contexts from `list_contexts`."),
         "resource_iri" to prop("string", "Absolute IRI of the resource — local or external (did:, urn:, foreign https://…). Must equal `jsonld[\"@id\"]`."),
@@ -481,8 +483,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "`remove_property_value`).\n\n" +
         "WORKING EXAMPLE:\n\n" +
         "  {" + exampleTarget + "\n" +
-        "    \"context_iri\": \"https://sempods.org/alice/contacts\",\n" +
-        "    \"resource_iri\": \"https://sempods.org/alice/contacts/bob\",\n" +
+        "    \"context_iri\": \"https://sempods.org/alice/_system/contexts/contacts\",\n" +
+        "    \"resource_iri\": \"https://sempods.org/alice/people/bob\",\n" +
         "    \"jsonld_patch\": {\n" +
         "      \"https://schema.org/text\": [{\"@value\": \"updated\"}],\n" +
         "      \"https://schema.org/oldField\": null\n" +
@@ -524,7 +526,8 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "with the same value is safe — the first call returns `outcome=created`, the second returns " +
         "`outcome=already_present`. Both are success outcomes; no `isError`.\n\n" +
         "`subject_iri` may be ANY absolute IRI — a local pod resource or an external one " +
-        "(`did:web:…`, `urn:…`). This is the granular (per-value) path for writing triples about " +
+        "(`did:web:…`, `urn:…`) — but, as for `create_resource`, not one under a pod's " +
+        "`_system/contexts/`. This is the granular (per-value) path for writing triples about " +
         "external URIs; `create_resource` / `update_resource` are the whole-resource counterparts.\n\n" +
         "`value` is a JSON-LD value object: `{\"@id\": \"<iri>\"}` for an IRI value, or " +
         "`{\"@value\": \"…\", \"@language\": \"…\"}` / `{\"@value\": \"…\", \"@type\": \"…\"}` for a " +
