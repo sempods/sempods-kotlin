@@ -90,8 +90,8 @@ class PodOAuthClient(
    * RFC 9728 → RFC 8414 discovery at the addresses SPS-AUTH-067 appends: PRM at the pod, then AS
    * metadata at its issuer.
    *
-   * Both documents are checked against [podBaseUrl], the pod the caller asked for (SPS-AUTH-068).
-   * For `https://example.org/alice`:
+   * Both documents are checked against [podBaseUrl], the pod the caller asked for (SPS-AUTH-068), in
+   * the spelling of [canonicalPodBase]. For `https://example.org/alice`:
    *
    * | The pod's metadata | Result |
    * |---|---|
@@ -110,7 +110,7 @@ class PodOAuthClient(
    * checked (it only drives a browser redirect, but the same guard keeps it consistent).
    */
   suspend fun discoverMetadata(podBaseUrl: String): PodOAuthMetadata {
-    val base = podBaseUrl.trimEnd('/')
+    val base = canonicalPodBase(podBaseUrl)
     val prm = getResourceMetadata("$base/.well-known/oauth-protected-resource")
     // RFC 9728 §3.3, with the pod URL as the expected resource (SPS-AUTH-068): compared exactly.
     val resource = prm["resource"]?.takeIf(JsonNode::isTextual)?.asText()

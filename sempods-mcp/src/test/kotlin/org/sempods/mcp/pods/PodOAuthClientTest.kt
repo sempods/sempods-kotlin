@@ -346,6 +346,16 @@ class PodOAuthClientTest {
   }
 
   @Test
+  fun `a pod typed under another spelling is compared in the spelling it names itself by`() = runBlocking {
+    // Admission accepts every spelling SempodsPodBase binds; the pod publishes the canonical one.
+    for (typed in listOf("http://LOCALHOST:${server.port}/pod", "$base/")) {
+      val metadata = client.discoverMetadata(typed)
+
+      assertEquals(base, metadata.issuer, typed)
+    }
+  }
+
+  @Test
   fun `a pod that names its auth route as issuer connects on that issuer`() = runBlocking {
     // The pod server before the issuer switch of #193: its issuer is `{pod}/_system/auth`, and its
     // AS metadata sits below that. Accepted until `podIssuers` drops the form.

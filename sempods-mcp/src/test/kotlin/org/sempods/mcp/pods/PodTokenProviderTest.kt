@@ -261,6 +261,31 @@ class PodTokenProviderTest {
   }
 
   @Test
+  fun `a connection stored under another spelling of the pod refreshes against the spelling the pod names`() = runBlocking {
+    // Admission accepts every spelling SempodsPodBase binds, and the rows keep the one typed. The
+    // pod names itself canonically, and that is still this pod.
+    val typed = "http://LOCALHOST:${server.port}/pod"
+    val typedKey = PodKey(user, profile, typed)
+    registry.upsert(
+      PodConnection(
+        user, profile, typed, issuer = authBase, podClientId = "dyn:x", scopes = setOf("public-read"),
+        podSubject = null, createdAt = Date(), updatedAt = Date(), podRedirectUri = null,
+      ),
+    )
+    vault.upsert(
+      PodTokens(
+        user, profile, typed, accessToken = "at-1", refreshToken = "rt-1",
+        accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(), podClientId = "dyn:issued-to",
+        podRedirectUri = "https://mcp.test/_system/ui/pods/callback", issuer = authBase, podSubject = user, subjectVerified = false,
+      ),
+    )
+
+    assertEquals("at-2", provider.validAccessToken(typedKey)?.token)
+    assertEquals(pod, vault.find(typedKey)!!.issuer)
+    verify(exactly = 1) { auditLog.podTokenRefreshed(typedKey, ok = true) }
+  }
+
+  @Test
   fun `a pod naming its auth route as issuer refreshes a connection recorded under either of its issuers`() = runBlocking {
     // The pod server before the switch, as it answers today. A row recorded under the base is the
     // other direction, for a pod server rolled back across the switch: both are this pod's issuer.
