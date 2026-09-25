@@ -11,6 +11,7 @@ import io.mockk.verify
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import java.net.URI
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -112,5 +113,25 @@ class PodContextPermissionResolverTest {
     val scopes = setOf("${ctx("tasks")}#manage")
     val result = resolver.expandManageCascade(scopes, podId, podBaseUrl)
     assertTrue(result == scopes)
+  }
+
+  // --- describeEffectivePermissions ------------------------------------------------------
+
+  @Test
+  fun `the owner's registry authority is reported as manage alone`() {
+    val effective = resolver.describeEffectivePermissions(
+      effectiveScopes = emptySet(),
+      rawScopes = emptySet(),
+      visibleContexts = emptySet(),
+      podBaseUrl = podBaseUrl,
+      registryContexts = listOf(ctx("notes"), ctx("diary")),
+    )
+
+    assertEquals(listOf(ctx("diary"), ctx("notes")), effective.byContext.keys.toList())
+    effective.byContext.values.forEach {
+      assertEquals(listOf("manage"), it.permissions, "no read or write is implied: ${it.contextUri}")
+      assertEquals(ContextPermissionSource.OWNER, it.source)
+    }
+    assertEquals(emptyList(), effective.writableContexts)
   }
 }

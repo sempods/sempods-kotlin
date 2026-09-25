@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
+import com.nimbusds.oauth2.sdk.ErrorObject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.Context
@@ -497,11 +498,13 @@ class PodAuthEndpoint @Inject constructor(
         else -> OAuthErrorCode.SERVER_ERROR
       }
       // The upstream code survives in the description even when the class above is not it, so a
-      // reclassification never costs the one detail an operator needs to find the cause.
+      // reclassification never costs the one detail an operator needs to find the cause. Both are
+      // the provider's text, so they pass RFC 6749 §4.1.2.1's character set before the client
+      // sees them.
       val describedAs = errorDescription?.takeIf { it.isNotBlank() }
         ?.let { if (it == error) it else "$error: $it" }
         ?: error
-      return oauthErrorToParked(pending, upstreamClass, describedAs)
+      return oauthErrorToParked(pending, upstreamClass, ErrorObject.removeIllegalChars(describedAs))
     }
     // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
     // rather than `access_denied`, so a client does not record a decision that was never made.

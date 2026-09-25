@@ -42,7 +42,10 @@ Argument: `reauthorize: boolean` (optional, default `false`).
 ### `list_contexts`
 
 Returns the contexts (named graphs) this session can see, with the
-permission level on each. The contract is:
+permission level on each. An entry with `manage` alone is the owner's
+[`contexts:manage`](../auth/oauth.md#managing-contexts) registry
+authority, with no read or write, and no reason to reauthorize for data.
+The contract is:
 
 ```json
 {

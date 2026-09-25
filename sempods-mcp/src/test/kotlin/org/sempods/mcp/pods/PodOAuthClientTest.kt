@@ -370,21 +370,60 @@ class PodOAuthClientTest {
   }
 
   @Test
-  fun `AS metadata whose issuer carries a query keeps the issuer the pod itself named`() = runBlocking {
-    // RFC 8414 §2 forbids a query on the issuer, and nimbus enforces it. A pod that gets this
-    // wrong still connects — on the RFC 9728 issuer, which is the one it published as a resource.
+  fun `AS metadata naming the issuer it was discovered for connects on that issuer`() = runBlocking {
+    val metadata = client.discoverMetadata(base)
+
+    assertEquals("$base/_system/auth", metadata.issuer)
+  }
+
+  @Test
+  fun `AS metadata naming another issuer is refused, and the error says which issuer was expected`() = runBlocking {
+    // RFC 8414 §3.3: a document whose issuer is not the one it was fetched for MUST NOT be used.
+    // The first case is the one that matters most: another pod on the same origin.
     val authBase = "$base/_system/auth"
-    server.clear(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
-    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
-      .respond(
-        response().withStatusCode(200).withBody(
-          """{"issuer":"$authBase?tenant=a","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token"}""",
-        ),
+    val otherPod = "http://localhost:${server.port}/other/_system/auth"
+    // The label, the document's `issuer` member, and what the error says the pod declared.
+    val cases = listOf(
+      Triple("another pod", """"issuer":"$otherPod",""", "issuer '$otherPod'"),
+      Triple("a query", """"issuer":"$authBase?tenant=a",""", "issuer '$authBase?tenant=a'"),
+      Triple("absent", "", "no issuer"),
+      Triple("not a string", """"issuer":42,""", "no issuer"),
+    )
+    for ((label, issuerMember, declared) in cases) {
+      servesAsMetadata(
+        """{$issuerMember"authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token"}""",
       )
 
-    val metadata = client.discoverMetadata(base)
-    assertEquals(authBase, metadata.issuer, "the unusable issuer is dropped, not carried")
-    assertEquals("$authBase/authorize", metadata.authorizationEndpoint)
+      val failure = assertFailsWith<PodOAuthException>(label) { client.discoverMetadata(base) }
+
+      assertEquals("pod AS metadata declares $declared, expected '$authBase'", failure.message, label)
+      assertNull(failure.oauthErrorCode, "$label: the pod sent no OAuth error, so there is no code to report")
+    }
+  }
+
+  @Test
+  fun `a terminating slash on either issuer still connects, on the issuer without it`() = runBlocking {
+    // Both spellings fetch the same document, and the refresh pin compares the spelling without it.
+    val authBase = "$base/_system/auth"
+    val cases = listOf(
+      "on the resource's entry" to ("$authBase/" to authBase),
+      "on the declared issuer" to (authBase to "$authBase/"),
+      "on both" to ("$authBase/" to "$authBase/"),
+    )
+    for ((label, issuers) in cases) {
+      val (listed, declared) = issuers
+      server.clear(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+        .respond(response().withStatusCode(200).withBody("""{"resource":"$base","authorization_servers":["$listed"]}"""))
+      servesAsMetadata(
+        """{"issuer":"$declared","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token"}""",
+      )
+
+      val metadata = client.discoverMetadata(base)
+
+      assertEquals(authBase, metadata.issuer, label)
+      assertEquals("$authBase/token", metadata.tokenEndpoint, label)
+    }
   }
 
   @Test
@@ -435,6 +474,13 @@ class PodOAuthClientTest {
   fun `buildAuthorizeUrl omits scope entirely when none is requested`() {
     val url = client.buildAuthorizeUrl(plainMetadata(), "dyn:c", "https://mcp.test/cb", "chal", "state1", scope = null)
     assertFalse("scope=" in url, url)
+  }
+
+  /** Replaces the AS metadata document the simulated pod serves. */
+  private fun servesAsMetadata(body: String) {
+    server.clear(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody(body))
   }
 
   /** An AS whose authorization endpoint is multi-tenant and keeps a query of its own. */
