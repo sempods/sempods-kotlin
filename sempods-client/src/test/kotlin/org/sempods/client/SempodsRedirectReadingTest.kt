@@ -42,18 +42,29 @@ class SempodsRedirectReadingTest {
   }
 
   @Test
-  fun `an issuer that is this pod's is accepted (RFC 9207)`() {
-    val answer = authorization.readRedirect("code=c-1&state=s1&iss=https%3A%2F%2Fpods.example%2Falice%2F_system%2Fauth", "s1")
+  fun `an issuer that is this pod's base URL is accepted (RFC 9207)`() {
+    val answer = authorization.readRedirect("code=c-1&state=s1&iss=https%3A%2F%2Fpods.example%2Falice", "s1")
 
     assertEquals("c-1", answer.code)
+  }
+
+  @Test
+  fun `a pod at the host root is its own issuer, without a slash`() {
+    val root = SempodsPodAuthorization(SempodsSession(SempodsPodBase.of("https://alice.example")), OkHttpClient())
+
+    assertEquals("c-1", root.readRedirect("code=c-1&state=s1&iss=https%3A%2F%2Falice.example", "s1").code)
+    assertThrows<SempodsClientException> { root.readRedirect("code=c-1&state=s1&iss=https%3A%2F%2Falice.example%2F", "s1") }
   }
 
   @ParameterizedTest
   @ValueSource(
     strings = [
       "code=c&state=other", "code=c", "code=c&state=s1&state=s1", "state=s1", "code=c&code=d&state=s1", "code=c&state=s1&iss=a&iss=b",
-      "code=c&state=s1&iss=https%3A%2F%2Fevil.example%2F_system%2Fauth",
-      "error=access_denied&state=s1&iss=https%3A%2F%2Fpods.example%2Fbob%2F_system%2Fauth",
+      "code=c&state=s1&iss=https%3A%2F%2Fevil.example%2Falice",
+      "error=access_denied&state=s1&iss=https%3A%2F%2Fpods.example%2Fbob",
+      // The auth route is not the issuer (SPS-AUTH-028), and neither is the base with a slash.
+      "code=c&state=s1&iss=https%3A%2F%2Fpods.example%2Falice%2F_system%2Fauth",
+      "code=c&state=s1&iss=https%3A%2F%2Fpods.example%2Falice%2F",
     ],
   )
   fun `an authorization redirect that is not this caller's single answer from this pod is refused`(query: String) {

@@ -95,7 +95,7 @@ class ReadTools(
     val pods = connections.map {
       linkedMapOf<String, Any?>(
         "pod" to it.pod,
-        "issuer" to it.issuer,
+        "issuer" to (tokensByPod[it.pod]?.issuer ?: it.issuer),
         "scopes" to it.scopes.sorted(),
         // The identity this connection acts as ON THE POD. When it differs from your service
         // identity (foreign_identity), every read/write on this pod happens as `pod_subject`, not
