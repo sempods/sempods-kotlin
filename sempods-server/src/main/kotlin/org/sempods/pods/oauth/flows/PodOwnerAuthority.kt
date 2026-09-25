@@ -24,8 +24,8 @@ class PodOwnerAuthority @Inject internal constructor(
 ) {
 
   /** The authority [caller] holds for [scope] on [pod], or why it holds none. */
-  internal fun check(pod: HostedPod, caller: SempodsCredentials?, scope: String): PodOwnerAuthorityCheck {
-    if (caller == null || scope !in caller.oauthScopes) {
+  internal fun check(pod: HostedPod, caller: SempodsCredentials, scope: String): PodOwnerAuthorityCheck {
+    if (scope !in caller.oauthScopes) {
       return PodOwnerAuthorityCheck.Refused(PodOwnerAuthorityRefusal.SCOPE_REQUIRED)
     }
     val authority = caller.tokenJti?.let { authorities.standing(pod.id, it) }
@@ -51,7 +51,7 @@ internal sealed interface PodOwnerAuthorityCheck {
 /** Why a bearer holds no owner authority. */
 internal enum class PodOwnerAuthorityRefusal {
 
-  /** No bearer, or one that does not carry the scope asked for. */
+  /** The bearer does not carry the scope asked for. */
   SCOPE_REQUIRED,
 
   /** The authority recorded for this bearer is gone: expired, another pod's, or disconnected. */

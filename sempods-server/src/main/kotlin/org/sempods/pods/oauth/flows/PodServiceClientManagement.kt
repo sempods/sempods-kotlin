@@ -24,13 +24,13 @@ class PodServiceClientManagement @Inject internal constructor(
 ) {
 
   /** Every registration on [pod], with no secret. */
-  internal fun list(pod: HostedPod, caller: SempodsCredentials?): PodServiceClientManagementResult<List<ServiceClientRegistration>> =
+  internal fun list(pod: HostedPod, caller: SempodsCredentials): PodServiceClientManagementResult<List<ServiceClientRegistration>> =
     authorized(pod, caller) { PodServiceClientManagementResult.Done(serviceClients.list(pod.id)) }
 
   /** A new secret for [clientId], answered once. The identifier and the grants stay. */
   internal fun rotate(
     pod: HostedPod,
-    caller: SempodsCredentials?,
+    caller: SempodsCredentials,
     clientId: String,
   ): PodServiceClientManagementResult<PodServiceClientStore.SecretRotation.Rotated> = authorized(pod, caller) {
     changeable(clientId) {
@@ -47,7 +47,7 @@ class PodServiceClientManagement @Inject internal constructor(
   }
 
   /** Removes [clientId]. The contexts it wrote to stay. */
-  internal fun revoke(pod: HostedPod, caller: SempodsCredentials?, clientId: String): PodServiceClientManagementResult<Unit> =
+  internal fun revoke(pod: HostedPod, caller: SempodsCredentials, clientId: String): PodServiceClientManagementResult<Unit> =
     authorized(pod, caller) {
       changeable(clientId) {
         val registration = serviceClients.find(pod.id, clientId)
@@ -63,7 +63,7 @@ class PodServiceClientManagement @Inject internal constructor(
   /** Takes [scopes] away from [clientId] and answers what it holds afterwards, possibly nothing. */
   internal fun removeGrants(
     pod: HostedPod,
-    caller: SempodsCredentials?,
+    caller: SempodsCredentials,
     clientId: String,
     scopes: Set<String>,
   ): PodServiceClientManagementResult<ServiceClientRegistration> = authorized(pod, caller) {
@@ -88,7 +88,7 @@ class PodServiceClientManagement @Inject internal constructor(
    */
   private inline fun <T> authorized(
     pod: HostedPod,
-    caller: SempodsCredentials?,
+    caller: SempodsCredentials,
     operation: () -> PodServiceClientManagementResult<T>,
   ): PodServiceClientManagementResult<T> =
     when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE)) {
