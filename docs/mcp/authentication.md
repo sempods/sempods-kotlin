@@ -151,10 +151,12 @@ just triggered sends `prompt=consent`;
 
 ## Bearer challenge format
 
-The `WWW-Authenticate` header on every 401 carries:
+Every 401 carries the `WWW-Authenticate` header that
+[`BearerChallenge`](../../sempods-mcp-core/src/main/kotlin/org/sempods/mcp/core/BearerChallenge.kt)
+builds. For the pod `alice`:
 
 ```
-Bearer realm="<pod-base-url>", resource_metadata="<resource-metadata-url>"
+Bearer realm="alice", error="invalid_token", resource="https://sempods.org/alice", resource_metadata="https://sempods.org/alice/.well-known/oauth-protected-resource"
 ```
 
 The `resource_metadata` URL is the pod-level PRM
