@@ -671,17 +671,21 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a contexts authority withdrawn by a disconnect lists nothing and is told so`() {
+  fun `a contexts authority withdrawn by a disconnect is told so, whether a context exists or not`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val token = mintContextsManagerToken(pod.name, ownerWebId)
     consentDecisionStore.recordDisconnect(pod.hosted.id, CONTEXTS_MANAGER_CLIENT_ID, ownerWebId)
 
-    val listed = registryGet(contextsBaseUrl(pod.name), token, "application/json")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
 
-    assertEquals(401, listed.statusCode, listed.responseBody)
-    assertTrue(listed.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), listed.getHeader("WWW-Authenticate"))
+    // The catalogue, a context that exists and one that does not: one answer, so nothing is enumerated.
+    for (url in listOf(contextsBaseUrl(pod.name), contextManageUrl(pod.name, "contacts"), contextManageUrl(pod.name, "nowhere"))) {
+      val answered = registryGet(url, token, "application/json")
+      assertEquals(401, answered.statusCode, "$url: ${answered.responseBody}")
+      assertTrue(answered.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), answered.getHeader("WWW-Authenticate"))
+    }
   }
 
   @Test
