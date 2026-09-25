@@ -22,8 +22,9 @@ class PodManagementAuthorityStore @Inject internal constructor(
    * This store has no rows from before this release, so one without a disconnect count is refused.
    */
   internal fun standing(pod: PodId, jti: String): Authority? =
-    rows.peek(jti)
-      ?.takeIf { it.pod == pod }
-      ?.takeIf { it.disconnects != null }
-      ?.takeIf { (consentDecisions.find(pod, it.clientId, listOf(it.webId))?.disconnects ?: 0L) == it.disconnects }
+    rows.peek(jti)?.takeIf { it.pod == pod && stands(it) }
+
+  override fun stands(authority: Authority): Boolean =
+    authority.disconnects != null &&
+      (consentDecisions.find(authority.pod, authority.clientId, listOf(authority.webId))?.disconnects ?: 0L) == authority.disconnects
 }

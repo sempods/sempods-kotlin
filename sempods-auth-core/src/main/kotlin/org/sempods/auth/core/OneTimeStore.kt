@@ -6,6 +6,7 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.bson.Document
+import org.bson.conversions.Bson
 import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.utils.HashUtil.sha256Hex
@@ -93,6 +94,15 @@ class OneTimeStore<T>(
    * detour through another server's OAuth and is spent only when the user finally decides.
    */
   fun peek(key: String): T? = rows.find(Filters.eq("_id", sha256Hex(key))).firstOrNull()?.readIfLive()
+
+  /**
+   * Every live payload on a row matching [filter], left where it is.
+   *
+   * For the question a key cannot answer: whether anything is parked for someone at all. [filter]
+   * names fields [write] put on the row. An expired row the TTL index has not reaped yet is left out,
+   * as [peek] leaves it out.
+   */
+  fun findLive(filter: Bson): List<T> = rows.find(filter).mapNotNull { it.readIfLive() }
 
   /**
    * [peek], and slide the expiry out by a full [ttl] if the row is still alive.

@@ -101,6 +101,18 @@ class OneTimeStoreTest {
   }
 
   @Test
+  fun `findLive returns the live rows a filter matches and leaves them where they are`() {
+    val subject = "https://id.test/e/${UUID.randomUUID()}"
+    val mine = parked.copy(subject = subject)
+    val key = store().issue(mine)
+    store().issue(parked.copy(subject = "https://id.test/e/${UUID.randomUUID()}"))
+    store(ttl = Duration.ZERO).issue(mine)
+
+    assertEquals(listOf(mine), store().findLive(Filters.eq("subject", subject)), "the expired twin is left out")
+    assertEquals(mine, store().consume(key), "finding it spends nothing")
+  }
+
+  @Test
   fun `touch slides the expiry out`() {
     val store = store(ttl = Duration.ofMinutes(15))
     val key = store.issue(parked)

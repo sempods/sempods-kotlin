@@ -1,6 +1,7 @@
 package org.sempods.pods.oauth
 
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
 import org.sempods.auth.core.OneTimeStore
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putStrings
@@ -72,4 +73,19 @@ abstract class PrivilegedAuthorityRows internal constructor(db: MongoDatabase, c
     require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
     rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris))
   }
+
+  /** Whether no disconnect has withdrawn [authority] since it was granted. */
+  internal abstract fun stands(authority: Authority): Boolean
+
+  /**
+   * Whether an authority [clientId] holds on [pod] from one of [webIds] still stands — something a
+   * disconnect by that person would withdraw.
+   *
+   * Matched on [Authority.webId] alone, not on its recognised URIs: [stands] reads the disconnect
+   * count under that URI, and a disconnect moves it only for the URIs it is made under.
+   */
+  internal fun standsFor(pod: PodId, clientId: String, webIds: Collection<String>): Boolean =
+    rows.findLive(
+      Filters.and(Filters.eq("podId", pod.value), Filters.eq("clientId", clientId), Filters.`in`("webId", webIds)),
+    ).any(::stands)
 }

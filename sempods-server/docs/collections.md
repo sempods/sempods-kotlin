@@ -54,7 +54,7 @@ consumes the row, so the authority the token carries is spent — and `findOneAn
 hour, derived from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS` so the row cannot outlive the bearer.
 
 `oauth.managementAuthorities` has the same row for a management token, read with `peek` for the
-bearer's hour. `oauth.serviceClientGrantTransactions` is one grant consent, consumed on its answer
+bearer's hour. The consent dialog also looks it up by pod, app and person, to offer a disconnect. `oauth.serviceClientGrantTransactions` is one grant consent, consumed on its answer
 like `oauth.consentTransactions`.
 
 ## Two collections with no field order, and one filter that misses rows
