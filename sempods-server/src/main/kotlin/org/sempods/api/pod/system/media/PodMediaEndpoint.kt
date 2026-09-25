@@ -476,6 +476,7 @@ class PodMediaEndpoint @Inject constructor(
    *
    * Write on the named context is the whole check: you are removing the media from *your* context,
    * and needing to read it elsewhere first would make cleaning up after a revoked grant impossible.
+   * The context need not be registered; an unregistered one references nothing.
    *
    * **Always `204` — never `404`, not even for a media id this pod has never seen.** The obvious
    * shape, reporting `404` when nothing was removed, turns this route into an existence oracle:
@@ -498,7 +499,7 @@ class PodMediaEndpoint @Inject constructor(
     val credentials = authenticate(pod)
     requireAuthenticatedOrThrow(credentials)
     val contextUri = contextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
-    contextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
+    contextWriteAuthorizer.requireWriteAuthorityOrThrow(credentials, contextUri)
 
     // The boolean says whether a row matched; it is deliberately not turned into a status — see the
     // comment above. It still distinguishes the two cases in the audit line, where the reader is an

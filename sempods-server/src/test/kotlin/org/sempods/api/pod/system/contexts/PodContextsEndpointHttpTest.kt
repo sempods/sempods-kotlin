@@ -417,6 +417,63 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the owner deletes the last context, reads an empty catalogue and creates again`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(ownerUser.email))
+    fun put() = http.preparePut(contextManageUrl(pod.name, "first"))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $ownerToken")
+      .setBody("{}")
+      .execute()
+
+    assertEquals(201, put().statusCode)
+    val deleted = http.prepareDelete(contextManageUrl(pod.name, "first"))
+      .addHeader("Authorization", "Bearer $ownerToken")
+      .execute()
+    assertEquals(204, deleted.statusCode, deleted.responseBody)
+    assertTrue(podContextsDao.fetchByPod(checkNotNull(pod.id)).isEmpty(), "the pod holds no context now")
+
+    val catalogue = http.prepareGet(contextsBaseUrl(pod.name))
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer $ownerToken")
+      .execute()
+    assertEquals(200, catalogue.statusCode, catalogue.responseBody)
+    assertFalse(catalogue.responseBody.contains(contextUri(pod.name, "first")), catalogue.responseBody)
+
+    assertEquals(201, put().statusCode, "an empty pod takes a context again")
+  }
+
+  @Test
+  fun `a manager deletes its only visible context alike whether hidden contexts exist, and recreation restores nothing`() {
+    // Two pods that differ only in a context the manager cannot see.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val alone = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
+    val withHidden = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
+    createContextViaDao(checkNotNull(withHidden.id), withHidden.name, "private")
+
+    val answers = listOf(alone, withHidden).map { pod ->
+      createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notes")
+      val manager = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/notes")}#manage"), webId = "https://id.test/${TestUtil.randomId()}")
+      val deleted = http.prepareDelete(contextManageUrl(pod.name, "apps/notes"))
+        .addHeader("Authorization", "Bearer $manager")
+        .execute()
+
+      // The control plane registers the root again; the grant the deletion removed stays removed.
+      createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notes")
+      val afterwards = http.prepareDelete(contextManageUrl(pod.name, "apps/notes"))
+        .addHeader("Authorization", "Bearer $manager")
+        .execute()
+      assertEquals(403, afterwards.statusCode, "recreating the IRI must not restore the manager's grant")
+      deleted
+    }
+
+    assertEquals(listOf(204, 204), answers.map { it.statusCode })
+    assertEquals(answers[0].responseBody, answers[1].responseBody)
+    assertTrue(podContextsDao.exists(checkNotNull(withHidden.id), contextUri(withHidden.name, "private")), "the hidden context stays")
+  }
+
+  @Test
   fun `put context with service-client manage scope creates descendant and returns 201`() {
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)

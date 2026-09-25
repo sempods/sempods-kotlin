@@ -176,9 +176,8 @@ for. An empty value, or one whose opaque part contains a `"`, cannot be normaliz
 to: anything under the target pod's `_system` / `.well-known` was refused, with an exemption for
 `_system/apps/…` so app contexts stayed writable. That was neither necessary nor correct.
 
-Not necessary, because the pod resolves `?context=` against its own registry — a control-plane path
-is not a registered context and comes back **404**, and a context the caller holds no scope on comes
-back **403**.
+Not necessary, because the pod checks `?context=` itself: a control-plane path is not a context the
+caller holds a grant on, so it comes back **403**, like every such context, registered or not.
 
 Not correct, twice over. It refused resource subjects under `_system`, which the pod allows on
 purpose: a control-plane IRI is describable like any foreign resource, and a statement *about* a

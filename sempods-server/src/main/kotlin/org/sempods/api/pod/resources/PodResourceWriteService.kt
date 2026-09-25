@@ -40,7 +40,8 @@ class PodResourceWriteService @Inject constructor(
 
   /**
    * Resolve a write-context URI for a pod from a raw input that is either an absolute URI or a
-   * pod-relative path. Validates the URI is inside the pod namespace and the context exists.
+   * pod-relative path. Validates the URI is inside the pod namespace; whether the context exists
+   * is checked after the caller's authority, by each write below.
    */
   fun resolveWriteContextOrThrow(pod: String, rawContext: String?): URI {
     return podContextWriteAuthorizer.resolveWriteContextOrThrow(pod, rawContext)
