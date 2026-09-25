@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.client.SempodsPodBase
 import java.net.URI
 
 /**
@@ -274,6 +275,16 @@ data class SempodsConfig(
 
     fun normalizeErrorDocBase(raw: String?): String? =
       raw?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+
+    /**
+     * [value], or a boot failure when it is not a pod base URL by [SempodsPodBase.reject].
+     * Every pod base is this value plus a pod name, so a bad prefix makes every pod non-conformant.
+     */
+    fun checkPublicBaseUrl(name: String, value: String): String {
+      val reason = SempodsPodBase.reject(value)
+      check(reason == null) { "$name is not a usable pod base URL: $reason, got '$value'" }
+      return value
+    }
 
     /**
      * The origins a pod server at [apiBaseUrl] accepts credentialed requests from.

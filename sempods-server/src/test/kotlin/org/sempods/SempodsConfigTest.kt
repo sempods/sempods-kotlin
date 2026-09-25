@@ -3,6 +3,7 @@ package org.sempods
 import org.junit.jupiter.api.Test
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrors
+import org.sempods.client.SempodsPodBaseVectors
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -259,6 +260,20 @@ class SempodsConfigTest {
     // Pod IRIs are `apiBaseUrl + podName`. Without the slash they would read
     // `https://example.orgalice/…` — and they are persisted.
     assertTrue(SempodsModule.config.apiBaseUrl.endsWith("/"))
+  }
+
+  @Test
+  fun `a public base URL is refused where no pod under it could conform`() {
+    // The client's table, as a prefix: `Env.baseUrl` hands over the value with its trailing slash.
+    SempodsPodBaseVectors.accepted.map { "${it.removeSuffix("/")}/" }.forEach {
+      assertEquals(it, SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", it))
+    }
+    SempodsPodBaseVectors.refused.forEach { (base, clause) ->
+      val failure = assertFailsWith<IllegalStateException>(clause) {
+        SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", base)
+      }
+      assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
+    }
   }
 
   /**
