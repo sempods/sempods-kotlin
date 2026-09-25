@@ -27,8 +27,7 @@ import java.util.Locale
  * preserved**: a deployment serving pods under `https://example.org/pods/alice` keeps both
  * segments.
  *
- * The pod server checks its `SEMPODS_PUBLIC_BASE_URL` with [reject] too
- * (`SempodsConfig.checkPublicBaseUrl`), and both are tested against this module's test fixtures.
+ * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too.
  */
 class SempodsPodBase private constructor(
   /** The canonical form: no trailing slash, no query, no fragment. */

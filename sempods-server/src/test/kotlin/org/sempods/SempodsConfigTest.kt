@@ -272,7 +272,6 @@ class SempodsConfigTest {
       val failure = assertFailsWith<IllegalStateException>(clause) {
         SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", base)
       }
-      // The reader is an operator at boot, so the message names the setting.
       assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
     }
   }

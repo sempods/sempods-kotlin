@@ -277,17 +277,8 @@ data class SempodsConfig(
       raw?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
 
     /**
-     * [value], the public base URL read from [name], or a boot failure saying what is wrong with it.
-     *
-     * Every pod base is this value with a pod name appended, so a value that breaks
-     * [SPS-CORE-019](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
-     * or [SPS-CORE-020](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020)
-     * — `http` off loopback, a dot segment, a backslash, a percent-encoded octet — cannot produce a
-     * conforming pod whatever the server does afterwards. The rules are [SempodsPodBase.reject]'s,
-     * so the server and its clients refuse the same bases.
-     *
-     * Here rather than in `Env.baseUrl`: that is a general helper in a published module, and this
-     * is the one caller whose value is a pod base prefix.
+     * [value], or a boot failure when it is not a pod base URL by [SempodsPodBase.reject].
+     * Every pod base is this value plus a pod name, so a bad prefix makes every pod non-conformant.
      */
     fun checkPublicBaseUrl(name: String, value: String): String {
       val reason = SempodsPodBase.reject(value)

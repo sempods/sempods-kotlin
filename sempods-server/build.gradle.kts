@@ -103,8 +103,7 @@ dependencies {
   // The HTTP client the suite drives a running server with — see `TestHttpClient`. A fixture of
   // the module that owns the engine, so the two cannot end up on different OkHttp versions.
   testImplementation(testFixtures(project(":sempods-commons-okhttp")))
-  // What a pod base may be, as data — the table `SempodsPodBase` is tested against, so the public
-  // base URL check cannot drift from the client's.
+  // `SempodsPodBaseVectors`, the pod base table the client is tested against.
   testImplementation(testFixtures(project(":sempods-client")))
   // The client's RDF4J adapter, run against the routes it reads and writes.
   testImplementation(project(":sempods-client-rdf4j"))
