@@ -4,8 +4,10 @@ import org.junit.jupiter.api.Test
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.client.SempodsPodBaseVectors
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -273,6 +275,40 @@ class SempodsConfigTest {
         SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", base)
       }
       assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
+    }
+  }
+
+  @Test
+  fun `a public base URL is refused where a client binds another spelling, naming that spelling`() {
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      val failure = assertFailsWith<IllegalStateException>(given) {
+        SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", "${given.removeSuffix("/")}/")
+      }
+      assertTrue(failure.message!!.startsWith("SEMPODS_PUBLIC_BASE_URL "), failure.message)
+      assertContains(failure.message!!, "use '${bound.removeSuffix("/")}/'")
+    }
+  }
+
+  @Test
+  fun `a public base URL with a non-ASCII path is refused without a spelling the next boot refuses`() {
+    val failure = assertFailsWith<IllegalStateException> {
+      SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", "https://example.org/pöds/")
+    }
+
+    assertContains(failure.message!!, "'https://example.org/p%C3%B6ds/'")
+    assertContains(failure.message!!, "SPS-CORE-020")
+    assertFalse("use '" in failure.message!!, failure.message)
+  }
+
+  @Test
+  fun `the default public base URL is spelled the way a client binds it`() {
+    mapOf(
+      SempodsConfig.defaultPublicBaseUrl(development = true, httpPort = 80) to "http://localhost/",
+      SempodsConfig.defaultPublicBaseUrl(development = true, httpPort = 8090) to "http://localhost:8090/",
+      SempodsConfig.defaultPublicBaseUrl(development = false, httpPort = 80) to "https://sempods.org/",
+    ).forEach { (default, expected) ->
+      assertEquals(expected, default)
+      assertEquals(default, SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", default))
     }
   }
 

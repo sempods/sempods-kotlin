@@ -36,6 +36,19 @@ object SempodsPodBaseVectors {
     "https://pods.example/" to "https://pods.example/",
   )
 
+  /**
+   * Accepted, and bound as the spelling on the right, which is how a URL parser writes it. The pod
+   * server refuses the left one as its public base URL.
+   */
+  val respelled: List<Pair<String, String>> = listOf(
+    "https://pods.example:443/" to "https://pods.example/",
+    "https://pods.example:443/alice" to "https://pods.example/alice",
+    "http://localhost:80/alice" to "http://localhost/alice",
+    "https://Pods.Example/alice" to "https://pods.example/alice",
+    "HTTPS://pods.example/alice" to "https://pods.example/alice",
+    "http://[0:0:0:0:0:0:0:1]:8090/alice" to "http://[::1]:8090/alice",
+  )
+
   /** Refused, each paired with the requirement it breaks. */
   val refused: List<Pair<String, String>> = listOf(
     "/alice" to "SPS-CORE-019 absolute",

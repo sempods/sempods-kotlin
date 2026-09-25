@@ -787,7 +787,7 @@ class SempodsModule : BaseModule() {
       // every resource subject and named graph.
       val publicBaseUrl = Env.baseUrl(
         PUBLIC_BASE_URL_ENV_VARIABLE,
-        default = if (Env.isDevelopment) "http://localhost:$httpPort/" else "https://sempods.org/",
+        default = SempodsConfig.defaultPublicBaseUrl(Env.isDevelopment, httpPort),
       )
 
       // Hoisted for the same reason `httpPort` is: the address tier's rule below reads it, and a
