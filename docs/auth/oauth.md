@@ -728,7 +728,17 @@ Without it, a bearer is an app, whatever its `sub` names. It creates and deletes
 | no bearer | `401` |
 | `contexts:manage` after the app was disconnected | `401 invalid_token` |
 
-It reads no data and lists no context in the catalogue, but deleting a context deletes what it holds.
+It reads and writes no data, but deleting a context deletes what it holds. The catalogue lists every
+registered context for it with `manage` alone: `sps:manageableContext` without `sps:readableContext`
+or `sps:writableContext`, and in `application/json` `permissions: ["manage"]` with
+`source: "owner"`. MCP `list_contexts` reads the catalogue and reports the same. Once the authority
+is withdrawn, the catalogue lists nothing.
+
+`manage` without `read` and `write` deviates from
+[`SPS-CTX-034`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md#SPS-CTX-034)
+and [`SPS-GRANT-009`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-009),
+which make manage imply both. [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114)
+proposes the change.
 
 ## Registration rate limit
 

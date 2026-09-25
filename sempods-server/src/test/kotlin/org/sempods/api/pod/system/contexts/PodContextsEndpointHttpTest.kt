@@ -31,6 +31,7 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
+import org.sempods.commons.tests.TestUtil
 import okhttp3.OkHttpClient
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
@@ -502,21 +503,27 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the owner's contexts authority makes the first context, with nothing granted and no contexts yet`() {
+  fun `the owner's contexts authority makes the first context and then finds it in the catalogue, with nothing granted`() {
     // Ownership is not a grant — the authority follows from `podDbo.owner`, compared against the
     // URIs the dialog recognised the person by. So an owner with an empty grant set, on a pod that
-    // has no contexts at all, can still make the first one from a program.
+    // has no contexts at all, can still make the first one from a program, and the catalogue names
+    // the context it may now delete.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val token = mintContextsManagerToken(pod.name, ownerWebId)
 
     val response = http.preparePut(contextManageUrl(pod.name, "first"))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
+      .addHeader("Authorization", "Bearer $token")
       .setBody("{}")
       .execute()
+    val catalogue = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json")
 
     assertEquals(201, response.statusCode, "body=${response.responseBody}")
+    val listing = objectMapper.readTree(catalogue.responseBody)
+    assertEquals(listOf(contextUri(pod.name, "first")), ids(listing, "${SD_NS}namedGraph"))
+    assertEquals(listOf(contextUri(pod.name, "first")), ids(listing, SempodsVocabulary.MANAGEABLE_CONTEXT))
   }
 
   @Test
@@ -578,15 +585,17 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val strangerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(sempodsTestFactory.newOwner().email))
-
     // A valid pod token carrying the scope, correct pod, just a different person.
+    val token = mintContextsManagerToken(pod.name, strangerWebId)
+
     val response = http.preparePut(contextManageUrl(pod.name, "apps/other/not-yours"))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, strangerWebId)}")
+      .addHeader("Authorization", "Bearer $token")
       .setBody("{}")
       .execute()
 
     assertEquals(403, response.statusCode, "body=${response.responseBody}")
+    assertEquals(emptyList(), listedByJson(pod.name, token).contexts)
   }
 
   @Test
@@ -623,22 +632,248 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(401, response.statusCode, "body=${response.responseBody}")
     assertTrue(response.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), response.getHeader("WWW-Authenticate"))
+    // The catalogue reports what the bearer holds now, which is nothing.
+    assertEquals(emptyList(), listedByJson(pod.name, token).contexts)
   }
 
+  // ── What the catalogue reports for the owner's authority, and what it reaches (#185) ────────
+
+  /** The transitional JSON envelope of the catalogue, as [token] sees it. */
+  private fun listedByJson(podName: String, token: String): PodContextsListResponse {
+    val response = registryGet(contextsBaseUrl(podName), token, "application/json")
+    assertEquals(200, response.statusCode, response.responseBody)
+    return jsonUtil.read(response.responseBody, PodContextsListResponse::class.java)
+  }
+
+  private fun registeredContexts(pod: PodDbo): Set<String> =
+    podContextsDao.fetchByPod(checkNotNull(pod.id)).map { it.contextUri }.toSet()
+
   @Test
-  fun `a contexts authority reaches no data and sees no catalogue`() {
+  fun `a contexts authority sees every registered context with manage alone, in RDF and in JSON`() {
+    // `manage` alone: the authority creates and deletes contexts and reads nothing. The pod's public
+    // context is listed the same way, because this bearer has no public read.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notes")
+    val registered = registeredContexts(pod)
+    val token = mintContextsManagerToken(pod.name, ownerWebId)
 
-    val response = http.prepareGet(contextsBaseUrl(pod.name))
-      .addHeader("Accept", "application/json")
-      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
+    val jsonLd = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json")
+    assertEquals(200, jsonLd.statusCode, jsonLd.responseBody)
+    val listing = objectMapper.readTree(jsonLd.responseBody)
+    assertEquals(3, registered.size, "the public context and the two above: $registered")
+    assertEquals(registered, ids(listing, "${SD_NS}namedGraph").toSet())
+    assertEquals(registered, ids(listing, SempodsVocabulary.MANAGEABLE_CONTEXT).toSet())
+    assertTrue(listing.path(SempodsVocabulary.READABLE_CONTEXT).isMissingNode, jsonLd.responseBody)
+    assertTrue(listing.path(SempodsVocabulary.WRITABLE_CONTEXT).isMissingNode, jsonLd.responseBody)
+
+    val quads = registryGet(contextsBaseUrl(pod.name), token, "application/n-quads").responseBody.lines()
+    assertEquals(registered.size, quads.count { SempodsVocabulary.MANAGEABLE_CONTEXT in it }, quads.joinToString("\n"))
+    assertTrue(quads.none { SempodsVocabulary.READABLE_CONTEXT in it || SempodsVocabulary.WRITABLE_CONTEXT in it })
+
+    val json = listedByJson(pod.name, token)
+    assertEquals(registered, json.contexts.map { it.contextIri }.toSet())
+    json.contexts.forEach { entry ->
+      assertEquals(listOf("manage"), entry.permissions, entry.contextIri)
+      assertEquals("owner", entry.source, entry.contextIri)
+    }
+    assertEquals(emptyList(), json.writableContexts)
+
+    // A description follows the listing: the bearer finds the context at its IRI, with the same right.
+    assertEquals(200, registryGet(contextManageUrl(pod.name, "contacts"), token, "application/ld+json").statusCode)
+    val description = registryGet(contextManageUrl(pod.name, "contacts"), token, "application/json")
+    assertEquals(listOf("manage"), jsonUtil.read(description.responseBody, PodContextResponse::class.java).permissions)
+  }
+
+  @Test
+  fun `a contexts authority reads and writes no data`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    val contacts = URI(contextUri(pod.name, "contacts"))
+    val name = "contact-${TestUtil.randomId()}"
+    val privateEvent = sempodsTestFactory.seedEvent(pod = pod.name, context = contacts, name = name)
+    val publicEvent = sempodsTestFactory.seedEvent(pod = pod.name, context = sempodsTestFactory.publicContextUri(pod.name), name = name)
+    val writer = mintScopedToken(pod.name, listOf("$contacts#write"), webId = ownerWebId)
+    val uploaded = uploadMedia(pod.name, contacts, writer)
+    val mediaId = checkNotNull(objectMapper.readTree(uploaded.responseBody).path("id").textValue()) { uploaded.responseBody }
+    val token = mintContextsManagerToken(pod.name, ownerWebId)
+
+    // The same reads succeed for an app the owner granted `contacts`, so the refusals below are the
+    // bearer's and not an unreadable fixture.
+    assertEquals(200, lodGet(privateEvent, writer).statusCode)
+    assertTrue(name in constructAll(pod.name, writer).responseBody)
+    assertEquals(200, http.followingRedirects.prepareGet(mediaContentUrl(pod.name, mediaId)).addHeader("Authorization", "Bearer $writer").execute().statusCode)
+
+    assertEquals(404, lodGet(privateEvent, token).statusCode, "LOD read, private context")
+    assertEquals(404, lodGet(publicEvent, token).statusCode, "LOD read, public context")
+    val put = http.preparePut("$privateEvent?context=${enc(contacts.toString())}")
+      .addHeader("Content-Type", "application/n-quads")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("<$privateEvent> <https://schema.org/name> \"overwritten\" <$contacts> .")
+      .execute()
+    assertEquals(403, put.statusCode, "LOD write: ${put.responseBody}")
+
+    val sparql = constructAll(pod.name, token)
+    assertEquals(200, sparql.statusCode, sparql.responseBody)
+    assertFalse(name in sparql.responseBody, "SPARQL: ${sparql.responseBody}")
+
+    val find = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/find")
+      .addQueryParam("text", name)
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    assertEquals(200, find.statusCode, find.responseBody)
+    assertFalse(privateEvent.toString() in find.responseBody || publicEvent.toString() in find.responseBody, "find: ${find.responseBody}")
+
+    assertEquals(403, uploadMedia(pod.name, contacts, token).statusCode, "media upload")
+    assertEquals(
+      404,
+      http.followingRedirects.prepareGet(mediaContentUrl(pod.name, mediaId)).addHeader("Authorization", "Bearer $token").execute().statusCode,
+      "media read",
+    )
+  }
+
+  @Test
+  fun `a contexts authority over MCP lists every context as manageable and reaches no data`() {
+    // MCP `list_contexts` is this route's catalogue, read over the wire, so it reports what the
+    // catalogue reports. The data tools stay where they were: nothing.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    val contacts = contextUri(pod.name, "contacts")
+    val name = "contact-${TestUtil.randomId()}"
+    val event = sempodsTestFactory.seedEvent(pod = pod.name, context = URI(contacts), name = name)
+    val token = mintContextsManagerToken(pod.name, ownerWebId)
+
+    val listed = objectMapper.readTree(mcpToolText(pod.name, token, "list_contexts", emptyMap()))
+    assertEquals(registeredContexts(pod), listed.path("contexts").map { it.path("context_iri").asText() }.toSet())
+    listed.path("contexts").forEach { entry ->
+      assertEquals(listOf("manage"), entry.path("permissions").map { it.asText() }, entry.toString())
+    }
+    assertEquals(0, listed.path("writable_contexts").size())
+
+    val graph = mcpToolCall(pod.name, token, "sparql_graph", mapOf("query" to "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }"))
+    assertFalse(name in graph, "sparql_graph: $graph")
+    val found = mcpToolCall(pod.name, token, "find", mapOf("text" to name))
+    assertFalse(event.toString() in found, "find: $found")
+    val read = mcpToolCall(pod.name, token, "get_resource", mapOf("resource_iri" to event.toString()))
+    assertTrue("\"isError\":true" in read, "get_resource: $read")
+    val created = mcpToolCall(pod.name, token, "create_resource", mapOf(
+      "context_iri" to contacts,
+      "resource_iri" to "$event-2",
+      "jsonld" to mapOf("@id" to "$event-2", "https://schema.org/name" to "Written"),
+    ))
+    assertTrue("\"isError\":true" in created && "403" in created, "create_resource: $created")
+  }
+
+  @Test
+  fun `an app holding the owner's token sees only what the owner approved for it`() {
+    // The delegated view (#131): the token's `sub` owns the pod, and the catalogue reports the app's
+    // grants and nothing more.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notes")
+    val contacts = contextUri(pod.name, "contacts")
+
+    val nothingGranted = mintOwnerPodToken(pod.name, ownerWebId)
+    assertEquals(emptyList(), listedByJson(pod.name, nothingGranted).contexts)
+    val empty = objectMapper.readTree(registryGet(contextsBaseUrl(pod.name), nothingGranted, "application/ld+json").responseBody)
+    assertTrue(empty.path("${SD_NS}namedGraph").isMissingNode, empty.toString())
+    assertTrue(empty.path(SempodsVocabulary.MANAGEABLE_CONTEXT).isMissingNode, empty.toString())
+
+    val readsContacts = mintScopedToken(pod.name, listOf("$contacts#read"), webId = ownerWebId)
+    val json = listedByJson(pod.name, readsContacts)
+    assertEquals(listOf(contacts), json.contexts.map { it.contextIri })
+    assertEquals(listOf("read"), json.contexts.single().permissions)
+    assertEquals("grant", json.contexts.single().source)
+    val listing = objectMapper.readTree(registryGet(contextsBaseUrl(pod.name), readsContacts, "application/ld+json").responseBody)
+    assertEquals(listOf(contacts), ids(listing, SempodsVocabulary.READABLE_CONTEXT))
+    assertTrue(listing.path(SempodsVocabulary.MANAGEABLE_CONTEXT).isMissingNode, listing.toString())
+  }
+
+  @Test
+  fun `a delegated installer's catalogue and reads end at its manage root, though its token names the owner`() {
+    // Both sides of the line an owner installation (#35) rests on: approved `apps/notely#manage`,
+    // the app sees and reads that root and its descendants with every right, and nothing beside
+    // them. The owner's own authority, beside it, manages everything and reads nothing.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notely")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/notely/drafts")
+    createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
+    val root = contextUri(pod.name, "apps/notely")
+    val drafts = contextUri(pod.name, "apps/notely/drafts")
+    val draft = sempodsTestFactory.seedEvent(pod = pod.name, context = URI(drafts), name = "draft-${TestUtil.randomId()}")
+    val contact = sempodsTestFactory.seedEvent(pod = pod.name, context = URI(contextUri(pod.name, "contacts")), name = "contact-${TestUtil.randomId()}")
+    val installer = mintScopedToken(pod.name, listOf("$root#manage"), webId = ownerWebId)
+
+    val json = listedByJson(pod.name, installer)
+    assertEquals(setOf(root, drafts), json.contexts.map { it.contextIri }.toSet())
+    json.contexts.forEach { entry ->
+      assertEquals(listOf("manage", "read", "write"), entry.permissions.sorted(), entry.contextIri)
+      assertEquals("manage", entry.source, entry.contextIri)
+    }
+    assertEquals(200, lodGet(draft, installer).statusCode, "inside the root")
+    assertEquals(404, lodGet(contact, installer).statusCode, "beside the root")
+
+    val owner = mintContextsManagerToken(pod.name, ownerWebId)
+    assertEquals(registeredContexts(pod), listedByJson(pod.name, owner).contexts.map { it.contextIri }.toSet())
+    assertEquals(404, lodGet(draft, owner).statusCode, "the owner's authority reads no data")
+  }
+
+  private fun lodGet(resource: URI, token: String): TestHttpResponse =
+    http.followingRedirects.prepareGet(resource.toString())
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
       .execute()
 
-    assertEquals(200, response.statusCode, "body=${response.responseBody}")
-    assertFalse(response.responseBody.contains(contextUri(pod.name, "contacts")), response.responseBody)
+  private fun constructAll(podName: String, token: String): TestHttpResponse =
+    http.preparePost("${SempodsModule.config.apiBaseUrl}$podName/_system/sparql/query")
+      .addHeader("Content-Type", "application/sparql-query")
+      .addHeader("Accept", "application/n-quads")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
+      .execute()
+
+  private fun mediaContentUrl(podName: String, mediaId: String): String =
+    "${SempodsModule.config.apiBaseUrl}$podName/_system/media/$mediaId/content"
+
+  private fun uploadMedia(podName: String, context: URI, token: String): TestHttpResponse =
+    http.preparePost("${SempodsModule.config.apiBaseUrl}$podName/_system/media?context=${enc(context.toString())}")
+      .addHeader("Content-Type", "image/png")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("bytes-${TestUtil.randomId()}")
+      .execute()
+
+  /** One MCP `tools/call` on this pod's endpoint, as the JSON-RPC answer's text. */
+  private fun mcpToolCall(podName: String, token: String, tool: String, arguments: Map<String, Any>): String {
+    val request = mapOf(
+      "jsonrpc" to "2.0",
+      "id" to 1,
+      "method" to "tools/call",
+      "params" to mapOf("name" to tool, "arguments" to arguments),
+    )
+    val response = http.preparePost("${SempodsModule.config.apiBaseUrl}$podName/_system/mcp")
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody(objectMapper.writeValueAsString(request))
+      .execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+    return response.responseBody
+  }
+
+  /** The text a successful MCP tool call answers with. */
+  private fun mcpToolText(podName: String, token: String, tool: String, arguments: Map<String, Any>): String {
+    val result = objectMapper.readTree(mcpToolCall(podName, token, tool, arguments)).path("result")
+    assertFalse(result.path("isError").asBoolean(), result.toString())
+    return result.path("content").first().path("text").asText()
   }
 
   @Test

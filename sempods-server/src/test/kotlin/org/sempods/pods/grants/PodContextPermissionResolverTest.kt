@@ -11,6 +11,7 @@ import io.mockk.verify
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import java.net.URI
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -112,5 +113,20 @@ class PodContextPermissionResolverTest {
     val scopes = setOf("${ctx("tasks")}#manage")
     val result = resolver.expandManageCascade(scopes, podId, podBaseUrl)
     assertTrue(result == scopes)
+  }
+
+  // --- describeRegistryAuthority ----------------------------------------------------------
+
+  @Test
+  fun `the owner's registry authority is manage alone on every context it is given, and writes nowhere`() {
+    val view = resolver.describeRegistryAuthority(listOf(ctx("tasks"), ctx("notes")))
+
+    assertEquals(listOf(ctx("notes"), ctx("tasks")), view.byContext.keys.toList())
+    view.byContext.values.forEach { entry ->
+      assertEquals(listOf("manage"), entry.permissions)
+      assertEquals(ContextPermissionSource.OWNER, entry.source)
+    }
+    assertEquals(emptyList(), view.writableContexts)
+    verify(exactly = 0) { contextsDao.fetchByPod(any()) }
   }
 }

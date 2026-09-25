@@ -138,6 +138,25 @@ class PodContextRegistryRdfTest {
   }
 
   @Test
+  fun `the owner's registry authority is stated as manage alone`() {
+    val model = PodContextRegistryRdf.catalogue(
+      podBaseUrl = podBaseUrl,
+      rows = listOf(row(tasks), row(notes)),
+      effective = EffectiveContextPermissions(
+        byContext = listOf(tasks, notes).associateWith { ContextPermissionEntry(it, listOf("manage"), ContextPermissionSource.OWNER) },
+        writableContexts = emptyList(),
+      ),
+    )
+    val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
+
+    val both = setOf(Values.iri(tasks), Values.iri(notes))
+    assertEquals(both, model.filter(catalogue, SD.NAMED_GRAPH_PROPERTY, null).objects().toSet())
+    assertEquals(both, model.filter(catalogue, Values.iri(SempodsVocabulary.MANAGEABLE_CONTEXT), null).objects().toSet())
+    assertTrue(model.filter(catalogue, Values.iri(SempodsVocabulary.READABLE_CONTEXT), null).isEmpty())
+    assertTrue(model.filter(catalogue, Values.iri(SempodsVocabulary.WRITABLE_CONTEXT), null).isEmpty())
+  }
+
+  @Test
   fun `a right is never stated about a context the catalogue does not list`() {
     val model = PodContextRegistryRdf.catalogue(
       podBaseUrl = podBaseUrl,

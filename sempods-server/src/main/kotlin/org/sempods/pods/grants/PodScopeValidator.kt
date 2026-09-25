@@ -52,7 +52,8 @@ const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
  * Without it a bearer is an application whatever its `sub` names, and creates or deletes only what
  * a `#manage` grant covers (`SPS-GRANT-011`, `SPS-GRANT-013`). An app the owner approved for one
  * context must not delete the rest of the pod because the person behind its token owns it. The
- * third of [PodScopeValidator.privilegedFeatureScopes]; it reaches no data.
+ * third of [PodScopeValidator.privilegedFeatureScopes]; it reaches no data, and the catalogue
+ * reports it as [PodContextPermissionResolver.describeRegistryAuthority] says.
  */
 const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
 

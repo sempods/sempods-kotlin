@@ -187,6 +187,26 @@ class PodContextPermissionResolver @Inject constructor(
     return EffectiveContextPermissions(byContext = byContext, writableContexts = writableContexts)
   }
 
+  /**
+   * The effective-permission view of a bearer holding the owner's [CONTEXTS_MANAGE_SCOPE]
+   * authority: every context in [registeredContexts] with `manage` alone, from
+   * [ContextPermissionSource.OWNER], and none writable.
+   *
+   * `manage` implies neither `read` nor `write` here, because the authority creates and deletes
+   * contexts and reads no data ([GrantStorePodAuthorizer]). That deviates from `SPS-CTX-034` and
+   * `SPS-GRANT-009`; [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114)
+   * proposes the change.
+   *
+   * The caller has already checked that the authority stands; this only states it.
+   */
+  fun describeRegistryAuthority(registeredContexts: Collection<String>): EffectiveContextPermissions =
+    EffectiveContextPermissions(
+      byContext = registeredContexts.sorted().associateWith { ctx ->
+        ContextPermissionEntry(ctx, listOf("manage"), ContextPermissionSource.OWNER)
+      },
+      writableContexts = emptyList(),
+    )
+
   /** Collapse a raw permission set so `write`/`manage` imply `read`. */
   private fun collapse(perms: Set<ScopePermission>): List<String> = buildList {
     add("read")
@@ -216,11 +236,17 @@ enum class ContextPermissionSource(val value: String) {
 
   /** Visible because the context is public (no explicit grant). */
   PUBLIC("public"),
+
+  /** The owner's registry authority ([CONTEXTS_MANAGE_SCOPE]): `manage` alone. */
+  OWNER("owner"),
 }
 
 data class ContextPermissionEntry(
   val contextUri: String,
-  /** Collapsed permission list — `write`/`manage` imply `read`. */
+  /**
+   * Collapsed permission list — `write`/`manage` imply `read`, except from
+   * [ContextPermissionSource.OWNER], which is `manage` alone.
+   */
   val permissions: List<String>,
   val source: ContextPermissionSource,
 )
