@@ -97,9 +97,12 @@ abstract class PrivilegedAuthorityRows internal constructor(
       (if (disconnects == null) uncountedStands else disconnectsUnder(pod, clientId, webId) == disconnects)
 
   /**
-   * Whether a live row [clientId] holds on [pod] from one of [webIds] stands, as [standsOn] reads
-   * it — something a disconnect by that person would withdraw. A spent row is gone and counts for
-   * nothing.
+   * Whether a live row [clientId] holds on [pod] from one of [webIds] is one a disconnect by that
+   * person would withdraw. A spent row is gone and counts for nothing.
+   *
+   * A row without a count never counts here, even where [standsOn] accepts it: no disconnect reaches
+   * it, so offering one would report an ending that did not happen. Such a row lives an hour at
+   * most after a deploy.
    *
    * Matched on [Authority.webId] alone, not on its recognised URIs: [standsOn] reads the disconnect
    * count under that URI, and a disconnect moves it only for the URIs it is made under. That count
@@ -108,11 +111,9 @@ abstract class PrivilegedAuthorityRows internal constructor(
   internal fun standsFor(pod: PodId, clientId: String, webIds: Collection<String>): Boolean {
     if (webIds.isEmpty()) return false
     val standingUnder = webIds.distinct().map { webId ->
-      val counted = Filters.eq("disconnects", disconnectsUnder(pod, clientId, webId))
       Filters.and(
         Filters.eq("webId", webId),
-        // `{disconnects: null}` also matches a row that never had the field, as [standsOn] reads it.
-        if (uncountedStands) Filters.or(counted, Filters.eq("disconnects", null)) else counted,
+        Filters.eq("disconnects", disconnectsUnder(pod, clientId, webId)),
       )
     }
     return rows.findLive(

@@ -199,15 +199,14 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a row a pre-upgrade node wrote stands wherever it can still be spent`() {
-    // `consume` accepts it without comparing a count it does not carry, so the app still holds it —
-    // past a disconnect too, for the row's hour.
+  fun `a row a pre-upgrade node wrote is not offered for a disconnect that cannot reach it`() {
+    // `consume` accepts it without comparing a count it does not carry, so a disconnect would not
+    // end it. The dialog therefore does not offer one; the row's hour ends it.
     val jti = randomId()
     preUpgradeRow(jti)
-    consentDecisions.recordDisconnect(pod = pod, appId = clientId, webId = webId)
 
-    assertTrue(authorities.standsFor(pod, clientId, listOf(webId)))
-    assertNotNull(authorities.consume(pod, jti), "the registration agrees")
+    assertFalse(authorities.standsFor(pod, clientId, listOf(webId)))
+    assertNotNull(authorities.consume(pod, jti), "the registration still accepts it")
   }
 
   @Test
