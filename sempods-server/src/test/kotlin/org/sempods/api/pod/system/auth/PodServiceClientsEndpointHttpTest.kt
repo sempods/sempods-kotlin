@@ -19,6 +19,7 @@ import java.net.URI
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -118,8 +119,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "the old secret is gone")
     val afterRotation = serviceToken(owned, installed.clientId, newSecret)
     assertEquals(listOf(diary), contextsReachableBy(owned.pod, afterRotation))
+    val (written, entry) = writeNote(diary, owned, afterRotation)
+    assertEquals(201, written.statusCode, written.responseBody)
 
-    // Revocation: nothing mints, an outstanding token reaches nothing, the contexts stay.
+    // Revocation: nothing mints, an outstanding token reaches nothing, the contexts and their data stay.
     val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(installed.clientId)}")
       .addHeader("Authorization", "Bearer $manager")
       .execute()
@@ -129,6 +132,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(
       podFacade.getContexts(owned.pod.name).any { it.toString() == diary },
       "revoking a service leaves the owner's contexts where they are",
+    )
+    assertNotNull(
+      podFacade.getResourceInContext(owned.pod.name, entry, URI(diary)),
+      "and what the service wrote into them",
     )
     assertFalse(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
   }
@@ -314,20 +321,91 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a read-only grant on an existing context reaches it and cannot write`() {
+  fun `a read grant on an existing context reads it and writes nothing`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
+    val existing = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(notes))
     val installed = install(owned)
     submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId, listOf("$notes#read"))
     val token = serviceToken(owned, installed.clientId, installed.secret)
 
     assertEquals(listOf(notes), contextsReachableBy(owned.pod, token))
-    val write = http.preparePut("$notes/child")
-      .addHeader("Authorization", "Bearer $token")
-      .addHeader("Content-Type", "application/json")
-      .setBody("{}")
+    assertEquals(200, read(existing, token).statusCode, "what the context held before the service existed")
+    val write = writeNote(notes, owned, token).first
+    assertEquals(403, write.statusCode, write.responseBody)
+  }
+
+  @Test
+  fun `a write grant writes, and nothing beside the grants is read or written`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val diary = owned.context("diary")
+    val entry = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(diary))
+    val installed = install(owned)
+    submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#write")), installed.clientId, listOf("$notes#write"))
+    val token = serviceToken(owned, installed.clientId, installed.secret)
+
+    val (written, note) = writeNote(notes, owned, token)
+    assertEquals(201, written.statusCode, written.responseBody)
+    assertEquals(200, read(note, token).statusCode, "a write grant reads what it wrote")
+
+    val outside = writeNote(diary, owned, token).first
+    assertEquals(403, outside.statusCode, outside.responseBody)
+    assertEquals(404, read(entry, token).statusCode, "a context it was not granted reads as absent")
+  }
+
+  @Test
+  fun `a service holding no grants is rotated, and granted later`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val installed = install(owned)
+    val manager = approveManagement(owned)
+
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(installed.clientId)}/secret")
+      .addHeader("Authorization", "Bearer $manager")
       .execute()
-    assertTrue(write.statusCode in setOf(403, 404, 405), "a read grant does not write: ${write.statusCode}")
+    assertEquals(200, rotated.statusCode, rotated.responseBody)
+    val newSecret = json(rotated)["client_secret"] as String
+    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "the old secret is gone")
+    val holdingNothing = mint(owned, installed.clientId, newSecret)
+    assertEquals(400, holdingNothing.statusCode, holdingNothing.responseBody)
+    assertTrue("invalid_scope" in holdingNothing.responseBody, "the new secret authenticates: ${holdingNothing.responseBody}")
+
+    submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId, listOf("$notes#read"))
+    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, newSecret)))
+  }
+
+  @Test
+  fun `a broader consent opened later does not widen one already open`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val diary = owned.context("diary")
+    val installed = install(owned)
+    val narrow = formToken(openGrant(owned, installed.clientId, "$notes#read"))
+    val broad = formToken(openGrant(owned, installed.clientId, "$notes#read $diary#write"))
+
+    val widened = submitGrant(owned, narrow, installed.clientId, listOf("$notes#read", "$diary#write"))
+    assertEquals("invalid_scope", query(widened)["error"], widened.responseBody)
+    assertTrue(serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes.isEmpty())
+
+    val granted = submitGrant(owned, broad, installed.clientId, listOf("$notes#read", "$diary#write"))
+    assertEquals("granted", query(granted)["result"], granted.responseBody)
+  }
+
+  @Test
+  fun `an owner signed in under a linked alias grants the service its contexts`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val installed = install(owned)
+    val alias = "https://id.test/oidc/${org.sempods.commons.tests.TestUtil.randomId()}"
+    val cookie = signIn(owned.pod.name, alias, alsoKnownAs = listOf(owned.webId)).cookie
+
+    val page = openGrant(owned, installed.clientId, "$notes#read", cookie = cookie)
+    assertEquals(200, page.statusCode, page.responseBody)
+    val granted = submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read"), cookie = cookie)
+
+    assertEquals("granted", query(granted)["result"], granted.responseBody)
+    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, installed.secret)))
   }
 
   // ── Two authorities ─────────────────────────────────────────────────────────
@@ -636,6 +714,22 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals("no-store", response.getHeader("Cache-Control"))
     return json(response)["serviceClients"] as List<Map<String, Any?>>
   }
+
+  /** Writes a fresh note into [context] as [bearer], at the resource layer. Answers the response and the note. */
+  private fun writeNote(context: String, owned: Owned, bearer: String): Pair<TestHttpResponse, URI> {
+    val note = sempodsTestFactory.eventUri(owned.pod.name)
+    val response = http.preparePut("$note?context=${enc(context)}")
+      .addHeader("Content-Type", "application/n-quads")
+      .addHeader("Authorization", "Bearer $bearer")
+      .setBody("<$note> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <$context> .")
+      .execute()
+    return response to note
+  }
+
+  private fun read(resource: URI, bearer: String): TestHttpResponse = http.prepareGet(resource.toString())
+    .addHeader("Accept", "application/ld+json")
+    .addHeader("Authorization", "Bearer $bearer")
+    .execute()
 
   /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
   private fun contextsReachableBy(pod: PodDbo, accessToken: String): List<String> {

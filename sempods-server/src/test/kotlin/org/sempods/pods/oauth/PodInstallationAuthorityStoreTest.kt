@@ -7,10 +7,12 @@ import com.mongodb.client.MongoDatabase
 import org.bson.Document
 import org.bson.types.ObjectId
 import org.sempods.SempodsCollections
+import org.sempods.commons.mongo.getInstant
 import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.utils.HashUtil
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import org.sempods.pods.PodId
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -19,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The once-only half of an installation authority.
@@ -115,6 +118,37 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     val authority = assertNotNull(authorities.consume(pod, jti), "an owner mid-deploy keeps their install")
     assertEquals(setOf(webId), authority.subjectUris, "the person it names is the one it recorded")
     assertNull(authority.disconnects, "and it says it cannot be compared")
+  }
+
+  @Test
+  fun `an authority lives as long as the bearer it stands behind, and no longer`() {
+    // The installer token is good for an hour; a row that outlived it would be an authority no
+    // bearer can present, and one that died first would refuse an owner whose token still works.
+    // Bounded around the write alone, and at the store's millisecond precision.
+    val jti = randomId()
+    val disconnects = approve()
+    val before = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+    record(jti, disconnects = disconnects)
+    val after = Instant.now()
+    val expiresAt = checkNotNull(
+      db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES)
+        .find(Document("_id", HashUtil.sha256Hex(jti))).first()?.getInstant("expiresAt"),
+    )
+    val hour = Duration.ofSeconds(PodTokenIssuer.USER_TOKEN_TTL_SECONDS)
+    assertTrue(expiresAt in before.plus(hour)..after.plus(hour), "expiresAt=$expiresAt, written between $before and $after")
+
+    // The pre-upgrade shape, which carries nothing else to refuse it on.
+    val lapsed = randomId()
+    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
+      Document().apply {
+        put("_id", HashUtil.sha256Hex(lapsed))
+        put("podId", pod.value)
+        put("clientId", clientId)
+        put("webId", webId)
+        putInstant("expiresAt", Instant.now().minusSeconds(1))
+      },
+    )
+    assertNull(authorities.consume(pod, lapsed), "an authority past its hour is worth nothing")
   }
 
   @Test
