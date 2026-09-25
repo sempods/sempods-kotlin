@@ -61,17 +61,6 @@ class PodAuthEndpoint @Inject constructor(
   podDao = podDao,
 ) {
 
-  // ─── OAuth discovery (RFC 8414) ──────────────────────────────────────────
-  // Lives here (not on PodOAuthMetadataEndpoint) because JAX-RS routes sub-paths of
-  // `{pod}/_system/auth/*` exclusively to this class. The body is shared with the
-  // RFC-strict sibling endpoint (see buildAuthorizationServerMetadata).
-
-  @GET
-  @Path(".well-known/oauth-authorization-server")
-  @Produces(MediaType.APPLICATION_JSON)
-  fun authorizationServerMetadata(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
-
   // ─── OAuth Dynamic Client Registration (RFC 7591) ────────────────────────
   // One route: a pod has one registration endpoint, which is what `registration_endpoint` in
   // AS-metadata points at. What it answers is [PodClientRegistration]'s.

@@ -28,6 +28,7 @@ step see `identity.md`.
 | `GET`, `POST /{pod}/_system/auth/grant` | The grant consent: the owner gives an installed service client its contexts |
 | `/{pod}/_system/auth/service-clients` | An owner's list, rotation, grant removal and revocation — [`service-clients.md`](service-clients.md#managing-an-installed-service-client) |
 | `GET /{pod}/.well-known/oauth-protected-resource` | RFC 9728 Protected Resource Metadata |
+| `GET /{pod}/.well-known/oauth-authorization-server` | RFC 8414 Authorization Server Metadata. Its `issuer` is the pod base URL; the endpoints above stay under `/_system/auth` |
 
 ## Client identity: `did:web:*`, `dyn:*` and `svc:*`
 

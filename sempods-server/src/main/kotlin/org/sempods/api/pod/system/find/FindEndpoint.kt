@@ -142,7 +142,7 @@ class FindEndpoint @Inject constructor(
     // A pod's global identifier is its own URI (sempods are decentralized Linked Open Data); the
     // retrieval layer and its adapters key on this rather than the server-local pod name. The
     // canonical (no-trailing-slash) form comes from SempodsUriBuilder, the same builder that mints
-    // every resource URI — distinct from the OAuth issuer / RFC 9728 base used in the auth layer.
+    // every resource URI.
     val podUri = credentials.pod.uri
     // Optional context downscope. `rawContexts == null` = absent → pod-wide within the readable
     // ceiling. A present list is fail-closed: blank-only (`contexts:[]` / `[""]`) resolves to an

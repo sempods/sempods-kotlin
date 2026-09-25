@@ -41,18 +41,18 @@ be a conforming pod if it were done differently:
   issues *identity* tokens; a pod issues *access* tokens. They are separate issuers with separate
   keys that happen to ship together — [`identity.md`](identity.md) is the one that explains why
   a WebID needs an issuer at all.
-- **Host-rooted OAuth metadata.** The specification requires protected-resource metadata only at
-  the pod-relative append form, `GET /{pod}/.well-known/oauth-protected-resource`
-  ([`SPS-AUTH-045`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-045)). The addresses RFC 9728 §3.1 and RFC 8414
-  construct sit on the *origin* instead — `/.well-known/oauth-protected-resource/{pod}` and its
-  authorization-server sibling — which is above any one pod's base URL, so no pod can be obliged to
-  serve them. This deployment owns the origin and serves them anyway, because a generic OAuth
-  client probes there before it has ever seen a `401`. That is hosting behaviour, not conformance:
-  a pod that served only the append forms would be exactly as conformant. The same holds for the
-  third host-rooted route, the one at the MCP URL, and for the pod-relative authorization-server
-  metadata, which the specification now places nowhere at all —
-  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six and says which
-  two the specification asks for.
+- **Host-rooted OAuth metadata.** The specification requires both metadata documents at the
+  pod-relative append form, `GET /{pod}/.well-known/oauth-protected-resource` and
+  `GET /{pod}/.well-known/oauth-authorization-server`
+  ([`SPS-AUTH-045`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-045),
+  [`SPS-AUTH-066`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-066)). The addresses RFC 9728 §3.1 and RFC 8414 §3.1
+  construct sit on the *origin* instead — `/.well-known/oauth-protected-resource/{pod}` and
+  `/.well-known/oauth-authorization-server/{pod}` — which is above any one pod's base URL, so
+  [`SPS-AUTH-067`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-067) allows them without requiring them. This
+  deployment owns the origin and serves them, because a generic OAuth client probes there before it
+  has ever seen a `401`. A pod that served only the append forms would be exactly as conformant. The
+  same holds for the third host-rooted route, the one at the MCP URL —
+  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six.
 
 ## Standards used
 
@@ -67,7 +67,7 @@ be a conforming pod if it were done differently:
 | RFC 9728 — Protected Resource Metadata | `/.well-known/oauth-protected-resource` (`oauth.md`) |
 | RFC 6749 §10.4 — Refresh-token rotation | Token family + reuse detection (`oauth.md`) |
 | RFC 6750 — Bearer Token usage | Resource-server requests |
-| RFC 8414 — Authorization Server Metadata | JWKS endpoint shape (`oauth.md`) |
+| RFC 8414 — Authorization Server Metadata | `/.well-known/oauth-authorization-server` (`oauth.md`) |
 
 Standards are *named*, not re-explained in these docs.
 

@@ -102,9 +102,9 @@ WWW-Authenticate hint correctly.
   be reported upstream to Open-Code.
 - **VS Code Copilot mis-parses PRM `authorization_servers`.** Observed
   in the R4 spike: the popup shows the host origin
-  (`https://<host>/`) instead of the MCP-path-specific issuer the PRM
-  advertises. The DCR endpoint is therefore not auto-discovered.
-  Should be reported upstream to the VS Code MCP project.
+  (`https://<host>/`) instead of the pod issuer the PRM advertises.
+  The DCR endpoint is therefore not auto-discovered. Should be
+  reported upstream to the VS Code MCP project.
 - **Claude.ai dedupes tools across connectors.** A `create_resource`
   tool registered for one pod can disappear from the model's tool
   inventory if another connected pod exposes the same tool name. The

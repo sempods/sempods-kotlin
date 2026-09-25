@@ -25,17 +25,20 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
 
   private val apiBaseUrl get() = SempodsModule.config.apiBaseUrl.trimEnd('/')
 
+  /** `P`: the pod's resource identifier and its issuer. */
   private fun podBaseUrl(podName: String) = "$apiBaseUrl/$podName"
-  private fun authIssuer(podName: String) = "${podBaseUrl(podName)}/_system/auth"
+
+  /** Where the authorization, token, registration and JWKS endpoints live — below the issuer. */
+  private fun authEndpoints(podName: String) = "${podBaseUrl(podName)}/_system/auth"
 
   private fun resourceMetadataUrlAppend(podName: String) =
     "${podBaseUrl(podName)}/.well-known/oauth-protected-resource"
 
   private fun authServerMetadataUrlAppend(podName: String) =
-    "${authIssuer(podName)}/.well-known/oauth-authorization-server"
+    "${podBaseUrl(podName)}/.well-known/oauth-authorization-server"
 
-  private fun authServerMetadataUrlStrictPodIssuer(podName: String) =
-    "$apiBaseUrl/.well-known/oauth-authorization-server/$podName/_system/auth"
+  private fun authServerMetadataUrlStrict(podName: String) =
+    "$apiBaseUrl/.well-known/oauth-authorization-server/$podName"
 
   private fun resourceMetadataUrlStrictPodResource(podName: String) =
     "$apiBaseUrl/.well-known/oauth-protected-resource/$podName"
@@ -68,9 +71,9 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "resource must be the pod base URL (no trailing slash)"
     )
     assertEquals(
-      listOf(authIssuer(pod.name)),
+      listOf(podBaseUrl(pod.name)),
       body["authorization_servers"],
-      "authorization_servers must point at the pod's own _system/auth issuer"
+      "authorization_servers must name the pod itself: it is its own issuer (SPS-AUTH-065)",
     )
     assertEquals(
       listOf("header"),
@@ -142,9 +145,9 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     @Suppress("UNCHECKED_CAST")
     val body = objectMapper.readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
-    val authBase = authIssuer(pod.name)
+    val authBase = authEndpoints(pod.name)
 
-    assertEquals(authBase, body["issuer"], "issuer must be the pod's own _system/auth URL")
+    assertEquals(podBaseUrl(pod.name), body["issuer"], "issuer must be the pod base URL (SPS-AUTH-066)")
     assertEquals("$authBase/authorize", body["authorization_endpoint"])
     assertEquals("$authBase/token", body["token_endpoint"])
     assertEquals("$authBase/register", body["registration_endpoint"])
@@ -189,7 +192,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     val body = objectMapper.readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
     assertEquals(podBaseUrl(pod.name), body["resource"])
-    assertEquals(listOf(authIssuer(pod.name)), body["authorization_servers"])
+    assertEquals(listOf(podBaseUrl(pod.name)), body["authorization_servers"])
   }
 
   @Test
@@ -227,21 +230,84 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `RFC-strict authorization-server path for pod issuer should return AS body`() {
+  fun `RFC-strict authorization-server path for the pod issuer serves the append-style body`() {
     val pod = sempodsTestFactory.newPod()
 
-    val response = httpClient.prepareGet(authServerMetadataUrlStrictPodIssuer(pod.name))
+    val strict = httpClient.prepareGet(authServerMetadataUrlStrict(pod.name)).execute()
+    val append = httpClient.prepareGet(authServerMetadataUrlAppend(pod.name)).execute()
+
+    assertEquals(200, strict.statusCode)
+    @Suppress("UNCHECKED_CAST")
+    val body = objectMapper.readValue(strict.responseBody, Map::class.java) as Map<String, Any?>
+    assertEquals(podBaseUrl(pod.name), body["issuer"])
+    assertEquals("${authEndpoints(pod.name)}/token", body["token_endpoint"])
+    assertEquals(
+      objectMapper.readValue(append.responseBody, Map::class.java),
+      body,
+      "both addresses must return the same pod's metadata (SPS-AUTH-067)",
+    )
+  }
+
+  @Test
+  fun `RFC-strict authorization-server path should return 404 for unknown pod`() {
+    val unknownPod = "nonexistent-${TestUtil.randomId()}"
+
+    val response = httpClient.prepareGet(authServerMetadataUrlStrict(unknownPod))
       .execute()
 
-    assertEquals(200, response.statusCode)
+    assertEquals(404, response.statusCode)
+  }
 
-    @Suppress("UNCHECKED_CAST")
-    val body = objectMapper.readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+  @Test
+  fun `no authorization-server metadata is served for the auth routes as an issuer`() {
+    // Both addresses RFC 8414 derives from `P/_system/auth`. A document there would name issuer
+    // `P`, which RFC 8414 §3.3 makes a client discard; the pod is the issuer (SPS-AUTH-066).
+    val pod = sempodsTestFactory.newPod()
 
-    val authBase = authIssuer(pod.name)
-    assertEquals(authBase, body["issuer"])
-    assertEquals("$authBase/authorize", body["authorization_endpoint"])
-    assertEquals("$authBase/register", body["registration_endpoint"])
+    listOf(
+      "${authEndpoints(pod.name)}/.well-known/oauth-authorization-server",
+      "$apiBaseUrl/.well-known/oauth-authorization-server/${pod.name}/_system/auth",
+    ).forEach { url ->
+      assertEquals(404, httpClient.prepareGet(url).execute().statusCode, url)
+    }
+  }
+
+  @Test
+  fun `two pods on one origin each describe only themselves`() {
+    // Path-scoped pods share the host, so the host-rooted routes are the ones that could mix them
+    // up. Every document names its own pod, and nothing in it names the other one.
+    val alice = sempodsTestFactory.newPod()
+    val bob = sempodsTestFactory.newPod()
+
+    for ((pod, other) in listOf(alice to bob, bob to alice)) {
+      val base = podBaseUrl(pod.name)
+      val otherBase = podBaseUrl(other.name)
+      val resourceMetadata = listOf(
+        resourceMetadataUrlAppend(pod.name),
+        "$apiBaseUrl/.well-known/oauth-protected-resource/${pod.name}",
+      )
+      val authMetadata = listOf(authServerMetadataUrlAppend(pod.name), authServerMetadataUrlStrict(pod.name))
+
+      for (url in resourceMetadata + authMetadata) {
+        val response = httpClient.prepareGet(url).execute()
+        assertEquals(200, response.statusCode, url)
+        assertTrue(
+          listOf("\"$otherBase\"", "\"$otherBase/").none { it in response.responseBody },
+          "$url names the other pod: ${response.responseBody}",
+        )
+        @Suppress("UNCHECKED_CAST")
+        val body = objectMapper.readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+        if (url in resourceMetadata) {
+          assertEquals(base, body["resource"], url)
+          assertEquals(listOf(base), body["authorization_servers"], url)
+        } else {
+          assertEquals(base, body["issuer"], url)
+          listOf("authorization_endpoint", "token_endpoint", "registration_endpoint", "jwks_uri").forEach {
+            assertTrue((body[it] as String).startsWith("$base/_system/auth/"), "$url $it: ${body[it]}")
+          }
+        }
+      }
+    }
   }
 
   // MCP 2025-11-25 probes these RFC-strict paths with the MCP URL as the resource identifier.
@@ -260,7 +326,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(podBaseUrl(pod.name), body["resource"], "resource stays at pod URL")
     assertEquals(
-      listOf(authIssuer(pod.name)),
+      listOf(podBaseUrl(pod.name)),
       body["authorization_servers"],
       "the MCP URL is another spelling of the pod resource, not a resource with its own issuer",
     )
@@ -270,7 +336,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
   fun `RFC-strict authorization-server path with MCP identifier should 404`() {
     // The MCP URL is not an issuer identifier, so there is no AS-metadata to serve under it:
     // RFC 8414 §3.3 wants the served `issuer` to match the URL it came from, and the pod's
-    // issuer is `_system/auth`. Clients reach it through the PRM.
+    // issuer is the pod base. Clients reach it through the PRM.
     val pod = sempodsTestFactory.newPod()
 
     val response = httpClient.prepareGet(authServerMetadataUrlStrictMcp(pod.name))
@@ -303,7 +369,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     @Suppress("UNCHECKED_CAST")
     val body = objectMapper.readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
-    val authBase = authIssuer(pod.name)
+    val authBase = authEndpoints(pod.name)
     assertEquals(
       "$authBase/register",
       body["registration_endpoint"],

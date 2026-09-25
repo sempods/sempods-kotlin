@@ -11,9 +11,7 @@ import java.net.URI
  * and two hosts may each have one. It is the same value [org.sempods.SempodsUriBuilder.buildPodUri]
  * mints and [org.sempods.SempodsUriBuilder.parsePodName] reads back, in the same canonical form:
  * **no trailing slash**, because every resource, context and view URI hangs off it as
- * `<pod-uri>/<segment>`. The OAuth issuer and the RFC 9728 resource base are the trailing-slash
- * form of the same string and are built where they are needed; `buildPodUri` records that
- * distinction.
+ * `<pod-uri>/<segment>`. It is also the pod's OAuth issuer and its RFC 9728 resource.
  *
  * [name] is the pod's segment **within one deployment** — what a multi-pod host addresses it by in
  * `{pod}/…` routes and keys its own storage on. It is derivable from [uri] given that host's base
