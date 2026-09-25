@@ -12,19 +12,27 @@ import jakarta.ws.rs.core.Response
 import java.net.URI
 
 /**
- * Pre-write validation shared by [PodResourceWriteService] (LOD-layer writes) and
- * [org.sempods.api.pod.system.resources.PodSlotWriteService] (System-layer slot writes).
+ * Pre-write validation shared by [PodResourceWriteService] (LOD-layer writes),
+ * [org.sempods.api.pod.system.resources.PodSlotWriteService] (System-layer slot writes) and the
+ * media routes.
  *
- * Both layers funnel through the same two gates:
+ * Every write passes two gates:
  *
  * 1. [resolveWriteContextOrThrow] — parse the raw `?context=` parameter, normalize it against
- *    the pod base URL, reject out-of-namespace / fragmented URIs, and confirm the context is
- *    registered.
- * 2. [authorizeWriteOrThrow] — match the resolved context against the caller's OAuth scopes,
+ *    the pod base URL, and reject out-of-namespace / fragmented URIs. Nothing here depends on
+ *    whether the context exists.
+ * 2. [authorizeWriteOrThrow] — match the resolved context against the caller's grants,
  *    honoring `<root>#manage` only along slash-delimited descendants so a `tasks#manage` grant
- *    cannot reach the sibling `tasks-private` context.
+ *    cannot reach the sibling `tasks-private` context; then confirm the context is registered.
+ *    An ensure-absent write stops after the grant check ([requireWriteAuthorityOrThrow]).
  *
- * Extracted from `PodResourceWriteService` so the two write paths cannot drift.
+ * Authority is checked before registration, so a denial does not say whether the context exists
+ * (`SPS-CORE-018`). For [authorizeWriteOrThrow]:
+ *
+ * | Caller | Context registered | Context absent |
+ * |---|---|---|
+ * | A grant covers the context | the write proceeds | `404` |
+ * | No grant covers it | `403` | `403`, same body |
  */
 class PodContextWriteAuthorizer @Inject constructor(
   private val podContextsDao: PodContextsDao,
@@ -59,11 +67,6 @@ class PodContextWriteAuthorizer @Inject constructor(
     if (contextUri.fragment != null) {
       throw WebApplicationException(
         Response.status(400).entity("context URI must not contain fragment").type(MediaType.TEXT_PLAIN).build()
-      )
-    }
-    if (!contextIsRegistered(pod, contextUri)) {
-      throw WebApplicationException(
-        Response.status(404).entity("unknown context").type(MediaType.TEXT_PLAIN).build()
       )
     }
     return contextUri
@@ -108,12 +111,11 @@ class PodContextWriteAuthorizer @Inject constructor(
     val raw = rawContexts?.filter { it.isNotBlank() } ?: emptyList()
     if (raw.isEmpty()) return null
     return raw.mapNotNull { value ->
+      // For reads, invalid and unregistered contexts are silent — drop and continue.
       try {
-        resolveWriteContextOrThrow(pod, value)
+        resolveWriteContextOrThrow(pod, value).takeIf { contextIsRegistered(pod, it) }
       } catch (e: WebApplicationException) {
-        val status = e.response?.status ?: 0
-        // For reads, unknown / invalid contexts are silent — drop and continue.
-        if (status == 400 || status == 404) null else throw e
+        if (e.response?.status == 400) null else throw e
       }
     }.toSet()
   }
@@ -121,8 +123,8 @@ class PodContextWriteAuthorizer @Inject constructor(
   /**
    * Re-assert that [contextUri] is *still* registered, immediately before a write commits.
    *
-   * [resolveWriteContextOrThrow] already checks this — but it checks it when the request is
-   * *parsed*, and a write that takes real time in between can commit into a context that was
+   * [authorizeWriteOrThrow] already checks this — but it checks it before the request body is
+   * read, and a write that takes real time in between can commit into a context that was
    * deleted meanwhile. The media upload is where that stops being theoretical: it buffers the body
    * first, and on the copy-from-URL path it fetches a remote source under a request timeout
    * measured in **tens of seconds**. `PodFacade.removeContext` runs its cascade inside that window
@@ -151,7 +153,25 @@ class PodContextWriteAuthorizer @Inject constructor(
     }
   }
 
+  /**
+   * [requireWriteAuthorityOrThrow], then `404` when [contextUri] is not registered. The gate for
+   * every write except an ensure-absent one.
+   */
   fun authorizeWriteOrThrow(credentials: SempodsCredentials, contextUri: URI) {
+    requireWriteAuthorityOrThrow(credentials, contextUri)
+    if (!contextIsRegistered(credentials.pod.name, contextUri)) {
+      throw WebApplicationException(
+        Response.status(404).entity("unknown context").type(MediaType.TEXT_PLAIN).build()
+      )
+    }
+  }
+
+  /**
+   * `403` unless [credentials] hold `<context>#write` on [contextUri] or a `<root>#manage` covering
+   * it, whether or not the context is registered. The whole check for an ensure-absent write, which
+   * succeeds on an unregistered context too (`SPS-MEDIA-007`).
+   */
+  fun requireWriteAuthorityOrThrow(credentials: SempodsCredentials, contextUri: URI) {
     val writeScope = "${contextUri}#write"
     if (credentials.oauthScopes.contains(writeScope)) return
     if (isCoveredByManageScope(credentials, contextUri)) return

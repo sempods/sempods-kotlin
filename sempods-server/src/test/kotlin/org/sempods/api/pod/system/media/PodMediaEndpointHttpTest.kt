@@ -648,7 +648,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a write targeting an unknown context is rejected before the media is looked at`() {
+  fun `a write targeting an unknown context without a grant on it is forbidden before the media is looked at`() {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
     val mediaId = mediaIdOf(upload(pod, context, token))
@@ -657,7 +657,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     val response = http.prepare("PUT", mediaUrl(pod.name, mediaId, unknown))
       .addHeader("Authorization", "Bearer $token").execute()
 
-    assertEquals(404, response.statusCode)
+    assertEquals(403, response.statusCode)
   }
 
   @Test

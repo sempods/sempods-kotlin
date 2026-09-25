@@ -1514,7 +1514,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `PUT should return 404 for unknown context`() {
+  fun `PUT into an unknown context the caller holds no grant on is 403`() {
     val pod = sempodsTestFactory.newPod()
     val (_, token) = createContextWithToken(pod, "apps/test-app/known")
     val eventId = TestUtil.randomId()
@@ -1533,7 +1533,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(nQuads)
       .execute()
 
-    assertEquals(404, response.statusCode)
+    assertEquals(403, response.statusCode)
   }
 
   @Test
@@ -2110,6 +2110,34 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
     assertEquals(404, response.statusCode)
+  }
+
+  @Test
+  fun `GET drops a requested context that is not registered even where a grant names it`() {
+    // The downscope shares its parsing with the write gate, which checks registration only after
+    // authority. A grant left naming an unregistered context must not bring it into the selection,
+    // which is part of the tag.
+    val pod = sempodsTestFactory.newPod()
+    val (ctxA, _) = createContextWithToken(pod, "ctx-a")
+    val unregistered = sempodsUriBuilder.buildContext(pod.name, "ctx-gone")
+    val token = mintScopedToken(pod.name, listOf("$ctxA#read", "$unregistered#read"), webId = "https://id.test/${TestUtil.randomId()}")
+    val resourceUri = URI("${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob")
+    val model = LinkedHashModel()
+    model.add(resourceUri.toIri(), Values.iri("https://schema.org/name"), Values.literal("Bob"), ctxA.toIri())
+    podFacade.putResourceModel(podName = pod.name, resourceUri = resourceUri, model = model)
+
+    fun read(vararg contexts: URI) = httpClient
+      .prepareGet("$resourceUri?" + contexts.joinToString("&") { "context=${URLEncoder.encode(it.toString(), StandardCharsets.UTF_8)}" })
+      .addHeader("Accept", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .execute()
+    val onlyA = read(ctxA)
+    val withUnregistered = read(ctxA, unregistered)
+
+    assertEquals(200, withUnregistered.statusCode)
+    assertEquals(onlyA.getHeader("ETag"), withUnregistered.getHeader("ETag"))
+    assertEquals(onlyA.responseBody, withUnregistered.responseBody)
+    assertEquals(404, read(unregistered).statusCode)
   }
 
   // ── Iter 3: Discovery — Link headers advertising System-layer entry points ────────

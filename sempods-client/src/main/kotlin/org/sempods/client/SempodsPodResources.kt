@@ -29,8 +29,9 @@ import java.io.IOException
  * | [put] | `200`, `201`, `204`; `412` without a body only when conditional |
  * | [patch], [delete] | `200`, `204`, `404`; `412` only when conditional |
  *
- * A `404` on [patch] or [delete] means nothing of the resource is in that context, or no such context
- * (SPS-CRUD-010).
+ * A `404` on [patch] or [delete] means nothing of the resource is in that context, or no such context.
+ * A caller without write authority on the context gets `403` instead, whether the context exists or
+ * not (SPS-CORE-018).
  *
  * **A read with [SempodsContextSelection.none] sends nothing.** A read route cannot be asked for no
  * context: it drops an empty `context` parameter and answers from every readable one. The core

@@ -251,10 +251,9 @@ class WriteToolsIntegrationTest {
 
   @Test
   fun `a pod refusal is surfaced as the pod gave it, not translated`() = runBlocking {
-    // The flip side of dropping the guard: when the pod says no, that answer has to arrive intact.
-    // A context the pod does not know is a 404 from the pod, not a tool error invented here.
-    // No stub for this resource, so the pod answers 404 — the same shape a real pod returns for an
-    // unknown context. What matters is that the answer comes from the pod at all.
+    // The flip side of dropping the guard: when the pod says no, that answer has to arrive intact,
+    // not as a tool error invented here. No stub for this resource, so the mock pod answers 404.
+    // What matters is that the answer comes from the pod at all.
     val res = call("create_resource", """{"target":"$pod","context_iri":"$pod/_system/sparql","resource_iri":"$pod/no-stub","jsonld":{"@id":"$pod/no-stub"}}""")
     val env = envelope(res)
     assertEquals(false, env["ok"].asBoolean(), env.toString())

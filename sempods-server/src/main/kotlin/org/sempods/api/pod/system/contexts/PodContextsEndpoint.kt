@@ -103,8 +103,10 @@ class PodContextsEndpoint @Inject constructor(
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
     val podDbo = fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
-    requireCreatableContextPathOrThrow(ContextPathRules.normalize(contextPath))
+    // Authority before the naming rules, which hold for creation only: a caller without it gets 403
+    // whether the context exists or not (`SPS-CORE-018`).
     val createdBy = authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
+    requireCreatableContextPathOrThrow(ContextPathRules.normalize(contextPath))
     val podId = checkNotNull(podDbo.id)
     val fields = body ?: PutPodContextRequest()
 
@@ -236,8 +238,8 @@ class PodContextsEndpoint @Inject constructor(
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
-    // Authorize before the existence check so an out-of-sandbox caller gets 403, not a
-    // 404 that would leak whether the context exists.
+    // Before the existence check: a caller without authority gets 403 whether the context exists or
+    // not (`SPS-CORE-018`).
     authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
     val podId = checkNotNull(podDbo.id)
     if (!podContextsDao.exists(podId = podId, contextUri = contextUri.toString())) {

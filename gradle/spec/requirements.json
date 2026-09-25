@@ -181,7 +181,7 @@
       "id": "SPS-AUTH-025",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "On success the implementation MUST redirect to the request's **validated** `redirect_uri` carrying `code` and `state`; on failure, carrying `error` and `error_description`, and OPTIONALLY `error_uri`.",
+      "summary": "The implementation MUST handle authorization success and error responses per [RFC 6749 §§4.1.2 and 4.1.2.1](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.2), including validation of the client's `redirect_uri` and, in responses sent to that client, echoing `state` unchanged only when supplied in the authorization request.",
       "withdrawn": false
     },
     {
@@ -423,6 +423,41 @@
       "withdrawn": false
     },
     {
+      "id": "SPS-AUTH-064",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "Every Bearer challenge from a pod's protected-resource endpoint, in core or a module other than MCP, MUST carry `resource_metadata` equal to the absolute URL `{pod}/.well-known/oauth-protected-resource`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-065",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "The pod's resource metadata MUST set `resource` to its canonical base URL, set `authorization_servers` to an array containing only that URL, and include `header` in `bearer_methods_supported`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-066",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "An implementation MUST serve Authorization Server Metadata at `GET {pod}/.well-known/oauth-authorization-server`, without authentication.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-067",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "For pod-local discovery, servers and clients MUST append `/.well-known/oauth-protected-resource` or `/.well-known/oauth-authorization-server` to the canonical pod base URL.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-AUTH-068",
+      "part": "core",
+      "chapter": "spec/core/auth.md",
+      "summary": "A client using this pod-local profile for a surface other than MCP MUST validate discovery against the canonical pod base URL it intended to access, not a base inferred from returned metadata.",
+      "withdrawn": false
+    },
+    {
       "id": "SPS-CORE-001",
       "part": "core",
       "chapter": "spec/core/index.md",
@@ -545,7 +580,7 @@
       "id": "SPS-CORE-018",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "On a **write**, the two failures are currently distinguished: a context that is not registered produces `404`, and a registered context the caller may not write produces `403`.",
+      "summary": "For an authenticated **write on the direct HTTP surface**, an implementation MUST return `403` when the caller lacks the authority required on the target context, whether or not that context exists.",
       "withdrawn": false
     },
     {
@@ -630,13 +665,6 @@
       "part": "core",
       "chapter": "spec/core/lod-crud.md",
       "summary": "An implementation MUST accept a canonical context IRI, and MAY additionally accept a pod-relative context path which it resolves to the canonical IRI.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-CRUD-010",
-      "part": "core",
-      "chapter": "spec/core/lod-crud.md",
-      "summary": "A `?context=` value naming a context that is not registered MUST be `404`; a registered context the caller may not write MUST be `403` ([`SPS-CORE-018`](index.md#SPS-CORE-018)).",
       "withdrawn": false
     },
     {
@@ -1091,7 +1119,7 @@
       "id": "SPS-CTX-017",
       "part": "context-management",
       "chapter": "spec/modules/context-management.md",
-      "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context, and MUST also remove the state that rested on it: the grants naming it, and the context's statements.",
+      "summary": "`DELETE {pod}/_system/contexts/{path}` MUST remove the context together with its statements and the grants naming it, and MUST answer `204` on successful deletion.",
       "withdrawn": false
     },
     {
@@ -1106,13 +1134,6 @@
       "part": "context-management",
       "chapter": "spec/modules/context-management.md",
       "summary": "`PUT` and `DELETE` MUST require the pod owner, or a `#manage` grant covering the target context under the slash-delimited rule of [`SPS-GRANT-007`](../core/grants.md#SPS-GRANT-007).",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-CTX-020",
-      "part": "context-management",
-      "chapter": "spec/modules/context-management.md",
-      "summary": "On `DELETE`, an implementation MUST check authorization **before** existence, so that a caller outside their sandbox receives `403` and not a `404` that would confirm the context exists.",
       "withdrawn": false
     },
     {
@@ -1168,14 +1189,7 @@
       "id": "SPS-CTX-028",
       "part": "core",
       "chapter": "spec/core/contexts.md",
-      "summary": "A pod MUST have at least one registered context.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-CTX-029",
-      "part": "context-management",
-      "chapter": "spec/modules/context-management.md",
-      "summary": "`DELETE` MUST refuse to remove the only context **visible to the caller**, with `409`.",
+      "summary": "A pod that does not provide the [context-management module](../modules/context-management.md) MUST have at least one registered context.",
       "withdrawn": false
     },
     {
@@ -1658,7 +1672,7 @@
       "id": "SPS-MCP-004",
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
-      "summary": "Error responses MUST use JSON-RPC codes: parse error, invalid request, method or tool not found, invalid params, internal error.",
+      "summary": "Protocol errors MUST use JSON-RPC codes: parse error, invalid request, method or tool not found, invalid params, internal error.",
       "withdrawn": false
     },
     {
@@ -1693,7 +1707,7 @@
       "id": "SPS-MCP-009",
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
-      "summary": "Every `401` MUST carry `WWW-Authenticate: Bearer` naming the pod's realm and the pod-level Protected Resource Metadata URL.",
+      "summary": "Every `401` MUST carry `WWW-Authenticate: Bearer` naming the pod's realm and the absolute endpoint-specific Protected Resource Metadata URL required by [SPS-MCP-033](#SPS-MCP-033) in `resource_metadata`.",
       "withdrawn": false
     },
     {
@@ -1848,13 +1862,57 @@
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "Some clients treat the MCP URL itself as the protected-resource identifier.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev without replacement."
     },
     {
       "id": "SPS-MCP-032",
       "part": "mcp",
       "chapter": "spec/modules/mcp.md",
       "summary": "An implementation MUST NOT serve Authorization Server Metadata for the MCP URL.",
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev without replacement."
+    },
+    {
+      "id": "SPS-MCP-033",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "The server MUST serve unauthenticated Protected Resource Metadata for `M` at the RFC 9728 §3.1 URL, inserting `/.well-known/oauth-protected-resource` before `M`'s path.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-MCP-034",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "The server MUST also serve the pod's Authorization Server Metadata at the RFC 8414 §3.1 URL for issuer `P`, inserting `/.well-known/oauth-authorization-server` before its path, or using that origin-root path for a pathless `P`.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-MCP-035",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "An MCP client MUST use the selected MCP discovery rules with its configured canonical endpoint `M` as the expected resource, including when it initiates authorization after successful anonymous initialization.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-MCP-036",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "A client requesting MCP access MUST send exactly one RFC 8707 `resource` parameter equal to `M` in authorization and token requests, including refresh and supported service-client token requests.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-MCP-037",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "The authorization server MUST bind an MCP authorization code and any resulting refresh credential to `M`, in addition to their existing client and subject binding.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-MCP-038",
+      "part": "mcp",
+      "chapter": "spec/modules/mcp.md",
+      "summary": "An MCP access token MUST have `iss=P` and a JWT `aud` identifying only `M`, as a string or a single-element array.",
       "withdrawn": false
     },
     {
@@ -2099,7 +2157,7 @@
       "id": "SPS-OIDC-005",
       "part": "oidc",
       "chapter": "spec/modules/oidc.md",
-      "summary": "The assertion MAY carry the equivalent identity URIs known for the person.",
+      "summary": "An issuer MAY carry the person's equivalent identities in the ID Token claim `https://schema.sempods.org/claims/equivalent-identities`, whose value MUST be a JSON array of WebID URI strings consistent with [`SPS-AUTH-049`](../core/auth.md#SPS-AUTH-049).",
       "withdrawn": false
     },
     {
@@ -2170,6 +2228,27 @@
       "part": "oidc",
       "chapter": "spec/modules/oidc.md",
       "summary": "The callback MUST reject a `state` it did not park, and MUST consume each one exactly once.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-OIDC-016",
+      "part": "oidc",
+      "chapter": "spec/modules/oidc.md",
+      "summary": "A relying party MUST reject the identity assertion if the equivalent-identity claim is present with a value other than the array of WebID URI strings defined by [`SPS-OIDC-005`](#SPS-OIDC-005), including `null` or an array containing any invalid entry.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-OIDC-017",
+      "part": "oidc",
+      "chapter": "spec/modules/oidc.md",
+      "summary": "A relying party MUST interpret a valid equivalent-identity claim as an unordered set of identities equivalent to `sub`, with omission or an empty array asserting no additional identities in this token.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-OIDC-018",
+      "part": "oidc",
+      "chapter": "spec/modules/oidc.md",
+      "summary": "A relying party MUST apply the claimed equivalent identities only from an issuer trusted to assert equivalence for this subject, and only where a grant or ownership is decided ([`SPS-AUTH-052`](../core/auth.md#SPS-AUTH-052)).",
       "withdrawn": false
     },
     {

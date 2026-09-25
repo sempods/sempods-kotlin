@@ -74,9 +74,9 @@ free choices:
   the scopes a test just minted for itself.
 
 The route is stricter than the store, and that is the point rather than an obstacle: it refuses
-contexts that are unregistered (404) or outside the pod namespace (400), and it will not
-dereference a subject whose IRI sits below a context IRI. A fixture must register the contexts it
-writes to — `SempodsTestFactory` hands back the public one it creates.
+contexts outside the pod namespace (400) and unregistered ones — the seeder holds no grant there, so
+that is a 403 — and it will not dereference a subject whose IRI sits below a context IRI. A fixture
+must register the contexts it writes to — `SempodsTestFactory` hands back the public one it creates.
 
 **Storage semantics are tested on `PodFacade` instead**, and deliberately so:
 `PodFacadeResourceTest` and `SempodsFacadeTest` assert what the store does with a resource model or
