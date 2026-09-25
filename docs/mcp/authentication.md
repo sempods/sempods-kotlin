@@ -163,8 +163,8 @@ The `resource_metadata` URL is the pod-level PRM
 (`…/{pod}/.well-known/oauth-protected-resource`) for every caller, MCP
 or REST. For MCP this deviates from
 [`SPS-MCP-009`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/mcp.md#SPS-MCP-009),
-which names the endpoint's own metadata;
-[#305](https://github.com/sempods/sempods-kotlin/issues/305) makes that change.
+which names the endpoint's own metadata
+([#305](https://github.com/sempods/sempods-kotlin/issues/305)).
 
 ## DCR fingerprint
 
