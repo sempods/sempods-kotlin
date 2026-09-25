@@ -158,11 +158,11 @@ class SempodsPodSlotsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `clear and removeEdge send a DELETE without content to the slot and to the edge`() {
+  fun `clear and removeEdge send a DELETE without content to the slot and to the edge, with their conditions as given`() {
     answer(200, """{"outcome":"cleared"}""")
 
     slots().clear(bob, knows, inContacts.withIfMatch("\"s1\""))
-    slots().removeEdge(bob, knows, target, inContacts)
+    slots().removeEdge(bob, knows, target, inContacts.withIfNoneMatch("*"))
 
     val (clear, remove) = sent.toList()
     assertEquals(listOf("DELETE", "DELETE"), sent.map { it.method })
@@ -174,6 +174,8 @@ class SempodsPodSlotsContractTest : MockPodTest() {
       assertEquals(listOf(contacts), it.url.queryParameterValues("context"))
     }
     assertEquals("\"s1\"", clear.headers["If-Match"])
+    assertNull(clear.headers["If-None-Match"])
+    assertEquals("*", remove.headers["If-None-Match"])
     assertNull(remove.headers["If-Match"])
   }
 
@@ -209,7 +211,7 @@ class SempodsPodSlotsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `412 answers only a conditional put, add or clear`() {
+  fun `412 answers only a conditional write`() {
     answer(412, "precondition failed", "ETag" to "\"s3\"")
     val stale = inContacts.withIfMatch("\"s1\"")
 
@@ -217,6 +219,7 @@ class SempodsPodSlotsContractTest : MockPodTest() {
       slots().put(bob, knows, SempodsContent.of(values), stale),
       slots().add(bob, knows, SempodsContent.of(carol), stale),
       slots().clear(bob, knows, inContacts.withIfNoneMatch("*")),
+      slots().removeEdge(bob, knows, target, stale),
     ).forEach {
       assertEquals(412, it.status)
       assertNull(it.body)
@@ -228,18 +231,6 @@ class SempodsPodSlotsContractTest : MockPodTest() {
       { slots().clear(bob, knows, inContacts) },
       { slots().removeEdge(bob, knows, target, inContacts) },
     ).forEach { assertEquals(412, assertThrows<SempodsStatusException> { it() }.status) }
-  }
-
-  @Test
-  fun `an edge removal with a condition is refused, and nothing is sent`() {
-    listOf(inContacts.withIfMatch("\"s1\""), inContacts.withIfNoneMatch("*")).forEach { conditional ->
-      val refused = assertThrows<IllegalArgumentException> { slots().removeEdge(bob, knows, target, conditional) }
-      assertEquals(
-        "An edge removal takes no condition: the pod ignores If-Match there (SPS-CRUD-054); leave If-Match and If-None-Match unset.",
-        refused.message,
-      )
-    }
-    assertTrue(sent.isEmpty())
   }
 
   @Test

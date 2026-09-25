@@ -290,9 +290,7 @@ class McpEndpoint @Inject constructor(
       - Omitting `if_match` is the default — writes go through unconditionally.
       - `create_resource` accepts `if_none_match: "*"` for create-or-fail (fails if the
         resource already exists) instead of its default upsert.
-      - `remove_property_value` does NOT take `if_match`: single-edge removal is idempotent
-        (present or not, the outcome is the same), so optimistic-concurrency control adds
-        nothing.
+      - `remove_property_value` does NOT take `if_match`; it removes unconditionally.
 
       REJECTED IN SPARQL: INSERT / DELETE / LOAD / CLEAR / CREATE / DROP / COPY / MOVE / ADD
       and SERVICE (SSRF protection). Use the write tools for mutations.
