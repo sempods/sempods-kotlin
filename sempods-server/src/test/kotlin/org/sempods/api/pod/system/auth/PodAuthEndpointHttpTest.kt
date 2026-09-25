@@ -5563,10 +5563,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `an installer bearer manages no context, though its subject owns the pod`() {
-    // An installation authority is minted for the owner and carries their WebID as `sub`. Owner
-    // recognition is a catch-all allow wherever it is asked, so without the scope check this
-    // bearer could create and delete contexts across the whole pod — taking their statements and
-    // their grants with them, which is the opposite of what it was granted for.
+    // An installation authority is minted for the owner and carries their WebID as `sub`. If a
+    // subject that owns the pod were enough, this bearer could create and delete contexts across
+    // the whole pod — taking their statements and their grants with them, which is the opposite of
+    // what it was granted for.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -5588,12 +5588,19 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     assertEquals(403, deleted.statusCode, deleted.responseBody)
 
-    // The same person's ordinary token still manages their own pod, so the refusal above is the
-    // scope's doing and not a broken owner path.
+    // The same person's ordinary app token manages nothing it was not granted either; only the
+    // owner's `contexts:manage` authority reaches the pod, so the refusals above are not a broken
+    // owner path.
     val ordinary = mintScopedToken(pod.name, emptyList(), webId = ownerWebId)
-    val allowed = http.preparePut("$manageUrl-3")
+    val refused = http.preparePut("$manageUrl-3")
       .addHeader("Content-Type", "application/json")
       .addHeader("Authorization", "Bearer $ordinary")
+      .setBody("{}")
+      .execute()
+    assertEquals(403, refused.statusCode, refused.responseBody)
+    val allowed = http.preparePut("$manageUrl-3")
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
       .setBody("{}")
       .execute()
     assertEquals(201, allowed.statusCode, allowed.responseBody)

@@ -46,8 +46,8 @@ An owner interface would use ordinary pod OAuth and the pod client across implem
 A "create a pod here" action needs a separate, explicitly paired host authority because the
 new pod cannot authorize its own creation. An operator interface is deployment-specific and
 uses the control-plane client. A WebID plus operator allowlist is a proposed alternative to
-sharing a static admin credential; `SempodsBaseEndpoint.resolvePodOwnerPrincipal` is an
-existing identity-resolution example, not an implementation of that admin policy.
+sharing a static admin credential; `PodOwnerAuthority` is an existing owner-recognition
+example, not an implementation of that admin policy.
 
 Owner grant CRUD over the existing grant/replace/revoke facade methods also needs an HTTP
 contract and owner or covering manage authorization. Review it with this interface boundary;

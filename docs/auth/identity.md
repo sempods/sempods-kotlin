@@ -101,12 +101,13 @@ sign-in at another, and a [sign-out](oauth.md#signing-out) at one is
 not a sign-out at another.
 
 Ownership follows from it directly. `podDbo.owner` is compared against
-the request's subject (`SempodsBaseEndpoint.resolvePodOwnerPrincipal`)
-— not against a grant and not against a scope, so an owner has manage
-authority over every context on their pod with nothing granted at all,
-which is what lets a pod with no contexts get its first one. Grants for
-everyone else are resolved server-side per request from the grant
-store, keyed by that same subject.
+the person the session names — not against a grant — so the owner may
+grant every context on their pod with nothing granted at all, and can
+create contexts in the consent dialog. A bearer is an app: its `sub`
+alone makes it no owner. The owner's authority reaches a program only
+through a scope approved for one operation, such as
+[`contexts:manage`](oauth.md#managing-contexts). Grants are resolved
+server-side per request from the grant store, keyed by the subject.
 
 Equivalent identity URIs (`also_known_as`) are applied when a grant is
 *written*, at consent, not when it is read: a request carries one

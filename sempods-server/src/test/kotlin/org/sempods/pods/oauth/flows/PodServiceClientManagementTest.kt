@@ -51,7 +51,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
       management.rotate(owned.pod, installer, existing.clientId),
       management.revoke(owned.pod, installer, existing.clientId),
     )) {
-      assertEquals(PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.SCOPE_REQUIRED), result)
+      assertEquals(PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.SCOPE_REQUIRED), result)
     }
     assertEquals(existing.id, serviceClients.find(owned.pod.id, existing.clientId)?.id)
   }
@@ -68,7 +68,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     consentDecisionStore.recordDisconnect(owned.pod.id, clientId, owned.webId)
 
     assertEquals(
-      PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.AUTHORITY_WITHDRAWN),
+      PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN),
       management.list(owned.pod, manager),
     )
   }
@@ -82,7 +82,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
 
     assertIs<PodServiceClientManagementResult.Done<*>>(management.list(owned.pod, manager))
     assertEquals(
-      PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_OWNER),
+      PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.NOT_OWNER),
       management.list(owned.pod, manager(owned, webId = alias, subjectUris = setOf(alias))),
     )
   }

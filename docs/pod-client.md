@@ -166,7 +166,8 @@ try (OutputStream dump = Files.newOutputStream(path)) { pod.contexts().exportTo(
 route; both read, replace, merge-patch and delete. `slots()` works on the values of one predicate of a
 subject: read, replace, add, clear, and remove one IRI value through its edge. `contexts()` reads the
 registry — the catalogue a session sees, and what the registry holds for one context — and creates or
-removes a context at the IRI the pod gave. Those answers are RDF, and this module reads none of it: they arrive
+removes a context at the IRI the pod gave — with a `#manage` grant on it or the owner's
+[`contexts:manage`](auth/oauth.md#managing-contexts). Those answers are RDF, and this module reads none of it: they arrive
 as the text or the bytes the pod sent, in canonical JSON-LD or N-Quads. §"The RDF4J adapter" reads them as RDF4J values.
 
 **An answer is read into memory, up to 16 MiB — an export is not.** `contexts().exportTo` writes everything in

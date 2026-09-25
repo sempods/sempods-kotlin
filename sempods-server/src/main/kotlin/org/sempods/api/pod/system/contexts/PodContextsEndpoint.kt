@@ -12,7 +12,10 @@ import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.ContextPermissionEntry
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodContextPermissionResolver
+import org.sempods.pods.oauth.flows.PodOwnerAuthority
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
@@ -36,11 +39,12 @@ import java.net.URI
  * - `PUT    {pod}/_system/contexts/{path...}`   — create or no-op a context.
  * - `DELETE {pod}/_system/contexts/{path...}`   — cascade-remove a context.
  *
- * `PUT` / `DELETE` are authorized for the pod owner (catch-all) or for a service
- * client holding a `<root>#manage` scope that covers the target context via the
- * slash-delimited rule (`SPS-GRANT-007` (sempods-spec)) — the same rule the
+ * `PUT` / `DELETE` are authorized for a caller holding a `<root>#manage` grant that covers the
+ * target context via the slash-delimited rule (`SPS-GRANT-007` (sempods-spec)) — the same rule the
  * write enforcer applies, shared through
- * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope].
+ * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope] — or for a bearer
+ * carrying the owner's approved [CONTEXTS_MANAGE_SCOPE], which reaches every context
+ * (`SPS-CTX-019`). A bearer whose subject owns the pod is otherwise an application like any other.
  *
  * **The registry answers RDF.** `GET` at the catalogue and at a context IRI produce canonical
  * JSON-LD by default and N-Quads on request (`SPS-CTX-031`), a successful `PUT` answers the created
@@ -72,6 +76,7 @@ class PodContextsEndpoint @Inject constructor(
   private val podContextsDao: PodContextsDao,
   private val contextPermissionResolver: PodContextPermissionResolver,
   private val contextWriteAuthorizer: PodContextWriteAuthorizer,
+  private val ownerAuthority: PodOwnerAuthority,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -238,26 +243,32 @@ class PodContextsEndpoint @Inject constructor(
    * Authorize a context create/delete and return the subject to record as `createdBy`.
    *
    * Two allow paths, both read off the same pod access token:
-   * 1. Pod owner — catch-all allow, may manage any context. Ownership is implicit: it follows
-   *    from being the owner, not from a grant or a scope, so it is decided before any scope is
-   *    looked at. An owner with nothing granted still passes, which is what lets a fresh pod get
-   *    its first context.
-   * 2. Service client / OAuth caller holding a `<root>#manage` scope that covers [contextUri]
-   *    via the slash-delimited rule shared with the write enforcer
-   *    ([PodContextWriteAuthorizer.isCoveredByManageScope]).
+   * 1. The owner's own authority, through a bearer carrying [CONTEXTS_MANAGE_SCOPE] whose recorded
+   *    authority still stands and names the pod's current owner ([PodOwnerAuthority]). It reaches
+   *    every context, registered or not, and needs nothing granted — which is what lets a fresh pod
+   *    get its first context from a program.
+   * 2. A `<root>#manage` grant covering [contextUri] via the slash-delimited rule shared with the
+   *    write enforcer ([PodContextWriteAuthorizer.isCoveredByManageScope]) — a service client, or
+   *    an app the owner or another person delegated it to.
    *
-   * [authenticate] validates the pod OAuth token (401 on invalid/expired/foreign) and records
-   * the service-client audit row, so this path stays consistent with the resource layer. It runs
-   * first now — the owner check used to short-circuit ahead of it because it read a *different*
-   * credential, an id-server identity JWT presented as a bearer. One resolution instead of two,
-   * and no JWKS fetch against another host on the way.
+   * **Ownership alone is neither.** A bearer whose `sub` owns the pod is an application holding
+   * what was approved for it (`SPS-GRANT-011`, `SPS-GRANT-013`); an app approved for one context
+   * must not delete the rest because the person behind its token could.
    *
-   * Anonymous callers resolve to empty scopes and no subject → 401. An authenticated caller
-   * outside its sandbox → 403.
+   * [authenticate] validates the pod OAuth token (401 on invalid/expired/foreign) and records the
+   * service-client audit row. Anonymous callers → 401; a withdrawn [CONTEXTS_MANAGE_SCOPE]
+   * authority → 401; an authenticated caller outside its sandbox → 403.
    */
   private fun authorizeContextManageOrThrow(pod: String, podDbo: PodDbo, contextUri: URI): String {
     val credentials = authenticate(pod)
-    resolvePodOwnerPrincipal(credentials)?.let { return it.toSubject() }
+
+    if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
+      when (val check = ownerAuthority.check(podDbo.hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
+        is PodOwnerAuthorityCheck.Standing -> return check.authority.webId
+        is PodOwnerAuthorityCheck.Refused ->
+          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
+      }
+    }
 
     if (contextWriteAuthorizer.isCoveredByManageScope(credentials, contextUri)) {
       return credentials.tokenSub
