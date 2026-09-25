@@ -17,8 +17,8 @@ import java.io.IOException
  * **The address is the IRI.** It must lie under the pod base with a path the pod can take as it is. An
  * IRI outside the pod, under `_system` or `.well-known` (SPS-CRUD-004), with a query, a fragment, a
  * dot or empty segment, or a character its path would have to escape is an [IllegalArgumentException],
- * and nothing is sent. `%` and `;` are among those characters: the pod decodes the path and cuts a
- * segment at `;` before it composes the IRI. Such IRIs are reached through [SempodsPodSubjects].
+ * and nothing is sent. `%` is among those characters: the pod decodes the path before it composes the
+ * IRI. Such IRIs are reached through [SempodsPodSubjects].
  *
  * **Answers.** Every status an operation lists is a [SempodsResponse] with its headers as the pod sent
  * them, `ETag`, `Location`, `Vary` and `Retry-After` included; any other is a [SempodsStatusException].

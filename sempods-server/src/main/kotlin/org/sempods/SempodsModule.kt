@@ -54,6 +54,7 @@ import org.sempods.ai.impls.openai.OpenAiService
 import org.sempods.ai.sem.AiSemFacade
 import org.sempods.ai.sem.AiSemShaclGuidanceDeriver
 import org.sempods.ai.sem.prompts.SempodsPromptBuilderFactory
+import org.sempods.api.PathSemicolonFilter
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.api.pod.resources.PodResourceEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
@@ -248,6 +249,8 @@ class SempodsModule : BaseModule() {
       SempodsObjectMapperResolver::class.java,
       VaryHeaderFilter::class.java,
 
+      // Before matching, which would otherwise cut a `;` from the path.
+      PathSemicolonFilter::class.java,
       AdminPodsEndpoint::class.java,
       PodContextsEndpoint::class.java,
       // A provider rather than an endpoint: it puts the registry's cache isolation on the answers

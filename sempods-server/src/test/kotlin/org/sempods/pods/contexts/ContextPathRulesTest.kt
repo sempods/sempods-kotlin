@@ -112,6 +112,8 @@ class ContextPathRulesTest {
     assertEquals("${podBase}_system/contexts/apps/notes/public", resolved("apps/notes/public"))
     // Normalised first, so the same context is reachable however the caller spelled it.
     assertEquals("${podBase}_system/contexts/contacts", resolved("  /contacts/ "))
+    // A `;` is part of the name: the route reads it back from the request as it was written.
+    assertEquals("${podBase}_system/contexts/notes/a;b", resolved("notes/a;b"))
   }
 
   @Test
