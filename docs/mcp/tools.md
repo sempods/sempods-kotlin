@@ -42,7 +42,10 @@ Argument: `reauthorize: boolean` (optional, default `false`).
 ### `list_contexts`
 
 Returns the contexts (named graphs) this session can see, with the
-permission level on each. The contract is:
+permission level on each. An entry with `manage` alone is the owner's
+[`contexts:manage`](../auth/oauth.md#managing-contexts) registry
+authority, with no read or write, and no reason to reauthorize for data.
+The contract is:
 
 ```json
 {
@@ -67,9 +70,7 @@ for what they may do. `ContextCatalogue` in `:sempods-mcp-core` maps that
 onto the shape above, so a model reads one shape whatever the pod
 answers. Permissions are resolved server-side per request from the grant
 store — they are not derived from token scopes — so the route and this
-tool always return the same effective set. The owner's
-[`contexts:manage`](../auth/oauth.md#managing-contexts) authority holds
-no grant and is listed as `manage` alone. Where a right comes from
+tool always return the same effective set. Where a right comes from
 (a direct grant, a `<root>#manage` grant, or a public context) is no
 longer part of the answer.
 
