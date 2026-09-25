@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -26,9 +27,10 @@ import kotlin.test.assertTrue
 /**
  * The once-only half of an installation authority.
  *
- * Every case here is about the same property, asked from a different side: the authority behind an
+ * Most cases here are about the same property, asked from a different side: the authority behind an
  * installer token can be spent exactly once. #126 binds it to a registration, and a store that
- * handed the same row to two callers would let one authorization create two service clients.
+ * handed the same row to two callers would let one authorization create two service clients. The
+ * rest ask whether an unspent one stands, which is what the consent dialog's disconnect needs.
  *
  * The real store, for the reason `PodTokenExchangeTest` gives: what "once" means under two callers
  * arriving together is a property of the database operation, so a fake would be testing the fake.
@@ -64,6 +66,19 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
       webId = webId,
       disconnects = disconnects,
       subjectUris = setOf(webId, alias),
+    )
+  }
+
+  /** The shape a node from before the disconnect count wrote: no count, no URI set. */
+  private fun preUpgradeRow(jti: String, expiresAt: Instant = Instant.now().plus(Duration.ofHours(1))) {
+    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
+      Document().apply {
+        put("_id", HashUtil.sha256Hex(jti))
+        put("podId", pod.value)
+        put("clientId", clientId)
+        put("webId", webId)
+        putInstant("expiresAt", expiresAt)
+      },
     )
   }
 
@@ -105,15 +120,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     // disconnect count, no URI set. Refusing it would spend an authority the owner is still holding,
     // for a flow that node could not serve anyway.
     val jti = randomId()
-    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
-      Document().apply {
-        put("_id", HashUtil.sha256Hex(jti))
-        put("podId", pod.value)
-        put("clientId", clientId)
-        put("webId", webId)
-        putInstant("expiresAt", Instant.now().plus(Duration.ofHours(1)))
-      },
-    )
+    preUpgradeRow(jti)
 
     val authority = assertNotNull(authorities.consume(pod, jti), "an owner mid-deploy keeps their install")
     assertEquals(setOf(webId), authority.subjectUris, "the person it names is the one it recorded")
@@ -139,15 +146,7 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
 
     // The pre-upgrade shape, which carries nothing else to refuse it on.
     val lapsed = randomId()
-    db.getCollection(SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES).insertOne(
-      Document().apply {
-        put("_id", HashUtil.sha256Hex(lapsed))
-        put("podId", pod.value)
-        put("clientId", clientId)
-        put("webId", webId)
-        putInstant("expiresAt", Instant.now().minusSeconds(1))
-      },
-    )
+    preUpgradeRow(lapsed, expiresAt = Instant.now().minusSeconds(1))
     assertNull(authorities.consume(pod, lapsed), "an authority past its hour is worth nothing")
   }
 
@@ -172,6 +171,42 @@ internal class PodInstallationAuthorityStoreTest : SempodsStoreTest() {
     consentDecisions.bumpGeneration(pod = pod, appId = clientId, webIds = listOf(webId))
 
     assertNotNull(authorities.consume(pod, jti))
+  }
+
+  // ── Whether it stands, asked without its jti — the consent dialog's question ──
+
+  @Test
+  fun `an unspent authority stands for the person who approved it, and a spent one for nobody`() {
+    val jti = randomId()
+    record(jti)
+
+    assertTrue(authorities.standsFor(pod, clientId, listOf(webId)))
+    assertFalse(authorities.standsFor(PodId(ObjectId().toHexString()), clientId, listOf(webId)), "another pod")
+    assertFalse(authorities.standsFor(pod, "dyn:${randomId()}", listOf(webId)), "another app")
+    assertFalse(authorities.standsFor(pod, clientId, listOf("https://id.test/${randomId()}")), "another person")
+
+    assertNotNull(authorities.consume(pod, jti))
+    assertFalse(authorities.standsFor(pod, clientId, listOf(webId)), "spent on its registration")
+  }
+
+  @Test
+  fun `a disconnect withdraws it from the dialog as from the registration`() {
+    record(randomId())
+
+    consentDecisions.recordDisconnect(pod = pod, appId = clientId, webId = webId)
+
+    assertFalse(authorities.standsFor(pod, clientId, listOf(webId)))
+  }
+
+  @Test
+  fun `a row a pre-upgrade node wrote is not offered for a disconnect that cannot reach it`() {
+    // `consume` accepts it without comparing a count it does not carry, so a disconnect would not
+    // end it. The dialog therefore does not offer one; the row's hour ends it.
+    val jti = randomId()
+    preUpgradeRow(jti)
+
+    assertFalse(authorities.standsFor(pod, clientId, listOf(webId)))
+    assertNotNull(authorities.consume(pod, jti), "the registration still accepts it")
   }
 
   @Test

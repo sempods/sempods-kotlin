@@ -1,6 +1,8 @@
 package org.sempods.pods.oauth
 
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Indexes
 import org.sempods.auth.core.OneTimeStore
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putStrings
@@ -12,8 +14,21 @@ import java.time.Duration
  * bearer cannot: every URI the dialog recognised the person by, and whether the app has been
  * disconnected since. [PodInstallationAuthorityStore] spends the row; [PodManagementAuthorityStore]
  * reads it for the hour.
+ *
+ * @param uncountedStands whether a row carrying no disconnect count stands. Only a row from before
+ *   the count existed carries none; each store says why it accepts or refuses one.
  */
-abstract class PrivilegedAuthorityRows internal constructor(db: MongoDatabase, collectionName: String) {
+abstract class PrivilegedAuthorityRows internal constructor(
+  db: MongoDatabase,
+  collectionName: String,
+  private val consentDecisions: PodConsentDecisionStore,
+  private val uncountedStands: Boolean,
+) {
+
+  init {
+    // For [standsFor], which the consent dialog asks on every render and submission.
+    db.getCollection(collectionName).createIndex(Indexes.ascending("podId", "clientId", "webId"))
+  }
 
   /**
    * @param pod the pod the authority was granted on.
@@ -72,4 +87,40 @@ abstract class PrivilegedAuthorityRows internal constructor(db: MongoDatabase, c
     require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
     rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris))
   }
+
+  /**
+   * Whether this authority stands on [pod]: granted there, and not withdrawn by a disconnect since.
+   * A row without a count stands where [uncountedStands] says so.
+   */
+  internal fun Authority.standsOn(pod: PodId): Boolean =
+    this.pod == pod &&
+      (if (disconnects == null) uncountedStands else disconnectsUnder(pod, clientId, webId) == disconnects)
+
+  /**
+   * Whether a live row [clientId] holds on [pod] from one of [webIds] is one a disconnect by that
+   * person would withdraw. A spent row is gone and counts for nothing.
+   *
+   * A row without a count never counts here, even where [standsOn] accepts it: no disconnect reaches
+   * it, so offering one would report an ending that did not happen. Such a row lives an hour at
+   * most after a deploy.
+   *
+   * Matched on [Authority.webId] alone, not on its recognised URIs: [standsOn] reads the disconnect
+   * count under that URI, and a disconnect moves it only for the URIs it is made under. That count
+   * is part of the filter, so the answer is one indexed read however many authorities were issued.
+   */
+  internal fun standsFor(pod: PodId, clientId: String, webIds: Collection<String>): Boolean {
+    if (webIds.isEmpty()) return false
+    val standingUnder = webIds.distinct().map { webId ->
+      Filters.and(
+        Filters.eq("webId", webId),
+        Filters.eq("disconnects", disconnectsUnder(pod, clientId, webId)),
+      )
+    }
+    return rows.findLive(
+      Filters.and(Filters.eq("podId", pod.value), Filters.eq("clientId", clientId), Filters.or(standingUnder)),
+    ) != null
+  }
+
+  private fun disconnectsUnder(pod: PodId, clientId: String, webId: String): Long =
+    consentDecisions.find(pod, clientId, listOf(webId))?.disconnects ?: 0L
 }
