@@ -7,8 +7,9 @@ package org.sempods.mcp.pods
  */
 data class PodOAuthMetadata(
   /**
-   * The pod's AS issuer, e.g. `https://sempods.org/alice/_system/auth`: the first
-   * `authorization_servers` entry of its RFC 9728 metadata, without a terminating `/`.
+   * The pod's issuer, e.g. `https://sempods.org/alice`: the sole `authorization_servers` entry of
+   * its RFC 9728 metadata, without a terminating `/`. Always one of [podIssuers] for the pod it was
+   * discovered for.
    */
   val issuer: String,
   val authorizationEndpoint: String,
@@ -35,6 +36,16 @@ data class PodOAuthMetadata(
    */
   val scopesSupported: Set<String> = emptySet(),
 )
+
+/**
+ * The issuers the pod at [pod] may name: its base URL (SPS-AUTH-028), for example
+ * `https://sempods.org/alice`, and `{pod}/_system/auth`. [pod] carries no terminating `/`.
+ */
+internal fun podIssuers(pod: String): Set<String> =
+  // TODO: drop `{pod}/_system/auth`, which pod servers without the issuer switch of #193 still
+  //  name, once that switch is deployed everywhere and every connection has refreshed since. The
+  //  preservation tier refreshes each one within POD_TOKEN_FAMILY_PRESERVE_SECONDS.
+  setOf(pod, "$pod/_system/auth")
 
 /** A pod token-endpoint response (authorization_code or refresh_token grant). */
 data class PodTokenResponse(

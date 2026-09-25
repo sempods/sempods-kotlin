@@ -87,7 +87,22 @@ class PodOAuthClient(
   private val jwksVerifiers = ConcurrentHashMap<String, JwtVerifier>()
 
   /**
-   * RFC 9728 → RFC 8414 discovery: PRM at the pod, then AS metadata at its issuer.
+   * RFC 9728 → RFC 8414 discovery at the addresses SPS-AUTH-067 appends: PRM at the pod, then AS
+   * metadata at its issuer.
+   *
+   * Both documents are checked against [podBaseUrl], the pod the caller asked for (SPS-AUTH-068).
+   * For `https://example.org/alice`:
+   *
+   * | The pod's metadata | Result |
+   * |---|---|
+   * | `resource` is `…/alice`, `authorization_servers` is `["…/alice"]`, the AS metadata there declares `…/alice` | connects on issuer `…/alice` |
+   * | `resource` is `…/bob` | [PodOAuthException] |
+   * | `authorization_servers` is `["…/bob"]`, is empty or has a second entry | [PodOAuthException] |
+   * | the AS metadata declares another issuer | [PodOAuthException] |
+   * | a document is not a JSON object | [PodOAuthException] |
+   *
+   * [podIssuers] lists the issuers a pod may name. Members this does not read are ignored
+   * (SPS-AUTH-047).
    *
    * Every URL the service then fetches or posts to (issuer, registration/token/jwks endpoints)
    * is run through [podUrlPolicy] — a public pod must not be able to point its discovered
@@ -96,10 +111,22 @@ class PodOAuthClient(
    */
   suspend fun discoverMetadata(podBaseUrl: String): PodOAuthMetadata {
     val base = podBaseUrl.trimEnd('/')
-    val prm = getJson("$base/.well-known/oauth-protected-resource")
-    val issuer = prm["authorization_servers"]?.takeIf { it.isArray && it.size() > 0 }?.get(0)?.asText()
-      ?.trimEnd('/')
-      ?: throw PodOAuthException("pod protected-resource metadata has no authorization_servers")
+    val prm = getResourceMetadata("$base/.well-known/oauth-protected-resource")
+    // RFC 9728 §3.3, with the pod URL as the expected resource (SPS-AUTH-068): compared exactly.
+    val resource = prm["resource"]?.takeIf(JsonNode::isTextual)?.asText()
+    if (resource != base) {
+      val named = resource?.let { "resource '${forLog(it)}'" } ?: "no resource"
+      throw PodOAuthException("pod protected-resource metadata names $named, expected '${forLog(base)}'")
+    }
+    // A terminating `/` is not compared, as on the AS metadata's `issuer` below.
+    val issuer = prm["authorization_servers"]?.takeIf { it.isArray }?.singleOrNull()
+      ?.takeIf(JsonNode::isTextual)?.asText()?.trimEnd('/')
+      ?: throw PodOAuthException("pod protected-resource metadata names no sole authorization server")
+    if (issuer !in podIssuers(base)) {
+      throw PodOAuthException(
+        "pod protected-resource metadata names authorization server '${forLog(issuer)}', expected '${forLog(base)}'",
+      )
+    }
 
     // The resource's half of `scopes_supported` (RFC 9728 §2). It is the fallback, not the answer:
     // the authorization server is the party that answers `invalid_scope`, so where it publishes a
@@ -111,8 +138,9 @@ class PodOAuthClient(
 
     // Prefer RFC 8414 AS metadata when the pod publishes it (the full sempods pod, with DCR). Only a
     // genuine **404** means "this pod does not publish AS metadata" → fall back to the sempods
-    // **convention**: the AS endpoints sit directly under the issuer (`/authorize`, `/token`), there
-    // is no DCR (a static `did:web` client is used instead) and no JWKS (the token's subject is
+    // **convention**: the AS endpoints are the routes SPS-AUTH-021 and SPS-AUTH-027 fix under
+    // `{pod}/_system/auth` (`/authorize`, `/token`) whichever issuer the pod names, there is no DCR
+    // (a static `did:web` client is used instead) and no JWKS (the token's subject is
     // trusted via the direct TLS token — see [verifyAccessTokenSubject]). Any OTHER failure (5xx,
     // timeout, TLS, malformed JSON) is PROPAGATED, not swallowed: silently downgrading a pod that DOES
     // use RFC 8414/DCR/JWKS to the weaker convention path over a transient blip would bind it to the
@@ -153,8 +181,8 @@ class PodOAuthClient(
       }
       PodOAuthMetadata(
         issuer = issuer,
-        authorizationEndpoint = "$issuer/authorize",
-        tokenEndpoint = "$issuer/token",
+        authorizationEndpoint = "$base/_system/auth/authorize",
+        tokenEndpoint = "$base/_system/auth/token",
         registrationEndpoint = null,
         jwksUri = null,
         scopesSupported = prmScopes,
@@ -411,8 +439,11 @@ class PodOAuthClient(
    * metadata has no type in the OAuth SDK, so there is nothing to parse it into. Everything the
    * SDK does model — AS metadata, token responses, error objects, DCR — goes through it instead.
    */
-  private suspend fun getJson(url: String): JsonNode =
-    objectMapper.readTree(getRaw(url))
+  private suspend fun getResourceMetadata(url: String): JsonNode {
+    val body = getRaw(url)
+    return runCatching { objectMapper.readTree(body) }.getOrNull()?.takeIf(JsonNode::isObject)
+      ?: throw PodOAuthException("pod protected-resource metadata is not a JSON object")
+  }
 
   /**
    * SSRF-guarded GET that returns null **only** on a genuine 404 (the resource is definitively

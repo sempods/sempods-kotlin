@@ -277,7 +277,7 @@ class PodTokenProvider(
   }
 
   /** Must be called while holding [lockFor]. Discovers, issuer-pins, refreshes, persists; returns
-   *  the rotated row, or null if there is no connection row, the issuer no longer matches, or the
+   *  the rotated row, or null if there is no connection row, an issuer is not this pod's, or the
    *  pod refuses the refresh. */
   private suspend fun refreshLocked(tokens: PodTokens): PodTokens? {
     val key = PodKey(tokens.user, tokens.profile, tokens.pod)
@@ -288,11 +288,12 @@ class PodTokenProvider(
     }
     return runCatching {
       val metadata = podOAuthClient.discoverMetadata(tokens.pod)
-      // Pin to the authorization server that minted this refresh token: if the pod's metadata now
-      // points at a different one (DNS/domain takeover, misconfig), refuse to post the stored
-      // refresh token to that new token endpoint — otherwise a metadata change could exfiltrate and
-      // rotate the user's pod refresh token.
-      if (metadata.issuer != tokens.issuer) {
+      // Pin to the pod that minted this refresh token: the recorded and the discovered issuer must
+      // both be this pod's ([podIssuers]). A pod whose metadata now names another server (DNS/domain
+      // takeover, misconfig) never receives the stored refresh token. A pod that names the other of
+      // its own issuers is still this pod: the refresh goes ahead and records the new one.
+      val issuers = podIssuers(tokens.pod)
+      if (tokens.issuer !in issuers || metadata.issuer !in issuers) {
         logger.warn {
           "issuer mismatch for $key (pinned='${tokens.issuer}', discovered='${metadata.issuer}') — skipping refresh"
         }
@@ -336,6 +337,7 @@ class PodTokenProvider(
         refreshToken = refreshed.refreshToken ?: refreshToken,
         accessTokenExpiresAt = refreshed.expiresInSeconds?.let { Date(now.time + it * 1000) },
         updatedAt = now,
+        issuer = metadata.issuer,
         podSubject = subject?.webId ?: tokens.podSubject,
         subjectVerified = subject?.verified == true,
       )

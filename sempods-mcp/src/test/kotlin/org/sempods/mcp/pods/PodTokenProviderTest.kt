@@ -111,10 +111,10 @@ class PodTokenProviderTest {
     pod = "http://localhost:${server.port}/pod"
     authBase = "$pod/_system/auth"
     server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
-      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$authBase"]}"""))
-    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$pod"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-authorization-server"))
       .respond(response().withStatusCode(200).withBody(
-        """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
+        """{"issuer":"$pod","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
       ))
     server.`when`(request().withMethod("POST").withPath("/pod/_system/auth/token").withBody(subString("grant_type=refresh_token")))
       .respond(response().withStatusCode(200).withBody("""{"access_token":"at-2","token_type":"Bearer","expires_in":3600,"refresh_token":"rt-2","scope":"public-read"}"""))
@@ -126,7 +126,7 @@ class PodTokenProviderTest {
   }
 
   private fun seedConnection(
-    issuer: String = authBase,
+    issuer: String = pod,
     podRedirectUri: String? = null,
     podSubject: String? = null,
   ) =
@@ -146,7 +146,7 @@ class PodTokenProviderTest {
     refreshToken: String? = "rt-1",
     podClientId: String = "dyn:issued-to",
     podRedirectUri: String = "https://mcp.test/_system/ui/pods/callback",
-    issuer: String = authBase,
+    issuer: String = pod,
     podSubject: String = user,
     subjectVerified: Boolean = false,
   ) =
@@ -237,10 +237,66 @@ class PodTokenProviderTest {
     // later one, because nothing but another reconnect moves that row, and reconnecting is exactly
     // what the person has already done.
     seedConnection(issuer = "https://issuer.superseded.example")
-    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = authBase)
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = pod)
 
     assertEquals("at-2", provider.validAccessToken(key)?.token, "the token's own issuer is what it is pinned to")
     verify(exactly = 0) { auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch") }
+  }
+
+  @Test
+  fun `a connection recorded under the pod's auth route refreshes against the pod as issuer, and records it`() = runBlocking {
+    // A connection made before the pod server's issuer switch (#193) records `{pod}/_system/auth`.
+    // The switched pod names `{pod}`: the same pod, so the refresh goes ahead, and the row moves to
+    // the new issuer with the rotation.
+    seedConnection(issuer = authBase)
+    seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = authBase)
+
+    assertEquals("at-2", provider.validAccessToken(key)?.token)
+
+    val stored = vault.find(key)!!
+    assertEquals(pod, stored.issuer, "the rotation records the issuer the pod names now")
+    assertEquals("rt-2", stored.refreshToken)
+    assertEquals(1, tokenRequests().size)
+    verify(exactly = 1) { auditLog.podTokenRefreshed(key, ok = true) }
+  }
+
+  @Test
+  fun `a pod naming its auth route as issuer refreshes a connection recorded under either of its issuers`() = runBlocking {
+    // The pod server before the switch, as it answers today. A row recorded under the base is the
+    // other direction, for a pod server rolled back across the switch: both are this pod's issuer.
+    seedConnection()
+    server.clear(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+    server.clear(request().withMethod("GET").withPath("/pod/.well-known/oauth-authorization-server"))
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$authBase"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody(
+        """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token"}""",
+      ))
+
+    for (recorded in listOf(authBase, pod)) {
+      seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = recorded)
+
+      assertEquals("at-2", provider.validAccessToken(key)?.token, recorded)
+      assertEquals(authBase, vault.find(key)!!.issuer, recorded)
+    }
+    verify(exactly = 2) { auditLog.podTokenRefreshed(key, ok = true) }
+  }
+
+  @Test
+  fun `a connection recorded under another pod's issuer never refreshes`() = runBlocking {
+    // Two pods on one origin. However the row came to record Bob's issuer, Alice's refresh token
+    // does not go out on the strength of it — not under either of Bob's issuers.
+    val otherPod = "http://localhost:${server.port}/other"
+    seedConnection()
+    for (issuer in listOf(otherPod, "$otherPod/_system/auth")) {
+      seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000), issuer = issuer)
+
+      assertNull(provider.validAccessToken(key), issuer)
+      assertEquals(issuer, vault.find(key)!!.issuer, "$issuer: the row is left as it was")
+    }
+    assertTrue(tokenRequests().isEmpty(), "the refresh token is posted nowhere")
+    verify(exactly = 2) { auditLog.podTokenRefreshed(key, ok = false, detail = "issuer_mismatch") }
   }
 
   @Test
@@ -249,7 +305,7 @@ class PodTokenProviderTest {
     // refresh token still belongs to the server that minted it. Posting it to a different one is
     // what the pin exists to stop, so the row it is about is the one that decides — a registry that
     // agrees must not talk this one round.
-    seedConnection(issuer = authBase)
+    seedConnection(issuer = pod)
     seedToken(
       expiresAt = Date(System.currentTimeMillis() - 60_000),
       issuer = "https://issuer.superseded.example",
@@ -262,9 +318,10 @@ class PodTokenProviderTest {
 
   @Test
   fun `a refresh is refused when another server's metadata claims the pinned issuer`() = runBlocking {
-    // The pod now lists another authorization server, and that server's document claims the issuer
-    // this token is pinned to. RFC 8414 §3.3 refuses the document, so the pin never sees the claim
-    // and the refresh token is never posted to the other server's token endpoint.
+    // The pod now lists another pod as its authorization server, and that server's document claims
+    // the issuer this token is pinned to. Discovery refuses the listing (SPS-AUTH-068) before the
+    // document is fetched, so the pin never sees the claim and the refresh token is never posted to
+    // the other server's token endpoint.
     seedConnection()
     seedToken(expiresAt = Date(System.currentTimeMillis() - 60_000))
     val other = "http://localhost:${server.port}/other"
@@ -273,7 +330,7 @@ class PodTokenProviderTest {
       .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$other"]}"""))
     server.`when`(request().withMethod("GET").withPath("/other/.well-known/oauth-authorization-server"))
       .respond(response().withStatusCode(200).withBody(
-        """{"issuer":"$authBase","authorization_endpoint":"$other/authorize","token_endpoint":"$other/token"}""",
+        """{"issuer":"$pod","authorization_endpoint":"$other/authorize","token_endpoint":"$other/token"}""",
       ))
 
     assertNull(provider.validAccessToken(key), "a document claiming another issuer must not reach the pin")
@@ -333,7 +390,7 @@ class PodTokenProviderTest {
 
     // What a re-connect leaves behind: a fresh row, and no claim on it.
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = pod, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
     val marked = vault.markDeadGrantIfClaimedBy(key, at = Date(), holder = "replica-a")
 
@@ -482,7 +539,7 @@ class PodTokenProviderTest {
     server.reset()
     val signingKey = JwtTestSupport.generateKey("pod-refresh-k")
     val metadata = linkedMapOf(
-      "issuer" to authBase, "authorization_endpoint" to "$authBase/authorize",
+      "issuer" to pod, "authorization_endpoint" to "$authBase/authorize",
       "token_endpoint" to "$authBase/token", "registration_endpoint" to "$authBase/register",
     )
     if (verified) {
@@ -491,15 +548,15 @@ class PodTokenProviderTest {
         .respond(response().withStatusCode(200).withBody(JWKSet(signingKey.toPublicJWK()).toString()))
     }
     server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
-      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$authBase"]}"""))
-    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$pod"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-authorization-server"))
       .respond(response().withStatusCode(200).withBody(
         jacksonObjectMapper().writeValueAsString(metadata),
       ))
     val now = Instant.now()
     val jwt = JwtTestSupport.sign(
       signingKey,
-      JWTClaimsSet.Builder().issuer(authBase).subject(webId)
+      JWTClaimsSet.Builder().issuer(pod).subject(webId)
         .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600))).build(),
     )
     server.`when`(request().withMethod("POST").withPath("/pod/_system/auth/token").withBody(subString("grant_type=refresh_token")))
@@ -510,7 +567,7 @@ class PodTokenProviderTest {
   fun `refresh is refused when the refreshed token's subject drifts from the recorded identity`() = runBlocking {
     registry.upsert(
       PodConnection(
-        user, profile, pod, issuer = authBase, podClientId = "did:web:mcp.test",
+        user, profile, pod, issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/original",
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -532,7 +589,7 @@ class PodTokenProviderTest {
     // refuses.
     registry.upsert(
       PodConnection(
-        user, profile, pod, issuer = authBase, podClientId = "did:web:mcp.test",
+        user, profile, pod, issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/original",
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -541,10 +598,10 @@ class PodTokenProviderTest {
 
     server.reset()
     server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-protected-resource"))
-      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$authBase"]}"""))
-    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$pod","authorization_servers":["$pod"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/pod/.well-known/oauth-authorization-server"))
       .respond(response().withStatusCode(200).withBody(
-        """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
+        """{"issuer":"$pod","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
       ))
     // The pod publishes its real key, but the refresh token is signed by an unrelated key.
     val podKey = JwtTestSupport.generateKey("pod-k")
@@ -553,7 +610,7 @@ class PodTokenProviderTest {
     val now = Instant.now()
     val forged = JwtTestSupport.sign(
       JwtTestSupport.generateKey("pod-k"),
-      JWTClaimsSet.Builder().issuer(authBase).subject("https://pod.example/u/original")
+      JWTClaimsSet.Builder().issuer(pod).subject("https://pod.example/u/original")
         .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600))).build(),
     )
     server.`when`(request().withMethod("POST").withPath("/pod/_system/auth/token").withBody(subString("grant_type=refresh_token")))
@@ -571,7 +628,7 @@ class PodTokenProviderTest {
     // so the connection stays alive, and the recorded identity is left untouched.
     registry.upsert(
       PodConnection(
-        user, profile, pod, issuer = authBase, podClientId = "did:web:mcp.test",
+        user, profile, pod, issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/original",
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -739,7 +796,7 @@ class PodTokenProviderTest {
     // The user re-connects the pod via /_system/ui: a brand-new token family lands in the vault
     // (the upsert clears the refresh claim).
     vault.upsert(
-      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
+      PodTokens(user, profile, pod, "at-new", "rt-new", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = pod, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
 
     assertEquals("at-new", pending.await()?.token, "the caller must get the re-connect's token, not the stale rotation")
@@ -781,7 +838,7 @@ class PodTokenProviderTest {
     // Simulate A finishing: persist the refreshed row (the upsert drops A's claim).
     delay(500)
     vault.upsert(
-      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = authBase, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
+      PodTokens(user, profile, pod, "at-2", "rt-2", Date(System.currentTimeMillis() + 3_600_000), Date(), issuer = pod, podSubject = user, subjectVerified = true, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"),
     )
 
     assertEquals("at-2", pending.await()?.token, "the claim-loser must pick up the winner's token")
@@ -796,7 +853,7 @@ class PodTokenProviderTest {
     vault.upsert(
       PodTokens(
         user, profile, pod, "at-1", "rt-1", Date(System.currentTimeMillis() + 3_600_000), fortyDaysAgo(),
-        issuer = authBase, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = pod, podSubject = user, podClientId = "dyn:issued-to", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val tokens = vault.find(key)!!

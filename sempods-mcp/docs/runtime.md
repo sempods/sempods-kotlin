@@ -76,9 +76,20 @@ spends 0.00002. What the *warm* tier drops needs no such marker — it is only e
 on-demand path still serves those connections one rotation later.
 `POD_TOKEN_WARM_IDLE_SECONDS=0` leaves preservation alone — the smallest shape of the sweep, where
 every first call after an idle period rotates on demand. The outbound policy is described under [Outbound requests](#outbound-requests).
+
+**Discovery is checked against the pod URL the person entered**
+([SPS-AUTH-068](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-068)).
+For `https://example.org/alice`, the protected-resource
+metadata must name `https://example.org/alice` as `resource` and as its only authorization server,
+and the authorization-server metadata fetched there must declare it as `issuer`. A document naming
+`…/bob` ends the connect before anything is fetched from Bob. Until every pod server names its
+base, `…/alice/_system/auth` also counts as Alice's issuer. The token row records the issuer. A
+refresh posts the refresh token only while the recorded and the discovered issuer are both Alice's,
+and records the one she names now. `PodOAuthClient.discoverMetadata` lists the cases.
+
 **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
 minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
-— the AS endpoints are derived from the issuer (`…/authorize`, `…/token`), the service presents a
+— the AS endpoints are the pod's own `…/_system/auth/authorize` and `…/token`, the service presents a
 **static `did:web` client** instead of registering: `did:web:<mcp-host>` for the default profile
 and, for a named one, an identifier scoped to that profile's callback, which is how a profile is a
 separate client on the path that has no registration to vary. What the pod makes of that identifier is the pod's
