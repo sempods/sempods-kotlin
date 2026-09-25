@@ -22,6 +22,7 @@ import org.sempods.client.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -107,7 +108,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     // they are resolved server-side from PodServiceClientDao per request. This client registers
     // only a context manage scope (no feature scopes), so `scope` is empty here. The actual
     // context access this token grants is verified in
-    // `service token grants access to context inside manage root but not outside`.
+    // `service token writes inside its manage root and not in a sibling that shares its prefix`.
     assertEquals("", body["scope"])
 
     val claims = SignedJWT.parse(accessToken).jwtClaimsSet
@@ -219,13 +220,17 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `service token grants access to context inside manage root but not outside`() {
-    // Verifies the slash-delimited manage rule still applies to service-client
-    // tokens: the bearer can act inside <app-root>, but the same token
-    // is rejected when used to write a sibling context.
+  fun `service token writes inside its manage root and not in a sibling that shares its prefix`() {
+    // The slash-delimited manage rule for a service-client token: a descendant of <app-root> is
+    // covered, `<app-root>-private` is a different context that merely starts with the same string.
     val pod = sempodsTestFactory.newPod()
     val podBase = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     val appRoot = "$podBase/_system/contexts/apps/notes"
+    val inside = "$appRoot/events"
+    val sibling = "$podBase/_system/contexts/apps/notes-private"
+    for (context in listOf(inside, sibling)) {
+      podFacade.createContext(podName = pod.name, contextUri = URI(context), public = false, label = null, description = null)
+    }
     val registered = podServiceClientStore.register(
       pod = pod.hosted,
       clientId = "notes-app",
@@ -241,23 +246,24 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
     val accessToken = (objectMapper.readValue(tokenResponse.responseBody, Map::class.java)
       ["access_token"] as String)
 
-    // Bearer reaches a resource read in a context inside the root: an unconfigured
-    // context returns 404 from the resource endpoint, NOT 403. The point of this
-    // assertion is to prove the token authenticates (no 401) and the manage check
-    // does not refuse it (no 403). Context creation under <app-root> via the
-    // manage gate is covered in PodContextsEndpointHttpTest.
-    val insideResponse = http.prepareGet("$appRoot/events")
-      .addHeader("Authorization", "Bearer $accessToken")
-      .execute()
-    assertTrue(
-      insideResponse.statusCode in setOf(200, 404),
-      "expected 200 or 404 for read inside manage root, got ${insideResponse.statusCode}: ${insideResponse.responseBody}",
-    )
+    val written = putEvent(pod.name, inside, accessToken)
+    assertEquals(201, written.statusCode, written.responseBody)
+    val refused = putEvent(pod.name, sibling, accessToken)
+    assertEquals(403, refused.statusCode, refused.responseBody)
 
     // The audit log must have a row for the request the service client made.
     val auditEntries = podServiceAuditLogDao.findRecent(checkNotNull(pod.id))
     assertTrue(auditEntries.any { it.clientId == "notes-app" }, "audit row missing for service-client request")
   }
+
+  private fun putEvent(podName: String, context: String, accessToken: String) =
+    sempodsTestFactory.eventUri(podName).let { event ->
+      http.preparePut("$event?context=${enc(context)}")
+        .addHeader("Content-Type", "application/n-quads")
+        .addHeader("Authorization", "Bearer $accessToken")
+        .setBody("<$event> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <$context> .")
+        .execute()
+    }
 
   @Test
   fun `register rejects pod-root manage scope`() {

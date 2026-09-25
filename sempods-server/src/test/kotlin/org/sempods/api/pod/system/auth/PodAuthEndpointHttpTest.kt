@@ -5107,6 +5107,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     client: String = testClientId,
     scope: String = SERVICE_CLIENTS_INSTALL_SCOPE,
     alsoKnownAs: List<String> = emptyList(),
+    prompt: String? = null,
   ): TestHttpResponse = http.prepareGet(authorizeUrl(pod.name))
     .addQueryParam("response_type", "code")
     .addQueryParam("client_id", client)
@@ -5115,6 +5116,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     .addQueryParam("scope", scope)
     .addQueryParam("code_challenge", testCodeChallenge)
     .addQueryParam("code_challenge_method", testCodeChallengeMethod)
+    .apply { prompt?.let { addQueryParam("prompt", it) } }
     .addHeader("Cookie", signIn(pod.name, ownerWebId, alsoKnownAs).cookie)
     .setFollowRedirect(false).execute()
 
@@ -5282,7 +5284,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an installation runs to a token that carries no renewal and reaches no data`() {
+  fun `an installation runs to a token that lasts an hour, carries no renewal and reaches no data`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -5312,6 +5314,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val tokens = approveInstallation(pod, ownerWebId)
     assertEquals(SERVICE_CLIENTS_INSTALL_SCOPE, tokens["scope"])
     assertNull(tokens["refresh_token"], "a one-shot authority cannot be renewed")
+    assertEquals(PodTokenIssuer.USER_TOKEN_TTL_SECONDS.toInt(), tokens["expires_in"], "and its authority row lives as long")
     assertEquals(
       SERVICE_CLIENTS_INSTALL_SCOPE,
       SignedJWT.parse(tokens["access_token"] as String).jwtClaimsSet.getStringClaim("scope"),
@@ -5442,6 +5445,44 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       assertTrue("invalid_client_metadata" in attempt.responseBody, attempt.responseBody)
       assertFalse("client_secret" in attempt.responseBody, attempt.responseBody)
     }
+  }
+
+  @Test
+  fun `a registration that is not an installation's own is refused, and the authority stays to spend`() {
+    // The server assigns the identifier and derives no root, so a body that names either is asking
+    // for something no owner approved. A public client's shape under an installer bearer is the
+    // other profile's registration, presented at this one's door.
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+
+    for (body in listOf(
+      installationBody.dropLast(1) + ""","client_id":"svc:chosen-by-the-caller"}""",
+      installationBody.dropLast(1) + ""","contextRoot":"${contextUri(pod.name, "apps/chosen")}"}""",
+      """{"redirect_uris":["$testRedirectUri"],"token_endpoint_auth_method":"none"}""",
+    )) {
+      val refused = registerAsInstaller(pod, installer, body = body)
+      assertEquals(400, refused.statusCode, "$body: ${refused.responseBody}")
+      assertTrue("invalid_client_metadata" in refused.responseBody, refused.responseBody)
+    }
+
+    assertEquals(201, registerAsInstaller(pod, installer).statusCode, "none of them spent the authority")
+  }
+
+  @Test
+  fun `an installation is never answered silently, however recently one was approved`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    approveInstallation(pod, ownerWebId)
+
+    val silent = installationPage(pod, ownerWebId, prompt = "none")
+
+    assertEquals(303, silent.statusCode, silent.responseBody)
+    val location = checkNotNull(silent.getHeader("Location"))
+    assertTrue("error=consent_required" in location, location)
+    assertFalse("code=" in location, location)
   }
 
   @Test

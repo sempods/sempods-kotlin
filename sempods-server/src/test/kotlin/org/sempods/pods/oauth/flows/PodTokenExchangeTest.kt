@@ -373,7 +373,8 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, result.expiresInSeconds)
     assertNull(result.refreshToken, "a service has no person to come back as")
     assertTrue(result.statesEmptyScope, "the service answer names `scope` even when it is empty")
-    assertNotNull(serviceClients.find(pod.id, "notes-app"), "the registration stands")
+    val registration = assertNotNull(serviceClients.find(pod.id, "notes-app"), "the registration stands")
+    assertNotNull(registration.lastUsedAt, "and says when it last minted, for the owner's list")
   }
 
   @Test
