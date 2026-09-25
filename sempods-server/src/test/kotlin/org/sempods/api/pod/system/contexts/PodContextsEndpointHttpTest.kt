@@ -12,6 +12,7 @@ import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.client.SempodsContextCreate
@@ -131,15 +132,21 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     )
 
   @Test
-  fun `put context should return 401 without owner token`() {
+  fun `put and delete without a bearer or with a rejected one are challenged`() {
     val pod = sempodsTestFactory.newPod()
+    createContextViaDao(checkNotNull(pod.id), pod.name, "apps/example/tasks")
+    val url = contextManageUrl(pod.name, "apps/example/tasks")
 
-    val response = http.preparePut(contextManageUrl(pod.name, "apps/example/tasks"))
-      .addHeader("Content-Type", "application/json")
-      .setBody("{}")
-      .execute()
-
-    assertEquals(401, response.statusCode)
+    for (authorization in listOf(null, "Bearer not-a-real-jwt")) {
+      val put = http.preparePut(url).addHeader("Content-Type", "application/json").setBody("{}")
+      val delete = http.prepareDelete(url)
+      authorization?.let {
+        put.addHeader("Authorization", it)
+        delete.addHeader("Authorization", it)
+      }
+      assertPodBearerChallenge(put.execute(), pod.name)
+      assertPodBearerChallenge(delete.execute(), pod.name)
+    }
   }
 
   @Test
@@ -679,8 +686,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("{}")
       .execute()
 
-    assertEquals(401, response.statusCode, "body=${response.responseBody}")
-    assertTrue(response.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), response.getHeader("WWW-Authenticate"))
+    assertPodBearerChallenge(response, pod.name)
   }
 
   @Test
@@ -740,9 +746,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     // The catalogue, a context that exists and one that does not: one answer, so nothing is enumerated.
     for (url in listOf(contextsBaseUrl(pod.name), contextManageUrl(pod.name, "contacts"), contextManageUrl(pod.name, "nowhere"))) {
-      val answered = registryGet(url, token, "application/json")
-      assertEquals(401, answered.statusCode, "$url: ${answered.responseBody}")
-      assertTrue(answered.getHeader("WWW-Authenticate").orEmpty().contains("invalid_token"), answered.getHeader("WWW-Authenticate"))
+      assertPodBearerChallenge(registryGet(url, token, "application/json"), pod.name)
     }
   }
 
@@ -1080,10 +1084,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer not-a-real-jwt")
       .execute()
 
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(authHeader.contains("/.well-known/oauth-protected-resource"))
+    assertPodBearerChallenge(response, pod.name)
   }
 
   @Test
@@ -1095,10 +1096,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer " + malformedToken)
       .execute()
 
-    assertEquals(401, response.statusCode)
-    val authHeader = response.headers.get("WWW-Authenticate")
-    assertNotNull(authHeader, "401 response must include WWW-Authenticate header")
-    assertTrue(authHeader.contains("/.well-known/oauth-protected-resource"))
+    assertPodBearerChallenge(response, pod.name)
   }
 
   // ── The registry as RDF (`SPS-CTX-031` … `SPS-CTX-037`) ─────────────────────────

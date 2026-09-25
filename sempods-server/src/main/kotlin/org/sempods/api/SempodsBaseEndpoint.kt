@@ -298,12 +298,12 @@ open class SempodsBaseEndpoint(
   }
 
   /**
-   * Build an RFC 6750 `WWW-Authenticate: Bearer` challenge that points MCP-style clients to
-   * the pod's RFC 9728 protected-resource metadata. Used on 401 responses so clients can
-   * discover the authorization server and required scopes without out-of-band config.
+   * The pod's RFC 6750 `WWW-Authenticate: Bearer` challenge. Its `resource_metadata` is
+   * `{pod}/.well-known/oauth-protected-resource` (`SPS-AUTH-064`), so a client finds the
+   * authorization server without out-of-band config.
    *
-   * The pod is the protected resource for every caller, MCP or REST, so there is one
-   * `resource_metadata` URL rather than a per-surface one.
+   * The MCP endpoint sends it too; `docs/mcp/authentication.md` §"Bearer challenge format" says
+   * how that deviates from `SPS-MCP-009`.
    */
   @JvmOverloads
   protected fun buildBearerChallenge(podName: String, error: String = BearerChallenge.INVALID_TOKEN): String {

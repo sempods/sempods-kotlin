@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.okhttp.TestHttpClient
@@ -280,6 +281,18 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       """{"@id":"$erin","$schemaName":"Erin"}""",
     )
     assertEquals(403, response.statusCode)
+  }
+
+  @Test
+  fun `write without a bearer or with a rejected one is challenged`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, _) = createContextWithToken(pod, "privat")
+    val gina = "https://example.org/people/gina"
+
+    for (token in listOf(null, "not-a-real-jwt")) {
+      val response = put(withContext(resourceUrl(pod.name, gina), contextUri), token, """{"@id":"$gina","$schemaName":"Gina"}""")
+      assertPodBearerChallenge(response, pod.name)
+    }
   }
 
   @Test
