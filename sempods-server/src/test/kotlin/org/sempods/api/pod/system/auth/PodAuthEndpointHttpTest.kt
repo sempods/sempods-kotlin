@@ -5124,6 +5124,20 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     Regex("""name="csrf" value="([^"]+)"""").find(page)?.groupValues?.get(1)
       ?: error("no consent token in the rendered page")
 
+  /** The same app's ordinary dialog, which offers the way out wherever the app holds something. */
+  private fun ordinaryPage(pod: PodDbo, webId: String): String {
+    val page = http.prepareGet(authorizeUrl(pod.name))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "ordinary")
+      .addQueryParam("prompt", "consent")
+      .addHeader("Cookie", signIn(pod.name, webId).cookie)
+      .setFollowRedirect(false).execute()
+    assertEquals(200, page.statusCode, page.responseBody)
+    return page.responseBody
+  }
+
   @Test
   fun `the installation dialog carries no lifetime control, and an ordinary dialog still does`() {
     // The rule alone is not enough, which is why this asserts the markup: an owner who can tick an
@@ -5486,25 +5500,43 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  @Suppress("UNCHECKED_CAST")
-  fun `an app disconnected after it was approved installs nothing`() {
+  fun `an installation approved on its own is disconnected in the ordinary dialog, and installs nothing`() {
     // The authority outlives its consent by up to an hour, so an app removed in between would
     // otherwise still mint a confidential credential — past the one act the owner performed to
-    // stop it.
+    // stop it. It writes no grant, so the dialog has to count the authority itself to offer that act.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    // The app is connected first, because a disconnect removes what an app holds and an
-    // installation authority on its own is not something the dialog offers to remove.
-    assertEquals(303, submitConsent(pod, ownerWebId, state = "first").statusCode)
     val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
 
-    assertEquals(303, submitConsent(pod, ownerWebId, state = "gone", disconnect = true).statusCode)
+    val page = ordinaryPage(pod, ownerWebId)
+    assertTrue("disconnectBtn" in page, "the unspent authority is something this app holds")
+    val disconnected = submitConsent(pod, ownerWebId, state = "gone", disconnect = true, csrf = formToken(page))
+    val location = URI(checkNotNull(disconnected.getHeader("Location")))
+    assertEquals(
+      "app disconnected",
+      org.sempods.commons.net.UrlUtil.queryParams(location.rawQuery, decodeParams = true)["error_description"],
+      "$location",
+    )
+    assertFalse("disconnectBtn" in ordinaryPage(pod, ownerWebId), "the row is still there, and withdrawn")
 
     val refused = registerAsInstaller(pod, installer)
 
     assertEquals(401, refused.statusCode, refused.responseBody)
     assertTrue("""error="invalid_token"""" in checkNotNull(refused.getHeader("WWW-Authenticate")))
+  }
+
+  @Test
+  fun `an installation spent on its registration leaves nothing to disconnect`() {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val installer = approveInstallation(pod, ownerWebId)["access_token"] as String
+    assertTrue("disconnectBtn" in ordinaryPage(pod, ownerWebId), "unspent, it is held")
+
+    assertEquals(201, registerAsInstaller(pod, installer).statusCode)
+
+    assertFalse("disconnectBtn" in ordinaryPage(pod, ownerWebId), "spent, it is gone")
   }
 
   @Test

@@ -597,6 +597,9 @@ A JVM program runs the whole installation through `sempods-client`
 - **It dies when the app is disconnected**, whatever the bearer has left of its hour. Another
   consent for the same app leaves it standing. A registration already past that check runs to its
   end and leaves the orphan described below.
+- **The ordinary dialog ends it.** Until the authority is spent, withdrawn or an hour old, that
+  app's ordinary consent dialog offers "Remove access", even where the app holds no grant. The
+  person must be signed in under the URI they approved it under, or under one linked to it.
 - **No data at any point, and no capability either.** A token carrying the scope resolves no
   context permissions and no public contexts, whether or not it has been spent: `GET
   {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
@@ -704,9 +707,6 @@ It follows the installation's rules above, with two differences:
 - **It is not spent.** Every call reads the authority, so one approval lists, then rotates, then
   revokes.
 - **One privileged scope per authorization.** Asking for both is `invalid_scope`.
-- **The ordinary dialog ends it.** While the authority stands, that app's ordinary consent dialog
-  offers "Remove access", even where the app holds no grant. The person must be signed in under the
-  URI they approved it under, or under one linked to it.
 
 It grants nothing. The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
