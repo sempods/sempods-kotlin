@@ -33,6 +33,7 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.PodSigningKeyStore
 import org.sempods.pods.oauth.flows.PodAuthorizationCodes
+import org.sempods.pods.oauth.flows.PodAppHoldings
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodInstallationBudget
@@ -207,6 +208,7 @@ class SempodsModule : BaseModule() {
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
     bind<PodAuthorizationCodes>().asSingleton()
+    bind<PodAppHoldings>().asSingleton()
     bind<PodAuthorizeFlow>().asSingleton()
     bind<PodClientRegistration>().asSingleton()
     bind<PodConsentFlow>().asSingleton()
@@ -797,7 +799,7 @@ class SempodsModule : BaseModule() {
 
       SempodsConfig(
         httpPort = httpPort,
-        apiBaseUrl = publicBaseUrl,
+        apiBaseUrl = SempodsConfig.checkPublicBaseUrl(PUBLIC_BASE_URL_ENV_VARIABLE, publicBaseUrl),
         mongoUrl = Env.get(MONGODB_URL_ENV_VARIABLE, default = DEFAULT_MONGODB_URL),
         mongoDb = Env.get(MONGODB_DB_NAME_ENV_VARIABLE, default = DEFAULT_MONGODB_DB_NAME),
         // No default: unset means the redirects carry no `error_uri`. The normalisation rule

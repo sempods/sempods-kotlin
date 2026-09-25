@@ -704,6 +704,9 @@ It follows the installation's rules above, with two differences:
 - **It is not spent.** Every call reads the authority, so one approval lists, then rotates, then
   revokes.
 - **One privileged scope per authorization.** Asking for both is `invalid_scope`.
+- **The ordinary dialog ends it.** While the authority stands, that app's ordinary consent dialog
+  offers "Remove access", even where the app holds no grant. The person must be signed in under the
+  URI they approved it under, or under one linked to it.
 
 It grants nothing. The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.

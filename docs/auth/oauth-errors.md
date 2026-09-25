@@ -98,7 +98,7 @@ submitting it with nothing selected or by signing out, or upstream at the identi
 | Path | `error_description` |
 |---|---|
 | Consent page submitted with nothing selected, by an app that holds nothing | `no scopes selected` |
-| Consent page submitted with nothing selected, or through its "Remove access" button, by an app that holds something | `app disconnected` — the grants are deleted and the refresh families revoked. The denial is real; it also has an effect |
+| Consent page submitted with nothing selected, or through its "Remove access" button, by an app that holds something | `app disconnected` — the grants are deleted, the refresh families revoked and a management authority withdrawn. The denial is real; it also has an effect |
 | Consent page's "Sign out everywhere", or a sign-out landing while the authorization was answered | `signed out` — every sign-in, connection, code and access token the person holds on the pod has ended ([`oauth.md`](oauth.md#signing-out)) |
 | Identity provider reported `access_denied`, or Apple's `user_cancelled_authorize` | the upstream code, and its description where it sent one |
 
