@@ -14,8 +14,10 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.ContextPermissionEntry
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodContextPermissionResolver
+import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
@@ -45,6 +47,8 @@ import java.net.URI
  * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope] — or for a bearer
  * carrying the owner's approved [CONTEXTS_MANAGE_SCOPE], which reaches every context
  * (`SPS-CTX-019`). A bearer whose subject owns the pod is otherwise an application like any other.
+ * The catalogue shows the [CONTEXTS_MANAGE_SCOPE] bearer every registered context as `manage` alone
+ * ([registryContexts]).
  *
  * **The registry answers RDF.** `GET` at the catalogue and at a context IRI produce canonical
  * JSON-LD by default and N-Quads on request (`SPS-CTX-031`), a successful `PUT` answers the created
@@ -175,6 +179,7 @@ class PodContextsEndpoint @Inject constructor(
       rawScopes = credentials.oauthRawScopes,
       visibleContexts = credentials.restrictedContexts.orEmpty(),
       podBaseUrl = podBaseUrl,
+      registryContexts = registryContexts(pod, credentials) { listOf(dbo.contextUri) },
     )
     val entry = effective.byContext[dbo.contextUri]
       ?: throw unknownContext()
@@ -197,6 +202,7 @@ class PodContextsEndpoint @Inject constructor(
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
 
+    val rows = podContextsDao.fetchByPod(podId)
     // Effective context permissions are resolved server-side per request from durable grants
     // through the shared resolver — the same logic MCP `list_contexts` uses — so REST and MCP
     // cannot drift.
@@ -205,9 +211,9 @@ class PodContextsEndpoint @Inject constructor(
       rawScopes = credentials.oauthRawScopes,
       visibleContexts = credentials.restrictedContexts.orEmpty(),
       podBaseUrl = podBaseUrl,
+      registryContexts = registryContexts(pod, credentials) { rows.map { it.contextUri } },
     )
 
-    val rows = podContextsDao.fetchByPod(podId)
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
@@ -237,6 +243,28 @@ class PodContextsEndpoint @Inject constructor(
     }
     podFacade.removeContext(podName = pod, context = contextUri)
     return Response.noContent().build()
+  }
+
+  /**
+   * The registered contexts [credentials] may create and delete by the owner's
+   * [CONTEXTS_MANAGE_SCOPE] authority, which the catalogue reports as `manage` and nothing more:
+   * all of [registered] while that authority stands, none without the scope.
+   *
+   * Checked as `PUT` checks it, so the scope alone reports nothing. An authority withdrawn by a
+   * disconnect is `401 invalid_token` here too. One whose person no longer owns the pod reports
+   * nothing, which is all that bearer holds.
+   */
+  private fun registryContexts(pod: String, credentials: SempodsCredentials, registered: () -> List<String>): List<String> {
+    if (CONTEXTS_MANAGE_SCOPE !in credentials.oauthScopes) return emptyList()
+    return when (val check = ownerAuthority.check(fetchPodOrThrow(pod).hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
+      is PodOwnerAuthorityCheck.Standing -> registered()
+      is PodOwnerAuthorityCheck.Refused ->
+        if (check.reason == PodOwnerAuthorityRefusal.NOT_OWNER) {
+          emptyList()
+        } else {
+          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
+        }
+    }
   }
 
   /**
