@@ -541,8 +541,8 @@ class PodConsentFlow @Inject internal constructor(
    * End what this app holds for this person.
    *
    * The grants go, the decision is written as a refusal — a silence would read as an authorization
-   * that predates the control and be left alone, and the count it moves withdraws a management
-   * authority — and the refresh families are revoked, because withholding that is merely declining
+   * that predates the control and be left alone, and the count it moves withdraws an installation or
+   * management authority — and the refresh families are revoked, because withholding that is merely declining
    * to extend would leave the person's most emphatic gesture with nothing to show for it. The client is still told `access_denied`: the request really was
    * denied, and what changed is that the denial now has an effect.
    */

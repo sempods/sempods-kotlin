@@ -26,8 +26,14 @@ import org.sempods.pods.PodId
  */
 class PodInstallationAuthorityStore @Inject internal constructor(
   db: MongoDatabase,
-  private val consentDecisions: PodConsentDecisionStore,
-) : PrivilegedAuthorityRows(db, SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES) {
+  consentDecisions: PodConsentDecisionStore,
+) : PrivilegedAuthorityRows(
+  db = db,
+  collectionName = SempodsCollections.OAUTH_INSTALLATION_AUTHORITIES,
+  consentDecisions = consentDecisions,
+  // [consume] says why a row from before the count existed is accepted.
+  uncountedStands = true,
+) {
 
   /**
    * The authority behind [jti], spent in the same operation.
@@ -59,8 +65,4 @@ class PodInstallationAuthorityStore @Inject internal constructor(
    */
   internal fun peek(pod: PodId, jti: String): Authority? =
     rows.peek(jti)?.takeIf { it.standsOn(pod) }
-
-  private fun Authority.standsOn(pod: PodId): Boolean =
-    this.pod == pod &&
-      (disconnects == null || (consentDecisions.find(pod, clientId, listOf(webId))?.disconnects ?: 0L) == disconnects)
 }
