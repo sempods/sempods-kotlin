@@ -2887,6 +2887,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     // A client that follows only WWW-Authenticate (instead of probing PRM under the MCP
     // URL) has to land on the pod's protected-resource metadata: the pod is the resource,
     // and its `/register` is the one registration endpoint.
+    // SPS-MCP-009 names the endpoint's own metadata instead; #305 moves this value there.
     val pod = sempodsTestFactory.newPod()
     val (contextUri, _) = createContextWithToken(pod, "tasks-${TestUtil.randomId()}")
     val resourceIri = "${contextUri}/task-${TestUtil.randomId()}"

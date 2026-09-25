@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.utils.UriEncodingUtil
@@ -491,6 +492,25 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
       carol,
     )
     assertEquals(403, response.statusCode)
+  }
+
+  @Test
+  fun `slot and edge writes without a bearer or with a rejected one are challenged`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, _) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+
+    for (authorization in listOf(null, "Bearer not-a-real-jwt")) {
+      val slot = httpClient.preparePost(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
+        .addHeader("Content-Type", "application/ld+json")
+        .setBody("""{"@id":"$carol"}""")
+      val edge = httpClient.prepareDelete(withContext(edgeUrl(pod.name, bob, schemaChildren, carol), contextUri))
+      for (request in listOf(slot, edge)) {
+        authorization?.let { request.addHeader("Authorization", it) }
+        assertPodBearerChallenge(request.execute(), pod.name)
+      }
+    }
   }
 
   @Test
