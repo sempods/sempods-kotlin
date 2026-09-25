@@ -83,7 +83,7 @@ class PodTokenAuthenticatorTest {
      * to reach the `badSignature` branch of `JwtVerifier.verify`.
      */
     keyId: String = signWith.keyID,
-    issuer: String? = "${apiBaseUrl}${pod.name}/",
+    issuer: String? = "${apiBaseUrl}${pod.name}",
     clientId: String? = "did:web:app.test",
     subject: String? = "https://id.test/e/person",
     clientType: String? = null,
@@ -154,10 +154,10 @@ class PodTokenAuthenticatorTest {
 
   @Test
   fun `a token issued for another pod is podMismatch and not invalidToken`() {
-    assertEquals(
-      PodTokenRejection.podMismatch,
-      rejection(token(issuer = "${apiBaseUrl}otherpod/")),
-    )
+    // In either spelling: the trailing slash is accepted for this pod's own base only.
+    for (issuer in listOf("${apiBaseUrl}otherpod", "${apiBaseUrl}otherpod/", "${apiBaseUrl}${pod.name}x")) {
+      assertEquals(PodTokenRejection.podMismatch, rejection(token(issuer = issuer)), issuer)
+    }
   }
 
   @Test
@@ -165,10 +165,14 @@ class PodTokenAuthenticatorTest {
     // What `PodRef.uri` is for: a bare pod name names nothing until a host resolves it, and two
     // deployments may each have one. The issuer check keys off the whole URI, so a token another
     // host minted for its own `mypod` is as foreign as one for a different name.
-    assertEquals(
-      PodTokenRejection.podMismatch,
-      rejection(token(issuer = "https://other-host.test/${pod.name}/")),
-    )
+    for (issuer in listOf("https://other-host.test/${pod.name}", "https://other-host.test/${pod.name}/")) {
+      assertEquals(PodTokenRejection.podMismatch, rejection(token(issuer = issuer)), issuer)
+    }
+  }
+
+  @Test
+  fun `the auth routes are not the issuer`() {
+    assertEquals(PodTokenRejection.podMismatch, rejection(token(issuer = "${pod.uri}/_system/auth")))
   }
 
   @Test
@@ -190,6 +194,17 @@ class PodTokenAuthenticatorTest {
   }
 
   // --- verified -------------------------------------------------------------------------------
+
+  @Test
+  fun `a token naming the pod base is this pod's`() {
+    assertEquals("did:web:app.test", verified(token(issuer = pod.uri.toString())).clientId)
+  }
+
+  @Test
+  fun `a token minted with the trailing-slash issuer is still this pod's`() {
+    // The spelling a pod minted before its issuer became the base URL.
+    assertEquals("did:web:app.test", verified(token(issuer = "${pod.uri}/")).clientId)
+  }
 
   @Test
   fun `a well-formed user token carries its claims through`() {
@@ -357,7 +372,7 @@ class PodTokenAuthenticatorTest {
     )
 
     val mine = linesLoggedAt(Level.DEBUG) {
-      authenticator.authenticate(token(issuer = "${apiBaseUrl}neighbour/"), neighbour)
+      authenticator.authenticate(token(issuer = "${apiBaseUrl}neighbour"), neighbour)
       verified(token())
     }
 

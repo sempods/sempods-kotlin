@@ -2973,9 +2973,9 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     val podBaseUrl = "${SempodsModule.config.apiBaseUrl}${pod.name}"
     assertEquals(podBaseUrl, body["resource"], "resource must stay at the pod URL")
     assertEquals(
-      listOf("$podBaseUrl/_system/auth"),
+      listOf(podBaseUrl),
       body["authorization_servers"],
-      "the pod has one issuer; the MCP URL is a spelling of the same resource",
+      "the pod is its one issuer; the MCP URL is a spelling of the same resource",
     )
   }
 
@@ -2983,7 +2983,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
   fun `mcp url should not serve oauth-authorization-server metadata`() {
     // The MCP URL is not an issuer identifier. Serving AS-metadata under it would have to
     // name an `issuer` that differs from the URL it was fetched from (RFC 8414 §3.3); the
-    // PRM points clients at `_system/auth`, which is the real issuer.
+    // PRM points clients at the pod base, which is the real issuer.
     val pod = sempodsTestFactory.newPod()
 
     val response = httpClient.prepareGet("${mcpUrl(pod.name)}/.well-known/oauth-authorization-server")
