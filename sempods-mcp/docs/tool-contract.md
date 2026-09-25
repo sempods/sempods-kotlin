@@ -176,7 +176,7 @@ for. An empty value, or one whose opaque part contains a `"`, cannot be normaliz
 decides, and its answer is forwarded. A control-plane path in `context_iri` is not a context the
 caller holds a grant on, so the pod answers **403**. What a statement may be about is the pod's rule
 too. `SPS-CTX-026` lets a pod hold statements about a `_system` IRI, and a sempods pod refuses a
-subject under its own `_system/contexts/` with **400**, a deviation until
+subject at or under its own `_system/contexts` with **400**, a deviation until
 [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides. A guard here would
 copy one pod's rules into a service that faces any pod. Such a copy went stale once already, when
 contexts moved to `_system/contexts/`, and refused every write into a migrated context.

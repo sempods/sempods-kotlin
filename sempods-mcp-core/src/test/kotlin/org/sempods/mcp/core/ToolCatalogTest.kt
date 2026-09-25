@@ -143,7 +143,7 @@ class ToolCatalogTest {
     // them. A stale one is worse than a stale code comment — it steers behaviour. The claim this
     // guards against is that the pod's `_system` / `.well-known` area is off limits for a
     // `resource_iri`. Neither surface applies it: the hosted service forwards and the pod decides,
-    // and a sempods pod refuses only a subject under `_system/contexts/` (the pod server's
+    // and a sempods pod refuses only a subject at or under `_system/contexts` (the pod server's
     // `ContextPathRules.reservedSubjectReason`). So a description may name that one namespace.
     //
     // A whole-catalog sweep rather than a per-tool check, so a description added later cannot

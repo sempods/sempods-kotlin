@@ -230,9 +230,9 @@ class McpEndpoint @Inject constructor(
         (`did:`, `urn:`, foreign `https://...`). What a statement is *about* is independent
         of where it is stored: the `context_iri` decides that, and its write scope is what
         governs the call.
-      - Do NOT derive `resource_iri` from `context_iri`. Nothing under
-        $podBaseUrl/_system/contexts/ can be a resource: that is where this pod's context
-        IRIs live, and it answers a write about one with 400.
+      - Do NOT derive `resource_iri` from `context_iri`. Nothing at or under
+        $podBaseUrl/_system/contexts can be a resource: that is where this pod's context
+        catalogue and context IRIs live, and it answers a write about one with 400.
       - `create_resource` upserts (replaces the resource's statements in the context). The
         `jsonld` argument may still carry "@context" + compact terms — `create_resource`
         runs full JSON-LD expansion on input.

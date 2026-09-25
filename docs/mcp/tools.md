@@ -235,9 +235,10 @@ Arguments:
   an external URI** (`did:`, `urn:`, foreign `https://...`), so an external
   identity (e.g. a `foaf:`/`schema:Person`) can be enriched with pod-local
   statements. The writable *context* decides where statements are stored,
-  and it is the authorization boundary. One namespace is refused: an IRI
-  under this pod's `_system/contexts/`, where `GET` is the context
-  registry. The pod answers `400`, and the tool reports it as an error.
+  and it is the authorization boundary. One namespace is refused: this
+  pod's `_system/contexts` and any IRI under it, where `GET` is the
+  context catalogue or registry. The pod answers `400`, and the tool
+  reports it as an error.
   This deviates from `SPS-CTX-026` until
   [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116)
   decides; [`ContextPathRules.reservedSubjectReason`](../../sempods-server/src/main/kotlin/org/sempods/pods/contexts/ContextPathRules.kt)
@@ -305,7 +306,7 @@ Remove a resource from a consented context. Same scope rule as
 `create_resource`.
 
 Arguments: `context_iri`, `resource_iri` (local or external, and also one
-under this pod's `_system/contexts/`, so older data there can be removed).
+at or under this pod's `_system/contexts`, so older data there can be removed).
 Optional `if_match` (ETag from `get_resource` read
 in this context) makes the delete conditional → precondition error if the
 resource changed there since then.
@@ -323,7 +324,7 @@ All property-value tools:
 - require `context_iri` from `list_contexts.writable_contexts`;
 - accept full absolute IRIs only (`subject_iri`, `predicate_iri`, and
   `target_iri` where applicable);
-- refuse a `subject_iri` under this pod's `_system/contexts/` on
+- refuse a `subject_iri` at or under this pod's `_system/contexts` on
   `add_property_value` and `set_property_values`, as `create_resource` does.
   `remove_property_value` and `clear_property_values` accept it, so older
   data there can be removed;

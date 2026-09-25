@@ -84,8 +84,9 @@ are possible as long as they follow the standard.
       §4.
     - One exception, and a deviation from that chapter until
       [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides: a write
-      about a subject under `/_system/contexts/` is refused, because that namespace holds the
-      context IRIs and `GET` there is the registry. `ContextPathRules` owns the rule.
+      about `/_system/contexts` or a subject under it is refused, because that namespace holds
+      the catalogue and the context IRIs and `GET` there is the registry. `ContextPathRules`
+      owns the rule.
 
 ## What comes later (extensions)
 

@@ -19,8 +19,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * A write that adds statements about a subject under the pod's `_system/contexts/` answers `400` and
- * names the namespace, on every route that adds statements. The removals still reach what is stored
+ * A write that adds statements about a subject at or under the pod's `_system/contexts` answers `400`
+ * and names the namespace, on every route that adds statements. The removals still reach what is stored
  * there. The rule is [org.sempods.pods.contexts.ContextPathRules.reservedSubjectReason].
  */
 class ContextNamespaceWriteHttpTest : SempodsIntegrationTest() {
@@ -100,6 +100,23 @@ class ContextNamespaceWriteHttpTest : SempodsIntegrationTest() {
       }
       assertEquals(404, get(resourceUrl(pod, subject, tasks), token).statusCode, "nothing about <$subject> was stored")
     }
+  }
+
+  @Test
+  fun `a write about the catalogue IRI answers 400 as well, and a segment beside it does not`() {
+    val pod = sempodsTestFactory.newPod()
+    val tasks = registerContext(pod, "tasks")
+    val token = mintScopedToken(pod.name, listOf("$tasks#read", "$tasks#write"))
+    val catalogue = namespace(pod).removeSuffix("/")
+
+    additions(pod, catalogue, tasks, token).forEach { (label, response) ->
+      assertRefusedForTheNamespace(pod, "$label <$catalogue>", response)
+    }
+    assertEquals(404, get(resourceUrl(pod, catalogue, tasks), token).statusCode, "nothing about <$catalogue> was stored")
+
+    val beside = "${catalogue}X"
+    val put = send("PUT", resourceUrl(pod, beside, tasks), token, """{"@id":"$beside","$schemaName":"a note"}""")
+    assertEquals(201, put.statusCode, put.responseBody)
   }
 
   @Test

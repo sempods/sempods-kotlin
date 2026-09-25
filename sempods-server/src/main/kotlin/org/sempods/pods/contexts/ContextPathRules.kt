@@ -186,24 +186,27 @@ object ContextPathRules {
   /**
    * Why a write may not add statements about [subject], or `null` when it may.
    *
-   * Refused: every IRI under this pod's `<podBaseUrl>_system/contexts/`, a registered context IRI
-   * included. `GET` there is the registry route, so a resource there cannot be read at its own
-   * address. And a context path has several segments: after a write about
-   * `<pod>/_system/contexts/tasks/res-1`, the owner can still register `tasks/res-1`, and one IRI
-   * would name two things. A context's label and description belong in the registry.
+   * Refused: the catalogue IRI `<podBaseUrl>_system/contexts` and every IRI under
+   * `<podBaseUrl>_system/contexts/`, a registered context IRI included. `GET` there is the catalogue
+   * or the registry route, so a resource there cannot be read at its own address. And a context
+   * path has several segments: after a write about `<pod>/_system/contexts/tasks/res-1`, the owner
+   * can still register `tasks/res-1`, and one IRI would name two things. A context's label and
+   * description belong in the registry.
    *
    * | [subject], for the pod `https://sempods.org/alice/` | Answer |
    * |---|---|
+   * | `https://sempods.org/alice/_system/contexts`, the catalogue | refused |
    * | `https://sempods.org/alice/_system/contexts/tasks` | refused |
    * | `https://sempods.org/alice/_system/contexts/tasks/res-1` | refused |
    * | `HTTPS://Sempods.org:443/alice/_system/contexts/tasks` | refused: the same URL, spelled otherwise |
-   * | `https://sempods.org/alice/_system/contexts`, the catalogue | `null` |
+   * | `https://sempods.org/alice/_system/contextsX`, `…/_system/contexts;x` | `null`: another segment |
    * | `https://sempods.org/alice/_system;x/contexts/tasks` | `null`: `_system;x` is another segment |
    * | `https://sempods.org/bob/_system/contexts/tasks`, `did:web:bob.example` | `null`: not this pod's |
    *
    * The spellings are those `SempodsPodBase` binds to one URL: case of scheme and host, a default
    * port, a percent-encoded or a dot segment. The server's own base URL is the bound one
-   * (`SempodsConfig.checkPublicBaseUrl`).
+   * (`SempodsConfig.checkPublicBaseUrl`). A query or a fragment on the catalogue IRI still reaches
+   * the catalogue route, so it is refused too.
    *
    * The writes that add statements ask this: resource `PUT` and `PATCH`, slot `PUT` and `POST`.
    * Deleting a resource, a slot or an edge does not, so statements stored before this rule can
@@ -216,21 +219,23 @@ object ContextPathRules {
    */
   fun reservedSubjectReason(podBaseUrl: String, subject: String): String? {
     val namespace = "$podBaseUrl$CONTEXT_PATH_PREFIX"
-    if (!subject.startsWith(namespace) && !reachesContextNamespace(podBaseUrl, subject)) return null
-    return "'$subject' is under '$namespace', which is reserved for this pod's context IRIs: " +
-      "a write may not add statements about it. Use an IRI outside that namespace."
+    val catalogue = namespace.removeSuffix("/")
+    val reserved = subject == catalogue || subject.startsWith(namespace) || reachesContextNamespace(podBaseUrl, subject)
+    if (!reserved) return null
+    return "'$subject' is reserved for this pod's contexts: '$catalogue' and everything under " +
+      "'$namespace'. A write may not add statements about it. Use an IRI outside that namespace."
   }
 
   /**
    * Whether [subject], parsed as a URL, is under this pod in any spelling
-   * ([SempodsPodBase.contains]) and then under `_system/contexts/` below it.
+   * ([SempodsPodBase.contains]) and then at or under `_system/contexts` below it.
    */
   private fun reachesContextNamespace(podBaseUrl: String, subject: String): Boolean {
     val target = subject.toHttpUrlOrNull() ?: return false
     val pod = SempodsPodBase.of(podBaseUrl)
     if (target !in pod) return false
     val below = target.pathSegments.drop(pod.url.pathSegments.dropLastWhile { it.isEmpty() }.size)
-    return below.size > NAMESPACE_SEGMENTS.size && below.take(NAMESPACE_SEGMENTS.size) == NAMESPACE_SEGMENTS
+    return below.take(NAMESPACE_SEGMENTS.size) == NAMESPACE_SEGMENTS
   }
 
   /** [CONTEXT_PATH_PREFIX] as path segments: `_system`, `contexts`. */

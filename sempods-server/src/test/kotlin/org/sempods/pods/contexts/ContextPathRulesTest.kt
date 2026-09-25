@@ -179,8 +179,24 @@ class ContextPathRulesTest {
   }
 
   @Test
+  fun `the catalogue IRI is reserved in every spelling that reaches the catalogue route`() {
+    reserved("${podBase}_system/contexts")
+    SempodsPodBaseVectors.respelled.forEach { (given, bound) ->
+      reserved("${given.removeSuffix("/")}/_system/contexts", podBaseUrl = "${bound.removeSuffix("/")}/")
+    }
+    reserved("https://sempods.org/alice/%5Fsystem/contexts")
+    reserved("https://sempods.org/alice/notes/../_system/contexts")
+    // The route ignores both, so these reach the catalogue as well.
+    reserved("${podBase}_system/contexts?view=x")
+    reserved("${podBase}_system/contexts#top")
+  }
+
+  @Test
   fun `a subject beside the namespace or in another pod stays ordinary`() {
-    ordinary("${podBase}_system/contexts")
+    // Another segment than `contexts`: the route answers neither with the catalogue. A `;` stays in
+    // its segment (`PathSemicolonFilter`).
+    ordinary("${podBase}_system/contextsX")
+    ordinary("${podBase}_system/contexts;x")
     ordinary("${podBase}_system;x/contexts/tasks")
     ordinary("${podBase}_system/contexts;x/tasks")
     ordinary("${podBase}_system/resources/abc")

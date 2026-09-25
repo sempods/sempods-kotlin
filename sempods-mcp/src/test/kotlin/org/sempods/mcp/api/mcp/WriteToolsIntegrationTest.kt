@@ -263,7 +263,7 @@ class WriteToolsIntegrationTest {
   @Test
   fun `a control-plane subject is forwarded, and the pod decides`() = runBlocking {
     // What a statement may be about is the pod's rule: `SPS-CTX-026` lets a pod hold statements
-    // about a `_system` IRI, and a sempods pod refuses one under its `_system/contexts/`. This
+    // about a `_system` IRI, and a sempods pod refuses one at or under its `_system/contexts`. This
     // service faces any pod, so it forwards; the mock pod here accepts.
     val subject = "$pod/_system/contexts/contacts"
     server.`when`(request().withMethod("POST").withPath("/p/_system/resources/${b64(subject)}/${b64("https://schema.org/name")}"))
