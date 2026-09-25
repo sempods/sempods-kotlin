@@ -9,6 +9,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsTestModule
+import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.media.PodMediaRef
 import org.sempods.pods.media.PodMediaStore
@@ -214,14 +215,16 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `upload without a token is rejected`() {
+  fun `upload without a token or with a rejected one is challenged`() {
     val pod = sempodsTestFactory.newPod()
     val (context, _) = contextWithToken(pod, "tests/media-${randomId()}")
 
-    val response = httpClient.preparePost(uploadUrl(pod.name, context))
-      .addHeader("Content-Type", "image/png").setBody("bytes").execute()
-
-    assertEquals(401, response.statusCode)
+    for (authorization in listOf(null, "Bearer not-a-real-jwt")) {
+      val request = httpClient.preparePost(uploadUrl(pod.name, context))
+        .addHeader("Content-Type", "image/png").setBody("bytes")
+      authorization?.let { request.addHeader("Authorization", it) }
+      assertPodBearerChallenge(request.execute(), pod.name)
+    }
   }
 
   @Test
@@ -271,6 +274,10 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, response.statusCode)
     assertEquals(content, response.responseBody)
     assertEquals("image/png", response.getHeader("Content-Type"))
+    // A bearer that does not verify is not read as no bearer at all.
+    val rejected = httpClient.prepareGet(contentUrl(pod.name, mediaId))
+      .addHeader("Authorization", "Bearer not-a-real-jwt").execute()
+    assertPodBearerChallenge(rejected, pod.name)
   }
 
   @Test

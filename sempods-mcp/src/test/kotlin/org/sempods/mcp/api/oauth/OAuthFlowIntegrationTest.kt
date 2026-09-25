@@ -373,7 +373,7 @@ class OAuthFlowIntegrationTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = WEB_ID, profile = PodKey.DEFAULT_PROFILE, pod = pod,
-        issuer = "https://sempods.org/_system/auth", podClientId = "did:web:mcp.test",
+        issuer = pod, podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = null,
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -962,7 +962,7 @@ class OAuthFlowIntegrationTest {
     ConnectionRegistryDao(db!!).upsert(
       PodConnection(
         user = WEB_ID, profile = PodKey.DEFAULT_PROFILE, pod = "https://pod.example",
-        issuer = "https://pod.example/_system/auth", podClientId = "did:web:mcp.test",
+        issuer = "https://pod.example", podClientId = "did:web:mcp.test",
         scopes = setOf("public-read"), podSubject = "https://pod.example/u/42",
         createdAt = Date(), updatedAt = Date(),
       ),
@@ -974,7 +974,7 @@ class OAuthFlowIntegrationTest {
       WEB_ID, key.profile, key.pod, accessToken = "at", refreshToken = "rt",
       accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
       podClientId = "dyn:x", podRedirectUri = "$BASE/_system/ui/pods/callback",
-      issuer = "https://pod.example/_system/auth", podSubject = "https://pod.example/u/acting",
+      issuer = "https://pod.example", podSubject = "https://pod.example/u/acting",
       subjectVerified = true,
     ))
 

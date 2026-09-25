@@ -104,8 +104,9 @@ class SempodsPodAuthorization(
    * Refused with a [SempodsClientException], before anything in it is used:
    *
    * - a `state` other than [expectedState], or none (RFC 6749 §10.12);
-   * - an `iss` other than this pod's issuer, `{pod}/_system/auth` (RFC 9207). A pod that sends none is
-   *   answered as it is;
+   * - an `iss` other than this pod's issuer, its base URL `{pod}` (RFC 9207,
+   *   [SPS-AUTH-028](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-028)).
+   *   A pod that sends none is answered as it is;
    * - a response member (`code`, `state`, `iss`, `error`, `error_description`, `error_uri`) that
    *   appears twice, and a query that is neither a code nor an error. A redirect URI's own members may
    *   repeat.
@@ -126,7 +127,8 @@ class SempodsPodAuthorization(
         "The authorization redirect does not carry the state this caller sent, so it is not the answer to its request.",
       )
     }
-    if (response.issuer != null && response.issuer != Issuer(session.podBase.resolve(ISSUER).toString())) {
+    // `removeSuffix`: a pod at the host root renders as `https://pods.example/`, and its issuer has no slash.
+    if (response.issuer != null && response.issuer != Issuer(session.podBase.toString().removeSuffix("/"))) {
       throw SempodsClientException("The authorization redirect names another authorization server as its issuer.")
     }
     if (response is AuthorizationErrorResponse) {
@@ -171,8 +173,6 @@ class SempodsPodAuthorization(
     }
 
     const val AUTHORIZE = "_system/auth/authorize"
-
-    const val ISSUER = "_system/auth"
 
     val RESPONSE_MEMBERS = setOf("code", "state", "iss", "error", "error_description", "error_uri")
 

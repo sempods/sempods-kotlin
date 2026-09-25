@@ -118,8 +118,8 @@ class ReadToolsIntegrationTest {
 
     val soon = Date(System.currentTimeMillis() + 3_600_000)
     for (pod in listOf(podA, podB)) {
-      registry.upsert(PodConnection(user, profile, pod, issuer = "$pod/_system/auth", podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
-      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = "$pod/_system/auth", podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
+      registry.upsert(PodConnection(user, profile, pod, issuer = pod, podClientId = "dyn:x", scopes = setOf("public-read"), createdAt = Date(), updatedAt = Date()))
+      vault.upsert(PodTokens(user, profile, pod, accessToken = "tok", refreshToken = "rt", accessTokenExpiresAt = soon, updatedAt = Date(), issuer = pod, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback"))
     }
   }
 
@@ -148,15 +148,15 @@ class ReadToolsIntegrationTest {
         accessTokenExpiresAt = Date(System.currentTimeMillis() - 60_000), updatedAt = Date(),
         // The two facts a refresh decides on; without them the row does not map and nothing
         // reaches the pod.
-        issuer = authBase, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = podA, podSubject = user, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-protected-resource"))
-      .respond(response().withStatusCode(200).withBody("""{"resource":"$podA","authorization_servers":["$authBase"]}"""))
-    server.`when`(request().withMethod("GET").withPath("/a/_system/auth/.well-known/oauth-authorization-server"))
+      .respond(response().withStatusCode(200).withBody("""{"resource":"$podA","authorization_servers":["$podA"]}"""))
+    server.`when`(request().withMethod("GET").withPath("/a/.well-known/oauth-authorization-server"))
       .respond(
         response().withStatusCode(200).withBody(
-          """{"issuer":"$authBase","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
+          """{"issuer":"$podA","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register","jwks_uri":"$authBase/jwks.json"}""",
         ),
       )
   }
@@ -181,7 +181,7 @@ class ReadToolsIntegrationTest {
     val acting = "https://pod.example/u/whose-token-this-is"
     registry.upsert(
       PodConnection(
-        user = user, profile = profile, pod = podA, issuer = "$podA/_system/auth",
+        user = user, profile = profile, pod = podA, issuer = podA,
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
         podSubject = "https://pod.example/u/from-a-later-connect",
         createdAt = Date(), updatedAt = Date(),
@@ -191,7 +191,7 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$podA/_system/auth", podSubject = acting, subjectVerified = true, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = podA, podSubject = acting, subjectVerified = true, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
 
@@ -208,12 +208,20 @@ class ReadToolsIntegrationTest {
   }
 
   @Test
+  fun `list_pods reports the issuer the token row records`() = runBlocking {
+    // A refresh records the issuer the pod names now; the registry keeps the one from the connect.
+    registry.upsert(registry.find(PodKey(user, profile, podA))!!.copy(issuer = "$podA/_system/auth"))
+
+    assertEquals(podA, podEntry(call("list_pods", null), podA)["issuer"].asText())
+  }
+
+  @Test
   fun `list_pods surfaces a foreign pod identity and warns about it`() = runBlocking {
     // A pod that authorized us as a WebID different from the service user (its own identity provider).
     val foreignWebId = "https://voicesappdev.example/api/pod/u/42"
     registry.upsert(
       PodConnection(
-        user = user, profile = profile, pod = "$podA", issuer = "$podA/_system/auth",
+        user = user, profile = profile, pod = "$podA", issuer = podA,
         podClientId = "did:web:mcp.test", scopes = setOf("public-read"),
         podSubject = foreignWebId, createdAt = Date(), updatedAt = Date(),
       ),
@@ -222,7 +230,7 @@ class ReadToolsIntegrationTest {
       PodTokens(
         user, profile, podA, accessToken = "tok", refreshToken = "rt",
         accessTokenExpiresAt = Date(System.currentTimeMillis() + 3_600_000), updatedAt = Date(),
-        issuer = "$podA/_system/auth", podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
+        issuer = podA, podSubject = foreignWebId, podClientId = "dyn:x", podRedirectUri = "https://mcp.test/_system/ui/pods/callback",
       ),
     )
     val body = call("list_pods", null)
