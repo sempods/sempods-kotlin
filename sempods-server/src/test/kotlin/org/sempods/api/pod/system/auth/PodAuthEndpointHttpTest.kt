@@ -929,6 +929,45 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "a codeless callback is this server's problem, not a decision the person made",
     )
   }
+
+  @Test
+  fun `a provider's error text reaches the client only in RFC 6749's character set`() {
+    // §4.1.2.1 allows `error_description` printable ASCII except `"` and `\`. The provider's code
+    // and sentence are passed on to the client, so they are held to that set on the way through.
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
+
+    fun clientSees(clientState: String, error: String, description: String?): Map<String, String> {
+      val started = http.prepareGet(authorizeUrl(pod.name))
+        .addQueryParam("response_type", "code")
+        .addQueryParam("client_id", testClientId)
+        .addQueryParam("redirect_uri", testRedirectUri)
+        .addQueryParam("state", clientState)
+        .setFollowRedirect(false).execute()
+      val login = org.sempods.commons.net.UrlUtil.queryParams(
+        URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true,
+      )
+      val pin = checkNotNull(
+        started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") },
+      ).substringBefore(';')
+      val callback = http.prepareGet(checkNotNull(login["redirect_uri"]))
+        .addQueryParam("state", checkNotNull(login["state"]))
+        .addQueryParam("error", error)
+      description?.let { callback.addQueryParam("error_description", it) }
+      val answer = callback.addHeader("Cookie", pin).setFollowRedirect(false).execute()
+      val location = checkNotNull(answer.getHeader("Location")) { "expected a redirect back to the client" }
+      return org.sempods.commons.net.UrlUtil.queryParams(URI(location).rawQuery, decodeParams = true)
+    }
+
+    val sentence = clientSees("sentence", "access_denied", """the "person" said \no — twice""")
+    assertEquals("access_denied", sentence["error"])
+    assertEquals("access_denied: the person said no  twice", sentence["error_description"])
+
+    val code = clientSees("code", """odd"code\""", description = null)
+    assertEquals("server_error", code["error"])
+    assertEquals("oddcode", code["error_description"])
+  }
+
   @Test
   fun `a junk state on the callback is a 400, not a cookie-name crash`() {
     // `state` is attacker-supplied and now reaches a cookie *name* — the pin is withdrawn before
