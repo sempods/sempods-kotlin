@@ -121,7 +121,7 @@ fun Application.openIdProviderEndpoint(
       // promises `scopes_supported: ["openid"]`, and ignoring means a value the client chose is
       // carried into the authorization code and read by whatever comes next.
       (scopes - OpenIdConfiguration.SUPPORTED_SCOPES.toSet()).firstOrNull()?.let { unsupported ->
-        return@get call.respondRedirect(fail(OAuth2Error.INVALID_SCOPE.setDescription("unsupported scope: $unsupported")))
+        return@get call.respondRedirect(fail(OAuth2Error.INVALID_SCOPE.setDescription(callerText("unsupported scope: $unsupported"))))
       }
 
       val request = try {
@@ -164,7 +164,7 @@ fun Application.openIdProviderEndpoint(
       val provider = when {
         requested != null -> providers[requested]
           ?: return@get call.respondRedirect(
-            fail(OAuth2Error.INVALID_REQUEST.setDescription("unknown login provider: $requested")),
+            fail(OAuth2Error.INVALID_REQUEST.setDescription(callerText("unknown login provider: $requested"))),
           )
 
         providers.isEmpty() ->
@@ -297,6 +297,12 @@ private fun errorRedirect(redirectUri: String, error: ErrorObject, state: String
     state?.let { State(it) },
     ResponseMode.QUERY,
   ).toURI().toString()
+
+/**
+ * A description that quotes the caller. The SDK refuses anything outside RFC 6749 §5.2's character
+ * set with an exception, which would turn a refusal into a 500 after the redirect was proven.
+ */
+private fun callerText(description: String): String = ErrorObject.removeIllegalChars(description)
 
 /** Ktor's multimap in the shape the SDK parses. */
 private fun Parameters.toSdkParameters(): Map<String, List<String>> =

@@ -231,7 +231,12 @@ class OAuthFlowIntegrationTest {
       },
     )
     assertEquals(HttpStatusCode.OK, tokenResp.status)
+    assertUncacheableJson(tokenResp)
     val tokenJson = mapper.readTree(tokenResp.bodyAsText())
+    // Nothing was asked for, so nothing was granted — and RFC 6749 §3.3 has no empty scope to name.
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), tokenJson.fieldNames().asSequence().toSet())
+    assertEquals("Bearer", tokenJson["token_type"].asText())
+    assertEquals(TokenIssuer.USER_TOKEN_TTL_SECONDS, tokenJson["expires_in"].asLong())
     val accessToken = tokenJson["access_token"].asText()
     val refresh1 = tokenJson["refresh_token"].asText()
     assertEquals(WEB_ID, SignedJWT.parse(accessToken).jwtClaimsSet.subject)
@@ -244,19 +249,20 @@ class OAuthFlowIntegrationTest {
 
     // 6. A refresh with the wrong client_id is rejected (bound to the issuing client).
     val wrongClient = refresh(client, refresh1, "dyn:someone-else")
-    assertEquals(HttpStatusCode.BadRequest, wrongClient.status)
-    assertEquals("invalid_grant", mapper.readTree(wrongClient.bodyAsText())["error"].asText())
+    assertTokenRefusal(wrongClient, "invalid_grant", "client_id does not match the refresh token")
 
     // 7. Refresh rotation with the correct client_id → new tokens.
     val refreshResp = refresh(client, refresh1, clientId)
     assertEquals(HttpStatusCode.OK, refreshResp.status)
-    val refresh2 = mapper.readTree(refreshResp.bodyAsText())["refresh_token"].asText()
+    assertUncacheableJson(refreshResp)
+    val refreshJson = mapper.readTree(refreshResp.bodyAsText())
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), refreshJson.fieldNames().asSequence().toSet())
+    val refresh2 = refreshJson["refresh_token"].asText()
     assertTrue(refresh2 != refresh1, "rotation must mint a new refresh token")
 
     // 8. Reuse detection: replaying the now-rotated refresh1 fails.
     val reuseResp = refresh(client, refresh1, clientId)
-    assertEquals(HttpStatusCode.BadRequest, reuseResp.status)
-    assertEquals("invalid_grant", mapper.readTree(reuseResp.bodyAsText())["error"].asText())
+    assertTokenRefusal(reuseResp, "invalid_grant", "refresh token reuse detected")
 
     // 9. The audit trail recorded the rotation (7) and the reuse-triggered family revocation (8).
     val audit = auditLogDao.listFor(WEB_ID, PodKey.DEFAULT_PROFILE)
@@ -528,8 +534,7 @@ class OAuthFlowIntegrationTest {
         append("client_id", clientId); append("code_verifier", codeVerifier)
       },
     )
-    assertEquals(HttpStatusCode.BadRequest, resp.status)
-    assertEquals("invalid_grant", mapper.readTree(resp.bodyAsText())["error"].asText())
+    assertTokenRefusal(resp, "invalid_grant", "code was issued for a different profile")
   }
 
   @Test
@@ -576,8 +581,7 @@ class OAuthFlowIntegrationTest {
         append("code_verifier", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstwabc")
       },
     )
-    assertEquals(HttpStatusCode.BadRequest, resp.status)
-    assertEquals("invalid_grant", mapper.readTree(resp.bodyAsText())["error"].asText())
+    assertTokenRefusal(resp, "invalid_grant", "PKCE verification failed")
   }
 
   @Test
@@ -614,8 +618,7 @@ class OAuthFlowIntegrationTest {
       },
     )
     // The same answer a mismatch gets, deliberately: telling the two apart would be an oracle.
-    assertEquals(HttpStatusCode.BadRequest, resp.status)
-    assertEquals("invalid_grant", mapper.readTree(resp.bodyAsText())["error"].asText())
+    assertTokenRefusal(resp, "invalid_grant", "PKCE verification failed")
   }
 
   @Test
@@ -1000,6 +1003,95 @@ class OAuthFlowIntegrationTest {
     assertNotNull(Url(allowed.headers[HttpHeaders.Location]!!).parameters["code"], "confirmed foreign consent must mint a code")
   }
 
+  @Test
+  fun `a granted scope is named in the token answer and its refresh`() = testApplication {
+    installAuth()
+    val client = createClient { followRedirects = false }
+    val clientId = register(client)
+    val code = authorizationCode(client, clientId, scope = "pods:read pods:write")
+
+    val tokens = exchange(client, clientId, code)
+    assertEquals(HttpStatusCode.OK, tokens.status)
+    assertUncacheableJson(tokens)
+    val json = mapper.readTree(tokens.bodyAsText())
+    assertEquals(setOf("pods:read", "pods:write"), json["scope"].asText().split(" ").toSet())
+
+    val refreshed = refresh(client, json["refresh_token"].asText(), clientId)
+    assertEquals(HttpStatusCode.OK, refreshed.status)
+    assertUncacheableJson(refreshed)
+    assertEquals(setOf("pods:read", "pods:write"), mapper.readTree(refreshed.bodyAsText())["scope"].asText().split(" ").toSet())
+  }
+
+  @Test
+  fun `every token refusal is uncacheable and carries a well-formed description`() = testApplication {
+    installAuth()
+    val client = createClient { followRedirects = false }
+
+    // Caller text reaches the description only through RFC 6749 §5.2's character set, which drops
+    // `"` and `\`.
+    val unsupported = client.submitForm(url = "/token", formParameters = parameters { append("grant_type", "pass\"word\\") })
+    assertTokenRefusal(unsupported, "unsupported_grant_type", "grant_type='password'")
+
+    val incomplete = client.submitForm(url = "/token", formParameters = parameters { append("grant_type", "authorization_code") })
+    assertTokenRefusal(incomplete, "invalid_request", "code, redirect_uri, client_id required")
+
+    val unknownCode = exchange(client, "dyn:nobody", "no-such-code")
+    assertTokenRefusal(unknownCode, "invalid_grant", "unknown or expired code")
+
+    val noRefreshToken = client.submitForm(url = "/token", formParameters = parameters { append("grant_type", "refresh_token") })
+    assertTokenRefusal(noRefreshToken, "invalid_request", "refresh_token required")
+
+    val unknownRefresh = refresh(client, "no-such-token", "dyn:nobody")
+    assertTokenRefusal(unknownRefresh, "invalid_grant", "refresh token ${RefreshTokenStore.LookupState.NOT_FOUND}")
+  }
+
+  /** RFC 6749 §5.1/§5.2: JSON, and never cached — the refusals included. */
+  private fun assertUncacheableJson(resp: HttpResponse) {
+    assertEquals(ContentType.Application.Json, resp.contentType()?.withoutParameters())
+    assertEquals("no-store", resp.headers[HttpHeaders.CacheControl])
+    assertEquals("no-cache", resp.headers[HttpHeaders.Pragma])
+  }
+
+  /** A §5.2 refusal: 400, uncacheable, and exactly the two members this endpoint states. */
+  private suspend fun assertTokenRefusal(resp: HttpResponse, error: String, description: String) {
+    assertEquals(HttpStatusCode.BadRequest, resp.status)
+    assertUncacheableJson(resp)
+    val json = mapper.readTree(resp.bodyAsText())
+    assertEquals(setOf("error", "error_description"), json.fieldNames().asSequence().toSet())
+    assertEquals(error, json["error"].asText())
+    assertEquals(description, json["error_description"].asText())
+  }
+
+  private suspend fun register(client: HttpClient): String = mapper.readTree(
+    client.post("/register") {
+      contentType(ContentType.Application.Json)
+      setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
+    }.bodyAsText(),
+  )["client_id"].asText()
+
+  /** Drives authorize → id-server → consent and returns the code the client receives. */
+  private suspend fun authorizationCode(client: HttpClient, clientId: String, scope: String? = null): String {
+    val (loginState, nonceCookie) = client.startAuthorize(clientId, scope = scope)
+    val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
+    val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
+    return Url(
+      client.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
+        .headers[HttpHeaders.Location]!!,
+    ).parameters["code"]!!
+  }
+
+  private suspend fun exchange(client: HttpClient, clientId: String, code: String): HttpResponse =
+    client.submitForm(
+      url = "/token",
+      formParameters = parameters {
+        append("grant_type", "authorization_code")
+        append("code", code)
+        append("redirect_uri", REDIRECT)
+        append("client_id", clientId)
+        append("code_verifier", codeVerifier)
+      },
+    )
+
   private suspend fun refresh(client: io.ktor.client.HttpClient, refreshToken: String, clientId: String): HttpResponse =
     client.submitForm(
       url = "/token",
@@ -1030,11 +1122,17 @@ class OAuthFlowIntegrationTest {
    *
    * @return the flow's `state` (also the key it is stored under) and the login-CSRF cookie pair.
    */
-  private suspend fun HttpClient.startAuthorize(clientId: String, profile: String = "", state: String = "s"): Pair<String, String> {
+  private suspend fun HttpClient.startAuthorize(
+    clientId: String,
+    profile: String = "",
+    state: String = "s",
+    scope: String? = null,
+  ): Pair<String, String> {
     val prefix = if (profile.isEmpty()) "" else "/$profile"
     val resp = get(
       "$prefix/authorize?response_type=code&client_id=$clientId&redirect_uri=${enc(REDIRECT)}" +
-        "&code_challenge=$codeChallenge&code_challenge_method=S256&state=$state",
+        "&code_challenge=$codeChallenge&code_challenge_method=S256&state=$state" +
+        (scope?.let { "&scope=${enc(it)}" } ?: ""),
     )
     val authorizationRequest = Url(resp.headers[HttpHeaders.Location]!!)
     idServer.expect(webId = WEB_ID, nonce = authorizationRequest.parameters["nonce"]!!)

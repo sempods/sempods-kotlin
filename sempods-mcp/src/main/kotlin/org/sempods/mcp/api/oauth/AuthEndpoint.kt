@@ -12,9 +12,16 @@ import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
 import org.sempods.auth.core.DynamicClientFingerprint
 import org.sempods.mcp.oauth.LoginStateStore
+import com.nimbusds.oauth2.sdk.AccessTokenResponse
 import com.nimbusds.oauth2.sdk.AuthorizationCode
 import com.nimbusds.oauth2.sdk.AuthorizationSuccessResponse
+import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.ResponseMode
+import com.nimbusds.oauth2.sdk.Scope
+import com.nimbusds.oauth2.sdk.TokenErrorResponse
+import com.nimbusds.oauth2.sdk.token.BearerAccessToken
+import com.nimbusds.oauth2.sdk.token.RefreshToken
+import com.nimbusds.oauth2.sdk.token.Tokens
 import com.nimbusds.oauth2.sdk.client.RegistrationError
 import com.nimbusds.oauth2.sdk.id.State
 import org.sempods.auth.core.ClientRedirectPolicy
@@ -38,6 +45,7 @@ import org.sempods.mcp.persist.oauth.DcrClient
 import org.sempods.mcp.persist.oauth.DcrClientDao
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -523,9 +531,9 @@ fun Application.authEndpoint(
     suspend fun doToken(call: ApplicationCall, pathProfile: String) {
       val form = call.receiveParameters()
       when (val grantType = form["grant_type"]) {
-        "authorization_code" -> handleAuthorizationCode(call, form, pathProfile, authorizationCodeStore, refreshTokenStore, tokenIssuer, objectMapper)
-        "refresh_token" -> handleRefreshToken(call, form, pathProfile, refreshTokenStore, tokenIssuer, objectMapper, auditLog)
-        else -> call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.UNSUPPORTED_GRANT_TYPE, "grant_type='$grantType'"))
+        "authorization_code" -> handleAuthorizationCode(call, form, pathProfile, authorizationCodeStore, refreshTokenStore, tokenIssuer)
+        "refresh_token" -> handleRefreshToken(call, form, pathProfile, refreshTokenStore, tokenIssuer, auditLog)
+        else -> call.respondTokenError(OAuthErrorCode.UNSUPPORTED_GRANT_TYPE, "grant_type='$grantType'")
       }
     }
     post("/token") { doToken(call, PodKey.DEFAULT_PROFILE) }
@@ -542,25 +550,24 @@ private suspend fun handleAuthorizationCode(
   authorizationCodeStore: AuthorizationCodeStore,
   refreshTokenStore: McpRefreshTokenStore,
   tokenIssuer: TokenIssuer,
-  objectMapper: ObjectMapper,
 ) {
   val code = form["code"]
   val redirectUri = form["redirect_uri"]
   val clientId = form["client_id"]
   val codeVerifier = form["code_verifier"]
   if (code == null || redirectUri == null || clientId == null) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_REQUEST, "code, redirect_uri, client_id required"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_REQUEST, "code, redirect_uri, client_id required")
   }
   val entry = authorizationCodeStore.consume(code)
-    ?: return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "unknown or expired code"))
+    ?: return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "unknown or expired code")
   if (entry.clientId != clientId || entry.redirectUri != redirectUri) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "code does not match client/redirect_uri"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "code does not match client/redirect_uri")
   }
   // A code issued for one profile may only be redeemed at that profile's token endpoint (each
   // profile is its own AS issuer). The code is already consumed above, so a mismatched attempt
   // also burns the code — a cross-profile redemption cannot be retried against the right endpoint.
   if (entry.realm != pathProfile) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "code was issued for a different profile"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "code was issued for a different profile")
   }
   // PKCE: the code was issued with an S256 challenge; require a matching verifier. Bound to a
   // local because the store is in another module, and Kotlin will not smart-cast a public property
@@ -569,12 +576,12 @@ private suspend fun handleAuthorizationCode(
   if (issuedChallenge.isNullOrBlank() || codeVerifier.isNullOrBlank() ||
     !Pkce.verifyS256(codeVerifier, issuedChallenge)
   ) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "PKCE verification failed"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "PKCE verification failed")
   }
 
   val accessToken = tokenIssuer.issueAccessToken(entry.subject, entry.realm, entry.clientId, entry.scopes)
   val refresh = refreshTokenStore.issueNewFamily(entry.subject, entry.realm, entry.clientId, entry.scopes)
-  call.respondJson(HttpStatusCode.OK, objectMapper, tokenResponse(accessToken, refresh.plaintext, entry.scopes))
+  call.respondTokens(accessToken, refresh.plaintext, entry.scopes)
 }
 
 private suspend fun handleRefreshToken(
@@ -583,11 +590,10 @@ private suspend fun handleRefreshToken(
   pathProfile: String,
   refreshTokenStore: McpRefreshTokenStore,
   tokenIssuer: TokenIssuer,
-  objectMapper: ObjectMapper,
   auditLog: AuditLog,
 ) {
   val presented = form["refresh_token"]
-    ?: return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_REQUEST, "refresh_token required"))
+    ?: return call.respondTokenError(OAuthErrorCode.INVALID_REQUEST, "refresh_token required")
   val lookup = refreshTokenStore.lookup(presented)
   when (lookup.state) {
     RefreshTokenStore.LookupState.ACTIVE -> { /* proceed */ }
@@ -597,51 +603,73 @@ private suspend fun handleRefreshToken(
         refreshTokenStore.revokeFamily(it.familyId)
         auditLog.serviceTokenFamilyRevoked(it.owner.user, it.owner.profile, it.owner.clientId, detail = "refresh_reuse")
       }
-      return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected"))
+      return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
     }
-    else -> return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "refresh token ${lookup.state}"))
+    else -> return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "refresh token ${lookup.state}")
   }
   val token = lookup.token!!
   // The refresh token is bound to a client; require the presented client_id to match before
   // rotating, so a leaked token alone cannot be exchanged for a fresh access token.
   val clientId = form["client_id"]
   if (clientId.isNullOrBlank() || clientId != token.owner.clientId) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "client_id does not match the refresh token"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "client_id does not match the refresh token")
   }
   // A refresh token belongs to its profile's AS; refuse redemption at another profile's endpoint.
   // Checked before rotation so a wrong-endpoint attempt does not consume/revoke a valid token.
   if (token.owner.profile != pathProfile) {
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "refresh token was issued for a different profile"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "refresh token was issued for a different profile")
   }
   // Atomically rotate; a concurrent rotation means treat as reuse.
   if (!refreshTokenStore.markRotated(token.tokenHash)) {
     refreshTokenStore.revokeFamily(token.familyId)
     auditLog.serviceTokenFamilyRevoked(token.owner.user, token.owner.profile, token.owner.clientId, detail = "refresh_reuse")
-    return call.respondJson(HttpStatusCode.BadRequest, objectMapper, oauthError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected"))
+    return call.respondTokenError(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
   }
   val accessToken = tokenIssuer.issueAccessToken(token.owner.user, token.owner.profile, token.owner.clientId, token.scopes)
   val successor = refreshTokenStore.issueInFamily(token, token.scopes)
   auditLog.serviceTokenRotated(token.owner.user, token.owner.profile, token.owner.clientId)
-  call.respondJson(HttpStatusCode.OK, objectMapper, tokenResponse(accessToken, successor.plaintext, token.scopes))
+  call.respondTokens(accessToken, successor.plaintext, token.scopes)
 }
 
 // --- helpers ---
 
-private fun tokenResponse(accessToken: String, refreshToken: String, scopes: Set<String>) =
-  linkedMapOf<String, Any?>(
-    "access_token" to accessToken,
-    "token_type" to "Bearer",
-    "expires_in" to TokenIssuer.USER_TOKEN_TTL_SECONDS,
-    "refresh_token" to refreshToken,
-    "scope" to scopes.joinToString(" "),
+/**
+ * A successful token response (RFC 6749 §5.1), built by nimbus so the member names and types follow
+ * the specification.
+ *
+ * An empty [scopes] leaves the `scope` member out: §3.3's grammar is one `scope-token` followed by
+ * more, so `""` is not a scope a response may name, and §5.1 makes the member optional.
+ */
+private suspend fun ApplicationCall.respondTokens(accessToken: String, refreshToken: String, scopes: Set<String>) {
+  val scope = scopes.takeIf { it.isNotEmpty() }?.let { Scope(*it.toTypedArray()) }
+  val response = AccessTokenResponse(
+    Tokens(BearerAccessToken(accessToken, TokenIssuer.USER_TOKEN_TTL_SECONDS, scope), RefreshToken(refreshToken)),
   )
+  respondTokenEndpoint(HttpStatusCode.OK, response.toJSONObject().toJSONString())
+}
 
 /**
  * RFC 6749 §5.2's error document, for the token endpoint's failures — which are always rendered
  * directly, never redirected, so they need no [org.sempods.auth.core.Redirectable].
+ *
+ * [description] may carry caller text, so it passes §5.2's character-set filter first: a `"` or a
+ * `\` has no place in `error_description`.
  */
-private fun oauthError(code: OAuthErrorCode, description: String) =
-  linkedMapOf<String, Any?>("error" to code.code, "error_description" to description)
+private suspend fun ApplicationCall.respondTokenError(code: OAuthErrorCode, description: String) {
+  val error = ErrorObject(code.code, ErrorObject.removeIllegalChars(description))
+  respondTokenEndpoint(HttpStatusCode.BadRequest, TokenErrorResponse(error).toJSONObject().toJSONString())
+}
+
+/**
+ * Every token-endpoint answer carries `Cache-Control: no-store` and `Pragma: no-cache`, the
+ * refusals included (RFC 6749 §5.1/§5.2). The pod server's `PodTokenResponses` records which client
+ * drops tokens without them.
+ */
+private suspend fun ApplicationCall.respondTokenEndpoint(status: HttpStatusCode, json: String) {
+  response.headers.append(HttpHeaders.CacheControl, "no-store")
+  response.headers.append(HttpHeaders.Pragma, "no-cache")
+  respondText(json, ContentType.Application.Json, status)
+}
 
 private suspend fun ApplicationCall.respondJson(status: HttpStatusCode, objectMapper: ObjectMapper, body: Any) =
   respondText(objectMapper.writeValueAsString(body), ContentType.Application.Json, status)
