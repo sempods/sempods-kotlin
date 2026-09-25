@@ -13,11 +13,11 @@ import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.ContextPermissionEntry
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
-import org.sempods.pods.grants.EffectiveContextPermissions
 import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
@@ -47,8 +47,8 @@ import java.net.URI
  * [org.sempods.api.pod.resources.PodContextWriteAuthorizer.isCoveredByManageScope] — or for a bearer
  * carrying the owner's approved [CONTEXTS_MANAGE_SCOPE], which reaches every context
  * (`SPS-CTX-019`). A bearer whose subject owns the pod is otherwise an application like any other.
- * The catalogue reports that authority as `manage` alone on every registered context
- * ([PodContextPermissionResolver.describeRegistryAuthority]).
+ * The catalogue shows the [CONTEXTS_MANAGE_SCOPE] bearer every registered context as `manage` alone
+ * ([holdsRegistryAuthority]).
  *
  * **The registry answers RDF.** `GET` at the catalogue and at a context IRI produce canonical
  * JSON-LD by default and N-Quads on request (`SPS-CTX-031`), a successful `PUT` answers the created
@@ -167,6 +167,8 @@ class PodContextsEndpoint @Inject constructor(
     @Context httpHeaders: HttpHeaders,
   ): Response {
     val credentials = authenticate(pod)
+    // Before the lookup: a withdrawn authority answers the same for a context that exists and one that does not.
+    val registryAuthority = holdsRegistryAuthority(pod, credentials)
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
@@ -174,7 +176,13 @@ class PodContextsEndpoint @Inject constructor(
     val dbo = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
       ?: throw unknownContext()
 
-    val effective = effectivePermissions(credentials = credentials, podBaseUrl = podBaseUrl, registered = listOf(dbo.contextUri))
+    val effective = contextPermissionResolver.describeEffectivePermissions(
+      effectiveScopes = credentials.oauthScopes,
+      rawScopes = credentials.oauthRawScopes,
+      visibleContexts = credentials.restrictedContexts.orEmpty(),
+      podBaseUrl = podBaseUrl,
+      registryContexts = if (registryAuthority) listOf(dbo.contextUri) else emptyList(),
+    )
     val entry = effective.byContext[dbo.contextUri]
       ?: throw unknownContext()
 
@@ -197,7 +205,17 @@ class PodContextsEndpoint @Inject constructor(
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
 
     val rows = podContextsDao.fetchByPod(podId)
-    val effective = effectivePermissions(credentials = credentials, podBaseUrl = podBaseUrl, registered = rows.map { it.contextUri })
+    // Effective context permissions are resolved server-side per request from durable grants
+    // through the shared resolver — the same logic MCP `list_contexts` uses — so REST and MCP
+    // cannot drift.
+    val effective = contextPermissionResolver.describeEffectivePermissions(
+      effectiveScopes = credentials.oauthScopes,
+      rawScopes = credentials.oauthRawScopes,
+      visibleContexts = credentials.restrictedContexts.orEmpty(),
+      podBaseUrl = podBaseUrl,
+      registryContexts = if (holdsRegistryAuthority(pod, credentials)) rows.map { it.contextUri } else emptyList(),
+    )
+
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
@@ -230,33 +248,24 @@ class PodContextsEndpoint @Inject constructor(
   }
 
   /**
-   * What [credentials] may do with each context in [registered], for the catalogue and for a
-   * description. Resolved per request; MCP `list_contexts` reads this route, so the two cannot drift.
+   * Whether [credentials] hold the owner's [CONTEXTS_MANAGE_SCOPE] authority, so the catalogue
+   * reports every registered context to them as `manage` and nothing more.
    *
-   * | Caller | View |
-   * |---|---|
-   * | A bearer whose [CONTEXTS_MANAGE_SCOPE] authority stands ([PodOwnerAuthority]) | every context in [registered], `manage` alone ([PodContextPermissionResolver.describeRegistryAuthority]) |
-   * | Every other caller, a withdrawn authority included | its grants and public read ([PodContextPermissionResolver.describeEffectivePermissions]) |
-   *
-   * A privileged bearer resolves no grant, so a withdrawn authority lists nothing.
+   * Checked as `PUT` checks it, so the scope alone reports nothing. An authority withdrawn by a
+   * disconnect is `401 invalid_token` here too. One whose person no longer owns the pod is `false`,
+   * which is all that bearer holds.
    */
-  private fun effectivePermissions(
-    credentials: SempodsCredentials,
-    podBaseUrl: String,
-    registered: List<String>,
-  ): EffectiveContextPermissions {
-    if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
-      val check = ownerAuthority.check(fetchPodOrThrow(credentials.pod.name).hosted, credentials, CONTEXTS_MANAGE_SCOPE)
-      if (check is PodOwnerAuthorityCheck.Standing) {
-        return contextPermissionResolver.describeRegistryAuthority(registered)
-      }
+  private fun holdsRegistryAuthority(pod: String, credentials: SempodsCredentials): Boolean {
+    if (CONTEXTS_MANAGE_SCOPE !in credentials.oauthScopes) return false
+    return when (val check = ownerAuthority.check(fetchPodOrThrow(pod).hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
+      is PodOwnerAuthorityCheck.Standing -> true
+      is PodOwnerAuthorityCheck.Refused ->
+        if (check.reason == PodOwnerAuthorityRefusal.NOT_OWNER) {
+          false
+        } else {
+          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
+        }
     }
-    return contextPermissionResolver.describeEffectivePermissions(
-      effectiveScopes = credentials.oauthScopes,
-      rawScopes = credentials.oauthRawScopes,
-      visibleContexts = credentials.restrictedContexts.orEmpty(),
-      podBaseUrl = podBaseUrl,
-    )
   }
 
   /**

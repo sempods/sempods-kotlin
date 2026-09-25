@@ -115,18 +115,23 @@ class PodContextPermissionResolverTest {
     assertTrue(result == scopes)
   }
 
-  // --- describeRegistryAuthority ----------------------------------------------------------
+  // --- describeEffectivePermissions ------------------------------------------------------
 
   @Test
-  fun `the owner's registry authority is manage alone on every context it is given, and writes nowhere`() {
-    val view = resolver.describeRegistryAuthority(listOf(ctx("tasks"), ctx("notes")))
+  fun `the owner's registry authority is reported as manage alone`() {
+    val effective = resolver.describeEffectivePermissions(
+      effectiveScopes = emptySet(),
+      rawScopes = emptySet(),
+      visibleContexts = emptySet(),
+      podBaseUrl = podBaseUrl,
+      registryContexts = listOf(ctx("notes"), ctx("diary")),
+    )
 
-    assertEquals(listOf(ctx("notes"), ctx("tasks")), view.byContext.keys.toList())
-    view.byContext.values.forEach { entry ->
-      assertEquals(listOf("manage"), entry.permissions)
-      assertEquals(ContextPermissionSource.OWNER, entry.source)
+    assertEquals(listOf(ctx("diary"), ctx("notes")), effective.byContext.keys.toList())
+    effective.byContext.values.forEach {
+      assertEquals(listOf("manage"), it.permissions, "no read or write is implied: ${it.contextUri}")
+      assertEquals(ContextPermissionSource.OWNER, it.source)
     }
-    assertEquals(emptyList(), view.writableContexts)
-    verify(exactly = 0) { contextsDao.fetchByPod(any()) }
+    assertEquals(emptyList(), effective.writableContexts)
   }
 }
