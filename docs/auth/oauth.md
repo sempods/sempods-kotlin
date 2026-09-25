@@ -725,7 +725,7 @@ Without it, a bearer is an app, whatever its `sub` names. It creates and deletes
 | no bearer | `401` |
 | `contexts:manage` after the app was disconnected | `401 invalid_token` |
 
-It reaches no data: its bearer lists no context in the catalogue.
+It reads no data and lists no context in the catalogue, but deleting a context deletes what it holds.
 
 ## Registration rate limit
 
