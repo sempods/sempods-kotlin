@@ -10,8 +10,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
- * [request] with this mechanism applied for [attempt]; refused when it changed more than headers
- * ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a token may be.
+ * [request] with this mechanism applied for [attempt]; refused when it changed the target, the method
+ * or the body ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a
+ * token may be.
  */
 @Throws(IOException::class)
 @JvmSynthetic
@@ -20,7 +21,7 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
   apply(builder, attempt)
   val authenticated = builder.build()
   val changed = listOfNotNull(
-    "target".takeIf { authenticated.url != request.url },
+    "target".takeIf { authenticated.url != request.url || authenticated.headers("Host") != request.headers("Host") },
     "method".takeIf { authenticated.method != request.method },
     "body".takeIf { authenticated.body !== request.body },
   )
@@ -28,7 +29,7 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
     val described = request.url.newBuilder().query(null).fragment(null).build()
     throw SempodsClientException(
       "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} $described'. " +
-        "A mechanism may set headers and nothing else.",
+        "A mechanism may set headers other than Host, and nothing else.",
     )
   }
   return authenticated
@@ -56,16 +57,19 @@ fun interface SempodsCredentialSupplier {
  * How a session authenticates its requests — replaceable and decoratable without touching an
  * endpoint, a private internal or a central registration list.
  *
- * **Applied per attempt, on the request that is about to go out.** [apply] receives the builder, so
- * a header it sets replaces a same-named header the caller put on the request, and it is recomputed
- * for every attempt — which is the seam a later proof-of-possession mechanism needs, where the
- * header is bound to the request and to a nonce the server just supplied. [observe] is where that
- * nonce arrives, and [recover] where a refusal is claimed.
+ * **Applied to every request the client writes, as it is written.** The client's last network
+ * interceptor calls [apply] for each attempt — a resend, an authentication retry, and a repeat OkHttp
+ * makes on its own — on the request every interceptor before it produced. OkHttp has picked the
+ * connection by then, and it waits while a supplier fetches. [apply] receives the builder, so a header
+ * it sets replaces a same-named header the caller put on the request. That is the seam a
+ * proof-of-possession mechanism needs, where the header is bound to the method, the URL and a nonce
+ * the server just supplied. [observe] is where that nonce arrives, and [recover] where a refusal is
+ * claimed.
  *
- * **Headers, and nothing else.** A mechanism that changed the URL would carry the session's
- * credential to another authority, and one that changed the method or the body would send a request
- * the caller never built. The client's session interceptor compares all three after [apply] and
- * refuses the call.
+ * **Headers other than `Host`, and nothing else.** A mechanism that changed the URL or `Host`, which
+ * OkHttp sends in place of the URL's authority, would carry the session's credential to another
+ * server, and one that changed the method or the body would send a request the caller never built.
+ * The client compares all of them after [apply] and refuses the call.
  *
  * **Composition.** [andThen] applies the two in declaration order and tells both about every
  * answer; one whose [observe] fails does not keep the other from being told, and the first failure
@@ -89,8 +93,8 @@ fun interface SempodsRequestAuth {
   fun apply(request: Request.Builder, attempt: SempodsAuthAttempt)
 
   /**
-   * Told about [facts], the answer to [attempt] — every answer, a 2xx included, before the caller
-   * sees it.
+   * Told about [facts], the answer to [attempt] — every answer, a 2xx included, and one OkHttp
+   * answers by repeating the request, such as a `503` with `Retry-After: 0`.
    *
    * **This is where a mechanism keeps what the server just said**, such as a `DPoP-Nonce` to send
    * next time. It runs whether or not another attempt is possible, so a body that can be written
@@ -98,11 +102,6 @@ fun interface SempodsRequestAuth {
    *
    * **A failure fails the call**, after closing the answer. The core logs nothing, so a mechanism
    * whose bookkeeping may fail without consequence catches its own.
-   *
-   * One call per attempt. What OkHttp does below the session's interceptor is not seen: a `421`
-   * repeated over a coalesced HTTP/2 connection, and a redirect followed by a consumer who turned
-   * `followRedirects` back on after `SempodsOkHttp.install`
-   * ([#160](https://github.com/sempods/sempods-kotlin/issues/160)).
    */
   @Throws(IOException::class)
   fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) = Unit

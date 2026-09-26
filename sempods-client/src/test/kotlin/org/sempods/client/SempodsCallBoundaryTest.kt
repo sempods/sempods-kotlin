@@ -50,8 +50,8 @@ class SempodsCallBoundaryTest : MockPodTest() {
 
   @Test
   fun `an interceptor after the session's that moves the request takes no credential along`() {
-    // A consumer's interceptor on the builder runs after the session's: it sees the pod's URL and the
-    // credential, and may point the request anywhere. The network interceptor sees where it points.
+    // A consumer's interceptor on the builder runs after the session's: it sees the pod's URL and may
+    // point the request anywhere. The network interceptor sees where it points before a credential goes on.
     val elsewhere = listOf("$origin/bob/stolen", "http://127.0.0.1:${server.port}/alice/x")
     elsewhere.forEach { target ->
       val moving = Interceptor { chain -> chain.proceed(chain.request().newBuilder().url(target).build()) }
@@ -130,10 +130,10 @@ class SempodsCallBoundaryTest : MockPodTest() {
 
     sempodsClient().closing { client ->
       val byCaller = alice().newRequest("GET", "x").header("Host", "bob.example").build()
-      listOf(byCaller, byAuthentication.newRequest("GET", "x").build()).forEach { renamed ->
-        val refused = assertThrows<SempodsClientException> { client.newCall(renamed).execute().close() }
-        assertTrue(refused.message!!.contains("does not name this session's pod"), refused.message)
-      }
+      val refused = assertThrows<SempodsClientException> { client.newCall(byCaller).execute().close() }
+      assertTrue(refused.message!!.contains("does not name this session's pod"), refused.message)
+      val renamed = assertThrows<SempodsClientException> { client.newCall(byAuthentication.newRequest("GET", "x").build()).execute().close() }
+      assertTrue(renamed.message!!.contains("Authentication changed the target"), renamed.message)
       assertEquals(0, server.retrieveRecordedRequests(request()).size)
 
       val own = alice().newRequest("GET", "x").header("Host", "LOCALHOST:${server.port}").build()

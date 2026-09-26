@@ -12,13 +12,11 @@ import javax.net.ssl.SSLException
 /**
  * Whether an attempt that lost its connection may be sent once more.
  *
- * OkHttp would decide this on its own, below the session's interceptor, and repeat the attempt with
- * the headers it already carried — harmless for a fixed bearer, wrong for a header bound to one
- * attempt, and a duplicate write for a POST. [SempodsOkHttp] switches that off for a session's call,
- * so the case it covered is covered here: a pooled connection
- * the server has already closed. The next request on it fails with `Connection reset` before the
- * server reads a byte, and without a second attempt every idle timeout on the far side would reach a
- * caller as a failed request.
+ * OkHttp would decide this on its own, below the session's interceptor, and repeat a POST as readily
+ * as a GET. [SempodsOkHttp] switches that off for a session's call, so the case it covered is covered
+ * here: a pooled connection the server has already closed. The next request on it fails with
+ * `Connection reset` before the server reads a byte, and without a second attempt every idle timeout
+ * on the far side would reach a caller as a failed request.
  *
  * **Idempotent methods, and requests marked [SempodsRepeatable]**, because RFC 9110 §9.2.2 allows an
  * automatic repeat for those alone: a client cannot tell a connection lost before the server read
@@ -34,13 +32,14 @@ internal object ConnectionResend {
 
   private val IDEMPOTENT_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE")
 
-  fun allowed(failure: IOException, pass: NetworkPass, repeatable: Boolean): Boolean {
+  /** [pass] is the one the failed attempt started, or null when it started none. */
+  fun allowed(failure: IOException, pass: NetworkPass?, repeatable: Boolean): Boolean {
     // An answer came back, so the failure is something above the wire — an interceptor after the
     // session's, which may have failed on an operation the server has already carried out.
-    if (pass.answered) return false
-    // The request never reached the last network interceptor, or an interceptor below the session
-    // rebuilt it without its tags. Either way what went out is unknown, and unknown is not eligible.
-    val request = pass.written ?: return false
+    if (pass?.answer != null) return false
+    // The request never reached the last network interceptor, or its credential could not be applied.
+    // Either way nothing went out, and nothing lost is not a lost connection.
+    val request = pass?.written ?: return false
     if (request.method !in IDEMPOTENT_METHODS && !repeatable) return false
     if (request.body?.isOneShot() == true) return false
     return when (failure) {
@@ -59,18 +58,17 @@ internal object ConnectionResend {
 }
 
 /**
- * What the last network interceptor saw of one attempt: the request as it was written, and whether
- * an answer came back.
+ * One request a call wrote, as the last network interceptor saw it: authenticated as attempt
+ * [number], the request as it was written, and the answer, once one came back.
  *
- * One per `Chain.proceed` of [SempodsOkHttp]'s session interceptor, carried down as a tag on the
- * request so no thread-local is needed, and filled in by the last network interceptor — the only
- * place that sees what actually goes on the wire.
+ * Kept on the call's record of its passes, which the session's interceptor reads after each
+ * `Chain.proceed`: a failure carries no request, so this is how it learns what went out.
  */
-internal class NetworkPass {
+internal class NetworkPass(val number: Int) {
 
   @Volatile
   var written: Request? = null
 
   @Volatile
-  var answered: Boolean = false
+  var answer: SempodsResponseFacts? = null
 }

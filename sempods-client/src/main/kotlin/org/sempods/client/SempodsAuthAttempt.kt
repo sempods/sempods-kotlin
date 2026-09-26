@@ -10,7 +10,10 @@ import okhttp3.Call
  * The work lasts until the method that received it returns.
  */
 class SempodsAuthAttempt private constructor(
-  /** `1` for a call's first attempt. A resend or an authentication retry counts one more. */
+  /**
+   * `1` for the first request a call writes. Every further one counts one more: a resend, an
+   * authentication retry, and a repeat OkHttp makes on its own.
+   */
   val number: Int,
   /**
    * The call being authenticated. Its deadline cancels it, so a mechanism that waits stops once

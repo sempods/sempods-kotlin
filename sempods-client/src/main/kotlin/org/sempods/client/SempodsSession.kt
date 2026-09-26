@@ -137,9 +137,6 @@ class SempodsSession @JvmOverloads constructor(
     }
   }
 
-  @JvmSynthetic
-  internal fun authenticated(request: Request, attempt: SempodsAuthAttempt): Request = auth.authenticate(request, attempt)
-
   private companion object {
 
     val BODILESS_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE")

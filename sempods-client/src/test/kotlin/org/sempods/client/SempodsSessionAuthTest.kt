@@ -4,6 +4,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -260,6 +261,46 @@ class SempodsSessionAuthTest : MockPodTest() {
   }
 
   @Test
+  fun `a request-bound header is computed from the request as it is written`() {
+    // A proof covers the method and the URL that go out, and an interceptor on the builder may still
+    // change them after the session built the request.
+    val applied = CopyOnWriteArrayList<String>()
+    val bound = SempodsRequestAuth { request, _ ->
+      val sent = request.build()
+      applied += "${sent.method} ${sent.url.encodedPath}"
+      request.header("X-Proof", "${sent.method} ${sent.url.encodedPath}")
+    }
+    val versioned = Interceptor { chain ->
+      val request = chain.request()
+      chain.proceed(request.newBuilder().url(request.url.newBuilder().addPathSegment("v2").build()).build())
+    }
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    sempodsClient { addNetworkInterceptor(versioned) }.closing { rewriting ->
+      rewriting.newCall(session("alice", bound).newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
+    }
+
+    assertEquals(listOf("GET /alice/x/v2"), applied)
+    assertEquals("GET /alice/x/v2", server.retrieveRecordedRequests(request()).single().getFirstHeader("X-Proof"))
+  }
+
+  @Test
+  fun `a redirect OkHttp follows within the pod is authenticated and observed for itself`() {
+    // A consumer may turn redirects back on after `install`. OkHttp then writes the redirect's request
+    // below the session's interceptor, and it passes the last network interceptor like any other.
+    val numbered = Numbered("X-Proof")
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(307).withHeader("Location", "$origin/alice/y"))
+    server.`when`(request().withPath("/alice/y")).respond(response().withStatusCode(200))
+
+    SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build().closing { following ->
+      following.newCall(session("alice", numbered).newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
+    }
+
+    assertEquals(listOf(307, 200), numbered.told)
+    assertEquals("2", server.retrieveRecordedRequests(request().withPath("/alice/y")).single().getFirstHeader("X-Proof"))
+  }
+
+  @Test
   fun `a concurrent refusal mints one credential between the callers`() {
     // Coalescing: the lock is the credential's, so concurrent callers that were all refused make
     // one acquisition. Without it each of them mints, and a rotating issuer invalidates the others.
@@ -367,20 +408,27 @@ class SempodsSessionAuthTest : MockPodTest() {
     val release = CountDownLatch(1)
     val a = session("alice", refreshable { _ -> acquiring.countDown(); release.await(5, TimeUnit.SECONDS); "t" })
     server.`when`(request()).respond(response().withStatusCode(200))
+    // The waiter is interrupted once it has connected, so the next thing it waits for is the
+    // credential. An interrupt while OkHttp connects is OkHttp's to answer.
+    val connected = CountDownLatch(2)
+    val connecting = sempodsClient { addNetworkInterceptor { chain -> connected.countDown(); chain.proceed(chain.request()) } }
 
     val pool = Executors.newSingleThreadExecutor()
-    try {
-      pool.submit { a.text("x") }
-      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
-      val outcome = CompletableFuture<Throwable?>()
-      val waiter = Thread { outcome.complete(runCatching { a.text("x") }.exceptionOrNull()) }
-      waiter.start()
-      waiter.interrupt()
-      val failure = outcome.get(5, TimeUnit.SECONDS)
-      assertTrue(failure is InterruptedIOException, "was $failure")
-    } finally {
-      release.countDown()
-      pool.shutdownNow()
+    connecting.closing { client ->
+      try {
+        pool.submit { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+        assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+        val outcome = CompletableFuture<Throwable?>()
+        val waiter = Thread { outcome.complete(runCatching { client.newCall(a.newRequest("GET", "x").build()).execute().close() }.exceptionOrNull()) }
+        waiter.start()
+        assertTrue(connected.await(5, TimeUnit.SECONDS))
+        waiter.interrupt()
+        val failure = outcome.get(5, TimeUnit.SECONDS)
+        assertTrue(failure is InterruptedIOException, "was $failure")
+      } finally {
+        release.countDown()
+        pool.shutdownNow()
+      }
     }
   }
 
