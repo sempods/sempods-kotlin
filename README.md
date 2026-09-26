@@ -150,10 +150,9 @@ and writing resources.
 
 Configuration is documented where it is used; the variables that matter for a first run are
 `SEMPODS_HTTP_PORT`, `SEMPODS_PUBLIC_BASE_URL` (the address the server is *known by* — pod IRIs
-are minted from it), and `MONGODB_URL`. The natural-language layer has **no off switch**:
-`AI_PROVIDER` defaults to `ollama`, so the AI routes are mounted in every deployment. Without a
-token they answer `401`, never `404` — which is how you can tell they are there — and with one they
-answer `500 ai_provider_error` until a provider is reachable. Everything else runs without one.
+are minted from it), and `MONGODB_URL`. The natural-language layer is disabled by default.
+Set `AI_PROVIDER=ollama` or `AI_PROVIDER=openai` to enable it; `disabled`, unset or blank leaves
+its routes unregistered. See [AI providers](docs/ai-layer.md#providers-ist) for runtime settings.
 
 ## Using it as a library
 

@@ -7,7 +7,6 @@ import org.sempods.commons.guice.BaseModule
 import org.sempods.commons.tests.TestUtil
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
-import org.sempods.ai.AiServiceTestObserver
 import org.sempods.auth.core.HttpTransport
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
@@ -27,7 +26,6 @@ data class SempodsTestModule(
     // `TestUtil.initializeAwaitilityDefaults`.
     TestUtil.initializeAwaitilityDefaults()
 
-    AiServiceTestObserver.bindTestProxy(binder())
     bind<SempodsTestFactory>().asSingleton()
 
     // How the suite seeds pod state: an HTTP client against this JVM's own server, see

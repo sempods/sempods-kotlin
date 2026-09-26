@@ -221,10 +221,7 @@ class SempodsModule : BaseModule() {
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()
     bind<PodServiceAuditLogDao>().asSingleton()
-    bind<AiSemShaclGuidanceDeriver>().asSingleton()
-    bind<SempodsPromptBuilderFactory>().asSingleton()
     bind<SempodsUpdater>().asSingleton(eager = true)
-    bind<AiSemFacade>().asSingleton()
 
     // Graph-retrieval `find`. New search engines (vector, OpenSearch, …) subscribe by
     // contributing a FindAdapter to this set binder — no change to the endpoint or FindService.
@@ -263,7 +260,6 @@ class SempodsModule : BaseModule() {
       PodOAuthMetadataEndpoint::class.java,
       RootOAuthMetadataEndpoint::class.java,
       McpEndpoint::class.java,
-      PodAiSemWebEndpoint::class.java,
       SparqlEndpoint::class.java,
       FindEndpoint::class.java,
       PodMetaEndpoint::class.java,
@@ -463,13 +459,18 @@ class SempodsModule : BaseModule() {
       ?.trim()
       ?.lowercase()
       ?.takeIf { it.isNotEmpty() }
-      ?: "ollama"
+      ?: "disabled"
 
     when (provider) {
+      "disabled" -> return
       "ollama" -> bindOllamaAiService()
       "openai" -> bindOpenAiService()
-      else -> throw IllegalStateException("unsupported AI_PROVIDER '$provider' (supported: ollama, openai)")
+      else -> throw IllegalStateException("unsupported AI_PROVIDER '$provider' (supported: disabled, ollama, openai)")
     }
+    bind<AiSemShaclGuidanceDeriver>().asSingleton()
+    bind<SempodsPromptBuilderFactory>().asSingleton()
+    bind<AiSemFacade>().asSingleton()
+    bindEndpoints(PodAiSemWebEndpoint::class.java)
   }
 
   private fun bindOllamaAiService() {
@@ -477,7 +478,7 @@ class SempodsModule : BaseModule() {
     val ollamaModel = Env.get("OLLAMA_MODEL")
       ?.trim()
       ?.takeIf { it.isNotEmpty() }
-      ?: "qwen2.5:7b"
+      ?: "qwen3.5:4b"
 
     bind(String::class.java)
       .annotatedWith(Names.named(OllamaAiConfig.OLLAMA_BASE_URL))
