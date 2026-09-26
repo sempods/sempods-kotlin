@@ -160,17 +160,17 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       throw SempodsClientException("A session's request cannot upgrade the connection: '${bound.url}'.")
     }
     // The resend after a lost connection and the follow-up to a 401 are the session's own.
-    return attempts(chain.withRetryOnConnectionFailure(false).withAuthenticator(Authenticator.NONE), session, bound)
+    val passes = CallPasses.of(chain.call(), admission, session::confine, session.auth)
+    val quiet = chain.withRetryOnConnectionFailure(false).withAuthenticator(Authenticator.NONE)
+    return attempts(quiet, passes, bound, SempodsRepeatable.isMarked(chain.call()), recovers = true)
   }
 
   /**
-   * A [SempodsForeignTarget] call, as that class describes it. `retryOnConnectionFailure` is off because
-   * OkHttp would also repeat a `408` under it, so the one resend a `GET` keeps after a lost connection is
-   * made here ([ConnectionResend]). A client that follows redirects is refused: OkHttp would follow a
+   * A [SempodsForeignTarget] call, as that class describes it: a session's call without the pod and
+   * without recovery, since a foreign target's refusal is its answer. `retryOnConnectionFailure` is off
+   * because OkHttp would also repeat a `408` under it, so the one resend a `GET` keeps after a lost
+   * connection is made in [attempts]. A client that follows redirects is refused: OkHttp would follow a
    * redirect without the rules [SempodsForeignTarget.followingRedirects] keeps.
-   *
-   * The call's mechanism is applied and told about each answer in [FinalTarget], and never asked to
-   * recover: a foreign target's refusal is its answer.
    */
   private fun foreignCall(chain: Interceptor.Chain, foreign: ForeignCall, request: Request): Response {
     if (chain.followRedirects) {
@@ -179,35 +179,20 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
           "call's credential with it. SempodsForeignTarget.followingRedirects follows them one vetted call at a time.",
       )
     }
-    val call = chain.call()
+    val passes = CallPasses.of(chain.call(), admission, foreign::confine, foreign.auth ?: SempodsRequestAuth.anonymous())
     val quiet = chain
       .withAuthenticator(Authenticator.NONE)
       .withCookieJar(CookieJar.NO_COOKIES)
       .withRetryOnConnectionFailure(false)
-    val passes = CallPasses.of(call, admission, foreign)
-    val slot = Slot(gate(call), call)
-    slot.take()
-    val response = try {
-      val before = passes.last
-      try {
-        quiet.proceed(request)
-      } catch (failure: IOException) {
-        if (call.isCanceled() || !ConnectionResend.allowed(failure, passes.since(before), repeatable = false)) throw failure
-        quiet.proceed(request)
-      }
-    } catch (failure: Throwable) {
-      slot.give()
-      throw failure
-    }
-    return slot.holdUntilClosed(response)
+    return attempts(quiet, passes, request, repeatable = false, recovers = false)
   }
 
   /**
-   * The session's own repeats, each at most once and neither while the body cannot be sent again: a
-   * resend after a lost connection, for an idempotent method or a request marked [SempodsRepeatable]
-   * (RFC 9110 §9.2.2) — which is how a pooled connection the server has closed fails — and an
-   * authentication retry, after a refusal the session's [SempodsRequestAuth] expects another attempt
-   * to change.
+   * The call's own repeats, each at most once and neither while the body cannot be sent again: a
+   * resend after a lost connection, for an idempotent method or a [repeatable] request (RFC 9110
+   * §9.2.2) — which is how a pooled connection the server has closed fails — and, where the call
+   * [recovers], an authentication retry after a refusal its [SempodsRequestAuth] expects another
+   * attempt to change.
    *
    * Both are decided on the [NetworkPass] that went out: the request the last network interceptor
    * wrote, and the answer, if one came back. So an interceptor below this one that changes the method
@@ -219,9 +204,14 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    *
    * The call's admission slot is held as [SempodsAdmission] describes.
    */
-  private fun attempts(chain: Interceptor.Chain, session: SempodsSession, request: Request): Response {
+  private fun attempts(
+    chain: Interceptor.Chain,
+    passes: CallPasses,
+    request: Request,
+    repeatable: Boolean,
+    recovers: Boolean,
+  ): Response {
     val call = chain.call()
-    val passes = CallPasses.of(call, admission, SessionCredential(session))
     val slot = Slot(gate(call), call)
     var resent = false
     var answered: NetworkPass? = null
@@ -231,7 +221,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       return try {
         chain.proceed(request).also { answered = passes.since(before) }
       } catch (failure: IOException) {
-        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, passes.since(before), SempodsRepeatable.isMarked(call))) {
+        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, passes.since(before), repeatable)) {
           throw failure
         }
         resent = true
@@ -248,11 +238,11 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed back
       // as it is, and OkHttp closes it and fails the call.
       val oneShot = pass?.written?.body?.isOneShot() == true
-      if (first.isSuccessful || pass == null || refused == null || oneShot || call.isCanceled()) {
+      if (!recovers || first.isSuccessful || pass == null || refused == null || oneShot || call.isCanceled()) {
         return slot.holdUntilClosed(first)
       }
       val retry = try {
-        passes.authenticating(pass.number) { session.auth.recover(refused, it) }
+        passes.recover(pass, refused)
       } catch (failure: Throwable) {
         first.close()
         throw failure
@@ -273,34 +263,15 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     if (admission != null && call.tag(SempodsAuthAttempt::class.java)?.lends(admission) == true) null else admission
 }
 
-/**
- * What the last network interceptor does to every request of a call that carries a credential, or
- * may: hold it to its target, authenticate it, and show the mechanism the answer.
- */
-internal interface CallCredential {
-
-  /** Throws when [request] may not go where it points under this credential. */
-  fun confine(request: Request)
-
-  /** [request] with the credential applied as [attempt]. */
-  fun authenticate(request: Request, attempt: SempodsAuthAttempt): Request
-
-  /** Shows [facts], the answer to [attempt], to the mechanism. */
-  fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt)
-}
-
-/** A session's call: held to its pod, with the session's [SempodsRequestAuth]. */
-private class SessionCredential(private val session: SempodsSession) : CallCredential {
-
-  override fun confine(request: Request) = session.confine(request)
-
-  override fun authenticate(request: Request, attempt: SempodsAuthAttempt) = session.authenticated(request, attempt)
-
-  override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) = session.auth.observe(facts, attempt)
+/** Throws when [request] may not go where it points under a call's credential. */
+private fun interface Confinement {
+  @Throws(IOException::class)
+  fun check(request: Request)
 }
 
 /**
- * The requests one call writes, numbered in order, and the credential work for each.
+ * The requests one call writes, numbered in order, and the credential work for each: [confinement]
+ * holds a request to its target, and [auth] authenticates it and is shown its answer.
  *
  * The session's interceptor puts it on the call, and [FinalTarget] writes every request through it —
  * the one place each passes, a repeat OkHttp makes below the session's interceptor included. Kept as
@@ -310,7 +281,8 @@ private class SessionCredential(private val session: SempodsSession) : CallCrede
 private class CallPasses private constructor(
   private val call: Call,
   private val admission: AdmissionGate?,
-  private val credential: CallCredential,
+  private val confinement: Confinement,
+  private val auth: SempodsRequestAuth,
 ) {
 
   /** The pass started most recently, or null before the first. */
@@ -318,32 +290,27 @@ private class CallPasses private constructor(
   var last: NetworkPass? = null
     private set
 
-  /** Passes started. A call writes one request at a time. */
-  private var started = 0
-
   /** The pass started since [before] was the last one, or null when none was. */
   fun since(before: NetworkPass?): NetworkPass? = last?.takeUnless { it === before }
 
   /**
-   * [chain]'s request, written as the call's next pass: confined before any credential work and again
-   * after it, since a mechanism may set `Host`; authenticated; and its answer shown to the mechanism,
-   * whose failure closes the answer.
+   * [chain]'s request, written as the call's next pass: confined before any credential work,
+   * authenticated, and its answer shown to [auth], whose failure closes the answer.
    */
   fun write(chain: Interceptor.Chain): Response {
     if (call.isCanceled()) throw IOException("Canceled")
     val request = chain.request()
-    credential.confine(request)
-    val pass = NetworkPass(++started)
+    confinement.check(request)
+    val pass = NetworkPass((last?.number ?: 0) + 1)
     last = pass
-    val sent = authenticating(pass.number) { credential.authenticate(request, it) }
-    credential.confine(sent)
+    val sent = authenticating(pass.number) { auth.authenticate(request, it) }
     pass.written = sent
     val response = chain.proceed(sent)
     // The network's answer, whose request is the one written: a mechanism finds its credential there.
     val facts = SempodsResponseFacts.of(response)
     pass.answer = facts
     try {
-      authenticating(pass.number) { credential.observe(facts, it) }
+      authenticating(pass.number) { auth.observe(facts, it) }
     } catch (failure: Throwable) {
       response.close()
       throw failure
@@ -351,8 +318,12 @@ private class CallPasses private constructor(
     return response
   }
 
+  /** Whether [auth] expects another attempt to answer [refused], the answer to [pass], differently. */
+  fun recover(pass: NetworkPass, refused: SempodsResponseFacts): Boolean =
+    authenticating(pass.number) { auth.recover(refused, it) }
+
   /** Runs [work] as attempt [number], and ends the attempt when [work] returns. */
-  fun <T> authenticating(number: Int, work: (SempodsAuthAttempt) -> T): T {
+  private fun <T> authenticating(number: Int, work: (SempodsAuthAttempt) -> T): T {
     val attempt = SempodsAuthAttempt.of(number, call, admission)
     try {
       return work(attempt)
@@ -364,8 +335,8 @@ private class CallPasses private constructor(
   companion object {
 
     /** [call]'s record, put on it the first time. */
-    fun of(call: Call, admission: AdmissionGate?, credential: CallCredential): CallPasses =
-      call.tag(CallPasses::class.java) { CallPasses(call, admission, credential) }
+    fun of(call: Call, admission: AdmissionGate?, confinement: Confinement, auth: SempodsRequestAuth): CallPasses =
+      call.tag(CallPasses::class.java) { CallPasses(call, admission, confinement, auth) }
   }
 }
 

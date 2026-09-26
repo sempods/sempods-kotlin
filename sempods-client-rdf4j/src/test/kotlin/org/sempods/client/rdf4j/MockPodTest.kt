@@ -47,15 +47,14 @@ internal fun sempodsClient(
 /** A request as OkHttp wrote it: MockServer decodes the query, and may re-read a body it records. */
 internal class Sent(val method: String, val url: HttpUrl, val headers: Headers, val body: ByteArray?)
 
-/** A client that records every request it writes in [sent]. */
-internal fun recordingClient(sent: MutableList<Sent>): OkHttpClient = sempodsClient {
-  addNetworkInterceptor { chain ->
+/** A client that records every request it writes in [sent], below the sempods interceptors, credential included. */
+internal fun recordingClient(sent: MutableList<Sent>): OkHttpClient = sempodsClient().newBuilder()
+  .addNetworkInterceptor { chain ->
     val request = chain.request()
-    val bytes = request.body?.let { Buffer().also(it::writeTo).readByteArray() }
-    // The headers of the request the answer came to: the credential goes on below this interceptor.
-    chain.proceed(request).also { sent += Sent(request.method, request.url, it.request.headers, bytes) }
+    sent += Sent(request.method, request.url, request.headers, request.body?.let { Buffer().also(it::writeTo).readByteArray() })
+    chain.proceed(request)
   }
-}
+  .build()
 
 /** OkHttp's own shutdown: the dispatcher's threads and the pooled connections. */
 internal fun OkHttpClient.shutDown() {

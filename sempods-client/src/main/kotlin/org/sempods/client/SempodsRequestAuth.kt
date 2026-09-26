@@ -10,8 +10,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /**
- * [request] with this mechanism applied for [attempt]; refused when it changed more than headers
- * ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a token may be.
+ * [request] with this mechanism applied for [attempt]; refused when it changed the target, the method
+ * or the body ([SempodsRequestAuth] says why). The refusal names the URL without its query, where a
+ * token may be.
  */
 @Throws(IOException::class)
 @JvmSynthetic
@@ -20,7 +21,7 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
   apply(builder, attempt)
   val authenticated = builder.build()
   val changed = listOfNotNull(
-    "target".takeIf { authenticated.url != request.url },
+    "target".takeIf { authenticated.url != request.url || authenticated.headers("Host") != request.headers("Host") },
     "method".takeIf { authenticated.method != request.method },
     "body".takeIf { authenticated.body !== request.body },
   )
@@ -28,7 +29,7 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
     val described = request.url.newBuilder().query(null).fragment(null).build()
     throw SempodsClientException(
       "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} $described'. " +
-        "A mechanism may set headers and nothing else.",
+        "A mechanism may set headers other than Host, and nothing else.",
     )
   }
   return authenticated
@@ -65,10 +66,10 @@ fun interface SempodsCredentialSupplier {
  * the server just supplied. [observe] is where that nonce arrives, and [recover] where a refusal is
  * claimed.
  *
- * **Headers, and nothing else.** A mechanism that changed the URL would carry the session's
- * credential to another authority, and one that changed the method or the body would send a request
- * the caller never built. The client compares all three after [apply] and refuses the
- * call.
+ * **Headers other than `Host`, and nothing else.** A mechanism that changed the URL or `Host`, which
+ * OkHttp sends in place of the URL's authority, would carry the session's credential to another
+ * server, and one that changed the method or the body would send a request the caller never built.
+ * The client compares all of them after [apply] and refuses the call.
  *
  * **Composition.** [andThen] applies the two in declaration order and tells both about every
  * answer; one whose [observe] fails does not keep the other from being told, and the first failure

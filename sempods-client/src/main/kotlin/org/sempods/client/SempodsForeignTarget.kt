@@ -216,14 +216,14 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
  * What a [SempodsForeignTarget] call tells the client's interceptors: the URL it was built for, and its
  * mechanism, null for [SempodsRequestAuth.anonymous].
  */
-internal class ForeignCall(private val named: HttpUrl, private val auth: SempodsRequestAuth?) : CallCredential {
+internal class ForeignCall(private val named: HttpUrl, val auth: SempodsRequestAuth?) {
 
   /**
    * Throws when this call carries a credential and [request], about to be written, names another origin
    * than the one the caller named: by its URL, or by a `Host` header, which OkHttp sends in place of the
    * URL's.
    */
-  override fun confine(request: Request) {
+  fun confine(request: Request) {
     if (auth == null) return
     val target = request.url
     if (!sameOrigin(target, named)) throw movedAway(target)
@@ -233,17 +233,6 @@ internal class ForeignCall(private val named: HttpUrl, private val auth: Sempods
         "'Host: ${hosts.first()}' does not name the origin this call's credential was applied for.",
       )
     }
-  }
-
-  /** [request] with this call's credential, applied as [attempt]. */
-  @Throws(IOException::class)
-  override fun authenticate(request: Request, attempt: SempodsAuthAttempt): Request =
-    auth?.authenticate(request, attempt) ?: request
-
-  /** Shows [attempt]'s answer to this call's mechanism, where it carries one. */
-  @Throws(IOException::class)
-  override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
-    auth?.observe(facts, attempt)
   }
 
   private fun movedAway(target: HttpUrl) = SempodsClientException(

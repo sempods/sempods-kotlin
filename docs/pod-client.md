@@ -128,7 +128,7 @@ Four decisions shape everything above it. Each lives in one class, whose KDoc ca
   against [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
   and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020);
   every call is confined before the first attempt and again on the request about to be written; and
-  authentication may set headers only.
+  authentication may set headers only, `Host` excepted.
 - **A session's request needs the policy to go out** (`SempodsSession`). It carries the placeholder
   host `sempods-session.invalid` until the client's interceptor binds it to the pod, so a plain
   `OkHttpClient` cannot resolve it and never sends it anonymously.

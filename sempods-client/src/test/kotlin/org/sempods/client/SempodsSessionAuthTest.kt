@@ -288,16 +288,7 @@ class SempodsSessionAuthTest : MockPodTest() {
   fun `a redirect OkHttp follows within the pod is authenticated and observed for itself`() {
     // A consumer may turn redirects back on after `install`. OkHttp then writes the redirect's request
     // below the session's interceptor, and it passes the last network interceptor like any other.
-    val told = CopyOnWriteArrayList<Int>()
-    val numbered = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
-        request.header("X-Proof", "${attempt.number}")
-      }
-
-      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
-        told += facts.status
-      }
-    }
+    val numbered = Numbered("X-Proof")
     server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(307).withHeader("Location", "$origin/alice/y"))
     server.`when`(request().withPath("/alice/y")).respond(response().withStatusCode(200))
 
@@ -305,7 +296,7 @@ class SempodsSessionAuthTest : MockPodTest() {
       following.newCall(session("alice", numbered).newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
     }
 
-    assertEquals(listOf(307, 200), told)
+    assertEquals(listOf(307, 200), numbered.told)
     assertEquals("2", server.retrieveRecordedRequests(request().withPath("/alice/y")).single().getFirstHeader("X-Proof"))
   }
 
@@ -417,27 +408,27 @@ class SempodsSessionAuthTest : MockPodTest() {
     val release = CountDownLatch(1)
     val a = session("alice", refreshable { _ -> acquiring.countDown(); release.await(5, TimeUnit.SECONDS); "t" })
     server.`when`(request()).respond(response().withStatusCode(200))
+    // The waiter is interrupted once it has connected, so the next thing it waits for is the
+    // credential. An interrupt while OkHttp connects is OkHttp's to answer.
+    val connected = CountDownLatch(2)
+    val connecting = sempodsClient { addNetworkInterceptor { chain -> connected.countDown(); chain.proceed(chain.request()) } }
 
     val pool = Executors.newSingleThreadExecutor()
-    try {
-      pool.submit { a.text("x") }
-      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
-      val outcome = CompletableFuture<Throwable?>()
-      val waiter = Thread { outcome.complete(runCatching { a.text("x") }.exceptionOrNull()) }
-      waiter.start()
-      // Interrupted once it waits for the credential. It connects first, and an interrupt there is
-      // OkHttp's to answer.
-      val waiting = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-      while (waiter.stackTrace.none { it.methodName == "awaitLock" }) {
-        check(System.nanoTime() < waiting) { "the second call never waited for the credential" }
-        Thread.sleep(5)
+    connecting.closing { client ->
+      try {
+        pool.submit { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+        assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+        val outcome = CompletableFuture<Throwable?>()
+        val waiter = Thread { outcome.complete(runCatching { client.newCall(a.newRequest("GET", "x").build()).execute().close() }.exceptionOrNull()) }
+        waiter.start()
+        assertTrue(connected.await(5, TimeUnit.SECONDS))
+        waiter.interrupt()
+        val failure = outcome.get(5, TimeUnit.SECONDS)
+        assertTrue(failure is InterruptedIOException, "was $failure")
+      } finally {
+        release.countDown()
+        pool.shutdownNow()
       }
-      waiter.interrupt()
-      val failure = outcome.get(5, TimeUnit.SECONDS)
-      assertTrue(failure is InterruptedIOException, "was $failure")
-    } finally {
-      release.countDown()
-      pool.shutdownNow()
     }
   }
 

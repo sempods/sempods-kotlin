@@ -25,14 +25,15 @@ class SempodsPodContextsContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
-    addNetworkInterceptor { chain ->
+  // Below the sempods interceptors, where the request is written with its credential.
+  private val client = sempodsClient().newBuilder()
+    .addNetworkInterceptor { chain ->
       val request = chain.request()
       val bytes = request.body?.let { Buffer().also(it::writeTo).readByteArray() }
-      // The headers of the request the answer came to: the credential goes on below this interceptor.
-      chain.proceed(request).also { sent += Sent(request.method, request.url, it.request.headers, bytes) }
+      sent += Sent(request.method, request.url, request.headers, bytes)
+      chain.proceed(request)
     }
-  }
+    .build()
 
   @AfterAll
   fun stopClient() {

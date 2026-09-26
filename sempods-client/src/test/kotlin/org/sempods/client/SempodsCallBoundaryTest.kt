@@ -130,10 +130,10 @@ class SempodsCallBoundaryTest : MockPodTest() {
 
     sempodsClient().closing { client ->
       val byCaller = alice().newRequest("GET", "x").header("Host", "bob.example").build()
-      listOf(byCaller, byAuthentication.newRequest("GET", "x").build()).forEach { renamed ->
-        val refused = assertThrows<SempodsClientException> { client.newCall(renamed).execute().close() }
-        assertTrue(refused.message!!.contains("does not name this session's pod"), refused.message)
-      }
+      val refused = assertThrows<SempodsClientException> { client.newCall(byCaller).execute().close() }
+      assertTrue(refused.message!!.contains("does not name this session's pod"), refused.message)
+      val renamed = assertThrows<SempodsClientException> { client.newCall(byAuthentication.newRequest("GET", "x").build()).execute().close() }
+      assertTrue(renamed.message!!.contains("Authentication changed the target"), renamed.message)
       assertEquals(0, server.retrieveRecordedRequests(request()).size)
 
       val own = alice().newRequest("GET", "x").header("Host", "LOCALHOST:${server.port}").build()

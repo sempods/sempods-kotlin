@@ -96,14 +96,31 @@ class SempodsConnectionResendTest {
     return true
   }
 
-  private fun answer(socket: Socket) {
-    // No `Connection: close`: the client keeps the connection, and the server drops it anyway.
-    socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".toByteArray())
+  /** Answers [status] with [headers] and a two-byte body. */
+  private fun answer(socket: Socket, status: String = "200 OK", vararg headers: String) {
+    val head = headers.joinToString("") { "$it\r\n" }
+    socket.getOutputStream().write("HTTP/1.1 $status\r\n${head}Content-Length: 2\r\n\r\nok".toByteArray())
     socket.getOutputStream().flush()
   }
 
   private fun answerAndHangUp(socket: Socket) {
+    // No `Connection: close`: the client keeps the connection, and the server drops it anyway.
     socket.use { if (readRequest(it)) answer(it) }
+  }
+
+  /** What [call] reported through its callback: the status of its response, or its failure. */
+  private fun enqueued(call: Call): Any {
+    val reported = CompletableFuture<Any>()
+    call.enqueue(object : Callback {
+      override fun onFailure(call: Call, e: IOException) {
+        reported.complete(e)
+      }
+
+      override fun onResponse(call: Call, response: Response) {
+        response.use { reported.complete(it.code) }
+      }
+    })
+    return reported.get(15, TimeUnit.SECONDS)
   }
 
   private fun session() =
@@ -134,24 +151,16 @@ class SempodsConnectionResendTest {
   fun `a lost connection produces no answer to observe`() {
     // Only an answer is observed. The attempt that died on the dropped connection produced none, so
     // the mechanism is told about the resend's answer and nothing else.
-    val told = CopyOnWriteArrayList<Int>()
-    val watching = object : SempodsRequestAuth {
-      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) =
-        attemptHeader.apply(request, attempt)
-
-      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
-        told += facts.status
-      }
-    }
+    val watching = Numbered("X-Attempt")
     sempodsClient().closing { client ->
       val a = SempodsSession(SempodsPodBase.of("http://127.0.0.1:${server.localPort}/alice"), watching)
       leaveAStaleConnection(client, a)
-      told.clear()
+      watching.told.clear()
 
       client.newCall(a.newRequest("GET", "second").build()).execute().use { assertEquals(200, it.code) }
 
       assertEquals(2, requestHeads.size)
-      assertEquals(listOf(200), told)
+      assertEquals(listOf(200), watching.told)
     }
   }
 
@@ -168,14 +177,7 @@ class SempodsConnectionResendTest {
       throw IOException("the interceptor after the session failed")
     }
     // `Connection: close`, so the second attempt opens a connection of its own and is answered.
-    onConnection = { socket, _ ->
-      socket.use {
-        if (readRequest(it)) {
-          it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".toByteArray())
-          it.getOutputStream().flush()
-        }
-      }
-    }
+    onConnection = { socket, _ -> socket.use { if (readRequest(it)) answer(it, "200 OK", "Connection: close") } }
 
     sempodsClient { addInterceptor(afterTheAnswer) }.closing { client ->
       val a = session()
@@ -240,19 +242,9 @@ class SempodsConnectionResendTest {
     sempodsClient { addInterceptor(posting) }.closing { client ->
       val a = session()
       leaveAStaleConnection(client, a)
-      val reported = CompletableFuture<Any>()
+      val reported = enqueued(client.newCall(a.newRequest("GET", "second").build()))
 
-      client.newCall(a.newRequest("GET", "second").build()).enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-          reported.complete(e)
-        }
-
-        override fun onResponse(call: Call, response: Response) {
-          response.use { reported.complete(it.code) }
-        }
-      })
-
-      assertInstanceOf<IOException>(reported.get(15, TimeUnit.SECONDS), "the enqueued call was resent as a POST")
+      assertInstanceOf<IOException>(reported, "the enqueued call was resent as a POST")
       assertEquals(1, requestHeads.size)
     }
   }
@@ -563,11 +555,8 @@ class SempodsConnectionResendTest {
   private fun answerUnavailableFirst() {
     onConnection = { socket, index ->
       socket.use {
-        if (readRequest(it)) {
-          val status = if (index == 1) "503 Service Unavailable\r\nRetry-After: 0" else "200 OK"
-          it.getOutputStream().write("HTTP/1.1 $status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
-          it.getOutputStream().flush()
-        }
+        if (!readRequest(it)) return@use
+        if (index == 1) answer(it, "503 Service Unavailable", "Retry-After: 0", "Connection: close") else answer(it, "200 OK", "Connection: close")
       }
     }
   }
@@ -591,20 +580,9 @@ class SempodsConnectionResendTest {
   @Test
   fun `enqueue has OkHttp's repeat authenticated the same way`() {
     answerUnavailableFirst()
-    val reported = CompletableFuture<Any>()
 
     sempodsClient().closing { client ->
-      client.newCall(session().newRequest("GET", "x").build()).enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-          reported.complete(e)
-        }
-
-        override fun onResponse(call: Call, response: Response) {
-          response.use { reported.complete(it.code) }
-        }
-      })
-
-      assertEquals(200, reported.get(15, TimeUnit.SECONDS))
+      assertEquals(200, enqueued(client.newCall(session().newRequest("GET", "x").build())))
     }
     assertEquals(2, requestHeads.size)
     assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
@@ -625,15 +603,7 @@ class SempodsConnectionResendTest {
   @Test
   fun `an authentication retry on a dropped pooled connection gets the resend too`() {
     // The refusal arrives on the first connection, which the server then drops; the retry meets it.
-    onConnection = { socket, index ->
-      socket.use {
-        if (readRequest(it)) {
-          val status = if (index == 1) "401 Unauthorized" else "200 OK"
-          it.getOutputStream().write("HTTP/1.1 $status\r\nContent-Length: 0\r\n\r\n".toByteArray())
-          it.getOutputStream().flush()
-        }
-      }
-    }
+    onConnection = { socket, index -> socket.use { if (readRequest(it)) answer(it, if (index == 1) "401 Unauthorized" else "200 OK") } }
     val retrying = object : SempodsRequestAuth {
       override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
         request.header("X-Attempt", "${attempt.number}")
@@ -655,11 +625,8 @@ class SempodsConnectionResendTest {
     // The mechanism fetches through the same client for the resend; a token answer closes its connection.
     onConnection = { socket, _ ->
       socket.use {
-        if (readRequest(it)) {
-          val close = if (requestHeads.last().startsWith("GET /token")) "Connection: close\r\n" else ""
-          it.getOutputStream().write("HTTP/1.1 200 OK\r\n${close}Content-Length: 2\r\n\r\nok".toByteArray())
-          it.getOutputStream().flush()
-        }
+        if (!readRequest(it)) return@use
+        if (requestHeads.last().startsWith("GET /token")) answer(it, "200 OK", "Connection: close") else answer(it)
       }
     }
 
