@@ -50,8 +50,8 @@ class SempodsCallBoundaryTest : MockPodTest() {
 
   @Test
   fun `an interceptor after the session's that moves the request takes no credential along`() {
-    // A consumer's interceptor on the builder runs after the session's: it sees the pod's URL and the
-    // credential, and may point the request anywhere. The network interceptor sees where it points.
+    // A consumer's interceptor on the builder runs after the session's: it sees the pod's URL and may
+    // point the request anywhere. The network interceptor sees where it points before a credential goes on.
     val elsewhere = listOf("$origin/bob/stolen", "http://127.0.0.1:${server.port}/alice/x")
     elsewhere.forEach { target ->
       val moving = Interceptor { chain -> chain.proceed(chain.request().newBuilder().url(target).build()) }

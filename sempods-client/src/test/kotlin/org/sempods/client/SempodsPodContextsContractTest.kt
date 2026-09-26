@@ -29,8 +29,8 @@ class SempodsPodContextsContractTest : MockPodTest() {
     addNetworkInterceptor { chain ->
       val request = chain.request()
       val bytes = request.body?.let { Buffer().also(it::writeTo).readByteArray() }
-      sent += Sent(request.method, request.url, request.headers, bytes)
-      chain.proceed(request)
+      // The headers of the request the answer came to: the credential goes on below this interceptor.
+      chain.proceed(request).also { sent += Sent(request.method, request.url, it.request.headers, bytes) }
     }
   }
 

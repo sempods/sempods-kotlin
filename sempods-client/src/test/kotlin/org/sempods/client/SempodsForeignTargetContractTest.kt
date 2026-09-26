@@ -152,15 +152,25 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a 503 asking to be repeated at once is the answer`() {
+  fun `a 503 asking to be repeated at once is repeated once, with its credential applied again`() {
     server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
-    server.`when`(request()).respond(response().withStatusCode(200).withBody("a second answer nobody asked for"))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("the answer"))
+    val told = CopyOnWriteArrayList<Int>()
+    val numbered = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) {
+        request.header("Authorization", "Bearer t-${attempt.number}")
+      }
 
-    val answered = SempodsForeignTarget(client).getText(card, "text/turtle")
+      override fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
+        told += facts.status
+      }
+    }
 
-    assertEquals(503, answered.status)
-    assertNull(answered.headers["Retry-After"], "taken off so that OkHttp does not act on it, as for a session")
-    assertEquals(1, recorded().size)
+    val answered = SempodsForeignTarget(client).getText(card, "text/turtle", numbered)
+
+    assertEquals("the answer", answered.body)
+    assertEquals(listOf(503, 200), told)
+    assertEquals(listOf("Bearer t-1", "Bearer t-2"), recorded().map { it.getFirstHeader("Authorization") })
   }
 
   @Test
@@ -173,20 +183,15 @@ class SempodsForeignTargetContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a connection lost before any answer is sent once more, with the credential it had`() {
+  fun `a connection lost before any answer is sent once more, with a credential applied for it`() {
     server.`when`(request(), Times.once()).error(HttpError.error().withDropConnection(true))
     server.`when`(request()).respond(response().withStatusCode(200).withBody("the answer"))
-    val applied = AtomicInteger()
-    val counting = SempodsRequestAuth { request, _ ->
-      applied.incrementAndGet()
-      request.header("Authorization", "Bearer t-1")
-    }
+    val numbered = SempodsRequestAuth { request, attempt -> request.header("Authorization", "Bearer t-${attempt.number}") }
 
-    val answered = SempodsForeignTarget(client).getText(card, "text/turtle", counting)
+    val answered = SempodsForeignTarget(client).getText(card, "text/turtle", numbered)
 
     assertEquals("the answer", answered.body)
-    assertEquals(1, applied.get(), "the same request goes out again; its credential is not asked twice")
-    assertEquals("Bearer t-1", recorded().last().getFirstHeader("Authorization"))
+    assertEquals("Bearer t-2", recorded().last().getFirstHeader("Authorization"))
   }
 
   /** An output stream the caller owns, which records whether it was closed. */

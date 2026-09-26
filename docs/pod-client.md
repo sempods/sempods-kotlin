@@ -132,11 +132,12 @@ Four decisions shape everything above it. Each lives in one class, whose KDoc ca
 - **A session's request needs the policy to go out** (`SempodsSession`). It carries the placeholder
   host `sempods-session.invalid` until the client's interceptor binds it to the pod, so a plain
   `OkHttpClient` cannot resolve it and never sends it anonymously.
-- **The attempts belong to one call** (`SempodsOkHttp.install`). Each is authenticated afresh, and
-  the session's `SempodsRequestAuth` is told about every answer, a successful one included. A lost
-  connection earns one resend when the request that went out is idempotent or marked
-  `SempodsRepeatable` ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and
-  a 401 the mechanism claims earns one retry. `callTimeout` and `Call.cancel()` cover them all.
+- **The attempts belong to one call** (`SempodsOkHttp.install`). Every request the call writes is
+  authenticated for itself, a repeat OkHttp makes on its own included, and the session's
+  `SempodsRequestAuth` is told about every answer, a successful one included. A lost connection
+  earns one resend when the request that went out is idempotent or marked `SempodsRepeatable`
+  ([RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), and a 401 the
+  mechanism claims earns one retry. `callTimeout` and `Call.cancel()` cover them all.
 - **Capacity is explicit** (`SempodsAdmission`): active and waiting calls are bounded separately, for
   every running call on the client.
 
@@ -381,9 +382,9 @@ because the tracer goes on the consumer's own client:
   on the same builder. The services' own binding, `TraceparentInterceptor`, is one
   ([`request-tracing.md`](request-tracing.md)); the core reads no ambient trace.
 
-Each attempt is a `Chain.proceed` inside the one call, and OpenTelemetry's span sits in a network
-interceptor, so a retry is a client span of its own, as OpenTelemetry's HTTP semantic conventions
-ask. `:consumer-probe:opentelemetry` checks the first path against the SDK.
+OpenTelemetry's span sits in a network interceptor, so every request a call writes — a retry
+included — is a client span of its own, as OpenTelemetry's HTTP semantic conventions ask.
+`:consumer-probe:opentelemetry` checks the first path against the SDK.
 
 ### Two OkHttp clients in one process, on purpose
 

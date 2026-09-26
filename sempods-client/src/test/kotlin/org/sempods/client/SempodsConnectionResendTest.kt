@@ -5,6 +5,7 @@ import okhttp3.Callback
 import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
@@ -257,9 +258,9 @@ class SempodsConnectionResendTest {
   }
 
   @Test
-  fun `an interceptor that rebuilds the request from scratch loses the resend`() {
-    // The pass travels as a tag. An interceptor below the session that builds a new request rather
-    // than deriving one drops it, and what went out is then unknown — which is not eligible.
+  fun `an interceptor that rebuilds the request from scratch keeps the resend`() {
+    // What went out is recorded on the call, so a request built anew below the session is still
+    // authenticated and still measured.
     val rebuilding = Interceptor { chain ->
       val request = chain.request()
       chain.proceed(Request.Builder().url(request.url).method(request.method, request.body).headers(request.headers).build())
@@ -269,9 +270,10 @@ class SempodsConnectionResendTest {
       val a = session()
       leaveAStaleConnection(client, a)
 
-      assertThrows<IOException> { client.newCall(a.newRequest("GET", "second").build()).execute().close() }
+      client.newCall(a.newRequest("GET", "second").build()).execute().use { assertEquals(200, it.code) }
 
-      assertEquals(1, requestHeads.size)
+      assertEquals(2, requestHeads.size)
+      assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
     }
   }
 
@@ -557,22 +559,67 @@ class SempodsConnectionResendTest {
     }
   }
 
-  @Test
-  fun `a 503 asking for an immediate retry goes out once and reaches the caller`() {
-    // OkHttp repeats a `503` with `Retry-After: 0` by itself, below the session's interceptor.
-    onConnection = { socket, _ ->
+  /** The first connection answers `503` with `Retry-After: 0`, every later one `200`; each is closed after its answer. */
+  private fun answerUnavailableFirst() {
+    onConnection = { socket, index ->
       socket.use {
         if (readRequest(it)) {
-          it.getOutputStream().write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\n\r\n".toByteArray())
+          val status = if (index == 1) "503 Service Unavailable\r\nRetry-After: 0" else "200 OK"
+          it.getOutputStream().write("HTTP/1.1 $status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
           it.getOutputStream().flush()
         }
       }
     }
+  }
+
+  @Test
+  fun `OkHttp's repeat of a 503 carries a credential applied for it`() {
+    // OkHttp repeats a `503` with `Retry-After: 0` by itself, below the session's interceptor. The
+    // repeat passes the last network interceptor like any request, so it is authenticated anew.
+    answerUnavailableFirst()
+
     sempodsClient().closing { client ->
       val post = session().newRequest("POST", "x").post("x".toRequestBody()).build()
-      client.newCall(post).execute().use { assertEquals(503, it.code) }
+      client.newCall(post).execute().use { assertEquals(200, it.code) }
     }
-    assertEquals(1, requestHeads.size, "the POST went out twice")
+
+    assertEquals(2, requestHeads.size)
+    assertTrue(requestHeads[0].startsWith("POST") && requestHeads[0].contains("X-Attempt: 1"), requestHeads[0])
+    assertTrue(requestHeads[1].startsWith("POST") && requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+  }
+
+  @Test
+  fun `enqueue has OkHttp's repeat authenticated the same way`() {
+    answerUnavailableFirst()
+    val reported = CompletableFuture<Any>()
+
+    sempodsClient().closing { client ->
+      client.newCall(session().newRequest("GET", "x").build()).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+          reported.complete(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+          response.use { reported.complete(it.code) }
+        }
+      })
+
+      assertEquals(200, reported.get(15, TimeUnit.SECONDS))
+    }
+    assertEquals(2, requestHeads.size)
+    assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+  }
+
+  @Test
+  fun `a 503 is not repeated for a body that can be written once`() {
+    // OkHttp repeats no body that can be written once, so the `503` is the answer.
+    answerUnavailableFirst()
+
+    sempodsClient().closing { client ->
+      client.newCall(session().newRequest("PUT", "x").put(oneShotBody("x")).build()).execute()
+        .use { assertEquals(503, it.code) }
+    }
+    assertEquals(1, requestHeads.size)
   }
 
   @Test
@@ -641,12 +688,12 @@ class SempodsConnectionResendTest {
       assertThrows<IOException> { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
     }
     assertEquals(1, asked.get())
-    assertEquals(0, connections.get())
+    assertTrue(requestHeads.isEmpty(), "a request went out without its credential")
   }
 
   @Test
   fun `a deadline, a refused connection or a refusal of this library's own is not resent`() {
-    val written = NetworkPass().apply { written = Request.Builder().url("http://127.0.0.1/alice/x").build() }
+    val written = NetworkPass(1).apply { written = Request.Builder().url("http://127.0.0.1/alice/x").build() }
     val notResent = listOf(
       SocketTimeoutException("read timed out"),
       InterruptedIOException("timeout"),
@@ -661,15 +708,16 @@ class SempodsConnectionResendTest {
 
   @Test
   fun `a request the last network interceptor never wrote, and one already answered, are not resent`() {
-    // The two states that are not a lost connection: nothing reached the wire, and something came
-    // back from it. Neither is eligible, whatever the failure looks like.
+    // The states that are not a lost connection: nothing reached the wire, and something came back
+    // from it. None is eligible, whatever the failure looks like.
     val reset = SocketException("Connection reset")
     val get = Request.Builder().url("http://127.0.0.1/alice/x").build()
 
-    assertFalse(ConnectionResend.allowed(reset, NetworkPass(), repeatable = true), "nothing was written")
-    val answered = NetworkPass().apply {
+    assertFalse(ConnectionResend.allowed(reset, null, repeatable = true), "no request reached the last network interceptor")
+    assertFalse(ConnectionResend.allowed(reset, NetworkPass(1), repeatable = true), "nothing was written")
+    val answered = NetworkPass(1).apply {
       written = get
-      answered = true
+      answer = SempodsResponseFacts.of(Response.Builder().request(get).protocol(Protocol.HTTP_1_1).code(200).message("OK").build())
     }
     assertFalse(ConnectionResend.allowed(reset, answered, repeatable = true), "an answer had already come back")
   }

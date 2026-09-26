@@ -51,8 +51,9 @@ internal class Sent(val method: String, val url: HttpUrl, val headers: Headers, 
 internal fun recordingClient(sent: MutableList<Sent>): OkHttpClient = sempodsClient {
   addNetworkInterceptor { chain ->
     val request = chain.request()
-    sent += Sent(request.method, request.url, request.headers, request.body?.let { Buffer().also(it::writeTo).readByteArray() })
-    chain.proceed(request)
+    val bytes = request.body?.let { Buffer().also(it::writeTo).readByteArray() }
+    // The headers of the request the answer came to: the credential goes on below this interceptor.
+    chain.proceed(request).also { sent += Sent(request.method, request.url, it.request.headers, bytes) }
   }
 }
 

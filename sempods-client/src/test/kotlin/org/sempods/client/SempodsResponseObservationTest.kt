@@ -15,6 +15,7 @@ import okhttp3.Response
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockserver.matchers.Times
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -123,6 +124,22 @@ class SempodsResponseObservationTest : MockPodTest() {
     assertEquals("", sent[0].getFirstHeader("DPoP-Nonce"), "the first request had no nonce to send")
     assertEquals("n1", sent[1].getFirstHeader("DPoP-Nonce"))
     assertEquals(listOf(200, 200), nonce.seen)
+  }
+
+  @Test
+  fun `a nonce a 503 carried rides on OkHttp's repeat of it`() {
+    // OkHttp repeats a `503` with `Retry-After: 0` below the session's interceptor. The mechanism is
+    // shown that answer before the repeat goes out, so the repeat carries what it said.
+    val nonce = Nonce()
+    val a = session("alice", nonce)
+    server.`when`(request(), Times.once())
+      .respond(response().withStatusCode(503).withHeader("Retry-After", "0").withHeader("DPoP-Nonce", "n1"))
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("ok"))
+
+    assertEquals(200, a.status("x"))
+
+    assertEquals(listOf(503, 200), nonce.seen)
+    assertEquals(listOf("", "n1"), recorded().map { it.getFirstHeader("DPoP-Nonce") })
   }
 
   @Test
