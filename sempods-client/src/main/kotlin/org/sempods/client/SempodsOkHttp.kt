@@ -251,7 +251,10 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed back
       // as it is, and OkHttp closes it and fails the call.
       val wroteOneShot = pass?.written?.body?.isOneShot() == true
-      if (!recovers || first.isSuccessful || pass == null || refused == null || oneShot || wroteOneShot || call.isCanceled()) {
+      // A refused request OkHttp wrote in the session's place, such as a redirect's `GET`, earns no retry:
+      // the retry would send the session's `POST` again, which the redirect said was carried out.
+      val replaced = pass?.written?.method != request.method
+      if (!recovers || first.isSuccessful || pass == null || refused == null || oneShot || wroteOneShot || replaced || call.isCanceled()) {
         return slot.holdUntilClosed(first)
       }
       val retry = try {

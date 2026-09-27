@@ -254,6 +254,19 @@ class SempodsSessionAuthTest : MockPodTest() {
   }
 
   @Test
+  fun `a refusal after a redirect that changed the method earns no retry`() {
+    // A `303` says the POST was carried out, and the retry would send it again.
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(303).withHeader("Location", "$origin/alice/y"))
+    server.`when`(request().withPath("/alice/y")).respond(response().withStatusCode(401))
+
+    SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build().closing { following ->
+      val post = session("alice", refreshable { _ -> "t" }).newRequest("POST", "x").post("body".toRequestBody()).build()
+      following.newCall(post).execute().use { assertEquals(401, it.code) }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request().withPath("/alice/x")).size)
+  }
+
+  @Test
   fun `a call cancelled while its refusal is recovered sends no retry`() {
     server.`when`(request()).respond(response().withStatusCode(401))
     val passed = AtomicInteger()
