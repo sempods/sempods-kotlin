@@ -36,9 +36,9 @@ import java.io.OutputStream
  *
  * | The server | The caller gets |
  * |---|---|
- * | answers `503` with `Retry-After: 0` | the `503`, without that header |
+ * | answers `503` with `Retry-After: 0` | the answer to OkHttp's one repeat |
  * | drops the connection before any answer | the answer to one resend |
- * | answers `421` over an HTTP/2 connection OkHttp shares with another host | the answer to OkHttp's resend over its own connection ([#160](https://github.com/sempods/sempods-kotlin/issues/160)) |
+ * | answers `421` over an HTTP/2 connection OkHttp shares with another host | the answer to OkHttp's repeat over a connection of its own |
  * | answers `407` over a direct connection, where only a proxy may send one | a `ProtocolException` |
  *
  * **A redirect is the caller's to follow**, unless [followingRedirects] follows it.
@@ -160,7 +160,7 @@ class SempodsForeignTarget private constructor(
     }
   }
 
-  /** The request for one hop; the session interceptor applies its credential ([ForeignCall]). */
+  /** The request for one hop; the client's last network interceptor applies its credential ([ForeignCall]). */
   private fun request(target: HttpUrl, accept: String, credential: SempodsRequestAuth?): Request =
     Request.Builder()
       .url(target)
@@ -216,40 +216,21 @@ private fun sameOrigin(one: HttpUrl, other: HttpUrl): Boolean =
  * What a [SempodsForeignTarget] call tells the client's interceptors: the URL it was built for, and its
  * mechanism, null for [SempodsRequestAuth.anonymous].
  */
-internal class ForeignCall(private val named: HttpUrl, private val auth: SempodsRequestAuth?) {
-
-  @Volatile
-  private var credentialedFor: HttpUrl? = null
-
-  /** [request] with this call's credential, applied as [attempt], the call's first. */
-  @Throws(IOException::class)
-  fun authenticate(request: Request, attempt: SempodsAuthAttempt): Request {
-    val mechanism = auth ?: return request
-    // Checked before the mechanism runs, whatever it will set: an interceptor ahead of this one may have
-    // moved the request already.
-    if (!sameOrigin(request.url, named)) throw movedAway(request.url)
-    credentialedFor = named
-    return mechanism.authenticate(request, attempt)
-  }
-
-  /** Shows [attempt]'s answer to this call's mechanism, where it carries one. */
-  @Throws(IOException::class)
-  fun observe(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt) {
-    auth?.observe(facts, attempt)
-  }
+internal class ForeignCall(private val named: HttpUrl, val auth: SempodsRequestAuth?) {
 
   /**
-   * Throws when [request], about to be written, names another authority than the credential's: by its URL,
-   * or by a `Host` header, which OkHttp sends in place of the URL's.
+   * Throws when this call carries a credential and [request], about to be written, names another origin
+   * than the one the caller named: by its URL, or by a `Host` header, which OkHttp sends in place of the
+   * URL's.
    */
   fun confine(request: Request) {
-    val origin = credentialedFor ?: return
+    if (auth == null) return
     val target = request.url
-    if (!sameOrigin(target, origin)) throw movedAway(target)
-    val named = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
-    if (named.isNotEmpty()) {
+    if (!sameOrigin(target, named)) throw movedAway(target)
+    val hosts = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
+    if (hosts.isNotEmpty()) {
       throw SempodsClientException(
-        "'Host: ${named.first()}' does not name the origin this call's credential was applied for.",
+        "'Host: ${hosts.first()}' does not name the origin this call's credential was applied for.",
       )
     }
   }

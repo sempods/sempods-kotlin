@@ -2,8 +2,10 @@ package org.sempods.client
 
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.nio.file.Files
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -14,15 +16,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.Authenticator
+import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody
 import okhttp3.Response
+import okio.Buffer
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockserver.matchers.Times
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -231,6 +236,90 @@ class SempodsSessionAuthTest : MockPodTest() {
   }
 
   @Test
+  fun `a one-shot body stays one-shot when a network interceptor sends a copy of it`() {
+    // The retry sends the session's request again, and a network interceptor may have written a copy
+    // of its body that can go twice.
+    server.`when`(request()).respond(response().withStatusCode(401))
+    val copying = Interceptor { chain ->
+      val request = chain.request()
+      val bytes = Buffer().also { request.body!!.writeTo(it) }.readByteArray()
+      chain.proceed(request.newBuilder().put(bytes.toRequestBody()).build())
+    }
+
+    sempodsClient { addNetworkInterceptor(copying) }.closing { buffering ->
+      val put = session("alice", refreshable { _ -> "t" }).newRequest("PUT", "x").put(oneShotBody("body")).build()
+      buffering.newCall(put).execute().use { assertEquals(401, it.code) }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
+  fun `a refusal after a redirect that changed the method earns no retry`() {
+    // A `303` says the POST was carried out, and the retry would send it again.
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(303).withHeader("Location", "$origin/alice/y"))
+    server.`when`(request().withPath("/alice/y")).respond(response().withStatusCode(401))
+
+    SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build().closing { following ->
+      val post = session("alice", refreshable { _ -> "t" }).newRequest("POST", "x").post("body".toRequestBody()).build()
+      following.newCall(post).execute().use { assertEquals(401, it.code) }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request().withPath("/alice/x")).size)
+  }
+
+  @Test
+  fun `a call cancelled while its refusal is recovered sends no retry`() {
+    server.`when`(request()).respond(response().withStatusCode(401))
+    val passed = AtomicInteger()
+    val cancelling = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = Unit
+
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+        attempt.call.cancel()
+        return true
+      }
+    }
+
+    sempodsClient { addInterceptor { chain -> passed.incrementAndGet(); chain.proceed(chain.request()) } }.closing { counting ->
+      assertThrows<IOException> { counting.newCall(session("alice", cancelling).newRequest("GET", "x").build()).execute().close() }
+    }
+    assertEquals(1, passed.get(), "the retry went past the interceptors after the session's")
+  }
+
+  @Test
+  fun `a header a mechanism set for one request is not on OkHttp's repeat of it`() {
+    // OkHttp repeats the request as it entered OkHttp's own interceptors, without the credential, so
+    // what the mechanism leaves out the second time is not sent again.
+    server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
+    server.`when`(request()).respond(response().withStatusCode(200))
+    val once = SempodsRequestAuth { request, attempt -> if (attempt.number == 1) request.header("X-Once", "1") }
+
+    assertEquals(200, session("alice", once).text("x").first)
+
+    assertEquals(listOf("1", ""), server.retrieveRecordedRequests(request()).map { it.getFirstHeader("X-Once") })
+  }
+
+  @Test
+  fun `a Cache on the client answers no session's call`() {
+    // The cache sits above the last network interceptor, where the credential goes on: it would hand
+    // one session's answer to another.
+    server.`when`(request()).respond(response().withStatusCode(200).withHeader("Cache-Control", "max-age=60").withBody("mine"))
+    val directory = Files.createTempDirectory("sempods-cache").toFile()
+
+    try {
+      sempodsClient { cache(Cache(directory, 1_000_000)) }.closing { caching ->
+        listOf("t-a", "t-b").forEach { token ->
+          caching.newCall(session("alice", SempodsRequestAuth.bearer(token)).newRequest("GET", "x").build()).execute()
+            .use { assertEquals("mine", it.body.string()) }
+        }
+        caching.cache!!.close()
+      }
+    } finally {
+      directory.deleteRecursively()
+    }
+    assertEquals(2, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
   fun `a request-bound header is regenerated for every attempt`() {
     // The seam a later proof-of-possession mechanism needs: the header is computed from the request
     // and the attempt, so replaying the first attempt's value is structurally impossible.
@@ -257,6 +346,46 @@ class SempodsSessionAuthTest : MockPodTest() {
     assertEquals(listOf("DPoP-ish nonce=\"n1\""), challenges)
     // The challenges are OkHttp's own parse of that header, so a mechanism needs no parser of its own.
     assertEquals(listOf("DPoP-ish"), schemes)
+  }
+
+  @Test
+  fun `a request-bound header is computed from the request as it is written`() {
+    // A proof covers the method and the URL that go out, and an interceptor on the builder may still
+    // change them after the session built the request.
+    val applied = CopyOnWriteArrayList<String>()
+    val bound = SempodsRequestAuth { request, _ ->
+      val sent = request.build()
+      applied += "${sent.method} ${sent.url.encodedPath}"
+      request.header("X-Proof", "${sent.method} ${sent.url.encodedPath}")
+    }
+    val versioned = Interceptor { chain ->
+      val request = chain.request()
+      chain.proceed(request.newBuilder().url(request.url.newBuilder().addPathSegment("v2").build()).build())
+    }
+    server.`when`(request()).respond(response().withStatusCode(200))
+
+    sempodsClient { addNetworkInterceptor(versioned) }.closing { rewriting ->
+      rewriting.newCall(session("alice", bound).newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
+    }
+
+    assertEquals(listOf("GET /alice/x/v2"), applied)
+    assertEquals("GET /alice/x/v2", server.retrieveRecordedRequests(request()).single().getFirstHeader("X-Proof"))
+  }
+
+  @Test
+  fun `a redirect OkHttp follows within the pod is authenticated and observed for itself`() {
+    // A consumer may turn redirects back on after `install`. OkHttp then writes the redirect's request
+    // below the session's interceptor, and it passes the last network interceptor like any other.
+    val numbered = Numbered("X-Proof")
+    server.`when`(request().withPath("/alice/x")).respond(response().withStatusCode(307).withHeader("Location", "$origin/alice/y"))
+    server.`when`(request().withPath("/alice/y")).respond(response().withStatusCode(200))
+
+    SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build().closing { following ->
+      following.newCall(session("alice", numbered).newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
+    }
+
+    assertEquals(listOf(307, 200), numbered.told)
+    assertEquals("2", server.retrieveRecordedRequests(request().withPath("/alice/y")).single().getFirstHeader("X-Proof"))
   }
 
   @Test
@@ -367,20 +496,27 @@ class SempodsSessionAuthTest : MockPodTest() {
     val release = CountDownLatch(1)
     val a = session("alice", refreshable { _ -> acquiring.countDown(); release.await(5, TimeUnit.SECONDS); "t" })
     server.`when`(request()).respond(response().withStatusCode(200))
+    // The waiter is interrupted once it has connected, so the next thing it waits for is the
+    // credential. An interrupt while OkHttp connects is OkHttp's to answer.
+    val connected = CountDownLatch(2)
+    val connecting = sempodsClient { addNetworkInterceptor { chain -> connected.countDown(); chain.proceed(chain.request()) } }
 
     val pool = Executors.newSingleThreadExecutor()
-    try {
-      pool.submit { a.text("x") }
-      assertTrue(acquiring.await(5, TimeUnit.SECONDS))
-      val outcome = CompletableFuture<Throwable?>()
-      val waiter = Thread { outcome.complete(runCatching { a.text("x") }.exceptionOrNull()) }
-      waiter.start()
-      waiter.interrupt()
-      val failure = outcome.get(5, TimeUnit.SECONDS)
-      assertTrue(failure is InterruptedIOException, "was $failure")
-    } finally {
-      release.countDown()
-      pool.shutdownNow()
+    connecting.closing { client ->
+      try {
+        pool.submit { client.newCall(a.newRequest("GET", "x").build()).execute().close() }
+        assertTrue(acquiring.await(5, TimeUnit.SECONDS))
+        val outcome = CompletableFuture<Throwable?>()
+        val waiter = Thread { outcome.complete(runCatching { client.newCall(a.newRequest("GET", "x").build()).execute().close() }.exceptionOrNull()) }
+        waiter.start()
+        assertTrue(connected.await(5, TimeUnit.SECONDS))
+        waiter.interrupt()
+        val failure = outcome.get(5, TimeUnit.SECONDS)
+        assertTrue(failure is InterruptedIOException, "was $failure")
+      } finally {
+        release.countDown()
+        pool.shutdownNow()
+      }
     }
   }
 

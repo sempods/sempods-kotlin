@@ -82,11 +82,12 @@ Two paths, because two HTTP clients are in use:
   covers every call on the shared client `sempods-server` composes, and sits on the builder of every
   client the two services configure with `SempodsOkHttp.install` — the pod-immanent MCP's in
   `SempodsModule`, the pod and issuer clients in `SempodsMcpModule`. On the builder rather than
-  after `install`, so it runs inside the session's attempts and each attempt leaves with a
-  `traceparent` of its own. An *application* interceptor, not a network one: the trace lives in a
-  `ThreadLocal`, and only the application layer is guaranteed to run on the thread that called
-  `execute()`. The core's `SempodsSession` sets no header of its own; the tracer goes on the
-  client it sends with ([`pod-client.md`](pod-client.md) §"Tracing").
+  after `install`, so every request the session sends, its resend and authentication retry included,
+  leaves with a `traceparent` of its own. A repeat OkHttp makes on its own carries the one before it.
+  An *application* interceptor, not a network one: the trace lives in a `ThreadLocal`, and only the
+  application layer is guaranteed to run on the thread that called `execute()`. The core's
+  `SempodsSession` sets no header of its own; the tracer goes on the client it sends with
+  ([`pod-client.md`](pod-client.md) §"Tracing").
 - **Ktor client** — `TraceparentClientPlugin` (`sempods-commons-ktor`), installed on `sempods-auth`'s OIDC
   client, which is its only production installation. It reads the ambient trace from the holder,
   correct inside a call because the server-side interceptor bound a `TraceContextElement` for its
