@@ -138,6 +138,8 @@ class SempodsCallBoundaryTest : MockPodTest() {
 
       val own = alice().newRequest("GET", "x").header("Host", "LOCALHOST:${server.port}").build()
       client.newCall(own).execute().use { assertEquals(200, it.code) }
+      val naming = SempodsSession(SempodsPodBase.of("$origin/alice"), SempodsRequestAuth { request, _ -> request.header("Host", "LOCALHOST:${server.port}") })
+      client.newCall(naming.newRequest("GET", "x").build()).execute().use { assertEquals(200, it.code) }
     }
   }
 

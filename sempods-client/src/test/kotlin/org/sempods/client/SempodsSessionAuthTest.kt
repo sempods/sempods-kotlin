@@ -2,6 +2,7 @@ package org.sempods.client
 
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.nio.file.Files
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
@@ -15,15 +16,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.Authenticator
+import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody
 import okhttp3.Response
+import okio.Buffer
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockserver.matchers.Times
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 
@@ -229,6 +233,77 @@ class SempodsSessionAuthTest : MockPodTest() {
       swapping.newCall(put).execute().use { assertEquals(401, it.code) }
     }
     assertEquals(1, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
+  fun `a one-shot body stays one-shot when a network interceptor sends a copy of it`() {
+    // The retry sends the session's request again, and a network interceptor may have written a copy
+    // of its body that can go twice.
+    server.`when`(request()).respond(response().withStatusCode(401))
+    val copying = Interceptor { chain ->
+      val request = chain.request()
+      val bytes = Buffer().also { request.body!!.writeTo(it) }.readByteArray()
+      chain.proceed(request.newBuilder().put(bytes.toRequestBody()).build())
+    }
+
+    sempodsClient { addNetworkInterceptor(copying) }.closing { buffering ->
+      val put = session("alice", refreshable { _ -> "t" }).newRequest("PUT", "x").put(oneShotBody("body")).build()
+      buffering.newCall(put).execute().use { assertEquals(401, it.code) }
+    }
+    assertEquals(1, server.retrieveRecordedRequests(request()).size)
+  }
+
+  @Test
+  fun `a call cancelled while its refusal is recovered sends no retry`() {
+    server.`when`(request()).respond(response().withStatusCode(401))
+    val passed = AtomicInteger()
+    val cancelling = object : SempodsRequestAuth {
+      override fun apply(request: Request.Builder, attempt: SempodsAuthAttempt) = Unit
+
+      override fun recover(facts: SempodsResponseFacts, attempt: SempodsAuthAttempt): Boolean {
+        attempt.call.cancel()
+        return true
+      }
+    }
+
+    sempodsClient { addInterceptor { chain -> passed.incrementAndGet(); chain.proceed(chain.request()) } }.closing { counting ->
+      assertThrows<IOException> { counting.newCall(session("alice", cancelling).newRequest("GET", "x").build()).execute().close() }
+    }
+    assertEquals(1, passed.get(), "the retry went past the interceptors after the session's")
+  }
+
+  @Test
+  fun `a header a mechanism set for one request is not on OkHttp's repeat of it`() {
+    // OkHttp repeats the request as it entered OkHttp's own interceptors, without the credential, so
+    // what the mechanism leaves out the second time is not sent again.
+    server.`when`(request(), Times.once()).respond(response().withStatusCode(503).withHeader("Retry-After", "0"))
+    server.`when`(request()).respond(response().withStatusCode(200))
+    val once = SempodsRequestAuth { request, attempt -> if (attempt.number == 1) request.header("X-Once", "1") }
+
+    assertEquals(200, session("alice", once).text("x").first)
+
+    assertEquals(listOf("1", ""), server.retrieveRecordedRequests(request()).map { it.getFirstHeader("X-Once") })
+  }
+
+  @Test
+  fun `a Cache on the client answers no session's call`() {
+    // The cache sits above the last network interceptor, where the credential goes on: it would hand
+    // one session's answer to another.
+    server.`when`(request()).respond(response().withStatusCode(200).withHeader("Cache-Control", "max-age=60").withBody("mine"))
+    val directory = Files.createTempDirectory("sempods-cache").toFile()
+
+    try {
+      sempodsClient { cache(Cache(directory, 1_000_000)) }.closing { caching ->
+        listOf("t-a", "t-b").forEach { token ->
+          caching.newCall(session("alice", SempodsRequestAuth.bearer(token)).newRequest("GET", "x").build()).execute()
+            .use { assertEquals("mine", it.body.string()) }
+        }
+        caching.cache!!.close()
+      }
+    } finally {
+      directory.deleteRecursively()
+    }
+    assertEquals(2, server.retrieveRecordedRequests(request()).size)
   }
 
   @Test

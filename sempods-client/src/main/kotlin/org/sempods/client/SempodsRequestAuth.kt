@@ -21,7 +21,7 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
   apply(builder, attempt)
   val authenticated = builder.build()
   val changed = listOfNotNull(
-    "target".takeIf { authenticated.url != request.url || authenticated.headers("Host") != request.headers("Host") },
+    "target".takeIf { authenticated.url != request.url || renamed(request, authenticated) },
     "method".takeIf { authenticated.method != request.method },
     "body".takeIf { authenticated.body !== request.body },
   )
@@ -29,10 +29,16 @@ internal fun SempodsRequestAuth.authenticate(request: Request, attempt: SempodsA
     val described = request.url.newBuilder().query(null).fragment(null).build()
     throw SempodsClientException(
       "Authentication changed the ${changed.joinToString(" and ")} of '${request.method} $described'. " +
-        "A mechanism may set headers other than Host, and nothing else.",
+        "A mechanism may set headers and nothing else.",
     )
   }
   return authenticated
+}
+
+/** Whether [authenticated] carries a `Host` that [request] did not, naming another authority than its URL's. */
+private fun renamed(request: Request, authenticated: Request): Boolean {
+  val hosts = authenticated.headers("Host")
+  return hosts != request.headers("Host") && hosts.any { !namesAuthorityOf(it, authenticated.url) }
 }
 
 /**
@@ -66,8 +72,8 @@ fun interface SempodsCredentialSupplier {
  * the server just supplied. [observe] is where that nonce arrives, and [recover] where a refusal is
  * claimed.
  *
- * **Headers other than `Host`, and nothing else.** A mechanism that changed the URL or `Host`, which
- * OkHttp sends in place of the URL's authority, would carry the session's credential to another
+ * **Headers, and nothing else.** A mechanism that changed the URL, or set a `Host` naming another
+ * authority — OkHttp sends it in place of the URL's — would carry the session's credential to another
  * server, and one that changed the method or the body would send a request the caller never built.
  * The client compares all of them after [apply] and refuses the call.
  *
@@ -93,8 +99,9 @@ fun interface SempodsRequestAuth {
   fun apply(request: Request.Builder, attempt: SempodsAuthAttempt)
 
   /**
-   * Told about [facts], the answer to [attempt] — every answer, a 2xx included, and one OkHttp
-   * answers by repeating the request, such as a `503` with `Retry-After: 0`.
+   * Told about [facts], the answer to [attempt] — every answer to a request the client writes, a 2xx
+   * included, and one OkHttp answers by repeating the request, such as a `503` with `Retry-After: 0`.
+   * An answer an application interceptor makes up never reached the server and is not shown.
    *
    * **This is where a mechanism keeps what the server just said**, such as a `DPoP-Nonce` to send
    * next time. It runs whether or not another attempt is possible, so a body that can be written

@@ -28,7 +28,10 @@ class SempodsResponseFacts private constructor(
   val method: String,
   /** The URL the attempt was written to: the pod's host, never the session's placeholder. */
   val url: HttpUrl,
-  /** The headers the attempt sent, where a mechanism finds the credential that was refused. */
+  /**
+   * The headers the attempt sent, as written: the credential, where a mechanism finds the one that was
+   * refused, and those OkHttp adds, cookies from the client's `CookieJar` among them.
+   */
   val sentHeaders: Headers,
   val challenges: List<Challenge>,
 ) {

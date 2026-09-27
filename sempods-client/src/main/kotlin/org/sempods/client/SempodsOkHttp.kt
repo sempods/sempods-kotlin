@@ -57,7 +57,8 @@ object SempodsOkHttp {
    *   interceptor after it runs once more for each. It also holds [admission] for every call on the
    *   client, session or not.
    * - **The last application interceptor**, with a [guard]: the per-request address check and the
-   *   outbound budget, on the URL the interceptors before it produced.
+   *   outbound budget, on the URL the interceptors before it produced. A repeat OkHttp makes on its own
+   *   is not charged to the budget again.
    * - **The last network interceptor** authenticates a session's request as it is about to be written:
    *   it confines it again, applies the session's [SempodsRequestAuth] and shows it the answer. Every
    *   request the call writes passes there, a repeat OkHttp makes on its own included — a `421` on a
@@ -87,7 +88,12 @@ object SempodsOkHttp {
    * **Which request goes again is the session's call**: OkHttp's own resend after a lost connection is
    * off whatever `retryOnConnectionFailure` says, because it would send a `POST` again, and an
    * `Authenticator` on the builder is not asked, because the session's mechanism has its one retry. A
-   * [SempodsForeignTarget] call keeps neither; other calls on the client keep both.
+   * [SempodsForeignTarget] call keeps neither; other calls on the client keep both. OkHttp still repeats
+   * a `503` with `Retry-After: 0`, but only a request the session would resend itself
+   * ([SempodsRepeatable]); for any other, the header is taken off and the caller gets the `503`.
+   *
+   * **A `Cache` on the builder answers no session's call**, and no foreign target's call with a
+   * credential: it would store and match the answer without the credential that went out.
    *
    * Refuses a builder that already carries these interceptors: two sets would nest the retries and
    * take two admission slots per call. A client derived through `newBuilder()` — OpenTelemetry's
@@ -161,8 +167,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
     }
     // The resend after a lost connection and the follow-up to a 401 are the session's own.
     val passes = CallPasses.of(chain.call(), admission, session::confine, session.auth)
-    val quiet = chain.withRetryOnConnectionFailure(false).withAuthenticator(Authenticator.NONE)
-    return attempts(quiet, passes, bound, SempodsRepeatable.isMarked(chain.call()), recovers = true)
+    val quiet = chain.withRetryOnConnectionFailure(false).withAuthenticator(Authenticator.NONE).withCache(null)
+    return attempts(quiet, passes, bound, repeatable = SempodsRepeatable.isMarked(chain.call()), recovers = true)
   }
 
   /**
@@ -184,6 +190,7 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       .withAuthenticator(Authenticator.NONE)
       .withCookieJar(CookieJar.NO_COOKIES)
       .withRetryOnConnectionFailure(false)
+      .let { if (foreign.auth == null) it else it.withCache(null) }
     return attempts(quiet, passes, request, repeatable = false, recovers = false)
   }
 
@@ -197,7 +204,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
    * Both are decided on the [NetworkPass] that went out: the request the last network interceptor
    * wrote, and the answer, if one came back. So an interceptor below this one that changes the method
    * or the body is seen, one that throws after the answer arrived is not mistaken for a lost
-   * connection, and an answer no request brought — one from OkHttp's cache — earns no retry.
+   * connection, and an answer no request brought — one an application interceptor made up — earns no
+   * retry.
    *
    * The mechanism has seen every answer by then ([SempodsRequestAuth.observe]), so a refusal that
    * earns no repeat still hands on what the server said.
@@ -213,15 +221,20 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
   ): Response {
     val call = chain.call()
     val slot = Slot(gate(call), call)
+    // What each proceed sends again: a body it can write once rules a repeat out, whatever a network
+    // interceptor made of the body that went out.
+    val oneShot = request.body?.isOneShot() == true
     var resent = false
     var answered: NetworkPass? = null
 
     fun send(): Response {
+      // Before the interceptors between this one and OkHttp's own check, the guard's budget among them.
+      if (call.isCanceled()) throw IOException("Canceled")
       val before = passes.last
       return try {
         chain.proceed(request).also { answered = passes.since(before) }
       } catch (failure: IOException) {
-        if (resent || call.isCanceled() || !ConnectionResend.allowed(failure, passes.since(before), repeatable)) {
+        if (resent || oneShot || call.isCanceled() || !ConnectionResend.allowed(failure, passes.since(before), repeatable)) {
           throw failure
         }
         resent = true
@@ -237,8 +250,8 @@ private class SessionInterceptor(private val admission: AdmissionGate?) : Interc
       // A body that can be written once rules another attempt out, whatever the mechanism says: the
       // alternative is a repeat that sends nothing and is answered 200. A cancelled call is handed back
       // as it is, and OkHttp closes it and fails the call.
-      val oneShot = pass?.written?.body?.isOneShot() == true
-      if (!recovers || first.isSuccessful || pass == null || refused == null || oneShot || call.isCanceled()) {
+      val wroteOneShot = pass?.written?.body?.isOneShot() == true
+      if (!recovers || first.isSuccessful || pass == null || refused == null || oneShot || wroteOneShot || call.isCanceled()) {
         return slot.holdUntilClosed(first)
       }
       val retry = try {
@@ -315,7 +328,17 @@ private class CallPasses private constructor(
       response.close()
       throw failure
     }
-    return response
+    return if (ConnectionResend.repeatable(sent, SempodsRepeatable.isMarked(call))) response else withoutImmediateRepeat(response)
+  }
+
+  /**
+   * [response] without the `Retry-After: 0` that has OkHttp send a `503`'s request again below the
+   * session's interceptor. Taken off where the request is one the session would not resend either:
+   * a gateway may answer `503` after the origin acted.
+   */
+  private fun withoutImmediateRepeat(response: Response): Response {
+    if (response.code != 503 || response.header("Retry-After")?.trim()?.toIntOrNull() != 0) return response
+    return response.newBuilder().removeHeader("Retry-After").build()
   }
 
   /** Whether [auth] expects another attempt to answer [refused], the answer to [pass], differently. */

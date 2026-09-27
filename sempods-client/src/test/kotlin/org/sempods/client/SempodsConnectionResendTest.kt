@@ -568,13 +568,30 @@ class SempodsConnectionResendTest {
     answerUnavailableFirst()
 
     sempodsClient().closing { client ->
-      val post = session().newRequest("POST", "x").post("x".toRequestBody()).build()
-      client.newCall(post).execute().use { assertEquals(200, it.code) }
+      val put = session().newRequest("PUT", "x").put("x".toRequestBody()).build()
+      client.newCall(put).execute().use { assertEquals(200, it.code) }
     }
 
     assertEquals(2, requestHeads.size)
-    assertTrue(requestHeads[0].startsWith("POST") && requestHeads[0].contains("X-Attempt: 1"), requestHeads[0])
-    assertTrue(requestHeads[1].startsWith("POST") && requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    assertTrue(requestHeads[0].startsWith("PUT") && requestHeads[0].contains("X-Attempt: 1"), requestHeads[0])
+    assertTrue(requestHeads[1].startsWith("PUT") && requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+  }
+
+  @Test
+  fun `a POST answered 503 with Retry-After 0 goes out once, unless it is marked repeatable`() {
+    // A gateway may answer `503` after the origin acted, so OkHttp repeats only what the session
+    // would resend itself.
+    answerUnavailableFirst()
+
+    sempodsClient().closing { client ->
+      client.newCall(session().newRequest("POST", "x").post("x".toRequestBody()).build()).execute()
+        .use { assertEquals(503, it.code) }
+      assertEquals(1, requestHeads.size, "the POST went out twice")
+
+      val marked = SempodsRepeatable.mark(session().newRequest("POST", "x").post("x".toRequestBody()))
+      client.newCall(marked.build()).execute().use { assertEquals(200, it.code) }
+      assertEquals(2, requestHeads.size)
+    }
   }
 
   @Test

@@ -40,8 +40,7 @@ internal object ConnectionResend {
     // The request never reached the last network interceptor, or its credential could not be applied.
     // Either way nothing went out, and nothing lost is not a lost connection.
     val request = pass?.written ?: return false
-    if (request.method !in IDEMPOTENT_METHODS && !repeatable) return false
-    if (request.body?.isOneShot() == true) return false
+    if (!repeatable(request, repeatable)) return false
     return when (failure) {
       // A deadline: a repeat would outlast it.
       is InterruptedIOException -> false
@@ -55,6 +54,13 @@ internal object ConnectionResend {
       else -> true
     }
   }
+
+  /**
+   * Whether [request], as written, may go again without the caller: an idempotent method, or [marked]
+   * [SempodsRepeatable], and a body that can be written more than once.
+   */
+  fun repeatable(request: Request, marked: Boolean): Boolean =
+    (request.method in IDEMPOTENT_METHODS || marked) && request.body?.isOneShot() != true
 }
 
 /**
