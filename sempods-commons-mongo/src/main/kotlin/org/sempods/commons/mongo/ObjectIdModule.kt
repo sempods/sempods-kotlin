@@ -1,7 +1,7 @@
 package org.sempods.commons.mongo
 
-import com.fasterxml.jackson.databind.module.SimpleModule
 import org.bson.types.ObjectId
+import tools.jackson.databind.module.SimpleModule
 
 /** Serialises a BSON [ObjectId] as its hex string, and reads one back from it. */
 class ObjectIdModule : SimpleModule() {

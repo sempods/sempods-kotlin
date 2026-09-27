@@ -1,6 +1,5 @@
 package org.sempods.ai.impls.openai
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.google.inject.Inject
 import com.google.inject.name.Named
 import okhttp3.OkHttpClient
@@ -11,6 +10,7 @@ import org.sempods.ai.AiService
 import org.sempods.ai.AiServiceException
 import org.sempods.ai.AiStructuredOutputRequest
 import org.sempods.ai.AiStructuredOutputResponse
+import tools.jackson.databind.JsonNode
 
 class OpenAiService @Inject constructor(
   okHttpClient: OkHttpClient,
@@ -85,13 +85,13 @@ class OpenAiService @Inject constructor(
 
     val firstChoice = parsedResponse.path("choices").firstOrNull()
       ?: throw AiServiceException("openai response did not contain choices")
-    val content = firstChoice.path("message").path("content").asText("").trim()
+    val content = firstChoice.path("message").path("content").asString("").trim()
       .takeIf { it.isNotEmpty() }
       ?: throw AiServiceException("openai response did not contain assistant content")
 
     val json = parseAssistantJsonOrThrow(content)
-    val resolvedModel = parsedResponse.path("model").asText("").trim().ifEmpty { model }
-    val doneReason = firstChoice.path("finish_reason").asText("").trim().ifEmpty { null }
+    val resolvedModel = parsedResponse.path("model").asString("").trim().ifEmpty { model }
+    val doneReason = firstChoice.path("finish_reason").asString("").trim().ifEmpty { null }
 
     return AiStructuredOutputResponse(
       model = resolvedModel,

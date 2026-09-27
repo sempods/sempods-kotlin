@@ -1,9 +1,5 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.JsonNodeFactory
-import com.fasterxml.jackson.databind.node.ObjectNode
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.sempods.client.SempodsContent
@@ -17,6 +13,10 @@ import org.sempods.client.SempodsResponse
 import org.sempods.client.SempodsResponseException
 import org.sempods.client.SempodsWriteOptions
 import org.sempods.commons.net.SempodsPodRoutes
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.JsonNodeFactory
+import tools.jackson.databind.node.ObjectNode
 import java.net.URI
 
 /**
@@ -390,7 +390,7 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
     // descriptions promise by name ("the second call returns `outcome=already_present`") and because
     // it is the answer to the question an idempotent write leaves open. The three slot mutations are
     // the routes that carry one; everything else has nothing to lift.
-    body?.path("outcome")?.takeIf { it.isTextual }?.let { result["outcome"] = it.asText() }
+    body?.path("outcome")?.takeIf { it.isString }?.let { result["outcome"] = it.asString() }
     result["status"] = answer.status
     answer.headers["ETag"]?.let { result["etag"] = it }
     // The whole body still travels: `outcome` is a summary, and a route that grows a second field
@@ -414,7 +414,7 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
 
   /** An argument read verbatim — no trim, no blank-drop, because [normalizeEtag] judges both. */
   private fun rawText(arguments: JsonNode?, field: String): String? =
-    arguments?.get(field)?.takeIf { it.isTextual }?.asText()
+    arguments?.get(field)?.takeIf { it.isString }?.asString()
 
   /**
    * Coerce a client-supplied precondition into a valid HTTP entity-tag, or null if it cannot be one.

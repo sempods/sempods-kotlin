@@ -1,6 +1,5 @@
 package org.sempods.mcp.api.oauth
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -60,6 +59,7 @@ import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
@@ -185,7 +185,7 @@ class OAuthFlowIntegrationTest {
       setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test Client"}""")
     }
     assertEquals(HttpStatusCode.Created, reg.status)
-    val clientId = mapper.readTree(reg.bodyAsText())["client_id"].asText()
+    val clientId = mapper.readTree(reg.bodyAsText())["client_id"].asString()
 
     // 2. /authorize → 302 to the id-server's OWN authorization endpoint (not a return_to of ours).
     val authResp = client.get(
@@ -234,11 +234,11 @@ class OAuthFlowIntegrationTest {
     assertUncacheableJson(tokenResp)
     val tokenJson = mapper.readTree(tokenResp.bodyAsText())
     // Nothing was asked for, so nothing was granted — and RFC 6749 §3.3 has no empty scope to name.
-    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), tokenJson.fieldNames().asSequence().toSet())
-    assertEquals("Bearer", tokenJson["token_type"].asText())
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), tokenJson.propertyNames().asSequence().toSet())
+    assertEquals("Bearer", tokenJson["token_type"].asString())
     assertEquals(TokenIssuer.USER_TOKEN_TTL_SECONDS, tokenJson["expires_in"].asLong())
-    val accessToken = tokenJson["access_token"].asText()
-    val refresh1 = tokenJson["refresh_token"].asText()
+    val accessToken = tokenJson["access_token"].asString()
+    val refresh1 = tokenJson["refresh_token"].asString()
     assertEquals(WEB_ID, SignedJWT.parse(accessToken).jwtClaimsSet.subject)
 
     // The exchange starts a family with a deadline a year out, and a ninety-day window below it.
@@ -256,8 +256,8 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.OK, refreshResp.status)
     assertUncacheableJson(refreshResp)
     val refreshJson = mapper.readTree(refreshResp.bodyAsText())
-    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), refreshJson.fieldNames().asSequence().toSet())
-    val refresh2 = refreshJson["refresh_token"].asText()
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), refreshJson.propertyNames().asSequence().toSet())
+    val refresh2 = refreshJson["refresh_token"].asString()
     assertTrue(refresh2 != refresh1, "rotation must mint a new refresh token")
 
     // 8. Reuse detection: replaying the now-rotated refresh1 fails.
@@ -312,7 +312,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
     val (loginState, nonceCookie) = client.startAuthorize(clientId)
     val callbackResp = client.oidcCallback(loginState, nonceCookie)
     assertEquals(HttpStatusCode.OK, callbackResp.status)
@@ -338,7 +338,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
     val (loginState, nonceCookie) = client.startAuthorize(clientId)
     val txn = Regex("name=\"txn\" value=\"([^\"]+)\"")
       .find(client.oidcCallback(loginState, nonceCookie).bodyAsText())!!
@@ -365,7 +365,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     // The user already has a pod connected to this profile (seeded directly).
     val pod = "https://sempods.org/alice"
@@ -437,7 +437,7 @@ class OAuthFlowIntegrationTest {
           contentType(ContentType.Application.Json)
           setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Plain"}""")
         }.bodyAsText(),
-      )["client_id"].asText()
+      )["client_id"].asString()
       val (loginState, nonceCookie) = client.startAuthorize(clientId)
       val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
       val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
@@ -474,7 +474,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Profile Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     val (loginState, nonceCookie) = client.startAuthorize(clientId, profile = "private")
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
@@ -495,7 +495,7 @@ class OAuthFlowIntegrationTest {
       },
     )
     assertEquals(HttpStatusCode.OK, tokenResp.status)
-    val accessToken = mapper.readTree(tokenResp.bodyAsText())["access_token"].asText()
+    val accessToken = mapper.readTree(tokenResp.bodyAsText())["access_token"].asString()
     val claims = SignedJWT.parse(accessToken).jwtClaimsSet
     assertEquals(WEB_ID, claims.subject)
     assertEquals("private", claims.getStringClaim("profile"), "the access token must carry the named profile")
@@ -516,7 +516,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"X"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
     val (loginState, nonceCookie) = client.startAuthorize(clientId, profile = "private")
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
     val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
@@ -559,7 +559,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     val (loginState, nonceCookie) = client.startAuthorize(clientId)
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
@@ -597,7 +597,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     val (loginState, nonceCookie) = client.startAuthorize(clientId)
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
@@ -632,9 +632,9 @@ class OAuthFlowIntegrationTest {
     val second = mapper.readTree(
       client.post("/register") { contentType(ContentType.Application.Json); setBody(regBody(62222)) }.bodyAsText(),
     )
-    assertEquals(first["client_id"].asText(), second["client_id"].asText(), "loopback re-register must dedup")
+    assertEquals(first["client_id"].asString(), second["client_id"].asString(), "loopback re-register must dedup")
     // The response must echo the CURRENT request's port, not the stored first one.
-    assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asText())
+    assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asString())
   }
 
   @Test
@@ -720,7 +720,7 @@ class OAuthFlowIntegrationTest {
       setBody("""{"redirect_uris":["http://evil.example.com/cb"],"client_name":"Bad"}""")
     }
     assertEquals(HttpStatusCode.BadRequest, resp.status)
-    assertEquals("invalid_redirect_uri", mapper.readTree(resp.bodyAsText())["error"].asText())
+    assertEquals("invalid_redirect_uri", mapper.readTree(resp.bodyAsText())["error"].asString())
   }
 
   @Test
@@ -736,7 +736,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Honest Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     fun authorize(id: String, redirect: String) =
       "/authorize?response_type=code&client_id=${enc(id)}&redirect_uri=${enc(redirect)}" +
@@ -765,7 +765,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Honest Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     fun authorize(id: String) =
       "/authorize?response_type=token&client_id=${enc(id)}&redirect_uri=${enc(REDIRECT)}" +
@@ -792,7 +792,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Padded Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     val padded = "%0A" + enc(clientId) + "%0A"
     val resp = http.get(
@@ -819,7 +819,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Blank State Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     // No PKCE → an error that travels to the proven address, carrying the blank state.
     val resp = http.get("/authorize?response_type=code&client_id=${enc(clientId)}&redirect_uri=${enc(REDIRECT)}&state=%20")
@@ -842,7 +842,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Vanishing Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
     val (loginState, nonceCookie) = http.startAuthorize(clientId)
 
     db!!.getCollection(SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS).deleteOne(Document("clientId", clientId))
@@ -865,7 +865,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Honest Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
     val (loginState, nonceCookie) = http.startAuthorize(clientId, state = "client-state-1")
 
     val resp = http.get("/oidc/callback?state=${enc(loginState)}&error=totally_made_up_code") {
@@ -892,7 +892,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Honest Client"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     // PKCE is mandatory here, and the failure is reported to the client's own address.
     val missingPkce = http.get("/authorize?response_type=code&client_id=${enc(clientId)}&redirect_uri=${enc(REDIRECT)}&state=s")
@@ -927,7 +927,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     // A victim's browser that never started /authorize holds no nonce cookie: completing a captured
     // login URL there must be refused, not turned into a consent for the initiating (attacker's) client.
@@ -956,7 +956,7 @@ class OAuthFlowIntegrationTest {
         contentType(ContentType.Application.Json)
         setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
       }.bodyAsText(),
-    )["client_id"].asText()
+    )["client_id"].asString()
 
     // The user already connected a pod that authorized them under the pod's OWN identity (foreign).
     ConnectionRegistryDao(db!!).upsert(
@@ -1014,12 +1014,12 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.OK, tokens.status)
     assertUncacheableJson(tokens)
     val json = mapper.readTree(tokens.bodyAsText())
-    assertEquals(setOf("pods:read", "pods:write"), json["scope"].asText().split(" ").toSet())
+    assertEquals(setOf("pods:read", "pods:write"), json["scope"].asString().split(" ").toSet())
 
-    val refreshed = refresh(client, json["refresh_token"].asText(), clientId)
+    val refreshed = refresh(client, json["refresh_token"].asString(), clientId)
     assertEquals(HttpStatusCode.OK, refreshed.status)
     assertUncacheableJson(refreshed)
-    assertEquals(setOf("pods:read", "pods:write"), mapper.readTree(refreshed.bodyAsText())["scope"].asText().split(" ").toSet())
+    assertEquals(setOf("pods:read", "pods:write"), mapper.readTree(refreshed.bodyAsText())["scope"].asString().split(" ").toSet())
   }
 
   @Test
@@ -1057,9 +1057,9 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.BadRequest, resp.status)
     assertUncacheableJson(resp)
     val json = mapper.readTree(resp.bodyAsText())
-    assertEquals(setOf("error", "error_description"), json.fieldNames().asSequence().toSet())
-    assertEquals(error, json["error"].asText())
-    assertEquals(description, json["error_description"].asText())
+    assertEquals(setOf("error", "error_description"), json.propertyNames().asSequence().toSet())
+    assertEquals(error, json["error"].asString())
+    assertEquals(description, json["error_description"].asString())
   }
 
   private suspend fun register(client: HttpClient): String = mapper.readTree(
@@ -1067,7 +1067,7 @@ class OAuthFlowIntegrationTest {
       contentType(ContentType.Application.Json)
       setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
     }.bodyAsText(),
-  )["client_id"].asText()
+  )["client_id"].asString()
 
   /** Drives authorize → id-server → consent and returns the code the client receives. */
   private suspend fun authorizationCode(client: HttpClient, clientId: String, scope: String? = null): String {

@@ -1,7 +1,6 @@
 package org.sempods.mcp
 
 import org.sempods.mcp.oauth.IdentityProvider
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Guice
 import com.google.inject.Injector
 import org.sempods.commons.ktor.trace.installTraceContext
@@ -42,6 +41,7 @@ import io.ktor.server.routing.IgnoreTrailingSlash
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.ObjectMapper
 
 /**
  * Hosted MCP — a standalone service that fronts many pods over one MCP connection, treating

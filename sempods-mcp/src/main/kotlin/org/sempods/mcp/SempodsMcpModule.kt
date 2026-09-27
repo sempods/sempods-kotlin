@@ -1,7 +1,5 @@
 package org.sempods.mcp
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.google.inject.Provides
 import com.google.inject.Singleton
 import com.mongodb.client.MongoDatabase
@@ -44,6 +42,8 @@ import org.sempods.client.net.SempodsOutboundGuard
 import org.sempods.mcp.core.PodToolExecutor
 import org.sempods.mcp.core.SempodsMcpCoreModule
 import org.sempods.mcp.pods.PodUrlPolicy
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.time.Duration
 import org.sempods.mcp.pods.TokenRefreshScheduler
 import org.sempods.commons.okhttp.TraceparentInterceptor

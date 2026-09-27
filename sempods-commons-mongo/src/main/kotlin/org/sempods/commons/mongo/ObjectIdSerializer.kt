@@ -1,13 +1,13 @@
 package org.sempods.commons.mongo
 
-import com.fasterxml.jackson.core.JsonGenerator
-import com.fasterxml.jackson.databind.JsonSerializer
-import com.fasterxml.jackson.databind.SerializerProvider
 import org.bson.types.ObjectId
+import tools.jackson.core.JsonGenerator
+import tools.jackson.databind.SerializationContext
+import tools.jackson.databind.ValueSerializer
 
-class ObjectIdSerializer: JsonSerializer<ObjectId>() {
+class ObjectIdSerializer: ValueSerializer<ObjectId>() {
 
-  override fun serialize(value: ObjectId, gen: JsonGenerator, serializers: SerializerProvider) {
+  override fun serialize(value: ObjectId, gen: JsonGenerator, ctxt: SerializationContext) {
     gen.writeString(value.toString())
   }
 }

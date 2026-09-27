@@ -2,7 +2,6 @@ package org.sempods.api.system.admin.pods
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import com.mongodb.MongoWriteException
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -33,6 +32,7 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import tools.jackson.databind.DeserializationFeature
 import java.net.URI
 import io.github.oshai.kotlinlogging.KotlinLogging
 
@@ -336,8 +336,9 @@ class AdminPodsEndpoint @Inject constructor(
   companion object {
     private val logger = KotlinLogging.logger {}
 
-    private val strictBodyMapper = JsonMappers.newDefault()
+    private val strictBodyMapper = JsonMappers.default().rebuild()
       .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+      .build()
 
     /**
      * App-context convention (`docs/auth/service-clients.md`): an app's sandbox root is

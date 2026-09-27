@@ -1,6 +1,5 @@
 package org.sempods.mcp.api.oauth
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.persist.PodKey
@@ -14,6 +13,7 @@ import io.ktor.server.application.call
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import tools.jackson.databind.ObjectMapper
 
 /**
  * OAuth discovery documents for the service (RFC 9728 protected-resource metadata + RFC 8414

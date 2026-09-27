@@ -524,6 +524,22 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `POST with anything after the JSON value returns 400`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+
+    val response = httpClient.preparePost(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
+      .addHeader("Content-Type", "application/ld+json")
+      .addHeader("Authorization", "Bearer $token")
+      .setBody("""{"@id":"$carol"} {"@id":"$bob"}""")
+      .execute()
+
+    assertEquals(400, response.statusCode)
+  }
+
+  @Test
   fun `GET with invalid include_contexts returns 400 before auth`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, _) = createContextWithToken(pod, "contacts")

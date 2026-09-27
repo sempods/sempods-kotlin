@@ -1,6 +1,5 @@
 package org.sempods.api.pod.system.find
 
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsUriBuilder
@@ -28,6 +27,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.StreamingOutput
 import org.eclipse.rdf4j.rio.Rio
+import tools.jackson.databind.DeserializationFeature
 
 /**
  * `GET`/`POST /{pod}/_system/find` — the semantic entry to the graph retrieval pattern
@@ -63,8 +63,9 @@ class FindEndpoint @Inject constructor(
   // let an unsupported `filter` (or a typo'd `contexts`) be silently dropped and silently broaden
   // the result — fail-open on a security-relevant parameter. This one rejects unknown fields so
   // such a request is a 400, never a half-honored broader search.
-  private val strictBodyMapper = JsonMappers.newDefault()
+  private val strictBodyMapper = JsonMappers.default().rebuild()
     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+    .build()
 
   @GET
   fun find(

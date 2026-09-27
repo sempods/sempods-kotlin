@@ -97,10 +97,10 @@ class ConditionalEdgeRemovalHttpTest : SempodsIntegrationTest() {
     val read = http.prepareGet(slotUrl).addHeader("Accept", "application/ld+json").bearer(token).execute()
     if (read.statusCode == 404) return emptySet()
     assertEquals(200, read.statusCode, read.responseBody)
-    return objectMapper.readTree(read.responseBody).mapTo(HashSet()) { it.path("@id").asText() }
+    return objectMapper.readTree(read.responseBody).mapTo(HashSet()) { it.path("@id").asString() }
   }
 
-  private fun outcome(response: TestHttpResponse): String = objectMapper.readTree(response.responseBody).path("outcome").asText()
+  private fun outcome(response: TestHttpResponse): String = objectMapper.readTree(response.responseBody).path("outcome").asString()
 
   /** Runs [times] calls of [call] released together, and returns what each answered. */
   private fun <T> race(times: Int, call: (Int) -> T): List<T> {
@@ -365,7 +365,7 @@ class ConditionalEdgeRemovalHttpTest : SempodsIntegrationTest() {
 
     fun members(): Set<String> =
       slots.getJson(group, hasMember, SempodsReadOptions.of(SempodsContextSelection.of(context))).body
-        ?.let { objectMapper.readTree(it).mapTo(HashSet()) { value -> value.path("@id").asText() } }
+        ?.let { objectMapper.readTree(it).mapTo(HashSet()) { value -> value.path("@id").asString() } }
         .orEmpty()
   }
 
@@ -379,7 +379,7 @@ class ConditionalEdgeRemovalHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  private fun String.outcome(): String = objectMapper.readTree(this).path("outcome").asText()
+  private fun String.outcome(): String = objectMapper.readTree(this).path("outcome").asString()
 
   @Test
   fun `a client that reads the tag before the source catches a stale removal, and cannot order a stale addition`() {

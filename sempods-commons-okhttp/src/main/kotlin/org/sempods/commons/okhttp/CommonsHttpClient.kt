@@ -1,11 +1,11 @@
 package org.sempods.commons.okhttp
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
+import tools.jackson.databind.ObjectMapper
 import java.nio.charset.StandardCharsets
 
 /**

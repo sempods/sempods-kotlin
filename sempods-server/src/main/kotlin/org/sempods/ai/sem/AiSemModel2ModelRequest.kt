@@ -1,6 +1,6 @@
 package org.sempods.ai.sem
 
-import com.fasterxml.jackson.databind.JsonNode
+import tools.jackson.databind.JsonNode
 
 /**
  * Internal semweb update contract used by [AiSemFacade.model2model].

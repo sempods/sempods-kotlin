@@ -1,6 +1,6 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.JsonNode
+import tools.jackson.databind.JsonNode
 
 /** Which MCP surface a catalog is built for. */
 enum class ToolVariant {
@@ -73,7 +73,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
     if (arguments != null && !arguments.isNull && !arguments.isObject) return "arguments must be a JSON object"
 
     if (arguments != null && arguments.isObject) {
-      for (field in arguments.fieldNames()) {
+      for (field in arguments.propertyNames()) {
         val declared = schema.properties[field] ?: return "unknown argument: '$field'"
         val node = arguments.get(field)
         // Reject an explicit `null` for a declared argument: skipping it would let a filter-like
@@ -94,7 +94,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
               return "argument '$field' must be an array of ${itemType}s"
             }
             // Blank strings are the fail-open case again: an empty filter entry is not a filter.
-            if (itemType == "string" && element.asText().isBlank()) {
+            if (itemType == "string" && element.asString().isBlank()) {
               return "argument '$field' must be an array of non-empty strings"
             }
           }
@@ -114,7 +114,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
   }
 
   private fun matchesType(node: JsonNode, type: String): Boolean = when (type) {
-    "string" -> node.isTextual
+    "string" -> node.isString
     "array" -> node.isArray
     "boolean" -> node.isBoolean
     "integer" -> node.isInt || node.isLong

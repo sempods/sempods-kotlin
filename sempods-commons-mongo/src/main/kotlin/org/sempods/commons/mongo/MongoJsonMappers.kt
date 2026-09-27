@@ -1,7 +1,7 @@
 package org.sempods.commons.mongo
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.sempods.commons.json.JsonMappers
+import tools.jackson.databind.json.JsonMapper
 
 /**
  * [JsonMappers.default] plus the BSON [org.bson.types.ObjectId] codecs.
@@ -16,13 +16,7 @@ import org.sempods.commons.json.JsonMappers
  * `ObjectId`s never leave the DAO layer, so it uses the plain default and keeps `org.bson` out of
  * its JSON path entirely.
  */
-fun JsonMappers.withMongo(): ObjectMapper = WITH_MONGO
+fun JsonMappers.withMongo(): JsonMapper = WITH_MONGO
 
-/** A fresh Mongo-flavoured mapper, for callers that need to change it. */
-fun JsonMappers.newWithMongo(): ObjectMapper = JsonMappers.newDefault().registerModule(ObjectIdModule())
-
-/**
- * The shared Mongo-flavoured mapper. Shared for the same reason as [JsonMappers.default] — take
- * [ObjectMapper.copy] or [newWithMongo] before changing anything on it.
- */
-private val WITH_MONGO: ObjectMapper = JsonMappers.newDefault().registerModule(ObjectIdModule())
+/** Shared for the same reason as [JsonMappers.default]. */
+private val WITH_MONGO: JsonMapper = JsonMappers.default().rebuild().addModule(ObjectIdModule()).build()

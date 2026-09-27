@@ -1,7 +1,5 @@
 package org.sempods.mcp.pods
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.oauth2.sdk.AccessTokenResponse
 import com.nimbusds.oauth2.sdk.AuthorizationRequest
@@ -32,6 +30,8 @@ import org.sempods.client.SempodsExchange
 import org.sempods.client.SempodsStatusException
 import org.sempods.mcp.forLog
 import org.sempods.mcp.oauth.SempodsClientHttpTransport
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
@@ -113,14 +113,14 @@ class PodOAuthClient(
     val base = canonicalPodBase(podBaseUrl)
     val prm = getResourceMetadata("$base/.well-known/oauth-protected-resource")
     // RFC 9728 §3.3, with the pod URL as the expected resource (SPS-AUTH-068): compared exactly.
-    val resource = prm["resource"]?.takeIf(JsonNode::isTextual)?.asText()
+    val resource = prm["resource"]?.takeIf(JsonNode::isString)?.asString()
     if (resource != base) {
       val named = resource?.let { "resource '${forLog(it)}'" } ?: "no resource"
       throw PodOAuthException("pod protected-resource metadata names $named, expected '${forLog(base)}'")
     }
     // A terminating `/` is not compared, as on the AS metadata's `issuer` below.
     val issuer = prm["authorization_servers"]?.takeIf { it.isArray }?.singleOrNull()
-      ?.takeIf(JsonNode::isTextual)?.asText()?.trimEnd('/')
+      ?.takeIf(JsonNode::isString)?.asString()?.trimEnd('/')
       ?: throw PodOAuthException("pod protected-resource metadata names no sole authorization server")
     if (issuer !in podIssuers(base)) {
       throw PodOAuthException(
@@ -205,7 +205,7 @@ class PodOAuthClient(
    */
   private fun scopeList(node: JsonNode?): Set<String> =
     node?.takeIf { it.isArray }
-      ?.mapNotNullTo(mutableSetOf()) { it.takeIf(JsonNode::isTextual)?.asText()?.trim()?.takeIf(String::isNotEmpty) }
+      ?.mapNotNullTo(mutableSetOf()) { it.takeIf(JsonNode::isString)?.asString()?.trim()?.takeIf(String::isNotEmpty) }
       .orEmpty()
 
   private fun scopeList(values: List<*>?): Set<String> =

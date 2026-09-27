@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.media
 
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.admin.AdminAuthorizer
@@ -18,6 +17,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.DeserializationFeature
 import java.time.Duration
 
 /**
@@ -168,8 +168,9 @@ class AdminMediaEndpoint @Inject constructor(
 
     private val logger = KotlinLogging.logger {}
 
-    private val strictBodyMapper = JsonMappers.newDefault()
+    private val strictBodyMapper = JsonMappers.default().rebuild()
       .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+      .build()
 
     /**
      * How many refs per direction the reconcile response carries. A hundred is enough to see what

@@ -1,8 +1,5 @@
 package org.sempods.rdf
 
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.sempods.commons.json.JsonUtil
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
@@ -15,6 +12,8 @@ import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.Rio
+import tools.jackson.core.type.TypeReference
+import tools.jackson.databind.json.JsonMapper
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.StringReader
@@ -306,8 +305,5 @@ object RdfWriterUtil {
   // signature while `:commons-json` is `implementation` — visible properties, unreachable types.
   internal val typeRef_graph = object : TypeReference<List<Map<String, Any?>>>() {}
 
-  internal val jsonUtil = JsonUtil(
-    ObjectMapper()
-      .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-  )
+  internal val jsonUtil = JsonUtil(JsonMapper())
 }

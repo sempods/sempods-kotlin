@@ -1,6 +1,6 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.JsonNode
+import tools.jackson.databind.JsonNode
 
 /**
  * Reading one argument out of a `tools/call` argument object.
@@ -18,13 +18,13 @@ object ToolArguments {
 
   /** A non-blank string argument, or null if absent / not a string / blank. */
   fun string(node: JsonNode?, field: String): String? =
-    node?.get(field)?.takeIf { it.isTextual }?.asText()?.trim()?.takeIf { it.isNotEmpty() }
+    node?.get(field)?.takeIf { it.isString }?.asString()?.trim()?.takeIf { it.isNotEmpty() }
 
   /** The non-blank string elements of an array argument (non-arrays / non-strings drop out). */
   fun stringList(node: JsonNode?, field: String): List<String> {
     val arr = node?.get(field) ?: return emptyList()
     if (!arr.isArray) return emptyList()
-    return arr.mapNotNull { it.takeIf { v -> v.isTextual }?.asText()?.trim()?.takeIf { s -> s.isNotEmpty() } }
+    return arr.mapNotNull { it.takeIf { v -> v.isString }?.asString()?.trim()?.takeIf { s -> s.isNotEmpty() } }
   }
 
   /** A JSON object argument (e.g. a JSON-LD body / value object), or null if absent / not an object. */
