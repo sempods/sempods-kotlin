@@ -128,9 +128,11 @@ acceptance and merged work, including follow-up actions.
 Read the `rules` array in [`../../context7.json`](../../context7.json) against the change. It
 asserts facts about grants, contexts, the SPARQL surface, client identity shapes, the updater, the
 build and trademark language — and it is published to agents outside this repository. A behaviour
-change is exactly what turns one of those assertions into a lie.
+change is exactly what turns one of those assertions into a lie. Fix every rule the change made
+false.
 
-Also check `excludeFiles` and `excludeFolders` if documents were added, moved or deleted.
+Also check `excludeFiles` and `excludeFolders` if documents were added, moved or deleted, and fix
+them.
 
 ## 9. Pointers and links
 
