@@ -1,6 +1,5 @@
 package org.sempods.api.pod.system.meta
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
@@ -12,6 +11,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.okhttp.TestHttpClient
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Test
+import tools.jackson.databind.ObjectMapper
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -42,7 +42,7 @@ class PodMetaEndpointHttpTest : SempodsIntegrationTest() {
     val response = get(pod.name)
 
     assertEquals(200, response.statusCode, "body=${response.responseBody}")
-    val value = objectMapper.readTree(response.responseBody).path("dateModified").asText()
+    val value = objectMapper.readTree(response.responseBody).path("dateModified").asString()
     assertEquals(stamp, Instant.parse(value))
   }
 

@@ -1,8 +1,5 @@
 package org.sempods.api.pod.system.resources
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ArrayNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.grants.SempodsCredentials
@@ -21,6 +18,9 @@ import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.util.Values
 import org.eclipse.rdf4j.model.vocabulary.XSD
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ArrayNode
+import tools.jackson.databind.node.ObjectNode
 import java.net.URI
 
 /**
@@ -238,7 +238,7 @@ class PodSlotWriteService @Inject constructor(
       root.isArray -> root as ArrayNode
       else -> throw badRequest("slot body must be a JSON array of value objects")
     }
-    return array.map { jsonNodeToValueOrThrow(it) }
+    return array.values().map { jsonNodeToValueOrThrow(it) }
   }
 
   /**
@@ -279,24 +279,24 @@ class PodSlotWriteService @Inject constructor(
       throw badRequest("value object must not carry both \"@id\" and \"@value\"")
     }
     if (idNode != null) {
-      if (!idNode.isTextual || idNode.asText().isBlank()) {
+      if (!idNode.isString || idNode.asString().isBlank()) {
         throw badRequest("\"@id\" must be a non-empty IRI string")
       }
       return try {
-        Values.iri(idNode.asText())
+        Values.iri(idNode.asString())
       } catch (e: Exception) {
         throw badRequest("invalid \"@id\" IRI: ${e.message}")
       }
     }
     if (valueNode != null) {
-      val language = obj.get("@language")?.takeIf { !it.isNull }?.asText()?.takeIf(String::isNotBlank)
-      val datatype = obj.get("@type")?.takeIf { !it.isNull }?.asText()?.takeIf(String::isNotBlank)
+      val language = obj.get("@language")?.asString("")?.takeIf(String::isNotBlank)
+      val datatype = obj.get("@type")?.asString("")?.takeIf(String::isNotBlank)
       if (language != null && datatype != null) {
         throw badRequest("literal value must not carry both \"@language\" and \"@type\"")
       }
       val literalString = when {
-        valueNode.isTextual -> valueNode.asText()
-        valueNode.isNumber || valueNode.isBoolean -> valueNode.asText()
+        valueNode.isString -> valueNode.asString()
+        valueNode.isNumber || valueNode.isBoolean -> valueNode.asString()
         else -> throw badRequest("\"@value\" must be a string, number, or boolean")
       }
       return when {

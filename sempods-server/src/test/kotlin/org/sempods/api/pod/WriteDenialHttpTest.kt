@@ -269,7 +269,7 @@ class WriteDenialHttpTest : SempodsIntegrationTest() {
       .also { assertEquals(201, it.statusCode, it.responseBody) }
 
   private fun mediaIdOf(response: TestHttpResponse): String =
-    checkNotNull(objectMapper.readTree(response.responseBody).path("id").asText().takeIf { it.isNotEmpty() })
+    checkNotNull(objectMapper.readTree(response.responseBody).path("id").asString().takeIf { it.isNotEmpty() })
 
   private fun mediaUrl(pod: PodDbo, mediaId: String, context: URI) = inContext("${podBase(pod)}/_system/media/$mediaId", context)
 

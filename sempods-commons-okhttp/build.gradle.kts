@@ -12,7 +12,7 @@ dependencies {
   api(project(":sempods-commons-json"))
   api(libs.okhttp)
   // `JsonUtil` hands back Jackson's own types.
-  api(libs.jacksonDatabind)
+  api(libs.jackson3Databind)
 
   // Same reasoning as `sempods-commons` and `sempods-commons-mongo`: `OkHttpClientModule` is the only class here
   // that needs Guice, and a consumer building an `OkHttpClient` by hand must not inherit a DI

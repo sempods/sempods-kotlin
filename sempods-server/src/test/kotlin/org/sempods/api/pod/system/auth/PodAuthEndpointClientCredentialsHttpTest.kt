@@ -1,6 +1,5 @@
 package org.sempods.api.pod.system.auth
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import com.nimbusds.jwt.SignedJWT
 import okhttp3.OkHttpClient
@@ -22,6 +21,7 @@ import org.sempods.client.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

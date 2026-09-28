@@ -1,7 +1,5 @@
 package org.sempods.api.pod.system.mcp
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.readValue
 import org.sempods.mcp.core.Capabilities
 import org.sempods.mcp.core.ContentItem
 import org.sempods.mcp.core.Implementation
@@ -52,6 +50,8 @@ import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.JsonNode
+import tools.jackson.module.kotlin.readValue
 
 /**
  * MCP (Model Context Protocol) endpoint for sempods.
@@ -330,13 +330,13 @@ class McpEndpoint @Inject constructor(
       val body = objectMapper.valueToTree<JsonNode>(payload)
       InstructionContexts(
         entries = body.path("contexts").mapNotNull { node ->
-          val iri = node.path("context_iri").takeIf { it.isTextual }?.asText() ?: return@mapNotNull null
+          val iri = node.path("context_iri").takeIf { it.isString }?.asString() ?: return@mapNotNull null
           InstructionContext(
             contextIri = iri,
-            permissions = node.path("permissions").mapNotNull { it.takeIf { p -> p.isTextual }?.asText() },
+            permissions = node.path("permissions").mapNotNull { it.takeIf { p -> p.isString }?.asString() },
           )
         },
-        writableContexts = body.path("writable_contexts").mapNotNull { it.takeIf { c -> c.isTextual }?.asText() },
+        writableContexts = body.path("writable_contexts").mapNotNull { it.takeIf { c -> c.isString }?.asString() },
       )
     } catch (e: Exception) {
       logger.warn(e) { "[mcp] could not list contexts for the initialize instructions on pod '$pod'" }
@@ -821,7 +821,7 @@ class McpEndpoint @Inject constructor(
    */
   private fun unknownArgumentsRefusal(schema: ToolInputSchema, arguments: JsonNode): String? {
     if (schema.additionalProperties != false) return null
-    val unknown = arguments.fieldNames().asSequence().toSet() - schema.properties.keys
+    val unknown = arguments.propertyNames().toSet() - schema.properties.keys
     if (unknown.isEmpty()) return null
     return "Error: unknown argument(s): ${unknown.sorted().joinToString(", ")}. " +
       "Allowed: ${schema.properties.keys.sorted().joinToString(", ").ifEmpty { "(none)" }}."

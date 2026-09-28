@@ -1,6 +1,5 @@
 package org.sempods.api.pod.system.find
 
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsUriBuilder
@@ -59,13 +58,6 @@ class FindEndpoint @Inject constructor(
 
   private val objectMapper = JsonMappers.default()
 
-  // Strict POST-body parsing: the shared mapper ignores unknown fields project-wide, which would
-  // let an unsupported `filter` (or a typo'd `contexts`) be silently dropped and silently broaden
-  // the result — fail-open on a security-relevant parameter. This one rejects unknown fields so
-  // such a request is a 400, never a half-honored broader search.
-  private val strictBodyMapper = JsonMappers.newDefault()
-    .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-
   @GET
   fun find(
     @PathParam("pod") pod: String,
@@ -102,10 +94,8 @@ class FindEndpoint @Inject constructor(
   ): Response {
     val rawBody = body?.takeIf { it.isNotBlank() } ?: return badRequest("missing JSON request body")
     val parsed = try {
-      strictBodyMapper.readValue(rawBody, FindPostRequest::class.java)
+      JsonMappers.strict().readValue(rawBody, FindPostRequest::class.java)
     } catch (e: Exception) {
-      // Unknown fields (the not-yet-supported `filter`, a typo'd `contexts`, …) are rejected, not
-      // silently dropped — a half-honored request must never broaden the result.
       return badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
     }
     val request = try {

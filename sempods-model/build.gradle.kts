@@ -24,9 +24,8 @@ dependencies {
   // `SempodsUriBuilder` logs.
   implementation(libs.bundles.logging)
 
-  // The media data types carry serialization annotations and name `JsonNode`; the mapper that
-  // reads them comes from `:sempods-commons-json`.
-  implementation(libs.jacksonDatabind)
+  // `RdfWriterUtil` names Jackson's `TypeReference` when it reads RDF4J's JSON-LD into maps.
+  implementation(libs.jackson3Databind)
 
   // No application framework. This module is the pod contract, and its consumers depend on it — an
   // edge to a framework here would put Jersey, an object mapper and a user model behind all of them. The last symbol was `SempodsUriBuilder`'s injected

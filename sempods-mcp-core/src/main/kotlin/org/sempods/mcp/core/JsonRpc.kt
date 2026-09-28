@@ -97,4 +97,4 @@ object JsonRpcErrorCodes {
  * [JsonRpcRequest] (where a JSON `null` arrives as a Kotlin `null`) while the hosted service reads
  * the raw tree (where it arrives as a `NullNode`). Both are "no id".
  */
-fun isNotification(id: Any?): Boolean = id == null || (id as? com.fasterxml.jackson.databind.JsonNode)?.isNull == true
+fun isNotification(id: Any?): Boolean = id == null || (id as? tools.jackson.databind.JsonNode)?.isNull == true

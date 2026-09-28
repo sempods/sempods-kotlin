@@ -2,7 +2,6 @@ package org.sempods.mcp.pods
 
 import okhttp3.OkHttpClient
 import org.sempods.client.net.SempodsOutboundGuard
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jwt.JWTClaimsSet
 import org.sempods.mcp.auth.JwtTestSupport
@@ -15,6 +14,7 @@ import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.StringBody.subString
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.net.URI
 import java.time.Instant
 import java.util.Date

@@ -1,6 +1,5 @@
 package org.sempods.ai.impls.ollama
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.google.inject.Inject
 import com.google.inject.name.Named
 import okhttp3.OkHttpClient
@@ -12,6 +11,7 @@ import org.sempods.ai.AiServiceException
 import org.sempods.ai.AiStructuredOutputRequest
 import org.sempods.ai.AiStructuredOutputResponse
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.JsonNode
 
 class OllamaAiService @Inject constructor(
   okHttpClient: OkHttpClient,

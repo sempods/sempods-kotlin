@@ -1,6 +1,5 @@
 package org.sempods.api.pod.system.auth
 
-import com.fasterxml.jackson.core.JacksonException
 import com.nimbusds.oauth2.sdk.ParseException
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import com.nimbusds.oauth2.sdk.client.RegistrationError
@@ -10,6 +9,7 @@ import org.sempods.commons.json.JsonUtil
 import org.sempods.pods.oauth.flows.PodClientMetadata
 import org.sempods.pods.oauth.flows.PodRegistrationError
 import org.sempods.pods.oauth.flows.PodRegistrationResult
+import tools.jackson.core.JacksonException
 
 /**
  * Reading a registration body (RFC 7591 §2, §3.1).

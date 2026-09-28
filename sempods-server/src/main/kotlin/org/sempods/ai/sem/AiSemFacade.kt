@@ -1,8 +1,5 @@
 package org.sempods.ai.sem
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ArrayNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.trace.TraceContextHolder
@@ -10,6 +7,9 @@ import org.sempods.ai.*
 import org.sempods.ai.sem.prompts.SempodsPromptBuilder
 import org.sempods.ai.sem.prompts.SempodsPromptBuilderFactory
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ArrayNode
+import tools.jackson.databind.node.ObjectNode
 
 class AiSemFacade @Inject constructor(
   private val aiService: AiService,
@@ -245,7 +245,7 @@ class AiSemFacade @Inject constructor(
     return when {
       value.isObject -> normalizeJsonLdObject(value as ObjectNode)
       value.isArray -> JsonMappers.default().createObjectNode().also { root ->
-        root.set<JsonNode>("@graph", (value as ArrayNode).deepCopy())
+        root.set("@graph", (value as ArrayNode).deepCopy())
       }
 
       else -> null
@@ -262,7 +262,7 @@ class AiSemFacade @Inject constructor(
     }
 
     val normalized = JsonMappers.default().createObjectNode()
-    value.get("@context")?.let { normalized.set<JsonNode>("@context", it.deepCopy()) }
+    value.get("@context")?.let { normalized.set("@context", it.deepCopy()) }
 
     val node = value.deepCopy()
     node.remove("@context")

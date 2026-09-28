@@ -45,11 +45,9 @@ dependencies {
   // OAuth surface. The core's SSRF resolve-and-pin rides on it, so this service owns none of that.
   implementation(libs.okhttp)
 
-  // JSON — JSON-RPC envelopes + JSON-LD payloads. The `java.time` codecs are a registration on the
-  // mapper; nothing names them.
-  implementation(libs.jacksonDatabind)
-  implementation(libs.jacksonKotlin)
-  runtimeOnly(libs.jackson)
+  // JSON — JSON-RPC envelopes + JSON-LD payloads.
+  implementation(libs.jackson3Databind)
+  implementation(libs.jackson3Kotlin)
 
   // Logging
   implementation(libs.bundles.logging)

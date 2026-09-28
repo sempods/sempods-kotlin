@@ -1,7 +1,5 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -13,6 +11,8 @@ import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.MediaType
 import org.sempods.client.SempodsOkHttp
 import org.slf4j.event.Level
+import tools.jackson.databind.JsonNode
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -256,10 +256,10 @@ class PodToolExecutorTest {
     answer("PUT", "/alice/_system/resources/${b64(thing)}", status = 201, body = "")
 
     run("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$thing","jsonld":{"$name":"Ada"}}""")
-    assertEquals(thing, lastBody("PUT")["@id"].asText())
+    assertEquals(thing, lastBody("PUT")["@id"].asString())
 
     run("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$thing","jsonld":{"@id":"https://elsewhere.example/x"}}""")
-    assertEquals(thing, lastBody("PUT")["@id"].asText())
+    assertEquals(thing, lastBody("PUT")["@id"].asString())
   }
 
   @Test

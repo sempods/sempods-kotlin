@@ -141,12 +141,6 @@ subprojects {
     mavenCentral()
   }
 
-  configurations.configureEach {
-    // Prefer Angus mail artifacts and avoid conflicting legacy Jakarta mail/activation transitive deps.
-    exclude(group = "com.sun.mail", module = "jakarta.mail")
-    exclude(group = "com.sun.activation", module = "jakarta.activation")
-  }
-
   java {
     toolchain {
       languageVersion = JavaLanguageVersion.of(25)

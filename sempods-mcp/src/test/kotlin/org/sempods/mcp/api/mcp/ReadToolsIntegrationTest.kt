@@ -1,7 +1,5 @@
 package org.sempods.mcp.api.mcp
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -36,6 +34,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import tools.jackson.databind.JsonNode
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -162,18 +162,18 @@ class ReadToolsIntegrationTest {
   }
 
   private fun podEntry(envelope: JsonNode, pod: String): JsonNode =
-    envelope["pods"].first { it["pod"].asText() == pod }
+    envelope["pods"].first { it["pod"].asString() == pod }
 
   @Test
   fun `list_pods returns the connected pods without contacting them`() = runBlocking {
     val body = call("list_pods", null)
-    val pods = body["pods"].map { it["pod"].asText() }.toSet()
+    val pods = body["pods"].values().map { it["pod"].asString() }.toSet()
     assertEquals(setOf(podA, podB), pods)
     // `scopes` only carries the token feature scopes; a note must steer the caller to list_contexts
     // for the real per-context grants, so `scopes:[public-read]` is not misread as "no access".
-    assertTrue(body.has("note") && "list_contexts" in body["note"].asText(),
+    assertTrue(body.has("note") && "list_contexts" in body["note"].asString(),
       "list_pods must clarify scopes vs per-context grants: $body")
-    assertEquals(listOf("public-read"), podEntry(body, podA)["scopes"].map { it.asText() })
+    assertEquals(listOf("public-read"), podEntry(body, podA)["scopes"].values().map { it.asString() })
   }
 
   @Test
@@ -197,7 +197,7 @@ class ReadToolsIntegrationTest {
 
     val a = podEntry(call("list_pods", null), podA)
 
-    assertEquals(acting, a["pod_subject"].asText(), "the row whose token a call uses is the one that answers: $a")
+    assertEquals(acting, a["pod_subject"].asString(), "the row whose token a call uses is the one that answers: $a")
     assertTrue(a["foreign_identity"].asBoolean())
     assertTrue(a["subject_verified"].asBoolean(), "verification belongs to the same token row")
 
@@ -212,7 +212,7 @@ class ReadToolsIntegrationTest {
     // A refresh records the issuer the pod names now; the registry keeps the one from the connect.
     registry.upsert(registry.find(PodKey(user, profile, podA))!!.copy(issuer = "$podA/_system/auth"))
 
-    assertEquals(podA, podEntry(call("list_pods", null), podA)["issuer"].asText())
+    assertEquals(podA, podEntry(call("list_pods", null), podA)["issuer"].asString())
   }
 
   @Test
@@ -235,12 +235,12 @@ class ReadToolsIntegrationTest {
     )
     val body = call("list_pods", null)
     val a = podEntry(body, podA)
-    assertEquals(foreignWebId, a["pod_subject"].asText())
+    assertEquals(foreignWebId, a["pod_subject"].asString())
     assertTrue(a["foreign_identity"].asBoolean(), "a differing pod subject must be flagged foreign")
     assertFalse(a["subject_verified"].asBoolean(), "no JWKS → subject is unverified")
-    assertEquals(user, a["similar_to"].asText(), "similar_to must weakly link the pod subject to the sempods WebID")
-    assertTrue("foreign_identity" in body["note"].asText(),
-      "the note must warn when any pod runs a foreign identity: ${body["note"].asText()}")
+    assertEquals(user, a["similar_to"].asString(), "similar_to must weakly link the pod subject to the sempods WebID")
+    assertTrue("foreign_identity" in body["note"].asString(),
+      "the note must warn when any pod runs a foreign identity: ${body["note"].asString()}")
   }
 
   @Test
@@ -249,10 +249,10 @@ class ReadToolsIntegrationTest {
     val a = podEntry(body, podA)
     val b = podEntry(body, podB)
     assertTrue(a["ok"].asBoolean(), "pod A must succeed")
-    assertEquals("$podA/main", a["result"]["contexts"][0]["context_iri"].asText())
+    assertEquals("$podA/main", a["result"]["contexts"][0]["context_iri"].asString())
     assertFalse(b["ok"].asBoolean(), "pod B (502) must report ok:false")
-    assertEquals("pod_error", b["error"]["kind"].asText())
-    assertTrue(b["error"]["message"].asText().isNotBlank())
+    assertEquals("pod_error", b["error"]["kind"].asString())
+    assertTrue(b["error"]["message"].asString().isNotBlank())
     // The pod answered, so its status travels structurally — the same as on the write path, so a
     // caller branches on 403-vs-502 without regex-ing the message.
     assertEquals(502, b["error"]["status"].asInt())
@@ -272,13 +272,13 @@ class ReadToolsIntegrationTest {
     val a = podEntry(call("list_contexts", """{"targets":["$podA"]}"""), podA)
 
     assertFalse(a["ok"].asBoolean(), a.toString())
-    assertEquals("pod_error", a["error"]["kind"].asText(), "a pod that answered is not a dead token: $a")
+    assertEquals("pod_error", a["error"]["kind"].asString(), "a pod that answered is not a dead token: $a")
     // No `status`: the tool call never reached the pod's System layer — the token endpoint refused.
     // A status here would name a response the caller's request never got.
     assertTrue(a["error"]["status"] == null, "no pod answered this call: $a")
     assertFalse(
-      "reconnect" in a["error"]["message"].asText(),
-      "must not ask for a reconnect the pod does not need: ${a["error"]["message"].asText()}",
+      "reconnect" in a["error"]["message"].asString(),
+      "must not ask for a reconnect the pod does not need: ${a["error"]["message"].asString()}",
     )
     // The connection survives — nothing here says the grant is finished.
     assertTrue(registry.find(PodKey(user, profile, podA)) != null, "the connection must be left alone")
@@ -295,15 +295,15 @@ class ReadToolsIntegrationTest {
     val a = podEntry(call("list_contexts", """{"targets":["$podA"]}"""), podA)
 
     assertFalse(a["ok"].asBoolean(), a.toString())
-    assertEquals("no_token", a["error"]["kind"].asText(), a.toString())
-    assertTrue("reconnect" in a["error"]["message"].asText(), a["error"]["message"].asText())
+    assertEquals("no_token", a["error"]["kind"].asString(), a.toString())
+    assertTrue("reconnect" in a["error"]["message"].asString(), a["error"]["message"].asString())
   }
 
   @Test
   fun `targets restricts the fan-out to the named pod`() = runBlocking {
     val body = call("list_contexts", """{"targets":["$podA"]}""")
     assertEquals(1, body["pods"].size())
-    assertEquals(podA, body["pods"][0]["pod"].asText())
+    assertEquals(podA, body["pods"][0]["pod"].asString())
     verify(exactly = 1) { auditLog.toolCall(user, profile, "list_contexts", listOf(podA), "ok") }
   }
 

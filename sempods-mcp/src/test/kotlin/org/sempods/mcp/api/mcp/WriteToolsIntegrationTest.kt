@@ -1,7 +1,5 @@
 package org.sempods.mcp.api.mcp
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -38,6 +36,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import tools.jackson.databind.JsonNode
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.net.URI
 import java.util.Date
 import java.util.UUID
@@ -150,10 +150,10 @@ class WriteToolsIntegrationTest {
   fun `create_resource writes to the single target pod and returns the etag`() = runBlocking {
     val res = call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}""")
     val env = envelope(res)
-    assertEquals(pod, env["pod"].asText())
+    assertEquals(pod, env["pod"].asString())
     assertTrue(env["ok"].asBoolean(), env.toString())
     assertEquals(201, env["result"]["status"].asInt())
-    assertEquals("\"v1\"", env["result"]["etag"].asText())
+    assertEquals("\"v1\"", env["result"]["etag"].asString())
     // Exactly one audit row per write tools/call, targeting exactly the one pod.
     verify(exactly = 1) { auditLog.toolCall(user, profile, "create_resource", listOf(pod), "ok") }
   }
@@ -178,8 +178,8 @@ class WriteToolsIntegrationTest {
     val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
     assertTrue(env["ok"].asBoolean(), env.toString())
     assertTrue(env["foreign_identity"].asBoolean(), "write envelope must flag a foreign pod identity: $env")
-    assertEquals(foreignWebId, env["pod_subject"].asText())
-    assertEquals(user, env["similar_to"].asText(), "write envelope must carry the weak similar_to link")
+    assertEquals(foreignWebId, env["pod_subject"].asString())
+    assertEquals(user, env["similar_to"].asString(), "write envelope must carry the weak similar_to link")
   }
 
   @Test
@@ -203,7 +203,7 @@ class WriteToolsIntegrationTest {
     val env = envelope(call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/thing","jsonld":{"@id":"$pod/thing","@type":"https://schema.org/Thing"}}"""))
 
     assertTrue(env["ok"].asBoolean(), env.toString())
-    assertEquals(acting, env["pod_subject"].asText(), "the envelope names the identity the call went out as: $env")
+    assertEquals(acting, env["pod_subject"].asString(), "the envelope names the identity the call went out as: $env")
   }
 
   @Test
@@ -211,7 +211,7 @@ class WriteToolsIntegrationTest {
     val res = call("add_property_value", """{"target":"$pod","context_iri":"$ctx","subject_iri":"$pod/thing","predicate_iri":"https://schema.org/name","value":{"@value":"Thing"}}""")
     val env = envelope(res)
     assertTrue(env["ok"].asBoolean(), env.toString())
-    assertEquals("\"slot-v1\"", env["result"]["etag"].asText())
+    assertEquals("\"slot-v1\"", env["result"]["etag"].asString())
   }
 
   @Test
@@ -307,7 +307,7 @@ class WriteToolsIntegrationTest {
     val res = call("create_resource", """{"target":"$pod","context_iri":"$ctx","resource_iri":"$pod/conflict","jsonld":{"@id":"$pod/conflict"},"if_none_match":"*"}""")
     val env = envelope(res)
     assertFalse(env["ok"].asBoolean(), env.toString())
-    assertEquals("pod_error", env["error"]["kind"].asText())
+    assertEquals("pod_error", env["error"]["kind"].asString())
     assertEquals(412, env["error"]["status"].asInt())
     // The audit detail carries the stable per-pod error kind, never the message.
     verify(exactly = 1) { auditLog.toolCall(user, profile, "create_resource", listOf(pod), "error", "pod_error") }

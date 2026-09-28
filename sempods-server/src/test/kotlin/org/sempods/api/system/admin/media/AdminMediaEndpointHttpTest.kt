@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.media
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
@@ -16,6 +15,7 @@ import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.parallel.ResourceLock
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path

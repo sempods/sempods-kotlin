@@ -1,7 +1,5 @@
 package org.sempods.api.pod.resources
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.inject.Inject
 import org.sempods.commons.jaxrs.errors.ApiException
 import org.sempods.commons.json.JsonMappers
@@ -18,6 +16,8 @@ import jakarta.ws.rs.core.Response
 import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.rio.RDFFormat
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ObjectNode
 import java.net.URI
 
 /**
@@ -322,28 +322,26 @@ class PodResourceWriteService @Inject constructor(
     val patch = root as ObjectNode
     val resourceUriString = resourceUri.toString()
 
-    for (key in patch.fieldNames().asSequence().toList()) {
+    for ((key, node) in patch.properties()) {
       when {
         key == "@id" -> {
-          val node = patch.get(key)
           if (node.isNull) {
             throw badRequest(
               "JSON-LD keyword '@id' is not allowed with null value in canonical patch bodies " +
                 "(only '@type' accepts null to remove all rdf:type triples)"
             )
           }
-          if (!node.isTextual || node.asText() != resourceUriString) {
+          if (!node.isString || node.asString() != resourceUriString) {
             throw badRequest(
               "@id in the merge patch must equal the request resource URI '$resourceUriString'"
             )
           }
         }
         key == "@type" -> {
-          val node = patch.get(key)
           val valid = when {
             node.isNull -> true
-            node.isTextual -> isCanonicalAbsoluteIri(node.asText())
-            node.isArray -> node.all { it.isTextual && isCanonicalAbsoluteIri(it.asText()) }
+            node.isString -> isCanonicalAbsoluteIri(node.asString())
+            node.isArray -> node.all { it.isString && isCanonicalAbsoluteIri(it.asString()) }
             else -> false
           }
           if (!valid) {
@@ -380,10 +378,7 @@ class PodResourceWriteService @Inject constructor(
   private fun applyVanillaJsonMergePatch(target: JsonNode?, patch: JsonNode): JsonNode {
     if (!patch.isObject) return patch.deepCopy()
     val targetObject = (target as? ObjectNode)?.deepCopy() ?: objectMapper.createObjectNode()
-    val fieldNames = patch.fieldNames()
-    while (fieldNames.hasNext()) {
-      val field = fieldNames.next()
-      val patchValue = patch.get(field) ?: continue
+    for ((field, patchValue) in patch.properties()) {
       if (patchValue.isNull) {
         targetObject.remove(field)
       } else {

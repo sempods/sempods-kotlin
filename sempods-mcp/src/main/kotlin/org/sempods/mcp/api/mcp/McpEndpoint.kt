@@ -1,8 +1,5 @@
 package org.sempods.mcp.api.mcp
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.NullNode
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.sempods.mcp.core.BearerChallenge
 import org.sempods.mcp.core.Capabilities
 import org.sempods.mcp.core.ContentItem
@@ -38,6 +35,9 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.NullNode
 
 /**
  * The MCP JSON-RPC 2.0 surface. The read and write tools that front pods are wired in via [readToolDispatch] / [writeToolDispatch].
@@ -91,7 +91,7 @@ fun Application.mcpEndpoint(
   suspend fun handleRpc(call: ApplicationCall, pathProfile: String) {
       val challenge = challengeFor(pathProfile)
       val rpc = runCatching { objectMapper.readTree(call.receiveText()) }.getOrNull()
-      if (rpc == null || rpc["jsonrpc"]?.asText() != "2.0" || rpc["method"] == null) {
+      if (rpc == null || rpc["jsonrpc"]?.asString("") != "2.0" || rpc["method"] == null) {
         return call.respondText(
           objectMapper.writeValueAsString(jsonRpcError(
             // JSON-RPC 2.0 §5: an id that could not be read is reported as null, not omitted.
@@ -101,7 +101,7 @@ fun Application.mcpEndpoint(
         )
       }
       val rawId: JsonNode? = rpc["id"]
-      val method = rpc["method"].asText()
+      val method = rpc["method"].asString("")
 
       // Notifications (no id) are acknowledged with 202 and no body.
       if (isNotification(rawId)) {
@@ -134,7 +134,7 @@ fun Application.mcpEndpoint(
 
       when (method) {
         "initialize" -> {
-          val requested = rpc["params"]?.get("protocolVersion")?.asText()
+          val requested = rpc["params"]?.get("protocolVersion")?.asString("")
           val negotiated = McpProtocol.negotiate(requested)
           call.respondRpc(objectMapper, id, InitializeResult(
             protocolVersion = negotiated,
@@ -159,7 +159,7 @@ fun Application.mcpEndpoint(
         "tools/call" -> {
           // A valid session is guaranteed here — anonymous callers never reach dispatch.
           val params = rpc["params"]
-          val toolName = params?.get("name")?.asText()
+          val toolName = params?.get("name")?.asString("")
           // Per-user quota, keyed on the VERIFIED (user, profile) — deliberately after the
           // bearer + profile-isolation gates, so an unauthenticated spray cannot drain a victim's
           // budget. Scoped to the vault-accessing pod tools (read/write) plus the unknown-tool

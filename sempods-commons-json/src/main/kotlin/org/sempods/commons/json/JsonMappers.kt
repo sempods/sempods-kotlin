@@ -2,54 +2,57 @@ package org.sempods.commons.json
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect
 import com.fasterxml.jackson.annotation.PropertyAccessor
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.MapperFeature
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.jacksonMapperBuilder
 
 /**
  * The project's JSON configuration, in one place.
  *
- * The BSON `ObjectId` codecs the project's earlier mapper also registered are **not** here: they
- * need `org.bson` and live in the Mongo-flavoured mapper instead, so that a consumer serialising
+ * The BSON `ObjectId` codecs are **not** here: they need `org.bson` and live in the
+ * Mongo-flavoured mapper, `withMongo()` in `:sempods-commons-mongo`, so that a consumer serialising
  * plain JSON does not inherit a database driver.
  *
- * The configuration is the contract, and each part of it is load-bearing:
+ * Jackson 3's defaults hold, except for what follows. Each part is load-bearing:
  *
  * - **fields only, no getters/setters/creators.** What is serialised is the object's state, not
  *   whatever its accessors happen to compute. Renaming a private field is therefore a wire change.
- * - **unknown properties ignored on read.** A newer client may send fields an older server does
- *   not know. Where that is the wrong trade — an authorization-relevant body, where a typo'd field
- *   silently becoming "not given" is a fail-open — the call site takes a [copy] and enables
- *   [DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES] on it.
- * - **dates as ISO-8601, not timestamps**, via [JavaTimeModule].
+ *   A `final` field is written on read, as `val`s have to be.
  * - **the Kotlin module**, so that `data class` constructors, nullability and defaults survive
  *   deserialisation.
+ *
+ * Each mapper is one shared instance: a `JsonMapper` is immutable and thread-safe and caches its
+ * serialisers. A caller that needs a different setting builds its own from [JsonMapper.rebuild].
  */
 object JsonMappers {
 
   /**
-   * The shared default mapper.
-   *
-   * One instance per process: `ObjectMapper` is thread-safe for reading and writing and caches its
-   * serialisers, so handing out copies would only lose that cache. It is shared, which means it
-   * must not be reconfigured — a caller that needs a different setting takes
-   * [ObjectMapper.copy] or [newDefault] and changes that.
+   * The shared default mapper. It ignores unknown properties, so a newer client may send fields an
+   * older server does not know.
    */
-  fun default(): ObjectMapper = DEFAULT
+  fun default(): JsonMapper = DEFAULT
 
-  /** A fresh mapper with the default configuration, for callers that need to change it. */
-  fun newDefault(): ObjectMapper = ObjectMapper()
-    .setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)
-    .setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.NONE)
-    .setVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE)
-    .setVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)
-    .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
-    .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-    .registerModule(JavaTimeModule())
-    .registerKotlinModule()
+  /**
+   * [default], refusing a property the target type does not declare.
+   *
+   * For a body whose fields decide what a request may do. There a typo'd field silently becoming
+   * "not given" is a fail-open.
+   */
+  fun strict(): JsonMapper = STRICT
 
-  private val DEFAULT: ObjectMapper = newDefault()
+  private val DEFAULT: JsonMapper = jacksonMapperBuilder()
+    .changeDefaultVisibility { checker ->
+      checker
+        .withVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)
+        .withVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.NONE)
+        .withVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE)
+        .withVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)
+    }
+    .enable(MapperFeature.ALLOW_FINAL_FIELDS_AS_MUTATORS)
+    .build()
+
+  private val STRICT: JsonMapper = DEFAULT.rebuild()
+    .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+    .build()
 }
