@@ -27,8 +27,9 @@ import kotlin.test.assertEquals
  * | [authorize], [ConsentPage.of], [submit] | what the rendered page offers and posts, PKCE included |
  * | [consent], [connect] | a post with no page rendered first, such as a sign-out after the session ended |
  *
- * Every authorization carries [CODE_CHALLENGE] and every exchange [CODE_VERIFIER]. A `did:web:`
- * client may leave PKCE out; the server ignores a verifier sent for a code without a challenge.
+ * Every authorization carries [CODE_CHALLENGE], and every exchange [CODE_VERIFIER] unless the test
+ * leaves it out. A `did:web:` client may leave PKCE out; the server ignores a verifier sent for a
+ * code without a challenge.
  */
 internal class DelegatedAccessFlow {
 
@@ -227,11 +228,11 @@ internal class DelegatedAccessFlow {
     return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
   }
 
-  /** The `authorization_code` exchange, with [CODE_VERIFIER]. */
-  fun exchangeCode(pod: PodDbo, app: App, code: String): TestHttpResponse = postForm(
+  /** The `authorization_code` exchange. A `null` [verifier] leaves `code_verifier` out. */
+  fun exchangeCode(pod: PodDbo, app: App, code: String, verifier: String? = CODE_VERIFIER): TestHttpResponse = postForm(
     "${podBase(pod)}/_system/auth/token",
     "grant_type=authorization_code&code=${enc(code)}&redirect_uri=${enc(app.redirectUri)}" +
-      "&client_id=${enc(app.clientId)}&code_verifier=$CODE_VERIFIER",
+      "&client_id=${enc(app.clientId)}" + (verifier?.let { "&code_verifier=${enc(it)}" } ?: ""),
   )
 
   /** The `refresh_token` grant. */

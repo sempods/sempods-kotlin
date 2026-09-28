@@ -48,20 +48,16 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
   private val noteName = "Written through a delegated token"
 
   @Test
-  fun `an app registers, is shown the dialog, and redeems its code with the PKCE verifier`() {
+  fun `an app registers, is shown the dialog, and redeems its code only with the PKCE verifier`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
     val app = flow.register(owned.pod)
     assertTrue(app.clientId.startsWith("dyn:"), app.clientId)
 
+    // The other hidden fields stay unpinned: how the page carries the authorization request is the
+    // server's own choice. The client sees only the redirect and the exchange.
     val page = ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "connect"))
-
-    assertEquals(app.clientId, page.hidden["client_id"])
-    assertEquals(app.redirectUri, page.hidden["redirect_uri"])
-    assertEquals("connect", page.hidden["state"])
-    assertEquals(DelegatedAccessFlow.CODE_CHALLENGE, page.hidden["code_challenge"])
-    assertEquals("S256", page.hidden["code_challenge_method"])
     assertTrue(page.hidden["csrf"].orEmpty().isNotBlank(), "the form carries its token: ${page.hidden}")
     val public = sempodsTestFactory.publicContextUri(owned.pod.name).toString()
     assertEquals(setOf(PUBLIC_READ_SCOPE) + rows(notes) + rows(diary) + rows(public), page.offered)
@@ -75,16 +71,18 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
     val location = checkNotNull(submitted.getHeader("Location"))
     assertTrue(location.startsWith(app.redirectUri), location)
     assertEquals("connect", query(submitted)["state"])
-
-    val exchanged = flow.exchangeCode(owned.pod, app, flow.codeFrom(submitted))
-    assertEquals(200, exchanged.statusCode, exchanged.responseBody)
-    val tokens = Tokens.of(exchanged)
-    assertTrue("bearer".equals(tokens.json["token_type"] as String?, ignoreCase = true), tokens.json.toString())
-    assertTrue(tokens.accessToken.isNotBlank() && tokens.refreshToken.isNotBlank())
+    val withoutVerifier = flow.exchangeCode(owned.pod, app, flow.codeFrom(submitted), verifier = null)
+    assertEquals(400, withoutVerifier.statusCode, "the code is bound to the challenge: ${withoutVerifier.responseBody}")
+    assertEquals("invalid_request", json(withoutVerifier)["error"])
 
     val again = ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie))
     assertEquals(setOf("$notes#read", "$notes#write"), again.ticked, "the next dialog pre-ticks what was granted")
     assertTrue(again.has("disconnectBtn"), "and offers to remove it")
+    val exchanged = flow.exchangeCode(owned.pod, app, flow.codeFrom(flow.submit(again, owned.cookie)))
+    assertEquals(200, exchanged.statusCode, exchanged.responseBody)
+    val tokens = Tokens.of(exchanged)
+    assertTrue("bearer".equals(tokens.json["token_type"] as String?, ignoreCase = true), tokens.json.toString())
+    assertTrue(tokens.accessToken.isNotBlank() && tokens.refreshToken.isNotBlank())
   }
 
   @Test
