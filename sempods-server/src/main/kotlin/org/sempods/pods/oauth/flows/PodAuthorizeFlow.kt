@@ -313,10 +313,11 @@ class PodAuthorizeFlow @Inject internal constructor(
     val userGrants = podGrantsFacade.resolveUserGrants(pod, identity.allUris)
 
     // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
-    // WebID and does not re-key what it finds, while `PodContextPermissionResolver.resolve` and the refresh path both
-    // query the token's subject — so counting an alias's rows here would auto-grant a token with no
-    // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
-    // different question, and the dialog's disconnect offer is where it is asked.
+    // WebID and does not re-key what it finds, while `PodContextPermissionResolver.resolve` and the
+    // refresh path both query the token's subject — so counting an alias's rows here would
+    // auto-grant a token with no context permissions whose first refresh fails. Whether an app holds
+    // anything *at all* is a different question, and the dialog's disconnect offer is where it is
+    // asked.
     val existingGrants = podGrantsFacade.appGrants(pod.id, normalizedClientId, listOf(identity.webId))
 
     logger.info {

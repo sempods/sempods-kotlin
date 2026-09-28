@@ -13,10 +13,10 @@ import org.sempods.spec.PodRef
  * Context permissions are **not** read from the token. They come from the grant store of the
  * token's recipient — an app acting for a person, or a service client acting as itself — through
  * the one entry [PodContextPermissionResolver.resolve], so a revoked grant or a deleted context
- * takes effect on the next request rather than after the JWT expires. Each recipient's replace
- * follows its own conflict rule ([GrantRecipient]), and what a request overlapping one sees follows
- * from it: one version of a service's grants, possibly part of a delegation's. Only stable feature and OIDC scopes (`public-read`,
- * `openid`) still travel in the token; they are sanitized here and carried through unchanged.
+ * takes effect on the next request rather than after the JWT expires. What a request overlapping a
+ * replace sees follows from the recipient's conflict rule ([GrantRecipient]); the resolver says how.
+ * Only stable feature and OIDC scopes (`public-read`, `openid`) still travel in the token; they are
+ * sanitized here and carried through unchanged.
  *
  * `public-read` is **additive**: the effective contexts are the resolved grants ∪ the pod's public
  * contexts, and the second half only if the token carries the scope. The consent UI pre-checks it,

@@ -53,8 +53,8 @@ class PodContextPermissionResolver @Inject constructor(
    *   its registration (`PodServiceClientDao`), whichever registration holds the `client_id` now.
    *   A single-document write replaces them, so a request sees one version of them or the next.
    * - **Any other token** is an app acting for its `sub`, and reads `PodGrantsDao` under
-   *   `(pod, client_id, sub)`. A replace there deletes and then inserts, so a request overlapping one
-   *   can see part of the old or the new selection.
+   *   `(pod, client_id, sub)`. A request overlapping a replace there can see part of either
+   *   selection (`PodGrantsDao.replaceGrants`).
    *
    * The delegation half resolves the *app-delegation* level only. The user level
    * (`PodWebIdGrantsDao`, owner-granted WebID→context access) is applied once at consent time and

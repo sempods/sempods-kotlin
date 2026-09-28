@@ -34,7 +34,7 @@ internal data class PodServiceClientDbo(
   val secretHash: String,
 
   /**
-   * The context grants the client holds. The BSON field keeps its old name.
+   * The context grants the client holds, stored under the field name `scopes`.
    *
    * May be empty, in either of two spellings: absent on a row inserted without grants and never
    * changed since, and `[]` on one an update emptied. Both read back as an empty set, and what such

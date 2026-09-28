@@ -72,9 +72,8 @@ Each is an instance of a rule stated in the document contract, and all are this 
 - **`oauth.serviceClients` spells grants version `0` as an absent `grantsVersion`**: on every row
   older than the field, and on every row whose grants were never written since. `{grantsVersion: 0}`
   matches none of them, so a replace prepared at `0` filters on the absent field as well
-  (`PodServiceClientDao.replaceScopes`). Every write to `scopes` increments the version;
-  `grantsChangedAt` and `grantsChangedBy` record when and by whom a person last changed them. No
-  transform: the fields appear with the first write. See `PodServiceClientDaoTest`.
+  (`PodServiceClientDao.replaceScopes`). No transform: the field appears with the first write. See
+  `PodServiceClientDaoTest`.
 
 ## Conventions
 
