@@ -6,7 +6,7 @@ import org.sempods.client.net.SempodsUrlPolicy
 import java.util.Locale
 
 /**
- * One pod's base URL, validated once and then trusted.
+ * One pod's base URL and the address it is reached at, each validated once and then trusted.
  *
  * **What a base URL is** is fixed by the specification, and both clauses are enforced here:
  *
@@ -35,18 +35,36 @@ import java.util.Locale
  * that mints `https://pods.example:443/alice/events/1` pass [contains], but `resources()` and
  * `contexts()` refuse every IRI it hands out.
  *
+ * **A pod has a name and an address, usually the same URL.** [url] is the name: the pod's IRIs, the
+ * issuer of its tokens and the pages a browser opens hang from it. [address] is where this process
+ * sends the pod's requests, and where a session's credential goes. Behind a proxy that terminates
+ * TLS, an in-cluster caller names the pod on its public host and reaches it at the internal one:
+ *
+ * ```kotlin
+ * SempodsPodBase.of("https://acme.example/api/pod")
+ *   .reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
+ * ```
+ *
  * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
  * would bind under another spelling.
  */
 class SempodsPodBase private constructor(
-  /** The canonical form: no trailing slash, no query, no fragment. */
+  /** The pod's name, in canonical form: no trailing slash, no query, no fragment. */
   val url: HttpUrl,
+  /**
+   * Where this process sends the pod's requests, canonical like [url]. It is [url] unless
+   * [reachedAt] or [reachedOverPlaintextAt] named another.
+   */
+  val address: HttpUrl,
 ) {
 
-  private val segments: List<String> = url.pathSegments.dropLastWhile { it.isEmpty() }
+  private val segments: List<String> = segmentsOf(url)
+
+  private val addressSegments: List<String> = if (address == url) segments else segmentsOf(address)
 
   /**
-   * The absolute URL of [podRelativePath] under this base.
+   * The absolute URL of [podRelativePath] under [url] — the page a browser opens. A request's path
+   * resolves under [address] instead, by the same rules ([SempodsSession.newRequest]).
    *
    * [podRelativePath] is already percent-encoded by the caller — this appends, it does not encode.
    * `HttpUrl.Builder.addPathSegment` is what encodes one segment. A query may be attached with `?`;
@@ -56,7 +74,66 @@ class SempodsPodBase private constructor(
    * address something other than what the path reads as, and a session's credential travels with
    * whatever it resolves to.
    */
-  fun resolve(podRelativePath: String): HttpUrl {
+  fun resolve(podRelativePath: String): HttpUrl = under(url, podRelativePath)
+
+  /** [resolve], under [address]: the URL a request for [podRelativePath] goes to. */
+  @JvmSynthetic
+  internal fun dial(podRelativePath: String): HttpUrl = under(address, podRelativePath)
+
+  /**
+   * Whether [target] is this pod, or something under it, by its name [url].
+   *
+   * Scheme, host and port must match, and the path must be this base or a descendant — a sibling
+   * that merely shares the prefix as text (`/alice-archive` under `/alice`) is not under it.
+   */
+  operator fun contains(target: HttpUrl): Boolean = holds(url, segments, target)
+
+  /**
+   * [contains], asked of [address]: whether a request for [target] stays with this pod.
+   *
+   * Asked again when a request is executed, not only when one is built. A `Request` is a plain
+   * object holding an absolute URL, so one assembled through session A and executed through session
+   * B would otherwise send B's credential to A's pod.
+   */
+  @JvmSynthetic
+  internal fun reaches(target: HttpUrl): Boolean = holds(address, addressSegments, target)
+
+  /**
+   * This pod, reached at [address]. [url] stays its name.
+   *
+   * [address] must be a URL [of] would accept, `https` included. Its path may differ from [url]'s:
+   * a pod-relative path resolves under each the same way. An answer's [SempodsResponse.url] is the
+   * URL at [address] the request went to.
+   *
+   * @throws IllegalArgumentException when [address] is not a usable address.
+   */
+  fun reachedAt(address: String): SempodsPodBase = SempodsPodBase(url, bindAddress(address, plaintext = false))
+
+  /**
+   * [reachedAt], with `http` allowed on any host: for a hop the deployment trusts, such as the one
+   * behind a proxy that terminates TLS. The session's credential crosses it in plain text.
+   *
+   * [url] is still held to SPS-CORE-019, so a pod's name stays `https` off loopback.
+   *
+   * @throws IllegalArgumentException when [address] is not a usable address.
+   */
+  fun reachedOverPlaintextAt(address: String): SempodsPodBase = SempodsPodBase(url, bindAddress(address, plaintext = true))
+
+  override fun equals(other: Any?): Boolean = other is SempodsPodBase && other.url == url && other.address == address
+
+  override fun hashCode(): Int = 31 * url.hashCode() + address.hashCode()
+
+  /** The name, [url]. */
+  override fun toString(): String = url.toString()
+
+  private fun bindAddress(address: String, plaintext: Boolean): HttpUrl {
+    val (bound, reason) = validate(address, plaintext)
+    if (bound != null) return bound
+    val hint = if (!plaintext && validate(address, plaintext = true).first != null) "; reachedOverPlaintextAt accepts it" else ""
+    throw IllegalArgumentException("'$address' is not a usable address for the pod '$url': $reason$hint")
+  }
+
+  private fun under(base: HttpUrl, podRelativePath: String): HttpUrl {
     require(!podRelativePath.startsWith("/")) {
       "A pod-relative path must not start with '/': '$podRelativePath' would address the host root."
     }
@@ -72,37 +149,22 @@ class SempodsPodBase private constructor(
     }
     val separator = if (path.isEmpty()) "" else "/"
     // A pod at the host root renders as `https://pods.example/`, whose slash the separator repeats.
-    return requireNotNull("${url.toString().removeSuffix("/")}$separator$podRelativePath".toHttpUrlOrNull()) {
-      "'$podRelativePath' under '$url' is not a valid URL."
+    return requireNotNull("${base.toString().removeSuffix("/")}$separator$podRelativePath".toHttpUrlOrNull()) {
+      "'$podRelativePath' under '$base' is not a valid URL."
     }
   }
 
-  /**
-   * Whether [target] is this pod, or something under it.
-   *
-   * Asked again when a request is executed, not only when one is built. A `Request` is a plain
-   * object holding an absolute URL, so one assembled through session A and executed through session
-   * B would otherwise send B's credential to A's pod. Scheme, host and port must match, and the
-   * path must be this base or a descendant — a sibling that merely shares the prefix as text
-   * (`/alice-archive` under `/alice`) is not under it.
-   */
-  operator fun contains(target: HttpUrl): Boolean {
-    if (target.scheme != url.scheme) return false
-    if (!target.host.equals(url.host, ignoreCase = true)) return false
-    if (target.port != url.port) return false
+  private fun holds(base: HttpUrl, baseSegments: List<String>, target: HttpUrl): Boolean {
+    if (target.scheme != base.scheme) return false
+    if (!target.host.equals(base.host, ignoreCase = true)) return false
+    if (target.port != base.port) return false
     // Segment-wise and with empty segments kept: `HttpUrl` has already resolved dot segments, so this
     // compares what would actually be dialled, and `//alice` is not `/alice`. The segments are decoded,
     // and one holding a `/` or `\` is several to a server that decodes before it routes.
     val reached = target.pathSegments
-    return reached.size >= segments.size && reached.subList(0, segments.size) == segments &&
+    return reached.size >= baseSegments.size && reached.subList(0, baseSegments.size) == baseSegments &&
       reached.none { '/' in it || '\\' in it }
   }
-
-  override fun equals(other: Any?): Boolean = other is SempodsPodBase && other.url == url
-
-  override fun hashCode(): Int = url.hashCode()
-
-  override fun toString(): String = url.toString()
 
   companion object {
 
@@ -113,12 +175,9 @@ class SempodsPodBase private constructor(
      */
     @JvmStatic
     fun of(baseUrl: String): SempodsPodBase {
-      val reason = reject(baseUrl)
-      require(reason == null) { "'$baseUrl' is not a usable pod base URL: $reason" }
-      // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
-      // and the two spellings name the same pod, so this accepts the equivalent input.
-      val canonical = baseUrl.removeSuffix("/")
-      return SempodsPodBase(canonical.toHttpUrlOrNull()!!)
+      val (bound, reason) = validate(baseUrl, plaintext = false)
+      requireNotNull(bound) { "'$baseUrl' is not a usable pod base URL: $reason" }
+      return SempodsPodBase(bound, bound)
     }
 
     /**
@@ -129,30 +188,42 @@ class SempodsPodBase private constructor(
      * second copy of the rules.
      */
     @JvmStatic
-    fun reject(baseUrl: String): String? {
+    fun reject(baseUrl: String): String? = validate(baseUrl, plaintext = false).second
+
+    /**
+     * [spelled] bound in canonical form, or why it is not a base URL. [plaintext] lifts the one
+     * clause an address may break: `http` off a loopback address.
+     */
+    private fun validate(spelled: String, plaintext: Boolean): Pair<HttpUrl?, String?> {
       // Checked before parsing: `HttpUrl` normalises a dot segment away and would report a path
       // the caller never wrote, so the clause would pass on a URL that breaks it.
-      val beforeQuery = baseUrl.substringBefore('?').substringBefore('#')
+      val beforeQuery = spelled.substringBefore('?').substringBefore('#')
       val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
-      if (afterAuthority.contains('%')) return "path must not contain a percent-encoded octet (SPS-CORE-020)"
-      if (afterAuthority.contains('\\')) return "path must not contain a backslash (SPS-CORE-020)"
+      if (afterAuthority.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
+      if (afterAuthority.contains('\\')) return refused("path must not contain a backslash (SPS-CORE-020)")
       if (afterAuthority.split('/').any { it == "." || it == ".." }) {
-        return "path must not contain a dot segment (SPS-CORE-020)"
+        return refused("path must not contain a dot segment (SPS-CORE-020)")
       }
       // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
-      if ("/$afterAuthority".endsWith("//")) return "path must not end in more than one slash (SPS-CORE-019)"
+      if ("/$afterAuthority".endsWith("//")) return refused("path must not end in more than one slash (SPS-CORE-019)")
 
-      val url = baseUrl.toHttpUrlOrNull() ?: return "not an absolute http(s) URL"
-      if (url.query != null) return "must not carry a query (SPS-CORE-019)"
-      if (url.fragment != null) return "must not carry a fragment (SPS-CORE-019)"
+      // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
+      // and the two spellings name the same pod, so this accepts the equivalent input.
+      val url = spelled.removeSuffix("/").toHttpUrlOrNull() ?: return refused("not an absolute http(s) URL")
+      if (url.query != null) return refused("must not carry a query (SPS-CORE-019)")
+      if (url.fragment != null) return refused("must not carry a fragment (SPS-CORE-019)")
       if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
-        return "must not contain userinfo (SPS-CORE-019)"
+        return refused("must not contain userinfo (SPS-CORE-019)")
       }
-      if (url.scheme == "http" && !isLoopback(url.host)) {
-        return "http is allowed only on a loopback address (SPS-CORE-019)"
+      if (!plaintext && url.scheme == "http" && !isLoopback(url.host)) {
+        return refused("http is allowed only on a loopback address (SPS-CORE-019)")
       }
-      return null
+      return url to null
     }
+
+    private fun refused(reason: String): Pair<HttpUrl?, String?> = null to reason
+
+    private fun segmentsOf(url: HttpUrl): List<String> = url.pathSegments.dropLastWhile { it.isEmpty() }
 
     /** A loopback name ([SempodsUrlPolicy.isLoopbackName]) or a loopback literal. */
     private fun isLoopback(host: String): Boolean {

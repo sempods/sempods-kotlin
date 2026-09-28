@@ -19,6 +19,7 @@ import org.sempods.client.SempodsWriteOptions
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /** A model call is the core's call: the same credential, resend and admission as a raw call on the same pod. */
@@ -53,6 +54,16 @@ class SempodsRdf4jSessionTest : MockPodTest() {
 
     val sent = server.retrieveRecordedRequests(request()).map { it.getFirstHeader("Authorization") }
     assertEquals(listOf("Bearer token-1", "Bearer token-2", "Bearer token-2"), sent)
+  }
+
+  @Test
+  fun `rdf4j() reads through the pod it is called on`() {
+    server.`when`(request()).respond(response().withStatusCode(200).withBody("<urn:s> <urn:p> \"o\" .\n"))
+    val pod = pod(SempodsRequestAuth.bearer("token-a"))
+
+    assertSame(pod, pod.rdf4j().pod)
+    assertEquals(1, pod.rdf4j().resources().getModel(event).body?.size)
+    assertEquals("Bearer token-a", server.retrieveRecordedRequests(request()).single().getFirstHeader("Authorization"))
   }
 
   @Test

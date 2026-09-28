@@ -173,3 +173,7 @@ class SempodsPodMedia(pod: SempodsPod) {
     return built.newBuilder().url(url)
   }
 }
+
+/** This pod's media routes: `pod.media().assign(id, context)`. From Java, `new SempodsPodMedia(pod)`. */
+@JvmSynthetic
+fun SempodsPod.media(): SempodsPodMedia = SempodsPodMedia(this)

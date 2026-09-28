@@ -37,12 +37,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * route gets all of the above by building through here and running on such a client, and needs
  * nothing private. [SempodsPod]'s groups are built on exactly that.
  *
- * **A credential never leaves its pod.** The client checks the target against [podBase] — the URL,
- * and any `Host` header, which a server that routes by name follows instead — before the first
- * attempt and once more in its last network interceptor, on the request about to be written —
- * after every application interceptor, after a redirect, and after every network interceptor added
- * before [SempodsOkHttp.install]. An interceptor that moves the request therefore takes no credential
- * along.
+ * **A credential never leaves its pod.** The client checks the target against the address the pod
+ * is reached at ([SempodsPodBase.address]) — the URL, and any `Host` header, which a server that
+ * routes by name follows instead — before the first attempt and once more in its last network
+ * interceptor, on the request about to be written — after every application interceptor, after a
+ * redirect, and after every network interceptor added before [SempodsOkHttp.install]. An
+ * interceptor that moves the request therefore takes no credential along.
  *
  * **A request from here cannot be sent without that policy.** Its URL carries the placeholder host
  * [SempodsOkHttp.UNBOUND_HOST] (RFC 6761 reserves `.invalid`) in place of the pod's, and the client's
@@ -58,16 +58,18 @@ class SempodsSession @JvmOverloads constructor(
 ) {
 
   /**
-   * Starts a request against [podRelativePath] under this session's pod.
+   * Starts a request against [podRelativePath] under this session's pod, at its
+   * [address][SempodsPodBase.address].
    *
    * [method] is any token, so HEAD, OPTIONS and a protocol extension's own verb need no change
-   * here. [podRelativePath] is resolved by [SempodsPodBase.resolve], which says what it may carry.
+   * here. [podRelativePath] resolves as [SempodsPodBase.resolve] says, which also says what it may
+   * carry.
    *
    * The URL's host is the placeholder described on this class, and the request is tagged with this
    * session. No credential is attached here: the client applies one per attempt.
    */
   fun newRequest(method: String, podRelativePath: String): Request.Builder {
-    val target = podBase.resolve(podRelativePath)
+    val target = podBase.dial(podRelativePath)
     return Request.Builder()
       .url(target.newBuilder().host(SempodsOkHttp.UNBOUND_HOST).build())
       // An empty body for the verbs OkHttp requires one for, so a caller can name the method here
@@ -108,7 +110,7 @@ class SempodsSession @JvmOverloads constructor(
   internal fun bind(request: Request): Request {
     val bound =
       if (request.url.host != SempodsOkHttp.UNBOUND_HOST) request
-      else request.newBuilder().url(request.url.newBuilder().host(podBase.url.host).build()).build()
+      else request.newBuilder().url(request.url.newBuilder().host(podBase.address.host).build()).build()
     confine(bound)
     return bound
   }
@@ -120,9 +122,9 @@ class SempodsSession @JvmOverloads constructor(
   @JvmSynthetic
   internal fun confine(request: Request) {
     val target = request.url
-    if (target !in podBase) {
+    if (!podBase.reaches(target)) {
       throw SempodsClientException(
-        "'$target' is not under this session's pod '$podBase'. A request built for one pod cannot " +
+        "'$target' is not under this session's pod ${described()}. A request built for one pod cannot " +
           "be sent to another; build it with that pod's session.",
       )
     }
@@ -131,11 +133,15 @@ class SempodsSession @JvmOverloads constructor(
     val named = request.headers.values("Host").filterNot { namesAuthorityOf(it, target) }
     if (named.isNotEmpty()) {
       throw SempodsClientException(
-        "'Host: ${named.first()}' does not name this session's pod '$podBase'. A request cannot be " +
+        "'Host: ${named.first()}' does not name this session's pod ${described()}. A request cannot be " +
           "sent to another server under this session's credential.",
       )
     }
   }
+
+  /** The pod as a refusal names it: its name, and the address it is reached at where that differs. */
+  private fun described(): String =
+    if (podBase.address == podBase.url) "'$podBase'" else "'$podBase' at '${podBase.address}'"
 
   private companion object {
 

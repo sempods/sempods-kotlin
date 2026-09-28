@@ -156,7 +156,7 @@ internal class ResourceOperations(
     options: SempodsReadOptions,
     reading: BodyReading<T>,
   ): SempodsResponse<T> {
-    val url = session.podBase.resolve(path).newBuilder()
+    val url = session.podBase.dial(path).newBuilder()
     options.selection.contextUris.forEach { url.addQueryParameter(CONTEXT, it) }
     if (options.includeContexts) url.addQueryParameter(INCLUDE_CONTEXTS, "true")
     if (options.selection.isRestricted && options.selection.contextUris.isEmpty()) {
@@ -205,7 +205,7 @@ internal class ResourceOperations(
     options: SempodsWriteOptions,
     answers: Set<Int>,
   ): SempodsResponse<ByteArray> {
-    val url = session.podBase.resolve(path).newBuilder()
+    val url = session.podBase.dial(path).newBuilder()
     url.addQueryParameter(CONTEXT, options.contextUri)
     val request = session.newRequest(method, target(path, url))
     if (content != null && mediaType != null) request.method(method, content.requestBody(mediaType.toMediaType()))

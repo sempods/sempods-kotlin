@@ -96,6 +96,51 @@ class SempodsPodBaseTest {
   }
 
   @Test
+  fun `an address changes where requests go and leaves the name`() {
+    val base = SempodsPodBase.of("https://acme.example/api/pod").reachedAt("http://localhost:8080/internal/")
+
+    assertEquals("https://acme.example/api/pod", base.toString())
+    assertEquals("http://localhost:8080/internal", base.address.toString())
+    assertEquals("https://acme.example/api/pod/_system/auth/authorize", base.resolve("_system/auth/authorize").toString())
+    assertEquals("http://localhost:8080/internal/_system/contexts", base.dial("_system/contexts").toString())
+    assertTrue("https://acme.example/api/pod/x".toHttpUrl() in base)
+    assertFalse(base.reaches("https://acme.example/api/pod/x".toHttpUrl()))
+    assertTrue(base.reaches("http://localhost:8080/internal/x".toHttpUrl()))
+    assertFalse("http://localhost:8080/internal/x".toHttpUrl() in base)
+  }
+
+  @Test
+  fun `without an address the pod is reached at its name`() {
+    val base = SempodsPodBase.of("https://pods.example/alice")
+    assertEquals(base.url, base.address)
+    assertEquals(base, SempodsPodBase.of("https://pods.example/alice/"))
+    assertEquals(base, base.reachedAt("https://pods.example/alice"))
+    assertFalse(base == base.reachedAt("https://internal.example/alice"))
+  }
+
+  @Test
+  fun `plain http off loopback is an address only when asked for by name`() {
+    val name = SempodsPodBase.of("https://acme.example/api/pod")
+    val refused = assertThrows<IllegalArgumentException> { name.reachedAt("http://sempods.internal:8080/api/pod") }
+    assertTrue(refused.message!!.contains("reachedOverPlaintextAt"), refused.message)
+
+    val reached = name.reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
+    assertEquals("http://sempods.internal:8080/api/pod", reached.address.toString())
+    // The name is held to SPS-CORE-019 however the pod is reached.
+    assertThrows<IllegalArgumentException> { SempodsPodBase.of("http://acme.example/api/pod") }
+  }
+
+  @Test
+  fun `an address is held to every other clause of a base URL`() {
+    val name = SempodsPodBase.of("https://acme.example/api/pod")
+    SempodsPodBaseVectors.refused.filterNot { (_, requirement) -> requirement == "SPS-CORE-019 http off loopback" }
+      .forEach { (url, requirement) ->
+        assertThrows<IllegalArgumentException>("$url ($requirement)") { name.reachedAt(url) }
+        assertThrows<IllegalArgumentException>("$url ($requirement)") { name.reachedOverPlaintextAt(url) }
+      }
+  }
+
+  @Test
   fun `the default port is the same port`() {
     assertTrue("https://pods.example:443/alice/x".toHttpUrl() in SempodsPodBase.of("https://pods.example/alice"))
     assertTrue("https://pods.example/alice/x".toHttpUrl() in SempodsPodBase.of("https://pods.example:443/alice"))
