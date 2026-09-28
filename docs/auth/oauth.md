@@ -781,7 +781,7 @@ flood of public registrations does not hold up a service's, and the other way ro
 - **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
   `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.
 - **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and
-  `…_BURST`. A rate of `0` turns that budget off and leaves the others; a burst of `0` follows the
+  `…_BURST`. Where the `SERVICE` names are unset, the former `…_INSTALLER_…` names are read. A rate of `0` turns that budget off and leaves the others; a burst of `0` follows the
   rate. All are off outside a deployment, and a negative value is refused at boot. The buckets are
   in memory per process, as at `/token`.
 

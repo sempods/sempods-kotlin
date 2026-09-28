@@ -176,6 +176,22 @@ class SempodsConfigTest {
   }
 
   @Test
+  fun `the service budget still reads the installer budget's names where its own are unset`() {
+    // Frozen names (`docs/naming.md` §3): an operator who tuned the installer budget keeps it.
+    val former = "SEMPODS_TEST_FORMER_BUDGET_${System.nanoTime()}"
+    val current = "SEMPODS_TEST_CURRENT_BUDGET_${System.nanoTime()}"
+    System.setProperty(former, "7")
+    try {
+      assertEquals(7, SempodsModule.registerBudget(current, default = 2, formerly = former))
+      System.setProperty(current, "9")
+      assertEquals(9, SempodsModule.registerBudget(current, default = 2, formerly = former), "the new name wins")
+    } finally {
+      System.clearProperty(former)
+      System.clearProperty(current)
+    }
+  }
+
+  @Test
   fun `a negative registration budget is refused rather than read as off`() {
     val base = configWith(rate = 0)
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitPublicPerMinute = -1) }
