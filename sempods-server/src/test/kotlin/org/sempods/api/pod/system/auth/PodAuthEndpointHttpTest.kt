@@ -2970,7 +2970,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   fun `non-owner without an owner-level WebID grant is denied delegating a private context`() {
     // Regression companion to the test above: the same consent submission WITHOUT the
     // owner-level grant must be rejected — `resolveUserGrants` is empty for the non-owner,
-    // so the requested private-context scope is filtered out and no access is granted.
+    // so the requested private-context scope is filtered out and no access is granted. It is
+    // answered as the race it looks like: nothing ticked is the person's to delegate.
     val pod = sempodsTestFactory.newPod()
     val nonOwnerUser = sempodsTestFactory.newOwner()
     val nonOwnerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(nonOwnerUser.email))
@@ -2994,7 +2995,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     val location = response.getHeader("Location")
     assertNotNull(location)
-    assertTrue(location.contains("error=access_denied"), "Should reject with access_denied, got: $location")
+    assertTrue(location.contains("error=consent_required"), "Should reject with consent_required, got: $location")
 
     val savedGrants = podGrantsDao.fetchGrantStrings(
       podId = checkNotNull(pod.id),

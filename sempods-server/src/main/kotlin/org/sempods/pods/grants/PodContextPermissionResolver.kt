@@ -137,13 +137,11 @@ class PodContextPermissionResolver @Inject constructor(
   }
 
   /**
-   * The nearest `<root>#manage` scope in [scopes] that covers [contextUri] from above, or `null`.
-   * The context's own `#manage` does not count: it is a grant on the context itself.
+   * The nearest of [manageRoots] that covers [contextUri] from above, or `null`. The context's own
+   * root does not count: it is a grant on the context itself.
    */
-  internal fun manageRootAbove(scopes: Set<String>, podBaseUrl: String, contextUri: String): String? =
-    manageRoots(scopes, podBaseUrl)
-      .filter { root -> root != contextUri && covers(root, contextUri) }
-      .maxByOrNull { it.length }
+  internal fun manageRootAbove(manageRoots: List<String>, contextUri: String): String? =
+    manageRoots.filter { root -> root != contextUri && covers(root, contextUri) }.maxByOrNull { it.length }
 
   /**
    * Build the display-oriented effective-permission view behind both `GET _system/contexts`
@@ -208,7 +206,7 @@ class PodContextPermissionResolver @Inject constructor(
   }
 
   /** Extract the context URIs of all `<root>#manage` scopes, validated. */
-  private fun manageRoots(scopes: Set<String>, podBaseUrl: String): List<String> =
+  internal fun manageRoots(scopes: Set<String>, podBaseUrl: String): List<String> =
     scopes.mapNotNull { scope ->
       (podScopeValidator.validate(scope, podBaseUrl) as? ScopeValidationResult.Context)
         ?.takeIf { it.permission == ScopePermission.manage }

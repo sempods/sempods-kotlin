@@ -207,7 +207,8 @@ class PodConsentFlow @Inject internal constructor(
 
     // ── The grant selection, which every consent dialog shares ────────────
     val offer = transaction.binding
-      ?.let { ConsentSelection.Offer(it.offeredContexts, it.publicReadOffered, it.contextCreationOffered) }
+      // Creation asks the owner question again: the screen offered it to whoever owned the pod then.
+      ?.let { ConsentSelection.Offer(it.offeredContexts, it.publicReadOffered, it.contextCreationOffered && isOwner) }
       // A screen an older node rendered bound no rows (`ConsentTransactionStore`, rollout): what it
       // posts is taken as offered, [ConsentSelection.apply] still drops what the person cannot
       // delegate, and only an owner creates contexts.
@@ -248,14 +249,12 @@ class PodConsentFlow @Inject internal constructor(
       approverUris = identity.allUris,
       approver = identity.webId,
     )
-    // Every row ticked turned out to be one the person no longer holds. That is the empty
-    // confirmation after all, reached late.
-    val persistedScopes = applied.replacement?.granted
-      ?: return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
+    // No replacement: nothing ticked is still the person's to delegate, and nothing was written.
+    val persistedScopes = applied.replacement?.granted.orEmpty()
 
     if (persistedScopes.isEmpty()) {
-      // Recoverable: the person's authority changed while they were deciding. `consent_required`
-      // rather than `access_denied` — nobody refused anything, the basis simply moved.
+      // Recoverable: the person's authority changed while they were deciding, before the write or
+      // during it. `consent_required`: nobody refused anything, the basis moved.
       logger.warn {
         "[oauth/consent] Selection void — owner-level access changed during consent: " +
             "pod='${pod.name}', clientId='$normalizedClientId', webId='${identity.webId}', " +

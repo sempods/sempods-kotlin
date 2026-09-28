@@ -682,6 +682,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
     fun relativePathOf(path: String): String = path.substringAfter('/', path)
     fun pathOf(uri: String): String = URI(uri).path?.trimStart('/') ?: uri
+    val manageRoots = permissionResolver.manageRoots(existingGrants, pod.baseUrl)
 
     return contextUris.map { uri ->
       val path = pathOf(uri)
@@ -693,7 +694,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         writeGranted = existingGrants.contains("$uri#write"),
         manageGranted = existingGrants.contains("$uri#manage"),
         // The nearest root, where several nest: it is the one a person unticks to take this row.
-        managedVia = permissionResolver.manageRootAbove(existingGrants, pod.baseUrl, uri)
+        managedVia = permissionResolver.manageRootAbove(manageRoots, uri)
           ?.let { relativePathOf(pathOf(it)) },
       )
     }

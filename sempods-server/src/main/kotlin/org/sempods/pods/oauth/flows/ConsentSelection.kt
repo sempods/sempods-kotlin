@@ -87,8 +87,8 @@ internal class ConsentSelection @Inject constructor(
 
   /**
    * @param replacement what [PodGrantsFacade.replaceGrants] answered; `null` where no ticked row
-   *   survived the resolution, and nothing was replaced. What an empty selection means is the
-   *   recipient's to say.
+   *   survived the resolution, and nothing was replaced. That is the same race as a replacement
+   *   whose `granted` comes back empty.
    * @param created the contexts this call created, in the order they were posted.
    */
   data class Applied<R : GrantReplacement>(val replacement: R?, val created: List<URI>)
@@ -157,8 +157,9 @@ internal class ConsentSelection @Inject constructor(
    * Creates the pending contexts, then replaces [recipient]'s grants with the selection.
    *
    * The selection is resolved against what [approverUris] may delegate once the contexts exist. A
-   * row the person lost while the page was open drops out here. That is a race, and the rest of
-   * the submission stands.
+   * row the person lost while the page was open drops out here, as do the permissions on a pending
+   * context somebody else created in the meantime. Both are races, and the rest of the submission
+   * stands.
    *
    * @param approverUris every URI that names the person deciding, and [approver] the one they are
    *   signed in as: the contexts' creator and the grants' `grantedBy`.
@@ -177,7 +178,9 @@ internal class ConsentSelection @Inject constructor(
       logger.info { "[oauth/consent] Context created: pod='${pod.name}', context='${context.uri}', new=$isNew" }
       context.uri.takeIf { isNew }
     }
-    val pendingScopes = selection.pending.flatMap { context ->
+    // Only on what this call created. A context that appeared since [parse] is somebody else's,
+    // and the person never saw it as a row.
+    val pendingScopes = selection.pending.filter { it.uri in created }.flatMap { context ->
       context.permissions.map { "${context.uri}#${it.value}" }
     }
     val delegatable = podGrantsFacade.resolveUserGrants(pod, approverUris)

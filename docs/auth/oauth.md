@@ -165,9 +165,10 @@ nothing:
 | Rows ticked | `code` | Replaced by the selection |
 | Nothing ticked | `access_denied`, `app disconnected` — `no scopes selected` where the app held nothing | Removed, with the app's refresh tokens |
 | Cancel | `access_denied`, `cancelled` | Unchanged |
+| Rows the person lost the right to delegate while the page was open | `consent_required` | None of those rows granted; contexts created in the dialog stay, private and without grants |
 | A row the dialog did not offer | `invalid_scope` | Unchanged |
-| A context to create that the path rules refuse, or on a dialog that offers no creation | `invalid_request` | Unchanged; nothing is created |
-| A client, `redirect_uri`, `state` or challenge other than the rendered one | `400`, no redirect | Unchanged |
+| A context to create that the path rules refuse, that exists already, or on a dialog that offers no creation | `invalid_request` | Unchanged; nothing is created |
+| A client, `redirect_uri`, `state`, PKCE challenge or challenge method other than the rendered one | `400`, no redirect | Unchanged |
 
 The replacement covers every explicit grant the app holds for this
 person on this pod, `public-read` included. A row below a context the

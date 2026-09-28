@@ -5,6 +5,7 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow.ConsentPage
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.contexts.persist.PodContextsDao
+import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
@@ -108,6 +109,39 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
     assertEquals("invalid_request", flow.query(posted)["error"], posted.getHeader("Location"))
     val contexts = podContextsDao.fetchByPod(checkNotNull(owned.pod.id)).map { it.contextUri }
     assertTrue(contexts.none { it.endsWith("/fine/one") || it.endsWith("/apps/claimed") }, "$contexts")
+    assertEquals(emptySet(), grants(owned, app))
+  }
+
+  @Test
+  fun `a dialog that offers no context creation refuses a context posted to it`() {
+    val owned = ownedPod()
+    val app = flow.register(owned.pod)
+    val stranger = webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email)
+    val cookie = signIn(owned.pod.name, stranger).cookie
+    // A person who owns nothing here gets the public-read dialog, without the creation control.
+    val page = ConsentPage.of(flow.authorize(owned.pod, app, cookie))
+
+    val posted = flow.submit(
+      page, cookie, scopes = setOf(PUBLIC_READ_SCOPE),
+      extra = listOf("new_context" to "theirs", "new_context_scope" to "theirs#read"),
+    )
+
+    assertEquals("invalid_request", flow.query(posted)["error"], posted.getHeader("Location"))
+    val contexts = podContextsDao.fetchByPod(checkNotNull(owned.pod.id)).map { it.contextUri }
+    assertTrue(contexts.none { it.endsWith("/theirs") }, "$contexts")
+  }
+
+  @Test
+  fun `a context to create that exists by the time the form arrives is refused`() {
+    val owned = ownedPod()
+    val app = flow.register(owned.pod)
+    val page = ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie))
+    // Created in another tab after this page was rendered: the person never saw it as a row.
+    owned.context("later")
+
+    val posted = flow.submit(page, owned.cookie, scopes = emptySet(), newContexts = mapOf("later" to setOf("write")))
+
+    assertEquals("invalid_request", flow.query(posted)["error"], posted.getHeader("Location"))
     assertEquals(emptySet(), grants(owned, app))
   }
 

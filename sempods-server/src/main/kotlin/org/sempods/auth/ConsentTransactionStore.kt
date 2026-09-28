@@ -61,7 +61,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * @param binding the request and the rows this screen answers; `null` on a transaction an older
    *   node wrote.
    */
-  data class Transaction(
+  data class Transaction @JvmOverloads constructor(
     val pod: String,
     val webId: String,
     val consentGeneration: Long?,
