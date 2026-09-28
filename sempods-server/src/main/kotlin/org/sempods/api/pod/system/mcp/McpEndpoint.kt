@@ -821,7 +821,7 @@ class McpEndpoint @Inject constructor(
    */
   private fun unknownArgumentsRefusal(schema: ToolInputSchema, arguments: JsonNode): String? {
     if (schema.additionalProperties != false) return null
-    val unknown = arguments.propertyNames().asSequence().toSet() - schema.properties.keys
+    val unknown = arguments.propertyNames().toSet() - schema.properties.keys
     if (unknown.isEmpty()) return null
     return "Error: unknown argument(s): ${unknown.sorted().joinToString(", ")}. " +
       "Allowed: ${schema.properties.keys.sorted().joinToString(", ").ifEmpty { "(none)" }}."

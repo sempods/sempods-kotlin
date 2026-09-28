@@ -1,5 +1,6 @@
 package org.sempods.rdf
 
+import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
@@ -12,8 +13,6 @@ import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.Rio
-import tools.jackson.core.type.TypeReference
-import tools.jackson.databind.json.JsonMapper
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.StringReader
@@ -134,7 +133,7 @@ object RdfWriterUtil {
   }
 
   fun toJsonLdGraph(model: Model): List<Map<String, Any?>> {
-    return jsonUtil.read(writeJsonLd(model), typeRef_graph)
+    return jsonUtil.read(writeJsonLd(model), JsonUtil.dynamicTypeListRef)
   }
 
   /**
@@ -301,9 +300,7 @@ object RdfWriterUtil {
     return flat
   }
 
-  // `internal`: public, these put `JsonUtil` and a Jackson `TypeReference` in the module's
-  // signature while `:commons-json` is `implementation` — visible properties, unreachable types.
-  internal val typeRef_graph = object : TypeReference<List<Map<String, Any?>>>() {}
-
-  internal val jsonUtil = JsonUtil(JsonMapper())
+  // `internal`: public, this puts `JsonUtil` in the module's signature while `:commons-json` is
+  // `implementation` — a visible property of an unreachable type.
+  internal val jsonUtil = JsonUtil(JsonMappers.default())
 }

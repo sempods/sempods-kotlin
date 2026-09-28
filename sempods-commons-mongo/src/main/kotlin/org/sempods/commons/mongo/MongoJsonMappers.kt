@@ -18,5 +18,4 @@ import tools.jackson.databind.json.JsonMapper
  */
 fun JsonMappers.withMongo(): JsonMapper = WITH_MONGO
 
-/** Shared for the same reason as [JsonMappers.default]. */
 private val WITH_MONGO: JsonMapper = JsonMappers.default().rebuild().addModule(ObjectIdModule()).build()

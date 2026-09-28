@@ -1,7 +1,6 @@
 package org.sempods.commons.json
 
 import org.junit.jupiter.api.Test
-import tools.jackson.databind.DeserializationFeature
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -39,19 +38,6 @@ class JsonMappersTest {
   }
 
   @Test
-  fun `a rebuilt mapper leaves the shared one as it was`() {
-    val strict = JsonMappers.default().rebuild().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build()
-    assertTrue(strict !== JsonMappers.default())
-    assertTrue(
-      JsonMappers.default()
-        .deserializationConfig()
-        .isEnabled(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-        .not(),
-      "rebuilding must not touch the shared mapper",
-    )
-  }
-
-  @Test
   fun `unknown properties are ignored on read`() {
     val sample = JsonMappers.default()
       .readValue("""{"name":"a","somethingNew":42}""", Sample::class.java)
@@ -59,9 +45,15 @@ class JsonMappersTest {
   }
 
   @Test
-  fun `unknown properties can be rejected on a rebuilt mapper`() {
-    val strict = JsonMappers.default().rebuild().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build()
-    assertFailsWith<Exception> { strict.readValue("""{"name":"a","typo":1}""", Sample::class.java) }
+  fun `the strict mapper refuses unknown properties`() {
+    assertFailsWith<Exception> { JsonMappers.strict().readValue("""{"name":"a","typo":1}""", Sample::class.java) }
+  }
+
+  @Test
+  fun `the strict mapper keeps the default configuration`() {
+    val json = JsonMappers.strict().writeValueAsString(WithPrivateField())
+    assertTrue(json.contains(""""secret":"s""""), json)
+    assertTrue(!json.contains("computed"), json)
   }
 
   @Test
@@ -101,7 +93,6 @@ class JsonMappersTest {
 
   @Test
   fun `an object without any visible property serialises to an empty object`() {
-    // FAIL_ON_EMPTY_BEANS off — the alternative is an exception deep inside an unrelated response.
     assertEquals("{}", JsonMappers.default().writeValueAsString(object {}))
   }
 }

@@ -17,7 +17,6 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
-import tools.jackson.databind.DeserializationFeature
 import java.time.Duration
 
 /**
@@ -151,11 +150,11 @@ class AdminMediaEndpoint @Inject constructor(
 
   private fun PodMediaRef.toResponse() = MediaRefResponse(podId = podId.value, mediaId = mediaId)
 
-  /** Parses an optional JSON body, rejecting unknown fields — see [sweep] for why strictly. */
+  /** Parses an optional JSON body with [JsonMappers.strict]; [sweep] says why. */
   private fun <T> parseBody(body: String?, type: Class<T>): T? {
     val raw = body?.takeIf { it.isNotBlank() } ?: return null
     return try {
-      strictBodyMapper.readValue(raw, type)
+      JsonMappers.strict().readValue(raw, type)
     } catch (e: Exception) {
       throw badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
     }
@@ -167,10 +166,6 @@ class AdminMediaEndpoint @Inject constructor(
   companion object {
 
     private val logger = KotlinLogging.logger {}
-
-    private val strictBodyMapper = JsonMappers.default().rebuild()
-      .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-      .build()
 
     /**
      * How many refs per direction the reconcile response carries. A hundred is enough to see what

@@ -24,7 +24,7 @@ dependencies {
   // `SempodsUriBuilder` logs.
   implementation(libs.bundles.logging)
 
-  // `RdfWriterUtil` reads the JSON-LD RDF4J writes into maps, with a mapper of its own.
+  // `RdfWriterUtil` names Jackson's `TypeReference` when it reads RDF4J's JSON-LD into maps.
   implementation(libs.jackson3Databind)
 
   // No application framework. This module is the pod contract, and its consumers depend on it — an

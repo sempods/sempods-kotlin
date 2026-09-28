@@ -322,10 +322,9 @@ class PodResourceWriteService @Inject constructor(
     val patch = root as ObjectNode
     val resourceUriString = resourceUri.toString()
 
-    for (key in patch.propertyNames().asSequence().toList()) {
+    for ((key, node) in patch.properties()) {
       when {
         key == "@id" -> {
-          val node = patch.get(key)
           if (node.isNull) {
             throw badRequest(
               "JSON-LD keyword '@id' is not allowed with null value in canonical patch bodies " +
@@ -339,7 +338,6 @@ class PodResourceWriteService @Inject constructor(
           }
         }
         key == "@type" -> {
-          val node = patch.get(key)
           val valid = when {
             node.isNull -> true
             node.isString -> isCanonicalAbsoluteIri(node.asString())
@@ -380,8 +378,7 @@ class PodResourceWriteService @Inject constructor(
   private fun applyVanillaJsonMergePatch(target: JsonNode?, patch: JsonNode): JsonNode {
     if (!patch.isObject) return patch.deepCopy()
     val targetObject = (target as? ObjectNode)?.deepCopy() ?: objectMapper.createObjectNode()
-    for (field in patch.propertyNames()) {
-      val patchValue = patch.get(field) ?: continue
+    for ((field, patchValue) in patch.properties()) {
       if (patchValue.isNull) {
         targetObject.remove(field)
       } else {

@@ -102,10 +102,12 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
     return "$url?$contextQuery&include_contexts=true"
   }
 
-  private fun postIri(url: String, token: String, iriValue: String) = httpClient.preparePost(url)
+  private fun postIri(url: String, token: String, iriValue: String) = postJsonLd(url, token, """{"@id":"$iriValue"}""")
+
+  private fun postJsonLd(url: String, token: String, body: String) = httpClient.preparePost(url)
     .addHeader("Content-Type", "application/ld+json")
     .addHeader("Authorization", "Bearer $token")
-    .setBody("""{"@id":"$iriValue"}""")
+    .setBody(body)
     .execute()
 
   // ── Acceptance: schema:children round-trip ──────────────────────────────────
@@ -380,11 +382,7 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
     val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
     val slot = withContext(slotUrl(pod.name, bob, schemaName), contextUri)
 
-    val response = httpClient.preparePost(slot)
-      .addHeader("Content-Type", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody("""{"@value": "Bob Smith", "@language": "de"}""")
-      .execute()
+    val response = postJsonLd(slot, token, """{"@value": "Bob Smith", "@language": "de"}""")
     assertEquals(201, response.statusCode)
     assertEquals(null, response.headers.get("Location"))
   }
@@ -530,11 +528,11 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
     val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
     val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
 
-    val response = httpClient.preparePost(withContext(slotUrl(pod.name, bob, schemaChildren), contextUri))
-      .addHeader("Content-Type", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody("""{"@id":"$carol"} {"@id":"$bob"}""")
-      .execute()
+    val response = postJsonLd(
+      withContext(slotUrl(pod.name, bob, schemaChildren), contextUri),
+      token,
+      """{"@id":"$carol"} {"@id":"$carol"}""",
+    )
 
     assertEquals(400, response.statusCode)
   }

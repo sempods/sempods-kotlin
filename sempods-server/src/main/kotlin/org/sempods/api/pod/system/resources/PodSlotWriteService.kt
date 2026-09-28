@@ -289,8 +289,8 @@ class PodSlotWriteService @Inject constructor(
       }
     }
     if (valueNode != null) {
-      val language = obj.get("@language")?.takeIf { !it.isNull }?.asString("")?.takeIf(String::isNotBlank)
-      val datatype = obj.get("@type")?.takeIf { !it.isNull }?.asString("")?.takeIf(String::isNotBlank)
+      val language = obj.get("@language")?.asString("")?.takeIf(String::isNotBlank)
+      val datatype = obj.get("@type")?.asString("")?.takeIf(String::isNotBlank)
       if (language != null && datatype != null) {
         throw badRequest("literal value must not carry both \"@language\" and \"@type\"")
       }

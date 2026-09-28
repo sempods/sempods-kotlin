@@ -234,7 +234,7 @@ class OAuthFlowIntegrationTest {
     assertUncacheableJson(tokenResp)
     val tokenJson = mapper.readTree(tokenResp.bodyAsText())
     // Nothing was asked for, so nothing was granted — and RFC 6749 §3.3 has no empty scope to name.
-    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), tokenJson.propertyNames().asSequence().toSet())
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), tokenJson.propertyNames().toSet())
     assertEquals("Bearer", tokenJson["token_type"].asString())
     assertEquals(TokenIssuer.USER_TOKEN_TTL_SECONDS, tokenJson["expires_in"].asLong())
     val accessToken = tokenJson["access_token"].asString()
@@ -256,7 +256,7 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.OK, refreshResp.status)
     assertUncacheableJson(refreshResp)
     val refreshJson = mapper.readTree(refreshResp.bodyAsText())
-    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), refreshJson.propertyNames().asSequence().toSet())
+    assertEquals(setOf("access_token", "token_type", "expires_in", "refresh_token"), refreshJson.propertyNames().toSet())
     val refresh2 = refreshJson["refresh_token"].asString()
     assertTrue(refresh2 != refresh1, "rotation must mint a new refresh token")
 
@@ -1057,7 +1057,7 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.BadRequest, resp.status)
     assertUncacheableJson(resp)
     val json = mapper.readTree(resp.bodyAsText())
-    assertEquals(setOf("error", "error_description"), json.propertyNames().asSequence().toSet())
+    assertEquals(setOf("error", "error_description"), json.propertyNames().toSet())
     assertEquals(error, json["error"].asString())
     assertEquals(description, json["error_description"].asString())
   }

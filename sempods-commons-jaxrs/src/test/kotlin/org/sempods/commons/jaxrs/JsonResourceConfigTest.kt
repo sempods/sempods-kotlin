@@ -45,10 +45,12 @@ class JsonResourceConfigTest {
     fun counted(body: Counted): Counted = body
   }
 
-  private val handler = ApplicationHandler(
-    jsonResourceConfig()
-      .registerInstances(Resource(), ObjectMapperResolver(JsonMappers.default())),
-  )
+  companion object {
+    private val handler = ApplicationHandler(
+      jsonResourceConfig()
+        .registerInstances(Resource(), ObjectMapperResolver(JsonMappers.default())),
+    )
+  }
 
   private fun call(method: String, path: String, body: String? = null): Pair<Int, String> {
     val request = ContainerRequest(
