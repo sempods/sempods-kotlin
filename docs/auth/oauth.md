@@ -631,8 +631,9 @@ that consent within 24 hours, the pod removes it. A JVM program runs the whole s
 - **A bearer changes nothing.** The registration holds no rights to give, so one presented beside
   it is not consulted; only one this pod cannot verify is `401`.
 - **The installer scope is retired.** `/authorize` answers `service-clients:install` with
-  `invalid_scope`. A token minted with it before the release lives out its hour as it was minted:
-  it reaches no data and passes no gate that asks only for an app.
+  `invalid_scope`. A code minted for it before the release is refused at the exchange
+  (`invalid_grant`), and a token lives out its hour as it was minted: it reaches no data and passes
+  no gate that asks only for an app.
 
 What the body may carry (RFC 7591 §2):
 

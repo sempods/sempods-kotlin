@@ -463,6 +463,19 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `a code an older release minted for the retired installer scope is refused`() {
+    // Redeemable for five minutes across an upgrade. Narrowed like an unknown scope, it would mint
+    // an ordinary token and family that resolve what this app holds for this person.
+    val authorized = Authorized(grants = setOf(contextScope))
+    val code = authorized.code(authorized.answer(durable = true), scopes = setOf("service-clients:install"))
+
+    val refusal = refused(authorized.redeem(code))
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refusal.code)
+    assertEquals("'service-clients:install' is no longer granted by this pod", refusal.description)
+  }
+
+  @Test
   fun `a code from before the URI set existed stands for its subject alone`() {
     // The rolling-deploy case: an old node issued the code, so the field is absent. The authority
     // must still name somebody, because each call compares the pod's owner against this set.
