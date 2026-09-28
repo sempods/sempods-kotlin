@@ -52,7 +52,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   private val installerClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
   private val codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-
   private val installationBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
     """"token_endpoint_auth_method":"client_secret_basic"}"""
 
@@ -657,7 +656,8 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val code = checkNotNull(query(submitted)["code"]) { "no code: ${submitted.getHeader("Location")}" }
     val exchanged = postForm(
       tokenUrl(owned),
-      "grant_type=authorization_code&code=${enc(code)}&redirect_uri=${enc(redirectUri)}&client_id=${enc(installerClientId)}",
+      "grant_type=authorization_code&code=${enc(code)}&redirect_uri=${enc(redirectUri)}" +
+        "&client_id=${enc(installerClientId)}&code_verifier=${enc(DelegatedAccessFlow.CODE_VERIFIER)}",
     )
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
     return json(exchanged)

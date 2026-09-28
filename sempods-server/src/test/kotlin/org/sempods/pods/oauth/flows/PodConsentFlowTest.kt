@@ -1,11 +1,13 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -41,6 +43,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var podSignOut: PodSignOut
+
+  @Inject
+  private lateinit var consentSelection: ConsentSelection
 
   private fun form(
     csrf: String?,
@@ -350,8 +355,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val marker = "forged-${randomId()}"
     val forged = "../x\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
 
-    val lines = CapturedLog.linesFrom(PodConsentFlow::class.java) {
-      issuedCode(
+    val lines = CapturedLog.linesFrom(ConsentSelection::class.java) {
+      redirectedError(
         flow.submit(
           owned.pod,
           form(csrf = owned.ticket(), scopes = listOf(owned.readScope), newContexts = listOf(forged)),
@@ -390,8 +395,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a context path the rules refuse is skipped, and the rest of the submission stands`() {
-    // Losing the whole flow over a mistyped context name would be the worse outcome.
+  fun `a context path the rules refuse refuses the whole submission, and nothing is written`() {
+    // Skipping it would drop a row the person ticked without a word, and the replace would take the
+    // grant with it.
     val owned = Owned()
     val bad = "_system/contexts/nope"
 
@@ -406,12 +412,12 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       owned.session,
     )
 
-    issuedCode(result)
-    assertEquals(setOf(owned.readScope), owned.held(), "the typed context is not granted, the ticked one is")
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, redirectedError(result).code)
+    assertEquals(emptySet(), owned.held(), "not even the ticked row is granted")
   }
 
   @Test
-  fun `a permission the grammar does not name is dropped from a pending context`() {
+  fun `a permission the grammar does not name refuses the submission, and creates no context`() {
     val owned = Owned()
     val path = "notes-${randomId()}"
 
@@ -426,8 +432,61 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       owned.session,
     )
 
-    issuedCode(result)
-    assertEquals(setOf(owned.readScope), owned.held())
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, redirectedError(result).code)
+    assertEquals(emptySet(), owned.held())
+    assertFalse(podFacade.getContexts(owned.pod.name).any { it.toString().endsWith("/$path") }, "no context was created")
+  }
+
+  @Test
+  fun `a bound screen that offered creation to its owner creates nothing once the person no longer owns the pod`() {
+    // The offer was the owner's when the page was rendered; creating a context is asked again.
+    val owned = Owned()
+    val former = "https://id.example/former-${randomId()}"
+    val session = PodTokenIssuer.SessionPrincipal(former, emptyList(), Instant.now().minusSeconds(60))
+    val path = "notes-${randomId()}"
+    val ticket = consentTransactionStore.issue(
+      owned.pod.name, former, null, emptySet(), 0L,
+      ConsentTransactionStore.Binding(
+        clientId = clientId, redirectUri = redirectUri, state = null, codeChallenge = challenge,
+        codeChallengeMethod = "S256", offeredContexts = emptySet(), publicReadOffered = false,
+        contextCreationOffered = true,
+      ),
+    )
+
+    val result = flow.submit(
+      owned.pod,
+      form(csrf = ticket, state = null, newContexts = listOf(path), newContextScopes = listOf("$path#read")),
+      session,
+    )
+
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, redirectedError(result).code)
+    assertFalse(podFacade.getContexts(owned.pod.name).any { it.toString().endsWith("/$path") }, "no context was created")
+  }
+
+  @Test
+  fun `a pending context somebody else created meanwhile is not granted`() {
+    // Between the checks and the creation: the context exists, and it is not the one the person
+    // added to the list.
+    val owned = Owned()
+    val path = "notes-${randomId()}"
+    val parsed = consentSelection.parse(
+      owned.pod,
+      ConsentSelection.Submission(emptySet(), listOf(path), listOf("$path#write")),
+      ConsentSelection.Offer(contexts = emptySet(), publicRead = false, contextCreation = true),
+    )
+    owned.context(path)
+
+    val applied = consentSelection.apply(
+      owned.pod,
+      assertIs<ConsentSelection.Parsed.Selection>(parsed),
+      GrantRecipient.Delegation(clientId = clientId, webId = owned.webId, aliases = listOf(owned.webId)),
+      approverUris = listOf(owned.webId),
+      approver = owned.webId,
+    )
+
+    assertNull(applied.replacement, "nothing was left to grant")
+    assertEquals(emptyList(), applied.created)
+    assertEquals(emptySet(), owned.held())
   }
 
   // ── The installation screen's submission ───────────────────────────────────

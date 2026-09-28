@@ -43,7 +43,9 @@ not derived from the codec — this server stores `podName` without ever queryin
 the SHA-256 of the value the browser holds rather than the value, TTL index plus a check on read
 because the reaper runs on its own schedule. They are two rather than one because the session says
 *who* is submitting a consent form and the transaction says *which screen* it is and that it has not
-been submitted before, which one value cannot answer.
+been submitted before, which one value cannot answer. A consent transaction also holds the request
+its screen answers and the rows it offered; a row written without them by an older node is still
+read, as `ConsentTransactionStore` describes.
 
 Both exist because nothing that authenticates a person travels through the browser any more.
 

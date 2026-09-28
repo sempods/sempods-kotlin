@@ -21,7 +21,7 @@ step see `identity.md`.
 | Endpoint | Purpose |
 |---|---|
 | `GET /{pod}/_system/auth/authorize` | Authorization Code request |
-| `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, remove an app's access, sign out |
+| `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, cancel, remove an app's access, sign out |
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
 | `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration, and — with an installation authority — one service client |
@@ -152,6 +152,40 @@ does not imply consent to anything. The single-use half matters because
 a submission writes the ticked selection as *the* grant set, so a
 replayable form could restore a selection the person has since
 narrowed.
+
+The token also records what the screen was rendered for: the client,
+`redirect_uri`, `state`, the PKCE challenge, the rows it offered and
+whether it offered to create a context. The submission reads these from
+the token, so the form posts only the token, the ticked boxes and the
+button pressed. A submission the dialog could not have produced changes
+nothing:
+
+| Submission | Answer | Grants |
+|---|---|---|
+| Rows ticked | `code` | Replaced by the selection |
+| Nothing ticked | `access_denied`, `app disconnected` — `no scopes selected` where the app held nothing | Removed, with the app's refresh tokens |
+| Cancel | `access_denied`, `cancelled` | Unchanged |
+| Rows the person lost the right to delegate while the page was open | `code` for the rows that remain; `consent_required` where none remains | Those rows are not granted; contexts created in the dialog stay, private, and get only the grants that remain |
+| A row the dialog did not offer | `invalid_scope` | Unchanged |
+| A context to create that the path rules refuse, that exists already, or on a dialog that offers no creation | `invalid_request` | Unchanged; nothing is created |
+| A client, `redirect_uri`, `state`, PKCE challenge or challenge method other than the rendered one | `400`, no redirect | Unchanged |
+
+The replacement covers every explicit grant the app holds on this pod
+under the WebID the person is signed in as, `public-read` included.
+Grants written under a linked identity stay; removing the app's access
+clears those too. A row below a context the
+app holds `manage` on keeps its own boxes; the dialog notes that the
+root reaches it too. A context created in the dialog is private and
+owner-only.
+
+**Rollout.** A token written by a node that predates this binding
+carries no request. The submission then reads the request from the form
+that node rendered and checks no rows, for the token's fifteen minutes.
+This holds for the rest of 0.2.x and is removed in the next minor
+release ([#341](https://github.com/sempods/sempods-kotlin/issues/341)).
+The other direction is not covered: a page from a new node carries no
+request fields, so an older node refuses its submission with `400`, and
+the person starts the authorization again.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
 What it carries is the values the discovery documents advertise:

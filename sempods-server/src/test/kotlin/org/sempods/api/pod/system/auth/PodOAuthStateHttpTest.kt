@@ -33,6 +33,9 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var flow: DelegatedAccessFlow
+
   /** Values a client may legally send that a normalising server would change. */
   private val opaqueValues = listOf(
     " padded ",
@@ -87,16 +90,16 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the consent screen hands the state back to the form unchanged`() {
-    // A trim here hides behind a correct redirect helper: the browser posts the shortened value,
-    // and the code redirect echoes that faithfully.
+  fun `the consent screen answers with the state it was rendered for, unchanged`() {
+    // The screen's transaction holds the state. A trim on the way in would hide
+    // behind a correct redirect helper, which echoes the shortened value faithfully.
     val (pod, person) = podWithOwner()
 
     for (state in opaqueValues) {
       val page = get(authorizeUrl(pod, state, prompt = "consent"), signIn(pod.name, person).cookie)
 
       assertEquals(200, page.statusCode, page.responseBody)
-      assertEquals(state, stateInForm(page.responseBody), "state=${quoted(state)}")
+      assertEquals(listOf(state), statesIn(cancel(pod, person, page)), "state=${quoted(state)}")
     }
   }
 
@@ -110,7 +113,7 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
       val page = http.prepareGet(authorizeUrl(pod, state, prompt = "consent")).executeSignedInAs(person)
 
       assertEquals(200, page.statusCode, page.responseBody)
-      assertEquals(state, stateInForm(page.responseBody), "state=${quoted(state)}")
+      assertEquals(listOf(state), statesIn(cancel(pod, person, page)), "state=${quoted(state)}")
     }
   }
 
@@ -187,14 +190,12 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
       .map { UrlUtil.urlDecode(it.substringAfter("=", "")) }
   }
 
-  /** The `state` the rendered form will post back, with the template's escaping undone. */
-  private fun stateInForm(html: String): String {
-    val field = checkNotNull(Regex("""<input[^>]*name="state"[^>]*>""").find(html)) {
-      "the consent page carries no state field"
-    }.value
-    val value = checkNotNull(Regex("""value="([^"]*)"""").find(field)) { "no value in $field" }.groupValues[1]
-    return unescapeHtml(value)
-  }
+  /**
+   * Leaves the rendered [page] through its Cancel button, which posts nothing but the screen's
+   * token: whatever `state` the answer carries came from the screen's transaction.
+   */
+  private fun cancel(pod: PodDbo, webId: String, page: TestHttpResponse): TestHttpResponse =
+    flow.submit(DelegatedAccessFlow.ConsentPage.of(page), signIn(pod.name, webId).cookie, action = "cancel")
 
   private fun quoted(state: String?): String = state?.let { "'$it'" } ?: "(absent)"
 

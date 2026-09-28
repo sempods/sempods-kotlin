@@ -238,8 +238,8 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     assertEquals(clientId, screen.clientId)
     // A `did:web:` client registers nothing, so there is no name to show but its identifier.
     assertEquals(clientId, screen.clientName)
-    assertEquals(redirectUri, screen.redirectUri)
-    assertEquals(challenge, screen.codeChallenge)
+    assertEquals(redirectUri, screen.binding.redirectUri)
+    assertEquals(challenge, screen.binding.codeChallenge)
     assertTrue(screen.isOwner, "the pod's owner is asking")
     assertTrue(screen.disconnectAvailable, "this app holds something, so the way out is on offer")
     assertTrue(screen.csrfToken.isNotBlank(), "one screen, once")

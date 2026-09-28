@@ -20,6 +20,7 @@ import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -54,6 +55,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val signIn: PodSignIn,
   private val podScopeValidator: PodScopeValidator,
   private val appHoldings: PodAppHoldings,
+  private val permissionResolver: PodContextPermissionResolver,
 ) {
 
   internal fun authorize(
@@ -567,7 +569,19 @@ class PodAuthorizeFlow @Inject internal constructor(
     isOwner: Boolean,
     privilegedFeatures: List<String> = emptyList(),
   ): PodAuthorizeResult {
-    val contexts = consentContexts(userGrants, existingGrants)
+    val contexts = consentContexts(pod, userGrants, existingGrants)
+    // What the page offers and what the submission accepts, decided once: the template renders from
+    // this, and the transaction records it.
+    val binding = ConsentTransactionStore.Binding(
+      clientId = normalizedClientId,
+      redirectUri = normalizedRedirectUri,
+      state = state,
+      codeChallenge = codeChallenge,
+      codeChallengeMethod = codeChallengeMethod,
+      offeredContexts = contexts.mapTo(mutableSetOf()) { it.uri },
+      publicReadOffered = publicContexts.isNotEmpty(),
+      contextCreationOffered = isOwner && privilegedFeatures.isEmpty(),
+    )
     val registration = dynamicClientStore.registrationOf(pod.id, normalizedClientId)
     val displayName = clientDisplayName(registration, normalizedClientId)
 
@@ -608,10 +622,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         // value reached it through that check.
         clientUri = registration?.clientUri?.takeIf(ClientMetadataUri::isValid),
         logoUri = registration?.logoUri?.takeIf(ClientMetadataUri::isValid),
-        redirectUri = normalizedRedirectUri,
-        state = state,
-        codeChallenge = codeChallenge,
-        codeChallengeMethod = codeChallengeMethod,
+        binding = binding,
         // One screen, once — see [ConsentTransactionStore]. Not a credential on its own: spending
         // it also requires the session cookie it was rendered beside.
         csrfToken = consentTransactionStore.issue(
@@ -622,6 +633,7 @@ class PodAuthorizeFlow @Inject internal constructor(
           // server rather than from a field the form carries.
           privilegedFeatures.toSet(),
           subjectDecision?.disconnects ?: 0L,
+          binding,
         ),
         webId = identity.webId,
         contexts = contexts,
@@ -648,8 +660,13 @@ class PodAuthorizeFlow @Inject internal constructor(
    *
    * Pre-ticked from the grants a previous authorization of this app left. No app-suggested scopes —
    * the person always decides their own data topology.
+   *
+   * A row below a context this app holds `#manage` on names that root in
+   * [PodConsentContext.managedVia]. Its own boxes stay the explicit grants they are: the app reaches
+   * the row through the root either way, and unticking the root takes that away.
    */
   private fun consentContexts(
+    pod: HostedPod,
     userGrants: Set<String>,
     existingGrants: Set<String>,
   ): List<PodConsentContext> {
@@ -662,18 +679,23 @@ class PodAuthorizeFlow @Inject internal constructor(
       .distinct()
       .sorted()
 
+    // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
+    fun relativePathOf(path: String): String = path.substringAfter('/', path)
+    fun pathOf(uri: String): String = URI(uri).path?.trimStart('/') ?: uri
+    val manageRoots = permissionResolver.manageRoots(existingGrants, pod.baseUrl)
+
     return contextUris.map { uri ->
-      val path = URI(uri).path?.trimStart('/') ?: uri
-      // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
-      val relativePath = path.substringAfter('/', path)
-      val label = path.trimEnd('/').substringAfterLast('/')
+      val path = pathOf(uri)
       PodConsentContext(
         uri = uri,
-        relativePath = relativePath,
-        label = label,
+        relativePath = relativePathOf(path),
+        label = path.trimEnd('/').substringAfterLast('/'),
         readGranted = existingGrants.contains("$uri#read"),
         writeGranted = existingGrants.contains("$uri#write"),
         manageGranted = existingGrants.contains("$uri#manage"),
+        // The nearest root, where several nest: it is the one a person unticks to take this row.
+        managedVia = permissionResolver.manageRootAbove(manageRoots, uri)
+          ?.let { relativePathOf(pathOf(it)) },
       )
     }
   }

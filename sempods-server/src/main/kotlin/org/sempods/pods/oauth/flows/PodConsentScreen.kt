@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 
 /**
@@ -10,7 +11,9 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
  *   otherwise, so the dialog never shows a blank.
  * @param clientUri where the client says it lives, and [logoUri] its logo; `null` where it named
  *   none or named one `ClientMetadataUri` refuses.
- * @param state the client's `state`, `null` where it sent none — the form posts it back unchanged.
+ * @param binding the request this screen answers and what it offers, as its [csrfToken] records it.
+ *   The template renders the `public-read` box and context creation from here, so the page cannot
+ *   offer what the submission would refuse.
  * @param csrfToken this screen's one-time ticket — see where it is issued.
  * @param sessionTerms how long a connection lives when the person leaves the durability box
  *   unticked, [durableTerms] when they tick it. Both come from the store that will enforce them, so
@@ -32,10 +35,7 @@ internal data class PodConsentScreen(
   val clientName: String,
   val clientUri: String?,
   val logoUri: String?,
-  val redirectUri: String,
-  val state: String?,
-  val codeChallenge: String?,
-  val codeChallengeMethod: String?,
+  val binding: ConsentTransactionStore.Binding,
   val csrfToken: String,
   val webId: String,
   val contexts: List<PodConsentContext>,
@@ -54,8 +54,12 @@ internal data class PodConsentScreen(
  * One context in the dialog, with the three permissions it can carry.
  *
  * **The property names are the template's.** `templates/consent.html` reads `ctx.uri`,
- * `ctx.relativePath`, `ctx.readGranted`, `ctx.writeGranted` and `ctx.manageGranted` by reflection,
- * so renaming one here fails at render time and not at compile time.
+ * `ctx.relativePath`, `ctx.readGranted`, `ctx.writeGranted`, `ctx.manageGranted` and
+ * `ctx.managedVia` by reflection, so renaming one here fails at render time and not at compile time.
+ *
+ * @param managedVia the relative path of a context this app already holds `#manage` on and this
+ *   row lies below, `null` otherwise. Shown as a note without a box: the grant it describes is
+ *   the root's.
  */
 internal data class PodConsentContext(
   val uri: String,
@@ -64,4 +68,5 @@ internal data class PodConsentContext(
   val readGranted: Boolean,
   val writeGranted: Boolean,
   val manageGranted: Boolean,
+  val managedVia: String? = null,
 )

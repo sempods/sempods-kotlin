@@ -4,11 +4,13 @@ import com.google.inject.Inject
 import org.sempods.SempodsModule
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import java.net.URI
 import java.net.URLEncoder
 import kotlin.test.assertEquals
 
@@ -26,6 +28,9 @@ import kotlin.test.assertEquals
  * |---|---|
  * | [authorize], [ConsentPage.of], [submit] | what the rendered page offers and posts, PKCE included |
  * | [consent], [connect] | a post with no page rendered first, such as a sign-out after the session ended |
+ *
+ * [consent] posts the form an older node renders: an unbound token beside the request fields. The
+ * server accepts that for the rest of 0.2.x (`ConsentTransactionStore`, rollout), and so does this.
  *
  * Every authorization carries [CODE_CHALLENGE], and every exchange [CODE_VERIFIER] unless the test
  * leaves it out. A `did:web:` client may leave PKCE out; the server ignores a verifier sent for a
@@ -152,8 +157,10 @@ internal class DelegatedAccessFlow {
    * @param scopes the ticked `scope` boxes. Each must be one the page offers.
    * @param newContexts the contexts added with the page's "Create Context" control, by relative path,
    *   each with the permissions left ticked. The page must offer the control.
-   * @param action the button pressed: `null` for Authorize, or `disconnect` or `signout`. The page
-   *   must render that button.
+   * @param action the button pressed: `null` for Authorize, or `cancel`, `disconnect` or `signout`.
+   *   The page must render that button.
+   * @param extra fields posted beside the rest and checked against nothing: what a browser would not
+   *   send, for a test of what the server refuses.
    */
   fun submit(
     page: ConsentPage,
@@ -162,6 +169,7 @@ internal class DelegatedAccessFlow {
     newContexts: Map<String, Set<String>> = emptyMap(),
     durable: Boolean = page.durableTicked,
     action: String? = null,
+    extra: List<Pair<String, String>> = emptyList(),
   ): TestHttpResponse {
     require(page.offered.containsAll(scopes)) { "the page does not offer ${scopes - page.offered}" }
     require(newContexts.isEmpty() || page.has("newContextInput")) { "the page offers no context creation" }
@@ -172,7 +180,8 @@ internal class DelegatedAccessFlow {
       newContexts.flatMap { (path, permissions) ->
         listOf("new_context" to path) + permissions.map { "new_context_scope" to "$path#$it" }
       } +
-      listOfNotNull(if (durable) "durable" to "1" else null, action?.let { "action" to it })
+      listOfNotNull(if (durable) "durable" to "1" else null, action?.let { "action" to it }) +
+      extra
     return http.preparePost(page.action)
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
       .addHeader("Cookie", cookie)
@@ -181,9 +190,10 @@ internal class DelegatedAccessFlow {
   }
 
   /**
-   * The form token a page rendered for [app] right now would carry: bound to the consent standing
-   * now and to the count of endings it stands under, as `/authorize` binds it.
+   * The form token a page an older node rendered for [app] right now would carry: bound to the
+   * consent standing now and to the count of endings it stands under, and to no request or rows.
    */
+  @Suppress("DEPRECATION")
   fun formToken(pod: PodDbo, webId: String, app: App): String {
     val standing = consentDecisionStore.find(pod.podId(), app.clientId, listOf(webId))
     return consentTransactionStore.issue(pod.name, webId, standing?.generation, emptySet(), standing?.disconnects ?: 0L)
@@ -228,6 +238,12 @@ internal class DelegatedAccessFlow {
     return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
   }
 
+  /** The query of a redirect's `Location`, decoded. */
+  fun query(response: TestHttpResponse): Map<String, String> {
+    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
+    return UrlUtil.queryParams(URI(location).rawQuery)
+  }
+
   /** The `authorization_code` exchange. A `null` [verifier] leaves `code_verifier` out. */
   fun exchangeCode(pod: PodDbo, app: App, code: String, verifier: String? = CODE_VERIFIER): TestHttpResponse = postForm(
     "${podBase(pod)}/_system/auth/token",
@@ -256,6 +272,6 @@ internal class DelegatedAccessFlow {
     const val CODE_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
     const val CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 
-    private val BUTTONS = mapOf("disconnect" to "disconnectBtn", "signout" to "signOutBtn")
+    private val BUTTONS = mapOf("cancel" to "cancelBtn", "disconnect" to "disconnectBtn", "signout" to "signOutBtn")
   }
 }
