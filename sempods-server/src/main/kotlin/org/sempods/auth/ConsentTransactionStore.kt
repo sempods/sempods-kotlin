@@ -15,8 +15,8 @@ import java.time.Duration
  * The token this mints is what the consent form carries, and it does two jobs that a value derived
  * from the session cannot:
  *
- * - **It is single-use.** A consent submission changes durable state — `replaceAppGrants` writes
- *   the ticked selection as *the* grant set for that app. A form that could be posted twice can
+ * - **It is single-use.** A consent submission changes durable state — `PodGrantsFacade.replaceGrants`
+ *   writes the ticked selection as *the* grant set for that app. A form that could be posted twice can
  *   therefore restore a selection the person has since narrowed: consent to A and B, later
  *   re-consent to A alone, then resubmit the old page and B is back, with a fresh authorization
  *   code to go with it.

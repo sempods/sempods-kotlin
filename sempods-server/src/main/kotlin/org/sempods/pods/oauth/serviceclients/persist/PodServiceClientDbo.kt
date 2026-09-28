@@ -4,30 +4,24 @@ import org.bson.types.ObjectId
 import java.time.Instant
 
 /**
- * Statically-registered OAuth 2-leg (`client_credentials`) client. Used by trusted service apps
- * that act on the pod owner's behalf without presenting a WebID.
+ * A service client: a client acting as itself through `client_credentials`, with no person behind
+ * its tokens.
  *
  * Service clients are NOT created via RFC 7591 Dynamic Client Registration
  * (those live in [org.sempods.pods.oauth.DynamicClientRegistrationDbo]).
- * The row is inserted by either an admin script or by the
- * bootstrap step that runs on pod creation (see
- * `docs/auth/service-clients.md`). Each row
- * carries a bcrypt hash of the shared secret; the plaintext never persists
- * here.
+ * An operator provisions one through the host admin surface, or a pod owner installs one; see
+ * `docs/auth/service-clients.md`. Each row carries a bcrypt hash of the shared secret; the
+ * plaintext never persists here.
  *
- * Scope: the [scopes] set lists exactly what the client may request at the
- * token endpoint. For a provisioned app this is a single `<app-root>#manage`
- * scope which — via the slash-delimited manage semantics enforced at
- * `PodResourceWriteService.kt:217–223` — sandboxes the client to its own
- * sub-tree without introducing any new scope type.
+ * Its grants live on this row, in [scopes], and nowhere else: the resolver reads them per request,
+ * and a single-document update is what makes a replace of them optimistic ([grantsVersion]).
  *
  * A plain data class: the collection name, the unique index and the mapping onto a BSON document
- * live in [PodServiceClientDao], which talks to the driver. There is no no-arg constructor either
- * — it existed only so Morphia's `PojoCodec` had an entry point, and its `MorphiaUtil` sentinels
- * were values no reader ever saw.
+ * live in [PodServiceClientDao], which talks to the driver.
  *
- * **The declaration order is the wire order** and is not free: it is what a row already on disk
- * carries, and `PodServiceClientDao.toDocument` writes the fields in exactly this sequence.
+ * **The declaration order is the insert order**: `PodServiceClientDao.toDocument` writes the fields
+ * in exactly this sequence. Fields set later by an update are appended after the ones already
+ * there, in an order the server picks, so rows differ in order where their histories do.
  */
 internal data class PodServiceClientDbo(
   val id: ObjectId? = null,
@@ -40,12 +34,11 @@ internal data class PodServiceClientDbo(
   val secretHash: String,
 
   /**
-   * Scopes the client is allowed to request at the token endpoint. The token
-   * endpoint refuses to issue scopes outside this set.
+   * The context grants the client holds, stored under the field name `scopes`.
    *
-   * May be empty, in either of two spellings: absent on a row inserted without scopes, and `[]`
-   * on one [PodServiceClientDao.revokeByContextScope] emptied. Both read back as an empty set, and
-   * what such a registration is worth is `PodServiceClientStore.register`'s.
+   * May be empty, in either of two spellings: absent on a row inserted without grants and never
+   * changed since, and `[]` on one an update emptied. Both read back as an empty set, and what such
+   * a registration is worth is `PodServiceClientStore.register`'s.
    */
   val scopes: Set<String>,
 
@@ -56,4 +49,19 @@ internal data class PodServiceClientDbo(
 
   /** Touched on every successful token issuance — feeds operator observability. */
   val lastUsedAt: Instant? = null,
+
+  /**
+   * How often [scopes] have been written since the row was inserted. **Every write to [scopes]
+   * increments it**, so a replace prepared at one version writes nothing once anything else changed
+   * them (`PodGrantsFacade.replaceGrants`). Absent until the first write; see
+   * `sempods-server/docs/collections.md`. A registration re-created under the same `clientId`
+   * starts again at `0`.
+   */
+  val grantsVersion: Long = 0,
+
+  /** When a person last changed [scopes]. A change the server makes moves [grantsVersion] alone. */
+  val grantsChangedAt: Instant? = null,
+
+  /** The WebID behind [grantsChangedAt]. */
+  val grantsChangedBy: String? = null,
 )

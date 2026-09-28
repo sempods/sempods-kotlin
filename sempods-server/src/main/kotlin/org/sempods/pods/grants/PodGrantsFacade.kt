@@ -19,6 +19,14 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 /**
  * Single entry point for reading and mutating grants on a pod.
  *
+ * Grants have two recipients ([GrantRecipient]): an app acting for a person, whose grants live in
+ * `grants` ([PodGrantsDao]), and a service client acting as itself, whose grants live on its
+ * registration row. [replaceGrants] writes both, each under its own conflict rule, and
+ * [PodContextPermissionResolver.resolve] reads both. They stay apart: the context-deletion sweep
+ * over `grants` re-derives every row from a person's authority, which a service's grants do not
+ * come from, and a registration's grants share one document with the rest of its state, so one
+ * update changes both. The rest of this class is about the first.
+ *
  * ## The two levels, and why they can drift
  *
  * `SPS-GRANT-013` (sempods-spec) defines authorization as a
@@ -31,7 +39,7 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
  * The *user level* ([PodWebIdGrantsDao]) says what a person may do on this pod. The *app level*
  * ([PodGrantsDao]) says what an app may do on their behalf, and is **derived** from the user level
  * once, at consent time. The request path
- * ([PodContextPermissionResolver.resolveFromGrants]) then reads the app level alone.
+ * ([PodContextPermissionResolver.resolve]) then reads the app level alone.
  *
  * That derivation is why every owner-level write has to funnel through here. Narrowing or removing
  * a user-level grant does not by itself reach an app that already consented — its derived rows
@@ -77,7 +85,7 @@ class PodGrantsFacade @Inject constructor(
    * whether a refresh may still mint.
    *
    * Deliberately *not* intersected with the user level. The request path does not intersect either
-   * ([PodContextPermissionResolver.resolveFromGrants]), and the reason is the same: a request
+   * ([PodContextPermissionResolver.resolve]), and the reason is the same: a request
    * carries one identity URI while a user-level grant may have been written under an equivalent
    * one. Revocation recomputes instead, which is what [cascadeToAppGrants] is for.
    */
@@ -240,74 +248,117 @@ class PodGrantsFacade @Inject constructor(
     }
   }
 
-  // ── app level ───────────────────────────────────────────────────────────────
+  // ── recipient level: what an app or a service may do ─────────────────────────
 
   /**
-   * Persists what a user delegated to an app — the authoritative new state, so anything not in
-   * [grants] is revoked. Called from the OAuth consent submission and from the auto-grant branch
-   * that re-narrows a stale set. **Returns the set that actually survived**, which is not always
-   * [grants] — see below.
+   * Makes [selection] the grants of [recipient]: anything not in it is revoked. [grantedBy] is the
+   * deciding person's WebID. [GrantRecipient] states each recipient's conflict rule.
    *
-   * [subjectUris] must be the consenting identity's full URI set (`identity.allUris`); it is what
-   * lets a later owner-level revocation find these rows when the owner-level grant was written
-   * under an alias. See [PodGrantDbo.subjectUris].
+   * **Checks again after writing**, because a revocation or context deletion can land between the
+   * caller's read and this write, and its cascade then finds nothing to sweep. With no transaction
+   * (standalone Mongo), both sides write first and check second, so one always sees the other.
+   * [GrantReplacement.Replaced.granted] is what survived that check.
    *
-   * ## Why this re-checks after writing
-   *
-   * Callers compute [grants] by intersecting a request against the user level, and time passes
-   * between that read and this write. An owner-level revocation that lands inside that window is
-   * invisible to both sides: the caller's intersection is already stale, and the revocation's own
-   * cascade runs before this row exists, so it finds nothing to sweep. The result would be an
-   * app grant no authority backs — permanently, since the request path consults the app level
-   * alone.
-   *
-   * There is no transaction to lean on (standalone Mongo). Instead both sides write before they
-   * check: a revocation deletes the owner-level row and *then* cascades, and this method persists
-   * and *then* re-derives. That makes the two unable to miss each other. If the revocation's
-   * cascade did not see this row, its delete had already landed, so the re-derivation here must
-   * observe it and sweeps the row again; and if the delete lands later, its own cascade sees the
-   * row. The check is a no-op whenever nothing raced, which is the overwhelmingly common case.
+   * - A delegation is re-derived from the person's authority ([cascadeToAppGrants]).
+   * - A service drops grants on contexts no longer registered, which is the owner's authority; only
+   *   the owner approves a service in 0.2. The drop is bound to the registration, not its version,
+   *   so a write landing in between cannot keep a deleted context's grant alive. A context deleted
+   *   and re-created within that gap loses its new grant.
    */
-  internal fun replaceAppGrants(
+  internal fun <R : GrantReplacement> replaceGrants(
     pod: HostedPod,
-    appId: String,
-    webId: String,
-    subjectUris: Collection<String>,
-    grants: Collection<String>,
-    grantedBy: String?,
-  ): Set<String> {
+    recipient: GrantRecipient<R>,
+    selection: Set<String>,
+    grantedBy: String,
+  ): R {
+    val replacement: GrantReplacement = when (recipient) {
+      is GrantRecipient.Delegation -> replaceDelegated(pod, recipient, selection, grantedBy)
+      is GrantRecipient.Service -> replaceForService(pod, recipient, selection, grantedBy)
+    }
+    // A delegation binds [R] to `Replaced`, a service to `GrantReplacement`.
+    @Suppress("UNCHECKED_CAST")
+    return replacement as R
+  }
+
+  /**
+   * [PodGrantDbo.subjectUris] are the recipient's aliases, the consenting identity's full URI set;
+   * they are what lets a later owner-level revocation find these rows when the owner-level grant was
+   * written under an alias.
+   */
+  private fun replaceDelegated(
+    pod: HostedPod,
+    recipient: GrantRecipient.Delegation,
+    selection: Set<String>,
+    grantedBy: String,
+  ): GrantReplacement.Replaced {
     podGrantsDao.replaceGrants(
       podId = pod.id.objectId(),
-      appId = appId,
-      webId = webId,
-      grants = grants,
-      subjectUris = subjectUris,
+      appId = recipient.clientId,
+      webId = recipient.webId,
+      grants = selection,
+      subjectUris = recipient.aliases,
       grantedBy = grantedBy,
     )
 
     val cascade = cascadeToAppGrants(
       pod,
-      subjectUris.toSet() + webIdUriDeriver.derivableAliases(webId),
+      recipient.aliases.toSet() + webIdUriDeriver.derivableAliases(recipient.webId),
     )
-    if (cascade.deletedAppGrants == 0L) return grants.toSet()
+    if (cascade.deletedAppGrants == 0L) return GrantReplacement.Replaced(selection)
 
     // Only reachable when an owner-level change raced this write. Re-read rather than subtract:
     // the cascade reports counts, and the caller needs the exact surviving set to decide whether
     // issuing a token still makes sense.
-    val surviving = podGrantsDao.fetchGrantStrings(pod.id.objectId(), appId, listOf(webId))
+    val surviving = podGrantsDao.fetchGrantStrings(pod.id.objectId(), recipient.clientId, listOf(recipient.webId))
     logger.warn {
       "[grants/consent] Owner-level change raced this delegation — dropped unbacked grants: " +
-          "pod='${pod.name}', clientId='$appId', webId='$webId', " +
-          "requested=${grants.size}, surviving=${surviving.size}"
+          "pod='${pod.name}', clientId='${recipient.clientId}', webId='${recipient.webId}', " +
+          "requested=${selection.size}, surviving=${surviving.size}"
     }
-    return surviving
+    return GrantReplacement.Replaced(surviving)
+  }
+
+  private fun replaceForService(
+    pod: HostedPod,
+    recipient: GrantRecipient.Service,
+    selection: Set<String>,
+    grantedBy: String,
+  ): GrantReplacement {
+    val written = podServiceClientStore.replaceScopes(
+      pod = pod,
+      clientId = recipient.clientId,
+      expected = recipient.registrationId,
+      expectedVersion = recipient.expectedVersion,
+      scopes = selection,
+      changedBy = grantedBy,
+    )
+    when (written) {
+      PodServiceClientStore.ScopeReplacement.Replaced -> Unit
+      PodServiceClientStore.ScopeReplacement.Conflict -> return GrantReplacement.Conflict
+      PodServiceClientStore.ScopeReplacement.NotFound -> return GrantReplacement.NotFound
+    }
+
+    if (selection.isEmpty()) return GrantReplacement.Replaced(selection)
+    val registered = podContextsDao.fetchByPod(pod.id.objectId()).mapTo(mutableSetOf()) { it.contextUri }
+    val lost = selection.filterTo(mutableSetOf()) { grant ->
+      (podScopeValidator.validate(grant, pod.baseUrl) as? ScopeValidationResult.Context)?.contextUri !in registered
+    }
+    if (lost.isEmpty()) return GrantReplacement.Replaced(selection)
+
+    podServiceClientStore.dropScopes(pod.id, recipient.clientId, recipient.registrationId, lost)
+    logger.warn {
+      "[grants/service] A context deletion raced this replace — dropped its grants: " +
+          "pod='${pod.name}', clientId='${recipient.clientId}', dropped=${lost.sorted()}"
+    }
+    return GrantReplacement.Replaced(selection - lost)
   }
 
   // ── context lifecycle ───────────────────────────────────────────────────────
 
   /**
-   * Strips the service-client scopes anchored at [contextUri]; answers how many registrations lost
-   * one. `PodFacade.removeContext` calls it a second time, after the registry row is gone.
+   * Strips the service-client grants anchored at [contextUri], moving each changed registration's
+   * version; answers how many registrations lost one. `PodFacade.removeContext` calls it a second
+   * time, after the registry row is gone, which is the half of [replaceGrants]'s check on this side.
    */
   internal fun revokeServiceClientScopes(pod: HostedPod, contextUri: String): Long =
     podServiceClientStore.revokeByContextScope(pod = pod.id, contextUri = contextUri)

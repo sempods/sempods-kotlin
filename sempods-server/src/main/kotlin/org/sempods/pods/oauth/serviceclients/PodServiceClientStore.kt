@@ -113,21 +113,59 @@ class PodServiceClientStore @Inject constructor(
 
   /**
    * Adds [scopes] to the registration [expected] names, and answers whether it was still there.
-   * Throws, like [register], for a scope a service client cannot hold.
+   * Throws, like [register], for a scope a service client cannot hold. [changedBy] is the person
+   * approving them.
    */
   internal fun addScopes(
     pod: HostedPod,
     clientId: String,
     expected: ServiceClientRegistrationId,
     scopes: Set<String>,
+    changedBy: String,
   ): Boolean {
     requireGrantable(pod, clientId, scopes)
-    return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes)
+    return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes, changedBy)
   }
 
-  /** Removes [scopes] and answers the registration afterwards, or `null` where there is none. */
-  internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>): ServiceClientRegistration? =
-    dao.removeScopes(pod.objectId(), clientId, scopes)?.toRegistration()
+  /** [changedBy] removes [scopes]; answers the registration afterwards, or `null` where there is none. */
+  internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>, changedBy: String): ServiceClientRegistration? =
+    dao.removeScopes(pod.objectId(), clientId, scopes, changedBy)?.toRegistration()
+
+  /**
+   * Drops [scopes] from the registration [expected] names, for the server's check after a grant
+   * write; one re-created under the same `clientId` is left alone. `false` where it is gone.
+   */
+  internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
+    dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
+
+  /**
+   * Makes [scopes] the grants of the registration [expected] names, if they are still at
+   * [expectedVersion]. Throws, like [register], for a scope a service client cannot hold.
+   *
+   * One conditional write: [ScopeReplacement.Conflict] and [ScopeReplacement.NotFound] wrote
+   * nothing. The two are told apart by reading afterwards, so a registration removed in that gap
+   * reads as not found, which it is by then.
+   */
+  internal fun replaceScopes(
+    pod: HostedPod,
+    clientId: String,
+    expected: ServiceClientRegistrationId,
+    expectedVersion: Long,
+    scopes: Set<String>,
+    changedBy: String,
+  ): ScopeReplacement {
+    requireGrantable(pod, clientId, scopes)
+    val podId = pod.id.objectId()
+    val id = expected.objectId()
+    return when {
+      dao.replaceScopes(podId, clientId, id, expectedVersion, scopes, changedBy) -> ScopeReplacement.Replaced
+      dao.exists(podId, clientId, id) -> ScopeReplacement.Conflict
+      else -> ScopeReplacement.NotFound
+    }
+  }
+
+  /** What [replaceScopes] did; the facade answers it as `GrantReplacement`. */
+  internal enum class ScopeReplacement { Replaced, Conflict, NotFound }
 
   /**
    * Replaces the secret and answers the new one, the only time it is readable. The registration and
@@ -180,6 +218,7 @@ class PodServiceClientStore @Inject constructor(
     label = label,
     createdAt = createdAt,
     lastUsedAt = lastUsedAt,
+    grantsVersion = grantsVersion,
   )
 
   /**
@@ -295,6 +334,8 @@ internal data class ServiceClientRegistration(
   val createdAt: Instant,
   /** When it last minted a token, or `null` if it never has. */
   val lastUsedAt: Instant? = null,
+  /** See `PodServiceClientDbo.grantsVersion`. Only meaningful together with [id]. */
+  val grantsVersion: Long = 0,
 ) {
 
   /** Whether this pod named it at an owner's installation. `false` for an operator-provisioned client. */

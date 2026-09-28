@@ -4,7 +4,10 @@ import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
+import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -134,4 +137,48 @@ class PodContextPermissionResolverTest {
     }
     assertEquals(emptyList(), effective.writableContexts)
   }
+
+  // --- resolve: one entry, the token's grant type names the recipient ---------------------
+
+  @Test
+  fun `a service token and a user token of the same client read different stores, once each`() {
+    // The grant type decides, never the `client_id`: one registration may later carry both kinds
+    // of access (#325), and a person's delegation must not leak into the service's tokens.
+    registered()
+    every { serviceClientDao.findByClientId(podId, "svc:notes") } returns PodServiceClientDbo(
+      id = ObjectId(),
+      podId = podId,
+      clientId = "svc:notes",
+      secretHash = "hash",
+      scopes = setOf("${ctx("service")}#read"),
+    )
+    every { grantsDao.fetchGrantStrings(podId, "svc:notes", listOf("https://id.test/e/person")) } returns
+      setOf("${ctx("person")}#read")
+
+    val asService = resolver.resolve(podId, token(sub = null, clientType = SERVICE_CLIENT_TYPE), podBaseUrl)
+    val asPerson = resolver.resolve(podId, token(sub = "https://id.test/e/person", clientType = null), podBaseUrl)
+
+    assertEquals(setOf(URI(ctx("service"))), asService.contexts)
+    assertEquals(setOf(URI(ctx("person"))), asPerson.contexts)
+    verify(exactly = 1) { serviceClientDao.findByClientId(podId, "svc:notes") }
+    verify(exactly = 1) { grantsDao.fetchGrantStrings(podId, "svc:notes", listOf("https://id.test/e/person")) }
+  }
+
+  @Test
+  fun `a service token whose registration is gone resolves nothing`() {
+    every { serviceClientDao.findByClientId(podId, "svc:notes") } returns null
+
+    val resolved = resolver.resolve(podId, token(sub = null, clientType = SERVICE_CLIENT_TYPE), podBaseUrl)
+
+    assertEquals(emptySet(), resolved.contexts)
+  }
+
+  private fun token(sub: String?, clientType: String?) = PodAccessToken(
+    clientId = "svc:notes",
+    sub = sub,
+    clientType = clientType,
+    scopeValues = emptySet(),
+    jti = null,
+    issuedAt = null,
+  )
 }

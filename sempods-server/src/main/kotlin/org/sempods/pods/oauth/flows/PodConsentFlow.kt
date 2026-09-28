@@ -13,6 +13,7 @@ import org.sempods.pods.HostedPod
 import org.sempods.pods.PodFacade
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
+import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
@@ -307,14 +308,12 @@ class PodConsentFlow @Inject internal constructor(
     // The facade re-derives after writing, so an owner-level revocation that landed between
     // `resolveUserGrants` above and this write cannot leave an unbacked grant behind. What comes
     // back is what actually survived.
-    val persistedScopes = podGrantsFacade.replaceAppGrants(
+    val persistedScopes = podGrantsFacade.replaceGrants(
       pod = pod,
-      appId = normalizedClientId,
-      webId = identity.webId,
-      subjectUris = identity.allUris,
-      grants = selectedScopes,
+      recipient = GrantRecipient.Delegation(clientId = normalizedClientId, webId = identity.webId, aliases = identity.allUris),
+      selection = selectedScopes,
       grantedBy = identity.webId,
-    )
+    ).granted
 
     if (persistedScopes.isEmpty()) {
       // Recoverable: the person's authority changed while they were deciding. `consent_required`
@@ -556,12 +555,10 @@ class PodConsentFlow @Inject internal constructor(
     // Once per URI that names the person, because that is how the rows are keyed: an authorization
     // made under an alias is one this person can end, and `holdsAnything` already counted it.
     identity.allUris.forEach { uri ->
-      podGrantsFacade.replaceAppGrants(
+      podGrantsFacade.replaceGrants(
         pod = pod,
-        appId = clientId,
-        webId = uri,
-        subjectUris = identity.allUris,
-        grants = emptySet(),
+        recipient = GrantRecipient.Delegation(clientId = clientId, webId = uri, aliases = identity.allUris),
+        selection = emptySet(),
         grantedBy = identity.webId,
       )
     }

@@ -176,13 +176,16 @@ class PodServiceClientGrantFlow @Inject internal constructor(
     if (registration == null || registration.id.value != transaction.registrationId) {
       return denied(target, state, pod, transaction.serviceClientId, "no longer grantable at redemption")
     }
-    if (!serviceClients.addScopes(pod, registration.clientId, registration.id, ticked)) {
+    if (!serviceClients.addScopes(pod, registration.clientId, registration.id, ticked, changedBy = identity.webId)) {
       return denied(target, state, pod, transaction.serviceClientId, "revoked while being granted")
     }
     // After the write, against a context deletion racing it: both sides write before they read
-    // (`PodFacade.removeContext` strips again once the registry row is gone).
+    // (`PodFacade.removeContext` strips again once the registry row is gone). Bound to the
+    // registration that wrote, like the cleanup after `PodGrantsFacade.replaceGrants`.
     val lost = ticked - podGrantsFacade.resolveUserGrants(pod, identity.allUris)
-    if (lost.isNotEmpty()) serviceClients.removeScopes(pod.id, registration.clientId, lost)
+    if (lost.isNotEmpty()) {
+      serviceClients.dropScopes(pod.id, registration.clientId, registration.id, lost)
+    }
     val granted = ticked - lost
     if (granted.isEmpty()) {
       return denied(target, state, pod, transaction.serviceClientId, "its contexts went while being granted")

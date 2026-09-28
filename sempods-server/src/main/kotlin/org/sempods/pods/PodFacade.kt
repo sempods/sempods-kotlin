@@ -129,7 +129,8 @@ class PodFacade @Inject constructor(
     }
     val resourcesChanged = getRepository(podName).removeContext(context)
     podContextsDao.delete(podId = podId, contextUri = contextUri)
-    // Again once the registry row is gone: a grant consent writes a scope, then asks the registry.
+    // Again once the registry row is gone: a grant write writes, then asks the registry
+    // (`PodGrantsFacade.replaceGrants`), so one of the two sees the other.
     podGrantsFacade.revokeServiceClientScopes(podDbo.toHostedPod(sempodsUriBuilder), contextUri)
 
     if (resourcesChanged) {

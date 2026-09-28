@@ -92,7 +92,7 @@ class GrantStorePodAuthorizerTest {
 
   @Test
   fun `public-read unions the public contexts onto the resolved grants`() {
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns grants(ctx("tasks"))
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns grants(ctx("tasks"))
 
     val credentials = authorizer.authorize(pod, userToken("public-read"))
 
@@ -102,7 +102,7 @@ class GrantStorePodAuthorizerTest {
 
   @Test
   fun `without public-read the bearer sees only its explicit grants`() {
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns grants(ctx("tasks"))
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns grants(ctx("tasks"))
 
     val credentials = authorizer.authorize(pod, userToken())
 
@@ -112,34 +112,26 @@ class GrantStorePodAuthorizerTest {
 
   @Test
   fun `a token with public-read and no grants at all still sees the public contexts`() {
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns noGrants
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 
     assertEquals(setOf(publicContext), authorizer.authorize(pod, userToken("public-read")).restrictedContexts)
   }
 
-  // --- which store a token is resolved against --------------------------------------------------
+  // --- which recipient a token is resolved as -------------------------------------------------
 
   @Test
-  fun `a user token resolves against the grant store, keyed by its subject`() {
-    every {
-      resolver.resolveFromGrants(podId, "did:web:app.test", "https://id.test/e/person", podBaseUrl)
-    } returns grants(ctx("tasks"))
+  fun `a user token and a service-client token each go to the one resolver entry, once`() {
+    // Which store each reads is the resolver's to decide (`PodContextPermissionResolverTest`).
+    val user = userToken()
+    val service = serviceToken()
+    every { resolver.resolve(podId, user, podBaseUrl) } returns grants(ctx("tasks"))
+    every { resolver.resolve(podId, service, podBaseUrl) } returns grants(ctx("tasks"))
 
-    assertEquals(setOf(grantedContext), authorizer.authorize(pod, userToken()).restrictedContexts)
+    assertEquals(setOf(grantedContext), authorizer.authorize(pod, user).restrictedContexts)
+    assertEquals(setOf(grantedContext), authorizer.authorize(pod, service).restrictedContexts)
 
-    verify(exactly = 1) {
-      resolver.resolveFromGrants(podId, "did:web:app.test", "https://id.test/e/person", podBaseUrl)
-    }
-  }
-
-  @Test
-  fun `a service-client token resolves against its registration instead`() {
-    every { resolver.resolveFromServiceClient(podId, "notes-app", podBaseUrl) } returns grants(ctx("tasks"))
-
-    assertEquals(setOf(grantedContext), authorizer.authorize(pod, serviceToken()).restrictedContexts)
-
-    verify(exactly = 1) { resolver.resolveFromServiceClient(podId, "notes-app", podBaseUrl) }
-    verify(exactly = 0) { resolver.resolveFromGrants(any(), any(), any(), any()) }
+    verify(exactly = 1) { resolver.resolve(podId, user, podBaseUrl) }
+    verify(exactly = 1) { resolver.resolve(podId, service, podBaseUrl) }
   }
 
   // --- the token's own scope claim ---------------------------------------------------------------
@@ -148,7 +140,7 @@ class GrantStorePodAuthorizerTest {
   fun `context scopes carried in the token are ignored, not trusted`() {
     // The whole point of resolving server-side: a signed `<ctx>#write` in the token buys nothing
     // once the grant store says otherwise.
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns noGrants
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 
     val credentials = authorizer.authorize(pod, userToken("${ctx("tasks")}#write"))
 
@@ -158,7 +150,7 @@ class GrantStorePodAuthorizerTest {
 
   @Test
   fun `malformed scopes are dropped rather than carried through`() {
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns noGrants
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 
     val credentials = authorizer.authorize(pod, userToken("public-read", "not a scope", "https://elsewhere.test/x#read"))
 
@@ -170,7 +162,7 @@ class GrantStorePodAuthorizerTest {
   fun `the manage cascade shows up in oauthScopes but not in oauthRawScopes`() {
     // `oauthRawScopes` is what a surface reports as "what the client was granted", so it must not
     // grow as the pod owner registers descendants; `oauthScopes` is what authorization keys off.
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns ResolvedContextAccess(
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns ResolvedContextAccess(
       rawContextScopes = setOf("${ctx("tasks")}#manage"),
       effectiveScopes = setOf("${ctx("tasks")}#manage", "${ctx("tasks/today")}#read"),
       contexts = setOf(URI(ctx("tasks")), URI(ctx("tasks/today"))),
@@ -195,7 +187,7 @@ class GrantStorePodAuthorizerTest {
     val credentials = authorizer.authorize(pod, userToken("public-read"))
 
     assertEquals(emptySet(), credentials.restrictedContexts)
-    verify(exactly = 0) { resolver.resolveFromGrants(any(), any(), any(), any()) }
+    verify(exactly = 0) { resolver.resolve(any(), any(), any()) }
   }
 
   // --- an installation authority reaches nothing ------------------------------------------------
@@ -205,12 +197,12 @@ class GrantStorePodAuthorizerTest {
     // The case this exists for: context permissions never travel in a token, so a slim
     // `service-clients:install` bearer would otherwise pick up whatever this client holds for this person
     // from an earlier, ordinary authorization. An installer arranges rights and holds none.
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns grants(ctx("tasks"))
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns grants(ctx("tasks"))
 
     val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_INSTALL_SCOPE))
 
     assertEquals(emptySet(), credentials.restrictedContexts)
-    verify(exactly = 0) { resolver.resolveFromGrants(any(), any(), any(), any()) }
+    verify(exactly = 0) { resolver.resolve(any(), any(), any()) }
   }
 
   @Test
@@ -225,7 +217,7 @@ class GrantStorePodAuthorizerTest {
 
   @Test
   fun `the scope itself still travels, so a route can ask what the bearer is for`() {
-    every { resolver.resolveFromGrants(podId, any(), any(), podBaseUrl) } returns noGrants
+    every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 
     assertEquals(setOf(SERVICE_CLIENTS_INSTALL_SCOPE), authorizer.authorize(pod, userToken(SERVICE_CLIENTS_INSTALL_SCOPE)).oauthScopes)
   }

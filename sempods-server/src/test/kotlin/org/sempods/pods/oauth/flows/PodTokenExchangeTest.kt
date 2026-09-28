@@ -13,6 +13,7 @@ import org.sempods.pods.PodId
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -87,14 +88,12 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     }
 
     fun grant(grants: Set<String>) {
-      podGrantsFacade.replaceAppGrants(
+      podGrantsFacade.replaceGrants(
         pod = pod.toHostedPod(sempodsUriBuilder),
-        appId = clientId,
-        webId = webId,
-        subjectUris = listOf(webId),
-        grants = grants,
+        recipient = GrantRecipient.Delegation(clientId = clientId, webId = webId, aliases = listOf(webId)),
+        selection = grants,
         grantedBy = webId,
-      )
+      ).granted
     }
 
     fun answer(durable: Boolean): Long =

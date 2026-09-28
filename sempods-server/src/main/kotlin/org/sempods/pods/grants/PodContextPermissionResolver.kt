@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.bson.types.ObjectId
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
+import org.sempods.pods.oauth.PodAccessToken
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import java.net.URI
 
@@ -28,7 +29,7 @@ import java.net.URI
  * out on the way back in, not merely refused at registration.
  *
  * Also resolves request-time grants (`PodGrantsDao` / `PodServiceClientDao`) into effective
- * context permissions for slim tokens.
+ * context permissions for slim tokens, through the one entry [resolve].
  *
  * TODO: the `scopes` naming here predates the token slimming — `effectiveScopes` /
  *   `rawContextScopes` hold *grant strings* (`<context>#read|write|manage`), which are server-side
@@ -43,41 +44,38 @@ class PodContextPermissionResolver @Inject constructor(
 ) {
 
   /**
-   * Resolve a user-delegated app token's effective context permissions from the durable
-   * grant store (`PodGrantsDao`), keyed by `(pod, clientId, webId)`. Slim access tokens no
-   * longer carry context scopes; this is the request-time source of truth, so a grant
-   * revoked in the DB takes effect on the next request.
+   * What [token]'s recipient holds on [podId], resolved from the grant store with one read. Slim
+   * access tokens carry no context grants; this is the request-time source of truth, so a grant
+   * revoked or cascaded away takes effect on the next request.
    *
-   * Note this resolves the *app-delegation* level only. The user level
+   * The token's grant type names the recipient ([GrantRecipient]), never its `client_id` alone:
+   * - **A Client Credentials token** is a service client acting as itself, and reads the grants on
+   *   its registration (`PodServiceClientDao`), whichever registration holds the `client_id` now.
+   *   A single-document write replaces them, so a request sees one version of them or the next.
+   * - **Any other token** is an app acting for its `sub`, and reads `PodGrantsDao` under
+   *   `(pod, client_id, sub)`. A request overlapping a replace there can see part of either
+   *   selection (`PodGrantsDao.replaceGrants`).
+   *
+   * The delegation half resolves the *app-delegation* level only. The user level
    * (`PodWebIdGrantsDao`, owner-granted WebID→context access) is applied once at consent time and
    * is deliberately not re-intersected here — a request carries a single identity URI (`sub`), so
    * an intersection would drop grants made under an equivalent one, and it would add a second
    * grant-store round-trip to every authenticated request. Owner-level revocation cascades into
    * this store instead; see [PodGrantsFacade].
+   *
+   * Reads the token's identity only. Its scopes are the authorizer's to sanitize.
    */
-  internal fun resolveFromGrants(
+  internal fun resolve(
     podId: ObjectId,
-    clientId: String,
-    webId: String,
+    token: PodAccessToken,
     podBaseUrl: String,
   ): ResolvedContextAccess {
-    val rawGrants = podGrantsDao.fetchGrantStrings(podId, clientId, listOf(webId))
+    val rawGrants = if (token.isServiceClient) {
+      podServiceClientDao.findByClientId(podId, token.clientId)?.scopes ?: emptySet()
+    } else {
+      podGrantsDao.fetchGrantStrings(podId, token.clientId, listOf(checkNotNull(token.sub)))
+    }
     return resolveContextScopes(rawGrants, podId, podBaseUrl)
-  }
-
-  /**
-   * Resolve a service-client (`client_credentials`) token's effective context permissions
-   * from its static registration (`PodServiceClientDao`). Service tokens are slim too; their
-   * registered scopes are the request-time source, so a registration edited/cascaded away
-   * (e.g. context deletion) takes effect on the next request.
-   */
-  internal fun resolveFromServiceClient(
-    podId: ObjectId,
-    clientId: String,
-    podBaseUrl: String,
-  ): ResolvedContextAccess {
-    val registered = podServiceClientDao.findByClientId(podId, clientId)?.scopes ?: emptySet()
-    return resolveContextScopes(registered, podId, podBaseUrl)
   }
 
   /**
