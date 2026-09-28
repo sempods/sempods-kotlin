@@ -52,9 +52,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var services: ServiceAccessFlow
 
-  @Inject
-  private lateinit var flow: DelegatedAccessFlow
-
   private val installerClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
   private val codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -399,12 +396,8 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   /** The owner's service consent for [installed], confirmed with [scopes] ticked. */
-  private fun confirm(owned: Owned, installed: Installed, scopes: Set<String>) {
-    val cookie = signIn(owned.pod.name, owned.webId).cookie
-    val page = services.page(services.open(owned.pod, installed.clientId, cookie))
-    val confirmed = flow.submit(page, cookie, scopes = scopes)
-    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
-  }
+  private fun confirm(owned: Owned, installed: Installed, scopes: Set<String>) =
+    services.confirm(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie, scopes)
 
   private fun formToken(page: TestHttpResponse): String =
     Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)?.groupValues?.get(1)

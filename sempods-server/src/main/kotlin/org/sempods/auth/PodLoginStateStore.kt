@@ -49,7 +49,13 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
     val browserPin: String,
     /** Whether this is a parked service consent for the service [clientId]; else an `/authorize`. */
     val serviceConsent: Boolean = false,
-  )
+  ) {
+    /**
+     * Where a sign-in that failed is reported: [redirectUri] for an `/authorize`, and nowhere for a
+     * service consent, whose return address hears only the owner's decision.
+     */
+    val errorRedirectUri: String? get() = redirectUri.takeUnless { serviceConsent }
+  }
 
   private val states = OneTimeStore(
     db = db,

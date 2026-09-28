@@ -105,8 +105,7 @@ public final class ServiceConsent {
   public SempodsServiceClientRegistration register(String serviceName, CredentialStore store) throws IOException {
     // A service registers itself: no credential, and no data until the owner says so. The loopback
     // address matches whatever port the program listens on later (RFC 8252 §7.3).
-    var registering = new SempodsPodServiceClients(new SempodsSession(pod), client);
-    SempodsServiceClientRegistration service = registering.register(serviceName, List.of(LOOPBACK)).getBody();
+    SempodsServiceClientRegistration service = consents().register(serviceName, List.of(LOOPBACK)).getBody();
     // The secret exists only in that answer: store it before anything that can still fail.
     store.save(service.getClientId(), service.getClientSecret());
     return service;
@@ -179,11 +178,8 @@ public final class ServiceConsent {
     var wait = new SempodsServiceAccessWait(
         new SempodsSession(pod, SempodsRequestAuth.clientSecretBasic(clientId, clientSecret)), client);
     // `invalid_client` throws: the registration expired or was removed, and waiting changes nothing.
-    return switch (wait.await(contexts, timeLimit)) {
-      case REACHABLE -> Access.REACHABLE;
-      case TIME_LIMIT -> Access.TIME_LIMIT;
-      case CANCELLED -> Access.CANCELLED;
-    };
+    // Nothing here calls `wait.cancel()`, so the wait reaches its contexts or its time limit.
+    return wait.await(contexts, timeLimit) == SempodsServiceAccessWait.Outcome.REACHABLE ? Access.REACHABLE : Access.TIME_LIMIT;
   }
 
   private SempodsPodServiceClients consents() {

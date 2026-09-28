@@ -53,23 +53,20 @@ internal class ConsentSelection @Inject constructor(
       .distinct()
       .sorted()
 
-    // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
-    fun relativePathOf(path: String): String = path.substringAfter('/', path)
-    fun pathOf(uri: String): String = URI(uri).path?.trimStart('/') ?: uri
     val manageRoots = permissionResolver.manageRoots(existingGrants, pod.baseUrl)
 
     return contextUris.map { uri ->
-      val path = pathOf(uri)
+      val relativePath = PodConsentContext.relativePathOf(uri)
       PodConsentContext(
         uri = uri,
-        relativePath = relativePathOf(path),
-        label = path.trimEnd('/').substringAfterLast('/'),
+        relativePath = relativePath,
+        label = relativePath.trimEnd('/').substringAfterLast('/'),
         readGranted = existingGrants.contains("$uri#read"),
         writeGranted = existingGrants.contains("$uri#write"),
         manageGranted = existingGrants.contains("$uri#manage"),
         // The nearest root, where several nest: it is the one a person unticks to take this row.
         managedVia = permissionResolver.manageRootAbove(manageRoots, uri)
-          ?.let { relativePathOf(pathOf(it)) },
+          ?.let(PodConsentContext::relativePathOf),
       )
     }
   }

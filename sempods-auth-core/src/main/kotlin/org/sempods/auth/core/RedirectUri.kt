@@ -106,6 +106,12 @@ object RedirectUri {
   /** Whether [host] reaches only the user's own machine — the question `isValid` asks of `http`. */
   fun isLoopback(host: String?): Boolean = normalizeHost(host) in loopbackHosts
 
+  /** Whether [redirectUri] is one of [registered], compared as [canonicalize] leaves them. */
+  fun matchesRegistered(redirectUri: String, registered: Collection<String>): Boolean {
+    val requested = canonicalize(redirectUri)
+    return registered.any { canonicalize(it) == requested }
+  }
+
   /** Loopback-aware canonical form: the port is dropped for [portInsensitiveHosts], nothing else. */
   fun canonicalize(uri: String): String {
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return uri

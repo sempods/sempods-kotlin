@@ -1,7 +1,6 @@
 package org.sempods.client
 
 import okhttp3.Call
-import okhttp3.Request
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.time.Duration
@@ -14,7 +13,9 @@ import java.util.concurrent.TimeUnit
  * ([SempodsPodServiceClients.consentUrl]).
  *
  * The consent delivers nothing back, so this asks what the service reaches, the way it would use
- * that access: a `client_credentials` token ([SempodsPodTokens]), then `GET {pod}/_system/contexts`.
+ * that access: a `client_credentials` token ([SempodsPodTokens]), then the context catalogue
+ * ([SempodsPodContexts.listBytes]). It reads the catalogue's `sd:namedGraph` members, whose
+ * canonical JSON-LD spelling the specification fixes (SPS-CRUD-024, SPS-CTX-033).
  * It checks the contexts named, never a particular consent. A token alone proves nothing: a service
  * that already holds one context gets a token before the owner decides about the next, and the owner
  * may grant other contexts than the ones asked for.
@@ -70,8 +71,6 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
 
   private val tokens = SempodsPodTokens(session, tracked)
 
-  private val exchange = Exchange(tracked)
-
   private val isCancelled: Boolean get() = cancelled.count == 0L
 
   init {
@@ -90,19 +89,19 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
     val needed = contexts.toSet()
     val deadline = System.nanoTime() + timeLimit.toNanos()
     var pause = initialDelay
-    var token: String? = null
+    var catalogue: SempodsPodContexts? = null
     while (true) {
       if (isCancelled) return Outcome.CANCELLED
       try {
-        token = token ?: mint()
-        if (token != null) {
-          val reached = reachable(token)
-          if (reached == null) {
-            token = null
-          } else if (reached.containsAll(needed)) {
-            return Outcome.REACHABLE
-          }
+        val fresh = catalogue == null
+        catalogue = catalogue ?: mint()?.let { SempodsPod(SempodsSession(session.podBase, SempodsRequestAuth.bearer(it)), tracked).contexts() }
+        val reached = catalogue?.let(::reachable)
+        if (catalogue != null && reached == null) {
+          // The pod no longer accepts the token: mint again at once, unless it was just minted.
+          catalogue = null
+          if (!fresh) continue
         }
+        if (reached != null && reached.containsAll(needed)) return Outcome.REACHABLE
       } catch (e: SempodsStatusException) {
         if (e.status != 429) throw e
         pause = maxOf(pause, maxDelay.dividedBy(2))
@@ -138,12 +137,20 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
     if (e.status == 400 && errorOf(e) == "invalid_scope") null else throw e
   }
 
-  /** The context IRIs [token] reaches, or `null` where the pod no longer accepts the token. */
-  private fun reachable(token: String): Set<String>? {
-    val listing = SempodsSession(session.podBase, SempodsRequestAuth.bearer(token))
-    val request: Request = listing.newRequest("GET", CONTEXTS).header("Accept", "application/json").build()
-    val answer = exchange.run(request, CONTEXT_ANSWERS, CONTEXT_IRIS)
-    return if (answer.status == 401) null else answer.body.orEmpty()
+  /** The context IRIs the catalogue lists, or `null` where the pod no longer accepts its token. */
+  private fun reachable(catalogue: SempodsPodContexts): Set<String>? {
+    val answer = try {
+      catalogue.listBytes()
+    } catch (e: SempodsStatusException) {
+      if (e.status == 401) return null else throw e
+    }
+    val bytes = answer.body ?: return emptySet()
+    return try {
+      val document = decodeObject(bytes)
+      if (NAMED_GRAPH !in document.names()) emptySet() else document.objects(NAMED_GRAPH).mapTo(HashSet()) { it.string("@id") }
+    } catch (violation: ProtocolViolation) {
+      throw SempodsDecodingException.of("The context catalogue cannot be read: ${violation.detail}.", answer.status, answer.headers)
+    }
   }
 
   private fun errorOf(e: SempodsStatusException): String? =
@@ -151,13 +158,7 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
 
   private companion object {
 
-    const val CONTEXTS = "_system/contexts"
-
-    /** A token that expired or was withdrawn while the wait ran is minted again. */
-    val CONTEXT_ANSWERS = (200..299).toSet() + 401
-
-    val CONTEXT_IRIS = BodyReading<Set<String>> { bytes, _ ->
-      decodeObject(bytes).objects("contexts").mapTo(LinkedHashSet()) { it.string("context_iri") }
-    }
+    /** SPARQL 1.1 Service Description's `sd:namedGraph`, as canonical JSON-LD spells it. */
+    const val NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"
   }
 }

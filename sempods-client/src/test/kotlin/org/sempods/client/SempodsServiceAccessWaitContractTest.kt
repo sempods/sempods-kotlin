@@ -40,10 +40,13 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
       .respond(response().withStatusCode(status).withHeader("Content-Type", "application/json").withBody(body))
   }
 
+  /** The catalogue in canonical JSON-LD; with no context the pod writes no `sd:namedGraph` member. */
   private fun contexts(vararg iris: String, times: Times = Times.unlimited()) {
-    val listed = iris.joinToString(",") { """{"context_iri":"$it","permissions":["read"],"source":"GRANT"}""" }
+    val named = if (iris.isEmpty()) "" else
+      ""","$NAMED_GRAPH":[${iris.joinToString(",") { """{"@id":"$it"}""" }}],"$READABLE":[${iris.joinToString(",") { """{"@id":"$it"}""" }}]"""
+    val body = """{"@id":"$origin/alice/_system/contexts","@type":["http://www.w3.org/ns/sparql-service-description#GraphCollection"]$named}"""
     server.`when`(request().withPath("/alice/_system/contexts"), times)
-      .respond(response().withStatusCode(200).withHeader("Content-Type", "application/json").withBody("""{"contexts":[$listed]}"""))
+      .respond(response().withStatusCode(200).withHeader("Content-Type", "application/ld+json").withBody(body))
   }
 
   private val granted = """{"access_token":"at-1","token_type":"Bearer","expires_in":3600}"""
@@ -62,7 +65,7 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
     assertEquals(3, sent("/alice/_system/auth/token").size)
     val listing = sent("/alice/_system/contexts").single()
     assertEquals("Bearer at-1", listing.getFirstHeader("Authorization"))
-    assertEquals("application/json", listing.getFirstHeader("Accept"))
+    assertEquals("application/ld+json", listing.getFirstHeader("Accept"))
   }
 
   @Test
@@ -75,6 +78,15 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
 
     assertEquals(1, sent("/alice/_system/auth/token").size, "the token is kept while the pod accepts it")
     assertEquals(3, sent("/alice/_system/contexts").size)
+  }
+
+  @Test
+  fun `a catalogue without a named graph reaches nothing yet`() {
+    token(200, granted)
+    contexts(times = Times.exactly(1))
+    contexts(c)
+
+    assertEquals(SempodsServiceAccessWait.Outcome.REACHABLE, waiting().await(listOf(c), Duration.ofSeconds(5)))
   }
 
   @Test
@@ -116,7 +128,7 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
     val wait = waiting(initialDelay = Duration.ofSeconds(20))
     val outcome = CompletableFuture.supplyAsync { wait.await(listOf(c), Duration.ofMinutes(5)) }
 
-    Thread.sleep(200)
+    while (sent("/alice/_system/auth/token").isEmpty()) Thread.onSpinWait()
     wait.cancel()
 
     assertEquals(SempodsServiceAccessWait.Outcome.CANCELLED, outcome.get(5, TimeUnit.SECONDS))
@@ -132,5 +144,10 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
     } finally {
       Thread.interrupted()
     }
+  }
+
+  private companion object {
+    const val NAMED_GRAPH = "http://www.w3.org/ns/sparql-service-description#namedGraph"
+    const val READABLE = "https://sempods.org/ns#readableContext"
   }
 }

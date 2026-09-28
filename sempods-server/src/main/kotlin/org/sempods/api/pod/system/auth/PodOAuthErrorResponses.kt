@@ -48,18 +48,13 @@ internal object PodOAuthErrorResponses {
    * rather than a [Redirectable]. It takes that record: holding a [PodLoginStateStore.Pending] is
    * what being resumed *means*, so an address off the current request cannot get in. #154 owns
    * moving the route onto [OAuthErrorDelivery].
-   *
-   * A parked service consent is answered in the browser: its redirect carries the owner's decision
-   * and nothing else.
    */
   fun renderToParked(
     pending: PodLoginStateStore.Pending,
     error: OAuthErrorCode,
     description: String,
     config: SempodsConfig,
-  ): Response = render(
-    pending.redirectUri.takeUnless { pending.serviceConsent }, error, description, pending.clientState, config,
-  )
+  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, config)
 
   private fun render(
     redirectUri: String?,

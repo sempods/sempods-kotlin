@@ -1,19 +1,18 @@
 package org.sempods.example
 
 import com.google.inject.Inject
-import com.mongodb.client.MongoDatabase
-import com.mongodb.client.model.Filters
-import com.mongodb.client.model.Updates
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
+import org.sempods.api.pod.system.auth.DelegatedAccessFlow
+import org.sempods.api.pod.system.auth.DelegatedAccessFlow.ConsentPage
+import org.sempods.api.pod.system.auth.ServiceAccessFlow
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPkce
@@ -29,8 +28,6 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.pods.mongo.persist.PodDbo
 import java.net.URI
 import java.time.Duration
-import java.time.Instant
-import java.util.Date
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
@@ -54,7 +51,10 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   @Inject
-  private lateinit var db: MongoDatabase
+  private lateinit var services: ServiceAccessFlow
+
+  @Inject
+  private lateinit var flow: DelegatedAccessFlow
 
   // ── On the owner's laptop ───────────────────────────────────────────────────
 
@@ -139,7 +139,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val service = example.register("Notes Sync") { _, _ -> }
     val owner = LaterOwner(owned, cancel = true)
 
-    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(c), owner, Duration.ofSeconds(3))
+    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(c), owner, Duration.ofSeconds(2))
 
     assertEquals(ServiceConsent.Access.TIME_LIMIT, access)
     owner.finished()
@@ -154,7 +154,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val service = example.register("Notes Sync") { _, _ -> }
     val owner = LaterOwner(owned, selection = emptySet())
 
-    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(c), owner, Duration.ofSeconds(3))
+    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(c), owner, Duration.ofSeconds(2))
 
     assertEquals(ServiceConsent.Access.TIME_LIMIT, access)
     owner.finished()
@@ -172,7 +172,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val service = example.register("Notes Sync") { _, _ -> }
     val owner = LaterOwner(owned, selection = setOf("$e#read"))
 
-    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(d), owner, Duration.ofSeconds(3))
+    val access = example.askAnywhere(service.clientId, service.clientSecret, listOf(d), owner, Duration.ofSeconds(2))
 
     assertEquals(ServiceConsent.Access.TIME_LIMIT, access)
     owner.finished()
@@ -185,10 +185,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val c = owned.context("c")
     val example = ServiceConsent(owned.base, client, null)
     val service = example.register("Notes Sync") { _, _ -> }
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).updateOne(
-      Filters.eq("clientId", service.clientId),
-      Updates.set("pendingUntil", Date.from(Instant.now().minusSeconds(60))),
-    )
+    services.expire(service.clientId)
 
     val expired = assertThrows<SempodsStatusException> {
       example.askAnywhere(service.clientId, service.clientSecret, listOf(c), { }, Duration.ofSeconds(20))
@@ -308,21 +305,12 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     override fun open(url: HttpUrl) {
       opened += url
       val cookie = signIn(owned.pod.name, owned.webId).cookie
-      val page = http.prepareGet(url.toString()).addHeader("Cookie", cookie).setFollowRedirect(false).execute()
-      assertEquals(200, page.statusCode, page.responseBody)
-      val isServiceConsent = url.encodedPath.endsWith("/_system/auth/service-consent")
-      val fields = hiddenFields(page.responseBody).toMutableList()
-      when {
-        isServiceConsent && cancel -> fields += "action" to "cancel"
-        isServiceConsent -> selection.forEach { fields += "scope" to it }
-        else -> OAuthSyntax.parseScope(url.queryParameter("scope")).forEach { fields += "scope" to it }
+      val response = http.prepareGet(url.toString()).addHeader("Cookie", cookie).setFollowRedirect(false).execute()
+      val submitted = if (url.encodedPath.endsWith("/_system/auth/service-consent")) {
+        flow.submit(services.page(response), cookie, scopes = if (cancel) emptySet() else selection, action = "cancel".takeIf { cancel })
+      } else {
+        flow.submit(ConsentPage.of(response), cookie, scopes = OAuthSyntax.parseScope(url.queryParameter("scope")).toSet())
       }
-      val action = url.resolve(unescapeHtml(FORM_ACTION.find(page.responseBody)!!.groupValues[1]))!!
-      val submitted = http.preparePost(action.toString())
-        .addHeader("Content-Type", "application/x-www-form-urlencoded")
-        .addHeader("Cookie", cookie)
-        .setBody(fields.joinToString("&") { (name, value) -> "${enc(name)}=${enc(value)}" })
-        .setFollowRedirect(false).execute()
       val location = submitted.getHeader("Location")
       if (location == null) {
         // A consent without a return address ends on the pod's own page.
@@ -347,7 +335,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
 
     override fun show(url: HttpUrl) {
       decision = CompletableFuture.runAsync {
-        Thread.sleep(700)
+        Thread.sleep(200)
         OwnerBrowser(owned, selection, cancel).open(url)
       }.thenApply { }
     }
@@ -373,10 +361,6 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
       .setBody("grant_type=client_credentials")
       .execute().statusCode
 
-  /** The hidden fields a browser submits: none inside a `<template>`, which is inert until a script clones it. */
-  private fun hiddenFields(page: String): List<Pair<String, String>> =
-    HIDDEN.findAll(page.replace(TEMPLATE, "")).map { it.groupValues[1] to unescapeHtml(it.groupValues[2]) }.toList()
-
   companion object {
 
     private val client: OkHttpClient = SempodsOkHttp.install(OkHttpClient.Builder()).build()
@@ -389,8 +373,5 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     }
 
     private const val REDIRECT = "http://127.0.0.1:9/callback"
-    private val HIDDEN = Regex("""<input type="hidden" name="([^"]+)" value="([^"]*)"""")
-    private val TEMPLATE = Regex("""<template[\s\S]*?</template>""")
-    private val FORM_ACTION = Regex("""<form[^>]*\saction="([^"]*)"""")
   }
 }

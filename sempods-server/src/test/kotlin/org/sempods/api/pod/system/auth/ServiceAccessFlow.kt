@@ -1,13 +1,18 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
+import org.sempods.SempodsCollections
 import org.sempods.SempodsModule
+import org.sempods.clientSecretBasicHeader
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
-import java.net.URLEncoder
-import java.util.Base64
+import java.time.Instant
+import java.util.Date
 import kotlin.test.assertEquals
 
 /**
@@ -22,6 +27,12 @@ internal class ServiceAccessFlow {
 
   @Inject
   private lateinit var http: TestHttpClient
+
+  @Inject
+  private lateinit var delegated: DelegatedAccessFlow
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   /** A registered service and the secret it was given once. */
   class Service(val clientId: String, val secret: String, val issuedAt: Long)
@@ -65,11 +76,25 @@ internal class ServiceAccessFlow {
   fun page(response: TestHttpResponse): DelegatedAccessFlow.ConsentPage =
     DelegatedAccessFlow.ConsentPage.of(response, formId = "serviceConsentForm")
 
+  /** Opens the consent for [clientId] in the browser holding [cookie] and confirms [scopes], without a return address. */
+  fun confirm(pod: PodDbo, clientId: String, cookie: String, scopes: Set<String>) {
+    val confirmed = delegated.submit(page(open(pod, clientId, cookie)), cookie, scopes = scopes)
+    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
+  }
+
+  /** Moves [clientId]'s activation deadline into the past, ahead of the TTL monitor. */
+  fun expire(clientId: String) {
+    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).updateOne(
+      Filters.eq("clientId", clientId),
+      Updates.set("pendingUntil", Date.from(Instant.now().minusSeconds(60))),
+    )
+  }
+
   /** The Client Credentials request the service sends. */
   fun token(pod: PodDbo, service: Service, secret: String = service.secret): TestHttpResponse =
     http.preparePost("${podBase(pod)}/_system/auth/token")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basic(service.clientId, secret))
+      .addHeader("Authorization", clientSecretBasicHeader(service.clientId, secret))
       .setBody("grant_type=client_credentials")
       .execute()
 
@@ -102,10 +127,4 @@ internal class ServiceAccessFlow {
     JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
 
   private fun podBase(pod: PodDbo) = "${SempodsModule.config.apiBaseUrl}${pod.name}"
-
-  /** RFC 6749 §2.3.1: each half form-encoded first, which a `svc:` identifier needs. */
-  private fun basic(clientId: String, secret: String): String =
-    "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
-
-  private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
 }

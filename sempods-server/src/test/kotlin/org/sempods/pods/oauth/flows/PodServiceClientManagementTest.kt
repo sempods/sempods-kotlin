@@ -112,7 +112,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     assertNull(stored.pendingUntil, "confirming activates")
 
     assertEquals(
-      PodServiceConsentResult.Refused(PodServiceConsentRefusal.FORM_EXPIRED, emptyList()),
+      PodServiceConsentResult.Refused(PodServiceConsentRefusal.FORM_EXPIRED),
       consents.submit(owned.pod, form, owned.session),
     )
   }
@@ -131,7 +131,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
       owned.session,
     )
 
-    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER, emptyList()), answered)
+    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER), answered)
     assertEquals(emptySet(), serviceClients.find(owned.pod.id, installed.clientId)?.scopes)
   }
 
@@ -142,7 +142,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
 
     val opened = openServiceConsent(owned, provisioned.clientId)
 
-    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE, emptyList()), opened)
+    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE), opened)
     assertNull(serviceClients.find(owned.pod.id, provisioned.clientId)?.scopes?.firstOrNull())
   }
 }

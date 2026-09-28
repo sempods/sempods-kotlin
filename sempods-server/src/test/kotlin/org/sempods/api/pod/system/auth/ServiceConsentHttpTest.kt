@@ -1,16 +1,11 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
-import com.mongodb.client.MongoDatabase
-import com.mongodb.client.model.Filters
-import com.mongodb.client.model.Updates
 import org.junit.jupiter.api.Test
-import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.api.pod.system.auth.ServiceAccessFlow.Service
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.tests.TestUtil.randomId
@@ -18,8 +13,6 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.net.URI
-import java.time.Instant
-import java.util.Date
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -50,9 +43,6 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var serviceClientStore: PodServiceClientStore
-
-  @Inject
-  private lateinit var db: MongoDatabase
 
   private val loopback = "http://127.0.0.1/callback"
 
@@ -135,7 +125,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     val cancelled = flow.submit(page, owned.cookie, scopes = setOf("$c#read"), action = "cancel")
 
     assertEquals(303, cancelled.statusCode, cancelled.responseBody)
-    val back = query(cancelled)
+    val back = flow.query(cancelled)
     assertEquals("access_denied", back["error"])
     assertEquals("consent-1", back["state"])
     val row = stored(owned, service)
@@ -268,7 +258,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     confirm(owned, service, setOf("$c#read"))
     assertNull(services.tokenError(services.token(owned.pod, service)))
 
-    expire(lapsing)
+    services.expire(lapsing.clientId)
     val expired = services.token(owned.pod, lapsing)
     assertEquals(401, expired.statusCode, expired.responseBody)
     assertEquals("invalid_client", services.tokenError(expired))
@@ -280,7 +270,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     val c = owned.context("c")
     val service = services.register(owned.pod)
     val page = services.page(services.open(owned.pod, service.clientId, owned.cookie))
-    expire(service)
+    services.expire(service.clientId)
 
     val late = flow.submit(page, owned.cookie, scopes = setOf("$c#read"))
 
@@ -467,22 +457,11 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     return Owned(sempodsTestFactory.newPod(ownerUser = owner), webIdUriDeriver.deriveFromEmail(owner.email))
   }
 
-  /** Opens the consent for [service] as the owner and confirms [scopes], without a return address. */
-  private fun confirm(owned: Owned, service: Service, scopes: Set<String>) {
-    val confirmed = flow.submit(services.page(services.open(owned.pod, service.clientId, owned.cookie)), owned.cookie, scopes = scopes)
-    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
-  }
+  private fun confirm(owned: Owned, service: Service, scopes: Set<String>) =
+    services.confirm(owned.pod, service.clientId, owned.cookie, scopes)
 
   private fun stored(owned: Owned, service: Service) =
     assertNotNull(serviceClientStore.find(owned.pod.podId(), service.clientId), "registration ${service.clientId}")
-
-  /** Moves [service]'s deadline into the past, ahead of the TTL monitor. */
-  private fun expire(service: Service) {
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).updateOne(
-      Filters.eq("clientId", service.clientId),
-      Updates.set("pendingUntil", Date.from(Instant.now().minusSeconds(60))),
-    )
-  }
 
   private fun createContext(owned: Owned, path: String, bearer: String): TestHttpResponse =
     http.preparePut("${podBase(owned.pod)}/_system/contexts/$path")
@@ -512,11 +491,6 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
       .addHeader("Cookie", cookie)
       .setBody((hidden.toList() + ("scope" to scope)).joinToString("&") { (name, value) -> "$name=${enc(value)}" })
       .setFollowRedirect(false).execute()
-
-  private fun query(response: TestHttpResponse): Map<String, String> {
-    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
-    return UrlUtil.queryParams(URI(location).rawQuery)
-  }
 
   private fun podBase(pod: PodDbo) = "${SempodsModule.config.apiBaseUrl}${pod.name}"
 }

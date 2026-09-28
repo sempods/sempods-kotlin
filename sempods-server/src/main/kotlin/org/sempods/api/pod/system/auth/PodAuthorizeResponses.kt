@@ -14,6 +14,7 @@ import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
+import org.sempods.pods.oauth.flows.PodConsentContext
 import org.sempods.pods.oauth.flows.PodConsentRefusal
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodConsentScreen
@@ -182,7 +183,7 @@ internal object PodAuthorizeResponses {
     .type("text/html;charset=UTF-8")
     .build()
 
-  /** The service consent dialog. It shares the rows and context creation with [consentPage]. */
+  /** The service consent dialog. The rows and context creation are [grantSelectionModel]'s. */
   private fun serviceConsentPage(
     screen: PodServiceConsentScreen,
     templates: TemplateRenderer,
@@ -194,27 +195,39 @@ internal object PodAuthorizeResponses {
       "clientName" to (screen.clientName ?: ""),
       "registeredAt" to instantInWords(screen.registeredAt),
       "activationExpiresAt" to (screen.activationExpiresAt?.let(::instantInWords) ?: ""),
-      "held" to screen.held.map { relativeScope(it, screen.podBaseUrl) },
+      // Named as the rows name them.
+      "held" to screen.held.map { "${PodConsentContext.relativePathOf(it.substringBeforeLast('#'))} (${it.substringAfterLast('#')})" },
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
-      "contexts" to screen.contexts,
-      "podBaseUrl" to screen.podBaseUrl,
-      "contextPathPrefix" to SempodsUriBuilder.CONTEXT_PATH_PREFIX,
-      "reservedSegment" to ContextPathRules.RESERVED_SEGMENT,
-      "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
-      "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
-      "contextCreationAvailable" to true,
-    ))
+    ) + grantSelectionModel(screen.contexts, screen.podBaseUrl, contextCreationAvailable = true))
 
   private fun instantInWords(instant: Instant): String =
     DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.SECONDS))
 
-  /** A grant as the dialog lists it: the context's path below the pod, and the permission. */
-  private fun relativeScope(scope: String, podBaseUrl: String): String {
-    val context = scope.substringBeforeLast('#')
-    val relative = context.removePrefix(podBaseUrl.trimEnd('/') + "/").ifEmpty { context }
-    return "$relative (${scope.substringAfterLast('#')})"
-  }
+  /**
+   * What the `grant-selection` fragments read, for either dialog.
+   *
+   * What is not on the screen is what is the same on every request: the rules a typed context path
+   * is validated against. They are passed as data rather than hardcoded in the template, so a change
+   * to [ContextPathRules] reaches the dialog on its own.
+   */
+  private fun grantSelectionModel(
+    contexts: List<PodConsentContext>,
+    podBaseUrl: String,
+    contextCreationAvailable: Boolean,
+  ): Map<String, Any> = mapOf(
+    "contexts" to contexts,
+    "podBaseUrl" to podBaseUrl,
+    // For the preview the form shows while a context is being typed. The posted value is the
+    // relative path — the consent submission builds the IRI, there and nowhere else.
+    "contextPathPrefix" to SempodsUriBuilder.CONTEXT_PATH_PREFIX,
+    // The reserved names, so the form can say *why* a name is refused before the server refuses
+    // the whole submission.
+    "reservedSegment" to ContextPathRules.RESERVED_SEGMENT,
+    "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
+    "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
+    "contextCreationAvailable" to contextCreationAvailable,
+  )
 
   /**
    * Where the code goes, with `state` beside it exactly as
@@ -264,13 +277,7 @@ internal object PodAuthorizeResponses {
   private fun text(status: Int, body: String): Response =
     Response.status(status).entity(body).type("text/plain;charset=UTF-8").build()
 
-  /**
-   * The dialog, rendered.
-   *
-   * What is not on the screen is what is the same on every request: where the form posts, and the
-   * rules it validates a typed context path against. Those are passed as data rather than hardcoded
-   * in the template, so a change to [ContextPathRules] reaches the dialog on its own.
-   */
+  /** The delegated dialog, rendered. The rows and context creation are [grantSelectionModel]'s. */
   private fun consentPage(
     screen: PodConsentScreen,
     templates: TemplateRenderer,
@@ -284,21 +291,7 @@ internal object PodAuthorizeResponses {
       "logoUri" to (screen.logoUri ?: ""),
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
-      "contexts" to screen.contexts,
-      "podBaseUrl" to screen.podBaseUrl,
-      // For the preview the form shows while a context is being typed. The posted value is the
-      // relative path — the consent submission builds the IRI, there and nowhere else.
-      "contextPathPrefix" to SempodsUriBuilder.CONTEXT_PATH_PREFIX,
-      // The reserved names, so the form can say *why* a name is refused before the server refuses
-      // the whole submission.
-      "reservedSegment" to ContextPathRules.RESERVED_SEGMENT,
-      "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
-      "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
       "isOwner" to screen.isOwner,
-      // The owner may build a context, on a dialog that is about contexts. A privileged screen is
-      // not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
-      // the script behind it would only offer work that cannot land.
-      "contextCreationAvailable" to screen.binding.contextCreationOffered,
       "publicContexts" to screen.publicContexts,
       "publicReadAvailable" to screen.binding.publicReadOffered,
       "publicReadPreselected" to screen.publicReadPreselected,
@@ -316,6 +309,13 @@ internal object PodAuthorizeResponses {
       "managementScope" to SERVICE_CLIENTS_MANAGE_SCOPE,
       "contextsManagementRequested" to (CONTEXTS_MANAGE_SCOPE in screen.privilegedFeatures),
       "contextsManagementScope" to CONTEXTS_MANAGE_SCOPE,
+    ) + grantSelectionModel(
+      screen.contexts,
+      screen.podBaseUrl,
+      // The owner may build a context, on a dialog that is about contexts. A privileged screen is
+      // not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
+      // the script behind it would only offer work that cannot land.
+      contextCreationAvailable = screen.binding.contextCreationOffered,
     ))
 
   /**
