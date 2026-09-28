@@ -52,10 +52,10 @@ const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
  * them, because none of them looks at one — so what such a token may do is the scope it carries,
  * and the question has one owner here.
  *
- * See [PodScopeValidator.privilegedFeatureScopes].
+ * See [PodScopeValidator.inertScopes], which counts a retired authority as one too.
  */
 val SempodsCredentials.carriesPrivilegedFeature: Boolean
-  get() = oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }
+  get() = oauthScopes.any { it in PodScopeValidator.inertScopes }
 
 class PodScopeValidator {
 
@@ -150,6 +150,14 @@ class PodScopeValidator {
      * client").
      */
     val retiredScopes: Set<String> = setOf("service-clients:install")
+
+    /**
+     * The scopes a bearer reaches no data with: [privilegedFeatureScopes] and [retiredScopes]. A
+     * token minted with a retired one lives out its hour after the release that retires it, and
+     * it stays as inert as it was minted — it must not become an ordinary app token that resolves
+     * whatever the same app holds for the same person.
+     */
+    val inertScopes: Set<String> = privilegedFeatureScopes + retiredScopes
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not

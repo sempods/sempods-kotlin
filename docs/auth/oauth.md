@@ -630,6 +630,9 @@ that consent within 24 hours, the pod removes it. A JVM program runs the whole s
   carries no deadline and is never removed by it.
 - **A bearer changes nothing.** The registration holds no rights to give, so one presented beside
   it is not consulted; only one this pod cannot verify is `401`.
+- **The installer scope is retired.** `/authorize` answers `service-clients:install` with
+  `invalid_scope`. A token minted with it before the release lives out its hour as it was minted:
+  it reaches no data and passes no gate that asks only for an app.
 
 What the body may carry (RFC 7591 §2):
 
@@ -637,7 +640,7 @@ What the body may carry (RFC 7591 §2):
 |---|---|
 | `client_name` | Required: it names the service in the consent |
 | `grant_types`, `token_endpoint_auth_method` | `["client_credentials"]` and `client_secret_basic`; another value is `invalid_client_metadata` |
-| `redirect_uris` | Optional, checked like a public client's; a bad one is `invalid_redirect_uri` |
+| `redirect_uris` | Optional, checked like a public client's; a bad one is `invalid_redirect_uri`. Stored with the registration; the grant consent below returns to the public client that opened it, not to these |
 | `jwks`, `jwks_uri`, `scope`, non-empty `response_types` | `invalid_client_metadata`: a key, a scope or a browser flow this profile does not have |
 | `client_uri`, `logo_uri`, `contacts`, `tos_uri`, `policy_uri`, `software_*` | Dropped: not stored, not echoed |
 | Anything else | Ignored |

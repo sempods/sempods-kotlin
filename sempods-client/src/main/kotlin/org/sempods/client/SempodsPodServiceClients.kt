@@ -70,8 +70,9 @@ class SempodsPodServiceClients(
   fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> = register(clientName, emptyList())
 
   /**
-   * The same, with [redirectUris] the owner's browser may return to after the consent: https, or
-   * http on a loopback host.
+   * The same, with [redirectUris] registered for the service: https, or http on a loopback host.
+   * They are metadata of the registration. The grant consent returns to the public client that
+   * opened it ([grantConsentUrl]), not to these.
    */
   @Throws(IOException::class)
   fun register(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsServiceClientRegistration> =

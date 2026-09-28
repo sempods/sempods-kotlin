@@ -65,7 +65,10 @@ internal data class PodServiceClientDbo(
   /** The WebID behind [grantsChangedAt]. */
   val grantsChangedBy: String? = null,
 
-  /** Where the service may send the owner back after its consent; empty where it registered none. */
+  /**
+   * The redirect URIs the service registered; empty where it registered none. Stored, not yet read:
+   * the grant consent returns to the public client that opened it, not to these.
+   */
   val redirectUris: List<String> = emptyList(),
 
   /**

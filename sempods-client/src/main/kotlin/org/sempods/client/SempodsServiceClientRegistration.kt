@@ -28,7 +28,10 @@ class SempodsServiceClientRegistration private constructor(
   val activationExpiresAt: Instant?,
 ) {
 
-  /** Where the owner's browser may return after the consent; empty where none was registered. */
+  /**
+   * The redirect URIs registered with the service; empty where none were. The grant consent does not
+   * return to these: it returns to the public client that opened it ([SempodsPodServiceClients.grantConsentUrl]).
+   */
   val redirectUris: List<String> = java.util.Collections.unmodifiableList(ArrayList(redirectUris))
 
   override fun toString(): String =
