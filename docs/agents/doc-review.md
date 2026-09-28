@@ -25,6 +25,7 @@ For your branch:
 ```bash
 git status --short
 git diff --merge-base origin/main          # committed, staged and unstaged, in one diff
+git diff --cached --merge-base origin/main # what is staged, even where the working tree hides it
 git ls-files --others --exclude-standard   # new files, which no diff shows — read them
 ```
 
