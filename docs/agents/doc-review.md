@@ -2,10 +2,12 @@
 
 Check documentation against the code and the
 [writing rules](documentation-strategy.md#the-writing-rules) for one target: your own change, a
-pull request or a path. The review reports findings; with `--fix` it applies them. Without
-`--fix`, every "fix", "delete" or "remove" below is a finding for the report, and no file changes.
-`--fix` on a pull request edits its branch, so check it out first: `gh pr checkout 123`. Before
-proposing a commit, run it with `--fix` on your own change — it is the working half of the
+pull request or a path. It applies every "fix", "delete" or "remove" below as it finds them, except
+steps 5 and 8, which always report instead: one names a companion change in another repository,
+the other a contract read by agents outside this one, and both want a human decision before they
+change. `--report-only` lists every other finding instead, without touching a file. Applying on a
+pull request edits its branch, so check it out first: `gh pr checkout 123`. Run it on your own
+change before proposing a commit — it is the working half of the
 [definition of done](documentation-strategy.md#definition-of-done), in every PR, including partial
 work on a multi-PR issue.
 
@@ -76,7 +78,9 @@ Does the change contradict a [sempods-spec](https://github.com/sempods/sempods-s
 Search the target, its tests and the documents from step 2 for cited identifiers such as
 `SPS-AUTH-001`. Where none is cited, search the summaries in
 [`../../gradle/spec/requirements.json`](../../gradle/spec/requirements.json) for the changed
-behaviour. A contradiction needs its companion change open in that repository and linked from the PR.
+behaviour. A contradiction needs its companion change open in that repository and linked from the
+PR — always a finding for the report, never an automatic edit: there is no file in this repository
+to apply it to.
 
 ## 6. Weight
 
@@ -127,7 +131,9 @@ acceptance and merged work, including follow-up actions.
 Read the `rules` array in [`../../context7.json`](../../context7.json) against the change. It
 asserts facts about grants, contexts, the SPARQL surface, client identity shapes, the updater, the
 build and trademark language — and it is published to agents outside this repository. A behaviour
-change is exactly what turns one of those assertions into a lie.
+change is exactly what turns one of those assertions into a lie. Always a finding for the report,
+never an automatic edit: a stale assertion here is read by tools that never see this repository's
+PR review.
 
 Also check `excludeFiles` and `excludeFolders` if documents were added, moved or deleted.
 
@@ -141,8 +147,9 @@ Also check `excludeFiles` and `excludeFolders` if documents were added, moved or
 
 ## 10. Report
 
-List each finding as `file:line — rule — correction`. With `--fix`, apply them and name what was
-updated or deleted and why. Add the checks run and their results, and any remaining acceptance or
-blocker. For a change or a pull request, record this evidence in the PR or its issue. "No
-documentation change needed, because the code follows the standard" is a complete and correct
+List each finding as `file:line — rule — correction`, apply it, and name what was updated or
+deleted and why. With `--report-only`, list the findings without applying them. A step-5 or step-8
+finding is always listed, never applied. Add the checks run and their results, and any remaining
+acceptance or blocker. For a change or a pull request, record this evidence in the PR or its issue.
+"No documentation change needed, because the code follows the standard" is a complete and correct
 report.

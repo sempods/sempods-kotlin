@@ -195,7 +195,7 @@ and no already-applied check. Do not propose a migration framework as a fix for 
 2. `./gradlew buildHealth` — the `api`/`implementation` boundary. A dependency in the wrong
    configuration fails a separate CI job, not this one.
 3. Documentation, in this same change: run
-   [`doc-review`](docs/agents/doc-review.md) with `--fix` on your change. It walks §"Definition of
+   [`doc-review`](docs/agents/doc-review.md) on your change. It walks §"Definition of
    done" in [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md).
 4. `git commit -s`. The DCO workflow fails the pull request without a `Signed-off-by` line. Work
    done with an AI assistant also carries `Co-Authored-By` for the model —
