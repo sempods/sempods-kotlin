@@ -1,6 +1,5 @@
 package org.sempods.mcp.api.mcp
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -31,6 +30,7 @@ import io.ktor.server.application.install
 import io.ktor.server.routing.IgnoreTrailingSlash
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.io.File
 import java.time.Instant
 import java.util.Date
@@ -99,7 +99,7 @@ class McpToolsListSnapshotTest {
       .jwtID(UUID.randomUUID().toString()).build(),
   )
 
-  private val noDispatch: suspend (String, com.fasterxml.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
+  private val noDispatch: suspend (String, tools.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
     { _, _, _ -> ToolCallResult(content = emptyList()) }
 
   private fun ApplicationTestBuilder.installEndpoint() = application {

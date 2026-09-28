@@ -11,10 +11,8 @@ dependencies {
   //
   // `api` because Jackson is in this module's surface, not behind it: `ToolCatalog.validate` takes
   // a `JsonNode`, and a consumer serializing these types needs the annotations to mean something.
-  // The same reasoning `sempods-commons-mongo` gives for re-exporting the driver. The `java.time` codecs
-  // stay for the mapper that reads these envelopes; nothing names them.
-  api(libs.jacksonDatabind)
-  runtimeOnly(libs.jackson)
+  // The same reasoning `sempods-commons-mongo` gives for re-exporting the driver.
+  api(libs.jackson3Databind)
 
   // `PodToolExecutor` runs the thirteen tools against one pod over the client core's endpoint
   // groups, and `PodToolPlan.Call.execute` takes a `SempodsPod` — this module's surface, so `api`
@@ -51,7 +49,7 @@ dependencies {
   // tool call means is theirs to decide. A dependency this module cannot justify in a comment is a
   // dependency it does not have.
 
-  testImplementation(libs.jacksonKotlin)
+  testImplementation(libs.jackson3Kotlin)
   // `PodToolExecutorTest` serves a pod rather than stubbing one: the mapping it checks is the
   // request that leaves, which only a server can be asked about.
   testImplementation(libs.mockServer)

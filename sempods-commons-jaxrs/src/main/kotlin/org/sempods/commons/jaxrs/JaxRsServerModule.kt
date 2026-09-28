@@ -15,11 +15,13 @@ import org.eclipse.jetty.server.handler.ContextHandler
 import org.eclipse.jetty.server.handler.ContextHandlerCollection
 import org.eclipse.jetty.server.handler.gzip.GzipHandler
 import org.eclipse.jetty.util.thread.VirtualThreadPool
-import org.glassfish.jersey.jackson.JacksonFeature
 import org.glassfish.jersey.server.ContainerFactory
 import org.glassfish.jersey.server.ResourceConfig
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.guice.BaseModule
+import tools.jackson.jakarta.rs.base.DatabindExceptionMapper
+import tools.jackson.jakarta.rs.base.StreamReadExceptionMapper
+import tools.jackson.jakarta.rs.json.JacksonJsonProvider
 
 object JaxRsServerModule : BaseModule() {
 
@@ -118,11 +120,21 @@ object JaxRsServerModule : BaseModule() {
         logger.info { "  - ${resource.javaClass.simpleName}: @Path(\"$path\")" }
       }
 
-      return@map httpPort to ResourceConfig()
-        .register(JacksonFeature::class.java)
+      return@map httpPort to jsonResourceConfig()
         .registerInstances(jaxRsResources)
     }.toMap()
   }
 
   private val logger = KotlinLogging.logger {}
 }
+
+/**
+ * Reads and writes JSON with Jackson, through the [ObjectMapperResolver] an application registers.
+ * A malformed or ill-typed body answers `400`, from the two mappers registered with the provider.
+ *
+ * By class, so Jersey injects the provider's `@Context Providers`: that is how it finds the resolver.
+ */
+internal fun jsonResourceConfig(): ResourceConfig = ResourceConfig()
+  .register(JacksonJsonProvider::class.java)
+  .register(StreamReadExceptionMapper::class.java)
+  .register(DatabindExceptionMapper::class.java)

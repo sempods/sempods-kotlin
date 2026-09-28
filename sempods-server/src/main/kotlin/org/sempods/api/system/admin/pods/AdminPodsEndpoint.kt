@@ -2,7 +2,6 @@ package org.sempods.api.system.admin.pods
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import com.mongodb.MongoWriteException
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -308,15 +307,13 @@ class AdminPodsEndpoint @Inject constructor(
   }
 
   /**
-   * Parses an optional JSON body, rejecting unknown fields. The project-wide mapper ignores them,
-   * which on an authorization-relevant body would let a typo'd `expectedRegistrationId` silently
-   * become "no assertion" and re-mint a healthy client's secret — a fail-open. Same reasoning as
-   * [org.sempods.api.pod.system.find.FindEndpoint]'s strict body mapper.
+   * Parses an optional JSON body with [JsonMappers.strict]: a typo'd `expectedRegistrationId` must
+   * not silently become "no assertion" and re-mint a healthy client's secret.
    */
   private fun <T> parseBody(body: String?, type: Class<T>): T? {
     val raw = body?.takeIf { it.isNotBlank() } ?: return null
     return try {
-      strictBodyMapper.readValue(raw, type)
+      JsonMappers.strict().readValue(raw, type)
     } catch (e: Exception) {
       throw badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
     }
@@ -335,9 +332,6 @@ class AdminPodsEndpoint @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
-
-    private val strictBodyMapper = JsonMappers.newDefault()
-      .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
 
     /**
      * App-context convention (`docs/auth/service-clients.md`): an app's sandbox root is

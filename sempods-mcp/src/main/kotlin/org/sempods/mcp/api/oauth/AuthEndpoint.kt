@@ -1,7 +1,6 @@
 package org.sempods.mcp.api.oauth
 
 import org.sempods.mcp.oauth.IdentityProvider
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.forLog
 import org.sempods.mcp.api.resolveProfileOr404
@@ -60,6 +59,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets

@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.media
 
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.sempods.admin.AdminAuthorizer
@@ -151,11 +150,11 @@ class AdminMediaEndpoint @Inject constructor(
 
   private fun PodMediaRef.toResponse() = MediaRefResponse(podId = podId.value, mediaId = mediaId)
 
-  /** Parses an optional JSON body, rejecting unknown fields — see [sweep] for why strictly. */
+  /** Parses an optional JSON body with [JsonMappers.strict]; [sweep] says why. */
   private fun <T> parseBody(body: String?, type: Class<T>): T? {
     val raw = body?.takeIf { it.isNotBlank() } ?: return null
     return try {
-      strictBodyMapper.readValue(raw, type)
+      JsonMappers.strict().readValue(raw, type)
     } catch (e: Exception) {
       throw badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
     }
@@ -167,9 +166,6 @@ class AdminMediaEndpoint @Inject constructor(
   companion object {
 
     private val logger = KotlinLogging.logger {}
-
-    private val strictBodyMapper = JsonMappers.newDefault()
-      .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
 
     /**
      * How many refs per direction the reconcile response carries. A hundred is enough to see what

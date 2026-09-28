@@ -118,12 +118,11 @@ parameter (`{requested} ∩ readable`, silent exclusion); `include_contexts` is 
 same provenance switch as the GET parameter. Content negotiation (JSON-LD vs.
 N-Quads) is still driven by the `Accept` header.
 
-The body is parsed with a **strict** mapper
-([`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt)
-enables `FAIL_ON_UNKNOWN_PROPERTIES`), so an unknown field is a 400 rather than a
-silently broadened result — `filter` included, since the general predicate filter
-is not a supported field. That is what makes the envelope above copyable as it
-stands.
+The body is parsed with the **strict** mapper
+([`JsonMappers.strict`](../../sempods-commons-json/src/main/kotlin/org/sempods/commons/json/JsonMappers.kt)),
+so an unknown field is a 400 — `filter` included, since the general predicate
+filter is not a supported field. Dropped silently, it would broaden the result.
+That is what makes the envelope above copyable as it stands.
 
 ## Structural traversal — `find` is only the entry
 

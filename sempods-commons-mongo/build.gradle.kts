@@ -11,9 +11,9 @@ dependencies {
   api(libs.bson)
 
   // The ObjectId Jackson codecs. `api` for the same reason: `JsonMappers.withMongo()` hands back
-  // an `ObjectMapper`.
+  // a `JsonMapper`.
   api(project(":sempods-commons-json"))
-  api(libs.jacksonDatabind)
+  api(libs.jackson3Databind)
 
   // Same reasoning as `sempods-commons`: `MongoModule` is the only class here that needs Guice, and a
   // consumer wiring the driver by hand must not inherit a DI container to get a document helper.

@@ -10,9 +10,9 @@ dependencies {
   api(project(":sempods-commons"))
   api(libs.jakartaWsRsApi)
   api(libs.jakartaInjectApi)
-  // `ObjectMapperResolver` hands back an `ObjectMapper`. `:sempods-commons-json` supplies the *configured*
+  // `ObjectMapperResolver` hands back a `JsonMapper`. `:sempods-commons-json` supplies the *configured*
   // mapper and stays behind the wall: a consumer names the type, not the factory.
-  api(libs.jacksonDatabind)
+  api(libs.jackson3Databind)
 
   // Same reasoning as `sempods-commons` and `sempods-commons-mongo`: only `JaxRsServerModule` /
   // `JaxRsApplicationModule` need Guice, and a consumer wiring Jersey by hand must not inherit a
@@ -28,9 +28,10 @@ dependencies {
   implementation(libs.jerseyServer)
   runtimeOnly(libs.jerseyJettyHttp)
 
-  // Two Jersey features: `JaxRsServerModule` registers `JacksonFeature` by name; HK2 the
-  // container discovers.
-  implementation(libs.jerseyJsonJackson)
+  // `JaxRsServerModule` registers Jackson's JSON provider and its two exception mappers by name.
+  // HK2 is the injection Jersey discovers; it hands the provider the `ObjectMapperResolver`.
+  implementation(libs.jackson3JakartaRsJson)
+  implementation(libs.jackson3JakartaRsBase)
   runtimeOnly(libs.jerseyHk2)
 
   implementation(libs.bundles.logging)

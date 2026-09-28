@@ -1,9 +1,9 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.JsonNodeFactory
-import com.fasterxml.jackson.databind.node.ObjectNode
 import org.sempods.commons.net.SempodsVocabulary
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.JsonNodeFactory
+import tools.jackson.databind.node.ObjectNode
 
 /**
  * The pod's context catalogue, in the shape the `list_contexts` tool has always had.
@@ -54,5 +54,5 @@ object ContextCatalogue {
   /** The `@id`s a predicate points at, in the order the catalogue listed them. */
   private fun iris(catalogue: JsonNode, predicate: String): List<String> =
     catalogue.path(predicate)
-      .mapNotNull { value -> value.path("@id").takeIf { it.isTextual }?.asText() }
+      .mapNotNull { value -> value.path("@id").takeIf { it.isString }?.asString() }
 }

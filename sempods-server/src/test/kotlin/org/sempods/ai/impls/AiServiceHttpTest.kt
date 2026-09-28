@@ -71,10 +71,10 @@ class AiServiceHttpTest {
     val answer = openAi().generateStructuredOutput(request)
 
     val sent = JsonMappers.default().readTree(checkNotNull(receivedBody))
-    assertEquals("gpt-test", sent.path("model").asText())
-    assertEquals("what is a pod?", sent.path("messages").first().path("content").asText())
+    assertEquals("gpt-test", sent.path("model").asString())
+    assertEquals("what is a pod?", sent.path("messages").first().path("content").asString())
     assertEquals("Bearer a-test-key", receivedAuthorization)
-    assertEquals("a place for data", answer.json.path("answer").asText())
+    assertEquals("a place for data", answer.json.path("answer").asString())
     assertEquals("stop", answer.doneReason)
   }
 
@@ -108,10 +108,10 @@ class AiServiceHttpTest {
     val answer = ollama().generateStructuredOutput(request)
 
     val sent = JsonMappers.default().readTree(checkNotNull(receivedBody))
-    assertEquals("llama-test", sent.path("model").asText())
+    assertEquals("llama-test", sent.path("model").asString())
     assertEquals(schema, sent.path("format"))
     assertEquals(false, sent.path("stream").asBoolean())
-    assertEquals("yes", answer.json.path("answer").asText())
+    assertEquals("yes", answer.json.path("answer").asString())
   }
 
   @Test

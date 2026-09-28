@@ -1,16 +1,13 @@
 package org.sempods.commons.json
 
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.core.type.TypeReference
+import tools.jackson.databind.ObjectMapper
 
 /**
  * Read and write JSON.
  *
- * Jackson's `IOException` family used to be caught here and rethrown wrapped, so it could travel
- * through a Java signature that declared no `throws`. Kotlin has no checked exceptions, so the
- * parse failure now propagates exactly as Jackson threw it — a malformed document is a bug or a
- * bad request, and both are handled far away from the parse itself:
- * `BaseEndpoint.parseJsonParameter` turns it into a 400, `ApiExceptionMapper` into a 500.
+ * A parse failure propagates as Jackson's own `JacksonException`, for the caller that knows where
+ * the document came from to answer.
  *
  * The `Opt` variants add the second convention: `null` in, `null` out, which is what lets a
  * nullable database column or an absent request body flow through without a guard at every call

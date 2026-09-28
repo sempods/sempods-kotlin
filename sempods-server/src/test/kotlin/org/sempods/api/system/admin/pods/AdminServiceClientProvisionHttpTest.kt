@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.pods
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.SempodsIntegrationTest
@@ -15,6 +14,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.junit.jupiter.api.Test
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
@@ -65,7 +65,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   private fun TestHttpResponse.field(name: String): String? =
-    objectMapper.readTree(responseBody).path(name).takeIf { !it.isMissingNode }?.asText()
+    objectMapper.readTree(responseBody).path(name).takeIf { !it.isMissingNode }?.asString()
 
   private fun TestHttpResponse.hasField(name: String): Boolean =
     objectMapper.readTree(responseBody).has(name)
@@ -357,7 +357,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     val expectedScopes = setOf("${rootContext(pod)}#manage")
 
     listOf(provision(pod.name), provision(pod.name)).forEach { response ->
-      val scopes = objectMapper.readTree(response.responseBody).path("scopes").map { it.asText() }.toSet()
+      val scopes = objectMapper.readTree(response.responseBody).path("scopes").values().map { it.asString() }.toSet()
       assertEquals(expectedScopes, scopes, "body=${response.responseBody}")
     }
     assertEquals(

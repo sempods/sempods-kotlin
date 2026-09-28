@@ -2,7 +2,6 @@ package org.sempods.api.pod.system.ai.semweb
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.JsonNode
 import com.google.inject.Inject
 import org.sempods.commons.jaxrs.errors.ApiException
 import org.sempods.commons.logging.LogSafeText
@@ -18,6 +17,7 @@ import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.JsonNode
 
 @Path("{pod}/_system/ai/semweb")
 @Consumes(MediaType.APPLICATION_JSON)

@@ -1,6 +1,6 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 
 /**
  * What a caller says when a pod refused a tool call — the words a model reads.
@@ -84,7 +84,7 @@ object PodToolFailure {
     if (!body.trimStart().startsWith("{")) return body
     val errors = runCatching { mapper.readTree(body) }.getOrNull()?.path("errors") ?: return body
     if (!errors.isArray || errors.isEmpty) return body
-    val messages = errors.mapNotNull { it.path("message").takeIf { m -> m.isTextual }?.asText()?.takeIf(String::isNotBlank) }
+    val messages = errors.mapNotNull { it.path("message").takeIf { m -> m.isString }?.asString()?.takeIf(String::isNotBlank) }
     return messages.takeIf { it.isNotEmpty() }?.joinToString("; ") ?: body
   }
 

@@ -1,6 +1,6 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import tools.jackson.databind.node.JsonNodeFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,7 +21,7 @@ class JsonRpcTest {
     assertFalse(isNotification(1))
     assertFalse(isNotification("abc"))
     assertFalse(isNotification(JsonNodeFactory.instance.numberNode(1)))
-    assertFalse(isNotification(JsonNodeFactory.instance.textNode("abc")))
+    assertFalse(isNotification(JsonNodeFactory.instance.stringNode("abc")))
   }
 
   @Test
@@ -58,7 +58,7 @@ class JsonRpcTest {
 
 class JsonRpcSerializationTest {
 
-  private val mapper = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper()
+  private val mapper = tools.jackson.module.kotlin.jacksonObjectMapper()
 
   @Test
   fun `a Kotlin null omits the id, a NullNode emits it`() {
@@ -77,7 +77,7 @@ class JsonRpcSerializationTest {
       mapper.writeValueAsString(
         JsonRpcErrorResponse(
           "2.0",
-          com.fasterxml.jackson.databind.node.NullNode.getInstance(),
+          tools.jackson.databind.node.NullNode.getInstance(),
           JsonRpcError(JsonRpcErrorCodes.INVALID_REQUEST, "Invalid Request"),
         ),
       ),
