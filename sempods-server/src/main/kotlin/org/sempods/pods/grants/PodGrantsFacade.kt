@@ -251,34 +251,19 @@ class PodGrantsFacade @Inject constructor(
   // ── recipient level: what an app or a service may do ─────────────────────────
 
   /**
-   * Makes [selection] the grants of [recipient] on [pod]: the authoritative new state, so anything
-   * not in it is revoked. [grantedBy] is the WebID of the person deciding.
+   * Makes [selection] the grants of [recipient]: anything not in it is revoked. [grantedBy] is the
+   * deciding person's WebID. [GrantRecipient] states each recipient's conflict rule.
    *
-   * One operation for both recipients, each under the conflict rule [GrantRecipient] states and
-   * [R] shows. A [GrantReplacement.Replaced] carries the set that actually survived, which is not
-   * always [selection] — see below.
+   * **Checks again after writing**, because a revocation or context deletion can land between the
+   * caller's read and this write, and its cascade then finds nothing to sweep. With no transaction
+   * (standalone Mongo), both sides write first and check second, so one always sees the other.
+   * [GrantReplacement.Replaced.granted] is what survived that check.
    *
-   * ## Why this re-checks after writing
-   *
-   * Callers compute [selection] against what the deciding person may delegate, and time passes
-   * between that read and this write. A revocation or a context deletion landing inside that window
-   * is invisible to both sides: the caller's read is already stale, and the other side's cascade
-   * runs before the new rows exist, so it finds nothing to sweep. The result would be a grant no
-   * authority backs, permanently, since the request path reads the grants alone.
-   *
-   * There is no transaction to lean on (standalone Mongo). Instead both sides write before they
-   * check, which makes the two unable to miss each other: if the other side's cascade did not see
-   * this write, its own write had already landed, so the check here observes it; if it lands later,
-   * its cascade sees this write. The check is a no-op whenever nothing raced.
-   *
-   * - **A delegation** is re-derived from the person's authority, as a revocation re-derives it
-   *   ([cascadeToAppGrants]). A revocation deletes the owner-level row and *then* cascades.
-   * - **A service** drops what is no longer a registered context. In 0.2 only the pod owner approves
-   *   a service, and the owner's authority is every registered context, so this is the same
-   *   question. `PodFacade.removeContext` strips once more after deleting the registry row. The
-   *   drop is bound to the registration that wrote and not to its version: a version filter would
-   *   lose to any other write landing in between, and leave the grant in place. It fails closed: a
-   *   context deleted, re-created and granted again between the check and the drop loses that grant.
+   * - A delegation is re-derived from the person's authority ([cascadeToAppGrants]).
+   * - A service drops grants on contexts no longer registered, which is the owner's authority; only
+   *   the owner approves a service in 0.2. The drop is bound to the registration, not its version,
+   *   so a write landing in between cannot keep a deleted context's grant alive. A context deleted
+   *   and re-created within that gap loses its new grant.
    */
   internal fun <R : GrantReplacement> replaceGrants(
     pod: HostedPod,
@@ -290,8 +275,7 @@ class PodGrantsFacade @Inject constructor(
       is GrantRecipient.Delegation -> replaceDelegated(pod, recipient, selection, grantedBy)
       is GrantRecipient.Service -> replaceForService(pod, recipient, selection, grantedBy)
     }
-    // Sound by construction: a delegation binds [R] to `Replaced`, which is what it returns, and a
-    // service binds it to `GrantReplacement`.
+    // A delegation binds [R] to `Replaced`, a service to `GrantReplacement`.
     @Suppress("UNCHECKED_CAST")
     return replacement as R
   }

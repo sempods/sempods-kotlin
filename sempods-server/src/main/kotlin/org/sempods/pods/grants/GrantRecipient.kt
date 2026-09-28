@@ -3,21 +3,14 @@ package org.sempods.pods.grants
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistrationId
 
 /**
- * Who receives the grants [PodGrantsFacade.replaceGrants] writes, and the conflict rule that write
- * follows.
- *
- * [R] is what a replace can answer for this recipient, so the rule shows in the type:
- * a [Delegation] is always [GrantReplacement.Replaced], a [Service] may also be refused.
+ * Who receives the grants [PodGrantsFacade.replaceGrants] writes. [R] is what the replace can answer,
+ * so each recipient's conflict rule shows in the type.
  */
 internal sealed interface GrantRecipient<out R : GrantReplacement> {
 
   /**
-   * An app acting for the person [webId], who is also known by [aliases] (`identity.allUris`).
-   *
-   * **No version.** Of two submissions one after the other, the later stands. Overlapping ones are
-   * not atomic (`PodGrantsDao.replaceGrants`, #338).
-   *
-   * A selection may carry the feature scope `public-read` beside its context grants.
+   * An app acting for [webId], also known by [aliases]. **No version:** the later of two replaces
+   * stands; overlapping ones are not atomic (`PodGrantsDao.replaceGrants`). May include `public-read`.
    */
   data class Delegation(
     val clientId: String,
@@ -26,14 +19,9 @@ internal sealed interface GrantRecipient<out R : GrantReplacement> {
   ) : GrantRecipient<GrantReplacement.Replaced>
 
   /**
-   * A service client acting as itself: the registration [registrationId] stored under [clientId].
-   *
-   * **Optimistic.** The replace writes only while the grants are still at [expectedVersion]
-   * (`PodServiceClientDbo.grantsVersion`), and answers [GrantReplacement.Conflict] once any
-   * other write changed them. A registration re-created under the same [clientId] is another one,
-   * and answers [GrantReplacement.NotFound].
-   *
-   * A selection holds context grants only; anything else throws [IllegalArgumentException].
+   * A service client acting as itself. **Optimistic:** writes only at [expectedVersion]
+   * (`PodServiceClientDbo.grantsVersion`), else [GrantReplacement.Conflict]; a registration
+   * re-created under [clientId] is [GrantReplacement.NotFound]. Context grants only.
    */
   data class Service(
     val registrationId: ServiceClientRegistrationId,
@@ -45,10 +33,7 @@ internal sealed interface GrantRecipient<out R : GrantReplacement> {
 /** What [PodGrantsFacade.replaceGrants] did. Only [Replaced] wrote anything. */
 internal sealed interface GrantReplacement {
 
-  /**
-   * The selection stands. [granted] is what of it survived the check after the write, which drops
-   * what lost its backing in the meantime.
-   */
+  /** The selection stands; [granted] is what survived the check after the write. */
   data class Replaced(val granted: Set<String>) : GrantReplacement
 
   /** The grants changed since the version the replace was prepared at. */
