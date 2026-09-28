@@ -16,7 +16,6 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
-import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -49,7 +48,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   private lateinit var refreshTokenStore: PodRefreshTokenStore
 
   @Inject
-  private lateinit var consentDecisionStore: PodConsentDecisionStore
+  private lateinit var flow: DelegatedAccessFlow
 
   @Inject
   private lateinit var consentTransactionStore: ConsentTransactionStore
@@ -66,10 +65,8 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var podDao: PodDao
 
-  private class App(val clientId: String, val redirectUri: String)
-
-  private val appA = App("did:web:localhost%3A5173", "http://localhost:5173/callback")
-  private val appB = App("did:web:localhost%3A5174", "http://localhost:5174/callback")
+  private val appA = DelegatedAccessFlow.App("did:web:localhost%3A5173", "http://localhost:5173/callback")
+  private val appB = DelegatedAccessFlow.App("did:web:localhost%3A5174", "http://localhost:5174/callback")
 
   @Test
   fun `signing out answers the app with access_denied and withdraws the session cookie`() {
@@ -107,7 +104,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
     signOut(pod, person)
 
-    val response = consent(pod, person, appA, state = "late")
+    val response = flow.consent(pod, person, appA, signIn(pod.name, person).cookie, state = "late")
     assertEquals(401, response.statusCode, response.responseBody)
   }
 
@@ -125,15 +122,15 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Test
   fun `every app's connection ends, whichever lifetime it was granted on`() {
     val (pod, person) = podWithOwner()
-    val durable = connect(pod, person, appA, durable = true)
-    val session = connect(pod, person, appB, durable = false)
+    val durable = flow.connect(pod, person, appA, signIn(pod.name, person).cookie, durable = true)
+    val session = flow.connect(pod, person, appB, signIn(pod.name, person).cookie, durable = false)
 
     signOut(pod, person)
 
     for ((app, tokens) in listOf(appA to durable, appB to session)) {
       val plaintext = tokens.refreshToken
       assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(plaintext).state, app.clientId)
-      val refreshed = refresh(pod, app, plaintext)
+      val refreshed = flow.refresh(pod, app, plaintext)
       assertEquals(400, refreshed.statusCode, refreshed.responseBody)
       assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
     }
@@ -142,7 +139,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Test
   fun `an access token issued before the sign-out is refused on a resource and on the pod's MCP endpoint`() {
     val (pod, person) = podWithOwner()
-    val accessToken = connect(pod, person, appA).accessToken
+    val accessToken = flow.connect(pod, person, appA, signIn(pod.name, person).cookie).accessToken
     assertEquals(200, dateModified(pod, accessToken).statusCode, "the token works beforehand")
     assertEquals(200, mcpToolsList(pod, accessToken).statusCode, "the token works beforehand")
 
@@ -169,11 +166,11 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a code issued before the sign-out is refused when it is exchanged after it`() {
     val (pod, person) = podWithOwner()
-    val code = codeFrom(consent(pod, person, appA, state = "pending"))
+    val code = flow.codeFrom(flow.consent(pod, person, appA, signIn(pod.name, person).cookie, state = "pending"))
 
     signOut(pod, person)
 
-    val exchanged = exchangeCode(pod, appA, code)
+    val exchanged = flow.exchangeCode(pod, appA, code)
     assertEquals(400, exchanged.statusCode, exchanged.responseBody)
     assertTrue("invalid_grant" in exchanged.responseBody, exchanged.responseBody)
   }
@@ -181,7 +178,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Test
   fun `signing in again after a sign-out works, and the access granted before it still stands`() {
     val (pod, person) = podWithOwner()
-    connect(pod, person, appA)
+    flow.connect(pod, person, appA, signIn(pod.name, person).cookie)
     signOut(pod, person)
     awaitSecondAfter(checkNotNull(signOutStore.signedOutAt(checkNotNull(pod.id).toPodId(), listOf(person))))
 
@@ -195,9 +192,9 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
       .executeSignedInAs(person)
     assertEquals(303, signedIn.statusCode, signedIn.responseBody)
 
-    val exchanged = exchangeCode(pod, appA, codeFrom(signedIn))
+    val exchanged = flow.exchangeCode(pod, appA, flow.codeFrom(signedIn))
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
-    assertEquals(200, dateModified(pod, Tokens.of(exchanged).accessToken).statusCode)
+    assertEquals(200, dateModified(pod, DelegatedAccessFlow.Tokens.of(exchanged).accessToken).statusCode)
     assertTrue(
       podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), appA.clientId, listOf(person)).isNotEmpty(),
       "the grants outlive a sign-out",
@@ -228,19 +225,19 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = owner)
     val other = sempodsTestFactory.newPod(ownerUser = owner)
     val person = webIdUriDeriver.deriveFromEmail(checkNotNull(owner.email))
-    val there = connect(other, person, appA)
+    val there = flow.connect(other, person, appA, signIn(other.name, person).cookie)
 
     signOut(pod, person)
 
     assertEquals(200, dateModified(other, there.accessToken).statusCode)
-    assertEquals(200, refresh(other, appA, there.refreshToken).statusCode)
+    assertEquals(200, flow.refresh(other, appA, there.refreshToken).statusCode)
     assertEquals(200, authorize(other, signIn(other.name, person).cookie).statusCode)
   }
 
   @Test
   fun `a sign-out without the screen's token, or with another person's, ends nothing`() {
     val (pod, person) = podWithOwner()
-    val tokens = connect(pod, person, appA)
+    val tokens = flow.connect(pod, person, appA, signIn(pod.name, person).cookie)
 
     assertEquals(403, signOut(pod, person, csrf = null).statusCode, "no token")
     val strangers = consentTransactionStore.issue(pod.name, "${FakeIdServerTransport.ISSUER}/e/somebody-else")
@@ -248,7 +245,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, dateModified(pod, tokens.accessToken).statusCode)
     assertEquals(200, authorize(pod, signIn(pod.name, person).cookie).statusCode)
-    assertEquals(200, refresh(pod, appA, tokens.refreshToken).statusCode)
+    assertEquals(200, flow.refresh(pod, appA, tokens.refreshToken).statusCode)
   }
 
   @Test
@@ -256,9 +253,9 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     // That check stops an old page writing grants back. A sign-out writes none, and refusing it would
     // leave the person signed in with the button in front of them doing nothing.
     val (pod, person) = podWithOwner()
-    connect(pod, person, appA)
-    val renderedBefore = formToken(pod, person, appA)
-    assertEquals(303, consent(pod, person, appA, state = "gone", action = "disconnect").statusCode)
+    flow.connect(pod, person, appA, signIn(pod.name, person).cookie)
+    val renderedBefore = flow.formToken(pod, person, appA)
+    assertEquals(303, flow.consent(pod, person, appA, signIn(pod.name, person).cookie, state = "gone", action = "disconnect").statusCode)
 
     val response = signOut(pod, person, csrf = renderedBefore)
 
@@ -300,7 +297,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val owner = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = owner)
     val person = webIdUriDeriver.deriveFromEmail(checkNotNull(owner.email))
-    val tokens = connect(pod, person, appA)
+    val tokens = flow.connect(pod, person, appA, signIn(pod.name, person).cookie)
     assertEquals(200, dateModified(pod, tokens.accessToken).statusCode, "warms this process's cache")
 
     // What another replica's delete and create leaves behind: the same name, a new row, and a cache
@@ -359,81 +356,15 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   private fun isLoginRedirect(response: TestHttpResponse): Boolean =
     response.getHeader("Location")?.startsWith(FakeIdServerTransport.ISSUER) == true
 
-  /** The token a page rendered right now would carry, for [app]. */
-  private fun formToken(pod: PodDbo, webId: String, app: App): String =
-    consentTransactionStore.issue(
-      pod.name,
-      webId,
-      consentDecisionStore.find(pod.podId(), app.clientId, listOf(webId))?.generation,
-    )
-
-  private fun consent(
-    pod: PodDbo,
-    webId: String,
-    app: App,
-    state: String,
-    durable: Boolean = false,
-    action: String? = null,
-    cookie: String = signIn(pod.name, webId).cookie,
-    csrf: String? = formToken(pod, webId, app),
-  ): TestHttpResponse =
-    http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Cookie", cookie)
-      .setBody(
-        "client_id=${enc(app.clientId)}&redirect_uri=${enc(app.redirectUri)}&state=$state" +
-          (csrf?.let { "&csrf=${enc(it)}" } ?: "") +
-          (action?.let { "&action=$it" } ?: "&scope=public-read") +
-          (if (durable) "&durable=1" else ""),
-      )
-      .setFollowRedirect(false).execute()
-
   private fun signOut(
     pod: PodDbo,
     webId: String,
     cookie: String = signIn(pod.name, webId).cookie,
-    csrf: String? = formToken(pod, webId, appA),
-  ): TestHttpResponse = consent(pod, webId, appA, state = "bye", action = "signout", cookie = cookie, csrf = csrf)
-
-  private class Tokens(val accessToken: String, val refreshToken: String) {
-    companion object {
-      fun of(response: TestHttpResponse): Tokens {
-        val body = JsonMappers.default().readValue(response.responseBody, Map::class.java)
-        return Tokens(body["access_token"] as String, body["refresh_token"] as String)
-      }
-    }
-  }
-
-  /** Consent, then the exchange — an app connected the way a browser connects it. */
-  private fun connect(pod: PodDbo, webId: String, app: App, durable: Boolean = false): Tokens {
-    val exchanged = exchangeCode(pod, app, codeFrom(consent(pod, webId, app, state = "connect", durable = durable)))
-    assertEquals(200, exchanged.statusCode, exchanged.responseBody)
-    return Tokens.of(exchanged)
-  }
-
-  private fun codeFrom(response: TestHttpResponse): String {
-    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
-    return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
-  }
-
-  private fun exchangeCode(pod: PodDbo, app: App, code: String): TestHttpResponse = postForm(
-    tokenUrl(pod),
-    "grant_type=authorization_code&code=${enc(code)}&redirect_uri=${enc(app.redirectUri)}&client_id=${enc(app.clientId)}",
-  )
-
-  private fun refresh(pod: PodDbo, app: App, refreshToken: String): TestHttpResponse = postForm(
-    tokenUrl(pod),
-    "grant_type=refresh_token&refresh_token=${enc(refreshToken)}&client_id=${enc(app.clientId)}",
-  )
-
-  private fun postForm(url: String, body: String): TestHttpResponse =
-    http.preparePost(url)
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .setBody(body)
-      .execute()
+    csrf: String? = flow.formToken(pod, webId, appA),
+  ): TestHttpResponse = flow.consent(pod, webId, appA, cookie, state = "bye", action = "signout", csrf = csrf)
 
   /** A family seeded under [webId] with a grant behind it, as a code exchange would leave it. */
-  private fun seedFamily(pod: PodDbo, app: App, webId: String): String {
+  private fun seedFamily(pod: PodDbo, app: DelegatedAccessFlow.App, webId: String): String {
     val grants = setOf("${sempodsTestFactory.publicContextUri(pod.name)}#read")
     podGrantsDao.addGrants(podId = checkNotNull(pod.id), appId = app.clientId, webId = webId, grants = grants, grantedBy = webId)
     return refreshTokenStore.issueNewFamily(
