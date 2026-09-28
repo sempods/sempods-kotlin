@@ -49,7 +49,7 @@ class PodIoTest {
     // invisible until someone tried to follow a trace across the two processes.
     server.`when`(request().withMethod("GET").withPath("/traced"))
       .respond(response().withStatusCode(200).withBody("ok"))
-    val trace = TraceContext.random()
+    val trace = TraceContext.random().copy(traceState = "congo=t61rcWkgMzE")
 
     withContext(TraceContextElement(trace)) {
       podIo(calls) { tracked -> get(tracked, "/traced") }
@@ -60,6 +60,7 @@ class PodIoTest {
     val traceparent = recorded[0].getFirstHeader("traceparent")
     assertTrue(traceparent.isNotBlank(), "no traceparent on the outgoing request")
     assertTrue(traceparent.contains(trace.traceId), "trace id lost across the hop: $traceparent")
+    assertEquals(trace.traceState, recorded[0].getFirstHeader("tracestate"))
   }
 
   @Test

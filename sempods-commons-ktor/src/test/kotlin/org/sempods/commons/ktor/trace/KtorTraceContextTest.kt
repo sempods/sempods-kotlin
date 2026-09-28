@@ -26,6 +26,7 @@ import kotlin.test.assertTrue
 class KtorTraceContextTest {
 
   private val incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  private val incomingState = "congo=t61rcWkgMzE"
 
   @AfterTest
   fun clearBinding() = TraceContextHolder.clear()
@@ -57,6 +58,35 @@ class KtorTraceContextTest {
   }
 
   @Test
+  fun `adopts the tracestate that arrives with the traceparent`() = testApplication {
+    application {
+      installTraceContext()
+      routing { get("/t") { call.respondText(TraceContextHolder.get()?.traceState ?: "none") } }
+    }
+    val response = client.get("/t") {
+      header(TraceContext.TRACEPARENT, incoming)
+      header(TraceContext.TRACESTATE, incomingState)
+      header(TraceContext.TRACESTATE, "rojo=00f067aa0ba902b7")
+    }
+    assertEquals("$incomingState,rojo=00f067aa0ba902b7", response.bodyAsText())
+  }
+
+  @Test
+  fun `a fresh trace carries no tracestate`() = testApplication {
+    application {
+      installTraceContext()
+      routing { get("/t") { call.respondText(TraceContextHolder.get()?.traceState ?: "none") } }
+    }
+    for (header in listOf(null, "nonsense")) {
+      val response = client.get("/t") {
+        header?.let { header(TraceContext.TRACEPARENT, it) }
+        header(TraceContext.TRACESTATE, incomingState)
+      }
+      assertEquals("none", response.bodyAsText())
+    }
+  }
+
+  @Test
   fun `the binding survives a dispatch to another thread`() = testApplication {
     application {
       installTraceContext()
@@ -65,14 +95,17 @@ class KtorTraceContextTest {
           // The whole reason `TraceContextElement` exists: a plain ThreadLocal would be gone here.
           val afterHop = withContext(Dispatchers.IO) {
             delay(1)
-            TraceContextHolder.getTraceId()
+            TraceContextHolder.get()
           }
-          call.respondText(afterHop ?: "lost")
+          call.respondText(afterHop?.let { "${it.traceId} ${it.traceState}" } ?: "lost")
         }
       }
     }
-    val response = client.get("/t") { header(TraceContext.TRACEPARENT, incoming) }
-    assertEquals("4bf92f3577b34da6a3ce929d0e0e4736", response.bodyAsText())
+    val response = client.get("/t") {
+      header(TraceContext.TRACEPARENT, incoming)
+      header(TraceContext.TRACESTATE, incomingState)
+    }
+    assertEquals("4bf92f3577b34da6a3ce929d0e0e4736 $incomingState", response.bodyAsText())
   }
 
   @Test
@@ -97,6 +130,24 @@ class KtorTraceContextTest {
   }
 
   @Test
+  fun `the outbound plugin carries the tracestate as it is`() = testApplication {
+    application {
+      routing {
+        get("/downstream") {
+          call.respondText(call.request.headers[TraceContext.TRACESTATE] ?: "none")
+        }
+      }
+    }
+    val outbound = createClient { install(TraceparentClientPlugin) }
+
+    val sent = withContext(TraceContextElement(TraceContext.parse(incoming, incomingState)!!)) {
+      outbound.get("/downstream").bodyAsText()
+    }
+
+    assertEquals(incomingState, sent)
+  }
+
+  @Test
   fun `the outbound plugin sends nothing outside a bound trace`() = testApplication {
     application {
       routing {
@@ -114,17 +165,19 @@ class KtorTraceContextTest {
     application {
       routing {
         get("/downstream") {
-          call.respondText(call.request.headers[TraceContext.TRACEPARENT] ?: "none")
+          val headers = call.request.headers
+          call.respondText("${headers[TraceContext.TRACEPARENT]} ${headers[TraceContext.TRACESTATE]}")
         }
       }
     }
     val outbound = createClient { install(TraceparentClientPlugin) }
     val explicit = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 
-    val sent = withContext(TraceContextElement(TraceContext.parse(incoming)!!)) {
+    val sent = withContext(TraceContextElement(TraceContext.parse(incoming, incomingState)!!)) {
       outbound.get("/downstream") { header(TraceContext.TRACEPARENT, explicit) }.bodyAsText()
     }
 
-    assertEquals(explicit, sent)
+    // The ambient tracestate belongs to the ambient trace, so it stays off as well.
+    assertEquals("$explicit null", sent)
   }
 }

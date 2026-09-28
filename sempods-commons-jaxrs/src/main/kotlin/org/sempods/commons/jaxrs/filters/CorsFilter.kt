@@ -95,8 +95,9 @@ open class CorsFilter(
 
         // W3C Trace Context. Not safelisted, so a browser client that joins the trace — an
         // OpenTelemetry SDK does this by itself — would be preflighted away before
-        // `TraceContextFilter` ever saw the header, and its journey would restart here.
+        // `TraceContextFilter` ever saw the headers, and its journey would restart here.
         "traceparent",
+        "tracestate",
 
         HEADER_X_CLIENT_VERSION,
 

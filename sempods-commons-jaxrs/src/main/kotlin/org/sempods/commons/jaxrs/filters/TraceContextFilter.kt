@@ -12,8 +12,9 @@ import jakarta.ws.rs.container.PreMatching
  * Binds the W3C trace of the incoming request, and echoes it back on the response.
  *
  * A caller that sends a valid `traceparent` keeps its journey: the same trace id appears in this
- * process's logs and on every call it makes onward. A caller that sends nothing — or something
- * malformed, which the spec says to treat the same way — starts a fresh one here.
+ * process's logs, and every call it makes onward carries that trace id and the caller's
+ * `tracestate`. A caller that sends nothing — or something malformed, which the spec says to treat
+ * the same way — starts a fresh one here.
  *
  * The received context is adopted as-is rather than opening a child span for the server. Nothing
  * in this deployment records spans, so a parent chain would be written and never read; the trace
@@ -29,8 +30,10 @@ import jakarta.ws.rs.container.PreMatching
 class TraceContextFilter : ContainerRequestFilter, ContainerResponseFilter {
 
   override fun filter(requestContext: ContainerRequestContext) {
-    val traceContext = TraceContext.parse(requestContext.getHeaderString(TraceContext.TRACEPARENT))
-      ?: TraceContext.random()
+    val traceContext = TraceContext.parse(
+      requestContext.getHeaderString(TraceContext.TRACEPARENT),
+      requestContext.getHeaderString(TraceContext.TRACESTATE),
+    ) ?: TraceContext.random()
     TraceContextHolder.set(traceContext)
     requestContext.setProperty(TRACE_CONTEXT_PROPERTY, traceContext)
   }

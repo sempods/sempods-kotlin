@@ -28,9 +28,10 @@ class TraceContextFilterTest {
     TraceContextHolder.clear()
   }
 
-  private fun requestWith(traceparent: String?): ContainerRequestContext {
+  private fun requestWith(traceparent: String?, tracestate: String? = null): ContainerRequestContext {
     val requestContext = mockk<ContainerRequestContext>(relaxed = true)
     every { requestContext.getHeaderString(TraceContext.TRACEPARENT) } returns traceparent
+    every { requestContext.getHeaderString(TraceContext.TRACESTATE) } returns tracestate
     return requestContext
   }
 
@@ -59,6 +60,24 @@ class TraceContextFilterTest {
     val started = TraceContextHolder.get()
     assertNotNull(started)
     assertEquals(32, started.traceId.length)
+  }
+
+  @Test
+  fun `the tracestate is adopted with a valid traceparent`() {
+    filter.filter(requestWith(incomingHeader, tracestate = "congo=t61rcWkgMzE"))
+
+    assertEquals("congo=t61rcWkgMzE", TraceContextHolder.get()?.traceState)
+  }
+
+  @Test
+  fun `a fresh trace carries no tracestate`() {
+    for (traceparent in listOf(null, "00-not-a-trace-id-01")) {
+      filter.filter(requestWith(traceparent, tracestate = "congo=t61rcWkgMzE"))
+
+      val started = assertNotNull(TraceContextHolder.get())
+      assertNull(started.traceState, "a tracestate kept without its traceparent (§4.3)")
+      TraceContextHolder.clear()
+    }
   }
 
   @Test

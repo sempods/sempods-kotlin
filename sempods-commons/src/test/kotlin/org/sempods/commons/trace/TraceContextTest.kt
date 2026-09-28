@@ -12,6 +12,7 @@ class TraceContextTest {
   private val validTraceId = "4bf92f3577b34da6a3ce929d0e0e4736"
   private val validSpanId = "00f067aa0ba902b7"
   private val validHeader = "00-$validTraceId-$validSpanId-01"
+  private val validState = "congo=t61rcWkgMzE,rojo=00f067aa0ba902b7"
 
   @Test
   fun `parse reads the four fields`() {
@@ -24,9 +25,18 @@ class TraceContextTest {
   @Test
   fun `the sampled bit is read from the flags byte`() {
     assertFalse(TraceContext.parse("00-$validTraceId-$validSpanId-00")!!.sampled)
-    // Only bit 0 is defined; the reserved bits must not change the answer.
+    // The other bits must not change the answer.
     assertTrue(TraceContext.parse("00-$validTraceId-$validSpanId-03")!!.sampled)
     assertFalse(TraceContext.parse("00-$validTraceId-$validSpanId-02")!!.sampled)
+  }
+
+  @Test
+  fun `the random trace-id bit travels and the reserved bits leave as zero`() {
+    assertTrue(TraceContext.parse("00-$validTraceId-$validSpanId-02")!!.randomTraceId)
+    assertFalse(TraceContext.parse(validHeader)!!.randomTraceId)
+    assertEquals("00-$validTraceId-$validSpanId-03", TraceContext.parse("00-$validTraceId-$validSpanId-03")!!.toHeader())
+    assertEquals("00-$validTraceId-$validSpanId-03", TraceContext.parse("00-$validTraceId-$validSpanId-ff")!!.toHeader())
+    assertEquals("00-$validTraceId-$validSpanId-00", TraceContext.parse("00-$validTraceId-$validSpanId-fc")!!.toHeader())
   }
 
   @Test
@@ -81,11 +91,65 @@ class TraceContextTest {
 
   @Test
   fun `newChild keeps the journey and starts a new hop`() {
-    val parent = TraceContext.parse(validHeader)!!
+    val parent = TraceContext.parse("00-$validTraceId-$validSpanId-03", validState)!!
     val child = parent.newChild()
     assertEquals(parent.traceId, child.traceId)
     assertNotEquals(parent.spanId, child.spanId)
     assertEquals(parent.sampled, child.sampled)
+    assertEquals(parent.randomTraceId, child.randomTraceId)
+    assertEquals(validState, child.traceState)
+  }
+
+  @Test
+  fun `a valid tracestate is kept as it arrived`() {
+    assertEquals(validState, TraceContext.parse(validHeader, validState)!!.traceState)
+    assertEquals("fw529a3039@dt=FzA0MTI", TraceContext.parse(validHeader, "fw529a3039@dt=FzA0MTI")!!.traceState)
+  }
+
+  @Test
+  fun `white space around entries and empty entries are dropped`() {
+    assertEquals(
+      validState,
+      TraceContext.parse(validHeader, " congo=t61rcWkgMzE ,\t,rojo=00f067aa0ba902b7, ")!!.traceState,
+    )
+    assertNull(TraceContext.parse(validHeader, " , ")!!.traceState)
+    assertNull(TraceContext.parse(validHeader, "")!!.traceState)
+  }
+
+  @Test
+  fun `an unparseable tracestate is discarded as a whole and the traceparent stays`() {
+    val unparseable = listOf(
+      "congo=t61rcWkgMzE,Rojo=1", // uppercase key
+      "congo=t61rcWkgMzE,rojo", // no value
+      "congo=t61rcWkgMzE,rojo=", // empty value
+      "congo=t61rcWkgMzE,rojo=a=b", // "=" inside the value
+      "congo=1,congo=2", // a key twice
+      (1..33).joinToString(",") { "k$it=v" }, // more than 32 entries
+    )
+    for (state in unparseable) {
+      val parsed = TraceContext.parse(validHeader, state)!!
+      assertEquals(validTraceId, parsed.traceId)
+      assertNull(parsed.traceState, "expected '$state' to be discarded")
+    }
+    val thirtyTwo = (1..32).joinToString(",") { "k$it=v" }
+    assertEquals(thirtyTwo, TraceContext.parse(validHeader, thirtyTwo)!!.traceState)
+  }
+
+  @Test
+  fun `a tracestate over 512 characters loses long entries first, then entries from the end`() {
+    // 24 entries of 20 characters and their commas: 503 characters.
+    val fitting = (10..33).map { "k$it=" + "v".repeat(16) }
+    val long = "long=" + "x".repeat(150)
+    assertEquals(
+      fitting.joinToString(","),
+      TraceContext.parse(validHeader, (listOf(long) + fitting).joinToString(","))!!.traceState,
+    )
+
+    val tooMany = (10..40).map { "k$it=" + "v".repeat(16) }
+    assertEquals(
+      tooMany.take(24).joinToString(","),
+      TraceContext.parse(validHeader, tooMany.joinToString(","))!!.traceState,
+    )
   }
 
   @Test
@@ -94,6 +158,7 @@ class TraceContextTest {
     ids.forEach { context ->
       assertEquals(context, TraceContext.parse(context.toHeader()))
       assertTrue(context.sampled, "nothing samples here, so generated traces must be recordable")
+      assertTrue(context.randomTraceId, "every bit of a generated trace id is random")
     }
     assertEquals(200, ids.map { it.traceId }.toSet().size)
   }

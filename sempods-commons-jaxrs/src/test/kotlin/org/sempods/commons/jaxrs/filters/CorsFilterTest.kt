@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The allowlist as a constructor parameter, rather than derived from a registry of applications.
@@ -65,9 +66,24 @@ class CorsFilterTest {
     assertEquals(0, headers.size)
   }
 
+  @Test
+  fun `a preflight allows both trace context headers`() {
+    // A browser that joins a trace sends both; one missing here blocks the whole request.
+    val headers = corsHeaders(
+      filter = CorsFilter(setOf("https://app.example.org")),
+      origin = "https://app.example.org",
+      method = "OPTIONS",
+    )
+
+    val allowed = headers.getFirst("Access-Control-Allow-Headers").toString().split(", ")
+    assertTrue("traceparent" in allowed, "traceparent missing from $allowed")
+    assertTrue("tracestate" in allowed, "tracestate missing from $allowed")
+  }
+
   private fun corsHeaders(
     filter: CorsFilter,
     origin: String,
+    method: String = "GET",
   ): MultivaluedHashMap<String, Any> {
     val headers = MultivaluedHashMap<String, Any>()
     val responseContext = mockk<ContainerResponseContext>(relaxed = true)
@@ -81,7 +97,7 @@ class CorsFilterTest {
     every { requestContext.getHeaderString("Authorization") } returns null
     every { requestContext.getHeaderString("Cookie") } returns null
     every { requestContext.getHeaderString("Access-Control-Request-Headers") } returns null
-    every { requestContext.method } returns "GET"
+    every { requestContext.method } returns method
 
     filter.filter(requestContext, responseContext)
     return headers

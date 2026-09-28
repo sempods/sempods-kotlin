@@ -114,8 +114,9 @@ class MediaSourceFetcher @Inject constructor(
    * one route — and because a replay would make [PinnedAddressCheck]'s refusal look like a
    * connection that is merely worth trying again.
    */
-  // TODO: the caller's `traceparent` still travels to a host the caller chose, because the shared
-  //  client's interceptor is inherited here. This is the one place it could be dropped.
+  // TODO: the caller's `traceparent` and `tracestate` still travel to a host the caller chose,
+  //  because the shared client's interceptor is inherited here. This is the one place they could be
+  //  dropped.
   private fun clientFor(pinned: InetAddress): OkHttpClient =
     httpClient.newBuilder()
       .dns { listOf(pinned) }

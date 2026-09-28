@@ -31,8 +31,10 @@ val ApplicationCall.traceContext: TraceContext? get() = attributes.getOrNull(Tra
  */
 fun Application.installTraceContext() {
   intercept(ApplicationCallPipeline.Setup) {
-    val traceContext = TraceContext.parse(call.request.header(TraceContext.TRACEPARENT))
-      ?: TraceContext.random()
+    val traceContext = TraceContext.parse(
+      call.request.header(TraceContext.TRACEPARENT),
+      call.request.headers.getAll(TraceContext.TRACESTATE)?.joinToString(","),
+    ) ?: TraceContext.random()
     call.attributes.put(TraceContextAttribute, traceContext)
     // Set on the response now rather than in a response hook: by the time a handler responds the
     // headers are already on their way, and an echo written after that is silently dropped.
