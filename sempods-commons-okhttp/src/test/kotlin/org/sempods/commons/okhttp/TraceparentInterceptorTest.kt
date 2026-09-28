@@ -74,6 +74,19 @@ class TraceparentInterceptorTest {
   }
 
   @Test
+  fun `a tracestate the caller set alone does not ride along with the ambient trace`() {
+    TraceContextHolder.with(TraceContext.random()) {
+      get { it.header(TraceContext.TRACESTATE, "stray=1") }
+    }
+    assertNull(receivedState)
+
+    TraceContextHolder.with(TraceContext.random().copy(traceState = "congo=t61rcWkgMzE")) {
+      get { it.header(TraceContext.TRACESTATE, "stray=1") }
+    }
+    assertEquals("congo=t61rcWkgMzE", receivedState)
+  }
+
+  @Test
   fun `outside a trace no header is sent`() {
     get()
 

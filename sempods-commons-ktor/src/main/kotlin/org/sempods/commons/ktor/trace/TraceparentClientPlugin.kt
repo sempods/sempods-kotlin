@@ -11,8 +11,9 @@ import io.ktor.client.request.header
  * (`docs/request-tracing.md`).
  *
  * Each request gets its own span id via [TraceContext.newChild] — the trace id stays, the hop does
- * not — and the trace's [TraceContext.traceState] as it is. A request that already carries a
- * `traceparent` is left alone, `tracestate` included: an explicit header beats an ambient one.
+ * not — and the trace's [TraceContext.traceState] as it is, in place of any `tracestate` the request
+ * carried without a `traceparent`. A request that already carries a `traceparent` is left alone,
+ * `tracestate` included: an explicit header beats an ambient one.
  *
  * Reads the ambient trace through [TraceContextHolder], which is correct inside a Ktor call
  * because [installTraceContext] binds a [TraceContextElement] for the call's coroutine. Outside a
@@ -25,6 +26,7 @@ val TraceparentClientPlugin = createClientPlugin("Traceparent") {
     if (request.headers.contains(TraceContext.TRACEPARENT)) return@onRequest
     val child = traceContext.newChild()
     request.header(TraceContext.TRACEPARENT, child.toHeader())
+    request.headers.remove(TraceContext.TRACESTATE)
     child.traceState?.let { request.headers[TraceContext.TRACESTATE] = it }
   }
 }

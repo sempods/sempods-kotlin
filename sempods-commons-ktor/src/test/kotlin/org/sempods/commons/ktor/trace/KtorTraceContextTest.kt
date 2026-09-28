@@ -161,6 +161,28 @@ class KtorTraceContextTest {
   }
 
   @Test
+  fun `a tracestate the caller set alone does not ride along with the ambient trace`() = testApplication {
+    application {
+      routing {
+        get("/downstream") {
+          call.respondText(call.request.headers.getAll(TraceContext.TRACESTATE)?.joinToString(",") ?: "none")
+        }
+      }
+    }
+    val outbound = createClient { install(TraceparentClientPlugin) }
+
+    val withoutState = withContext(TraceContextElement(TraceContext.parse(incoming)!!)) {
+      outbound.get("/downstream") { header(TraceContext.TRACESTATE, "stray=1") }.bodyAsText()
+    }
+    val withState = withContext(TraceContextElement(TraceContext.parse(incoming, incomingState)!!)) {
+      outbound.get("/downstream") { header(TraceContext.TRACESTATE, "stray=1") }.bodyAsText()
+    }
+
+    assertEquals("none", withoutState)
+    assertEquals(incomingState, withState)
+  }
+
+  @Test
   fun `an explicit traceparent beats the ambient one`() = testApplication {
     application {
       routing {
