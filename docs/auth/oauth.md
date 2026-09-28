@@ -703,17 +703,19 @@ The answer is a `303` to the caller's redirect, with its `state`:
 narrow and revoke the service clients on the pod. It is a scope of its own because an installer
 approved for one service must not rotate the secret of another that holds `#manage`.
 
-It follows the installation's rules above, with three differences:
+It follows the installation's rules above, with two differences:
 
 - **It is not spent.** Every call reads the authority, so one approval lists, then rotates, then
   revokes.
 - **One privileged scope per authorization.** Asking for both is `invalid_scope`.
-- **It reaches data through a rotation.** The caller receives the new secret and mints Client
-  Credentials tokens as that service. Those reach every context the service is granted. The secret
-  does not expire, so this outlasts the hour: rotate an installed service holding
-  `apps/notes#write`, and the caller still writes `apps/notes` the next day.
 
-It adds no grant. The operations are
+It adds no grant, and its own token reaches no context. It reaches data through a rotation: the
+caller receives the new secret and mints Client Credentials tokens as that service, which reach
+every context the service is granted. The secret does not expire, so this outlasts the hour.
+Rotate an installed service holding `apps/notes#write`, and the caller still writes `apps/notes`
+the next day.
+
+The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
 
 ## Managing contexts
