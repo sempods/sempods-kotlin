@@ -28,7 +28,8 @@ git ls-files --others --exclude-standard   # new files, which no diff shows — 
 
 Against the merge base, so committed work counts as much as uncommitted work: `git diff HEAD`
 misses the commits, a bare `git diff` also the staged part. Read new files directly; `git add -N`
-would move the user's staged/unstaged boundary.
+would move the user's staged/unstaged boundary. Every command here names the base `origin/main`;
+in a checkout without an `origin` remote, use `main`.
 
 A change to behaviour, a public signature, a stored shape, an HTTP surface or a permission rule
 needs this procedure. A refactor that moves code without changing what it does usually needs
