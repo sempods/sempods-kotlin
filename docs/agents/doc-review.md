@@ -69,9 +69,10 @@ ownership and what an implementation owes its caller. Field-level detail lives i
 ## 5. Specification
 
 Does the change contradict a [sempods-spec](https://github.com/sempods/sempods-spec) requirement?
-Search the target for cited identifiers such as `SPS-AUTH-001`;
-[`../../gradle/spec/requirements.json`](../../gradle/spec/requirements.json) gives each one's
-summary. A contradiction needs its companion change open in that repository and linked from the PR.
+Search the target, its tests and the documents from step 2 for cited identifiers such as
+`SPS-AUTH-001`. Where none is cited, search the summaries in
+[`../../gradle/spec/requirements.json`](../../gradle/spec/requirements.json) for the changed
+behaviour. A contradiction needs its companion change open in that repository and linked from the PR.
 
 ## 6. Weight
 

@@ -226,8 +226,8 @@ fail quietly:
 - A documented special case became ordinary; its section or comment is still there.
 - The change restates a fact another document or KDoc already owns.
 - A fact about the code landed in an `AGENTS.md`.
-- The change contradicts a cited sempods-spec requirement (`SPS-…`), and no companion change is
-  linked.
+- The change contradicts a sempods-spec requirement (`SPS-…`, cited in the changed code, its tests
+  or its documents), and no companion change is linked.
 - A `context7.json` rule is no longer true.
 - The description has no documentation evidence: the updates, or why none were needed.
 
