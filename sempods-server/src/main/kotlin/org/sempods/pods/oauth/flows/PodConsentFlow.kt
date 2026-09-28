@@ -557,10 +557,12 @@ private data class ConsentRequest(
   companion object {
 
     /**
-     * @return the bound request, or `null` where the form names a different one. The form no longer
-     *   renders these fields, so a value there was put in by hand; one that agrees is harmless.
+     * @return the bound request, or `null` where the form names a different one or the screen was a
+     *   service consent's. The form no longer renders these fields, so a value there was put in by
+     *   hand; one that agrees is harmless.
      */
     fun of(binding: ConsentTransactionStore.Binding?, form: PodConsentForm): ConsentRequest? {
+      if (binding?.service != null) return null
       val posted = ConsentRequest(
         clientId = form.clientId?.trim()?.takeIf { it.isNotBlank() },
         redirectUri = form.redirectUri?.trim()?.takeIf { it.isNotBlank() },
@@ -650,7 +652,7 @@ internal enum class PodConsentRefusal {
 
   /**
    * The form names another client, redirect, `state`, PKCE challenge or challenge method than its
-   * screen was rendered for. Not redirected: neither client is the one this answer is owed to. The ticket is spent and
+   * screen was rendered for, or the screen was a service consent's. Not redirected: neither client is the one this answer is owed to. The ticket is spent and
    * nothing is written.
    */
   FORM_MISMATCH,

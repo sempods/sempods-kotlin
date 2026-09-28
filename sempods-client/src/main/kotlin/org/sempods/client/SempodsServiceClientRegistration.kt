@@ -14,23 +14,23 @@ class SempodsServiceClientRegistration private constructor(
   val clientId: String,
   /** The secret, for `client_secret_basic` at the token endpoint ([SempodsRequestAuth.clientSecretBasic]). */
   val clientSecret: String,
-  /** The name the registration carries, which the grant consent shows the owner. */
+  /** The name the registration carries, which the consent shows the owner as the service's claim. */
   val clientName: String?,
-  /** When the pod registered it. The grant consent shows the owner this beside the identifier. */
+  /** When the pod registered it. The consent shows the owner this beside the identifier. */
   val issuedAt: Instant,
   /** When the secret expires, and null for `client_secret_expires_at: 0`, a secret that does not. */
   val secretExpiresAt: Instant?,
   redirectUris: List<String>,
   /**
-   * When the pod removes this registration unless the owner grants it contexts first — the sempods
+   * When the pod removes this registration unless the owner confirms its consent first — the sempods
    * member `activation_expires_at`. Null on a pod that does not send it.
    */
   val activationExpiresAt: Instant?,
 ) {
 
   /**
-   * The redirect URIs registered with the service; empty where none were. The grant consent does not
-   * return to these: it returns to the public client that opened it ([SempodsPodServiceClients.grantConsentUrl]).
+   * The redirect URIs registered with the service; empty where none were. The consent returns only to
+   * one of these ([SempodsPodServiceClients.consentUrl]).
    */
   val redirectUris: List<String> = java.util.Collections.unmodifiableList(ArrayList(redirectUris))
 

@@ -5,6 +5,8 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodBrowserCookies
+import org.sempods.auth.core.OAuthErrorCode
+import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
@@ -15,17 +17,19 @@ import org.sempods.pods.oauth.flows.PodAuthorizeResult
 import org.sempods.pods.oauth.flows.PodConsentRefusal
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodConsentScreen
-import org.sempods.pods.oauth.flows.PodServiceClientGrantRefusal
-import org.sempods.pods.oauth.flows.PodServiceClientGrantResult
-import org.sempods.pods.oauth.flows.PodServiceClientGrantScreen
+import org.sempods.pods.oauth.flows.PodServiceConsentOutcome
+import org.sempods.pods.oauth.flows.PodServiceConsentRefusal
+import org.sempods.pods.oauth.flows.PodServiceConsentResult
+import org.sempods.pods.oauth.flows.PodServiceConsentScreen
 import java.net.URI
 import java.time.Duration
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 /**
- * Every answer the pod's two browser routes give — `GET authorize` and the consent submission it
- * sends the person to — built in one place.
+ * Every answer the pod's browser routes give — `GET authorize`, the consent submission it sends the
+ * person to, and the service consent — built in one place.
  *
  * [PodAuthorizeFlow][org.sempods.pods.oauth.flows.PodAuthorizeFlow] decides *what* to answer —
  * whether a code was minted, which boxes the dialog ticks, where the browser goes to sign in. This
@@ -78,72 +82,139 @@ internal object PodAuthorizeResponses {
     is PodConsentResult.Refused -> refusal(result.reason)
   }
 
-  /** The grant consent's answers. */
+  /**
+   * The service consent's answers. Only the owner's decision is redirected, and it carries `state`
+   * and nothing else: `access_denied` on a cancel. Every other answer is a page.
+   */
   fun render(
-    result: PodServiceClientGrantResult,
+    result: PodServiceConsentResult,
     podName: String,
     cookies: PodBrowserCookies,
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodServiceClientGrantResult.Screen ->
-      Response.ok(grantPage(result.screen, templates, config), MediaType.TEXT_HTML).build()
+    is PodServiceConsentResult.Screen ->
+      Response.ok(serviceConsentPage(result.screen, templates, config), MediaType.TEXT_HTML).build()
 
-    is PodServiceClientGrantResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
+    is PodServiceConsentResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
       .build()
 
-    is PodServiceClientGrantResult.Granted -> {
-      // Overwriting, never appending, for the reason [codeRedirect] gives.
-      var uri = UrlUtil.addOrUpdateQueryParameter(URI(result.target.uri), "result", GRANTED)
-      uri = UrlUtil.addOrUpdateQueryParameter(uri, "scope", result.scopes.sorted().joinToString(" "))
-      result.state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
-      Response.seeOther(uri).build()
+    is PodServiceConsentResult.Answered -> {
+      val target = result.target
+      when {
+        target == null -> finishedPage(
+          templates, 200,
+          if (result.outcome == PodServiceConsentOutcome.CONFIRMED) "Access saved" else "Nothing changed",
+          "You can close this page and go back to the program that sent you here.",
+        )
+        result.outcome == PodServiceConsentOutcome.CANCELLED -> PodOAuthErrorResponses.render(
+          OAuthErrorDelivery.Redirect(target, OAuthErrorCode.ACCESS_DENIED, "cancelled", result.state), config,
+        )
+        else -> {
+          // Overwriting, never appending, for the reason [codeRedirect] gives.
+          var uri = URI(target.uri)
+          result.state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
+          Response.seeOther(uri).build()
+        }
+      }
     }
 
-    is PodServiceClientGrantResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+    PodServiceConsentResult.SignedOut ->
+      Response.fromResponse(
+        finishedPage(templates, 200, "Signed out", "Nothing changed. You are signed out of this pod everywhere."),
+      ).cookie(cookies.clearSession(podName)).build()
 
-    is PodServiceClientGrantResult.Refused -> when (result.reason) {
-      PodServiceClientGrantRefusal.MISSING_REDIRECT_URI -> refusal(PodAuthorizeRefusal.MISSING_REDIRECT_URI)
-      PodServiceClientGrantRefusal.UNREGISTERED_CLIENT -> refusal(PodAuthorizeRefusal.UNREGISTERED_CLIENT)
-      PodServiceClientGrantRefusal.MALFORMED_CLIENT_ID -> refusal(PodAuthorizeRefusal.MALFORMED_CLIENT_ID)
-      PodServiceClientGrantRefusal.REDIRECT_URI_NOT_ALLOWED -> refusal(PodAuthorizeRefusal.REDIRECT_URI_NOT_ALLOWED)
-      PodServiceClientGrantRefusal.IDENTITY_PROVIDER_UNAVAILABLE -> refusal(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
-      PodServiceClientGrantRefusal.SESSION_EXPIRED -> text(401, "session expired — please open the grant again")
-      PodServiceClientGrantRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please open the grant again")
-    }
+    is PodServiceConsentResult.Refused -> refusalPage(result.reason, result.created, templates)
   }
 
-  /** The grant dialog. Each scope shows as its context path relative to the pod, and the permission. */
-  private fun grantPage(
-    screen: PodServiceClientGrantScreen,
+  private fun refusalPage(reason: PodServiceConsentRefusal, created: List<URI>, templates: TemplateRenderer): Response =
+    when (reason) {
+      PodServiceConsentRefusal.UNKNOWN_SERVICE -> finishedPage(
+        templates, 400, "Unknown service",
+        "This pod holds no service under that identifier. It may have expired: a service that nobody " +
+            "confirms within a day is removed. Ask the program to register again.",
+      )
+      PodServiceConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> finishedPage(
+        templates, 400, "Unknown return address", "The service did not register the address this link returns to.",
+      )
+      PodServiceConsentRefusal.IDENTITY_PROVIDER_UNAVAILABLE ->
+        finishedPage(templates, 503, "Sign-in unavailable", "The identity provider cannot be reached. Try again later.")
+      PodServiceConsentRefusal.NOT_OWNER -> finishedPage(
+        templates, 403, "Only the owner decides", "Only the owner of this pod can give a service access to it.",
+      )
+      PodServiceConsentRefusal.SESSION_EXPIRED ->
+        finishedPage(templates, 401, "Signed out", "Your sign-in ended. Open the link again.")
+      PodServiceConsentRefusal.FORM_EXPIRED ->
+        finishedPage(templates, 403, "Page expired", "This page is no longer valid. Open the link again.")
+      PodServiceConsentRefusal.FORM_MISMATCH ->
+        finishedPage(templates, 400, "Wrong page", "This form was not issued for this service. Open the link again.")
+      PodServiceConsentRefusal.SELECTION_REFUSED ->
+        finishedPage(templates, 400, "Not saved", "This selection cannot be saved. Nothing changed. Open the link again.")
+      PodServiceConsentRefusal.CHANGED_MEANWHILE -> finishedPage(
+        templates, 409, "Access changed meanwhile",
+        "The service's access changed while this page was open, so nothing was granted. Open the link again " +
+            "to see what it holds now.",
+        created,
+      )
+      PodServiceConsentRefusal.SERVICE_REMOVED -> finishedPage(
+        templates, 404, "Service removed", "The service was removed while this page was open. Nothing was granted.", created,
+      )
+    }
+
+  /**
+   * A page ending the service consent. [created] names contexts created before a refused
+   * submission: they stay, private and without grants.
+   */
+  private fun finishedPage(
+    templates: TemplateRenderer,
+    status: Int,
+    title: String,
+    message: String,
+    created: List<URI> = emptyList(),
+  ): Response = Response.status(status)
+    .entity(
+      templates.render(
+        "service-consent-finished",
+        mapOf("title" to title, "message" to message, "created" to created.map { it.toString() }),
+      ),
+    )
+    .type("text/html;charset=UTF-8")
+    .build()
+
+  /** The service consent dialog. It shares the rows and context creation with [consentPage]. */
+  private fun serviceConsentPage(
+    screen: PodServiceConsentScreen,
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): String = templates.render(
-    "service-client-grant", mapOf(
-      "grantAction" to "${config.apiBaseUrl}${screen.podName}/_system/auth/grant",
-      "requesterName" to screen.requesterName,
-      "serviceClientId" to screen.serviceClientId,
-      "serviceLabel" to screen.serviceLabel,
-      "registeredAt" to DateTimeFormatter.ISO_INSTANT.format(screen.registeredAt.truncatedTo(ChronoUnit.SECONDS)),
-      "requested" to screen.requested.map { GrantRow.of(it, screen.podBaseUrl) },
-      "held" to screen.held.map { GrantRow.of(it, screen.podBaseUrl) },
+    "service-consent", mapOf(
+      "consentAction" to "${config.apiBaseUrl}${screen.podName}/_system/auth/service-consent",
+      "clientId" to screen.clientId,
+      "clientName" to (screen.clientName ?: ""),
+      "registeredAt" to instantInWords(screen.registeredAt),
+      "activationExpiresAt" to (screen.activationExpiresAt?.let(::instantInWords) ?: ""),
+      "held" to screen.held.map { relativeScope(it, screen.podBaseUrl) },
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
+      "contexts" to screen.contexts,
+      "podBaseUrl" to screen.podBaseUrl,
+      "contextPathPrefix" to SempodsUriBuilder.CONTEXT_PATH_PREFIX,
+      "reservedSegment" to ContextPathRules.RESERVED_SEGMENT,
+      "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
+      "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
+      "contextCreationAvailable" to true,
     ))
 
-  /** One scope as the grant dialog shows it. Read by the template by name. */
-  internal data class GrantRow(val scope: String, val context: String, val permission: String) {
-    companion object {
-      fun of(scope: String, podBaseUrl: String): GrantRow {
-        val context = scope.substringBeforeLast('#')
-        val base = podBaseUrl.trimEnd('/') + "/"
-        return GrantRow(scope, context.removePrefix(base).ifEmpty { context }, scope.substringAfterLast('#'))
-      }
-    }
-  }
+  private fun instantInWords(instant: Instant): String =
+    DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.SECONDS))
 
-  private const val GRANTED = "granted"
+  /** A grant as the dialog lists it: the context's path below the pod, and the permission. */
+  private fun relativeScope(scope: String, podBaseUrl: String): String {
+    val context = scope.substringBeforeLast('#')
+    val relative = context.removePrefix(podBaseUrl.trimEnd('/') + "/").ifEmpty { context }
+    return "$relative (${scope.substringAfterLast('#')})"
+  }
 
   /**
    * Where the code goes, with `state` beside it exactly as

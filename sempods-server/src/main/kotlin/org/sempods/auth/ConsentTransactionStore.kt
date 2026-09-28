@@ -39,6 +39,8 @@ import java.time.Duration
  * cannot then redirect the answer to another client, drop the PKCE challenge, or tick a row the
  * person was never shown.
  *
+ * The same store holds the service consent's screens ([Binding.service]), under the same rules.
+ *
  * A transaction without a [Binding] was written by an older node during a rollout. The submission
  * then reads the request from the form. The rule and how long it holds are in `docs/auth/oauth.md`
  * §"Authorize flow (overview)"; the next minor release removes it with the two unbound [issue]
@@ -73,8 +75,8 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
   /**
    * What the screen was rendered for, as normalized by `/authorize`.
    *
-   * @param clientId the recipient, and [redirectUri] where its answer goes. The submission answers
-   *   this client and no other.
+   * @param clientId the recipient, and [redirectUri] where its answer goes; `null` only on a service
+   *   consent opened without one. The submission answers this client and no other.
    * @param state the client's `state`, `null` where it sent none.
    * @param codeChallenge the PKCE challenge the code will carry, and [codeChallengeMethod] its
    *   method; `null` where the request carried none.
@@ -83,17 +85,30 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   [Transaction.offeredFeatureScopes].
    * @param publicReadOffered whether the screen rendered the `public-read` box.
    * @param contextCreationOffered whether the screen let the person create contexts.
+   * @param service set on a service consent, `null` on a delegated one. Each submission route
+   *   refuses the other's screen.
    */
-  data class Binding(
+  data class Binding @JvmOverloads constructor(
     val clientId: String,
-    val redirectUri: String,
+    val redirectUri: String?,
     val state: String?,
     val codeChallenge: String?,
     val codeChallengeMethod: String?,
     val offeredContexts: Set<String>,
     val publicReadOffered: Boolean,
     val contextCreationOffered: Boolean,
+    val service: ServiceRecipient? = null,
   )
+
+  /**
+   * The service registration a service consent was rendered for.
+   *
+   * @param registrationId the registration's own id, so a registration removed and re-created under
+   *   the same `client_id` is not the one approved.
+   * @param grantsVersion its grants' version when the screen was rendered. The replace writes only
+   *   at this version.
+   */
+  data class ServiceRecipient(val registrationId: String, val grantsVersion: Long)
 
   private val transactions = OneTimeStore(
     db = db,
@@ -109,13 +124,17 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
       putNotNull("disconnects", it.disconnects.takeIf { count -> count > 0 })
       it.binding?.let { binding ->
         put("clientId", binding.clientId)
-        put("redirectUri", binding.redirectUri)
+        putNotNull("redirectUri", binding.redirectUri)
         putNotNull("state", binding.state)
         putNotNull("codeChallenge", binding.codeChallenge)
         putNotNull("codeChallengeMethod", binding.codeChallengeMethod)
         putStrings("offeredContexts", binding.offeredContexts)
         put("publicReadOffered", binding.publicReadOffered)
         put("contextCreationOffered", binding.contextCreationOffered)
+        binding.service?.let { service ->
+          put("serviceRegistrationId", service.registrationId)
+          put("serviceGrantsVersion", service.grantsVersion)
+        }
       }
     },
     read = {
@@ -132,15 +151,23 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         // Absent on a transaction an older node wrote; see the class comment for how long that is
         // accepted.
         binding = getString("clientId")?.let { clientId ->
+          val service = getString("serviceRegistrationId")?.let { registrationId ->
+            ServiceRecipient(
+              registrationId = registrationId,
+              grantsVersion = get("serviceGrantsVersion", Number::class.java)?.toLong() ?: return@OneTimeStore null,
+            )
+          }
           Binding(
             clientId = clientId,
-            redirectUri = getString("redirectUri") ?: return@OneTimeStore null,
+            // A delegated screen always has one; only a service consent may go without.
+            redirectUri = getString("redirectUri") ?: if (service == null) return@OneTimeStore null else null,
             state = getString("state"),
             codeChallenge = getString("codeChallenge"),
             codeChallengeMethod = getString("codeChallengeMethod"),
             offeredContexts = getStringSet("offeredContexts"),
             publicReadOffered = getBoolean("publicReadOffered") ?: false,
             contextCreationOffered = getBoolean("contextCreationOffered") ?: false,
+            service = service,
           )
         },
       )

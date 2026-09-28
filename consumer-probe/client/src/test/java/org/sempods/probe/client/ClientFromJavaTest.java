@@ -56,7 +56,6 @@ import org.sempods.client.SempodsContextSelection;
 import org.sempods.client.SempodsCredentialSupplier;
 import org.sempods.client.SempodsDecodingException;
 import org.sempods.client.SempodsForeignTarget;
-import org.sempods.client.SempodsGrantOutcome;
 import org.sempods.client.SempodsGraphFormat;
 import org.sempods.client.SempodsOkHttp;
 import org.sempods.client.SempodsPkce;
@@ -411,11 +410,9 @@ class ClientFromJavaTest {
     SempodsPodAuthorization authorization = new SempodsPodAuthorization(new SempodsSession(alice), client);
     SempodsPublicClient program = authorization.registerClient("Notes", List.of("http://127.0.0.1/cb")).getBody();
     assertEquals("dyn:1", program.getClientId());
-    HttpUrl grant = registering.grantConsentUrl(program.getClientId(), redirect, "g1", service.getClientId(), List.of("urn:a#read"));
-    assertEquals("svc:1", grant.queryParameter("service_client"));
-    SempodsGrantOutcome outcome = SempodsGrantOutcome.readQuery("error=access_denied&state=g1", "g1");
-    assertFalse(outcome.isGranted());
-    assertEquals("access_denied", outcome.getError());
+    HttpUrl serviceConsent = registering.consentUrl(service.getClientId(), "c1", redirect);
+    assertEquals("svc:1", serviceConsent.queryParameter("client_id"));
+    assertNull(registering.consentUrl(service.getClientId(), "c1").queryParameter("redirect_uri"));
 
     SempodsPkce pkce = SempodsPkce.generate();
     HttpUrl consent = authorization.authorizationUrl(program.getClientId(), redirect, "service-clients:manage", "s1", pkce);

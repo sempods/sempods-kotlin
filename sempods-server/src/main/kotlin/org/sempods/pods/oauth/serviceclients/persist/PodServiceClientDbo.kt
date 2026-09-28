@@ -66,8 +66,8 @@ internal data class PodServiceClientDbo(
   val grantsChangedBy: String? = null,
 
   /**
-   * The redirect URIs the service registered; empty where it registered none. Stored, not yet read:
-   * the grant consent returns to the public client that opened it, not to these.
+   * The redirect URIs the service registered; empty where it registered none. The service consent
+   * returns only to one of these (`PodServiceConsentFlow`).
    */
   val redirectUris: List<String> = emptyList(),
 
@@ -75,7 +75,7 @@ internal data class PodServiceClientDbo(
    * Until when a self-registered service waits for the owner's consent; `null` once activated, and
    * on every operator-provisioned row. A TTL index removes the row after it, and every read treats
    * a passed deadline as absent, because the TTL monitor lags. Activation removes it in the same
-   * update that writes the grants (`PodServiceClientDao.addScopes`, `replaceScopes`).
+   * update that writes the grants (`PodServiceClientDao.replaceScopes`).
    */
   val pendingUntil: Instant? = null,
 )

@@ -1,0 +1,163 @@
+package org.sempods.client
+
+import okhttp3.Call
+import okhttp3.Request
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.TimeUnit
+
+/**
+ * Waits until a service reaches the contexts it needs, after it sent the owner to its consent
+ * ([SempodsPodServiceClients.consentUrl]).
+ *
+ * The consent delivers nothing back, so this asks what the service reaches, the way it would use
+ * that access: a `client_credentials` token ([SempodsPodTokens]), then `GET {pod}/_system/contexts`.
+ * It checks the contexts named, never a particular consent. A token alone proves nothing: a service
+ * that already holds one context gets a token before the owner decides about the next, and the owner
+ * may grant other contexts than the ones asked for.
+ *
+ * ```java
+ * var wait = new SempodsServiceAccessWait(
+ *     new SempodsSession(alice, SempodsRequestAuth.clientSecretBasic(clientId, secret)), client);
+ * SempodsServiceAccessWait.Outcome outcome = wait.await(List.of(notes), Duration.ofMinutes(10));
+ * ```
+ *
+ * | Outcome | Means |
+ * |---|---|
+ * | [Outcome.REACHABLE] | every context named is listed for the service's token |
+ * | [Outcome.TIME_LIMIT] | the time limit ended the wait. The owner cancelled, confirmed other contexts or nothing, or has not decided: the pod does not say which |
+ * | [Outcome.CANCELLED] | [cancel] ended the wait |
+ * | a [SempodsStatusException] with status `401` | `invalid_client`: the registration expired or was removed, or the secret is wrong. Waiting longer changes nothing |
+ *
+ * `400 invalid_scope` from the token endpoint means the service holds no grant yet, pending or
+ * confirmed empty, and the wait goes on. A `429` lengthens the next pause. Every other refusal, and a
+ * failure of the network, ends the wait as its exception.
+ *
+ * **Backoff.** The first check runs at once. Each pause after it doubles, from [initialDelay] to at
+ * most [maxDelay], with jitter, and none reaches past the time limit.
+ *
+ * **Cancellation.** [cancel] may be called from any thread: it ends a pause at once and cancels the
+ * request in flight. An interrupt of the waiting thread ends the wait as an [InterruptedIOException].
+ *
+ * @param session the pod and the service's credential, usually [SempodsRequestAuth.clientSecretBasic].
+ * @param calls the client the checks go through.
+ */
+class SempodsServiceAccessWait @JvmOverloads constructor(
+  val session: SempodsSession,
+  val calls: Call.Factory,
+  val initialDelay: Duration = Duration.ofSeconds(1),
+  val maxDelay: Duration = Duration.ofSeconds(30),
+) {
+
+  /** How a wait ended when it did not throw. */
+  enum class Outcome { REACHABLE, TIME_LIMIT, CANCELLED }
+
+  private val cancelled = CountDownLatch(1)
+
+  @Volatile
+  private var inFlight: Call? = null
+
+  /** Every call goes through here, so [cancel] reaches the one in flight. */
+  private val tracked = Call.Factory { request ->
+    calls.newCall(request).also { call ->
+      inFlight = call
+      if (isCancelled) call.cancel()
+    }
+  }
+
+  private val tokens = SempodsPodTokens(session, tracked)
+
+  private val exchange = Exchange(tracked)
+
+  private val isCancelled: Boolean get() = cancelled.count == 0L
+
+  init {
+    require(!initialDelay.isNegative && !initialDelay.isZero) { "initialDelay must be positive." }
+    require(maxDelay >= initialDelay) { "maxDelay must not be shorter than initialDelay." }
+  }
+
+  /**
+   * Blocks until the service's token reaches every context in [contexts], [timeLimit] passes, or
+   * [cancel] is called.
+   *
+   * @param contexts context IRIs, as `GET /contexts` lists them.
+   */
+  @Throws(IOException::class)
+  fun await(contexts: Collection<String>, timeLimit: Duration): Outcome {
+    val needed = contexts.toSet()
+    val deadline = System.nanoTime() + timeLimit.toNanos()
+    var pause = initialDelay
+    var token: String? = null
+    while (true) {
+      if (isCancelled) return Outcome.CANCELLED
+      try {
+        token = token ?: mint()
+        if (token != null) {
+          val reached = reachable(token)
+          if (reached == null) {
+            token = null
+          } else if (reached.containsAll(needed)) {
+            return Outcome.REACHABLE
+          }
+        }
+      } catch (e: SempodsStatusException) {
+        if (e.status != 429) throw e
+        pause = maxOf(pause, maxDelay.dividedBy(2))
+      } catch (e: IOException) {
+        if (isCancelled) return Outcome.CANCELLED
+        throw e
+      }
+
+      val remaining = deadline - System.nanoTime()
+      if (remaining <= 0) return Outcome.TIME_LIMIT
+      val jittered = pause.toNanos() / 2 + ThreadLocalRandom.current().nextLong(pause.toNanos() / 2 + 1)
+      val woken = try {
+        cancelled.await(minOf(jittered, remaining), TimeUnit.NANOSECONDS)
+      } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        throw InterruptedIOException("interrupted while waiting for access").apply { initCause(e) }
+      }
+      if (woken) return Outcome.CANCELLED
+      pause = minOf(pause.multipliedBy(2), maxDelay)
+    }
+  }
+
+  /** Ends a running or later [await] with [Outcome.CANCELLED]. Safe from any thread. */
+  fun cancel() {
+    cancelled.countDown()
+    inFlight?.cancel()
+  }
+
+  /** A token, or `null` while the service holds no grant (`invalid_scope`). */
+  private fun mint(): String? = try {
+    tokens.clientCredentials().body?.accessToken
+  } catch (e: SempodsStatusException) {
+    if (e.status == 400 && errorOf(e) == "invalid_scope") null else throw e
+  }
+
+  /** The context IRIs [token] reaches, or `null` where the pod no longer accepts the token. */
+  private fun reachable(token: String): Set<String>? {
+    val listing = SempodsSession(session.podBase, SempodsRequestAuth.bearer(token))
+    val request: Request = listing.newRequest("GET", CONTEXTS).header("Accept", "application/json").build()
+    val answer = exchange.run(request, CONTEXT_ANSWERS, CONTEXT_IRIS)
+    return if (answer.status == 401) null else answer.body.orEmpty()
+  }
+
+  private fun errorOf(e: SempodsStatusException): String? =
+    runCatching { decodeObject(e.bodyExcerpt.toByteArray()).stringOrNull("error") }.getOrNull()
+
+  private companion object {
+
+    const val CONTEXTS = "_system/contexts"
+
+    /** A token that expired or was withdrawn while the wait ran is minted again. */
+    val CONTEXT_ANSWERS = (200..299).toSet() + 401
+
+    val CONTEXT_IRIS = BodyReading<Set<String>> { bytes, _ ->
+      decodeObject(bytes).objects("contexts").mapTo(LinkedHashSet()) { it.string("context_iri") }
+    }
+  }
+}

@@ -20,13 +20,11 @@ import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
-import java.net.URI
 import java.util.UUID
 
 /**
@@ -55,7 +53,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val signIn: PodSignIn,
   private val podScopeValidator: PodScopeValidator,
   private val appHoldings: PodAppHoldings,
-  private val permissionResolver: PodContextPermissionResolver,
+  private val consentSelection: ConsentSelection,
 ) {
 
   internal fun authorize(
@@ -576,7 +574,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     isOwner: Boolean,
     privilegedFeatures: List<String> = emptyList(),
   ): PodAuthorizeResult {
-    val contexts = consentContexts(pod, userGrants, existingGrants)
+    val contexts = consentSelection.rows(pod, userGrants, existingGrants)
     // What the page offers and what the submission accepts, decided once: the template renders from
     // this, and the transaction records it.
     val binding = ConsentTransactionStore.Binding(
@@ -660,51 +658,6 @@ class PodAuthorizeFlow @Inject internal constructor(
         lifetimeAvailable = privilegedFeatures.isEmpty(),
       ),
     )
-  }
-
-  /**
-   * The contexts the dialog lists, one row of read/write/manage per context the person can reach.
-   *
-   * Pre-ticked from the grants a previous authorization of this app left. No app-suggested scopes —
-   * the person always decides their own data topology.
-   *
-   * A row below a context this app holds `#manage` on names that root in
-   * [PodConsentContext.managedVia]. Its own boxes stay the explicit grants they are: the app reaches
-   * the row through the root either way, and unticking the root takes that away.
-   */
-  private fun consentContexts(
-    pod: HostedPod,
-    userGrants: Set<String>,
-    existingGrants: Set<String>,
-  ): List<PodConsentContext> {
-    // Group user scopes by context URI
-    val contextUris = userGrants
-      .mapNotNull { scope ->
-        val hashIndex = scope.lastIndexOf('#')
-        if (hashIndex > 0) scope.substring(0, hashIndex) else null
-      }
-      .distinct()
-      .sorted()
-
-    // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
-    fun relativePathOf(path: String): String = path.substringAfter('/', path)
-    fun pathOf(uri: String): String = URI(uri).path?.trimStart('/') ?: uri
-    val manageRoots = permissionResolver.manageRoots(existingGrants, pod.baseUrl)
-
-    return contextUris.map { uri ->
-      val path = pathOf(uri)
-      PodConsentContext(
-        uri = uri,
-        relativePath = relativePathOf(path),
-        label = path.trimEnd('/').substringAfterLast('/'),
-        readGranted = existingGrants.contains("$uri#read"),
-        writeGranted = existingGrants.contains("$uri#write"),
-        manageGranted = existingGrants.contains("$uri#manage"),
-        // The nearest root, where several nest: it is the one a person unticks to take this row.
-        managedVia = permissionResolver.manageRootAbove(manageRoots, uri)
-          ?.let { relativePathOf(pathOf(it)) },
-      )
-    }
   }
 
   /** This route's answer to whatever minting a code said. */

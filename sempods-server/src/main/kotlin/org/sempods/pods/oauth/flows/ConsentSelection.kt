@@ -11,12 +11,13 @@ import org.sempods.pods.contexts.ContextUriResolution
 import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.GrantReplacement
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
+import org.sempods.pods.grants.PodContextPermissionResolver
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.ScopePermission
 import java.net.URI
 
 /**
- * What a consent dialog's grant selection is worth, for any recipient: which rows were ticked, which
+ * A consent dialog's grant selection, for any recipient: the rows it offers, which were ticked, which
  * contexts to create, and the replace that makes the selection the recipient's grants.
  *
  * **A submission the dialog could not have produced is refused whole, before anything is written.**
@@ -30,7 +31,48 @@ import java.net.URI
 internal class ConsentSelection @Inject constructor(
   private val podFacade: PodFacade,
   private val podGrantsFacade: PodGrantsFacade,
+  private val permissionResolver: PodContextPermissionResolver,
 ) {
+
+  /**
+   * The rows a dialog lists: read, write and manage for every context [userGrants] reaches.
+   *
+   * Pre-ticked from [existingGrants], what the recipient holds now. Never from a request: the person
+   * always decides their own data topology.
+   *
+   * A row below a context the recipient holds `#manage` on names that root in
+   * [PodConsentContext.managedVia]. Its own boxes stay the explicit grants they are: the recipient
+   * reaches the row through the root either way, and unticking the root takes that away.
+   */
+  fun rows(pod: HostedPod, userGrants: Set<String>, existingGrants: Set<String>): List<PodConsentContext> {
+    val contextUris = userGrants
+      .mapNotNull { scope ->
+        val hashIndex = scope.lastIndexOf('#')
+        if (hashIndex > 0) scope.substring(0, hashIndex) else null
+      }
+      .distinct()
+      .sorted()
+
+    // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
+    fun relativePathOf(path: String): String = path.substringAfter('/', path)
+    fun pathOf(uri: String): String = URI(uri).path?.trimStart('/') ?: uri
+    val manageRoots = permissionResolver.manageRoots(existingGrants, pod.baseUrl)
+
+    return contextUris.map { uri ->
+      val path = pathOf(uri)
+      PodConsentContext(
+        uri = uri,
+        relativePath = relativePathOf(path),
+        label = path.trimEnd('/').substringAfterLast('/'),
+        readGranted = existingGrants.contains("$uri#read"),
+        writeGranted = existingGrants.contains("$uri#write"),
+        manageGranted = existingGrants.contains("$uri#manage"),
+        // The nearest root, where several nest: it is the one a person unticks to take this row.
+        managedVia = permissionResolver.manageRootAbove(manageRoots, uri)
+          ?.let { relativePathOf(pathOf(it)) },
+      )
+    }
+  }
 
   /**
    * What the dialog put to the person.

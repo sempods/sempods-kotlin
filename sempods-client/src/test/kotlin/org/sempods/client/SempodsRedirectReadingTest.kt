@@ -70,40 +70,4 @@ class SempodsRedirectReadingTest {
   fun `an authorization redirect that is not this caller's single answer from this pod is refused`(query: String) {
     assertThrows<SempodsClientException> { authorization.readRedirect(query, "s1") }
   }
-
-  @Test
-  fun `a granted consent carries the scopes the owner granted`() {
-    val outcome = SempodsGrantOutcome.readQuery("result=granted&scope=urn%3Aa%23read%20urn%3Ab%23write&state=g1", "g1")
-
-    assertTrue(outcome.isGranted)
-    assertEquals(setOf("urn:a#read", "urn:b#write"), outcome.scopes)
-    assertNull(outcome.error)
-  }
-
-  @Test
-  fun `a refused consent is an outcome, not a failure`() {
-    val outcome = SempodsGrantOutcome.readQuery("error=access_denied&state=g1", "g1")
-
-    assertFalse(outcome.isGranted)
-    assertTrue(outcome.scopes.isEmpty())
-    assertEquals("access_denied", outcome.error)
-  }
-
-  @Test
-  fun `the granted scopes cannot be changed by the caller`() {
-    val outcome = SempodsGrantOutcome.readQuery("result=granted&scope=urn%3Aa%23read&state=g1", "g1")
-
-    assertThrows<UnsupportedOperationException> { (outcome.scopes as MutableSet<String>).clear() }
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-    strings = [
-      "result=granted&scope=a&state=other", "result=granted&scope=a", "state=g1", "result=maybe&state=g1",
-      "result=granted&error=x&state=g1", "result=granted&state=g1", "result=granted&scope=&state=g1",
-    ],
-  )
-  fun `a grant redirect that is not this caller's single answer is refused`(query: String) {
-    assertThrows<SempodsClientException> { SempodsGrantOutcome.readQuery(query, "g1") }
-  }
 }

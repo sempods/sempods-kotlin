@@ -8,7 +8,7 @@ import org.sempods.auth.core.Secrets
 import org.sempods.pods.HostedPod
 
 /**
- * Parks a browser request behind a sign-in at the id-server: `/authorize` and the grant consent.
+ * Parks a browser request behind a sign-in at the id-server: `/authorize` and the service consent.
  *
  * The request stays here under a `state` this server minted, and the identity comes back over a
  * back channel with a verifier that never left this process. `state` is a bearer, so a browser pin

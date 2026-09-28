@@ -38,12 +38,15 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `grants are added to the registration named, and removing the last one keeps it`() {
+  fun `grants are replaced on the registration named, and removing the last one keeps it`() {
     val pod = sempodsTestFactory.newPod()
     val notes = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/notes"
     val installed = store.registerProvisional(pod.hosted, "notes", emptyList()).registration
 
-    assertTrue(store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("$notes#read", "$notes#write"), changedBy = OWNER))
+    assertEquals(
+      PodServiceClientStore.ScopeReplacement.Replaced,
+      store.replaceScopes(pod.hosted, installed.clientId, installed.id, 0L, setOf("$notes#read", "$notes#write"), changedBy = OWNER),
+    )
     assertEquals(setOf("$notes#read", "$notes#write"), store.find(pod.hosted.id, installed.clientId)?.scopes)
 
     val remaining = store.removeScopes(pod.hosted.id, installed.clientId, setOf("$notes#read", "$notes#write"), changedBy = OWNER)
@@ -60,7 +63,10 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     store.remove(pod.hosted.id, "reused", original.id)
     store.register(pod.hosted, "reused", emptySet())
 
-    assertFalse(store.addScopes(pod.hosted, "reused", original.id, setOf("$notes#read"), changedBy = OWNER))
+    assertEquals(
+      PodServiceClientStore.ScopeReplacement.NotFound,
+      store.replaceScopes(pod.hosted, "reused", original.id, 0L, setOf("$notes#read"), changedBy = OWNER),
+    )
     assertEquals(emptySet(), store.find(pod.hosted.id, "reused")?.scopes)
   }
 
@@ -70,7 +76,7 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     val installed = store.registerProvisional(pod.hosted, "notes", emptyList()).registration
 
     assertThrows<IllegalArgumentException> {
-      store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("public-read"), changedBy = OWNER)
+      store.replaceScopes(pod.hosted, installed.clientId, installed.id, 0L, setOf("public-read"), changedBy = OWNER)
     }
     assertEquals(emptySet(), store.find(pod.hosted.id, installed.clientId)?.scopes)
   }
