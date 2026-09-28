@@ -709,7 +709,13 @@ It follows the installation's rules above, with two differences:
   revokes.
 - **One privileged scope per authorization.** Asking for both is `invalid_scope`.
 
-It grants nothing. The operations are
+It adds no grant, and its own token reaches no context. It reaches data through a rotation: the
+caller receives the new secret and mints Client Credentials tokens as that service, which reach
+every context the service is granted. The secret does not expire, so this outlasts the hour.
+Rotate an installed service holding `apps/notes#write`, and the caller still writes `apps/notes`
+the next day.
+
+The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
 
 ## Managing contexts

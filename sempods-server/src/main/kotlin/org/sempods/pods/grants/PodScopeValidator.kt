@@ -37,7 +37,8 @@ const val SERVICE_CLIENTS_INSTALL_SCOPE = "service-clients:install"
 
 /**
  * OAuth scope literal by which a program asks to list, rotate, narrow and revoke the service
- * clients already on this pod. It grants nothing and reaches no data.
+ * clients already on this pod. What that reaches is `docs/auth/oauth.md` §"Managing service
+ * clients".
  *
  * Apart from [SERVICE_CLIENTS_INSTALL_SCOPE]: an installer approved for one service must not rotate the
  * secret of another that holds `#manage` and inherit its access. The second of
