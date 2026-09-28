@@ -180,6 +180,9 @@ carries no request. The submission then reads the request from the form
 that node rendered and checks no rows, for the token's fifteen minutes.
 This holds for the rest of 0.2.x and is removed in the next minor
 release ([#341](https://github.com/sempods/sempods-kotlin/issues/341)).
+The other direction is not covered: a page from a new node carries no
+request fields, so an older node refuses its submission with `400`, and
+the person starts the authorization again.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
 What it carries is the values the discovery documents advertise:
