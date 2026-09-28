@@ -170,12 +170,19 @@ class PodAuthorizeFlow @Inject internal constructor(
     // accumulates.
     val requestedScopes = OAuthSyntax.parseScope(request.scope)
 
+    // ── A retired scope is refused by name ────────────────────────────────
+    requestedScopes.intersect(PodScopeValidator.retiredScopes).firstOrNull()?.let { retired ->
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+        "'$retired' is no longer granted by this pod", clientState,
+      )
+    }
+
     // ── A privileged feature scope stands alone ───────────────────────────
-    // An authorization that arranges a service client never holds that service's rights: the
-    // grants come from a second consent, rendered for the identity once it exists. A request for
-    // both is a request for an installer that could write to the owner's data itself. Refused
-    // rather than trimmed — a trim hands back a narrower token than was asked for and gives the
-    // client nothing to notice it by.
+    // An authorization that administers service clients or contexts never holds data rights of its
+    // own: a request for both is a request for an administrator that could write to the owner's
+    // data itself. Refused rather than trimmed — a trim hands back a narrower token than was asked
+    // for and gives the client nothing to notice it by.
     val privilegedRequested = requestedScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     if (privilegedRequested.isNotEmpty()) {
       val asked = privilegedRequested.sorted().joinToString(" ")
@@ -188,8 +195,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           "'$asked' cannot be combined with $PUBLIC_READ_SCOPE or a context scope", clientState,
         )
       }
-      // One per authorization: a bearer holding both would be an installer that reaches every
-      // service's secret.
+      // One per authorization: a bearer holding both would administer the registry and every
+      // service's secret at once.
       if (privilegedRequested.size > 1) {
         return failed(
           redirectTarget, OAuthErrorCode.INVALID_SCOPE, "'$asked' are granted one at a time", clientState,
@@ -329,10 +336,10 @@ class PodAuthorizeFlow @Inject internal constructor(
           "existingGrants=${existingGrants.size}"
     }
 
-    // ── An installation is always asked for ──────────────────────────────
-    // Ahead of auto-grant, which is the branch that would otherwise answer a second installation
-    // out of a standing consent. It never reaches it: the dialog is what a one-shot authority is
-    // granted in, every time.
+    // ── A privileged authority is always asked for ───────────────────────
+    // Ahead of auto-grant, which is the branch that would otherwise answer a second request out of
+    // a standing consent. It never reaches it: the dialog is what such an authority is granted in,
+    // every time.
     if (privilegedRequested.isNotEmpty()) {
       val asked = privilegedRequested.sorted().joinToString(" ")
       if (!isOwner) {
@@ -356,7 +363,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         state = clientState,
         codeChallenge = trimmedCodeChallenge,
         codeChallengeMethod = trimmedCodeChallengeMethod,
-        // The dialog shows the installation and nothing else. There is no data selection to make:
+        // The dialog shows the authority and nothing else. There is no data selection to make:
         // a request that carried one was refused above.
         publicContexts = emptyList(),
         publicReadPreselected = false,
@@ -404,7 +411,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       }
       val effectiveContextGrants = existingGrants.intersect(backing)
       // The feature scopes a row may still hand back without asking anyone. Privileged ones never
-      // can: an installation authority is granted at a dialog, every time, and a stored grant that
+      // can: a privileged authority is granted at a dialog, every time, and a stored grant that
       // named one would let an ordinary reconnect hand it back in silence. `public-read` keeps its
       // own condition — it means nothing on a pod with no public context.
       val effectiveFeatureScopes = existingGrants
@@ -543,14 +550,14 @@ class PodAuthorizeFlow @Inject internal constructor(
    * What the consent dialog shows. Reached by the ordinary authorize path (per-context scope
    * checkboxes plus an optional public-read toggle), by the public-read path
    * (`scope=public-read&prompt=consent`, where [publicReadPreselected] is true), and by the
-   * installation path ([privilegedFeatures] non-empty).
+   * privileged path ([privilegedFeatures] non-empty).
    *
    * For the public-read path, [userGrants] / [existingGrants] are not relevant and are empty — the
    * template only shows the public-read section.
    *
    * @param privilegedFeatures the privileged feature scopes this request asked for. A dialog that
-   *   carries one carries nothing else: no lifetime control, because a one-shot authority must not
-   *   be turned into a renewable one by an ordinary tick, and no way out, because ending an
+   *   carries one carries nothing else: no lifetime control, because an hour-long authority must
+   *   not be turned into a renewable one by an ordinary tick, and no way out, because ending an
    *   authorization this screen is not about is not one click's worth of decision.
    */
   private fun consentScreen(

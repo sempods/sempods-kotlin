@@ -224,7 +224,7 @@
 
 <th:block th:fragment="creation">
   <!-- New context creation (owner only, and only where this dialog is about contexts at all:
-       an installation screen refuses a context it was posted, so offering to build one would be
+       a privileged screen refuses a context it was posted, so offering to build one would be
        inviting work that cannot land). -->
   <div class="new-context-section" th:if="${contextCreationAvailable}">
     <h2>Create Context</h2>

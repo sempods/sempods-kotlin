@@ -63,7 +63,7 @@ class SempodsPodTokens(
   /**
    * Redeems [code] for the token response, under the same answers and decoding as [clientCredentials].
    *
-   * A pod mints no refresh token for an installation or a management authority, and this response
+   * A pod mints no refresh token for a management authority, and this response
    * reads none: [SempodsTokenResponse.expiresIn] is how long the token lasts, and a new one takes a new
    * authorization. A code that was already redeemed, has expired, or does not match [codeVerifier] or
    * [redirectUri] is `400 invalid_grant`.

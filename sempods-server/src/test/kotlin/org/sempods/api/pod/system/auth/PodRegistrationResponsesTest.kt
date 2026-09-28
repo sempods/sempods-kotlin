@@ -5,7 +5,6 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.pods.oauth.flows.PodClientMetadata
 import org.sempods.pods.oauth.flows.PodRegistrationError
-import org.sempods.pods.oauth.flows.PodRegistrationRefusal
 import org.sempods.pods.oauth.flows.PodRegistrationResult
 import java.time.Instant
 import kotlin.test.Test
@@ -56,17 +55,20 @@ class PodRegistrationResponsesTest {
   }
 
   @Test
-  fun `a service client is described with its secret, and a secret that does not expire`() {
+  fun `a service client is described with its secret, a secret that does not expire, and its activation deadline`() {
     // RFC 7591 §3.2.1 makes `client_secret_expires_at` required whenever a secret is returned, and
-    // `0` is its spelling for one that never expires. `client_id_issued_at` beside it is what the
-    // caller opens the grant consent with.
+    // `0` is its spelling for one that never expires. The registration itself does expire unless
+    // the owner activates it, which is the sempods member beside it.
     val issuedAt = Instant.parse("2026-09-23T10:15:30Z")
+    val deadline = issuedAt.plusSeconds(86_400)
     val response = render(
       PodRegistrationResult.ServiceRegistered(
         clientId = "svc:opaque",
         clientName = "Notes Sync",
         issuedAt = issuedAt,
         secret = "sc_the-secret",
+        redirectUris = listOf("http://127.0.0.1/cb"),
+        activationExpiresAt = deadline,
       ),
     )
 
@@ -79,7 +81,25 @@ class PodRegistrationResponsesTest {
     assertEquals("Notes Sync", body["client_name"])
     assertEquals("client_secret_basic", body["token_endpoint_auth_method"])
     assertEquals(listOf("client_credentials"), body["grant_types"])
+    assertEquals(listOf("http://127.0.0.1/cb"), body["redirect_uris"])
+    assertEquals(deadline.epochSecond.toInt(), body["activation_expires_at"])
     assertEquals("no-store", response.getHeaderString("Cache-Control"))
+  }
+
+  @Test
+  fun `a service registered without a redirect answers none`() {
+    val response = render(
+      PodRegistrationResult.ServiceRegistered(
+        clientId = "svc:opaque",
+        clientName = "Headless",
+        issuedAt = Instant.parse("2026-09-23T10:15:30Z"),
+        secret = "sc_the-secret",
+        redirectUris = emptyList(),
+        activationExpiresAt = Instant.parse("2026-09-24T10:15:30Z"),
+      ),
+    )
+
+    assertFalse("redirect_uris" in json(response))
   }
 
   @Test
@@ -105,26 +125,6 @@ class PodRegistrationResponsesTest {
     )
 
     assertEquals("redirect_uri must be https: ftp://ab", json(response)["error_description"])
-  }
-
-  @Test
-  fun `a refusal about the caller's own bearer is the pod's own challenge`() {
-    // RFC 6750 §3 puts the error in `WWW-Authenticate`, and it is built by the caller so that
-    // every 401 and 403 on this pod carries one shape. A spent installation authority is a 401,
-    // because the way out is a new authorization; a bearer that does not cover this is a 403,
-    // because there is nothing to go and get.
-    val spent = render(
-      PodRegistrationResult.Unauthorized(PodRegistrationRefusal.AUTHORITY_SPENT, "already registered"),
-    )
-    assertEquals(401, spent.status)
-    assertEquals("challenge-for=invalid_token", spent.getHeaderString("WWW-Authenticate"))
-    assertEquals("already registered", spent.entity, "and the sentence a challenge has no room for")
-
-    val unscoped = render(
-      PodRegistrationResult.Unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "not the owner"),
-    )
-    assertEquals(403, unscoped.status)
-    assertEquals("challenge-for=insufficient_scope", unscoped.getHeaderString("WWW-Authenticate"))
   }
 
   @Test
@@ -167,9 +167,7 @@ class PodRegistrationResponsesTest {
     return json(response)
   }
 
-  /** The challenge is the endpoint's to build; here it only has to be recognisable. */
-  private fun render(result: PodRegistrationResult): Response =
-    PodRegistrationResponses.render(result) { error -> "challenge-for=$error" }
+  private fun render(result: PodRegistrationResult): Response = PodRegistrationResponses.render(result)
 
   private fun json(response: Response): Map<String, Any?> =
     JsonMappers.default().readValue(response.entity as String, JsonUtil.dynamicTypeRef)

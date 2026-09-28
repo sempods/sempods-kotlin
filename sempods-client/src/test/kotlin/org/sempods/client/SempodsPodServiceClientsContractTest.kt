@@ -30,6 +30,9 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
 
   private fun serviceClients() = SempodsPodServiceClients(SempodsSession(alice, SempodsRequestAuth.bearer("tok-1")), client)
 
+  /** What a service registering itself uses: a session without a credential. */
+  private fun registering() = SempodsPodServiceClients(SempodsSession(alice), client)
+
   private fun answer(path: String, status: Int, body: String, vararg headers: Pair<String, String>) {
     val response = response().withStatusCode(status).withBody(body)
     headers.forEach { (name, value) -> response.withHeader(name, value) }
@@ -38,27 +41,30 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
 
   private val registration =
     """{"client_id":"svc:1","client_secret":"sc_secret","client_id_issued_at":1700000000,"client_secret_expires_at":0,""" +
-      """"client_name":"Notes Sync","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic"}"""
+      """"client_name":"Notes Sync","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic",""" +
+      """"activation_expires_at":1700086400}"""
 
   private val described =
     """{"client_id":"svc:1","client_name":"Notes Sync","client_id_issued_at":1700000000,"last_used_at":1700000600,""" +
       """"scope":"urn:a#read urn:b#write","origin":"installed"}"""
 
   @Test
-  fun `an installation registers the confidential shape with the installer's bearer, and reads the secret once`() {
+  fun `a service registers the confidential shape without a credential, and reads the secret and the deadline once`() {
     answer("/alice/_system/auth/register", 201, registration, "Cache-Control" to "no-store")
 
-    val registered = checkNotNull(serviceClients().register("Notes Sync").body)
+    val registered = checkNotNull(registering().register("Notes Sync").body)
 
     assertEquals("svc:1", registered.clientId)
     assertEquals("sc_secret", registered.clientSecret)
     assertEquals("Notes Sync", registered.clientName)
     assertEquals(Instant.ofEpochSecond(1700000000), registered.issuedAt)
     assertNull(registered.secretExpiresAt, "client_secret_expires_at 0 is a secret that does not expire")
+    assertEquals(Instant.ofEpochSecond(1700086400), registered.activationExpiresAt)
+    assertEquals(emptyList(), registered.redirectUris)
     assertFalse(registered.toString().contains("sc_secret"), registered.toString())
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals("POST", sent.method.value)
-    assertEquals("Bearer tok-1", sent.getFirstHeader("Authorization"))
+    assertNull(sent.getFirstHeader("Authorization").ifEmpty { null }, "a registration needs no credential")
     assertEquals(
       json.readTree("""{"client_name":"Notes Sync","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic"}"""),
       json.readTree(String(sent.body.rawBytes, Charsets.UTF_8)),
@@ -93,13 +99,27 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a spent installer token is the pod's challenge, kept on the failure`() {
-    answer("/alice/_system/auth/register", 401, "this authorization no longer stands", "WWW-Authenticate" to """Bearer error="invalid_token"""")
+  fun `a service registered with a redirect sends it without a response type, and reads it back`() {
+    answer(
+      "/alice/_system/auth/register", 201,
+      registration.replace(""""client_name"""", """"redirect_uris":["http://127.0.0.1/cb"],"client_name""""),
+    )
 
-    val failure = assertThrows<SempodsStatusException> { serviceClients().register("Notes Sync") }
+    val registered = checkNotNull(registering().register("Notes Sync", listOf("http://127.0.0.1/cb")).body)
 
-    assertEquals(401, failure.status)
-    assertEquals("""Bearer error="invalid_token"""", failure.headers["WWW-Authenticate"])
+    assertEquals(listOf("http://127.0.0.1/cb"), registered.redirectUris)
+    val sent = json.readTree(String(server.retrieveRecordedRequests(request()).single().body.rawBytes, Charsets.UTF_8))
+    assertEquals(json.readTree("""["http://127.0.0.1/cb"]"""), sent.get("redirect_uris"))
+    assertNull(sent.get("response_types"), "a client authenticating with a secret has no browser flow")
+  }
+
+  @Test
+  fun `a refused registration is the pod's error, kept on the failure`() {
+    answer("/alice/_system/auth/register", 400, """{"error":"invalid_redirect_uri"}""")
+
+    val failure = assertThrows<SempodsStatusException> { registering().register("Notes Sync", listOf("http://app.example/cb")) }
+
+    assertEquals(400, failure.status)
   }
 
   @Test

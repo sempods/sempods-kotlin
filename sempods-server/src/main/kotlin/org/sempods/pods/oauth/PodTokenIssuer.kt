@@ -84,8 +84,8 @@ class PodTokenIssuer(
   /**
    * The same, for a caller that has something to record against the token it just handed out.
    *
-   * `PodInstallationAuthorityStore` is that caller: an installation authority is one row per
-   * issued installer token, and the `jti` is what names it. Reading the claim back off the
+   * `PodManagementAuthorityStore` is that caller: a privileged authority is one row per issued
+   * privileged token, and the `jti` is what names it. Reading the claim back off the
    * serialized token would put a JWT library in the layer that decides — see
    * `PodOAuthFlowsBoundaryTest`.
    */

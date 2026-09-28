@@ -53,7 +53,7 @@ class SempodsPodAddressTest : MockPodTest() {
   fun `a browser is sent to the name`() {
     sempodsClient().closing { client ->
       val url = SempodsPodAuthorization(acme(), client)
-        .authorizationUrl("dyn:abc", "http://127.0.0.1:4711/cb", "service-clients:install", "s1", SempodsPkce.generate())
+        .authorizationUrl("dyn:abc", "http://127.0.0.1:4711/cb", "service-clients:manage", "s1", SempodsPkce.generate())
       assertEquals("$name/_system/auth/authorize", url.newBuilder().query(null).build().toString())
     }
   }

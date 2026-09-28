@@ -2,7 +2,7 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import org.sempods.commons.tests.TestUtil.randomId
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
@@ -28,23 +28,23 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   private lateinit var serviceClients: PodServiceClientStore
 
   @Test
-  fun `an installer bearer reaches no existing registration`() {
+  fun `a contexts-management bearer reaches no existing registration`() {
     val owned = Owned()
-    val existing = serviceClients.registerInstallation(owned.pod, "backup").registration
+    val existing = serviceClients.registerProvisional(owned.pod, "backup", emptyList()).registration
 
-    val installer = SempodsCredentials(
+    val contextsManager = SempodsCredentials(
       pod = owned.pod.ref,
       restrictedContexts = emptySet(),
       oauthClientId = clientId,
-      oauthScopes = setOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+      oauthScopes = setOf(CONTEXTS_MANAGE_SCOPE),
       tokenJti = randomId(),
       tokenSub = owned.webId,
     )
 
     for (result in listOf(
-      management.list(owned.pod, installer),
-      management.rotate(owned.pod, installer, existing.clientId),
-      management.revoke(owned.pod, installer, existing.clientId),
+      management.list(owned.pod, contextsManager),
+      management.rotate(owned.pod, contextsManager, existing.clientId),
+      management.revoke(owned.pod, contextsManager, existing.clientId),
     )) {
       assertEquals(PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.SCOPE_REQUIRED), result)
     }
@@ -85,7 +85,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `removing a grant narrows and never needs the consent`() {
     val owned = Owned()
-    val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope), changedBy = owned.webId)
 
     val result = management.removeGrants(owned.pod, manager(owned), installed.clientId, setOf(owned.readScope))
@@ -98,7 +98,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `a grant consent opened and answered grants what was ticked, once`() {
     val owned = Owned()
-    val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
 
     val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, installed.clientId, owned.readScope)).screen
     assertEquals("notes", screen.serviceLabel)
@@ -118,7 +118,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `an approval stops counting once the pod changes hands`() {
     val owned = Owned()
-    val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, installed.clientId, owned.readScope)).screen
 
     // The session's person, no longer the owner: the grant is measured against now.

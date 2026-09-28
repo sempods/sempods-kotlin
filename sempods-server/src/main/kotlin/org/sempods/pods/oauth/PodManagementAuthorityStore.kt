@@ -19,8 +19,6 @@ class PodManagementAuthorityStore @Inject internal constructor(
   db = db,
   collectionName = SempodsCollections.OAUTH_MANAGEMENT_AUTHORITIES,
   consentDecisions = consentDecisions,
-  // This store has no rows from before the count existed, so one without it is refused.
-  uncountedStands = false,
 ) {
 
   /** The authority behind [jti] if it still stands on [pod]; otherwise `null`, for every reason alike. */

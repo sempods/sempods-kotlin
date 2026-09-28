@@ -31,16 +31,14 @@ import java.net.URISyntaxException
  *
  * ```java
  * var authorization = new SempodsPodAuthorization(new SempodsSession(alice), client);
- * String clientId = authorization.registerClient("Notes installer", List.of(redirectUri)).getBody().getClientId();
+ * String clientId = authorization.registerClient("Notes", List.of(redirectUri)).getBody().getClientId();
  * SempodsPkce pkce = SempodsPkce.generate();
- * HttpUrl consent = authorization.authorizationUrl(clientId, redirectUri, "service-clients:install", state, pkce);
+ * HttpUrl consent = authorization.authorizationUrl(clientId, redirectUri, "public-read", state, pkce);
  * ```
  *
  * **Built on a session of its own**, anonymous as a rule: a public client holds no credential, and
  * nothing here needs one. A redirect to a loopback address is registered once and answers on any port
  * (RFC 8252 §7.3).
- *
- * [SempodsPodServiceClients] has the installation this leads to.
  */
 class SempodsPodAuthorization(
   val session: SempodsSession,

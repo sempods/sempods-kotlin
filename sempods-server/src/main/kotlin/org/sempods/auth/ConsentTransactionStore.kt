@@ -53,7 +53,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   on an ordinary dialog. Held here rather than in a form field because it is the same question
    *   this transaction already answers — *which screen is this* — and the answer decides how an
    *   empty submission is read: ticking nothing on an ordinary dialog ends the app's access, and
-   *   ticking nothing on an installation dialog declines the installation and touches nothing.
+   *   ticking nothing on a privileged dialog declines the authority and touches nothing.
    * @param disconnects how many times this app's access had been ended when the screen was
    *   rendered. The submission compares it with the count standing now: a page from before an
    *   ending would hand back what the person removed, and a page that is merely older than some

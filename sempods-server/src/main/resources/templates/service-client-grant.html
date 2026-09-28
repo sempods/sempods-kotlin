@@ -30,9 +30,9 @@
   </style>
 </head>
 <body>
-<!-- The second consent of an installation. The label is the registering program's own text, so the
-     two facts beside it are the pod's: the identifier it assigned and when. An owner who expected
-     one installation can tell it from a crafted one only by those. -->
+<!-- The consent that gives a registered service its contexts, and activates it. The label is the
+     service's own text, so the two facts beside it are the pod's: the identifier it assigned and
+     when. An owner who expected one service can tell it from a crafted one only by those. -->
 <div class="card">
   <form method="post" th:action="${grantAction}">
     <input type="hidden" name="csrf" th:value="${csrfToken}"/>
@@ -41,18 +41,18 @@
     <div class="header">
       <h1>Give <span th:text="${serviceLabel}">this app</span> access to your pod?</h1>
       <p class="note">
-        Asked by <span th:text="${requesterName}">the installer</span>, signed in as
+        Asked by <span th:text="${requesterName}">the requesting app</span>, signed in as
         <span th:text="${webId}">you</span>.
       </p>
       <dl class="facts">
         <dt>Identifier on this pod</dt>
         <dd id="serviceClientId" th:text="${serviceClientId}">svc:…</dd>
-        <dt>Installed</dt>
+        <dt>Registered</dt>
         <dd id="registeredAt" th:text="${registeredAt}">2026-01-01T00:00:00Z</dd>
       </dl>
       <p class="note">
-        If you did not just install this app, or the identifier and time are not the ones your
-        installer showed you, refuse.
+        If you did not just set up this app, or the identifier and time are not the ones it showed
+        you, refuse.
       </p>
     </div>
 

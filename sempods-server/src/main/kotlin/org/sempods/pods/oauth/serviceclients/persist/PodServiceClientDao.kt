@@ -11,6 +11,7 @@ import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
 import org.sempods.commons.mongo.getInstant
+import org.sempods.commons.mongo.getStringList
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putInstant
 import org.sempods.commons.mongo.putNotNull
@@ -19,6 +20,8 @@ import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import java.time.Instant
+import java.util.Date
+import java.util.concurrent.TimeUnit
 
 /**
  * Persistence for [PodServiceClientDbo]. The hot-path read is
@@ -32,6 +35,10 @@ import java.time.Instant
  *
  * Every write to `scopes` is built by one private helper, which also moves `grantsVersion`
  * ([PodServiceClientDbo.grantsVersion] states the rule).
+ *
+ * **A registration past its [PodServiceClientDbo.pendingUntil] does not exist here.** Every read
+ * and every write except the deletes filters it out, so it cannot authenticate, be granted, be
+ * listed or be revived before the TTL monitor gets to it.
  */
 class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName: String) {
 
@@ -54,6 +61,12 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       Indexes.ascending(PodServiceClientDboFields.podId, PodServiceClientDboFields.clientId),
       IndexOptions().unique(true),
     )
+    // Removes a self-registered service nobody activated. `expireAfterSeconds = 0` makes the stored
+    // deadline the moment itself; rows without the field never expire.
+    serviceClients.createIndex(
+      Indexes.ascending(PodServiceClientDboFields.pendingUntil),
+      IndexOptions().expireAfter(0, TimeUnit.SECONDS),
+    )
   }
 
   /**
@@ -74,10 +87,10 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   }
 
   internal fun findByClientId(podId: ObjectId, clientId: String): PodServiceClientDbo? =
-    serviceClients.find(keyFilter(podId, clientId)).first()?.toDbo()
+    serviceClients.find(liveKeyFilter(podId, clientId)).first()?.toDbo()
 
   internal fun findByPod(podId: ObjectId): List<PodServiceClientDbo> =
-    serviceClients.find(Filters.eq(PodServiceClientDboFields.podId, podId))
+    serviceClients.find(Filters.and(Filters.eq(PodServiceClientDboFields.podId, podId), live()))
       .sort(Sorts.ascending(PodServiceClientDboFields.createdAt))
       .map { it.toDbo() }
       .toList()
@@ -125,10 +138,10 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
 
   /**
    * Makes [scopes] the grants of the registration [expectedId] names, provided they are still at
-   * [expectedVersion]. One `updateOne`, so the grants, the version and who changed them move
-   * together or not at all. `false` where nothing matched; [exists] tells a replaced registration
-   * from a version that moved on. Version `0` also matches the absent field
-   * (`sempods-server/docs/collections.md`).
+   * [expectedVersion], and activates it. One `updateOne`, so the grants, the version, who changed
+   * them and the activation move together or not at all. `false` where nothing matched; [exists]
+   * tells a replaced or expired registration from a version that moved on. Version `0` also matches
+   * the absent field (`sempods-server/docs/collections.md`).
    */
   internal fun replaceScopes(
     podId: ObjectId,
@@ -148,19 +161,20 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       Filters.eq(PodServiceClientDboFields.grantsVersion, expectedVersion)
     }
     return serviceClients.updateOne(
-      Filters.and(registrationFilter(podId, clientId, expectedId), version),
+      Filters.and(liveRegistrationFilter(podId, clientId, expectedId, at), version),
       // `[]` for an empty selection, the spelling every emptying update leaves.
-      grantsUpdate(Updates.set(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
+      activating(grantsUpdate(Updates.set(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at)),
     ).matchedCount > 0L
   }
 
   /** Whether the registration [expectedId] names is still stored under `(podId, clientId)`. */
   internal fun exists(podId: ObjectId, clientId: String, expectedId: ObjectId): Boolean =
-    serviceClients.find(registrationFilter(podId, clientId, expectedId)).limit(1).first() != null
+    serviceClients.find(liveRegistrationFilter(podId, clientId, expectedId)).limit(1).first() != null
 
   /**
-   * Adds [scopes] to the registration [expectedId] names, and answers whether it was still there.
-   * The id keeps an approval off a registration re-created under the same `clientId`.
+   * Adds [scopes] to the registration [expectedId] names and activates it, and answers whether it
+   * was still there. The id keeps an approval off a registration re-created under the same
+   * `clientId`; the deadline keeps it off one that expired.
    */
   internal fun addScopes(
     podId: ObjectId,
@@ -171,8 +185,8 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     at: Instant = Instant.now(),
   ): Boolean =
     serviceClients.updateOne(
-      registrationFilter(podId, clientId, expectedId),
-      grantsUpdate(Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
+      liveRegistrationFilter(podId, clientId, expectedId, at),
+      activating(grantsUpdate(Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at)),
     ).matchedCount > 0L
 
   /** [changedBy] removes [scopes]; answers the row afterwards, or `null` where there is none. */
@@ -184,7 +198,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     at: Instant = Instant.now(),
   ): PodServiceClientDbo? =
     serviceClients.findOneAndUpdate(
-      keyFilter(podId, clientId),
+      liveKeyFilter(podId, clientId),
       grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
       FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER),
     )?.toDbo()
@@ -195,7 +209,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
    */
   internal fun dropScopes(podId: ObjectId, clientId: String, expectedId: ObjectId, scopes: Set<String>): Boolean =
     serviceClients.updateOne(
-      registrationFilter(podId, clientId, expectedId),
+      liveRegistrationFilter(podId, clientId, expectedId),
       grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()), changedBy = null),
     ).matchedCount > 0L
 
@@ -205,7 +219,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
    */
   internal fun replaceSecretHash(podId: ObjectId, clientId: String, expectedHash: String, newHash: String): Boolean =
     serviceClients.updateOne(
-      Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.secretHash, expectedHash)),
+      Filters.and(liveKeyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.secretHash, expectedHash)),
       Updates.set(PodServiceClientDboFields.secretHash, newHash),
     ).modifiedCount > 0L
 
@@ -248,6 +262,22 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     private fun registrationFilter(podId: ObjectId, clientId: String, id: ObjectId): Bson =
       Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.id, id))
 
+    /** A row without a deadline, or with one still ahead of [now]. */
+    private fun live(now: Instant = Instant.now()): Bson = Filters.or(
+      Filters.exists(PodServiceClientDboFields.pendingUntil, false),
+      Filters.gt(PodServiceClientDboFields.pendingUntil, Date.from(now)),
+    )
+
+    private fun liveKeyFilter(podId: ObjectId, clientId: String): Bson =
+      Filters.and(keyFilter(podId, clientId), live())
+
+    private fun liveRegistrationFilter(podId: ObjectId, clientId: String, id: ObjectId, now: Instant = Instant.now()): Bson =
+      Filters.and(registrationFilter(podId, clientId, id), live(now))
+
+    /** [grantsUpdate] that also activates a self-registered service: the owner's consent is what it waited for. */
+    private fun activating(grantsUpdate: Bson): Bson =
+      Updates.combine(grantsUpdate, Updates.unset(PodServiceClientDboFields.pendingUntil))
+
     /**
      * Every write to `scopes` is built here: [change], the next version, and who changed them where
      * a person did. The version is an Int64 from its first write on.
@@ -278,6 +308,8 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       .putNotNull(PodServiceClientDboFields.grantsVersion, grantsVersion.takeIf { it != 0L })
       .putInstant(PodServiceClientDboFields.grantsChangedAt, grantsChangedAt)
       .putNotNull(PodServiceClientDboFields.grantsChangedBy, grantsChangedBy)
+      .putStrings(PodServiceClientDboFields.redirectUris, redirectUris)
+      .putInstant(PodServiceClientDboFields.pendingUntil, pendingUntil)
 
     private fun Document.toDbo(): PodServiceClientDbo = PodServiceClientDbo(
       id = getObjectId(PodServiceClientDboFields.id),
@@ -299,6 +331,8 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       grantsVersion = get(PodServiceClientDboFields.grantsVersion, Number::class.java)?.toLong() ?: 0L,
       grantsChangedAt = getInstant(PodServiceClientDboFields.grantsChangedAt),
       grantsChangedBy = getString(PodServiceClientDboFields.grantsChangedBy),
+      redirectUris = getStringList(PodServiceClientDboFields.redirectUris),
+      pendingUntil = getInstant(PodServiceClientDboFields.pendingUntil),
     )
   }
 }

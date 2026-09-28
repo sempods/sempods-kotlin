@@ -401,7 +401,7 @@ class SempodsConnectionResendTest {
   }
 
   @Test
-  fun `an installation, a secret rotation and a code exchange are not resent`() {
+  fun `a service registration, a secret rotation and a code exchange are not resent`() {
     val operations: List<(SempodsSession, OkHttpClient) -> Unit> = listOf(
       { a, client -> SempodsPodServiceClients(a, client).registerJson("Notes Sync") },
       { a, client -> SempodsPodServiceClients(a, client).rotateSecretJson("svc:1") },
@@ -423,7 +423,7 @@ class SempodsConnectionResendTest {
   @Test
   fun `a public registration, a service-client list and a grant removal are resent`() {
     val operations: List<(SempodsSession, OkHttpClient) -> SempodsResponse<String>> = listOf(
-      { a, client -> SempodsPodAuthorization(a, client).registerClientJson("Installer", listOf("http://127.0.0.1/cb")) },
+      { a, client -> SempodsPodAuthorization(a, client).registerClientJson("Notes", listOf("http://127.0.0.1/cb")) },
       { a, client -> SempodsPodServiceClients(a, client).listJson() },
       { a, client -> SempodsPodServiceClients(a, client).removeGrantsJson("svc:1", listOf("urn:c#read")) },
     )

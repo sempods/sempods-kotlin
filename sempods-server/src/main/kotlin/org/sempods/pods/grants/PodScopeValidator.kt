@@ -22,27 +22,14 @@ const val PUBLIC_READ_SCOPE = "public-read"
 const val OFFLINE_ACCESS_SCOPE = "offline_access"
 
 /**
- * OAuth scope literal by which a program asks to install a service client on this pod. It registers
- * exactly one and holds no permission on the owner's data; the grants that service ends up with
- * come from a consent of their own afterwards.
- *
- * Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator classifies it, the consent
- * screen offers it, [GrantStorePodAuthorizer] refuses context permissions to a token carrying it,
- * and no one of them owns it.
- *
- * It is the first of [PodScopeValidator.privilegedFeatureScopes], where the rules that follow from
- * being one live.
- */
-const val SERVICE_CLIENTS_INSTALL_SCOPE = "service-clients:install"
-
-/**
  * OAuth scope literal by which a program asks to list, rotate, narrow and revoke the service
  * clients already on this pod. What that reaches is `docs/auth/oauth.md` §"Managing service
  * clients".
  *
- * Apart from [SERVICE_CLIENTS_INSTALL_SCOPE]: an installer approved for one service must not rotate the
- * secret of another that holds `#manage` and inherit its access. The second of
- * [PodScopeValidator.privilegedFeatureScopes].
+ * Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator classifies it, the consent
+ * screen offers it, [GrantStorePodAuthorizer] refuses context permissions to a token carrying it,
+ * and no one of them owns it. The first of [PodScopeValidator.privilegedFeatureScopes], where the
+ * rules that follow from being one live.
  */
 const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
 
@@ -53,7 +40,7 @@ const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
  * Without it a bearer is an application whatever its `sub` names, and creates or deletes only what
  * a `#manage` grant covers (`SPS-GRANT-011`, `SPS-GRANT-013`). An app the owner approved for one
  * context must not delete the rest of the pod because the person behind its token owns it. The
- * third of [PodScopeValidator.privilegedFeatureScopes]; it reaches no data.
+ * second of [PodScopeValidator.privilegedFeatureScopes]; it reaches no data.
  */
 const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
 
@@ -145,13 +132,24 @@ class PodScopeValidator {
      * the consent screen offers such a scope only where the request names it and never pre-ticked;
      * the submission stores no grant for it; auto-grant cannot re-issue it; a rotation drops it;
      * and a token carrying one resolves no context permissions at all ([GrantStorePodAuthorizer]).
-     * Together they keep an installation authority inside the one authorization it was granted in.
+     * Together they keep such an authority inside the one authorization it was granted in.
      *
      * `public-read` stays outside this set. It is additive and unprivileged, and its stored grant
      * is what lets a reconnect skip the dialog.
      */
     val privilegedFeatureScopes: Set<String> =
-      setOf(SERVICE_CLIENTS_INSTALL_SCOPE, SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
+      setOf(SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
+
+    /**
+     * Scopes this pod once granted and no longer does. Unlike an unknown scope, which `/authorize`
+     * drops, one of these is refused `invalid_scope`: a client still asking for it is following a
+     * flow that is gone, and a working token without it would hide that.
+     *
+     * `service-clients:install` authorized one service registration; a service now registers
+     * itself and waits for the owner's consent (`docs/auth/oauth.md` §"Registering a service
+     * client").
+     */
+    val retiredScopes: Set<String> = setOf("service-clients:install")
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not

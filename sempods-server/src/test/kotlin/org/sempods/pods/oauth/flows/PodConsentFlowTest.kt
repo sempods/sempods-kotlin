@@ -9,7 +9,7 @@ import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -489,18 +489,18 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     assertEquals(emptySet(), owned.held())
   }
 
-  // ── The installation screen's submission ───────────────────────────────────
+  // ── The management screen's submission ───────────────────────────────────
 
   @Test
-  fun `an approved installation mints a code for the feature scope and grants nothing`() {
+  fun `an approved management authority mints a code for the feature scope and grants nothing`() {
     val owned = Owned()
 
     val code = issuedCode(
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -508,13 +508,13 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
 
     val entry = assertNotNull(authorizationCodeStore.consume(code))
-    assertEquals(setOf(SERVICE_CLIENTS_INSTALL_SCOPE), entry.scopes)
-    assertEquals(emptySet(), owned.held(), "an installer holds none of the rights it arranges")
+    assertEquals(setOf(SERVICE_CLIENTS_MANAGE_SCOPE), entry.scopes)
+    assertEquals(emptySet(), owned.held(), "a manager holds none of the rights it administers")
     assertNotNull(entry.consentGeneration, "a code with no generation is refused at the exchange")
   }
 
   @Test
-  fun `an installation the person left unticked declines it and ends nothing`() {
+  fun `a management authority the person left unticked declines it and ends nothing`() {
     // The shape this closes: ticking nothing on an ordinary screen disconnects the app. On this
     // screen it means "do not install", and an app's standing access is not what was being asked
     // about.
@@ -524,18 +524,18 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE), scopes = null, durable = false),
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE), scopes = null, durable = false),
         owned.session,
       ),
     )
 
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
-    assertEquals("'service-clients:install' declined", delivery.description)
+    assertEquals("'service-clients:manage' declined", delivery.description)
     assertEquals(setOf(owned.readScope), owned.held(), "the app keeps what it held")
   }
 
   @Test
-  fun `an installation submitted beside a context scope is refused`() {
+  fun `a management authority submitted beside a context scope is refused`() {
     val owned = Owned()
     owned.grant(owned.readScope)
 
@@ -543,8 +543,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE, owned.readScope),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE, owned.readScope),
           durable = false,
         ),
         owned.session,
@@ -556,16 +556,16 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `an installation asking to create a context is refused`() {
+  fun `a management authority asking to create a context is refused`() {
     val owned = Owned()
-    val path = "installer-${randomId()}"
+    val path = "manager-${randomId()}"
 
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           newContexts = listOf(path),
           newContextScopes = listOf("$path#write"),
           durable = false,
@@ -578,7 +578,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `an installation claiming the lifetime control is refused`() {
+  fun `a management authority claiming the lifetime control is refused`() {
     // The control is off the screen. A hand-built post is what is left, and the rule answers it.
     val owned = Owned()
 
@@ -586,8 +586,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           durable = true,
         ),
         owned.session,
@@ -599,14 +599,14 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `the installer scope on a screen that never offered it is refused`() {
+  fun `the management scope on a screen that never offered it is refused`() {
     val owned = Owned()
     owned.grant(owned.readScope)
 
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE), durable = false),
+        form(csrf = owned.ticket(), scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE), durable = false),
         owned.session,
       ),
     )
@@ -616,19 +616,19 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `an installation approved by someone who does not own the pod is refused`() {
+  fun `a management authority approved by someone who does not own the pod is refused`() {
     val owned = Owned()
     val stranger = PodTokenIssuer.SessionPrincipal(
       "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
     )
     val ticket = consentTransactionStore.issue(
-      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+      owned.pod.name, stranger.webId, null, setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
     )
 
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE), durable = false),
+        form(csrf = ticket, scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE), durable = false),
         stranger,
       ),
     )
@@ -639,8 +639,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
 
   @Test
-  fun `an installation leaves the lifetime answer this app already carries`() {
-    // What this closes: the installation screen shares a consent document with the ordinary one.
+  fun `a management authority leaves the lifetime answer this app already carries`() {
+    // What this closes: the management screen shares a consent document with the ordinary one.
     // Writing `durable = false` into it for a question nobody was asked is a withdrawal, and
     // `PodTokenExchange.endsOnRefusal` reads it as one — the app's durable family dies at its next
     // refresh because its owner installed something.
@@ -652,8 +652,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -661,11 +661,11 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     )
 
     val standing = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
-    assertEquals(true, standing.durable, "the installation screen asked nothing about the connection")
+    assertEquals(true, standing.durable, "the management screen asked nothing about the connection")
   }
 
   @Test
-  fun `an installation on an authorization nobody has answered still answers nothing`() {
+  fun `a management authority on an authorization nobody has answered still answers nothing`() {
     // The other half, and the one a preserved-if-present fix would miss: no answer on record is a
     // state of its own, and a family grandfathered onto the long terms is left alone only while it
     // stays that way.
@@ -675,8 +675,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -690,8 +690,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
 
   @Test
-  fun `an installation does not expire an ordinary page opened beside it`() {
-    // The generation is shared, the grants are not. An installation moves the first and clears
+  fun `a management authority does not expire an ordinary page opened beside it`() {
+    // The generation is shared, the grants are not. A management authority moves the first and clears
     // nothing, so the page somebody had open for the same app has lost nothing and must still
     // submit — screens coexist on purpose.
     val owned = Owned()
@@ -701,8 +701,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       flow.submit(
         owned.pod,
         form(
-          csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE),
-          scopes = listOf(SERVICE_CLIENTS_INSTALL_SCOPE),
+          csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE),
+          scopes = listOf(SERVICE_CLIENTS_MANAGE_SCOPE),
           durable = false,
         ),
         owned.session,
@@ -723,7 +723,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Test
   fun `a page from before the app held anything cannot write grants back after a disconnect`() {
-    // The narrowing that let an installation through must not let this through with it: this page
+    // The narrowing that let a management authority through must not let this through with it: this page
     // was rendered when there was nothing to lose, but by the time it submits the person has
     // granted access in one tab and ended it in another. What it would write is what they removed.
     val owned = Owned()
@@ -744,7 +744,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
 
   @Test
-  fun `an installation screen cannot be posted as a disconnect`() {
+  fun `a management screen cannot be posted as a disconnect`() {
     // The screen renders no way out, and every other field it could carry across from another
     // dialog is refused. This is the destructive one, so it is refused too.
     val owned = Owned()
@@ -753,7 +753,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val delivery = redirectedError(
       flow.submit(
         owned.pod,
-        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_INSTALL_SCOPE), action = "disconnect"),
+        form(csrf = owned.ticketOffering(SERVICE_CLIENTS_MANAGE_SCOPE), action = "disconnect"),
         owned.session,
       ),
     )

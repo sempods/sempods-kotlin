@@ -15,9 +15,9 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
  * What each does on the wire is `docs/auth/service-clients.md` §"Managing an installed service
  * client".
  *
- * Every operation needs [SERVICE_CLIENTS_MANAGE_SCOPE]; its KDoc says why that is not the
- * installer's scope. Nothing here widens a grant — that is [PodServiceClientGrantFlow]'s. Only
- * owner-installed registrations are changed; an operator-provisioned one is listed and refused.
+ * Every operation needs [SERVICE_CLIENTS_MANAGE_SCOPE]. Nothing here widens a grant — that is
+ * [PodServiceClientGrantFlow]'s. Only registrations this pod named (`svc:`) are changed; an
+ * operator-provisioned one is listed and refused.
  */
 class PodServiceClientManagement @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
@@ -84,7 +84,7 @@ class PodServiceClientManagement @Inject internal constructor(
 
   /**
    * The authority check every operation runs first: [PodOwnerAuthority] for
-   * [SERVICE_CLIENTS_MANAGE_SCOPE], asked by name, since an installer bearer passes
+   * [SERVICE_CLIENTS_MANAGE_SCOPE], asked by name, since a `contexts:manage` bearer passes
    * `carriesPrivilegedFeature` too. [operation] receives the authority that stood.
    */
   private inline fun <T> authorized(

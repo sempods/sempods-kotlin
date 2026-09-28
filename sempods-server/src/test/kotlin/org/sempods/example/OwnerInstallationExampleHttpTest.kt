@@ -11,14 +11,12 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPkce
 import org.sempods.client.SempodsPodAuthorization
 import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsPodServiceClients
 import org.sempods.client.SempodsPodTokens
-import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsStatusException
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -32,7 +30,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * [OwnerInstallation], the worked example of `docs/pod-client.md` §"Installing a service client",
+ * [OwnerInstallation], the worked example of `docs/pod-client.md` §"Registering a service client",
  * against this pod server. The test is the owner's browser: it opens each page the example sends it
  * to, signed in as the owner, submits the form the pod rendered, and follows the redirect back to the
  * example's loopback server.
@@ -48,7 +46,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   // ── The example ─────────────────────────────────────────────────────────────
 
   @Test
-  fun `an owner installs a service from a program, and the service reads what it was granted and nothing else`() {
+  fun `a program registers a service, the owner grants it, and it reads what it was granted and nothing else`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
@@ -63,11 +61,11 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     assertTrue(service.clientId.startsWith("svc:"), service.clientId)
     assertEquals(mapOf(service.clientId to service.clientSecret), stored)
     assertNull(service.secretExpiresAt)
+    assertNotNull(service.activationExpiresAt, "it waits for the owner's consent")
     assertTrue(installation.grants().isGranted)
     assertEquals(setOf("$notes#write"), installation.grants().scopes)
-    assertEquals(listOf("/_system/auth/authorize", "/_system/auth/grant"), browser.opened.map { it.encodedPath.removePrefix("/${owned.pod.name}") })
-    assertEquals("service-clients:install", browser.opened.first().queryParameter("scope"))
-    assertTrue(browser.opened.first().queryParameter("client_id")!!.startsWith("dyn:"))
+    assertEquals(listOf("/_system/auth/grant"), browser.opened.map { it.encodedPath.removePrefix("/${owned.pod.name}") })
+    assertTrue(browser.opened.single().queryParameter("client_id")!!.startsWith("dyn:"))
 
     val catalogue = checkNotNull(OwnerInstallation(owned.base, client, browser, null).asService(service.clientId, service.clientSecret).contexts().listText().body)
     assertTrue(catalogue.contains(notes), catalogue)
@@ -75,7 +73,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a refused grant consent is reported apart from an installation that stands`() {
+  fun `a refused grant consent is reported apart from a registration that stands`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val example = OwnerInstallation(owned.base, client, OwnerBrowser(owned, grant = false), null)
@@ -95,7 +93,7 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a grant consent that does not finish leaves the installation standing and says why`() {
+  fun `a grant consent that does not finish leaves the registration standing and says why`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val stored = mutableMapOf<String, String>()
@@ -117,20 +115,21 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a program that keeps its installer identifier registers it once across runs`() {
+  fun `a program that keeps its own identifier registers it once across runs`() {
     val owned = ownedPod()
+    val notes = owned.context("notes")
     // Registered under another name than the example's, so its own registration would answer another identifier.
     val installer = SempodsPodAuthorization(SempodsSession(owned.base), client)
       .registerClient("Installer from an earlier run", listOf("http://127.0.0.1/callback")).body!!.clientId
     val browser = OwnerBrowser(owned)
 
-    OwnerInstallation(owned.base, client, browser, installer).install("Importer", emptyList()) { _, _ -> }
+    OwnerInstallation(owned.base, client, browser, installer).install("Importer", listOf("$notes#read")) { _, _ -> }
 
     assertEquals(installer, browser.opened.single().queryParameter("client_id"))
   }
 
   @Test
-  fun `an installation that asks for no contexts is complete once it is registered`() {
+  fun `a registration that asks for no contexts opens no browser, and waits for the owner`() {
     val owned = ownedPod()
     val browser = OwnerBrowser(owned)
 
@@ -138,23 +137,13 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
 
     assertNull(installation.grants())
     assertNull(installation.grantsUnfinished())
-    assertEquals(1, browser.opened.size, "no grant consent was needed")
+    assertTrue(browser.opened.isEmpty(), "no consent was needed to register")
+    val listed = OwnerInstallation(owned.base, client, OwnerBrowser(owned), null).manage().list().body!!.single()
+    assertEquals(installation.service().activationExpiresAt, listed.activationExpiresAt, "the owner sees its deadline")
   }
 
   @Test
-  fun `an owner who declines the installation leaves nothing registered`() {
-    val owned = ownedPod()
-
-    val declined = assertThrows<SempodsClientException> {
-      OwnerInstallation(owned.base, client, OwnerBrowser(owned, approve = false), null).install("Notes Sync", emptyList()) { _, _ -> }
-    }
-
-    assertTrue(declined.message!!.contains("access_denied"), declined.message)
-    assertTrue(OwnerInstallation(owned.base, client, OwnerBrowser(owned), null).manage().list().body!!.isEmpty())
-  }
-
-  @Test
-  fun `the owner lists, narrows, rotates and revokes what was installed`() {
+  fun `the owner lists, narrows, rotates and revokes what was registered`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
@@ -184,19 +173,16 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
   // ── The library pieces the example is made of ───────────────────────────────
 
   @Test
-  fun `an installer's token registers once and reaches no management route`() {
+  fun `a service registers without a credential, each call a service of its own, and reaches no management route`() {
     val owned = ownedPod()
-    val browser = OwnerBrowser(owned, followRedirect = false)
-    val installer = installerToken(owned, browser)
-    val installing = SempodsPodServiceClients(SempodsSession(owned.base, SempodsRequestAuth.bearer(installer)), client)
+    val registering = SempodsPodServiceClients(SempodsSession(owned.base), client)
 
-    installing.register("Notes Sync")
+    val first = registering.register("Notes Sync").body!!
+    val second = registering.register("Notes Sync").body!!
 
-    val again = assertThrows<SempodsStatusException> { installing.register("Notes Sync") }
-    assertEquals(401, again.status)
-    assertTrue(again.headers["WWW-Authenticate"]!!.contains("invalid_token"), again.headers["WWW-Authenticate"])
-    val listing = assertThrows<SempodsStatusException> { installing.list() }
-    assertEquals(403, listing.status)
+    assertTrue(first.clientId != second.clientId, "a lost answer is not answered again")
+    val listing = assertThrows<SempodsStatusException> { registering.list() }
+    assertEquals(401, listing.status)
   }
 
   @Test
@@ -266,18 +252,12 @@ class OwnerInstallationExampleHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  /** An installation the owner approved, through the library pieces and without the example's loopback: the installer and its code. */
+  /** A management authority the owner approved, through the library pieces and without the example's loopback: the program and its code. */
   private fun approvedCode(owned: Owned, browser: OwnerBrowser, pkce: SempodsPkce): Pair<String, String> {
     val authorization = SempodsPodAuthorization(SempodsSession(owned.base), client)
-    val installer = authorization.registerClient("Service installer", listOf(REDIRECT)).body!!.clientId
-    browser.open(authorization.authorizationUrl(installer, REDIRECT, "service-clients:install", "s1", pkce))
-    return installer to authorization.readRedirect(browser.redirects.last().encodedQuery, "s1").code!!
-  }
-
-  private fun installerToken(owned: Owned, browser: OwnerBrowser): String {
-    val pkce = SempodsPkce.generate()
-    val (installer, code) = approvedCode(owned, browser, pkce)
-    return SempodsPodTokens(SempodsSession(owned.base), client).authorizationCode(installer, code, REDIRECT, pkce.verifier).body!!.accessToken
+    val program = authorization.registerClient("Service setup", listOf(REDIRECT)).body!!.clientId
+    browser.open(authorization.authorizationUrl(program, REDIRECT, "service-clients:manage", "s1", pkce))
+    return program to authorization.readRedirect(browser.redirects.last().encodedQuery, "s1").code!!
   }
 
   private fun mintStatus(owned: Owned, clientId: String, secret: String): Int =

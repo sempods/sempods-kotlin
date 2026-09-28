@@ -6,16 +6,11 @@ import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.RedirectUri
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.ForwardedFor
-import org.sempods.mcp.core.BearerChallenge
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
-import org.sempods.pods.grants.PodGrantsFacade
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.oauth.DynamicClientStore
-import org.sempods.pods.oauth.PodInstallationAuthorityStore
-import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 
@@ -29,38 +24,37 @@ import java.time.Instant
  * `token_endpoint_auth_method` is always `none`: these clients hold no secret, and PKCE is what
  * binds a code to the caller that asked for it.
  *
- * **With an installation authority.** The pod owner approved one registration at `/authorize`
- * (`service-clients:install`), and the bearer that carries it may create one confidential client here. The
- * server names it, it is stored where Client Credentials reads its clients, and it starts with no
- * grants at all — the contexts are the owner's to approve in a second consent, against a service
- * that by then exists.
+ * **A service, registering itself.** A confidential client that authenticates with a secret and
+ * uses Client Credentials. Nobody authorizes the call: the registration is provisional, holds no
+ * data rights, and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
+ * activates it by granting it contexts. The deadline and the per-pod budget bound what an open
+ * endpoint costs; neither confirms who registered. The server names the client `svc:…`.
  *
  * Which profile a body asks for is read from the body as it arrived. The SDK fills in what RFC 7591
  * says a field defaults to, and a default must not be able to turn a request nobody made into a
  * profile this pod serves.
  *
- * The [`dyn:` prefix](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
- * and the [grant types a registration response may advertise](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011)
- * are bound to this endpoint by the specification, so the second profile is an experimental
- * extension with known deviations — sempods-spec#69 carries them. What holds either way: an
- * unauthenticated registration gains no service credentials.
+ * The [`dyn:` prefix](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008),
+ * the [grant types a registration response may advertise](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011)
+ * and [out-of-band service clients](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012)
+ * are bound by the specification, so the second profile is an experimental extension with known
+ * deviations — sempods-spec#122 carries them.
  */
 class PodClientRegistration @Inject internal constructor(
   private val dynamicClientStore: DynamicClientStore,
   private val serviceClients: PodServiceClientStore,
-  private val installationAuthorities: PodInstallationAuthorityStore,
-  private val podGrantsFacade: PodGrantsFacade,
-  private val installationBudget: PodInstallationBudget,
+  private val serviceBudget: PodServiceRegistrationBudget,
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
-    val shape = shapeOf(request.raw)
-    // A caller holding an authority for one named operation is not registering an ordinary client,
-    // whatever the body says.
-    if (shape == PodClientShape.PUBLIC) {
-      return if (request.caller?.carriesPrivilegedFeature == true) wrongProfile() else registerDynamic(pod, request)
+    return when (shapeOf(request.raw)) {
+      // A caller holding an authority for one named operation is not registering an ordinary
+      // client, whatever the body says.
+      PodClientShape.PUBLIC ->
+        if (request.caller?.carriesPrivilegedFeature == true) wrongProfile() else registerDynamic(pod, request)
+      PodClientShape.SERVICE -> registerService(pod, request)
+      PodClientShape.OTHER -> wrongProfile()
     }
-    return registerService(pod, request, shape)
   }
 
   // ─── The unauthenticated profile ──────────────────────────────────────────
@@ -139,125 +133,71 @@ class PodClientRegistration @Inject internal constructor(
     )
   }
 
-  // ─── The installation profile ─────────────────────────────────────────────
+  // ─── The service profile ──────────────────────────────────────────────────
 
   /**
-   * One registration per approved installation.
+   * A provisional service client: its identifier, its secret, and a deadline for the owner's
+   * consent. What happens to each member the body carries is `docs/auth/oauth.md` §"Registering a
+   * service client"; [REFUSED_MEMBERS] are the ones refused, and anything else this pod does not
+   * read is neither stored nor echoed.
    *
-   * Everything the body can be refused for is refused before the authority is spent, so a typo in
-   * it costs the owner nothing. After that the order is fixed: consume, then ask who owns the pod
-   * now, then create. The other order lets two calls arriving together create two clients from one
-   * approval, which is the whole point of the authority being one-shot.
-   *
-   * **Ownership is answered from the row, so it is answered after the authority is gone.** The
-   * comparison is the pod's *current* owner against the URIs the consent recognised the person by
-   * ([PrivilegedAuthorityRows.Authority.subjectUris][org.sempods.pods.oauth.PrivilegedAuthorityRows.Authority.subjectUris]) — the same question the dialog asked,
-   * asked again an hour later. The bearer cannot answer it: it carries one identity URI, and the
-   * equivalence between a person's two WebIDs — sign in with Google, own the pod under the email
-   * address — is sempods-auth's and unreachable from here. What the comparison still
-   * catches is a pod that changed hands in the hour, and an approval from someone who has since
-   * stopped owning the pod is nothing to leave spendable.
-   *
-   * What the fixed order costs, and what the owner is told to do about it:
-   *
-   * | What happens | What is left |
-   * |---|---|
-   * | Two calls arrive together | One client. The other call is answered like a second attempt |
-   * | The server dies between consuming and creating | Neither. The owner installs again |
-   * | The pod changed hands since the approval | Neither, and the spent authority with it |
-   * | The answer is lost on the way back | A client whose secret nobody holds, and no grants. The retry is refused, because the secret exists only in the answer that was lost |
+   * A bearer the request carries changes nothing here; the registration holds no rights to give.
+   * The pod's budget is charged only for a body that would be accepted.
    */
-  private fun registerService(
-    pod: HostedPod,
-    request: PodRegistrationRequest,
-    shape: PodClientShape,
-  ): PodRegistrationResult {
-    val caller = request.caller
-      ?: return refused(
-        PodRegistrationError.INVALID_CLIENT_METADATA,
-        "this endpoint issues no client secret to an unauthenticated caller",
-      )
-    // The scope this route wants, asked for by name. `carriesPrivilegedFeature` is the catch-all —
-    // "an authority for some named operation" — and a second feature scope would pass it while
-    // authorizing something else entirely.
-    if (SERVICE_CLIENTS_INSTALL_SCOPE !in caller.oauthScopes) {
-      return unauthorized(
-        PodRegistrationRefusal.NOT_AUTHORIZED,
-        "registering a service client needs an authorization carrying '$SERVICE_CLIENTS_INSTALL_SCOPE'",
-      )
-    }
-    if (shape != PodClientShape.INSTALLATION) return wrongProfile()
-
-    request.raw.keys.firstOrNull { it !in INSTALLATION_MEMBERS }?.let { member ->
+  private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
+    REFUSED_MEMBERS.firstOrNull { it in request.raw && isGiven(request.raw[it]) }?.let { member ->
       return refused(
         PodRegistrationError.INVALID_CLIENT_METADATA,
-        "an installation carries no '$member': this pod assigns everything but the name",
+        "a service registration carries no '$member': it authenticates with its secret and is granted contexts by the owner",
       )
     }
 
     val label = request.client.clientName
       ?: return refused(
         PodRegistrationError.INVALID_CLIENT_METADATA,
-        "client_name is required: it is what names this service in the consent that grants it contexts",
+        "client_name is required: it is what names this service in the consent that activates it",
       )
 
-    // The budget is charged only by an authority that could still register — unspent, and from
-    // the pod's owner now — so a spent token or one a former owner kept cannot hold it empty. And
-    // before the authority is spent, so a throttled installation keeps its approval.
-    val pending = caller.tokenJti?.let { installationAuthorities.peek(pod.id, it) }
-    if (pending != null && pending.isFromOwnerOf(pod) && !installationBudget.tryAcquire(pod.id)) {
-      return PodRegistrationResult.RateLimited
-    }
-
-    val authority = caller.tokenJti?.let { installationAuthorities.consume(pod.id, it) }
-      ?: return unauthorized(
-        PodRegistrationRefusal.AUTHORITY_SPENT,
-        "this authorization has already registered a service client",
-      )
-
-    // The pod's owner as it stands now, against the URIs the consent recognised the person by.
-    if (!authority.isFromOwnerOf(pod)) {
-      // `legacy` is the one case where this refusal is not about who the person is: a node from
-      // before this release recorded no URI set, so an owner recognised through a profile-linked
-      // alias cannot be reconstructed from the row — `docs/auth/oauth.md` §"Installing a service
-      // client" on finishing the rollout first.
-      logger.info {
-        "[oauth/register] Installation refused: no URI this authority names owns pod " +
-            "'${pod.name}' (legacy=${authority.disconnects == null})"
-      }
-      return unauthorized(PodRegistrationRefusal.NOT_AUTHORIZED, "this pod's owner installs its service clients")
-    }
-
-    val registered = try {
-      serviceClients.registerInstallation(pod, label)
-    } catch (e: Exception) {
-      // The authority is gone and no client exists, which is the row the table above calls "the
-      // server dies between consuming and creating" — reached here without the process dying. The
-      // caller is told the one thing it can act on: this authorization is spent, install again.
-      logger.error(e) { "[oauth/register] Installation failed after its authority was spent: pod='${pod.name}'" }
-      return unauthorized(
-        PodRegistrationRefusal.AUTHORITY_SPENT,
-        "this authorization is spent and its registration did not complete; install again",
+    // The rule `/authorize` applies to a public client's addresses, through the same method.
+    request.client.redirectUris.firstOrNull { !RedirectUri.isValid(it) }?.let { uri ->
+      return refused(
+        PodRegistrationError.INVALID_REDIRECT_URI,
+        "redirect_uri must be https, or http on a loopback host, with no fragment " +
+            "and no code/response/state in the query: $uri",
       )
     }
+
+    // Each registration costs a bcrypt run, and nothing authenticates the caller.
+    if (!serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
+
+    val registered = serviceClients.registerProvisional(pod, label, request.client.redirectUris.toList())
+    val registration = registered.registration
 
     logger.info {
-      "[oauth/register] Service client installed: pod='${pod.name}', " +
-          "clientId='${registered.registration.clientId}', label='${LogSafeText.of(label)}', " +
-          "installer='${LogSafeText.of(caller.oauthClientId ?: "(unset)")}', " +
-          "owner='${LogSafeText.of(authority.webId)}'"
+      "[oauth/register] Service client registered, pending activation: pod='${pod.name}', " +
+          "clientId='${registration.clientId}', label='${LogSafeText.of(label)}', " +
+          "redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
+          "activationExpiresAt=${registration.pendingUntil}"
     }
 
     return PodRegistrationResult.ServiceRegistered(
-      clientId = registered.registration.clientId,
+      clientId = registration.clientId,
       clientName = label,
-      issuedAt = registered.registration.createdAt,
+      issuedAt = registration.createdAt,
       secret = registered.secret,
+      redirectUris = registration.redirectUris,
+      activationExpiresAt = checkNotNull(registration.pendingUntil) { "a provisional registration has a deadline" },
     )
   }
 
-  private fun PrivilegedAuthorityRows.Authority.isFromOwnerOf(pod: HostedPod): Boolean =
-    subjectUris.any { podGrantsFacade.isPodOwner(pod, it) }
+  /** Whether a member carries a value: `null`, an empty string and an empty list say nothing. */
+  private fun isGiven(value: Any?): Boolean = when (value) {
+    null -> false
+    is String -> value.isNotBlank()
+    is Collection<*> -> value.isNotEmpty()
+    is Map<*, *> -> value.isNotEmpty()
+    else -> true
+  }
 
   /**
    * Which client the body asks for, read from the two members that decide it.
@@ -276,7 +216,7 @@ class PodClientRegistration @Inject internal constructor(
     val grantTypes = (raw["grant_types"] as? List<*>)?.mapNotNull { (it as? String)?.trim() }
     return when {
       authMethod == CONFIDENTIAL_AUTH_METHOD && grantTypes == listOf(CLIENT_CREDENTIALS_GRANT) ->
-        PodClientShape.INSTALLATION
+        PodClientShape.SERVICE
 
       authMethod != null && authMethod != PUBLIC_AUTH_METHOD -> PodClientShape.OTHER
       grantTypes?.any { it !in PUBLIC_GRANT_TYPES } == true -> PodClientShape.OTHER
@@ -286,7 +226,7 @@ class PodClientRegistration @Inject internal constructor(
 
   private fun wrongProfile(): PodRegistrationResult = refused(
     PodRegistrationError.INVALID_CLIENT_METADATA,
-    "an installation registers a confidential client: grant_types [\"$CLIENT_CREDENTIALS_GRANT\"] " +
+    "a service registers as a confidential client: grant_types [\"$CLIENT_CREDENTIALS_GRANT\"] " +
         "and token_endpoint_auth_method \"$CONFIDENTIAL_AUTH_METHOD\"",
   )
 
@@ -321,9 +261,6 @@ class PodClientRegistration @Inject internal constructor(
   private fun refused(error: PodRegistrationError, description: String): PodRegistrationResult =
     PodRegistrationResult.Refused(error, description)
 
-  private fun unauthorized(reason: PodRegistrationRefusal, description: String): PodRegistrationResult =
-    PodRegistrationResult.Unauthorized(reason, description)
-
   private companion object {
     private val logger = KotlinLogging.logger {}
 
@@ -333,19 +270,11 @@ class PodClientRegistration @Inject internal constructor(
     private val PUBLIC_GRANT_TYPES = setOf("authorization_code", "refresh_token")
 
     /**
-     * Everything an installation body may carry. Anything else is refused by name.
-     *
-     * An allowlist, because the rule is "the installer names nothing but the label" and a list of
-     * forbidden members cannot say that — it would admit `client_id`, `scope`, `jwks`,
-     * `redirect_uris` and every member the SDK learns next. What each of those would buy the
-     * caller is the reason: an identity the owner already trusts, grants the second consent is
-     * there to give, a browser flow a client authenticating with a secret does not have.
+     * Members a service registration may not carry: a key of its own (`jwks`, `jwks_uri`), a scope
+     * it would ask for itself, or a response type for a browser flow it does not have. Contexts are
+     * the owner's to grant, and the secret is how it authenticates.
      */
-    private val INSTALLATION_MEMBERS = setOf(
-      "client_name",
-      "grant_types",
-      "token_endpoint_auth_method",
-    )
+    private val REFUSED_MEMBERS = listOf("jwks", "jwks_uri", "scope", "response_types")
   }
 }
 
@@ -400,17 +329,20 @@ internal sealed interface PodRegistrationResult {
   data class Registered(val clientId: String, val client: PodClientMetadata) : PodRegistrationResult
 
   /**
-   * A service client, and the one moment its secret can be read.
+   * A provisional service client, and the one moment its secret can be read.
    *
-   * [issuedAt] and [clientId] are what the caller opens the grant consent with. Both are the pod's
-   * own: [clientName] is whatever the installer typed, so an owner shown only that has no way to
-   * tell an expected installation from a crafted one.
+   * [issuedAt] and [clientId] are the pod's own: [clientName] is whatever the service typed, so an
+   * owner shown only that has no way to tell an expected service from a crafted one.
+   *
+   * @param activationExpiresAt when the registration is removed unless the owner activates it.
    */
   data class ServiceRegistered(
     val clientId: String,
     val clientName: String,
     val issuedAt: Instant,
     val secret: String,
+    val redirectUris: List<String>,
+    val activationExpiresAt: Instant,
   ) : PodRegistrationResult
 
   /**
@@ -419,19 +351,16 @@ internal sealed interface PodRegistrationResult {
    */
   data class Refused(val error: PodRegistrationError, val description: String) : PodRegistrationResult
 
-  /** The caller's own credential is what this answer is about — see [PodRegistrationRefusal]. */
-  data class Unauthorized(val reason: PodRegistrationRefusal, val description: String) : PodRegistrationResult
-
-  /** The pod's [PodInstallationBudget] is spent. The authority is not: the caller retries later. */
+  /** The pod's [PodServiceRegistrationBudget] is spent: the caller retries later. */
   data object RateLimited : PodRegistrationResult
 }
 
 /**
- * How fast installations on one pod may spend their authorities — each spend mints a secret at
- * bcrypt cost. A port, so the budget is decided where the authority is and kept by the adapter
- * that keeps the other registration budgets.
+ * How fast services may register themselves on one pod — each registration mints a secret at
+ * bcrypt cost, and nothing authenticates the caller. A port, so the budget is decided here and kept
+ * by the adapter that keeps the other registration budgets.
  */
-fun interface PodInstallationBudget {
+fun interface PodServiceRegistrationBudget {
   fun tryAcquire(pod: PodId): Boolean
 }
 
@@ -447,35 +376,14 @@ internal enum class PodRegistrationError {
   INVALID_CLIENT_METADATA,
 }
 
-/**
- * RFC 6750 §3.1's two answers about a bearer that carries the wrong authority.
- *
- * Each carries the code and the status that section pairs it with, so nothing downstream has to
- * map one to the other.
- */
-internal enum class PodRegistrationRefusal(val error: String, val status: Int) {
-
-  /**
-   * The authorization registered its one service client already, or never carried the right to.
-   *
-   * `invalid_token` covers "expired, revoked, malformed **or invalid for other reasons**", and a
-   * spent one-shot authority is the last of those. A 401 rather than a 403 because the way out is
-   * a new authorization, which is what a 401 tells a client to go and get.
-   */
-  AUTHORITY_SPENT(BearerChallenge.INVALID_TOKEN, 401),
-
-  /** The credential is good and does not cover this. */
-  NOT_AUTHORIZED(BearerChallenge.INSUFFICIENT_SCOPE, 403),
-}
-
 /** Which of the two clients `POST {pod}/_system/auth/register` serves a body is asking for. */
 internal enum class PodClientShape {
 
   /** A client that holds no secret: RFC 7591's unauthenticated profile. */
   PUBLIC,
 
-  /** The one confidential shape this pod serves, spelled exactly. */
-  INSTALLATION,
+  /** The one confidential shape this pod serves, spelled exactly: a service registering itself. */
+  SERVICE,
 
   /** A client that holds a secret in some other shape, which this pod does not serve. */
   OTHER,

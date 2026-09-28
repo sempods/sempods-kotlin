@@ -1,7 +1,6 @@
 package org.sempods.pods.oauth.flows
 
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -124,12 +123,9 @@ internal enum class PodCodeIssuance(val tag: String) {
   CONSENT("oauth/consent"),
 
   /**
-   * An installation dialog was submitted. Apart from [CONSENT] because the code it mints carries a
-   * one-shot authority and no grant, which is what an audit trail wants to be able to count.
+   * A management dialog was submitted. Apart from [CONSENT] because the code it mints carries an
+   * authority and no grant, which is what an audit trail wants to be able to count.
    */
-  INSTALLATION("oauth/installation"),
-
-  /** A management dialog was submitted. Counted apart from [INSTALLATION]: its authority is not spent. */
   MANAGEMENT("oauth/management"),
 
   /** A contexts-management dialog was submitted: the owner's authority over the whole registry. */
@@ -140,7 +136,6 @@ internal enum class PodCodeIssuance(val tag: String) {
 
     /** The way a privileged dialog's code was issued, by the one scope it grants. */
     fun privileged(scope: String): PodCodeIssuance = when (scope) {
-      SERVICE_CLIENTS_INSTALL_SCOPE -> INSTALLATION
       SERVICE_CLIENTS_MANAGE_SCOPE -> MANAGEMENT
       CONTEXTS_MANAGE_SCOPE -> CONTEXTS_MANAGEMENT
       else -> error("no issuance for privileged scope '$scope'")

@@ -88,7 +88,10 @@ class PodServiceClientsEndpoint @Inject constructor(
     "last_used_at" to registration.lastUsedAt?.epochSecond,
     "scope" to registration.scopes.sorted().joinToString(" "),
     "origin" to if (registration.installed) "installed" else "provisioned",
-  )
+  ).apply {
+    // Only while the registration waits for the owner's consent; it is gone after the deadline.
+    registration.pendingUntil?.let { put(PodRegistrationResponses.ACTIVATION_EXPIRES_AT, it.epochSecond) }
+  }
 
   /** Each refusal in words. */
   private fun refused(reason: PodServiceClientManagementRefusal): Response = when (reason) {

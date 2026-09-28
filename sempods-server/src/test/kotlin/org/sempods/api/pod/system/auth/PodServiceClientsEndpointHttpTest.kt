@@ -13,7 +13,13 @@ import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
+import org.sempods.SempodsCollections
+import org.sempods.pods.mongo.persist.podId
+import java.util.Date
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -49,10 +55,13 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var podDao: PodDao
 
+  @Inject
+  private lateinit var db: MongoDatabase
+
   private val installerClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
   private val codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-  private val installationBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
+  private val serviceBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
     """"token_endpoint_auth_method":"client_secret_basic"}"""
 
   // ── The whole life of one installation ──────────────────────────────────────
@@ -416,46 +425,44 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   // ── Two authorities ─────────────────────────────────────────────────────────
 
   @Test
-  fun `an installer bearer cannot list, rotate or revoke an existing registration`() {
-    // The escalation #124 named: an installer approved for one service must not reach another
-    // that already holds more, rotate its secret and inherit its access.
+  fun `a grant approval activates a registration that was waiting for it`() {
     val owned = ownedPod()
-    val existing = install(owned)
-    val installer = approveInstallation(owned)
-
-    val listed = http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $installer").execute()
-    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(existing.clientId)}/secret")
-      .addHeader("Authorization", "Bearer $installer").execute()
-    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(existing.clientId)}")
-      .addHeader("Authorization", "Bearer $installer").execute()
-
-    for (response in listOf(listed, rotated, revoked)) {
-      assertEquals(403, response.statusCode, response.responseBody)
-      assertTrue("insufficient_scope" in checkNotNull(response.getHeader("WWW-Authenticate")))
-    }
-    // The secret the service holds still authenticates: `invalid_scope`, not `invalid_client`.
-    val stillItsOwn = mint(owned, existing.clientId, existing.secret)
-    assertTrue("invalid_scope" in stillItsOwn.responseBody, stillItsOwn.responseBody)
-  }
-
-  @Test
-  fun `one app holds an installation and a management authority at once`() {
-    // Approving the second must not withdraw the first, in either order.
-    val owned = ownedPod()
-    val installer = approveInstallation(owned)
+    val notes = owned.context("notes")
+    val installed = install(owned)
     val manager = approveManagement(owned)
+    val pending = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
+    assertTrue(pending["activation_expires_at"] is Number, "a provisional registration shows its deadline: $pending")
 
-    val registered = http.preparePost(registerUrl(owned))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $installer")
-      .setBody(installationBody)
-      .execute()
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    assertTrue(listServiceClients(owned, manager).any { it["client_id"] == json(registered)["client_id"] })
+    val page = openGrant(owned, installed.clientId, "$notes#read")
+    assertEquals("granted", query(submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read")))["result"])
+
+    val active = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
+    assertFalse("activation_expires_at" in active, "an active registration carries no deadline: $active")
+    assertNull(assertNotNull(serviceClientStore.find(owned.pod.podId(), installed.clientId)).pendingUntil)
+    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, installed.secret)))
   }
 
   @Test
-  fun `a management bearer does not register and reaches no data`() {
+  fun `a late approval does not revive a registration past its deadline`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val installed = install(owned)
+    val page = openGrant(owned, installed.clientId, "$notes#read")
+    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).updateOne(
+      Filters.eq("clientId", installed.clientId),
+      Updates.set("pendingUntil", Date.from(Instant.now().minusSeconds(60))),
+    )
+
+    val late = submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read"))
+
+    assertEquals("access_denied", query(late)["error"], late.getHeader("Location"))
+    assertNull(serviceClientStore.find(owned.pod.podId(), installed.clientId), "still absent to every read")
+    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "and it cannot authenticate")
+  }
+
+  @Test
+  fun `a management bearer reaches no data, and registers a service like anyone`() {
+    // What a manager's bearer adds to a registration is #332's to decide; here it adds nothing.
     val owned = ownedPod()
     owned.context("notes")
     val manager = approveManagement(owned)
@@ -463,9 +470,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val registered = http.preparePost(registerUrl(owned))
       .addHeader("Content-Type", "application/json")
       .addHeader("Authorization", "Bearer $manager")
-      .setBody(installationBody)
+      .setBody(serviceBody)
       .execute()
-    assertEquals(403, registered.statusCode, registered.responseBody)
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertTrue("activation_expires_at" in json(registered), registered.responseBody)
     assertEquals(emptyList(), contextsReachableBy(owned.pod, manager))
   }
 
@@ -480,7 +488,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `the two privileged scopes are not granted together`() {
     val owned = ownedPod()
-    val response = authorizePage(owned, "$SERVICE_CLIENTS_INSTALL_SCOPE $SERVICE_CLIENTS_MANAGE_SCOPE")
+    val response = authorizePage(owned, "$CONTEXTS_MANAGE_SCOPE $SERVICE_CLIENTS_MANAGE_SCOPE")
     assertEquals(303, response.statusCode, response.responseBody)
     assertEquals("invalid_scope", query(response)["error"])
   }
@@ -682,9 +690,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     return submitted
   }
 
-  private fun approveInstallation(owned: Owned): String =
-    approvePrivileged(owned, SERVICE_CLIENTS_INSTALL_SCOPE)["access_token"] as String
-
   private fun approveManagementTokens(owned: Owned) = approvePrivileged(owned, SERVICE_CLIENTS_MANAGE_SCOPE)
 
   private fun approveManagement(
@@ -693,11 +698,11 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     alsoKnownAs: List<String> = emptyList(),
   ): String = approvePrivileged(owned, SERVICE_CLIENTS_MANAGE_SCOPE, signedInAs, alsoKnownAs)["access_token"] as String
 
+  /** A service registering itself: provisional until the owner grants it contexts. */
   private fun install(owned: Owned): Installed {
     val registered = http.preparePost(registerUrl(owned))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${approveInstallation(owned)}")
-      .setBody(installationBody)
+      .setBody(serviceBody)
       .execute()
     assertEquals(201, registered.statusCode, registered.responseBody)
     val body = json(registered)

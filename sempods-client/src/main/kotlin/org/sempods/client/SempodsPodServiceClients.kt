@@ -9,42 +9,36 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.URI
 import java.time.DateTimeException
 import java.time.Instant
 
 /**
- * A pod owner's service clients: installing one, granting it contexts, and managing the ones that
- * exist. This is an experimental 0.2 extension of the pod's OAuth profile; `docs/auth/oauth.md`
- * §"Installing a service client" has the pod's side.
- *
- * An installation takes two consents in the owner's browser, and the client sees three lifetimes:
+ * A pod's service clients: a service registering itself, the owner granting it contexts, and the
+ * owner managing the ones that exist. This is an experimental 0.2 extension of the pod's OAuth
+ * profile; `docs/auth/oauth.md` §"Registering a service client" has the pod's side.
  *
  * | What | Lives | |
  * |---|---|---|
- * | the installer's token, `service-clients:install` | about an hour, with no refresh token | registers once, then is spent; it never reaches the owner's data |
- * | the registration | until it is revoked | survives having no grants |
- * | its secret | until it is rotated or the registration is revoked | answered once, by [register] or [rotateSecret] |
+ * | the registration | until it is revoked, once the owner grants it contexts | until [SempodsServiceClientRegistration.activationExpiresAt] before that: a registration the owner never activates is removed |
+ * | its secret | until it is rotated or the registration is removed | answered once, by [register] or [rotateSecret] |
  *
  * ```java
- * var installing = new SempodsPodServiceClients(new SempodsSession(alice, SempodsRequestAuth.bearer(installerToken)), client);
- * SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
- * HttpUrl grant = installing.grantConsentUrl(installer, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
+ * var registering = new SempodsPodServiceClients(new SempodsSession(alice), client);
+ * SempodsServiceClientRegistration service = registering.register("Notes Sync").getBody();
+ * HttpUrl grant = registering.grantConsentUrl(app, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
  * ```
  *
- * `docs/pod-client.md` §"Installing a service client" has the whole sequence.
+ * `docs/pod-client.md` §"Registering a service client" has the whole sequence.
  *
- * **A registration is an installation**, whatever the grant consent answers. A refused, abandoned or
- * unreadable consent leaves a service with its secret and no grants, which the owner can grant later.
- *
- * **Built on a session of its own**, whose credential is the authority the operation needs: the
- * installer's bearer for [register], a `service-clients:manage` bearer for the rest. Neither is a pod
- * session's bearer, and the installer's reaches no management route. [grantConsentUrl] sends nothing.
+ * **Built on a session of its own.** [register] needs no credential, and a session without one is
+ * enough; the rest need a `service-clients:manage` bearer. [grantConsentUrl] sends nothing.
  *
  * **What is safe to send again:**
  *
  * | Operation | After a lost connection |
  * |---|---|
- * | [register] | not sent again. A second registration with the same token is `401 invalid_token`, so a lost answer costs the installation: the owner approves a new one, and the orphan holds no grants |
+ * | [register] | not sent again. A second call registers a second service; the one whose answer was lost holds no grants and is removed at its deadline |
  * | [rotateSecret] | not sent again. A lost answer leaves a secret nobody holds; rotate once more |
  * | [list], [removeGrants], [revoke] | sent once more, as any idempotent request |
  *
@@ -52,13 +46,13 @@ import java.time.Instant
  *
  * | The pod answers | Means |
  * |---|---|
- * | `400 invalid_client_metadata` | [register]: the body; the token is not spent, and a corrected call may use it |
- * | `401` with `WWW-Authenticate: Bearer error="invalid_token"` | the token is unknown, expired, withdrawn or — for [register] — spent |
+ * | `400 invalid_client_metadata`, `400 invalid_redirect_uri` | [register]: the body |
+ * | `401` with `WWW-Authenticate: Bearer error="invalid_token"` | the token is unknown, expired or withdrawn |
  * | `403` with `error="insufficient_scope"` | the token lacks the scope, or its person does not own the pod |
  * | `403` without a challenge | a service client the host operator provisioned, which is not changed here |
  * | `404` | no such service client |
  * | `409` | [rotateSecret]: it changed in between; read it again |
- * | `429 slow_down` | [register]: the pod's registration budget; the token is not spent |
+ * | `429 slow_down` | [register]: the pod's registration budget; try later |
  */
 class SempodsPodServiceClients(
   val session: SempodsSession,
@@ -68,16 +62,25 @@ class SempodsPodServiceClients(
   private val exchange = Exchange(calls)
 
   /**
-   * Registers a service client at `POST {pod}/_system/auth/register`, named [clientName], with no
-   * grants. The session carries a `service-clients:install` bearer; the registration spends it.
+   * Registers a service at `POST {pod}/_system/auth/register`, named [clientName], with no grants.
+   * The registration is provisional until the owner grants it contexts, and removed at
+   * [SempodsServiceClientRegistration.activationExpiresAt] if they never do.
    */
   @Throws(IOException::class)
-  fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> =
-    exchange.run(registration(clientName), ANSWERS, REGISTRATION)
+  fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> = register(clientName, emptyList())
+
+  /**
+   * The same, with [redirectUris] the owner's browser may return to after the consent: https, or
+   * http on a loopback host.
+   */
+  @Throws(IOException::class)
+  fun register(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsServiceClientRegistration> =
+    exchange.run(registration(clientName, redirectUris), ANSWERS, REGISTRATION)
 
   /** The same answer with the body as the text the server sent, malformed or not. It holds the secret. */
   @Throws(IOException::class)
-  fun registerJson(clientName: String): SempodsResponse<String> = exchange.run(registration(clientName), ANSWERS, BodyReading.TEXT)
+  fun registerJson(clientName: String): SempodsResponse<String> =
+    exchange.run(registration(clientName, emptyList()), ANSWERS, BodyReading.TEXT)
 
   /**
    * Where to send the owner's browser to grant [serviceClientId] the context [scopes]:
@@ -85,7 +88,7 @@ class SempodsPodServiceClients(
    * registration time, and sends the browser back to [redirectUri] with [state];
    * [SempodsGrantOutcome.readQuery] reads what it brings.
    *
-   * [callerClientId] and [redirectUri] name the caller as `/authorize` knows it; the installer's own
+   * [callerClientId] and [redirectUri] name the caller as `/authorize` knows it; the program's own
    * public client qualifies. A pair the pod does not know gets no redirect at all.
    *
    * @throws IllegalArgumentException when [redirectUri] is not a URL, or its query already carries a
@@ -147,7 +150,7 @@ class SempodsPodServiceClients(
   @Throws(IOException::class)
   fun revoke(clientId: String): Boolean = exchange.status(clientRequest("DELETE", clientId), REVOKE_ANSWERS) == 204
 
-  private fun registration(clientName: String) =
+  private fun registration(clientName: String, redirectUris: List<String>) =
     session.newRequest("POST", REGISTER_ROUTE)
       .header("Accept", "application/json")
       .post(
@@ -155,7 +158,12 @@ class SempodsPodServiceClients(
           name = clientName
           grantTypes = setOf(GrantType.CLIENT_CREDENTIALS)
           tokenEndpointAuthMethod = ClientAuthenticationMethod.CLIENT_SECRET_BASIC
-        }.toJSONObject().toJSONString().toRequestBody(JSON_MEDIA_TYPE),
+          if (redirectUris.isNotEmpty()) redirectionURIs = redirectUris.mapTo(LinkedHashSet(), URI::create)
+        }.toJSONObject().apply {
+          // The SDK writes `response_types: ["code"]` beside redirect URIs, which a client
+          // authenticating with a secret does not have.
+          remove("response_types")
+        }.toJSONString().toRequestBody(JSON_MEDIA_TYPE),
       )
       .build()
 
@@ -197,6 +205,8 @@ class SempodsPodServiceClients(
         clientName = document.stringOrNull("client_name"),
         issuedAt = instant(document, "client_id_issued_at") ?: throw ProtocolViolation("/client_id_issued_at: expected an integer"),
         secretExpiresAt = expires.takeIf { it != Instant.EPOCH },
+        redirectUris = if ("redirect_uris" in document.names()) document.strings("redirect_uris") else emptyList(),
+        activationExpiresAt = instant(document, "activation_expires_at"),
       )
     }
 
@@ -217,6 +227,7 @@ class SempodsPodServiceClients(
       lastUsedAt = if ("last_used_at" in document.names()) instant(document, "last_used_at") else throw document.violation("last_used_at: expected a member"),
       scopes = scopesOf(document.string("scope")),
       origin = document.string("origin"),
+      activationExpiresAt = instant(document, "activation_expires_at"),
     )
 
     /** Seconds since the epoch, as RFC 7591 writes a time. One beyond what an [Instant] holds is a [ProtocolViolation]. */

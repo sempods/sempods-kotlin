@@ -12,7 +12,7 @@ import java.util.Collections
  * | `error=access_denied` | false | empty | `access_denied` — refused, nothing ticked, or not grantable; the pod does not say which |
  * | `error=invalid_scope` or `invalid_request` | false | empty | the error code: the request or the form was wrong |
  *
- * A refusal leaves the service installed ([SempodsPodServiceClients]).
+ * A refusal leaves the service registered and without grants ([SempodsPodServiceClients]).
  */
 class SempodsGrantOutcome private constructor(
   scopes: Set<String>,

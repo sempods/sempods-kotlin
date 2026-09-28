@@ -28,9 +28,10 @@ import org.sempods.client.SempodsServiceClientRegistration;
 import org.sempods.client.SempodsSession;
 
 /**
- * A pod owner installs a service client from a program: the worked example of
- * {@code docs/pod-client.md} §"Installing a service client". {@code OwnerInstallationExampleHttpTest}
- * runs it against a real pod, with the test in the owner's browser.
+ * A program registers a service client on a pod and asks the owner to grant it contexts: the worked
+ * example of {@code docs/pod-client.md} §"Registering a service client".
+ * {@code OwnerInstallationExampleHttpTest} runs it against a real pod, with the test in the owner's
+ * browser.
  *
  * <p>Every browser round trip comes back to one loopback redirect, which this class serves itself
  * with the JDK's HTTP server. The client library has no server of its own.
@@ -48,9 +49,10 @@ public final class OwnerInstallation {
   }
 
   /**
-   * An installation, and what became of its grant consent. {@code grants} is the owner's answer, and
+   * A registration, and what became of its grant consent. {@code grants} is the owner's answer, and
    * null when no contexts were asked for or the consent did not finish; {@code grantsUnfinished} says
-   * why it did not. The service is installed either way.
+   * why it did not. The service is registered either way; until the owner grants it contexts it holds
+   * none, and at {@code service.getActivationExpiresAt()} the pod removes it.
    */
   public record Installation(SempodsServiceClientRegistration service, SempodsGrantOutcome grants, IOException grantsUnfinished) {}
 
@@ -64,8 +66,8 @@ public final class OwnerInstallation {
 
   /**
    * @param installer this program's public client on {@code pod}, as {@link #installerClientId()}
-   *     answered on an earlier run, or null to register one. Keep it between runs: registering again
-   *     spends the pod's registration budget.
+   *     answered on an earlier run, or null to register one. It is what the owner's browser returns
+   *     to. Keep it between runs: registering again spends the pod's registration budget.
    */
   public OwnerInstallation(SempodsPodBase pod, OkHttpClient client, Browser browser, String installer) {
     this.pod = pod;
@@ -79,24 +81,23 @@ public final class OwnerInstallation {
     return installer();
   }
 
-  /** Installs {@code serviceName}, stores its credentials, then asks the owner to grant it {@code scopes}. */
+  /** Registers {@code serviceName}, stores its credentials, then asks the owner to grant it {@code scopes}. */
   public Installation install(String serviceName, List<String> scopes, CredentialStore store) throws IOException {
-    try (var loopback = Loopback.start()) {
-      // The first consent: the authority to register one service, and no data.
-      String token = authorize(loopback, "service-clients:install");
-      var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
-      SempodsServiceClientRegistration service = installing.register(serviceName).getBody();
-      // The secret exists only in that answer: store it before anything that can still fail.
-      store.save(service.getClientId(), service.getClientSecret());
-      if (scopes.isEmpty()) {
-        return new Installation(service, null, null);
-      }
+    // A service registers itself: no credential, and no data until the owner says so.
+    var registering = new SempodsPodServiceClients(new SempodsSession(pod), client);
+    SempodsServiceClientRegistration service = registering.register(serviceName).getBody();
+    // The secret exists only in that answer: store it before anything that can still fail.
+    store.save(service.getClientId(), service.getClientSecret());
+    if (scopes.isEmpty()) {
+      return new Installation(service, null, null);
+    }
 
-      // The second consent: the owner grants the service that now exists its contexts. From here on
-      // nothing undoes the installation, so a consent that does not finish is reported, not thrown.
+    // The owner's consent grants the service its contexts and activates it. From here on nothing
+    // undoes the registration, so a consent that does not finish is reported, not thrown.
+    try (var loopback = Loopback.start()) {
       String state = newState();
       try {
-        browser.open(installing.grantConsentUrl(installer(), loopback.redirectUri(), state, service.getClientId(), scopes));
+        browser.open(registering.grantConsentUrl(installer(), loopback.redirectUri(), state, service.getClientId(), scopes));
         return new Installation(service, SempodsGrantOutcome.readQuery(loopback.nextQuery(), state), null);
       } catch (IOException unfinished) {
         return new Installation(service, null, unfinished);
@@ -127,7 +128,7 @@ public final class OwnerInstallation {
   private String installer() throws IOException {
     if (installer == null) {
       var authorization = new SempodsPodAuthorization(new SempodsSession(pod), client);
-      installer = authorization.registerClient("Service installer", List.of("http://127.0.0.1" + CALLBACK)).getBody().getClientId();
+      installer = authorization.registerClient("Service setup", List.of("http://127.0.0.1" + CALLBACK)).getBody().getClientId();
     }
     return installer;
   }

@@ -11,16 +11,21 @@ class SempodsServiceClient private constructor(
   /** When it was registered. */
   val issuedAt: Instant,
   /**
-   * When it last obtained a token, and null when it never has. An installation nobody uses any more
+   * When it last obtained a token, and null when it never has. A service nobody uses any more
    * shows here, since a service secret does not expire.
    */
   val lastUsedAt: Instant?,
   scopes: Set<String>,
   /**
-   * `installed` for one an owner installed, `provisioned` for one the host operator set up. The pod
+   * `installed` for one registered at the pod itself, `provisioned` for one the host operator set up. The pod
    * lists both and changes only the first.
    */
   val origin: String,
+  /**
+   * When the pod removes it unless the owner grants it contexts first; null once it is active, and
+   * for one the host operator set up.
+   */
+  val activationExpiresAt: Instant? = null,
 ) {
 
   /** The scopes it holds, such as `<context-iri>#read`. Empty for a registration without grants. */
@@ -28,17 +33,25 @@ class SempodsServiceClient private constructor(
 
   override fun equals(other: Any?): Boolean =
     other is SempodsServiceClient && other.clientId == clientId && other.clientName == clientName && other.issuedAt == issuedAt &&
-      other.lastUsedAt == lastUsedAt && other.scopes == scopes && other.origin == origin
+      other.lastUsedAt == lastUsedAt && other.scopes == scopes && other.origin == origin &&
+      other.activationExpiresAt == activationExpiresAt
 
-  override fun hashCode(): Int = listOf(clientId, clientName, issuedAt, lastUsedAt, scopes, origin).hashCode()
+  override fun hashCode(): Int = listOf(clientId, clientName, issuedAt, lastUsedAt, scopes, origin, activationExpiresAt).hashCode()
 
   override fun toString(): String =
-    "SempodsServiceClient(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, lastUsedAt=$lastUsedAt, scopes=$scopes, origin=$origin)"
+    "SempodsServiceClient(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, lastUsedAt=$lastUsedAt, scopes=$scopes, origin=$origin, activationExpiresAt=$activationExpiresAt)"
 
   internal companion object {
 
     @JvmSynthetic
-    internal fun of(clientId: String, clientName: String?, issuedAt: Instant, lastUsedAt: Instant?, scopes: Set<String>, origin: String) =
-      SempodsServiceClient(clientId, clientName, issuedAt, lastUsedAt, scopes, origin)
+    internal fun of(
+      clientId: String,
+      clientName: String?,
+      issuedAt: Instant,
+      lastUsedAt: Instant?,
+      scopes: Set<String>,
+      origin: String,
+      activationExpiresAt: Instant? = null,
+    ) = SempodsServiceClient(clientId, clientName, issuedAt, lastUsedAt, scopes, origin, activationExpiresAt)
   }
 }

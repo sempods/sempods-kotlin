@@ -24,8 +24,8 @@ step see `identity.md`.
 | `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, cancel, remove an app's access, sign out |
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
-| `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration, and — with an installation authority — one service client |
-| `GET`, `POST /{pod}/_system/auth/grant` | The grant consent: the owner gives an installed service client its contexts |
+| `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration: a public client, or a service registering itself |
+| `GET`, `POST /{pod}/_system/auth/grant` | The grant consent: the owner gives a registered service client its contexts, which activates it |
 | `/{pod}/_system/auth/service-clients` | An owner's list, rotation, grant removal and revocation — [`service-clients.md`](service-clients.md#managing-an-installed-service-client) |
 | `GET /{pod}/.well-known/oauth-protected-resource` | RFC 9728 Protected Resource Metadata |
 | `GET /{pod}/.well-known/oauth-authorization-server` | RFC 8414 Authorization Server Metadata. Its `issuer` is the pod base URL; the endpoints above stay under `/_system/auth` |
@@ -36,9 +36,9 @@ Three `client_id` shapes, with different rules:
 
 A body asking for a secret — `token_endpoint_auth_method` other than
 `none`, or a grant type outside the browser flow — asks for the third
-shape; everything else is a public registration. Without an installation
-authority the first is refused, so an unauthenticated registration never
-earns service credentials. §"Installing a service client" has the rest.
+shape; everything else is a public registration. A service client earns
+credentials and no data: it stays provisional until the owner grants it
+contexts. §"Registering a service client" has the rest.
 
 `did:web:*` and `dyn:*` ask `RedirectUri.isValid` first, before any
 client-specific rule: absolute, no fragment, no `code`, `response` or
@@ -105,11 +105,11 @@ at registration and omitted where it is read.
   confirmation is wanted; `did:web:*` clients hit `/authorize` from
   background-facing UI where a pop-up would be disruptive.
 
-### `svc:*` — service clients the owner installed
+### `svc:*` — service clients registered at the pod
 
-- Assigned by the server at `/register`, against an installation
-  authority. §"Installing a service client" is that flow, its rules and
-  its refusals.
+- Assigned by the server at `/register` to a service registering itself.
+  §"Registering a service client" is that flow, its rules and its
+  refusals.
 - Confidential: `client_secret_basic` and `client_credentials`, and from
   there an ordinary service client ([`service-clients.md`](service-clients.md)).
 - `/authorize` answers no identifier of this class. A service client
@@ -136,8 +136,8 @@ refreshes stay silent for both browser-facing classes.
    the public-read toggle, the lifetime control, a way to
    [sign out](#signing-out), and — only for an app that already holds
    something — a named way to remove its access. A request naming
-   `service-clients:install` gets a screen of its own instead; see "Installing a
-   service client" below.
+   `service-clients:manage` or `contexts:manage` gets a screen of its own
+   instead; see "Managing service clients" below.
 5. On success, redirects to `redirect_uri?code=...`, carrying `state` back
    exactly as it arrived where the client sent one — an empty `state=` counts
    as none (RFC 6749 §3.1).
@@ -189,8 +189,7 @@ the person starts the authorization again.
 
 `scope` never carries contexts — the person ticks those in the consent UI.
 What it carries is the values the discovery documents advertise:
-`public-read` ("Public-read flow" below), `service-clients:install`
-("Installing a service client" below), `service-clients:manage` and
+`public-read` ("Public-read flow" below), `service-clients:manage` and
 `contexts:manage` (the two "Managing …" sections below), and
 [`offline_access`](#offline_access), which preselects the lifetime control
 rather than deciding it. All are optional, and a delegation flow that
@@ -328,8 +327,8 @@ authority.
 An authorization nobody has answered has its codes refused, and there are
 two ways to be in that state. Its document may be absent, in which case the
 code carries no generation and is not exchangeable. Or the document may
-exist carrying no answer, which is what an
-[installation](#installing-a-service-client) leaves behind: it moves the
+exist carrying no answer, which is what a
+[privileged consent](#managing-service-clients) leaves behind: it moves the
 generation without settling the lifetime question, so the exchange reads
 the answer rather than the row. Every code minted for a person otherwise
 comes from an authorization that has been answered — consent records the
@@ -352,8 +351,8 @@ out `refresh_token_expires_in`. The person is told at the consent screen.
 
 Three flows mint no family at all. Two because nobody was asked in them:
 an anonymous `public-read` exchange and a service client's
-`client_credentials` are short-lived by construction. The third is an
-installation authority ("Installing a service client" below), where the
+`client_credentials` are short-lived by construction. The third is a
+privileged authority ("Managing service clients" below), where the
 refusal is the point of the flow. It makes `offline_access` a condition of
 nothing, so `SPS-AUTH-059` stands untouched by it. Authenticated
 `public-read` takes the ordinary path, and its lifetime is the consent
@@ -598,108 +597,66 @@ nothing else, so `scope=public-read <context>#read` without a session is
 `login_required` rather than an anonymous code. At token issuance and at
 resource access the union semantics described there apply.
 
-## Installing a service client
+## Registering a service client
 
-`/authorize?scope=service-clients:install` asks the pod owner for the authority to register **one** service
-client. It is the first of the two consents an installation takes; the second,
-[§"Granting it contexts"](#granting-it-contexts), grants that service its contexts once it exists.
-A JVM program runs the whole installation through `sempods-client`
-([`../pod-client.md`](../pod-client.md#installing-a-service-client)).
-
-- **The owner's to grant.** Ownership is alias-aware — any URI that names the owner does — and
-  anyone else is answered `invalid_scope`.
-- **It stands alone.** `service-clients:install` beside `public-read` or a context scope is refused rather
-  than trimmed: an installer that could read the owner's data is not the thing being asked for.
-  `offline_access` beside it is ignored, because the control it preselects is not on the screen.
-- **A screen of its own.** The dialog offers the installation unticked and carries no context rows,
-  no public-read toggle, no way to build a context, no lifetime control and no way out. Ticking
-  nothing declines the installation and leaves whatever that app already holds exactly as it was,
-  and a submission carrying any of the fields this screen does not render is refused rather than
-  obeyed — the disconnect included, which is the one that would remove something.
-- **It answers nothing else.** Both consents write the same `(pod, client, person)` decision, and an
-  installation moves only its generation: a lifetime answer already on record survives, and where
-  none is on record none is written. A `durable = false` for a question the screen never asked would
-  read as a withdrawal at the next rotation and end a connection the owner still wanted.
-- **Asked every time.** A standing consent never answers it: `prompt=none` is `consent_required`,
-  and a stored grant naming the scope is dropped rather than re-issued.
-- **One shot.** The code exchange mints an access token good for an hour with **no refresh token**,
-  and records the authority under that token's `jti`. Spending it is a single atomic removal, so a
-  second registration finds nothing — concurrent calls included.
-- **It carries the URIs the owner was recognised by.** Sign in with Google, own the pod under the
-  email address: the two are linked by an equivalence that lives in sempods-auth, while the
-  bearer this dialog leads to carries one URI. So the authority records the set the dialog
-  recognised, and registration compares the pod's *current* owner against it.
-- **It dies when the app is disconnected**, whatever the bearer has left of its hour. Another
-  consent for the same app leaves it standing. A registration already past that check runs to its
-  end and leaves the orphan described below.
-- **The ordinary dialog ends it.** Until the authority is spent, withdrawn or an hour old, that
-  app's ordinary consent dialog offers "Remove access", even where the app holds no grant. The
-  person must be signed in under the URI they approved it under, or under one linked to it.
-- **No data at any point, and no capability either.** A token carrying the scope resolves no
-  context permissions and no public contexts, whether or not it has been spent: `GET
-  {pod}/_system/contexts` with one lists nothing, even where the same app holds grants for the same
-  person. It does not pass a gate that asks only for an app, which is how the AI routes ask: an
-  empty sandbox is no answer where nobody consults one.
-
-### Spending it
-
-`POST {pod}/_system/auth/register`, with that bearer and the metadata an installation is spelled
-with:
+A service registers itself at `POST {pod}/_system/auth/register`, without a bearer:
 
 ```json
 {
   "client_name": "Notes Sync",
   "grant_types": ["client_credentials"],
-  "token_endpoint_auth_method": "client_secret_basic"
+  "token_endpoint_auth_method": "client_secret_basic",
+  "redirect_uris": ["http://127.0.0.1/callback"]
 }
 ```
 
+The registration is **provisional**: it holds a `svc:` identifier and a secret, and no data rights.
+Only the owner's consent ([§"Granting it contexts"](#granting-it-contexts)) activates it. Without
+that consent within 24 hours, the pod removes it. A JVM program runs the whole sequence through
+`sempods-client` ([`../pod-client.md`](../pod-client.md#registering-a-service-client)).
+
 - **The server names it.** The answer carries a `svc:` identifier, `client_id_issued_at`, the
-  secret and `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for one that does not
-  expire. The identifier and the timestamp are what the caller opens the second consent with: the
-  name is the installer's own text, so an owner shown only that cannot tell an expected
-  installation from a crafted one.
-- **A lost answer costs the installation.** The secret lives only in that response
-  ([`service-clients.md`](service-clients.md#registration)), so a retry is refused. What is left
-  holds no grants and is
-  [#251](https://github.com/sempods/sempods-kotlin/issues/251)'s to sweep.
-- **`client_name` is required.** It is what the second consent calls the service.
-- **No grants**, until the owner gives it some — see
-  [`service-clients.md`](service-clients.md#registration) for what a registration holding none is
-  worth.
-- **Exactly once.** The authority is consumed before the client is created, so two calls arriving
-  together produce one client and the loser hears what a second attempt hears: `401 invalid_token`.
-  A run that dies between the two leaves neither, and the owner installs again.
-- **Those three members are all an installation may carry.** Any other is refused by name: the
-  identity, the context root and the grants are the pod's, and so is every member it has not been
-  asked about.
-- **Refusals, in the order they are asked.** What the bearer alone settles comes first: `401` for
-  one this pod cannot verify, `403 insufficient_scope` for one carrying no `service-clients:install`. Then
-  the body: `400 invalid_client_metadata` for a shape this pod does not serve, for an installer
-  bearer sent with a public body, and for a member outside the three. The authority is answered
-  last — `401 invalid_token` where it is spent or withdrawn, `403` where no address the consent
-  recognised owns the pod now. The 401 and the 403 carry the pod's usual RFC 6750 challenge.
-- **A refused body costs the authority nothing**, because every check above it runs first: a
-  caller that got its metadata wrong retries with the token it holds. Ownership is answered from
-  the row and therefore spends it, so a pod that changed hands takes the authority with the
-  refusal — and installing again reaches the same answer.
-- **A throttled call costs the authority nothing either.** Both budgets that apply to it answer
-  `429` before the authority is spent — see §"Registration rate limit".
+  secret, `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for a secret that does not
+  expire — and the sempods member `activation_expires_at`, the deadline in epoch seconds.
+- **A lost answer costs nothing but the row.** The secret lives only in that response
+  ([`service-clients.md`](service-clients.md#registration)). A retry registers a second service; the
+  first holds nothing and is removed at its deadline.
+- **Provisional means no token.** Client Credentials answers `invalid_scope` while the registration
+  holds no grants, as for any registration without grants. Past its deadline it is gone to every
+  read — authentication, listing, the grant consent — even before the TTL monitor removes the row,
+  so a token request is `invalid_client` and a late consent activates nothing.
+- **Activation is one write.** The consent writes the grants and removes the deadline in the same
+  single-document update, filtered on the deadline still lying ahead. An active registration
+  carries no deadline and is never removed by it.
+- **A bearer changes nothing.** The registration holds no rights to give, so one presented beside
+  it is not consulted; only one this pod cannot verify is `401`.
 
-**Finish the rollout before installing.** A node from before this release records an authority
-without the fields the ownership check reads, and a new node falls back to what the row does
-carry. One case that fallback cannot cover: an owner whose sign-in address reaches the pod's owner
-only through a profile-linked alias, whose code an old node redeemed — that set is not in the row
-to recover. The install is answered `403`, and works once the fleet is uniform.
+What the body may carry (RFC 7591 §2):
 
-The `dyn:` prefix and the grant types a registration response may advertise are bound to this
-endpoint by [`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008)
-and [`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011),
-so this profile is an experimental extension with known deviations — sempods-spec#69 carries them.
+| Member | Answer |
+|---|---|
+| `client_name` | Required: it names the service in the consent |
+| `grant_types`, `token_endpoint_auth_method` | `["client_credentials"]` and `client_secret_basic`; another value is `invalid_client_metadata` |
+| `redirect_uris` | Optional, checked like a public client's; a bad one is `invalid_redirect_uri` |
+| `jwks`, `jwks_uri`, `scope`, non-empty `response_types` | `invalid_client_metadata`: a key, a scope or a browser flow this profile does not have |
+| `client_uri`, `logo_uri`, `contacts`, `tos_uri`, `policy_uri`, `software_*` | Dropped: not stored, not echoed |
+| Anything else | Ignored |
+
+Anyone can register, so the name is a claim: the consent shows it beside the identifier and the
+registration time, which are the pod's own. The deadline and the per-pod budget
+(§"Registration rate limit") bound what an open endpoint costs; neither confirms an identity.
+
+The `dyn:` prefix, the grant types a registration response may advertise and out-of-band service
+clients are bound by
+[`SPS-AUTH-008`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008),
+[`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011)
+and [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012),
+so this profile is an experimental extension with known deviations — [sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) carries them.
 
 ### Granting it contexts
 
-The second consent. The caller sends the owner's browser to
+The owner's consent, which grants a registered service its contexts and activates it. The caller
+sends the owner's browser to
 
 ```
 GET {pod}/_system/auth/grant?client_id=<caller>&redirect_uri=<its redirect>&state=<opaque>
@@ -707,16 +664,18 @@ GET {pod}/_system/auth/grant?client_id=<caller>&redirect_uri=<its redirect>&stat
 ```
 
 - **The caller names itself** with `client_id` and a registered `redirect_uri`, as at `/authorize`;
-  the installer's own client qualifies. A pair that does not match gets a plain `400` and no
+  the program's own public client qualifies. A pair that does not match gets a plain `400` and no
   redirect. Without a session the person signs in first.
 - **The dialog names the service** by its label, beside the `svc:` identifier and the registration
-  time. The label is the installer's text; the other two are how an owner tells an expected
-  installation from a crafted one. Requested rows arrive ticked, and the owner may untick any.
+  time. The label is the service's own text; the other two are how an owner tells an expected
+  service from a crafted one. Requested rows arrive ticked, and the owner may untick any.
 - **Once, in the session that opened it.** The dialog is bound to the registration, the offered
   rows, the person and their sign-in time. A replay, another session or an expired page is a plain
   `403`.
 - **Checked again at redemption.** The pod must still be the person's, the registration unchanged,
   and every ticked context still there.
+- **It activates.** Grants and activation are one write; a registration past its deadline is
+  refused and not revived. Ticking nothing is a refusal, which activates nothing.
 - **It only adds.** Taking grants away is
   [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
 
@@ -725,7 +684,7 @@ The answer is a `303` to the caller's redirect, with its `state`:
 | Outcome | Query |
 |---|---|
 | Granted | `result=granted&scope=<what was granted>` |
-| Refused, nothing ticked, not the owner, no such installed service, or no longer grantable | `error=access_denied` |
+| Refused, nothing ticked, not the owner, no such service or past its deadline, or no longer grantable | `error=access_denied` |
 | A row the dialog did not offer, or a scope that is not a context scope | `error=invalid_scope` |
 | A form naming another service | `error=invalid_request` |
 
@@ -734,20 +693,33 @@ The answer is a `303` to the caller's redirect, with its `state`:
 ## Managing service clients
 
 `/authorize?scope=service-clients:manage` asks the pod owner for the authority to list, rotate,
-narrow and revoke the service clients on the pod. It is a scope of its own because an installer
-approved for one service must not rotate the secret of another that holds `#manage`.
+narrow and revoke the service clients on the pod.
 
-It follows the installation's rules above, with two differences:
-
-- **It is not spent.** Every call reads the authority, so one approval lists, then rotates, then
-  revokes.
-- **One privileged scope per authorization.** Asking for both is `invalid_scope`.
+- **The owner's to grant.** Ownership is alias-aware — any URI that names the owner does — and
+  anyone else is answered `invalid_scope`.
+- **It stands alone.** The scope beside `public-read`, a context scope or the other privileged scope
+  is refused rather than trimmed. `offline_access` beside it is ignored, because the control it
+  preselects is not on the screen.
+- **A screen of its own.** The dialog offers the authority unticked and carries no context rows, no
+  public-read toggle, no way to build a context, no lifetime control and no way out. Ticking
+  nothing declines it and leaves whatever that app already holds exactly as it was, and a
+  submission carrying any of the fields this screen does not render is refused.
+- **It answers nothing else.** The consent moves the `(pod, client, person)` decision's generation
+  only: a lifetime answer already on record survives, and where none is on record none is written.
+- **Asked every time.** A standing consent never answers it: `prompt=none` is `consent_required`,
+  and a stored grant naming the scope is dropped rather than re-issued.
+- **An hour, no renewal.** The code exchange mints an access token good for an hour with **no
+  refresh token**, and records the authority under that token's `jti`, with every URI the dialog
+  recognised the owner by. Each call compares the pod's *current* owner against that set.
+- **It dies when the app is disconnected**, whatever the bearer has left of its hour. Until then the
+  app's ordinary consent dialog offers "Remove access", even where the app holds no grant.
+- **No data of its own.** A token carrying the scope resolves no context permissions and no public
+  contexts. It does not pass a gate that asks only for an app, which is how the AI routes ask.
 
 It adds no grant, and its own token reaches no context. It reaches data through a rotation: the
 caller receives the new secret and mints Client Credentials tokens as that service, which reach
 every context the service is granted. The secret does not expire, so this outlasts the hour.
-Rotate an installed service holding `apps/notes#write`, and the caller still writes `apps/notes`
-the next day.
+Rotate a service holding `apps/notes#write`, and the caller still writes `apps/notes` the next day.
 
 The operations are
 [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
@@ -778,13 +750,13 @@ so this is an experimental deviation, carried by
 ## Registration rate limit
 
 `/register` has three budgets, in the order a request meets them. Each profile has its own, so a
-flood of public registrations does not hold up an installation, and the other way round.
+flood of public registrations does not hold up a service's, and the other way round.
 
 | Budget | Key | Asked | Default (rate/min, burst) |
 |---|---|---|---|
 | public | address | before the pod row, without a bearer | 10, 30 |
 | protected | address | before the pod row, with a bearer | 10, 20 |
-| installer | pod | after the body is accepted, before the authority is spent | 2, 5 |
+| service | pod | after a service's body is accepted | 2, 5 |
 
 - **The address** is read as at `/token`: the rightmost `X-Forwarded-For` entry. No proxy, no
   address limit.
@@ -797,24 +769,19 @@ flood of public registrations does not hold up an installation, and the other wa
   registers once per pod and profile a user connects; reaching the pod server through the public
   proxy, all of it spends one public budget. An operator running it raises
   `SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*`, or routes it to the pod server without the proxy.
-- **The installer budget** bounds secret minting across many authorities, each of which mints
-  one bcrypt-hashed secret. Only the pod's owner can hold one, under any linked identity, so a
-  budget per pod is a budget per person, however many identities they sign in with. Only a
-  request that would otherwise mint is charged: an accepted body, and an authority that is unspent
-  and was granted by the pod's current owner. A refused body, a spent token or one kept by a former
-  owner cannot hold the budget empty. Requests racing on one unspent authority are each charged
-  before one of them spends it, so an installer can empty the burst once per authority it holds,
-  and each authority is an owner consent. The budget is asked before the authority is spent, so a
-  throttled installation keeps its approval.
+- **The service budget** bounds secret minting on one pod: each service registration mints a
+  bcrypt-hashed secret, nothing authenticates the caller, and many addresses can reach one pod. A
+  refused body is not charged. A caller can spend a pod's budget and delay other registrations for
+  a minute; it cannot activate anything.
 - **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
   `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.
-- **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,INSTALLER}_PER_MINUTE` and
+- **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and
   `…_BURST`. A rate of `0` turns that budget off and leaves the others; a burst of `0` follows the
   rate. All are off outside a deployment, and a negative value is refused at boot. The buckets are
   in memory per process, as at `/token`.
 
-The rows a registration leaves behind are bounded by rate, not removed:
-[#251](https://github.com/sempods/sempods-kotlin/issues/251) sweeps unused ones.
+A service nobody activates is removed at its deadline. Public registrations are bounded by rate,
+not removed: [#251](https://github.com/sempods/sempods-kotlin/issues/251) sweeps unused ones.
 
 ## Protected Resource Metadata (RFC 9728)
 

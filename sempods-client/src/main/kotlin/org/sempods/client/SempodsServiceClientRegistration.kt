@@ -3,7 +3,7 @@ package org.sempods.client
 import java.time.Instant
 
 /**
- * A service client the pod just registered for an installation (RFC 7591 §3.2.1), with its secret.
+ * A service client the pod just registered (RFC 7591 §3.2.1), with its secret.
  * Members this class does not name are ignored.
  *
  * **The pod never answers [clientSecret] again**: store it before anything that can still fail.
@@ -20,15 +20,32 @@ class SempodsServiceClientRegistration private constructor(
   val issuedAt: Instant,
   /** When the secret expires, and null for `client_secret_expires_at: 0`, a secret that does not. */
   val secretExpiresAt: Instant?,
+  redirectUris: List<String>,
+  /**
+   * When the pod removes this registration unless the owner grants it contexts first — the sempods
+   * member `activation_expires_at`. Null on a pod that does not send it.
+   */
+  val activationExpiresAt: Instant?,
 ) {
 
+  /** Where the owner's browser may return after the consent; empty where none was registered. */
+  val redirectUris: List<String> = java.util.Collections.unmodifiableList(ArrayList(redirectUris))
+
   override fun toString(): String =
-    "SempodsServiceClientRegistration(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, secretExpiresAt=$secretExpiresAt)"
+    "SempodsServiceClientRegistration(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, " +
+      "secretExpiresAt=$secretExpiresAt, redirectUris=$redirectUris, activationExpiresAt=$activationExpiresAt)"
 
   internal companion object {
 
     @JvmSynthetic
-    internal fun of(clientId: String, clientSecret: String, clientName: String?, issuedAt: Instant, secretExpiresAt: Instant?) =
-      SempodsServiceClientRegistration(clientId, clientSecret, clientName, issuedAt, secretExpiresAt)
+    internal fun of(
+      clientId: String,
+      clientSecret: String,
+      clientName: String?,
+      issuedAt: Instant,
+      secretExpiresAt: Instant?,
+      redirectUris: List<String> = emptyList(),
+      activationExpiresAt: Instant? = null,
+    ) = SempodsServiceClientRegistration(clientId, clientSecret, clientName, issuedAt, secretExpiresAt, redirectUris, activationExpiresAt)
   }
 }

@@ -28,8 +28,8 @@ class PodRegistrationRateLimiterTest {
     publicBurst = public,
     protectedPerMinute = protected,
     protectedBurst = protected,
-    installerPerMinute = installer,
-    installerBurst = installer,
+    servicePerMinute = installer,
+    serviceBurst = installer,
   )
 
   /** A proxied request whose appended address is [address]. */
@@ -110,7 +110,7 @@ class PodRegistrationRateLimiterTest {
         registerRateLimitPublicPerMinute = 1,
         registerRateLimitPublicBurst = 4,
         registerRateLimitProtectedPerMinute = 1,
-        registerRateLimitInstallerPerMinute = 1,
+        registerRateLimitServicePerMinute = 1,
       ),
     )
     repeat(4) { assertTrue(limiter.tryAcquireAddress(via("203.0.113.8"), bearerPresented = false)) }

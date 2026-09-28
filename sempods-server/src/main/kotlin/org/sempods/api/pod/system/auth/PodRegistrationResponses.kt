@@ -14,8 +14,6 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse
 import com.nimbusds.oauth2.sdk.id.ClientID
 import com.nimbusds.oauth2.sdk.id.SoftwareID
 import com.nimbusds.oauth2.sdk.id.SoftwareVersion
-import jakarta.ws.rs.core.HttpHeaders
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.sempods.pods.oauth.flows.PodRegistrationError
 import org.sempods.pods.oauth.flows.PodRegistrationResult
@@ -23,13 +21,13 @@ import java.net.URI
 import java.util.Date
 
 /**
- * A registration answer on the wire (RFC 7591 §§3.2.1–3.2.2, RFC 6750 §3).
+ * A registration answer on the wire (RFC 7591 §§3.2.1–3.2.2).
  *
  * [PodClientRegistration][org.sempods.pods.oauth.flows.PodClientRegistration] decides what the
  * client is; the SDK decides how that is spelled. `ClientInformationResponse` is also what puts
  * `Cache-Control: no-store` on the answer and what writes `client_secret_expires_at: 0` for a
- * secret with no expiry — see `docs/auth/oauth.md` §"Installing a service client" for what a
- * caller makes of that.
+ * secret with no expiry. A service's answer adds the sempods member [ACTIVATION_EXPIRES_AT] — see
+ * `docs/auth/oauth.md` §"Registering a service client".
  *
  * Members are not written in the order §3.2.1 lists them: the SDK's JSON object is a hash map. A
  * caller reads members by name, which is what JSON promises.
@@ -37,21 +35,16 @@ import java.util.Date
 internal object PodRegistrationResponses {
 
   /**
-   * @param challenge builds this pod's `WWW-Authenticate` for an RFC 6750 error code. Passed in
-   *   rather than built here so that every 401 and 403 on the pod carries the one challenge shape
-   *   `SempodsBaseEndpoint` owns, RFC 9728 pointer included.
+   * When a provisional service registration is removed unless the owner activates it, in epoch
+   * seconds. A sempods member of the RFC 7591 response; absent once the registration is active.
    */
-  fun render(result: PodRegistrationResult, challenge: (error: String) -> String): Response = when (result) {
+  internal const val ACTIVATION_EXPIRES_AT = "activation_expires_at"
+
+  fun render(result: PodRegistrationResult): Response = when (result) {
     is PodRegistrationResult.Registered -> created(publicClient(result))
-    is PodRegistrationResult.ServiceRegistered -> created(serviceClient(result))
+    is PodRegistrationResult.ServiceRegistered -> createdService(result)
     is PodRegistrationResult.Refused -> refused(result)
     PodRegistrationResult.RateLimited -> rateLimited()
-
-    is PodRegistrationResult.Unauthorized -> Response.status(result.reason.status)
-      .header(HttpHeaders.WWW_AUTHENTICATE, challenge(result.reason.error))
-      .entity(result.description)
-      .type(MediaType.TEXT_PLAIN)
-      .build()
   }
 
   /**
@@ -94,12 +87,27 @@ internal object PodRegistrationResponses {
       setTokenEndpointAuthMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
       setGrantTypes(setOf(GrantType.CLIENT_CREDENTIALS))
       setName(client.clientName)
+      client.redirectUris.takeIf { it.isNotEmpty() }?.let { uris -> setRedirectionURIs(uris.mapTo(mutableSetOf(), URI::create)) }
     }
     return ClientInformation(ClientID(client.clientId), Date.from(client.issuedAt), metadata, Secret(client.secret))
   }
 
   private fun created(information: ClientInformation): Response =
     jaxrs(ClientInformationResponse(information, true).toHTTPResponse())
+
+  /**
+   * [created], with [ACTIVATION_EXPIRES_AT] and the registered `redirect_uris`. The member is
+   * sempods' own and the SDK has no field for it, so it is added to the SDK's JSON object.
+   */
+  private fun createdService(client: PodRegistrationResult.ServiceRegistered): Response {
+    val information = serviceClient(client)
+    val response = ClientInformationResponse(information, true).toHTTPResponse()
+    val body = information.toJSONObject().apply {
+      put(ACTIVATION_EXPIRES_AT, client.activationExpiresAt.epochSecond)
+    }
+    response.setBody(body.toJSONString())
+    return jaxrs(response)
+  }
 
   private fun errorObject(error: PodRegistrationError): ErrorObject = when (error) {
     PodRegistrationError.INVALID_REDIRECT_URI -> RegistrationError.INVALID_REDIRECT_URI

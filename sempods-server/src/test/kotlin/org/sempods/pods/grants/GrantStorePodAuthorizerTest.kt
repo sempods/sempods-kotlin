@@ -190,26 +190,26 @@ class GrantStorePodAuthorizerTest {
     verify(exactly = 0) { resolver.resolve(any(), any(), any()) }
   }
 
-  // --- an installation authority reaches nothing ------------------------------------------------
+  // --- a management authority reaches nothing ------------------------------------------------
 
   @Test
-  fun `an installer token resolves no contexts, whatever the same client was granted`() {
+  fun `a management token resolves no contexts, whatever the same client was granted`() {
     // The case this exists for: context permissions never travel in a token, so a slim
-    // `service-clients:install` bearer would otherwise pick up whatever this client holds for this person
-    // from an earlier, ordinary authorization. An installer arranges rights and holds none.
+    // `service-clients:manage` bearer would otherwise pick up whatever this client holds for this person
+    // from an earlier, ordinary authorization. A manager administers rights and holds none.
     every { resolver.resolve(podId, any(), podBaseUrl) } returns grants(ctx("tasks"))
 
-    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_INSTALL_SCOPE))
+    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_MANAGE_SCOPE))
 
     assertEquals(emptySet(), credentials.restrictedContexts)
     verify(exactly = 0) { resolver.resolve(any(), any(), any()) }
   }
 
   @Test
-  fun `an installer token sees no public contexts either`() {
+  fun `a management token sees no public contexts either`() {
     // No authorization mints the two together — the request is refused — and this says so here
     // rather than resting on that refusal.
-    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_INSTALL_SCOPE, "public-read"))
+    val credentials = authorizer.authorize(pod, userToken(SERVICE_CLIENTS_MANAGE_SCOPE, "public-read"))
 
     assertEquals(emptySet(), credentials.restrictedContexts)
     verify(exactly = 0) { podFacade.getPublicContexts(podName = any()) }
@@ -219,6 +219,6 @@ class GrantStorePodAuthorizerTest {
   fun `the scope itself still travels, so a route can ask what the bearer is for`() {
     every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 
-    assertEquals(setOf(SERVICE_CLIENTS_INSTALL_SCOPE), authorizer.authorize(pod, userToken(SERVICE_CLIENTS_INSTALL_SCOPE)).oauthScopes)
+    assertEquals(setOf(SERVICE_CLIENTS_MANAGE_SCOPE), authorizer.authorize(pod, userToken(SERVICE_CLIENTS_MANAGE_SCOPE)).oauthScopes)
   }
 }

@@ -1,7 +1,7 @@
 package org.sempods.api.pod.system.mcp
 
 import com.google.inject.Inject
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.CapturedLog
@@ -3307,16 +3307,16 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
 
 
   @Test
-  fun `tools call authorize with reauthorize=true ends nothing for an installation authority`() {
+  fun `tools call authorize with reauthorize=true ends nothing for a management authority`() {
     // `authorize` is the one MCP tool that changes state on the strength of the bearer's identity
-    // rather than of a context. An installation authority carries the same client and person as
+    // rather than of a context. A management authority carries the same client and person as
     // the app's ordinary connection, so without the scope check it would end it.
     val pod = sempodsTestFactory.newPod()
     val (contextUri, _) = createContextWithToken(pod, "main-${TestUtil.randomId()}")
     val webId = "https://id.test/user"
     val clientId = "did:web:test.example"
     val scopes = setOf("${contextUri}#read")
-    val installer = mintScopedToken(pod.name, listOf(SERVICE_CLIENTS_INSTALL_SCOPE), webId = webId)
+    val manager = mintScopedToken(pod.name, listOf(SERVICE_CLIENTS_MANAGE_SCOPE), webId = webId)
     podGrantsDao.addGrants(
       podId = checkNotNull(pod.id),
       appId = clientId,
@@ -3335,7 +3335,7 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
 
     val response = httpClient.preparePost(mcpUrl(pod.name))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $installer")
+      .addHeader("Authorization", "Bearer $manager")
       .setBody(
         objectMapper.writeValueAsString(
           mapOf(

@@ -99,7 +99,7 @@ class PodAuthEndpoint @Inject constructor(
         ),
       )
     }
-    return PodRegistrationResponses.render(result) { error -> buildBearerChallenge(podDbo.name, error) }
+    return PodRegistrationResponses.render(result)
   }
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────

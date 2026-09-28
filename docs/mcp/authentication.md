@@ -79,7 +79,7 @@ consent*, and two things would otherwise answer it from stock. A bearer
 carrying an authority granted for one named operation ends nothing here:
 it names the same client and person as the app's ordinary connection, and
 this route acts on that identity without consulting a context
-([`../auth/oauth.md`](../auth/oauth.md#installing-a-service-client)). Its
+([`../auth/oauth.md`](../auth/oauth.md#managing-service-clients)). Its
 **refresh tokens**, so parallel sessions cannot rotate around the consent
 UI. And any **authorization code it has not yet exchanged**: a code stays
 redeemable for five minutes and the client keeps its verifier, so one

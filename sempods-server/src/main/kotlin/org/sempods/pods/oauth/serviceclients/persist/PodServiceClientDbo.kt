@@ -7,11 +7,11 @@ import java.time.Instant
  * A service client: a client acting as itself through `client_credentials`, with no person behind
  * its tokens.
  *
- * Service clients are NOT created via RFC 7591 Dynamic Client Registration
- * (those live in [org.sempods.pods.oauth.DynamicClientRegistrationDbo]).
- * An operator provisions one through the host admin surface, or a pod owner installs one; see
- * `docs/auth/service-clients.md`. Each row carries a bcrypt hash of the shared secret; the
- * plaintext never persists here.
+ * An operator provisions one through the host admin surface, or a service registers itself at
+ * `POST {pod}/_system/auth/register` and waits for the owner to activate it ([pendingUntil]); see
+ * `docs/auth/service-clients.md`. Public clients registered there live in
+ * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. Each row carries a bcrypt hash of the
+ * shared secret; the plaintext never persists here.
  *
  * Its grants live on this row, in [scopes], and nowhere else: the resolver reads them per request,
  * and a single-document update is what makes a replace of them optimistic ([grantsVersion]).
@@ -64,4 +64,15 @@ internal data class PodServiceClientDbo(
 
   /** The WebID behind [grantsChangedAt]. */
   val grantsChangedBy: String? = null,
+
+  /** Where the service may send the owner back after its consent; empty where it registered none. */
+  val redirectUris: List<String> = emptyList(),
+
+  /**
+   * Until when a self-registered service waits for the owner's consent; `null` once activated, and
+   * on every operator-provisioned row. A TTL index removes the row after it, and every read treats
+   * a passed deadline as absent, because the TTL monitor lags. Activation removes it in the same
+   * update that writes the grants (`PodServiceClientDao.addScopes`, `replaceScopes`).
+   */
+  val pendingUntil: Instant? = null,
 )

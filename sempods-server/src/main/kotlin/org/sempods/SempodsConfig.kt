@@ -173,11 +173,11 @@ data class SempodsConfig(
   /** The spike allowed on that tier; `0` means the same as the rate. */
   val registerRateLimitProtectedBurst: Int = 0,
 
-  /** Installations that may be attempted per minute on one pod — only its owner can make them. */
-  val registerRateLimitInstallerPerMinute: Int = 0,
+  /** Service registrations that may be made per minute on one pod, by anyone. */
+  val registerRateLimitServicePerMinute: Int = 0,
 
   /** The spike allowed on that tier; `0` means the same as the rate. */
-  val registerRateLimitInstallerBurst: Int = 0,
+  val registerRateLimitServiceBurst: Int = 0,
 ) {
 
   init {
@@ -204,8 +204,8 @@ data class SempodsConfig(
       "registerRateLimitPublicBurst" to registerRateLimitPublicBurst,
       "registerRateLimitProtectedPerMinute" to registerRateLimitProtectedPerMinute,
       "registerRateLimitProtectedBurst" to registerRateLimitProtectedBurst,
-      "registerRateLimitInstallerPerMinute" to registerRateLimitInstallerPerMinute,
-      "registerRateLimitInstallerBurst" to registerRateLimitInstallerBurst,
+      "registerRateLimitServicePerMinute" to registerRateLimitServicePerMinute,
+      "registerRateLimitServiceBurst" to registerRateLimitServiceBurst,
     ).forEach { (name, value) ->
       require(value >= 0) { "$name must not be negative (0 disables the tier or follows the rate), got $value" }
     }

@@ -51,4 +51,4 @@ example, not an implementation of that admin policy.
 
 Owner grant CRUD over the existing grant/replace/revoke facade methods also needs an HTTP
 contract and owner or covering manage authorization. Review it with this interface boundary;
-service-client lifecycle and installer consent remain owned by [#35](https://github.com/sempods/sempods-kotlin/issues/35).
+service-client registration and consent are owned by [#325](https://github.com/sempods/sempods-kotlin/issues/325).
