@@ -2,9 +2,9 @@
 
 Check documentation against the code and the
 [writing rules](documentation-strategy.md#the-writing-rules) for one target: your own change, a
-pull request or a path. On your own change, the review applies every "fix", "delete" or "remove"
-below. On a pull request or a path, it reports them as findings and no file changes; with `--fix`,
-it applies them. `--fix` on a pull request edits its branch, so check it out first:
+pull request or a path. On your own change, the review makes every correction the steps below call
+for. On a pull request or a path, it reports them as findings and no file changes; with `--fix`,
+it makes them. `--fix` on a pull request edits its branch, so check it out first:
 `gh pr checkout 123`. Before proposing a commit, run it on your own change — it is the working half
 of the [definition of done](documentation-strategy.md#definition-of-done), in every PR, including
 partial work on a multi-PR issue.
