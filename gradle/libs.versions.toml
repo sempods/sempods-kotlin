@@ -14,8 +14,6 @@ rdf4j = "6.1.0"
 slf4j = "2.0.19"
 
 [libraries]
-jerseyBom = { module = "org.glassfish.jersey:jersey-bom", version.ref = "jersey" }
-ktorBom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
 ktorServerCore = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktorServerNetty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
 ktorServerCallLogging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
@@ -24,13 +22,10 @@ ktorClientCore = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktorClientCio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 # `AttributeKey`, in the signature of `commons-ktor`'s trace binding.
 ktorUtils = { module = "io.ktor:ktor-utils", version.ref = "ktor" }
-rdf4jBom = { module = "org.eclipse.rdf4j:rdf4j-bom", version.ref = "rdf4j" }
-slf4jBom = { module = "org.slf4j:slf4j-bom", version.ref = "slf4j" }
 
 # The HTTP engine under `:sempods-client` — and so under everything that dials a pod — and under
-# `:commons-okhttp`, which holds a client of its own (`docs/pod-client.md` §"Two OkHttp clients in one
-# process"). Pinned here, so the Ktor BOM of another module does not decide it. Why OkHttp:
-# `docs/pod-client.md` §"The transport".
+# `:sempods-commons-okhttp`, which holds a client of its own (`docs/pod-client.md` §"Two OkHttp
+# clients in one process"). Why OkHttp: `docs/pod-client.md` §"The transport".
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 # S3, for `:sempods-media-s3`. The AWS SDK is the reference implementation of the *protocol* — Garage,
@@ -44,10 +39,6 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 awsS3 = { module = "software.amazon.awssdk:s3", version.ref = "awsSdk" }
 awsApacheClient = { module = "software.amazon.awssdk:apache-client", version.ref = "awsSdk" }
 
-commonsEmailJakarta = "org.apache.commons:commons-email2-jakarta:2.0.0-M1"
-angusMail = "org.eclipse.angus:jakarta.mail:2.0.5"
-angusActivation = "org.eclipse.angus:angus-activation:2.0.3"
-
 # `ThreadContextElement`, in the signature of `commons-ktor`'s trace binding. The version matches
 # what Ktor pins, and the two must not drift.
 kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -60,12 +51,7 @@ kotlinxIoCore = "org.jetbrains.kotlinx:kotlinx-io-core:0.9.1"
 jettyServer = "org.eclipse.jetty:jetty-server:12.1.13"
 jettyUtil = "org.eclipse.jetty:jetty-util:12.1.13"
 
-commonsText = "org.apache.commons:commons-text:1.15.0"
-commonsValidator = "commons-validator:commons-validator:1.11.0"
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.86"
-
-googleApiClient = "com.google.api-client:google-api-client:2.9.1"
-owaspHtmlSanitizer = "com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20260313.1"
 
 guice = "com.google.inject:guice:7.0.0"
 # `JsonMapper` and `JsonNode` — the Jackson types this repository puts in public signatures. Inside
@@ -103,7 +89,6 @@ mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" 
 # public signatures, `:sempods-server` only in DAO bodies.
 bson = { module = "org.mongodb:bson", version.ref = "mongodb" }
 thymeleaf = "org.thymeleaf:thymeleaf:3.1.5.RELEASE"
-webPush = "nl.martijndwars:web-push:5.1.2"
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jJul = { module = "org.slf4j:jul-to-slf4j", version.ref = "slf4j" }
 
@@ -151,7 +136,6 @@ opentelemetrySdkTesting = { module = "io.opentelemetry:opentelemetry-sdk-testing
 opentelemetryOkhttp = { module = "io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0", version.ref = "opentelemetryInstrumentation" }
 
 [bundles]
-security = ["bouncycastle", "jwt"]
 # The facade — for every module, library and application alike. One artifact: kotlin-logging is
 # what this repository's code names, and slf4j-api arrives with it. `:commons` declares slf4j-api
 # as well, because `LoggingInitializer` names `org.slf4j` types itself.
@@ -160,8 +144,6 @@ logging = ["kotlinLogging"]
 # this decides for its consumers, which is not its call. The JUL bridge is deliberately *not* here:
 # it is not a binding, and it belongs to `:commons`, the module whose `LoggingInitializer` installs it.
 loggingBinding = ["logbackClassic"]
-email = ["commonsEmailJakarta", "angusMail", "angusActivation"]
-webPush = ["bouncycastle", "webPush"]
 # RDF4J's runtime half: the parsers and writers `Rio` finds by `ServiceLoader`, and the store
 # behind a repository. Nothing names a type from them, so this is one `runtimeOnly` line.
 # `:sempods-server` chooses its sail in code and declares these pieces itself.
