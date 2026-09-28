@@ -10,10 +10,12 @@ import org.sempods.spec.PodRef
  * The reference implementation of [PodAuthorizer]: durable per-context grants, resolved per
  * request.
  *
- * Context permissions are **not** read from the token. They come from the grant store —
- * `PodGrantsDao` for user-delegated app tokens, `PodServiceClientDao` for service clients — through
- * [PodContextPermissionResolver], so a revoked grant or a deleted context takes effect on the next
- * request rather than after the JWT expires. Only stable feature and OIDC scopes (`public-read`,
+ * Context permissions are **not** read from the token. They come from the grant store of the
+ * token's recipient — an app acting for a person, or a service client acting as itself — through
+ * the one entry [PodContextPermissionResolver.resolve], so a revoked grant or a deleted context
+ * takes effect on the next request rather than after the JWT expires. Each recipient's replace
+ * follows its own conflict rule ([GrantRecipient]), and what a request overlapping one sees follows
+ * from it: one version of a service's grants, possibly part of a delegation's. Only stable feature and OIDC scopes (`public-read`,
  * `openid`) still travel in the token; they are sanitized here and carried through unchanged.
  *
  * `public-read` is **additive**: the effective contexts are the resolved grants ∪ the pod's public
@@ -45,10 +47,9 @@ class GrantStorePodAuthorizer @Inject constructor(
     val privileged = tokenFeatureScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     val resolved = when {
       podId == null -> ResolvedContextAccess(emptySet(), emptySet(), emptySet())
-      // Before the two resolvers, so neither is asked. See the note on this class.
+      // Before the resolver, so the grant store is not asked. See the note on this class.
       privileged.isNotEmpty() -> ResolvedContextAccess(emptySet(), emptySet(), emptySet())
-      token.isServiceClient -> podContextPermissionResolver.resolveFromServiceClient(podId, token.clientId, podBaseUrl)
-      else -> podContextPermissionResolver.resolveFromGrants(podId, token.clientId, checkNotNull(token.sub), podBaseUrl)
+      else -> podContextPermissionResolver.resolve(podId, token, podBaseUrl)
     }
 
     // `oauthScopes` = manage-expanded context grants ∪ token feature scopes (authorization keys off

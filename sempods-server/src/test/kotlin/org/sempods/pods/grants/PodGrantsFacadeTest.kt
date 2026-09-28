@@ -488,7 +488,7 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `replaceAppGrants drops a grant whose backing was revoked mid-flight`() {
+  fun `a delegated replace drops a grant whose backing was revoked mid-flight`() {
     // The race the post-write re-check exists for: a caller intersects against the user level,
     // an owner-level revocation completes before the app row is written — so the revocation's own
     // cascade finds nothing to sweep — and the caller then persists its now-stale intersection.
@@ -498,34 +498,30 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     val ctx = contextUri(pod.name, "reports")
     createContext(pod, "reports")
 
-    val persisted = podGrantsFacade.replaceAppGrants(
+    val persisted = podGrantsFacade.replaceGrants(
       pod = pod.hosted,
-      appId = testClientId,
-      webId = webId,
-      subjectUris = listOf(webId),
-      grants = listOf("$ctx#read"),
+      recipient = GrantRecipient.Delegation(clientId = testClientId, webId = webId, aliases = listOf(webId)),
+      selection = setOf("$ctx#read"),
       grantedBy = webId,
-    )
+    ).granted
 
     assertEquals(emptySet(), persisted, "an unbacked grant must not survive the write")
     assertEquals(emptySet(), appGrants(pod, webId))
   }
 
   @Test
-  fun `replaceAppGrants keeps public-read when the raced context grant is dropped`() {
+  fun `a delegated replace keeps public-read when the raced context grant is dropped`() {
     val pod = sempodsTestFactory.newPod()
     val webId = newPerson()
     val ctx = contextUri(pod.name, "reports")
     createContext(pod, "reports")
 
-    val persisted = podGrantsFacade.replaceAppGrants(
+    val persisted = podGrantsFacade.replaceGrants(
       pod = pod.hosted,
-      appId = testClientId,
-      webId = webId,
-      subjectUris = listOf(webId),
-      grants = listOf("$ctx#read", "public-read"),
+      recipient = GrantRecipient.Delegation(clientId = testClientId, webId = webId, aliases = listOf(webId)),
+      selection = setOf("$ctx#read", "public-read"),
       grantedBy = webId,
-    )
+    ).granted
 
     // `public-read` is an OAuth feature scope, never a sweep candidate — the session survives.
     assertEquals(setOf("public-read"), persisted)
@@ -533,28 +529,26 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `replaceAppGrants leaves a properly backed delegation untouched`() {
+  fun `a delegated replace leaves a properly backed delegation untouched`() {
     val pod = sempodsTestFactory.newPod()
     val webId = newPerson()
     val ctx = contextUri(pod.name, "reports")
     createContext(pod, "reports")
     podWebIdGrantsDao.addGrants(checkNotNull(pod.id), webId, listOf("$ctx#read"), grantedBy = null)
 
-    val persisted = podGrantsFacade.replaceAppGrants(
+    val persisted = podGrantsFacade.replaceGrants(
       pod = pod.hosted,
-      appId = testClientId,
-      webId = webId,
-      subjectUris = listOf(webId),
-      grants = listOf("$ctx#read"),
+      recipient = GrantRecipient.Delegation(clientId = testClientId, webId = webId, aliases = listOf(webId)),
+      selection = setOf("$ctx#read"),
       grantedBy = webId,
-    )
+    ).granted
 
     assertEquals(setOf("$ctx#read"), persisted, "the re-check must be a no-op when nothing raced")
     assertEquals(setOf("$ctx#read"), appGrants(pod, webId))
   }
 
   @Test
-  fun `replaceAppGrants leaves the pod owner's delegation untouched`() {
+  fun `a delegated replace leaves the pod owner's delegation untouched`() {
     // The owner holds no rows in the user-level store at all — the re-check must take the owner
     // branch rather than reading their authority as revoked.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -563,16 +557,34 @@ class PodGrantsFacadeTest : SempodsIntegrationTest() {
     val ctx = contextUri(pod.name, "reports")
     createContext(pod, "reports")
 
-    val persisted = podGrantsFacade.replaceAppGrants(
+    val persisted = podGrantsFacade.replaceGrants(
       pod = pod.hosted,
-      appId = testClientId,
-      webId = ownerWebId,
-      subjectUris = listOf(ownerWebId),
-      grants = listOf("$ctx#read", "$ctx#write"),
+      recipient = GrantRecipient.Delegation(clientId = testClientId, webId = ownerWebId, aliases = listOf(ownerWebId)),
+      selection = setOf("$ctx#read", "$ctx#write"),
       grantedBy = ownerWebId,
-    )
+    ).granted
 
     assertEquals(setOf("$ctx#read", "$ctx#write"), persisted)
+  }
+
+  @Test
+  fun `of two delegated replaces one after the other, the later stands`() {
+    // No version: the later submission is the state, whatever the earlier one held. Overlapping
+    // ones are not atomic, and nothing here pins which of them wins (#338).
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
+    val reports = contextUri(pod.name, "reports")
+    val notes = contextUri(pod.name, "notes")
+    createContext(pod, "reports")
+    createContext(pod, "notes")
+    val recipient = GrantRecipient.Delegation(clientId = testClientId, webId = ownerWebId, aliases = listOf(ownerWebId))
+
+    podGrantsFacade.replaceGrants(pod.hosted, recipient, setOf("$reports#read", "$notes#read"), grantedBy = ownerWebId)
+    val later = podGrantsFacade.replaceGrants(pod.hosted, recipient, setOf("$notes#write"), grantedBy = ownerWebId)
+
+    assertEquals(setOf("$notes#write"), later.granted)
+    assertEquals(setOf("$notes#write"), appGrants(pod, ownerWebId))
   }
 
   @Test

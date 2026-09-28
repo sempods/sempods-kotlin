@@ -58,9 +58,9 @@ bearer's hour. The consent dialog also looks up both collections by pod, app and
 index on those three, to offer a disconnect. `oauth.serviceClientGrantTransactions` is one grant
 consent, consumed on its answer like `oauth.consentTransactions`.
 
-## Two collections with no field order, and one filter that misses rows
+## Two collections with no field order, and filters that miss rows
 
-Both are instances of a rule stated in the document contract, and both are this server's.
+Each is an instance of a rule stated in the document contract, and all are this server's.
 
 - **`grants` and `webIdGrants` have no layout to match.** Both are written by an upsert, so the
   order varies from row to row for one and the same command. What holds for them is the field
@@ -69,6 +69,12 @@ Both are instances of a rule stated in the document contract, and both are this 
   though the decoder defaults them to private, because `{field: false}` does not match a missing
   field. Unchanged behaviour rather than a regression; putting them back is a `$ne: true` change and
   a product decision about pre-backfill data. See `PodContextsDaoTest`.
+- **`oauth.serviceClients` spells grants version `0` as an absent `grantsVersion`**: on every row
+  older than the field, and on every row whose grants were never written since. `{grantsVersion: 0}`
+  matches none of them, so a replace prepared at `0` filters on the absent field as well
+  (`PodServiceClientDao.replaceScopes`). Every write to `scopes` increments the version;
+  `grantsChangedAt` and `grantsChangedBy` record when and by whom a person last changed them. No
+  transform: the fields appear with the first write. See `PodServiceClientDaoTest`.
 
 ## Conventions
 

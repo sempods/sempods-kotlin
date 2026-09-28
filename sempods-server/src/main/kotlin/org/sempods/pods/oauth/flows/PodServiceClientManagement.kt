@@ -6,6 +6,7 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 
@@ -66,12 +67,12 @@ class PodServiceClientManagement @Inject internal constructor(
     caller: SempodsCredentials,
     clientId: String,
     scopes: Set<String>,
-  ): PodServiceClientManagementResult<ServiceClientRegistration> = authorized(pod, caller) {
+  ): PodServiceClientManagementResult<ServiceClientRegistration> = authorized(pod, caller) { authority ->
     if (scopes.isEmpty()) {
       return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NO_SCOPE)
     }
     changeable(clientId) {
-      val remaining = serviceClients.removeScopes(pod.id, clientId, scopes)
+      val remaining = serviceClients.removeScopes(pod.id, clientId, scopes, changedBy = authority.webId)
         ?: return@changeable PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
       logger.info {
         "[service-clients] Grants removed: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}', " +
@@ -84,15 +85,15 @@ class PodServiceClientManagement @Inject internal constructor(
   /**
    * The authority check every operation runs first: [PodOwnerAuthority] for
    * [SERVICE_CLIENTS_MANAGE_SCOPE], asked by name, since an installer bearer passes
-   * `carriesPrivilegedFeature` too.
+   * `carriesPrivilegedFeature` too. [operation] receives the authority that stood.
    */
   private inline fun <T> authorized(
     pod: HostedPod,
     caller: SempodsCredentials,
-    operation: () -> PodServiceClientManagementResult<T>,
+    operation: (PrivilegedAuthorityRows.Authority) -> PodServiceClientManagementResult<T>,
   ): PodServiceClientManagementResult<T> =
     when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE)) {
-      is PodOwnerAuthorityCheck.Standing -> operation()
+      is PodOwnerAuthorityCheck.Standing -> operation(check.authority)
       is PodOwnerAuthorityCheck.Refused -> PodServiceClientManagementResult.Unauthorized(check.reason)
     }
 

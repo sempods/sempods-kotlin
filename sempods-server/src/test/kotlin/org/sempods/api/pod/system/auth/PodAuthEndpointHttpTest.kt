@@ -1012,7 +1012,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a consent page cannot be submitted twice`() {
-    // A submission writes the ticked selection as *the* grant set (`replaceAppGrants`). A form
+    // A submission writes the ticked selection as *the* grant set (`PodGrantsFacade.replaceGrants`). A form
     // that can be posted again therefore restores a selection the person has since narrowed —
     // consent to A and B, re-consent to A alone, resubmit the old page, and B is back with a fresh
     // code to go with it.
@@ -1963,8 +1963,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // The repair is what a failed owner-level cascade is owed — there are no transactions here, so
     // this visit is its second chance — and it has nothing to do with whether the visit ends in a
     // code or in a dialog. Gating it on a recorded decision would have withheld it from exactly the
-    // authorizations that predate the control, while `resolveFromGrants` reads the app rows alone
-    // and an existing token would go on carrying access that was revoked.
+    // authorizations that predate the control, while `PodContextPermissionResolver.resolve` reads
+    // the app rows alone and an existing token would go on carrying access that was revoked.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))

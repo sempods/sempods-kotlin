@@ -10,4 +10,7 @@ internal object PodServiceClientDboFields {
   const val label = "label"
   const val createdAt = "createdAt"
   const val lastUsedAt = "lastUsedAt"
+  const val grantsVersion = "grantsVersion"
+  const val grantsChangedAt = "grantsChangedAt"
+  const val grantsChangedBy = "grantsChangedBy"
 }

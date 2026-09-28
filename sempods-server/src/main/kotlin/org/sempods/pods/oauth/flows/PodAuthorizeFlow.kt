@@ -15,6 +15,7 @@ import org.sempods.auth.core.Redirectable
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodFacade
+import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
@@ -312,7 +313,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     val userGrants = podGrantsFacade.resolveUserGrants(pod, identity.allUris)
 
     // Deliberately the subject's own rows, not the person's. Auto-grant issues a code for this
-    // WebID and does not re-key what it finds, while `resolveFromGrants` and the refresh path both
+    // WebID and does not re-key what it finds, while `PodContextPermissionResolver.resolve` and the refresh path both
     // query the token's subject — so counting an alias's rows here would auto-grant a token with no
     // context permissions whose first refresh fails. Whether an app holds anything *at all* is a
     // different question, and the dialog's disconnect offer is where it is asked.
@@ -417,14 +418,12 @@ class PodAuthorizeFlow @Inject internal constructor(
       // owner-level change raced us.
       var persisted = effectiveContextGrants + effectiveFeatureScopes
       if (persisted.size != existingGrants.size) {
-        persisted = podGrantsFacade.replaceAppGrants(
+        persisted = podGrantsFacade.replaceGrants(
           pod = pod,
-          appId = normalizedClientId,
-          webId = identity.webId,
-          subjectUris = consentedUris,
-          grants = persisted,
+          recipient = GrantRecipient.Delegation(clientId = normalizedClientId, webId = identity.webId, aliases = consentedUris),
+          selection = persisted,
           grantedBy = identity.webId,
-        )
+        ).granted
         logger.info {
           "[oauth/auto-grant] Narrowed stale grants: pod='${pod.name}', clientId='$normalizedClientId', " +
               "webId='${identity.webId}', before=${existingGrants.size}, after=${persisted.size}"

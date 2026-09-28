@@ -43,13 +43,13 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     val notes = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/notes"
     val installed = store.registerInstallation(pod.hosted, "notes").registration
 
-    assertTrue(store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("$notes#read", "$notes#write")))
+    assertTrue(store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("$notes#read", "$notes#write"), changedBy = OWNER))
     assertEquals(setOf("$notes#read", "$notes#write"), store.find(pod.hosted.id, installed.clientId)?.scopes)
 
-    val remaining = store.removeScopes(pod.hosted.id, installed.clientId, setOf("$notes#read", "$notes#write"))
+    val remaining = store.removeScopes(pod.hosted.id, installed.clientId, setOf("$notes#read", "$notes#write"), changedBy = OWNER)
     assertEquals(emptySet(), remaining?.scopes, "the registration outlives its last grant")
     assertNotNull(store.find(pod.hosted.id, installed.clientId))
-    assertNull(store.removeScopes(pod.hosted.id, "svc:absent", setOf("$notes#read")))
+    assertNull(store.removeScopes(pod.hosted.id, "svc:absent", setOf("$notes#read"), changedBy = OWNER))
   }
 
   @Test
@@ -60,7 +60,7 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     store.remove(pod.hosted.id, "reused", original.id)
     store.register(pod.hosted, "reused", emptySet())
 
-    assertFalse(store.addScopes(pod.hosted, "reused", original.id, setOf("$notes#read")))
+    assertFalse(store.addScopes(pod.hosted, "reused", original.id, setOf("$notes#read"), changedBy = OWNER))
     assertEquals(emptySet(), store.find(pod.hosted.id, "reused")?.scopes)
   }
 
@@ -70,7 +70,7 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     val installed = store.registerInstallation(pod.hosted, "notes").registration
 
     assertThrows<IllegalArgumentException> {
-      store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("public-read"))
+      store.addScopes(pod.hosted, installed.clientId, installed.id, setOf("public-read"), changedBy = OWNER)
     }
     assertEquals(emptySet(), store.find(pod.hosted.id, installed.clientId)?.scopes)
   }
@@ -87,5 +87,9 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     assertNull(store.authenticate(pod.hosted.id, installed.registration.clientId, installed.secret))
     assertNotNull(store.authenticate(pod.hosted.id, installed.registration.clientId, rotated.secret))
     assertEquals(PodServiceClientStore.SecretRotation.NotFound, store.rotateSecret(pod.hosted.id, "svc:absent"))
+  }
+
+  private companion object {
+    const val OWNER = "https://id.sempods.org/e/owner"
   }
 }

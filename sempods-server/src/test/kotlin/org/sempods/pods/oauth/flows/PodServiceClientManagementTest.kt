@@ -2,10 +2,8 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import org.sempods.commons.tests.TestUtil.randomId
-import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
-import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
 import org.sempods.auth.core.OAuthErrorCode
@@ -25,9 +23,6 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var grants: PodServiceClientGrantFlow
-
-  @Inject
-  private lateinit var authorities: PodManagementAuthorityStore
 
   @Inject
   private lateinit var serviceClients: PodServiceClientStore
@@ -91,7 +86,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   fun `removing a grant narrows and never needs the consent`() {
     val owned = Owned()
     val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
-    serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope))
+    serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope), changedBy = owned.webId)
 
     val result = management.removeGrants(owned.pod, manager(owned), installed.clientId, setOf(owned.readScope))
 
@@ -105,7 +100,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     val owned = Owned()
     val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
 
-    val screen = assertIs<PodServiceClientGrantResult.Screen>(open(owned, installed.clientId, owned.readScope)).screen
+    val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, installed.clientId, owned.readScope)).screen
     assertEquals("notes", screen.serviceLabel)
     assertEquals(installed.createdAt, screen.registeredAt)
 
@@ -124,7 +119,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   fun `an approval stops counting once the pod changes hands`() {
     val owned = Owned()
     val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
-    val screen = assertIs<PodServiceClientGrantResult.Screen>(open(owned, installed.clientId, owned.readScope)).screen
+    val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, installed.clientId, owned.readScope)).screen
 
     // The session's person, no longer the owner: the grant is measured against now.
     val transferred = owned.pod.copy(ref = owned.pod.ref.copy(owner = "https://id.test/new-owner"))
@@ -144,34 +139,9 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     val owned = Owned()
     val provisioned = serviceClients.register(owned.pod, "backend", emptySet()).registration
 
-    val opened = open(owned, provisioned.clientId, owned.readScope)
+    val opened = openGrant(owned, provisioned.clientId, owned.readScope)
 
     assertIs<PodServiceClientGrantResult.Error>(opened)
     assertNull(serviceClients.find(owned.pod.id, provisioned.clientId)?.scopes?.firstOrNull())
-  }
-
-  private fun open(owned: Owned, serviceClient: String, scope: String): PodServiceClientGrantResult =
-    grants.open(
-      owned.pod,
-      PodServiceClientGrantRequest(clientId, redirectUri, "s", serviceClient, scope),
-      owned.session,
-    )
-
-  private fun manager(
-    owned: Owned,
-    webId: String = owned.webId,
-    subjectUris: Set<String> = setOf(webId),
-  ): SempodsCredentials {
-    val jti = randomId()
-    val disconnects = consentDecisionStore.recordWithoutLifetime(owned.pod.id, clientId, webId).disconnects
-    authorities.record(owned.pod.id, jti, clientId, webId, disconnects, subjectUris)
-    return SempodsCredentials(
-      pod = owned.pod.ref,
-      restrictedContexts = emptySet(),
-      oauthClientId = clientId,
-      oauthScopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
-      tokenJti = jti,
-      tokenSub = webId,
-    )
   }
 }

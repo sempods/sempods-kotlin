@@ -145,7 +145,7 @@ class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: Strin
    * The grant strings this app may exercise for any of [webIds] on [podId].
    *
    * **Request hot path** — called by
-   * [org.sempods.pods.grants.PodContextPermissionResolver.resolveFromGrants] on every
+   * [org.sempods.pods.grants.PodContextPermissionResolver.resolve] on every
    * authenticated request. Fully covered by the `(appId, podId, webId, scope)` unique index.
    */
   internal fun fetchGrantStrings(
@@ -229,6 +229,10 @@ class PodGrantsDao internal constructor(db: MongoDatabase, collectionName: Strin
    * Replaces the full set of grants for `(podId, appId, webId)` with [grants].
    * Used by the OAuth consent flow where the user's checkbox submission is the
    * authoritative new state — grants not in the submitted set must be revoked.
+   *
+   * **Not atomic:** it deletes, then inserts. Of two calls one after the other the later stands, but
+   * two interleaved can leave the union of both sets, and a read in between sees part of either.
+   * #338 owns that.
    */
   internal fun replaceGrants(
     podId: ObjectId,

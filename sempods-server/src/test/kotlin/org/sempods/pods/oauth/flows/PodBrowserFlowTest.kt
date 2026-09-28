@@ -6,9 +6,14 @@ import org.sempods.SempodsTestFactory
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.HostedPod
+import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
+import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import java.time.Instant
 
@@ -37,6 +42,12 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
   @Inject
   protected lateinit var sempodsUriBuilder: SempodsUriBuilder
 
+  @Inject
+  protected lateinit var serviceClientGrants: PodServiceClientGrantFlow
+
+  @Inject
+  protected lateinit var managementAuthorities: PodManagementAuthorityStore
+
   protected val clientId = "did:web:app.example"
   protected val redirectUri = "https://app.example/cb"
 
@@ -58,12 +69,10 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
     val session = PodTokenIssuer.SessionPrincipal(webId, emptyList(), Instant.now().minusSeconds(60))
 
     fun grant(vararg scopes: String) {
-      podGrantsFacade.replaceAppGrants(
+      podGrantsFacade.replaceGrants(
         pod = pod,
-        appId = clientId,
-        webId = webId,
-        subjectUris = listOf(webId),
-        grants = scopes.toSet(),
+        recipient = GrantRecipient.Delegation(clientId = clientId, webId = webId, aliases = listOf(webId)),
+        selection = scopes.toSet(),
         grantedBy = webId,
       )
     }
@@ -88,5 +97,32 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
     /** How many times this app's access has been ended, which every rendered page carries. */
     fun disconnects(): Long =
       consentDecisionStore.find(pod.id, clientId, listOf(webId))?.disconnects ?: 0L
+  }
+
+  /** Opens the grant consent for [serviceClient], as the owner of [owned]. */
+  protected fun openGrant(owned: Owned, serviceClient: String, scope: String): PodServiceClientGrantResult =
+    serviceClientGrants.open(
+      owned.pod,
+      PodServiceClientGrantRequest(clientId, redirectUri, "s", serviceClient, scope),
+      owned.session,
+    )
+
+  /** A `service-clients:manage` bearer for [webId], with the authority the dialog would record. */
+  protected fun manager(
+    owned: Owned,
+    webId: String = owned.webId,
+    subjectUris: Set<String> = setOf(webId),
+  ): SempodsCredentials {
+    val jti = randomId()
+    val disconnects = consentDecisionStore.recordWithoutLifetime(owned.pod.id, clientId, webId).disconnects
+    managementAuthorities.record(owned.pod.id, jti, clientId, webId, disconnects, subjectUris)
+    return SempodsCredentials(
+      pod = owned.pod.ref,
+      restrictedContexts = emptySet(),
+      oauthClientId = clientId,
+      oauthScopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
+      tokenJti = jti,
+      tokenSub = webId,
+    )
   }
 }

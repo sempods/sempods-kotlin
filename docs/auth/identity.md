@@ -133,7 +133,7 @@ registered `also_known_as` claim, a human pseudonym, as an identity.
 
 Equivalent identity URIs are applied when a grant is *written*, at
 consent, not when it is read: a request carries one identity URI. See
-`PodContextPermissionResolver.resolveFromGrants`. A later sign-in whose
+`PodContextPermissionResolver.resolve`. A later sign-in whose
 token names fewer of them revokes nothing: an app's grants are checked
 against the URIs its consent recorded as well (`SPS-OIDC-017`).
 
