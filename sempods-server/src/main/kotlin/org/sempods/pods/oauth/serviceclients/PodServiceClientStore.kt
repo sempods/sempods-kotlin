@@ -14,6 +14,7 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import org.bouncycastle.crypto.generators.OpenBSDBCrypt
 import org.bson.types.ObjectId
 import java.security.SecureRandom
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -52,15 +53,16 @@ class PodServiceClientStore @Inject constructor(
    * persisted, so the bad scope never reaches a JWT or the resource layer.
    *
    * [scopes] may be empty. Such a registration holds a credential and no authority: the token
-   * endpoint refuses it `invalid_scope`, and [revokeByContextScope] leaves it where it is. That is
-   * the state an owner-facing installation passes through between registering a service and
-   * granting it contexts.
+   * endpoint refuses it `invalid_scope`, and [revokeByContextScope] leaves it where it is. A
+   * self-registered service waits in that state until the owner's consent ([registerProvisional]).
    */
   internal fun register(
     pod: HostedPod,
     clientId: String,
     scopes: Set<String>,
     label: String? = null,
+    redirectUris: List<String> = emptyList(),
+    pendingUntil: Instant? = null,
   ): Registered {
     requireGrantable(pod, clientId, scopes)
 
@@ -71,6 +73,8 @@ class PodServiceClientStore @Inject constructor(
       secretHash = hashSecret(secret),
       scopes = scopes,
       label = label,
+      redirectUris = redirectUris,
+      pendingUntil = pendingUntil,
     )
     // The stored row rather than the one handed in: `insertOne` does not write the generated `_id`
     // back into the instance it was passed, and that id is what the admin API returns as
@@ -138,6 +142,10 @@ class PodServiceClientStore @Inject constructor(
   internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
     dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
 
+  /** See [PodServiceClientDao.reinstateDeadline]. */
+  internal fun reinstateDeadline(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, pendingUntil: Instant): Boolean =
+    dao.reinstateDeadline(pod.objectId(), clientId, expected.objectId(), pendingUntil)
+
   /**
    * Makes [scopes] the grants of the registration [expected] names, if they are still at
    * [expectedVersion]. Throws, like [register], for a scope a service client cannot hold.
@@ -198,15 +206,22 @@ class PodServiceClientStore @Inject constructor(
     dao.delete(pod.objectId(), clientId, expectedId = expected.objectId())
 
   /**
-   * Registers a service client under an identifier this server assigns, holding no grants.
+   * Registers a service that asked for itself: an identifier this server assigns, no grants, and
+   * [ACTIVATION_WINDOW] for the owner to activate it before it is removed.
    *
-   * The identifier is the pod's to give. An installer that could name it could name an app the
-   * owner already trusts into the installation, which is the boundary an owner-facing registration
-   * rests on. Its class is [SERVICE_CLIENT_PREFIX], which
+   * The identifier is the pod's to give. A service that could name itself could take the name of
+   * one the owner already trusts. Its class is [SERVICE_CLIENT_PREFIX], which
    * [PodClientDirectory][org.sempods.pods.oauth.flows.PodClientDirectory] places nowhere.
    */
-  internal fun registerInstallation(pod: HostedPod, label: String): Registered =
-    register(pod, SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(), scopes = emptySet(), label = label)
+  internal fun registerProvisional(pod: HostedPod, label: String, redirectUris: List<String>): Registered =
+    register(
+      pod,
+      SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(),
+      scopes = emptySet(),
+      label = label,
+      redirectUris = redirectUris,
+      pendingUntil = Instant.now().plus(ACTIVATION_WINDOW),
+    )
 
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
     // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
@@ -219,6 +234,8 @@ class PodServiceClientStore @Inject constructor(
     createdAt = createdAt,
     lastUsedAt = lastUsedAt,
     grantsVersion = grantsVersion,
+    redirectUris = redirectUris,
+    pendingUntil = pendingUntil,
   )
 
   /**
@@ -305,6 +322,9 @@ class PodServiceClientStore @Inject constructor(
      */
     internal const val SERVICE_CLIENT_PREFIX = "svc:"
 
+    /** How long a self-registered service waits for the owner's consent before it is removed. */
+    internal val ACTIVATION_WINDOW: Duration = Duration.ofHours(24)
+
     /** Lets operators recognise pod service-client secrets at a glance. */
     private const val SECRET_PREFIX = "sc_"
 
@@ -336,9 +356,13 @@ internal data class ServiceClientRegistration(
   val lastUsedAt: Instant? = null,
   /** See `PodServiceClientDbo.grantsVersion`. Only meaningful together with [id]. */
   val grantsVersion: Long = 0,
+  /** See `PodServiceClientDbo.redirectUris`. */
+  val redirectUris: List<String> = emptyList(),
+  /** See `PodServiceClientDbo.pendingUntil`: set until the owner activates it, `null` after. */
+  val pendingUntil: Instant? = null,
 ) {
 
-  /** Whether this pod named it at an owner's installation. `false` for an operator-provisioned client. */
+  /** Whether this pod named it (`svc:`). `false` for an operator-provisioned client. */
   val installed: Boolean get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)
 }
 

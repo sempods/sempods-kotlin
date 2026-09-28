@@ -86,20 +86,20 @@ class PodScopeValidatorTest {
   }
 
   @Test
-  fun `should accept the installer scope as a feature scope`() {
-    val result = validator.validate(scope = SERVICE_CLIENTS_INSTALL_SCOPE, podBaseUrl = podBaseUrl)
+  fun `should accept the management scope as a feature scope`() {
+    val result = validator.validate(scope = SERVICE_CLIENTS_MANAGE_SCOPE, podBaseUrl = podBaseUrl)
 
     val feature = assertIs<ScopeValidationResult.Feature>(result)
-    assertEquals(SERVICE_CLIENTS_INSTALL_SCOPE, feature.scope)
+    assertEquals(SERVICE_CLIENTS_MANAGE_SCOPE, feature.scope)
   }
 
   @Test
-  fun `a context whose path reads like the installer scope is still a context`() {
+  fun `a context whose path reads like the management scope is still a context`() {
     // The literal has no `#`, so the grammar keeps the two apart on its own. Pinned because a
     // classification that reached for the substring instead would silently widen a context grant
-    // into an installation authority.
+    // into a management authority.
     val result = validator.validate(
-      scope = "https://sempods.org/my-pod/_system/contexts/$SERVICE_CLIENTS_INSTALL_SCOPE#read",
+      scope = "https://sempods.org/my-pod/_system/contexts/$SERVICE_CLIENTS_MANAGE_SCOPE#read",
       podBaseUrl = podBaseUrl,
     )
 

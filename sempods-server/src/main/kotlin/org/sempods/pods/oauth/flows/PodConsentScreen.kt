@@ -22,10 +22,10 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
  *   is worth offering.
  * @param privilegedFeatures the privileged feature scopes this request asked for, in the order the
  *   dialog shows them — empty on an ordinary authorization. Each is offered unticked: a person
- *   approves a capability like installing a service client by choosing it, never by leaving a box
+ *   approves a capability like managing the pod's service clients by choosing it, never by leaving a box
  *   as it was found.
  * @param lifetimeAvailable whether the dialog carries the lifetime control at all. False wherever
- *   [privilegedFeatures] is non-empty, so that ticking an ordinary box cannot turn a one-shot
+ *   [privilegedFeatures] is non-empty, so that ticking an ordinary box cannot turn an hour-long
  *   authority into a renewable one; [sessionTerms] and [durableTerms] then have nothing to state.
  */
 internal data class PodConsentScreen(

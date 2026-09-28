@@ -13,4 +13,6 @@ internal object PodServiceClientDboFields {
   const val grantsVersion = "grantsVersion"
   const val grantsChangedAt = "grantsChangedAt"
   const val grantsChangedBy = "grantsChangedBy"
+  const val redirectUris = "redirectUris"
+  const val pendingUntil = "pendingUntil"
 }

@@ -48,10 +48,6 @@ import jakarta.ws.rs.core.Response
  * resolved per request, never asked for through `scope`. Advertising it is what lets a client that
  * has read no sempods documentation discover the extension at all; `openid` is deliberately absent,
  * because this pod issues no `id_token`.
- *
- * `service-clients:install` is on the list under the same rule, and what it buys a caller is bounded by
- * `docs/auth/oauth.md` §"Installing a service client": the authorization registers one service and
- * reaches nothing else.
  */
 @Path("{pod}")
 class PodOAuthMetadataEndpoint @Inject constructor(

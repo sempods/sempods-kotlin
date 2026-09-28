@@ -39,7 +39,6 @@ class SempodsCollectionsTest {
         "oauth.signOuts",
         "oauth.loginStates",
         "oauth.consentTransactions",
-        "oauth.installationAuthorities",
         "oauth.managementAuthorities",
         "oauth.serviceClientGrantTransactions",
         "oauth.authCodes",

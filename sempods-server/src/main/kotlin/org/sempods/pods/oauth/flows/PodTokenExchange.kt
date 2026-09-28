@@ -14,17 +14,12 @@ import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.PodId
-import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.oauth.PodConsentDecisionStore
-import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
-import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import java.time.Duration
@@ -46,7 +41,7 @@ import java.time.Instant
  * `PodSignOut.signOut` writes in the order that makes those reads sufficient (`SPS-AUTH-062`,
  * `SPS-AUTH-063`), so moving one of them re-opens a window on the other side. The comments at each
  * step say which. [exchangeServiceClient] authorizes no person and seeds no family, so it runs
- * none of that. [installationToken] signs and re-reads the same way and seeds no family either, so
+ * none of that. [privilegedToken] signs and re-reads the same way and seeds no family either, so
  * it has nothing to sweep and nothing to take back on a refusal.
  */
 class PodTokenExchange @Inject internal constructor(
@@ -57,7 +52,6 @@ class PodTokenExchange @Inject internal constructor(
   private val dynamicClientStore: DynamicClientStore,
   private val podTokenIssuer: PodTokenIssuer,
   private val serviceClients: PodServiceClientStore,
-  private val installationAuthorities: PodInstallationAuthorityStore,
   private val managementAuthorities: PodManagementAuthorityStore,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
@@ -147,30 +141,41 @@ class PodTokenExchange @Inject internal constructor(
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
     }
 
+    // A code an older release minted for a retired scope. Narrowed like any other scope, it would
+    // leave an ordinary token behind that resolves what this app holds for this person; the
+    // authority it was minted for no longer exists. See [PodScopeValidator.inertScopes].
+    entry.scopes.intersect(PodScopeValidator.retiredScopes).firstOrNull()?.let { retired ->
+      logger.info {
+        "[oauth/token] authorization code for a retired scope refused: pod='$podName', " +
+            "clientId='${entry.clientId}', scope='$retired'"
+      }
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "'$retired' is no longer granted by this pod")
+    }
+
     // Hard guarantee the access token is slim: keep only feature scopes, whatever the
     // authorization-code entry happens to carry. Context permissions are resolved per request
     // from the grant store, never echoed into the token. This also bounds the refresh row.
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
-    // ── An installation authority takes its own exit ──────────────────────
+    // ── A privileged authority takes its own exit ─────────────────────────
     // It is the one person-exchange that seeds no family, so it leaves before the family is
     // measured rather than after. A code that carries a privileged scope beside anything else
     // never came from a dialog — every screen that offers one offers nothing else — and a mixed
-    // set is refused rather than narrowed, because narrowing is how a one-shot authority would
+    // set is refused rather than narrowed, because narrowing is how an hour-long authority would
     // quietly acquire a renewable neighbour.
     val privileged = featureScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     if (privileged.isNotEmpty()) {
       if (featureScopes != privileged || privileged.size != 1) {
         logger.warn {
-          "[oauth/token] mixed scope set on an installation code: pod='$podName', " +
+          "[oauth/token] mixed scope set on a privileged code: pod='$podName', " +
               "clientId='${entry.clientId}', scopes=${featureScopes.sorted().joinToString(" ")}"
         }
         return PodTokenResult.Refused(
           OAuthErrorCode.INVALID_GRANT,
-          "an installation authority cannot be combined with another scope",
+          "a privileged authority cannot be combined with another scope",
         )
       }
-      return installationToken(
+      return privilegedToken(
         pod = pod,
         podName = podName,
         entry = entry,
@@ -183,11 +188,11 @@ class PodTokenExchange @Inject internal constructor(
     // the authority. What the answer settles is how long the family lives, not whether there is
     // one — an app the person keeps in front of them needs a way back that does not run through a
     // third-party cookie.
-    // **An authorization nobody has answered mints nothing.** Before an installation could write a
-    // generation into this document without answering it, `decision == null` above caught this
-    // case; a row with no lifetime answer is the same state wearing a generation, and the same
-    // refusal. Picking a lifetime for it here would let the installation screen settle a question
-    // it never put to the person.
+    // **An authorization nobody has answered mints nothing.** Before a privileged consent could
+    // write a generation into this document without answering it, `decision == null` above caught
+    // this case; a row with no lifetime answer is the same state wearing a generation, and the same
+    // refusal. Picking a lifetime for it here would let a privileged screen settle a question it
+    // never put to the person.
     val durable = decision.durable
       ?: return PodTokenResult.Refused(
         OAuthErrorCode.INVALID_GRANT,
@@ -287,7 +292,7 @@ class PodTokenExchange @Inject internal constructor(
     }
 
     // Liveness touch on the DCR row. Every completed flow reaches one of the four call sites —
-    // this one, the anonymous public-read branch above, the installation below and the rotation
+    // this one, the anonymous public-read branch above, the privileged one below and the rotation
     // after it — so a connection stays as live under the short lifetime as under the long one, and
     // the shorter window is not mistaken for an abandoned app. Best-effort: did:web clients have no
     // DCR row and return false here, which is fine.
@@ -301,20 +306,20 @@ class PodTokenExchange @Inject internal constructor(
   }
 
   /**
-   * The one-shot authority an installation code is worth.
+   * The hour-long authority a privileged code is worth.
    *
    * **No family.** A refresh token would make the authority renewable, which is the one thing it
-   * must not be; `offline_access` in the request preselected a control the installation dialog
-   * does not render, and there was never an answer for it to carry. `docs/auth/oauth.md`
+   * must not be; `offline_access` in the request preselected a control the privileged dialog does
+   * not render, and there was never an answer for it to carry. `docs/auth/oauth.md`
    * §"offline_access" lists this beside the two other exchanges that seed none.
    *
    * **The token is inert on its own.** It carries no context permission — `GrantStorePodAuthorizer`
-   * resolves none for a bearer holding a privileged feature scope — and what it does carry is
-   * spent the first time it is used, by the row this writes.
+   * resolves none for a bearer holding a privileged feature scope — and what it does carry stands
+   * only while the row this writes does.
    *
    * @param issuedUnder the consent generation the code was minted under, compared once more here.
    */
-  private fun installationToken(
+  private fun privilegedToken(
     pod: PodId,
     podName: String,
     entry: AuthorizationCodeStore.Entry,
@@ -338,7 +343,7 @@ class PodTokenExchange @Inject internal constructor(
     val standing = consentDecisionStore.find(pod, entry.clientId, listOf(entry.subject))
     if (standing?.generation != issuedUnder) {
       logger.info {
-        "[oauth/token] installation code superseded by a later consent: pod='$podName', " +
+        "[oauth/token] privileged code superseded by a later consent: pod='$podName', " +
             "clientId='${entry.clientId}', webId='${entry.subject}', " +
             "codeGeneration=$issuedUnder, current=${standing?.generation ?: "(none)"}"
       }
@@ -348,14 +353,9 @@ class PodTokenExchange @Inject internal constructor(
     // Written after that check, which inverts the order the family exchanges use. They seed first
     // and revoke on a refusal, because a family is a thing to take back; this row is what makes
     // the bearer worth anything, so a run dying ahead of it leaves an inert token and the owner
-    // runs the installer again. Written first, it would leave a live authority behind a token
-    // this exchange then refused to hand out.
-    val authorities: PrivilegedAuthorityRows = when (val scope = scopes.single()) {
-      SERVICE_CLIENTS_INSTALL_SCOPE -> installationAuthorities
-      SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE -> managementAuthorities
-      else -> error("no authority store for privileged scope '$scope'")
-    }
-    authorities.record(
+    // approves again. Written first, it would leave a live authority behind a token this exchange
+    // then refused to hand out.
+    managementAuthorities.record(
       pod = pod,
       jti = accessToken.jti,
       clientId = entry.clientId,
@@ -547,9 +547,9 @@ class PodTokenExchange @Inject internal constructor(
     // hard guarantee against context scopes leaking from a legacy/seeded refresh row —
     // context permissions are resolved per request, never echoed into the token.
     //
-    // Minus the privileged ones. An installation authority seeds no family, so no row written by
+    // Minus the privileged ones. A privileged authority seeds no family, so no row written by
     // this server carries one; what this answers for is a row that predates the rule. It is the
-    // second half of the same promise the code exchange makes — a one-shot authority does not
+    // second half of the same promise the code exchange makes — an hour-long authority does not
     // become renewable, by a lifetime tick or by a scope set that happens to survive a rotation.
     val effectiveFeatureScopes = (token.scopes intersect currentGrants)
       .intersect(PodScopeValidator.featureScopes)
@@ -705,7 +705,7 @@ class PodTokenExchange @Inject internal constructor(
 
   /**
    * A signed access token, the lifetime it was signed with (which `expires_in` repeats) and the
-   * `jti` it carries — the name [installationToken] records an installation authority under.
+   * `jti` it carries — the name [privilegedToken] records a privileged authority under.
    */
   private class SignedAccessToken(val token: String, val ttlSeconds: Long, val jti: String)
 

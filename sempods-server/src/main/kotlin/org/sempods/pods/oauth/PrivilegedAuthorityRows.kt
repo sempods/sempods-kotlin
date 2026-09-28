@@ -12,17 +12,12 @@ import java.time.Duration
 /**
  * One row per privileged bearer, keyed by its `jti` and living as long as it. It holds what the
  * bearer cannot: every URI the dialog recognised the person by, and whether the app has been
- * disconnected since. [PodInstallationAuthorityStore] spends the row; [PodManagementAuthorityStore]
- * reads it for the hour.
- *
- * @param uncountedStands whether a row carrying no disconnect count stands. Only a row from before
- *   the count existed carries none; each store says why it accepts or refuses one.
+ * disconnected since. [PodManagementAuthorityStore] reads it for the hour.
  */
 abstract class PrivilegedAuthorityRows internal constructor(
   db: MongoDatabase,
   collectionName: String,
   private val consentDecisions: PodConsentDecisionStore,
-  private val uncountedStands: Boolean,
 ) {
 
   init {
@@ -37,8 +32,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
    * @param webId the person who granted it.
    * @param disconnects `PodConsentDecisionStore.Decision.disconnects` when the authority was
    *   granted; a disconnect since withdraws it. Not the consent generation, which every privileged
-   *   consent moves — one authority would then withdraw the other. `null` on a row from before the
-   *   field existed; see [PodInstallationAuthorityStore.consume].
+   *   consent moves — one authority would then withdraw the other.
    * @param subjectUris every identity URI the person was recognised by at the dialog, [webId] among
    *   them. An empty set recognises nobody.
    */
@@ -46,7 +40,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
     val pod: PodId,
     val clientId: String,
     val webId: String,
-    val disconnects: Long?,
+    val disconnects: Long,
     val subjectUris: Set<String>,
   )
 
@@ -68,8 +62,8 @@ abstract class PrivilegedAuthorityRows internal constructor(
         pod = PodId(getString("podId") ?: return@OneTimeStore null),
         clientId = getString("clientId") ?: return@OneTimeStore null,
         webId = webId,
-        // Both absent on a row from before this release; it lives an hour at most.
-        disconnects = get("disconnects", Number::class.java)?.toLong(),
+        // A row without a count stands for nothing, so it reads as no row.
+        disconnects = get("disconnects", Number::class.java)?.toLong() ?: return@OneTimeStore null,
         subjectUris = getStringSet("subjectUris").ifEmpty { setOf(webId) },
       )
     },
@@ -88,21 +82,13 @@ abstract class PrivilegedAuthorityRows internal constructor(
     rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris))
   }
 
-  /**
-   * Whether this authority stands on [pod]: granted there, and not withdrawn by a disconnect since.
-   * A row without a count stands where [uncountedStands] says so.
-   */
+  /** Whether this authority stands on [pod]: granted there, and not withdrawn by a disconnect since. */
   internal fun Authority.standsOn(pod: PodId): Boolean =
-    this.pod == pod &&
-      (if (disconnects == null) uncountedStands else disconnectsUnder(pod, clientId, webId) == disconnects)
+    this.pod == pod && disconnectsUnder(pod, clientId, webId) == disconnects
 
   /**
    * Whether a live row [clientId] holds on [pod] from one of [webIds] is one a disconnect by that
-   * person would withdraw. A spent row is gone and counts for nothing.
-   *
-   * A row without a count never counts here, even where [standsOn] accepts it: no disconnect reaches
-   * it, so offering one would report an ending that did not happen. Such a row lives an hour at
-   * most after a deploy.
+   * person would withdraw. An expired row is gone and counts for nothing.
    *
    * Matched on [Authority.webId] alone, not on its recognised URIs: [standsOn] reads the disconnect
    * count under that URI, and a disconnect moves it only for the URIs it is made under. That count

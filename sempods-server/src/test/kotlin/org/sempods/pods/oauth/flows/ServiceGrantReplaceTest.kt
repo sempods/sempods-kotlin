@@ -64,7 +64,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a replace prepared before an approval at the grant consent writes nothing and reports a conflict`() {
     val owned = Owned()
-    val service = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, service.clientId, owned.readScope)).screen
 
     assertIs<PodServiceClientGrantResult.Granted>(
@@ -82,7 +82,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   fun `a replace prepared before an owner's removal writes nothing and reports a conflict`() {
     val owned = Owned()
     val notes = owned.context("notes")
-    val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope, "$notes#read"), owned.webId)
     val prepared = current(owned, installed.clientId)
 
@@ -125,7 +125,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
     // the grant existed, and the caller prepared its selection while the context still stood.
     val owned = Owned()
     val gone = owned.context("gone")
-    val service = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     podFacade.removeContext(owned.pod.name, URI(gone))
 
     val answer = assertIs<GrantReplacement.Replaced>(replace(owned, service, setOf("$gone#read", owned.readScope)))
@@ -138,7 +138,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   fun `a context deleted after the write keeps no grant either`() {
     val owned = Owned()
     val later = owned.context("later")
-    val service = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
 
     assertIs<GrantReplacement.Replaced>(replace(owned, service, setOf("$later#write")))
     podFacade.removeContext(owned.pod.name, URI(later))
@@ -180,7 +180,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a replace moves the version once and records who made it`() {
     val owned = Owned()
-    val service = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
 
     assertEquals(GrantReplacement.Replaced(setOf(owned.readScope)), replace(owned, service, setOf(owned.readScope)))
 
@@ -204,7 +204,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a selection a service cannot hold is refused before anything is written`() {
     val owned = Owned()
-    val service = serviceClients.registerInstallation(owned.pod, "notes").registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
 
     assertThrows<IllegalArgumentException> { replace(owned, service, setOf("public-read")) }
 

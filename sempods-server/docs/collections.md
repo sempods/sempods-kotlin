@@ -49,15 +49,15 @@ read, as `ConsentTransactionStore` describes.
 
 Both exist because nothing that authenticates a person travels through the browser any more.
 
-`oauth.installationAuthorities` is a third `OneTimeStore` and the plainest use of it: one row per
-issued installer token, under the SHA-256 of that token's `jti`. Registering a service client
-consumes the row, so the authority the token carries is spent — and `findOneAndDelete` is what makes
-"once" mean once when two registration calls arrive together. Its TTL is the access token's own
-hour, derived from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS` so the row cannot outlive the bearer.
+`oauth.managementAuthorities` is a third `OneTimeStore`: one row per issued management token,
+under the SHA-256 of that token's `jti`, read with `peek` for the bearer's hour. Its TTL is derived
+from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS`, so the row cannot outlive the bearer. The consent
+dialog also looks it up by pod, app and person, over an index on those three, to offer a
+disconnect.
 
-`oauth.managementAuthorities` has the same row for a management token, read with `peek` for the
-bearer's hour. The consent dialog also looks up both collections by pod, app and person, over an
-index on those three, to offer a disconnect. `oauth.serviceClientGrantTransactions` is one grant
+`oauth.installationAuthorities` is retired with the installer scope. Its rows expired within an
+hour; once every node runs a release without it, an operator may `drop()` the empty collection. A
+node still on the old code recreates its indexes when it starts. `oauth.serviceClientGrantTransactions` is one grant
 consent, consumed on its answer like `oauth.consentTransactions`.
 
 ## Two collections with no field order, and filters that miss rows
@@ -76,6 +76,10 @@ Each is an instance of a rule stated in the document contract, and all are this 
   matches none of them, so a replace prepared at `0` filters on the absent field as well
   (`PodServiceClientDao.replaceScopes`). No transform: the field appears with the first write. See
   `PodServiceClientDaoTest`.
+- **`oauth.serviceClients` removes a self-registered service by TTL on `pendingUntil`**, and every
+  read and write filters a passed deadline out, because the TTL monitor lags. Rows without the field
+  — activated, provisioned, or older than it — never expire. Activation unsets it in the update that
+  writes the grants (`PodServiceClientDao.addScopes`, `replaceScopes`). No transform.
 
 ## Conventions
 

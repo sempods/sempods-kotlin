@@ -88,11 +88,11 @@ class SempodsConfigTest {
     assertEquals(30, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PUBLIC_BURST)
     assertEquals(10, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE)
     assertEquals(20, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST)
-    assertEquals(2, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE)
-    assertEquals(5, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST)
+    assertEquals(2, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE)
+    assertEquals(5, SempodsModule.DEFAULT_REGISTER_RATE_LIMIT_SERVICE_BURST)
     assertEquals(0, withoutOpinion.registerRateLimitPublicPerMinute)
     assertEquals(0, withoutOpinion.registerRateLimitProtectedPerMinute)
-    assertEquals(0, withoutOpinion.registerRateLimitInstallerPerMinute)
+    assertEquals(0, withoutOpinion.registerRateLimitServicePerMinute)
     // How long a connection lives, which the consent dialog promises the person;
     // `DEFAULT_SESSION_CONNECTION_IDLE_HOURS` says why 96. The type carries the same numbers, since
     // a lifetime has no "off" to fall back to.
@@ -176,14 +176,30 @@ class SempodsConfigTest {
   }
 
   @Test
+  fun `the service budget still reads the installer budget's names where its own are unset`() {
+    // Frozen names (`docs/naming.md` §3): an operator who tuned the installer budget keeps it.
+    val former = "SEMPODS_TEST_FORMER_BUDGET_${System.nanoTime()}"
+    val current = "SEMPODS_TEST_CURRENT_BUDGET_${System.nanoTime()}"
+    System.setProperty(former, "7")
+    try {
+      assertEquals(7, SempodsModule.registerBudget(current, default = 2, formerly = former))
+      System.setProperty(current, "9")
+      assertEquals(9, SempodsModule.registerBudget(current, default = 2, formerly = former), "the new name wins")
+    } finally {
+      System.clearProperty(former)
+      System.clearProperty(current)
+    }
+  }
+
+  @Test
   fun `a negative registration budget is refused rather than read as off`() {
     val base = configWith(rate = 0)
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitPublicPerMinute = -1) }
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitPublicBurst = -1) }
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitProtectedPerMinute = -1) }
     assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitProtectedBurst = -1) }
-    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerPerMinute = -1) }
-    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitInstallerBurst = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitServicePerMinute = -1) }
+    assertFailsWith<IllegalArgumentException> { base.copy(registerRateLimitServiceBurst = -1) }
   }
 
   /**

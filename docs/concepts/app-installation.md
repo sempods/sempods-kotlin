@@ -1,9 +1,9 @@
 # Service-client provisioning and connection consent
 
-A service client reaches a pod either by host-operator provisioning or by an owner installing it.
-[Owner installation](https://github.com/sempods/sempods-kotlin/issues/35) owns the pod-OAuth flow.
-It takes two consents, both in [`../auth/oauth.md`](../auth/oauth.md#installing-a-service-client):
-one to register a service client, one to grant it contexts. Managing it afterwards is in
+A service client reaches a pod either by host-operator provisioning or by registering itself. A
+self-registered service holds nothing until the owner grants it contexts at one consent, which
+also activates it; [`../auth/oauth.md`](../auth/oauth.md#registering-a-service-client) has both
+steps. Managing it afterwards is in
 [`../auth/service-clients.md`](../auth/service-clients.md#managing-an-installed-service-client).
 
 ## Provisioning by the operator

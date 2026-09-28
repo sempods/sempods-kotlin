@@ -292,6 +292,78 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
       "an emptying update leaves `[]`")
   }
 
+  @Test
+  fun `a provisional row stores its redirects and deadline after the declared fields`() {
+    val deadline = Instant.now().plusSeconds(3_600).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+    create("pending-app", emptySet(), redirectUris = listOf("http://127.0.0.1/cb"), pendingUntil = deadline)
+
+    assertEquals(
+      listOf("_id", "podId", "clientId", "secretHash", "createdAt", "redirectUris", "pendingUntil"),
+      rawRow(probePodId, "pending-app").keys.toList(),
+    )
+    val read = assertNotNull(serviceClientDao.findByClientId(probePodId, "pending-app"))
+    assertEquals(listOf("http://127.0.0.1/cb"), read.redirectUris)
+    assertEquals(deadline, read.pendingUntil)
+  }
+
+  @Test
+  fun `a row past its deadline is absent to every read and every write but a delete`() {
+    // The TTL monitor removes it on its own schedule; until it does, the deadline decides.
+    val id = checkNotNull(create("expired-app", emptySet(), pendingUntil = Instant.now().minusSeconds(60)).id)
+
+    assertNull(serviceClientDao.findByClientId(probePodId, "expired-app"))
+    assertTrue(serviceClientDao.findByPod(probePodId).none { it.clientId == "expired-app" })
+    assertFalse(serviceClientDao.exists(probePodId, "expired-app", id))
+    assertFalse(serviceClientDao.addScopes(probePodId, "expired-app", id, setOf("$notesRoot#read"), changedBy = OWNER))
+    assertFalse(serviceClientDao.replaceScopes(probePodId, "expired-app", id, 0L, setOf("$notesRoot#read"), changedBy = OWNER))
+    assertFalse(serviceClientDao.replaceSecretHash(probePodId, "expired-app", SECRET_HASH, "revived"))
+    assertNull(serviceClientDao.removeScopes(probePodId, "expired-app", setOf("$notesRoot#read"), OWNER))
+    assertNotNull(rawRow(probePodId, "expired-app").getDate(PodServiceClientDboFields.pendingUntil), "nothing revived it")
+    assertTrue(serviceClientDao.delete(probePodId, "expired-app"), "a delete still reaches it")
+  }
+
+  @Test
+  fun `a grant write activates a provisional row, and a removal does not`() {
+    val pending = Instant.now().plusSeconds(3_600)
+    val added = checkNotNull(create("added-app", emptySet(), pendingUntil = pending).id)
+    val replaced = checkNotNull(create("replaced-app", emptySet(), pendingUntil = pending).id)
+    create("removed-app", setOf("$notesRoot#read"), pendingUntil = pending)
+
+    assertNotNull(serviceClientDao.removeScopes(probePodId, "removed-app", setOf("$notesRoot#read"), OWNER))
+    assertTrue(serviceClientDao.addScopes(probePodId, "added-app", added, setOf("$notesRoot#read"), changedBy = OWNER))
+    assertTrue(serviceClientDao.replaceScopes(probePodId, "replaced-app", replaced, 0L, emptySet(), changedBy = OWNER))
+
+    assertNotNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "removed-app")).pendingUntil)
+    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "added-app")).pendingUntil)
+    assertNull(
+      assertNotNull(serviceClientDao.findByClientId(probePodId, "replaced-app")).pendingUntil,
+      "an empty selection activates too",
+    )
+  }
+
+  @Test
+  fun `a deadline goes back only on a registration the activating write left empty`() {
+    val deadline = Instant.now().plusSeconds(3_600).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+    val emptied = checkNotNull(create("emptied-app", emptySet(), pendingUntil = deadline).id)
+    val kept = checkNotNull(create("kept-app", emptySet(), pendingUntil = deadline).id)
+    serviceClientDao.addScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"), changedBy = OWNER)
+    serviceClientDao.dropScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"))
+    serviceClientDao.addScopes(probePodId, "kept-app", kept, setOf("$notesRoot#read"), changedBy = OWNER)
+
+    assertTrue(serviceClientDao.reinstateDeadline(probePodId, "emptied-app", emptied, deadline))
+    assertFalse(serviceClientDao.reinstateDeadline(probePodId, "kept-app", kept, deadline), "a surviving grant keeps it active")
+
+    assertEquals(deadline, assertNotNull(serviceClientDao.findByClientId(probePodId, "emptied-app")).pendingUntil)
+    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "kept-app")).pendingUntil)
+  }
+
+  @Test
+  fun `the deadline is a TTL index`() {
+    val index = rows.listIndexes().single { it.get("key", Document::class.java).containsKey(PodServiceClientDboFields.pendingUntil) }
+
+    assertEquals(0, (index["expireAfterSeconds"] as Number).toInt())
+  }
+
   private fun rawRow(podId: ObjectId, clientId: String): Document =
     rows.find(
       Filters.and(
@@ -305,6 +377,8 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
     scopes: Set<String>,
     podId: ObjectId = probePodId,
     label: String? = null,
+    redirectUris: List<String> = emptyList(),
+    pendingUntil: Instant? = null,
   ): PodServiceClientDbo = serviceClientDao.create(
     PodServiceClientDbo(
       podId = podId,
@@ -313,6 +387,8 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
       scopes = scopes,
       label = label,
       createdAt = CREATED_AT,
+      redirectUris = redirectUris,
+      pendingUntil = pendingUntil,
     ),
   )
 

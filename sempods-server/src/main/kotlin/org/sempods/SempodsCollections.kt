@@ -76,9 +76,6 @@ internal object SempodsCollections {
   /** One consent screen, once. */
   const val OAUTH_CONSENT_TRANSACTIONS = "oauth.consentTransactions"
 
-  /** The right to register one service client, spent on use — `(jti)`. */
-  const val OAUTH_INSTALLATION_AUTHORITIES = "oauth.installationAuthorities"
-
   /** The right to manage a pod's service clients, read for a bearer's hour — `(jti)`. */
   const val OAUTH_MANAGEMENT_AUTHORITIES = "oauth.managementAuthorities"
 
@@ -113,7 +110,6 @@ internal object SempodsCollections {
     OAUTH_SIGN_OUTS,
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,
-    OAUTH_INSTALLATION_AUTHORITIES,
     OAUTH_MANAGEMENT_AUTHORITIES,
     OAUTH_SERVICE_CLIENT_GRANT_TRANSACTIONS,
     OAUTH_AUTH_CODES,

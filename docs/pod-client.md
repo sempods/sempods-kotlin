@@ -100,7 +100,7 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
 | `SempodsPodTokens` | a pod's token endpoint: a service client's `client_credentials` grant, and redeeming an authorization code |
 | `SempodsPodAuthorization` | a public client's registration, the authorization URL its user opens, with `SempodsPkce`, and the answer that comes back |
-| `SempodsPodServiceClients` | a pod owner's service clients: installing one, the grant consent, and managing the ones that exist |
+| `SempodsPodServiceClients` | a pod's service clients: registering one, the grant consent, and managing the ones that exist |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -303,26 +303,25 @@ var podBearer = SempodsRequestAuth.refreshable((forceRefresh, attempt) ->
 var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
 ```
 
-### Installing a service client
+### Registering a service client
 
-A program installs a service client for a pod owner in two browser round trips, and the service then
-mints its own tokens (§"A service token"). The protocol is
-[`auth/oauth.md`](auth/oauth.md#installing-a-service-client)'s; the lifetimes, what may be sent again
-and the refusals are `SempodsPodServiceClients`' KDoc.
+A service registers itself, and the owner grants it contexts in one browser round trip; the service
+then mints its own tokens (§"A service token"). Until the owner grants it, the registration is
+provisional and holds nothing, and at `getActivationExpiresAt()` the pod removes it. The protocol
+is [`auth/oauth.md`](auth/oauth.md#registering-a-service-client)'s; the lifetimes, what may be sent
+again and the refusals are `SempodsPodServiceClients`' KDoc.
 
 ```java
-browser.open(authorization.authorizationUrl(installer, redirectUri, "service-clients:install", state, pkce));
-String code = authorization.readRedirect(query, state).getCode();
-String token = tokens.authorizationCode(installer, code, redirectUri, pkce.getVerifier()).getBody().getAccessToken();
-
-var installing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
-SempodsServiceClientRegistration service = installing.register("Notes Sync").getBody();
+var registering = new SempodsPodServiceClients(new SempodsSession(pod), client);
+SempodsServiceClientRegistration service = registering.register("Notes Sync").getBody();
 store.save(service.getClientId(), service.getClientSecret());
 
-browser.open(installing.grantConsentUrl(installer, redirectUri, grantState, service.getClientId(), scopes));
+browser.open(registering.grantConsentUrl(app, redirectUri, grantState, service.getClientId(), scopes));
 SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(grantQuery, grantState);
 ```
 
+`app` is the program's own public client, registered with `SempodsPodAuthorization`; the grant
+consent sends the browser back to it.
 The client has no HTTP server: the program serves its own loopback redirect.
 [`OwnerInstallation.java`](../sempods-server/src/test/java/org/sempods/example/OwnerInstallation.java)
 is the whole program, and `OwnerInstallationExampleHttpTest` runs it against a pod.

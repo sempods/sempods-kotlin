@@ -16,8 +16,7 @@ sempods-spec `spec/core/grants.md`.
 
 ## Registration
 
-Two routes lead into one registry, and the unauthenticated RFC 7591
-profile is neither of them.
+Two routes lead into one registry.
 
 **The host operator** registers at
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}`
@@ -25,11 +24,13 @@ profile is neither of them.
 authorizes it, so no pod token reaches it. The caller names the
 `clientId`, and the sandbox below is derived from it.
 
-**The pod owner** registers at `POST /{pod}/_system/auth/register`
-carrying an installation authority — [`oauth.md`](oauth.md#installing-a-service-client)
+**A service** registers itself at `POST /{pod}/_system/auth/register`,
+without a bearer — [`oauth.md`](oauth.md#registering-a-service-client)
 is that flow, what the body must say and what the answer carries. There
 the server names the client `svc:…`, and there is no sandbox to derive:
-the owner names the contexts in a second consent.
+the registration is provisional until the owner grants it contexts at
+the [grant consent](oauth.md#granting-it-contexts), and removed after 24
+hours if they never do.
 
 Either way:
 
@@ -44,8 +45,7 @@ Either way:
   which clientIds exist.
 - Scopes are restricted: only per-context
   scopes (`<context-iri>#read|write|manage`) are accepted. An OIDC scope
-  is refused, and so is every feature scope — `public-read` and
-  `service-clients:install` alike. A service client is confined to the
+  is refused, and so is every feature scope, `public-read` included. A service client is confined to the
   subtree its `manage` root names, and that subtree can never be all of
   them: a `manage` root is refused when it sits at or above the context
   namespace `<pod>/_system/contexts`, because the slash-delimited rule
@@ -53,13 +53,13 @@ Either way:
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
 - An operator-provisioned client holds the scope it was provisioned with.
-  An installed one starts with none; the owner grants it contexts at the
-  [grant consent](oauth.md#granting-it-contexts) and takes them away
+  A self-registered one starts with none; the owner grants it contexts at
+  the [grant consent](oauth.md#granting-it-contexts) and takes them away
   [below](#managing-an-installed-service-client).
 - The scope set may be empty: the registration holds a credential and no
   authority, and the token endpoint answers it `invalid_scope`. That is
-  an installation between its two consents, one whose last grant was
-  removed, and a registration whose last anchor was deleted.
+  a provisional registration, one whose last grant was removed, and one
+  whose last anchor was deleted.
 
 ## Sandbox via manage-root
 
@@ -139,20 +139,20 @@ The owner manages the registrations on their pod with a bearer carrying
 `service-clients:manage` — [`oauth.md`](oauth.md#managing-service-clients)
 is how one is granted. The client id travels path-encoded (`svc%3A…`).
 From a JVM program these are `SempodsPodServiceClients`
-([`../pod-client.md`](../pod-client.md#installing-a-service-client)).
+([`../pod-client.md`](../pod-client.md#registering-a-service-client)).
 
 | Route | What it does |
 |---|---|
-| `GET {pod}/_system/auth/service-clients` | Every registration: `client_id`, `client_name`, `client_id_issued_at`, `last_used_at`, `scope`, `origin`. Never a secret |
+| `GET {pod}/_system/auth/service-clients` | Every registration: `client_id`, `client_name`, `client_id_issued_at`, `last_used_at`, `scope`, `origin`, and `activation_expires_at` while it is provisional. Never a secret |
 | `POST …/service-clients/{clientId}/secret` | A new `client_secret`, answered once with `Cache-Control: no-store`. `409` when another rotation landed in between |
 | `DELETE …/service-clients/{clientId}/grants?scope=…` | Takes the named scopes away and answers what is left. Removing the last one keeps the registration |
 | `DELETE …/service-clients/{clientId}` | Removes the registration. The contexts it wrote to stay |
 
 - **`last_used_at`** is when the client last minted a token. A secret does
-  not expire, so this is what makes a forgotten installation visible.
+  not expire, so this is what makes a forgotten service visible.
 - **`origin`** is `installed` for a `svc:` client and `provisioned` for an
   operator's. A provisioned one is listed and refused every change (`403`).
-- Any other bearer, an installer's included, is `403 insufficient_scope`.
+- Any other bearer is `403 insufficient_scope`.
 
 What each change does to tokens the service already holds:
 
@@ -183,7 +183,7 @@ grant_type=client_credentials
 ```
 
 The form-encoding step is RFC 6749 §2.3.1's and matters here: an
-owner-installed `client_id` carries a `:`, so it travels as `svc%3A…`. A
+server-named `client_id` carries a `:`, so it travels as `svc%3A…`. A
 client that joins the raw strings sends a username of `svc` and is
 answered `invalid_client`.
 
@@ -248,7 +248,7 @@ Service tokens are RS256 JWTs signed by the pod like user tokens
   leaves a fixed floor of rows that never expire; the trail is bounded from
   the change forward either way.
 - An operator-provisioned client rotates by provisioning again; an
-  installed one at `POST …/secret`. Neither overlaps validity: the old
+  `svc:` one at `POST …/secret`. Neither overlaps validity: the old
   secret stops at once.
 - Clients are expected to handle a 401 by re-minting; a transparent
   single-retry in a client's token provider is still open (tracked as

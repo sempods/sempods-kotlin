@@ -69,7 +69,7 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
   fun `the authorization URL is the pod's own, with the code flow and the PKCE challenge`() {
     val pkce = SempodsPkce.of("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
 
-    val url = authorization.authorizationUrl("dyn:abc", "http://127.0.0.1:4711/cb", "service-clients:install", "s 1", pkce)
+    val url = authorization.authorizationUrl("dyn:abc", "http://127.0.0.1:4711/cb", "service-clients:manage", "s 1", pkce)
 
     assertEquals("$origin/alice/_system/auth/authorize", url.newBuilder().query(null).build().toString())
     assertEquals(
@@ -77,7 +77,7 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
         "response_type" to "code",
         "client_id" to "dyn:abc",
         "redirect_uri" to "http://127.0.0.1:4711/cb",
-        "scope" to "service-clients:install",
+        "scope" to "service-clients:manage",
         "state" to "s 1",
         "code_challenge" to "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
         "code_challenge_method" to "S256",
@@ -92,12 +92,12 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     answer(
       "/alice/_system/auth/token",
       200,
-      """{"access_token":"tok-1","token_type":"Bearer","expires_in":3600,"scope":"service-clients:install"}""",
+      """{"access_token":"tok-1","token_type":"Bearer","expires_in":3600,"scope":"service-clients:manage"}""",
     )
 
     val token = tokens.authorizationCode("dyn:abc", "c-1", "http://127.0.0.1:4711/cb", "v".repeat(43))
 
-    assertEquals(SempodsTokenResponse.of("tok-1", "Bearer", Duration.ofHours(1), "service-clients:install"), token.body)
+    assertEquals(SempodsTokenResponse.of("tok-1", "Bearer", Duration.ofHours(1), "service-clients:manage"), token.body)
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals(
       "grant_type=authorization_code&code=c-1&redirect_uri=http%3A%2F%2F127.0.0.1%3A4711%2Fcb&client_id=dyn%3Aabc&code_verifier=" + "v".repeat(43),
@@ -122,7 +122,7 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     assertThrows<IllegalArgumentException> { authorization.registerClient("Installer", listOf("http://127.0.0.1/cb path")) }
     assertThrows<IllegalArgumentException> { authorization.registerClient("Installer", listOf("http://127.0.0.1/cb?iss=local")) }
     assertThrows<IllegalArgumentException> {
-      authorization.authorizationUrl("dyn:abc", "http://127.0.0.1/cb path", "service-clients:install", "s1", SempodsPkce.generate())
+      authorization.authorizationUrl("dyn:abc", "http://127.0.0.1/cb path", "service-clients:manage", "s1", SempodsPkce.generate())
     }
 
     assertTrue(server.retrieveRecordedRequests(request()).isEmpty())

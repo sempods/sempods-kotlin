@@ -10,7 +10,6 @@ import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
-import org.sempods.pods.grants.SERVICE_CLIENTS_INSTALL_SCOPE
 import org.sempods.pods.oauth.flows.PodAuthorizeRefusal
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
 import org.sempods.pods.oauth.flows.PodConsentRefusal
@@ -225,8 +224,8 @@ internal object PodAuthorizeResponses {
       "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
       "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
       "isOwner" to screen.isOwner,
-      // The owner may build a context, on a dialog that is about contexts. The installation screen
-      // is not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
+      // The owner may build a context, on a dialog that is about contexts. A privileged screen is
+      // not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
       // the script behind it would only offer work that cannot land.
       "contextCreationAvailable" to screen.binding.contextCreationOffered,
       "publicContexts" to screen.publicContexts,
@@ -242,8 +241,6 @@ internal object PodAuthorizeResponses {
       "disconnectAvailable" to screen.disconnectAvailable,
       // A flag per feature: the template's sentence says what this one allows, and a generic one
       // over a list would say nothing a person could weigh.
-      "installerRequested" to (SERVICE_CLIENTS_INSTALL_SCOPE in screen.privilegedFeatures),
-      "installerScope" to SERVICE_CLIENTS_INSTALL_SCOPE,
       "managementRequested" to (SERVICE_CLIENTS_MANAGE_SCOPE in screen.privilegedFeatures),
       "managementScope" to SERVICE_CLIENTS_MANAGE_SCOPE,
       "contextsManagementRequested" to (CONTEXTS_MANAGE_SCOPE in screen.privilegedFeatures),

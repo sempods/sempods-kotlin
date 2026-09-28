@@ -20,7 +20,8 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import java.time.Instant
 
 /**
- * The grant consent: the pod owner gives an installed service client contexts. What a caller sends
+ * The grant consent: the pod owner gives a service client this pod named (`svc:`) contexts, which
+ * also activates one that registered itself. What a caller sends
  * and receives is `docs/auth/oauth.md` §"Granting it contexts"; what the transaction binds is
  * [ServiceClientGrantTransactionStore].
  *
@@ -188,6 +189,9 @@ class PodServiceClientGrantFlow @Inject internal constructor(
     }
     val granted = ticked - lost
     if (granted.isEmpty()) {
+      // The write activated a registration it then left holding nothing. Nothing was granted, so
+      // nothing activates: its deadline goes back.
+      registration.pendingUntil?.let { serviceClients.reinstateDeadline(pod.id, registration.clientId, registration.id, it) }
       return denied(target, state, pod, transaction.serviceClientId, "its contexts went while being granted")
     }
 
@@ -200,8 +204,8 @@ class PodServiceClientGrantFlow @Inject internal constructor(
   }
 
   /**
-   * The owner-installed registration, where this person owns the pod and may delegate every one of
-   * [scopes] now; otherwise `null`.
+   * The registration this pod named, provisional or active, where this person owns the pod and may
+   * delegate every one of [scopes] now; otherwise `null`. An expired one reads as absent.
    */
   private fun grantable(
     pod: HostedPod,

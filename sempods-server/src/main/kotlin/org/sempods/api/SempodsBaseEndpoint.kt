@@ -232,8 +232,8 @@ open class SempodsBaseEndpoint(
    *
    * **What this asks is "any app", which is why a privileged feature scope does not pass it.** An
    * empty sandbox is no answer where a route never consults one: the AI routes behind this gate
-   * spend a provider call on the strength of the bearer alone, and an installation authority —
-   * granted to register one service client — would spend them for its hour. A route that wants
+   * spend a provider call on the strength of the bearer alone, and a management authority —
+   * granted to administer service clients or contexts — would spend them for its hour. A route that wants
    * such a bearer authenticates it deliberately; this one takes whoever turns up.
    */
   protected fun requirePodAppTokenOrThrow(pod: String): SempodsCredentials {

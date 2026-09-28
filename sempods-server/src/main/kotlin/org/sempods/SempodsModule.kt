@@ -22,7 +22,6 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.oauth.PodConsentDecisionStore
-import org.sempods.pods.oauth.PodInstallationAuthorityStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.ServiceClientGrantTransactionStore
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
@@ -37,7 +36,7 @@ import org.sempods.pods.oauth.flows.ConsentSelection
 import org.sempods.pods.oauth.flows.PodAppHoldings
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
-import org.sempods.pods.oauth.flows.PodInstallationBudget
+import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceClientGrantFlow
 import org.sempods.pods.oauth.flows.PodSignIn
@@ -196,13 +195,12 @@ class SempodsModule : BaseModule() {
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
     bind<PodRegistrationRateLimiter>().asSingleton()
-    bind<PodInstallationBudget>().to(PodRegistrationRateLimiter::class.java)
+    bind<PodServiceRegistrationBudget>().to(PodRegistrationRateLimiter::class.java)
     bind<DynamicClientRegistrationDao>().asSingleton()
     bind<DynamicClientStore>().asSingleton()
     bind<TemplateRenderer>().asSingleton()
     bind<OAuthSigningKeyDao>().asSingleton()
     bind<PodConsentDecisionStore>().asSingleton()
-    bind<PodInstallationAuthorityStore>().asSingleton()
     bind<PodManagementAuthorityStore>().asSingleton()
     bind<ServiceClientGrantTransactionStore>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
@@ -654,6 +652,15 @@ class SempodsModule : BaseModule() {
     internal const val REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE_ENV_VARIABLE =
       "SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_PER_MINUTE"
     internal const val REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_PROTECTED_BURST"
+    internal const val REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE_ENV_VARIABLE =
+      "SEMPODS_REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE"
+    internal const val REGISTER_RATE_LIMIT_SERVICE_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_SERVICE_BURST"
+
+    /**
+     * The service budget's names while it was the installer's. Still read where the new name is
+     * unset: every `SEMPODS_*` name is frozen (`docs/naming.md` §3), and an operator who set these
+     * keeps the values they chose.
+     */
     internal const val REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE =
       "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE"
     internal const val REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_BURST"
@@ -746,11 +753,11 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST = 20
 
     /**
-     * 2 installations a minute per pod after a burst of 5. Each one needs a consent in
-     * the browser first, so a person installing by hand never comes near.
+     * 2 service registrations a minute per pod after a burst of 5. A service registers once and
+     * waits for the owner, so a pod with a few services never comes near.
      */
-    internal const val DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE = 2
-    internal const val DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST = 5
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE = 2
+    internal const val DEFAULT_REGISTER_RATE_LIMIT_SERVICE_BURST = 5
 
     /**
      * 96 hours unused and 7 days at most, for a connection the person left unticked.
@@ -769,9 +776,14 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
     internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
 
-    /** A registration budget from [variable]: off in development, [default] in a deployment. */
-    private fun registerBudget(variable: String, default: Int): Int =
-      Env.int(variable, default = if (Env.isDevelopment) 0 else default)
+    /**
+     * A registration budget from [variable], else from [formerly]: off in development, [default] in
+     * a deployment.
+     */
+    internal fun registerBudget(variable: String, default: Int, formerly: String? = null): Int {
+      val fallback = if (Env.isDevelopment) 0 else default
+      return Env.int(variable, default = formerly?.let { Env.int(it, fallback) } ?: fallback)
+    }
 
     /**
      * The pod server's configuration, read once from the environment.
@@ -858,11 +870,13 @@ class SempodsModule : BaseModule() {
         registerRateLimitProtectedBurst = registerBudget(
           REGISTER_RATE_LIMIT_PROTECTED_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_PROTECTED_BURST,
         ),
-        registerRateLimitInstallerPerMinute = registerBudget(
-          REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE,
+        registerRateLimitServicePerMinute = registerBudget(
+          REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE,
+          formerly = REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE,
         ),
-        registerRateLimitInstallerBurst = registerBudget(
-          REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_INSTALLER_BURST,
+        registerRateLimitServiceBurst = registerBudget(
+          REGISTER_RATE_LIMIT_SERVICE_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_SERVICE_BURST,
+          formerly = REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE,
         ),
         sessionConnectionIdleHours = Env.int(
           SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE,

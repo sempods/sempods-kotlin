@@ -123,8 +123,8 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * The answer a disconnect produces: a refusal, and one more on the count of endings.
    *
    * Apart from [record] because the count is what a stale consent page is compared against, and
-   * only this write may move it. Every other write moves the generation — an ordinary consent, an
-   * installation, a forced review — and none of them removes anything, so a page that merely
+   * only this write may move it. Every other write moves the generation — an ordinary consent, a
+   * privileged one, a forced review — and none of them removes anything, so a page that merely
    * predates one of those has nothing to hand back and submits as it always did.
    */
   internal fun recordDisconnect(
@@ -153,7 +153,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   /**
    * The same write, for a dialog that asked the person something other than the lifetime question.
    *
-   * The installation screen is the one that does: it carries no lifetime control, so it has no
+   * A privileged screen is the one that does: it carries no lifetime control, so it has no
    * answer to write, and writing `false` anyway would be a refusal nobody gave — enough to revoke
    * a durable family this app already holds ([Decision.durable] is what `endsOnRefusal` reads).
    * The field is therefore left exactly as it stands: preserved where an answer is on record,
