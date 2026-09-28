@@ -399,7 +399,7 @@
     </div>
 
     <!-- The management screen's whole question, on the same terms as the installation above:
-         offered only where asked for, never pre-ticked, alone on the screen. It adds nothing: a
+         offered only where asked for, never pre-ticked, alone on the screen. It adds no grant: a
          service is given contexts only at the consent that names it. -->
     <div class="public-read-section" th:if="${managementRequested}">
       <h2>Manage the apps installed on this pod</h2>
@@ -413,8 +413,9 @@
           installed on this pod, for the next hour.
           <span class="description">
             It sees their names, when they were installed and last used, and what they may reach.
-            It can issue an app a new secret, which it then holds, take access away from an app or
-            remove it. It cannot give an app more access, and it gets no access to your data.
+            It can take access away from an app or remove it. It can also issue an app a new secret
+            and keep it. With that secret it acts as that app and has all of its access, also after
+            this hour. It cannot give an app more access.
           </span>
         </span>
       </label>
