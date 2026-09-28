@@ -33,22 +33,39 @@ internal class ConsentSelection @Inject constructor(
 ) {
 
   /**
-   * What the dialog put to the person, from its transaction.
+   * What the dialog put to the person.
    *
-   * @param scopes every value it rendered as a `scope` checkbox.
+   * @param contexts the IRI of every context row it rendered, each with `read`, `write` and
+   *   `manage` boxes.
+   * @param publicRead whether it rendered the `public-read` box.
    * @param contextCreation whether it let the person create contexts.
    */
-  data class Offer(val scopes: Set<String>, val contextCreation: Boolean)
+  data class Offer(val contexts: Set<String>, val publicRead: Boolean, val contextCreation: Boolean) {
 
-  /** The selection fields as posted — untrimmed, any of them absent. */
+    /** Whether [scope] is one of the boxes this dialog rendered. */
+    fun offers(scope: String): Boolean =
+      if (scope == PUBLIC_READ_SCOPE) {
+        publicRead
+      } else {
+        scope.substringBeforeLast('#') in contexts && ScopePermission.of(scope.substringAfterLast('#')) != null
+      }
+  }
+
+  /**
+   * The selection as posted.
+   *
+   * @param scopes the ticked `scope` boxes, trimmed and without blanks.
+   * @param newContexts the `new_context` and `new_context_scope` fields, untrimmed; [newContextScopes]
+   *   is `<relative-path>#<permission>`, since a context that does not exist yet has no IRI to name.
+   */
   data class Submission(
-    val scopes: List<String>?,
+    val scopes: Set<String>,
     val newContexts: List<String>?,
     val newContextScopes: List<String>?,
   )
 
   /** A context to create, with the permissions ticked on it. */
-  data class PendingContext(val relativePath: String, val uri: URI, val permissions: Set<ScopePermission>)
+  data class PendingContext(val uri: URI, val permissions: Set<ScopePermission>)
 
   /** What [parse] made of a submission. */
   sealed interface Parsed {
@@ -61,9 +78,9 @@ internal class ConsentSelection @Inject constructor(
 
     /**
      * @param scopes the ticked existing rows, `public-read` among them where ticked.
-     * @param pending the contexts to create, keyed by relative path.
+     * @param pending the contexts to create.
      */
-    data class Selection(val scopes: Set<String>, val pending: Map<String, PendingContext>) : Parsed {
+    data class Selection(val scopes: Set<String>, val pending: List<PendingContext>) : Parsed {
       val publicRead: Boolean get() = PUBLIC_READ_SCOPE in scopes
     }
   }
@@ -76,27 +93,20 @@ internal class ConsentSelection @Inject constructor(
    */
   data class Applied<R : GrantReplacement>(val replacement: R?, val created: List<URI>)
 
-  /**
-   * Checks the submission against [offer] and the context rules, and writes nothing.
-   *
-   * @param offer `null` for a transaction an older node wrote, which bound no rows
-   *   (`ConsentTransactionStore`, rollout): rows are then taken as posted and only filtered in
-   *   [apply], as before, and only an owner may create contexts. The context rules hold either way.
-   */
-  fun parse(pod: HostedPod, submission: Submission, offer: Offer?, isOwner: Boolean): Parsed {
-    val scopes = submission.scopes.orEmpty().map { it.trim() }.filter { it.isNotBlank() }.toSet()
+  /** Checks the submission against [offer] and the context rules, and writes nothing. */
+  fun parse(pod: HostedPod, submission: Submission, offer: Offer): Parsed {
+    val scopes = submission.scopes
     val newContexts = submission.newContexts.orEmpty()
       .map { ContextPathRules.normalize(it) }
       .filter { it.isNotBlank() }
       .distinct()
-    // `<relative-path>#<permission>`: a context that does not exist yet has no IRI to name, so the
-    // form posts its path and this resolves it against the IRI built below.
     val newContextScopes = submission.newContextScopes.orEmpty().map { it.trim() }.filter { it.isNotBlank() }
 
-    if (offer != null && !offer.scopes.containsAll(scopes)) {
+    val unoffered = scopes.filterNot(offer::offers)
+    if (unoffered.isNotEmpty()) {
       logger.warn {
         "[oauth/consent] rejected: rows this dialog did not offer (pod='${pod.name}', " +
-            "rows=${LogSafeText.of((scopes - offer.scopes).sorted().joinToString(" "))})"
+            "rows=${LogSafeText.of(unoffered.sorted().joinToString(" "))})"
       }
       return Parsed.Refused(OAuthErrorCode.INVALID_SCOPE, "a context this dialog did not offer")
     }
@@ -106,12 +116,10 @@ internal class ConsentSelection @Inject constructor(
     // happening.
     if (scopes.isEmpty() && newContextScopes.isEmpty()) return Parsed.Empty
 
-    val creationOffered = offer?.contextCreation ?: isOwner
-    if (newContexts.isNotEmpty() && !creationOffered) {
+    if (newContexts.isNotEmpty() && !offer.contextCreation) {
       return refusedContext(pod, newContexts.first(), "this dialog does not create contexts")
     }
 
-    val existing = if (newContexts.isEmpty()) emptySet() else podFacade.getContexts(pod.name)
     val resolved = mutableMapOf<String, URI>()
     for (relativePath in newContexts) {
       ContextPathRules.rejectionReason(relativePath)?.let { return refusedContext(pod, relativePath, it) }
@@ -122,10 +130,12 @@ internal class ConsentSelection @Inject constructor(
         is ContextUriResolution.Rejected -> return refusedContext(pod, relativePath, resolution.reason)
         is ContextUriResolution.Resolved -> resolution.uri
       }
-      // The dialog offers an existing context as a row, never as one to create. One that exists
-      // now was created by somebody else while the page was open.
-      if (uri in existing) return refusedContext(pod, relativePath, "the context exists already")
       resolved[relativePath] = uri
+    }
+    // The dialog offers an existing context as a row, never as one to create. One that exists now
+    // was created by somebody else while the page was open. Asked after the rules, which cost no read.
+    resolved.entries.firstOrNull { (_, uri) -> podFacade.contextExists(pod, uri) }?.let { (relativePath, _) ->
+      return refusedContext(pod, relativePath, "the context exists already")
     }
 
     val permissions = mutableMapOf<String, MutableSet<ScopePermission>>()
@@ -139,7 +149,7 @@ internal class ConsentSelection @Inject constructor(
     }
 
     // A pending context nobody ticked a box on is still created: the person added it to the list.
-    val pending = resolved.mapValues { (path, uri) -> PendingContext(path, uri, permissions[path].orEmpty()) }
+    val pending = resolved.map { (path, uri) -> PendingContext(uri, permissions[path].orEmpty()) }
     return Parsed.Selection(scopes, pending)
   }
 
@@ -160,19 +170,18 @@ internal class ConsentSelection @Inject constructor(
     approverUris: Collection<String>,
     approver: String,
   ): Applied<R> {
-    val created = selection.pending.values.mapNotNull { context ->
+    val created = selection.pending.mapNotNull { context ->
       // Private and owner-only: the owner is the creator, and nothing else is granted here but the
       // ticked rows below.
       val isNew = podFacade.createContext(pod = pod, contextUri = context.uri, createdBy = approver)
       logger.info { "[oauth/consent] Context created: pod='${pod.name}', context='${context.uri}', new=$isNew" }
       context.uri.takeIf { isNew }
     }
-    val pendingScopes = selection.pending.values.flatMap { context ->
+    val pendingScopes = selection.pending.flatMap { context ->
       context.permissions.map { "${context.uri}#${it.value}" }
     }
     val delegatable = podGrantsFacade.resolveUserGrants(pod, approverUris)
-    val contextScopes = (selection.scopes - PUBLIC_READ_SCOPE + pendingScopes).filterTo(mutableSetOf()) { it in delegatable }
-    val chosen = if (selection.publicRead) contextScopes + PUBLIC_READ_SCOPE else contextScopes
+    val chosen = (selection.scopes + pendingScopes).filterTo(mutableSetOf()) { it == PUBLIC_READ_SCOPE || it in delegatable }
     if (chosen.isEmpty()) return Applied(null, created)
     val replacement = podGrantsFacade.replaceGrants(pod, recipient, chosen, grantedBy = approver)
     return Applied(replacement, created)

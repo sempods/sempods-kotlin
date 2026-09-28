@@ -33,6 +33,9 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var flow: DelegatedAccessFlow
+
   /** Values a client may legally send that a normalising server would change. */
   private val opaqueValues = listOf(
     " padded ",
@@ -191,16 +194,8 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
    * Leaves the rendered [page] through its Cancel button, which posts nothing but the screen's
    * token: whatever `state` the answer carries came from the screen's transaction.
    */
-  private fun cancel(pod: PodDbo, webId: String, page: TestHttpResponse): TestHttpResponse {
-    val csrf = checkNotNull(Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)) {
-      "no consent token in the rendered page"
-    }.groupValues[1]
-    return http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Cookie", signIn(pod.name, webId).cookie)
-      .setBody("csrf=${enc(unescapeHtml(csrf))}&action=cancel")
-      .setFollowRedirect(false).execute()
-  }
+  private fun cancel(pod: PodDbo, webId: String, page: TestHttpResponse): TestHttpResponse =
+    flow.submit(DelegatedAccessFlow.ConsentPage.of(page), signIn(pod.name, webId).cookie, action = "cancel")
 
   private fun quoted(state: String?): String = state?.let { "'$it'" } ?: "(absent)"
 

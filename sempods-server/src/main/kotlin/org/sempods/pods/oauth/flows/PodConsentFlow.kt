@@ -93,7 +93,7 @@ class PodConsentFlow @Inject internal constructor(
       PodClientIdentity.Malformed -> return PodConsentResult.Refused(PodConsentRefusal.MALFORMED_CLIENT_ID)
     }
 
-    val normalizedRedirectUri = request.redirectUri?.trim()?.takeIf { it.isNotBlank() }
+    val normalizedRedirectUri = request.redirectUri
       ?: return PodConsentResult.Refused(PodConsentRefusal.MISSING_REDIRECT_URI)
 
     val redirectTarget = OAuthErrors.redirectTargetFor(clients, normalizedClientId, normalizedRedirectUri)
@@ -206,9 +206,18 @@ class PodConsentFlow @Inject internal constructor(
     }
 
     // ── The grant selection, which every consent dialog shares ────────────
-    val offer = transaction.binding?.let { ConsentSelection.Offer(it.offeredScopes, it.contextCreationOffered) }
-    val submission = ConsentSelection.Submission(form.scopes, form.newContexts, form.newContextScopes)
-    val selection = when (val parsed = consentSelection.parse(pod, submission, offer, isOwner)) {
+    val offer = transaction.binding
+      ?.let { ConsentSelection.Offer(it.offeredContexts, it.publicReadOffered, it.contextCreationOffered) }
+      // A screen an older node rendered bound no rows (`ConsentTransactionStore`, rollout): what it
+      // posts is taken as offered, [ConsentSelection.apply] still drops what the person cannot
+      // delegate, and only an owner creates contexts.
+      ?: ConsentSelection.Offer(
+        contexts = rawSubmitted.mapTo(mutableSetOf()) { it.substringBeforeLast('#') },
+        publicRead = true,
+        contextCreation = isOwner,
+      )
+    val submission = ConsentSelection.Submission(rawSubmitted, form.newContexts, form.newContextScopes)
+    val selection = when (val parsed = consentSelection.parse(pod, submission, offer)) {
       // Nothing ticked anywhere is the other way to ask for the way out.
       ConsentSelection.Parsed.Empty ->
         return endAuthorization(pod, normalizedClientId, identity, redirectTarget, clientState, holdsAnything)
@@ -219,7 +228,7 @@ class PodConsentFlow @Inject internal constructor(
     // `public-read` is an additive scope, combined with per-context ones and persisted as a grant so
     // prompt=none auto-grant works on later /authorize calls. It needs at least one public context
     // to mean anything; alone on a pod with none, there is nothing to authorize.
-    if (selection.publicRead && selection.scopes.size == 1 && selection.pending.isEmpty() &&
+    if (selection.scopes == setOf(PUBLIC_READ_SCOPE) && selection.pending.isEmpty() &&
       podFacade.getPublicContexts(podName = pod.name).isEmpty()
     ) {
       return failed(
@@ -560,22 +569,17 @@ private data class ConsentRequest(
         codeChallenge = form.codeChallenge?.trim()?.takeIf { it.isNotBlank() },
         codeChallengeMethod = form.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() },
       )
-      if (binding == null) return posted.copy(clientId = form.clientId, redirectUri = form.redirectUri)
-      val bound = ConsentRequest(
-        clientId = binding.clientId,
-        redirectUri = binding.redirectUri,
-        state = binding.state,
-        codeChallenge = binding.codeChallenge,
-        codeChallengeMethod = binding.codeChallengeMethod,
+      if (binding == null) return posted
+      val bound = with(binding) { ConsentRequest(clientId, redirectUri, state, codeChallenge, codeChallengeMethod) }
+      // Field by field, since a field the form leaves out agrees with anything.
+      val pairs = listOf(
+        posted.clientId to bound.clientId,
+        posted.redirectUri to bound.redirectUri,
+        posted.state to bound.state,
+        posted.codeChallenge to bound.codeChallenge,
+        posted.codeChallengeMethod to bound.codeChallengeMethod,
       )
-      fun agrees(posted: String?, bound: String?) = posted == null || posted == bound
-      return bound.takeIf {
-        agrees(posted.clientId, bound.clientId) &&
-            agrees(posted.redirectUri, bound.redirectUri) &&
-            agrees(posted.state, bound.state) &&
-            agrees(posted.codeChallenge, bound.codeChallenge) &&
-            agrees(posted.codeChallengeMethod, bound.codeChallengeMethod)
-      }
+      return bound.takeIf { pairs.all { (sent, kept) -> sent == null || sent == kept } }
     }
   }
 }

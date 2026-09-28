@@ -4,13 +4,11 @@ import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow.ConsentPage
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.commons.net.UrlUtil
-import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.contexts.persist.PodContextsDao
-import org.sempods.pods.grants.persist.PodGrantsDao
+import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.podId
 import org.junit.jupiter.api.Test
-import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -32,7 +30,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
   @Inject
-  private lateinit var podGrantsDao: PodGrantsDao
+  private lateinit var podGrantsFacade: PodGrantsFacade
 
   @Inject
   private lateinit var podContextsDao: PodContextsDao
@@ -75,7 +73,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
       page, owned.cookie, scopes = setOf("$notes#read"),
       extra = listOf("state" to "rendered", "code_challenge" to DelegatedAccessFlow.CODE_CHALLENGE),
     )
-    assertEquals("rendered", query(repeated)["state"], repeated.getHeader("Location"))
+    assertEquals("rendered", flow.query(repeated)["state"], repeated.getHeader("Location"))
     val exchanged = flow.exchangeCode(owned.pod, app, flow.codeFrom(repeated))
     assertEquals(200, exchanged.statusCode, "the code carries the rendered challenge: ${exchanged.responseBody}")
   }
@@ -92,7 +90,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
     val late = owned.context("late")
     val posted = flow.submit(page, owned.cookie, scopes = setOf("$notes#write"), extra = listOf("scope" to "$late#read"))
 
-    assertEquals("invalid_scope", query(posted)["error"], posted.getHeader("Location"))
+    assertEquals("invalid_scope", flow.query(posted)["error"], posted.getHeader("Location"))
     assertEquals(setOf("$notes#read"), grants(owned, app), "the grants stay as they were")
   }
 
@@ -107,7 +105,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
       newContexts = mapOf("fine/one" to setOf("read"), "apps/claimed" to setOf("read")),
     )
 
-    assertEquals("invalid_request", query(posted)["error"], posted.getHeader("Location"))
+    assertEquals("invalid_request", flow.query(posted)["error"], posted.getHeader("Location"))
     val contexts = podContextsDao.fetchByPod(checkNotNull(owned.pod.id)).map { it.contextUri }
     assertTrue(contexts.none { it.endsWith("/fine/one") || it.endsWith("/apps/claimed") }, "$contexts")
     assertEquals(emptySet(), grants(owned, app))
@@ -121,18 +119,18 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
     connect(owned, app, setOf("$notes#read"))
 
     val cancelled = flow.submit(ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "c")), owned.cookie, action = "cancel")
-    assertEquals(mapOf("error" to "access_denied", "error_description" to "cancelled", "state" to "c"), query(cancelled))
+    assertEquals(mapOf("error" to "access_denied", "error_description" to "cancelled", "state" to "c"), flow.query(cancelled))
     assertEquals(setOf("$notes#read"), grants(owned, app), "cancelling changes nothing")
 
     val refused = flow.submit(
       ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "r")), owned.cookie,
       extra = listOf("scope" to "${owned.context("unseen")}#read"),
     )
-    assertEquals("invalid_scope", query(refused)["error"])
+    assertEquals("invalid_scope", flow.query(refused)["error"])
     assertEquals(setOf("$notes#read"), grants(owned, app), "a refused submission changes nothing")
 
     val empty = flow.submit(ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "e")), owned.cookie, scopes = emptySet())
-    assertEquals(mapOf("error" to "access_denied", "error_description" to "app disconnected", "state" to "e"), query(empty))
+    assertEquals(mapOf("error" to "access_denied", "error_description" to "app disconnected", "state" to "e"), flow.query(empty))
     assertEquals(emptySet(), grants(owned, app), "confirming nothing ends the access")
   }
 
@@ -145,7 +143,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
 
     val posted = flow.consent(owned.pod, owned.webId, app, owned.cookie, state = "old-node")
 
-    assertEquals("old-node", query(posted)["state"], posted.getHeader("Location"))
+    assertEquals("old-node", flow.query(posted)["state"], posted.getHeader("Location"))
     assertEquals(200, flow.exchangeCode(owned.pod, app, flow.codeFrom(posted)).statusCode)
   }
 
@@ -196,12 +194,6 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
 
   /** The app-level grants [app] holds for the owner, `public-read` left out. */
   private fun grants(owned: Owned, app: DelegatedAccessFlow.App): Set<String> =
-    podGrantsDao.fetchGrantStrings(checkNotNull(owned.pod.id), app.clientId, listOf(owned.webId))
+    podGrantsFacade.appGrants(owned.pod.podId(), app.clientId, listOf(owned.webId))
       .filterTo(mutableSetOf()) { '#' in it }
-
-  /** The query of a redirect's `Location`, decoded. */
-  private fun query(response: TestHttpResponse): Map<String, String> {
-    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
-    return UrlUtil.queryParams(URI(location).rawQuery)
-  }
 }

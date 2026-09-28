@@ -4,11 +4,13 @@ import com.google.inject.Inject
 import org.sempods.SempodsModule
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import java.net.URI
 import java.net.URLEncoder
 import kotlin.test.assertEquals
 
@@ -234,6 +236,12 @@ internal class DelegatedAccessFlow {
   fun codeFrom(response: TestHttpResponse): String {
     val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
     return Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1) ?: error("no code in $location")
+  }
+
+  /** The query of a redirect's `Location`, decoded. */
+  fun query(response: TestHttpResponse): Map<String, String> {
+    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
+    return UrlUtil.queryParams(URI(location).rawQuery)
   }
 
   /** The `authorization_code` exchange. A `null` [verifier] leaves `code_verifier` out. */

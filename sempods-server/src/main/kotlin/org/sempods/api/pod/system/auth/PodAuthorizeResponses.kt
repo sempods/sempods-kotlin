@@ -228,9 +228,9 @@ internal object PodAuthorizeResponses {
       // The owner may build a context, on a dialog that is about contexts. The installation screen
       // is not: `PodConsentFlow.privilegedAuthority` refuses a `new_context` it is posted, so the form and
       // the script behind it would only offer work that cannot land.
-      "contextCreationAvailable" to (screen.isOwner && screen.privilegedFeatures.isEmpty()),
+      "contextCreationAvailable" to screen.binding.contextCreationOffered,
       "publicContexts" to screen.publicContexts,
-      "publicReadAvailable" to screen.publicContexts.isNotEmpty(),
+      "publicReadAvailable" to screen.binding.publicReadOffered,
       "publicReadPreselected" to screen.publicReadPreselected,
       "publicReadScope" to PUBLIC_READ_SCOPE,
       "durablePreselected" to screen.durablePreselected,

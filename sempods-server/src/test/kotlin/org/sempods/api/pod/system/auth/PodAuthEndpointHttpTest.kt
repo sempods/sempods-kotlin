@@ -104,10 +104,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   // include these to satisfy the mandatory-PKCE rule (PR-review finding #2).
   private val testCodeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
   private val testCodeChallengeMethod = "S256"
-
-  /** [testCodeChallenge]'s verifier (RFC 7636 appendix B), for a code from a page rendered with it. */
-  private val testCodeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-
   /** Registers a `dyn:` client via DCR and returns its client_id. */
   private fun registerDynamicClient(podName: String, redirectUri: String = "http://localhost:5173/callback"): String {
     val response = http.preparePost(registerUrl(podName))
@@ -5406,7 +5402,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
     assertEquals(303, submitted.statusCode, submitted.responseBody)
     // The page was rendered with a challenge, and the code carries it whatever the form posts.
-    return exchangeCode(pod, codeFrom(submitted), testCodeVerifier)
+    return exchangeCode(pod, codeFrom(submitted), DelegatedAccessFlow.CODE_VERIFIER)
   }
 
   // ── Installing a service client: the registration ──────────────────────────

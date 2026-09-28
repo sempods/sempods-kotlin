@@ -78,11 +78,11 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * @param state the client's `state`, `null` where it sent none.
    * @param codeChallenge the PKCE challenge the code will carry, and [codeChallengeMethod] its
    *   method; `null` where the request carried none.
-   * @param offeredScopes every checkbox value the screen rendered under `scope`: each context row as
-   *   `<iri>#read|write|manage`, and `public-read` where it was offered. A submitted scope outside
-   *   this set is refused.
-   * @param contextCreationOffered whether the screen let the person create contexts. A submission
-   *   that creates one on a screen that did not offer it is refused.
+   * @param offeredContexts the IRI of every context row the screen rendered, each with its
+   *   `read`, `write` and `manage` boxes. The privileged feature scopes are
+   *   [Transaction.offeredFeatureScopes].
+   * @param publicReadOffered whether the screen rendered the `public-read` box.
+   * @param contextCreationOffered whether the screen let the person create contexts.
    */
   data class Binding(
     val clientId: String,
@@ -90,7 +90,8 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     val state: String?,
     val codeChallenge: String?,
     val codeChallengeMethod: String?,
-    val offeredScopes: Set<String>,
+    val offeredContexts: Set<String>,
+    val publicReadOffered: Boolean,
     val contextCreationOffered: Boolean,
   )
 
@@ -112,7 +113,8 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         putNotNull("state", binding.state)
         putNotNull("codeChallenge", binding.codeChallenge)
         putNotNull("codeChallengeMethod", binding.codeChallengeMethod)
-        putStrings("offeredScopes", binding.offeredScopes)
+        putStrings("offeredContexts", binding.offeredContexts)
+        put("publicReadOffered", binding.publicReadOffered)
         put("contextCreationOffered", binding.contextCreationOffered)
       }
     },
@@ -136,7 +138,8 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
             state = getString("state"),
             codeChallenge = getString("codeChallenge"),
             codeChallengeMethod = getString("codeChallengeMethod"),
-            offeredScopes = getStringSet("offeredScopes"),
+            offeredContexts = getStringSet("offeredContexts"),
+            publicReadOffered = getBoolean("publicReadOffered") ?: false,
             contextCreationOffered = getBoolean("contextCreationOffered") ?: false,
           )
         },

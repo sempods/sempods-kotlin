@@ -137,6 +137,15 @@ class PodContextPermissionResolver @Inject constructor(
   }
 
   /**
+   * The nearest `<root>#manage` scope in [scopes] that covers [contextUri] from above, or `null`.
+   * The context's own `#manage` does not count: it is a grant on the context itself.
+   */
+  internal fun manageRootAbove(scopes: Set<String>, podBaseUrl: String, contextUri: String): String? =
+    manageRoots(scopes, podBaseUrl)
+      .filter { root -> root != contextUri && covers(root, contextUri) }
+      .maxByOrNull { it.length }
+
+  /**
    * Build the display-oriented effective-permission view behind both `GET _system/contexts`
    * (REST) and the MCP `list_contexts` tool, so the two surfaces cannot drift.
    *

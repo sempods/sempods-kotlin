@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 
 /**
@@ -10,7 +11,9 @@ import org.sempods.pods.oauth.PodRefreshTokenStore
  *   otherwise, so the dialog never shows a blank.
  * @param clientUri where the client says it lives, and [logoUri] its logo; `null` where it named
  *   none or named one `ClientMetadataUri` refuses.
- * @param state the client's `state`, `null` where it sent none — the form posts it back unchanged.
+ * @param binding the request this screen answers and what it offers, as its [csrfToken] records it.
+ *   The template renders the `public-read` box and context creation from here, so the page cannot
+ *   offer what the submission would refuse.
  * @param csrfToken this screen's one-time ticket — see where it is issued.
  * @param sessionTerms how long a connection lives when the person leaves the durability box
  *   unticked, [durableTerms] when they tick it. Both come from the store that will enforce them, so
@@ -32,10 +35,7 @@ internal data class PodConsentScreen(
   val clientName: String,
   val clientUri: String?,
   val logoUri: String?,
-  val redirectUri: String,
-  val state: String?,
-  val codeChallenge: String?,
-  val codeChallengeMethod: String?,
+  val binding: ConsentTransactionStore.Binding,
   val csrfToken: String,
   val webId: String,
   val contexts: List<PodConsentContext>,

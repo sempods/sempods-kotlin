@@ -8,7 +8,6 @@ import org.sempods.api.pod.system.auth.DelegatedAccessFlow.Tokens
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.net.SempodsVocabulary
-import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.tests.TestUtil.randomId
@@ -70,7 +69,7 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
     assertEquals(303, submitted.statusCode, submitted.responseBody)
     val location = checkNotNull(submitted.getHeader("Location"))
     assertTrue(location.startsWith(app.redirectUri), location)
-    assertEquals("connect", query(submitted)["state"])
+    assertEquals("connect", flow.query(submitted)["state"])
     val withoutVerifier = flow.exchangeCode(owned.pod, app, flow.codeFrom(submitted), verifier = null)
     assertEquals(400, withoutVerifier.statusCode, "the code is bound to the challenge: ${withoutVerifier.responseBody}")
     assertEquals("invalid_request", json(withoutVerifier)["error"])
@@ -166,9 +165,9 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
     val ended = flow.submit(page, owned.cookie, scopes = emptySet())
 
     assertEquals(303, ended.statusCode, ended.responseBody)
-    assertEquals("access_denied", query(ended)["error"])
-    assertEquals("app disconnected", query(ended)["error_description"])
-    assertEquals("empty", query(ended)["state"])
+    assertEquals("access_denied", flow.query(ended)["error"])
+    assertEquals("app disconnected", flow.query(ended)["error_description"])
+    assertEquals("empty", flow.query(ended)["state"])
     val refreshed = flow.refresh(owned.pod, app, tokens.refreshToken)
     assertEquals(400, refreshed.statusCode, refreshed.responseBody)
     assertEquals("invalid_grant", json(refreshed)["error"])
@@ -187,15 +186,15 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
 
     val silent = flow.authorize(owned.pod, didWeb, owned.cookie, prompt = "none", state = "silent")
     assertEquals(303, silent.statusCode, silent.responseBody)
-    assertEquals("silent", query(silent)["state"])
+    assertEquals("silent", flow.query(silent)["state"])
     val exchanged = flow.exchangeCode(owned.pod, didWeb, flow.codeFrom(silent))
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
     assertEquals(setOf(notes), catalogue(owned.pod, Tokens.of(exchanged).accessToken).readable)
 
     val refused = flow.authorize(owned.pod, dyn, owned.cookie, prompt = "none")
     assertEquals(303, refused.statusCode, refused.responseBody)
-    assertEquals("consent_required", query(refused)["error"])
-    assertNull(query(refused)["code"], "a dyn client is never authorized silently")
+    assertEquals("consent_required", flow.query(refused)["error"])
+    assertNull(flow.query(refused)["code"], "a dyn client is never authorized silently")
   }
 
   @Test
@@ -247,14 +246,14 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
     val later = flow.submit(second, owned.cookie, scopes = setOf("$diary#read"))
     assertEquals(303, earlier.statusCode, earlier.responseBody)
     assertEquals(303, later.statusCode, later.responseBody)
-    assertTrue(query(earlier).containsKey("code"), earlier.getHeader("Location"))
+    assertTrue(flow.query(earlier).containsKey("code"), earlier.getHeader("Location"))
     val exchanged = flow.exchangeCode(owned.pod, app, flow.codeFrom(later))
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
     assertEquals(setOf(diary), catalogue(owned.pod, Tokens.of(exchanged).accessToken).readable)
 
     val renderedBefore = ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie))
     val ending = ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie))
-    assertEquals("access_denied", query(flow.submit(ending, owned.cookie, action = "disconnect"))["error"])
+    assertEquals("access_denied", flow.query(flow.submit(ending, owned.cookie, action = "disconnect"))["error"])
 
     val stale = flow.submit(renderedBefore, owned.cookie, scopes = setOf("$notes#read"))
     assertEquals(403, stale.statusCode, stale.responseBody)
@@ -409,10 +408,4 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
   @Suppress("UNCHECKED_CAST")
   private fun json(response: TestHttpResponse): Map<String, Any?> =
     JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
-
-  /** The query of a redirect's `Location`, decoded. */
-  private fun query(response: TestHttpResponse): Map<String, String> {
-    val location = checkNotNull(response.getHeader("Location")) { "no redirect: ${response.statusCode} ${response.responseBody}" }
-    return UrlUtil.queryParams(URI(location).rawQuery)
-  }
 }

@@ -173,6 +173,10 @@ class PodFacade @Inject constructor(
    * an application's `<app-root>` discovery scan, which must see contexts regardless of any
    * app-side pointer. Unknown pod → empty (no throw).
    */
+  /** Whether [contextUri] is registered on [pod], answered from the unique index. */
+  internal fun contextExists(pod: HostedPod, contextUri: URI): Boolean =
+    podContextsDao.exists(pod.id.objectId(), contextUri.toString())
+
   internal fun getContexts(podName: String): Set<URI> {
     val podId = sempodsFacade.getPodId(podName) ?: return emptySet()
     return podContextsDao.fetchByPod(podId)
