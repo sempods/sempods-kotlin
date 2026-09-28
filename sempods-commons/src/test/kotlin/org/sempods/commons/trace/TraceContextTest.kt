@@ -104,6 +104,8 @@ class TraceContextTest {
   fun `a valid tracestate is kept as it arrived`() {
     assertEquals(validState, TraceContext.parse(validHeader, validState)!!.traceState)
     assertEquals("fw529a3039@dt=FzA0MTI", TraceContext.parse(validHeader, "fw529a3039@dt=FzA0MTI")!!.traceState)
+    // A value may start with a space; only its last character may not be one.
+    assertEquals("congo= t61rcWkgMzE", TraceContext.parse(validHeader, "congo= t61rcWkgMzE")!!.traceState)
   }
 
   @Test
@@ -123,6 +125,7 @@ class TraceContextTest {
       "congo=t61rcWkgMzE,rojo", // no value
       "congo=t61rcWkgMzE,rojo=", // empty value
       "congo=t61rcWkgMzE,rojo=a=b", // "=" inside the value
+      "congo =t61rcWkgMzE", // white space before "=": the grammar has none around it
       "congo=1,congo=2", // a key twice
       (1..33).joinToString(",") { "k$it=v" }, // more than 32 entries
     )
