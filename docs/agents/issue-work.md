@@ -20,7 +20,7 @@ that PR meets the strategy's closure conditions, including required follow-up ac
 security work and its evidence in the private record.
 
 Implement the agreed slice and run the applicable repository checks. Run
-[doc-review](doc-review.md) on this PR and record updated documentation or a
+[doc-review](doc-review.md) on your change in this PR and record updated documentation or a
 specific no-change reason. Record check results and any remaining acceptance in the work record.
 
 ## 3. Verify completion

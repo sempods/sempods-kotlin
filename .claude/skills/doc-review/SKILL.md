@@ -1,11 +1,11 @@
 ---
 name: doc-review
 description: Review documentation against the code and the writing rules — your own change before a
-  commit, a pull request, or a path. Applies fixes by default; `--report-only` lists them instead
-  (steps 5 and 8 always report). Invoke on "doc review for docs/mcp", "review the docs of PR 123",
-  "sync the docs", "is the doc still right?", before proposing a commit, and after any change to
-  behaviour, a public signature, a stored shape or an HTTP surface.
-argument-hint: "[#PR | branch | path] [--report-only]"
+  commit, a pull request, or a path. Applies its findings to your own change; on a pull request or
+  a path it reports them, and `--fix` applies them. Invoke on "doc review for docs/mcp", "review the
+  docs of PR 123", "sync the docs", "is the doc still right?", before proposing a commit, and after
+  any change to behaviour, a public signature, a stored shape or an HTTP surface.
+argument-hint: "[#PR | branch | path] [--fix]"
 ---
 
 # doc-review
