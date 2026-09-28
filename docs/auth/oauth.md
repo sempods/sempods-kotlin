@@ -165,13 +165,15 @@ nothing:
 | Rows ticked | `code` | Replaced by the selection |
 | Nothing ticked | `access_denied`, `app disconnected` — `no scopes selected` where the app held nothing | Removed, with the app's refresh tokens |
 | Cancel | `access_denied`, `cancelled` | Unchanged |
-| Rows the person lost the right to delegate while the page was open | `consent_required` | None of those rows granted; contexts created in the dialog stay, private and without grants |
+| Rows the person lost the right to delegate while the page was open | `code` for the rows that remain; `consent_required` where none remains | Those rows are not granted; contexts created in the dialog stay, private, and get only the grants that remain |
 | A row the dialog did not offer | `invalid_scope` | Unchanged |
 | A context to create that the path rules refuse, that exists already, or on a dialog that offers no creation | `invalid_request` | Unchanged; nothing is created |
 | A client, `redirect_uri`, `state`, PKCE challenge or challenge method other than the rendered one | `400`, no redirect | Unchanged |
 
-The replacement covers every explicit grant the app holds for this
-person on this pod, `public-read` included. A row below a context the
+The replacement covers every explicit grant the app holds on this pod
+under the WebID the person is signed in as, `public-read` included.
+Grants written under a linked identity stay; removing the app's access
+clears those too. A row below a context the
 app holds `manage` on keeps its own boxes; the dialog notes that the
 root reaches it too. A context created in the dialog is private and
 owner-only.
