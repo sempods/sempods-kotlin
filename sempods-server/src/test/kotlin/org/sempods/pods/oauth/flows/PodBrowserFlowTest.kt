@@ -6,6 +6,7 @@ import org.sempods.SempodsTestFactory
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.HostedPod
+import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -41,6 +42,9 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
 
   @Inject
   protected lateinit var sempodsUriBuilder: SempodsUriBuilder
+
+  @Inject
+  protected lateinit var podFacade: PodFacade
 
   @Inject
   protected lateinit var serviceClientGrants: PodServiceClientGrantFlow
@@ -93,6 +97,13 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
     /** The same, for a screen that put [offered] to the person — see `ConsentTransactionStore`. */
     fun ticketOffering(vararg offered: String): String =
       consentTransactionStore.issue(pod.name, webId, standing(), offered.toSet(), disconnects())
+
+    /** A registered, private context at [path], answered as the IRI a grant names. */
+    fun context(path: String): String {
+      val uri = sempodsUriBuilder.buildContext(pod.name, path)
+      podFacade.createContext(pod, uri, createdBy = webId)
+      return uri.toString()
+    }
 
     /** How many times this app's access has been ended, which every rendered page carries. */
     fun disconnects(): Long =

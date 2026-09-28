@@ -14,9 +14,7 @@ import java.time.Instant
  * plaintext never persists here.
  *
  * Its grants live on this row, in [scopes], and nowhere else: the resolver reads them per request,
- * and a single-document update is what makes a replace of them optimistic. **Every write to
- * [scopes] increments [grantsVersion]**, so a replace prepared at one version writes nothing once
- * anything else has changed them (`PodGrantsFacade.replaceGrants`).
+ * and a single-document update is what makes a replace of them optimistic ([grantsVersion]).
  *
  * A plain data class: the collection name, the unique index and the mapping onto a BSON document
  * live in [PodServiceClientDao], which talks to the driver.
@@ -53,16 +51,15 @@ internal data class PodServiceClientDbo(
   val lastUsedAt: Instant? = null,
 
   /**
-   * How often [scopes] have been written since the row was inserted. Absent until the first write,
-   * which is how `0` is spelled, on every row older than the field as well. Meaningful only for
-   * this row: a registration re-created under the same `clientId` starts again at `0`.
+   * How often [scopes] have been written since the row was inserted. **Every write to [scopes]
+   * increments it**, so a replace prepared at one version writes nothing once anything else changed
+   * them (`PodGrantsFacade.replaceGrants`). Absent until the first write; see
+   * `sempods-server/docs/collections.md`. A registration re-created under the same `clientId`
+   * starts again at `0`.
    */
   val grantsVersion: Long = 0,
 
-  /**
-   * When and by whom a person last changed [scopes]: a replace, an approval or a removal. A
-   * context-deletion cascade and the cleanup after a replace move [grantsVersion] alone.
-   */
+  /** When a person last changed [scopes]. A change the server makes moves [grantsVersion] alone. */
   val grantsChangedAt: Instant? = null,
 
   /** The WebID behind [grantsChangedAt]. */

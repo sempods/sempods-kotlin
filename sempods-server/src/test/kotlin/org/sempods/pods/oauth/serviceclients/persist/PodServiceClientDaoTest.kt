@@ -33,6 +33,9 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var db: MongoDatabase
 
+  /** The rows as stored, for what the DAO's own reads normalize away. */
+  private val rows by lazy { db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS) }
+
   /** Two pod ids — the second one is how "scoped to this pod" gets asserted. */
   private val probePodId = ObjectId()
   private val otherPodId = ObjectId()
@@ -85,9 +88,9 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
     assertFalse(serviceClientDao.addScopes(probePodId, "notes-app", org.bson.types.ObjectId(), setOf("$notesRoot#write"), changedBy = OWNER))
     assertEquals(
       emptySet(),
-      assertNotNull(serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$notesRoot#read", "$eventsRoot#read"))).scopes,
+      assertNotNull(serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$notesRoot#read", "$eventsRoot#read"), OWNER)).scopes,
     )
-    assertNull(serviceClientDao.removeScopes(otherPodId, "notes-app", setOf("$notesRoot#read")))
+    assertNull(serviceClientDao.removeScopes(otherPodId, "notes-app", setOf("$notesRoot#read"), OWNER))
   }
 
   @Test
@@ -231,7 +234,7 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   @Test
   fun `a row from before the version reads as 0, and a replace lands only there`() {
     val id = ObjectId()
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).insertOne(
+    rows.insertOne(
       Document("_id", id)
         .append(PodServiceClientDboFields.podId, probePodId)
         .append(PodServiceClientDboFields.clientId, "legacy")
@@ -257,14 +260,14 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a replace and a bound removal leave a registration re-created under the same clientId alone`() {
+  fun `a replace and a bound drop leave a registration re-created under the same clientId alone`() {
     val first = checkNotNull(create("notes-app", setOf("$eventsRoot#manage")).id)
     serviceClientDao.delete(probePodId, "notes-app")
     create("notes-app", setOf("$eventsRoot#manage"))
 
     assertFalse(serviceClientDao.replaceScopes(probePodId, "notes-app", first, 0L, emptySet(), changedBy = OWNER))
     assertFalse(serviceClientDao.exists(probePodId, "notes-app", first))
-    assertNull(serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$eventsRoot#manage"), expectedId = first))
+    assertFalse(serviceClientDao.dropScopes(probePodId, "notes-app", first, setOf("$eventsRoot#manage")))
 
     val current = assertNotNull(serviceClientDao.findByClientId(probePodId, "notes-app"))
     assertEquals(setOf("$eventsRoot#manage"), current.scopes)
@@ -274,10 +277,8 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   @Test
   fun `a new row keeps the declared order, and a replace appends the fields it adds`() {
     val id = checkNotNull(create("notes-app", setOf("$eventsRoot#manage"), label = "notes").id)
-    assertEquals(
-      listOf("_id", "podId", "clientId", "secretHash", "scopes", "label", "createdAt"),
-      rawRow(probePodId, "notes-app").keys.toList(),
-    )
+    val inserted = listOf("_id", "podId", "clientId", "secretHash", "scopes", "label", "createdAt")
+    assertEquals(inserted, rawRow(probePodId, "notes-app").keys.toList())
 
     serviceClientDao.replaceScopes(probePodId, "notes-app", id, 0L, emptySet(), changedBy = OWNER)
 
@@ -285,14 +286,14 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
     // picks, so what holds for them is the set.
     val replaced = rawRow(probePodId, "notes-app")
     val keys = replaced.keys.toList()
-    assertEquals(listOf("_id", "podId", "clientId", "secretHash", "scopes", "label", "createdAt"), keys.take(7))
-    assertEquals(setOf("grantsVersion", "grantsChangedAt", "grantsChangedBy"), keys.drop(7).toSet())
+    assertEquals(inserted, keys.take(inserted.size))
+    assertEquals(setOf("grantsVersion", "grantsChangedAt", "grantsChangedBy"), keys.drop(inserted.size).toSet())
     assertEquals(emptyList<String>(), replaced.getList(PodServiceClientDboFields.scopes, String::class.java),
       "an emptying update leaves `[]`")
   }
 
   private fun rawRow(podId: ObjectId, clientId: String): Document =
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).find(
+    rows.find(
       Filters.and(
         Filters.eq(PodServiceClientDboFields.podId, podId),
         Filters.eq(PodServiceClientDboFields.clientId, clientId),

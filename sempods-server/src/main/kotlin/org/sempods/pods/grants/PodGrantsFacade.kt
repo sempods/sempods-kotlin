@@ -22,7 +22,10 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
  * Grants have two recipients ([GrantRecipient]): an app acting for a person, whose grants live in
  * `grants` ([PodGrantsDao]), and a service client acting as itself, whose grants live on its
  * registration row. [replaceGrants] writes both, each under its own conflict rule, and
- * [PodContextPermissionResolver.resolve] reads both. The rest of this class is about the first.
+ * [PodContextPermissionResolver.resolve] reads both. They stay apart: the context-deletion sweep
+ * over `grants` re-derives every row from a person's authority, which a service's grants do not
+ * come from, and a registration's grants share one document with the rest of its state, so one
+ * update changes both. The rest of this class is about the first.
  *
  * ## The two levels, and why they can drift
  *
@@ -351,20 +354,14 @@ class PodGrantsFacade @Inject constructor(
       PodServiceClientStore.ScopeReplacement.NotFound -> return GrantReplacement.NotFound
     }
 
+    if (selection.isEmpty()) return GrantReplacement.Replaced(selection)
     val registered = podContextsDao.fetchByPod(pod.id.objectId()).mapTo(mutableSetOf()) { it.contextUri }
     val lost = selection.filterTo(mutableSetOf()) { grant ->
-      val context = podScopeValidator.validate(grant, pod.baseUrl) as? ScopeValidationResult.Context
-      context == null || context.contextUri !in registered
+      (podScopeValidator.validate(grant, pod.baseUrl) as? ScopeValidationResult.Context)?.contextUri !in registered
     }
     if (lost.isEmpty()) return GrantReplacement.Replaced(selection)
 
-    podServiceClientStore.removeScopes(
-      pod = pod.id,
-      clientId = recipient.clientId,
-      scopes = lost,
-      changedBy = null,
-      expected = recipient.registrationId,
-    )
+    podServiceClientStore.dropScopes(pod.id, recipient.clientId, recipient.registrationId, lost)
     logger.warn {
       "[grants/service] A context deletion raced this replace — dropped its grants: " +
           "pod='${pod.name}', clientId='${recipient.clientId}', dropped=${lost.sorted()}"

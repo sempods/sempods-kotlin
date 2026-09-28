@@ -46,9 +46,6 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   private lateinit var provisioning: PodServiceClientProvisioning
 
   @Inject
-  private lateinit var podFacade: PodFacade
-
-  @Inject
   private lateinit var tokens: PodTokenExchange
 
   // ── a replace prepared before another write changed the grants ────────────
@@ -56,7 +53,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a replace prepared before a context deletion writes nothing and reports a conflict`() {
     val owned = Owned()
-    val doomed = context(owned, "doomed")
+    val doomed = owned.context("doomed")
     val service = serviceClients.register(owned.pod, "notes-app", setOf("$doomed#read")).registration
 
     podFacade.removeContext(owned.pod.name, URI(doomed))
@@ -84,7 +81,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a replace prepared before an owner's removal writes nothing and reports a conflict`() {
     val owned = Owned()
-    val notes = context(owned, "notes")
+    val notes = owned.context("notes")
     val installed = serviceClients.registerInstallation(owned.pod, "notes").registration
     serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope, "$notes#read"), owned.webId)
     val prepared = current(owned, installed.clientId)
@@ -127,7 +124,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
     // The order only the check after the write can catch: both of the deletion's strips ran before
     // the grant existed, and the caller prepared its selection while the context still stood.
     val owned = Owned()
-    val gone = context(owned, "gone")
+    val gone = owned.context("gone")
     val service = serviceClients.registerInstallation(owned.pod, "notes").registration
     podFacade.removeContext(owned.pod.name, URI(gone))
 
@@ -140,7 +137,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   @Test
   fun `a context deleted after the write keeps no grant either`() {
     val owned = Owned()
-    val later = context(owned, "later")
+    val later = owned.context("later")
     val service = serviceClients.registerInstallation(owned.pod, "notes").registration
 
     assertIs<GrantReplacement.Replaced>(replace(owned, service, setOf("$later#write")))
@@ -155,7 +152,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
     // that holds a grant on the deleted context. The check drops it from the registration it wrote,
     // which is gone, and leaves the new one alone.
     val owned = Owned()
-    val gone = context(owned, "gone")
+    val gone = owned.context("gone")
     podFacade.removeContext(owned.pod.name, URI(gone))
     val service = serviceClients.register(owned.pod, "notes-app", emptySet()).registration
     val contexts = spyk(injector.getInstance(PodContextsDao::class.java))
@@ -238,13 +235,6 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
 
   private fun current(owned: Owned, clientId: String): ServiceClientRegistration =
     assertNotNull(serviceClients.find(owned.pod.id, clientId))
-
-  /** A registered context on [owned]'s pod, answered as the IRI a grant names. */
-  private fun context(owned: Owned, path: String): String {
-    val uri = sempodsUriBuilder.buildContext(owned.pod.name, path)
-    podFacade.createContext(owned.pod, uri, createdBy = owned.webId)
-    return uri.toString()
-  }
 
   /** The facade as production wires it, except for the registry it reads. */
   private fun facadeReading(contexts: PodContextsDao) = PodGrantsFacade(

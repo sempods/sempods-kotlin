@@ -127,21 +127,16 @@ class PodServiceClientStore @Inject constructor(
     return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes, changedBy)
   }
 
+  /** [changedBy] removes [scopes]; answers the registration afterwards, or `null` where there is none. */
+  internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>, changedBy: String): ServiceClientRegistration? =
+    dao.removeScopes(pod.objectId(), clientId, scopes, changedBy)?.toRegistration()
+
   /**
-   * Removes [scopes] and answers the registration afterwards, or `null` where there is none.
-   *
-   * [expected] binds the removal to one registration, for a cleanup after its own write; without
-   * it the removal reaches whatever registration holds [clientId] now. [changedBy] is the person
-   * removing them, or `null` where the server does.
+   * Drops [scopes] from the registration [expected] names, for the server's check after a grant
+   * write; one re-created under the same `clientId` is left alone. `false` where it is gone.
    */
-  internal fun removeScopes(
-    pod: PodId,
-    clientId: String,
-    scopes: Set<String>,
-    changedBy: String?,
-    expected: ServiceClientRegistrationId? = null,
-  ): ServiceClientRegistration? =
-    dao.removeScopes(pod.objectId(), clientId, scopes, expected?.objectId(), changedBy)?.toRegistration()
+  internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
+    dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
 
   /**
    * Makes [scopes] the grants of the registration [expected] names, if they are still at
@@ -169,16 +164,8 @@ class PodServiceClientStore @Inject constructor(
     }
   }
 
-  /** What [replaceScopes] did. */
-  internal enum class ScopeReplacement {
-    Replaced,
-
-    /** The grants were changed since [ServiceClientRegistration.grantsVersion] was read. */
-    Conflict,
-
-    /** The registration is gone, or was replaced by one under the same `clientId`. */
-    NotFound,
-  }
+  /** What [replaceScopes] did; the facade answers it as `GrantReplacement`. */
+  internal enum class ScopeReplacement { Replaced, Conflict, NotFound }
 
   /**
    * Replaces the secret and answers the new one, the only time it is readable. The registration and
@@ -347,11 +334,7 @@ internal data class ServiceClientRegistration(
   val createdAt: Instant,
   /** When it last minted a token, or `null` if it never has. */
   val lastUsedAt: Instant? = null,
-  /**
-   * How often [scopes] have been written; a replace prepared at it writes nothing once they changed.
-   * Only meaningful together with [id]: a registration re-created under the same [clientId] starts
-   * again at `0`.
-   */
+  /** See `PodServiceClientDbo.grantsVersion`. Only meaningful together with [id]. */
   val grantsVersion: Long = 0,
 ) {
 

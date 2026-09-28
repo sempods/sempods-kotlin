@@ -184,7 +184,7 @@ class PodServiceClientGrantFlow @Inject internal constructor(
     // registration that wrote, like the cleanup after `PodGrantsFacade.replaceGrants`.
     val lost = ticked - podGrantsFacade.resolveUserGrants(pod, identity.allUris)
     if (lost.isNotEmpty()) {
-      serviceClients.removeScopes(pod.id, registration.clientId, lost, changedBy = null, expected = registration.id)
+      serviceClients.dropScopes(pod.id, registration.clientId, registration.id, lost)
     }
     val granted = ticked - lost
     if (granted.isEmpty()) {

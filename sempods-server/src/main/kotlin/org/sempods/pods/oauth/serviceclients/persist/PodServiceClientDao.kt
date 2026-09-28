@@ -30,9 +30,8 @@ import java.time.Instant
  * `PojoCodec` wrote; an update that sets fields the row lacks appends them, in an order the server
  * picks. `PodServiceClientDaoTest` pins the order of a new row and the field set of a replaced one.
  *
- * **Every write to `scopes` increments `grantsVersion`**, and only such a write does: [replaceScopes],
- * [addScopes], [removeScopes] and [revokeByContextScope]. A replace filters on the version, so any of
- * the others landing first makes it write nothing. Rotation and [touchLastUsed] leave it alone.
+ * Every write to `scopes` is built by one private helper, which also moves `grantsVersion`
+ * ([PodServiceClientDbo.grantsVersion] states the rule).
  */
 class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName: String) {
 
@@ -120,10 +119,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
         Filters.eq(PodServiceClientDboFields.podId, podId),
         Filters.`in`(PodServiceClientDboFields.scopes, anchoredScopes),
       ),
-      Updates.combine(
-        Updates.pullAll(PodServiceClientDboFields.scopes, anchoredScopes),
-        nextVersion(),
-      ),
+      grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, anchoredScopes), changedBy = null),
     ).modifiedCount
   }
 
@@ -131,9 +127,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
    * Makes [scopes] the grants of the registration [expectedId] names, provided they are still at
    * [expectedVersion]. One `updateOne`, so the grants, the version and who changed them move
    * together or not at all. `false` where nothing matched; [exists] tells a replaced registration
-   * from a version that moved on.
-   *
-   * Version `0` is also the absent field, which an equality on `0` does not match
+   * from a version that moved on. Version `0` also matches the absent field
    * (`sempods-server/docs/collections.md`).
    */
   internal fun replaceScopes(
@@ -155,18 +149,14 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     }
     return serviceClients.updateOne(
       Filters.and(registrationFilter(podId, clientId, expectedId), version),
-      Updates.combine(
-        // `[]` for an empty selection, the spelling every emptying update leaves.
-        Updates.set(PodServiceClientDboFields.scopes, scopes.toList()),
-        nextVersion(),
-        changedBy(changedBy, at),
-      ),
+      // `[]` for an empty selection, the spelling every emptying update leaves.
+      grantsUpdate(Updates.set(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
     ).matchedCount > 0L
   }
 
   /** Whether the registration [expectedId] names is still stored under `(podId, clientId)`. */
   internal fun exists(podId: ObjectId, clientId: String, expectedId: ObjectId): Boolean =
-    serviceClients.countDocuments(registrationFilter(podId, clientId, expectedId)) > 0L
+    serviceClients.find(registrationFilter(podId, clientId, expectedId)).limit(1).first() != null
 
   /**
    * Adds [scopes] to the registration [expectedId] names, and answers whether it was still there.
@@ -182,40 +172,32 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   ): Boolean =
     serviceClients.updateOne(
       registrationFilter(podId, clientId, expectedId),
-      Updates.combine(
-        Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()),
-        nextVersion(),
-        changedBy(changedBy, at),
-      ),
+      grantsUpdate(Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
     ).matchedCount > 0L
 
-  /**
-   * Removes [scopes] and answers the row afterwards, or `null` where there is none.
-   *
-   * [expectedId] binds the removal to one registration, as a cleanup after its own write needs:
-   * a registration re-created under the same `clientId` in between is left alone. [changedBy] is
-   * the person removing them, or `null` for a removal the server makes on its own, which moves
-   * the version alone.
-   */
+  /** [changedBy] removes [scopes]; answers the row afterwards, or `null` where there is none. */
   internal fun removeScopes(
     podId: ObjectId,
     clientId: String,
     scopes: Set<String>,
-    expectedId: ObjectId? = null,
-    changedBy: String? = null,
+    changedBy: String,
     at: Instant = Instant.now(),
   ): PodServiceClientDbo? =
     serviceClients.findOneAndUpdate(
-      if (expectedId == null) keyFilter(podId, clientId) else registrationFilter(podId, clientId, expectedId),
-      Updates.combine(
-        listOfNotNull(
-          Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()),
-          nextVersion(),
-          changedBy?.let { changedBy(it, at) },
-        ),
-      ),
+      keyFilter(podId, clientId),
+      grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
       FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER),
     )?.toDbo()
+
+  /**
+   * Drops [scopes] from the registration [expectedId] names, as the server's check after a grant
+   * write does: a registration re-created under the same `clientId` in between is left alone.
+   */
+  internal fun dropScopes(podId: ObjectId, clientId: String, expectedId: ObjectId, scopes: Set<String>): Boolean =
+    serviceClients.updateOne(
+      registrationFilter(podId, clientId, expectedId),
+      grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()), changedBy = null),
+    ).matchedCount > 0L
 
   /**
    * Replaces the secret hash if it is still [expectedHash]. Of two interleaved rotations only one
@@ -242,11 +224,7 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
    * unconditional removal is intended (pod deletion, cleanup).
    */
   internal fun delete(podId: ObjectId, clientId: String, expectedId: ObjectId? = null): Boolean {
-    val filter = if (expectedId == null) {
-      keyFilter(podId, clientId)
-    } else {
-      Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.id, expectedId))
-    }
+    val filter = if (expectedId == null) keyFilter(podId, clientId) else registrationFilter(podId, clientId, expectedId)
     return serviceClients.deleteOne(filter).deletedCount > 0L
   }
 
@@ -270,13 +248,19 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     private fun registrationFilter(podId: ObjectId, clientId: String, id: ObjectId): Bson =
       Filters.and(keyFilter(podId, clientId), Filters.eq(PodServiceClientDboFields.id, id))
 
-    /** An Int64 from the first write on, which is what [toDbo] reads through `Number` anyway. */
-    private fun nextVersion(): Bson = Updates.inc(PodServiceClientDboFields.grantsVersion, 1L)
-
-    private fun changedBy(webId: String, at: Instant): Bson = Updates.combine(
-      Updates.set(PodServiceClientDboFields.grantsChangedAt, at),
-      Updates.set(PodServiceClientDboFields.grantsChangedBy, webId),
-    )
+    /**
+     * Every write to `scopes` is built here: [change], the next version, and who changed them where
+     * a person did. The version is an Int64 from its first write on.
+     */
+    private fun grantsUpdate(change: Bson, changedBy: String?, at: Instant = Instant.now()): Bson =
+      Updates.combine(
+        listOfNotNull(
+          change,
+          Updates.inc(PodServiceClientDboFields.grantsVersion, 1L),
+          changedBy?.let { Updates.set(PodServiceClientDboFields.grantsChangedBy, it) },
+          changedBy?.let { Updates.set(PodServiceClientDboFields.grantsChangedAt, at) },
+        ),
+      )
 
     /**
      * The field order Morphia wrote, kept because a row that differs from its neighbours only in
@@ -291,7 +275,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       .putNotNull(PodServiceClientDboFields.label, label)
       .putInstant(PodServiceClientDboFields.createdAt, createdAt)
       .putInstant(PodServiceClientDboFields.lastUsedAt, lastUsedAt)
-      // Absent is how `0` is spelled, on every row older than the field too.
       .putNotNull(PodServiceClientDboFields.grantsVersion, grantsVersion.takeIf { it != 0L })
       .putInstant(PodServiceClientDboFields.grantsChangedAt, grantsChangedAt)
       .putNotNull(PodServiceClientDboFields.grantsChangedBy, grantsChangedBy)
