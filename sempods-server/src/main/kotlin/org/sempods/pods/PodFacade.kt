@@ -225,8 +225,8 @@ class PodFacade @Inject constructor(
     label: String?,
     description: String?,
   ): Boolean {
-    // **This throws.** `ConsentSelection` reaches here only with a URI `ContextPathRules.resolve`
-    // built from the pod's own base, so the check cannot fire for it.
+    // Throws for a URI outside the pod's namespace. `ConsentSelection` reaches here only with a URI
+    // `ContextPathRules.resolve` built from the pod's own base, so the check cannot fire for it.
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,

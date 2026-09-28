@@ -55,8 +55,9 @@ internal class ConsentSelection @Inject constructor(
    * The selection as posted.
    *
    * @param scopes the ticked `scope` boxes, trimmed and without blanks.
-   * @param newContexts the `new_context` and `new_context_scope` fields, untrimmed; [newContextScopes]
-   *   is `<relative-path>#<permission>`, since a context that does not exist yet has no IRI to name.
+   * @param newContexts the `new_context` fields: relative paths, untrimmed.
+   * @param newContextScopes the `new_context_scope` fields, untrimmed, as
+   *   `<relative-path>#<permission>`: a context that does not exist yet has no IRI to name.
    */
   data class Submission(
     val scopes: Set<String>,

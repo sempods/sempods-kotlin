@@ -649,8 +649,8 @@ internal enum class PodConsentRefusal {
   FORM_EXPIRED,
 
   /**
-   * The form names another client, redirect, `state` or PKCE challenge than its screen was rendered
-   * for. Not redirected: neither client is the one this answer is owed to. The ticket is spent and
+   * The form names another client, redirect, `state`, PKCE challenge or challenge method than its
+   * screen was rendered for. Not redirected: neither client is the one this answer is owed to. The ticket is spent and
    * nothing is written.
    */
   FORM_MISMATCH,
