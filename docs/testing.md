@@ -259,6 +259,8 @@ exception thrown on a task pool thread, which no assertion ever sees.
   build box or container with a `POSIX`/`C` locale has no way out but to edit the source. Use a
   comma or "and" where the prose wants a dash.
 - JUnit Jupiter, `kotlin.test` assertions, MockK for unit-level mocking.
-- Shared test utilities go in `testFixtures`, not in a test class — a companion holding fixtures
-  is a shared dependency in disguise.
+- A shared test utility is a class of its own, never a companion in a test class: that companion
+  is a shared dependency in disguise. It goes in `testFixtures` when another module uses it. One
+  suite's own helper stays in `src/test`, bound in that suite's test module, like
+  `SempodsTestFactory`.
 - No test may depend on the network or on a live credential.
