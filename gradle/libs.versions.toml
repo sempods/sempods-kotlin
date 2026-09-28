@@ -1,17 +1,17 @@
 [versions]
-awsSdk = "2.55.0"
+awsSdk = "2.55.6"
 coroutines = "1.11.0"
-jackson3 = "3.2.2"
+jackson3 = "3.2.3"
 jersey = "4.0.2"
 junit = "6.1.3"
 ktor = "3.6.0"
-mongodb = "5.12.0"
+mongodb = "5.13.0"
 okhttp = "5.5.0"
 opentelemetry = "1.66.0"
 # The instrumentation line is published as `-alpha`; only a consumer probe uses it.
 opentelemetryInstrumentation = "2.31.1-alpha"
 rdf4j = "6.1.0"
-slf4j = "2.0.19"
+slf4j = "2.0.20"
 
 [libraries]
 ktorServerCore = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
@@ -82,7 +82,7 @@ oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 # artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
-logbackClassic = "ch.qos.logback:logback-classic:1.6.3"
+logbackClassic = "ch.qos.logback:logback-classic:1.6.4"
 mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
 # `ObjectId` and `Document`. Separate from the driver above so a module can export the types
 # without exporting the driver: `:sempods-commons-mongo` and `:sempods-auth-core` carry them in
@@ -119,7 +119,7 @@ rdf4jRepoSail = { module = "org.eclipse.rdf4j:rdf4j-repository-sail", version.re
 rdf4jSailMemory = { module = "org.eclipse.rdf4j:rdf4j-sail-memory", version.ref = "rdf4j" }
 rdf4jSparqlJson = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-sparqljson", version.ref = "rdf4j" }
 
-archunit = "com.tngtech.archunit:archunit:1.5.0"
+archunit = "com.tngtech.archunit:archunit:1.5.1"
 awaitility = "org.awaitility:awaitility:4.3.0"
 junit = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junitJupiterApi = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
