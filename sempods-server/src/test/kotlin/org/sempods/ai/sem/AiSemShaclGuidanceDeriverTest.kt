@@ -42,15 +42,15 @@ class AiSemShaclGuidanceDeriverTest {
     assertNotNull(derived.terms)
     assertEquals(
       "Short title of the task.",
-      derived.terms.get("https://schema.org/name").get("description").asText(),
+      derived.terms.get("https://schema.org/name").get("description").asString(),
     )
     assertEquals(
       "A description of the item.",
-      derived.terms.get("https://schema.org/description").get("description").asText(),
+      derived.terms.get("https://schema.org/description").get("description").asString(),
     )
     assertEquals(
       "http://www.w3.org/2001/XMLSchema#string",
-      derived.terms.get("https://schema.org/name").get("datatype").asText(),
+      derived.terms.get("https://schema.org/name").get("datatype").asString(),
     )
   }
 

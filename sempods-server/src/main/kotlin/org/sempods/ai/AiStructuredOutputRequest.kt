@@ -1,6 +1,6 @@
 package org.sempods.ai
 
-import com.fasterxml.jackson.databind.JsonNode
+import tools.jackson.databind.JsonNode
 
 /**
  * Canonical request contract for [AiService.generateStructuredOutput].

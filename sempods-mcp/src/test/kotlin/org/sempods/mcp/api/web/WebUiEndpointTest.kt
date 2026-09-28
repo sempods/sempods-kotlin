@@ -1,7 +1,6 @@
 package org.sempods.mcp.api.web
 
 import org.sempods.client.net.SempodsOutboundGuard
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -25,6 +24,7 @@ import org.sempods.mcp.persist.AuditEventType
 import org.sempods.mcp.persist.AuditLogDao
 import org.sempods.mcp.persist.ConnectionRegistryDao
 import org.sempods.mcp.persist.PodConnection
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.util.Date
 import org.sempods.mcp.persist.PodKey
 import org.sempods.mcp.persist.ProfileDao

@@ -1,7 +1,7 @@
 package org.sempods.mcp.core
 
 import com.fasterxml.jackson.annotation.JsonInclude
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 
 /**
  * The MCP method types both surfaces answer with.

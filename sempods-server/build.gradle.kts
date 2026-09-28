@@ -17,9 +17,9 @@ dependencies {
   implementation(project(":sempods-commons-okhttp"))
   implementation(project(":sempods-commons-mongo"))
 
-  // The artifacts behind those signatures. `JsonNode` and `ObjectMapper` are in many of them, and
+  // The artifacts behind those signatures. `JsonNode` and `JsonMapper` are in many of them, and
   // `jakarta.ws.rs-api` is what `BaseEndpoint`'s subclasses hand back a `Response` from.
-  api(libs.jacksonDatabind)
+  api(libs.jackson3Databind)
   api(libs.jakartaWsRsApi)
 
   implementation(libs.mongodb)
@@ -80,7 +80,7 @@ dependencies {
   runtimeOnly(libs.rdf4jRioNquads)
   runtimeOnly(libs.rdf4jSparqlJson)
 
-  implementation(libs.jacksonKotlin)
+  implementation(libs.jackson3Kotlin)
   implementation(libs.jwt)
   implementation(libs.oidcSdk)
   implementation(libs.thymeleaf)

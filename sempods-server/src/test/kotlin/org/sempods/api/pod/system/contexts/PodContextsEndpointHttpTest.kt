@@ -1,7 +1,5 @@
 package org.sempods.api.pod.system.contexts
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.json.JsonMappers
@@ -36,6 +34,8 @@ import org.sempods.commons.tests.TestUtil
 import okhttp3.OkHttpClient
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.util.Base64
 import kotlin.test.assertEquals
@@ -813,7 +813,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val publicEvent = sempodsTestFactory.seedEvent(pod = pod.name, context = sempodsTestFactory.publicContextUri(pod.name), name = name)
     val writer = mintScopedToken(pod.name, listOf("$contacts#write"), webId = ownerWebId)
     val uploaded = uploadMedia(pod.name, contacts, writer)
-    val mediaId = checkNotNull(objectMapper.readTree(uploaded.responseBody).path("id").textValue()) { uploaded.responseBody }
+    val mediaId = checkNotNull(objectMapper.readTree(uploaded.responseBody).path("id").stringValue()) { uploaded.responseBody }
     val token = mintContextsManagerToken(pod.name, ownerWebId)
 
     // The same reads succeed for an app the owner granted `contacts`, so the refusals below are the
@@ -864,9 +864,9 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val token = mintContextsManagerToken(pod.name, ownerWebId)
 
     val listed = objectMapper.readTree(mcpToolText(pod.name, token, "list_contexts", emptyMap()))
-    assertEquals(registeredContexts(pod), listed.path("contexts").map { it.path("context_iri").asText() }.toSet())
+    assertEquals(registeredContexts(pod), listed.path("contexts").values().map { it.path("context_iri").asString() }.toSet())
     listed.path("contexts").forEach { entry ->
-      assertEquals(listOf("manage"), entry.path("permissions").map { it.asText() }, entry.toString())
+      assertEquals(listOf("manage"), entry.path("permissions").values().map { it.asString() }, entry.toString())
     }
     assertEquals(0, listed.path("writable_contexts").size())
 
@@ -960,7 +960,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   private fun mcpToolText(podName: String, token: String, tool: String, arguments: Map<String, Any>): String {
     val result = objectMapper.readTree(mcpToolCall(podName, token, tool, arguments)).path("result")
     assertFalse(result.path("isError").asBoolean(), result.toString())
-    return result.path("content").first().path("text").asText()
+    return result.path("content").first().path("text").asString()
   }
 
   @Test
@@ -1125,9 +1125,9 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       val created = contexts.create(tasks, SempodsContextCreate.fields().withLabel(label).withPublic(true))
       assertEquals(201, created.status)
       val description = objectMapper.readTree(created.body)
-      assertEquals(tasks, description.path("@id").asText())
-      assertEquals(listOf("${SD_NS}NamedGraph"), description.path("@type").map { it.asText() })
-      assertEquals(label, description.path("http://www.w3.org/2000/01/rdf-schema#label").single().path("@value").asText())
+      assertEquals(tasks, description.path("@id").asString())
+      assertEquals(listOf("${SD_NS}NamedGraph"), description.path("@type").values().map { it.asString() })
+      assertEquals(label, description.path("http://www.w3.org/2000/01/rdf-schema#label").single().path("@value").asString())
       assertTrue(description.path(SempodsVocabulary.PUBLIC).single().path("@value").asBoolean())
 
       // `PUT` is idempotent, and the second answer is the unchanged context (SPS-CTX-016, SPS-CTX-037).
@@ -1143,7 +1143,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
       val read = contexts.getText(tasks)
       assertEquals(200, read.status)
-      assertEquals(tasks, objectMapper.readTree(read.body).path("@id").asText())
+      assertEquals(tasks, objectMapper.readTree(read.body).path("@id").asString())
       val tag = checkNotNull(read.headers["ETag"])
       assertEquals(304, contexts.getText(tasks, SempodsGraphFormat.JSON_LD, tag).status)
       // The tag belongs to the representation it was read from (SPS-CTX-035).
@@ -1175,7 +1175,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
       val read = contexts.getText(iri)
       assertEquals(200, read.status, read.body)
-      assertEquals(iri, objectMapper.readTree(read.body).path("@id").asText())
+      assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
       assertTrue(ids(objectMapper.readTree(contexts.listText().body), "${SD_NS}namedGraph").contains(iri))
     }
 
@@ -1208,7 +1208,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       listOf(semicolon, fromDialog).forEach { iri ->
         val read = contexts.getText(iri)
         assertEquals(200, read.status, read.body)
-        assertEquals(iri, objectMapper.readTree(read.body).path("@id").asText())
+        assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
       }
     }
 
@@ -1239,7 +1239,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     withContexts(pod.name, SempodsRequestAuth.bearer(token)) { contexts ->
       val catalogue = objectMapper.readTree(contexts.listText().body)
-      assertEquals(contextsBaseUrl(pod.name), catalogue.path("@id").asText())
+      assertEquals(contextsBaseUrl(pod.name), catalogue.path("@id").asString())
       assertTrue(ids(catalogue, "${SD_NS}namedGraph").contains(context), contexts.listText().body)
       assertTrue(ids(catalogue, SempodsVocabulary.WRITABLE_CONTEXT).contains(context))
     }
@@ -1262,7 +1262,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     return request.execute()
   }
 
-  private fun ids(body: JsonNode, predicate: String): List<String> = body.path(predicate).map { it.path("@id").asText() }
+  private fun ids(body: JsonNode, predicate: String): List<String> = body.path(predicate).values().map { it.path("@id").asString() }
 
   @Test
   fun `the catalogue and a description answer canonical JSON-LD, and the same RDF as N-Quads`() {
@@ -1278,8 +1278,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, catalogue.statusCode, catalogue.responseBody)
     assertTrue(catalogue.contentType.orEmpty().startsWith("application/ld+json"), catalogue.contentType)
     val listing = objectMapper.readTree(catalogue.responseBody)
-    assertEquals(contextsBaseUrl(pod.name), listing.path("@id").asText())
-    assertEquals(listOf("${SD_NS}GraphCollection"), listing.path("@type").map { it.asText() })
+    assertEquals(contextsBaseUrl(pod.name), listing.path("@id").asString())
+    assertEquals(listOf("${SD_NS}GraphCollection"), listing.path("@type").values().map { it.asString() })
     assertEquals(listOf(iri), ids(listing, "${SD_NS}namedGraph"))
     assertEquals(listOf(iri), ids(listing, SempodsVocabulary.READABLE_CONTEXT))
     assertEquals(listOf(iri), ids(listing, SempodsVocabulary.WRITABLE_CONTEXT))
@@ -1288,8 +1288,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val description = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
     assertEquals(200, description.statusCode, description.responseBody)
     val context = objectMapper.readTree(description.responseBody)
-    assertEquals(iri, context.path("@id").asText())
-    assertEquals(listOf("${SD_NS}NamedGraph"), context.path("@type").map { it.asText() })
+    assertEquals(iri, context.path("@id").asString())
+    assertEquals(listOf("${SD_NS}NamedGraph"), context.path("@type").values().map { it.asString() })
     assertEquals(listOf(iri), ids(context, "${SD_NS}name"))
     val public = context.path(SempodsVocabulary.PUBLIC).single().path("@value")
     assertTrue(public.isBoolean, "the registry's flag is a JSON boolean: ${description.responseBody}")
@@ -1430,8 +1430,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode, response.responseBody)
     val body = objectMapper.readTree(response.responseBody)
-    assertEquals(contextsBaseUrl(pod.name), body.path("@id").asText())
-    assertEquals(listOf("${SD_NS}GraphCollection"), body.path("@type").map { it.asText() })
+    assertEquals(contextsBaseUrl(pod.name), body.path("@id").asString())
+    assertEquals(listOf("${SD_NS}GraphCollection"), body.path("@type").values().map { it.asString() })
     assertEquals(2, body.size(), "an empty catalogue is its identity and its type: ${response.responseBody}")
   }
 
@@ -1452,15 +1452,15 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val created = put("Tasks")
     assertEquals(201, created.statusCode, created.responseBody)
     val body = objectMapper.readTree(created.responseBody)
-    assertEquals(contextUri(pod.name, path), body.path("@id").asText())
-    assertEquals("Tasks", body.path(RDFS_LABEL).single().path("@value").asText())
+    assertEquals(contextUri(pod.name, path), body.path("@id").asString())
+    assertEquals("Tasks", body.path(RDFS_LABEL).single().path("@value").asString())
     assertNull(created.headers.get("ETag"), "a write carries no validator of its own")
 
     val again = put("Renamed")
     assertEquals(200, again.statusCode, again.responseBody)
     assertEquals(
       "Tasks",
-      objectMapper.readTree(again.responseBody).path(RDFS_LABEL).single().path("@value").asText(),
+      objectMapper.readTree(again.responseBody).path(RDFS_LABEL).single().path("@value").asString(),
       "a repeated create implies no metadata update",
     )
 

@@ -1,5 +1,6 @@
 package org.sempods.rdf
 
+import org.sempods.commons.json.JsonUtil
 import org.sempods.ontologies.Ontologies
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleNamespace
@@ -103,7 +104,7 @@ class RdfWriterUtilTest {
           }
         ]
       """,
-      RdfWriterUtil.typeRef_graph,
+      JsonUtil.dynamicTypeListRef,
     )
 
     assertEquals(expected, jsonLdGraphs)

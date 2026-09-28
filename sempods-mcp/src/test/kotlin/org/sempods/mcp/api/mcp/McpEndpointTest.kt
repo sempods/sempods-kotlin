@@ -1,6 +1,5 @@
 package org.sempods.mcp.api.mcp
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
@@ -22,6 +21,7 @@ import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import java.util.concurrent.TimeUnit
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -104,9 +104,9 @@ class McpEndpointTest {
 
   // The read/write dispatch is exercised by the integration tests; here stubs echo the tool name so
   // we can assert dispatch is reached only for an authenticated call and routed by tool name.
-  private val readToolDispatch: suspend (String, com.fasterxml.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
+  private val readToolDispatch: suspend (String, tools.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
     { name, _, _ -> ToolCallResult(content = listOf(ContentItem(type = "text", text = "read:$name"))) }
-  private val writeToolDispatch: suspend (String, com.fasterxml.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
+  private val writeToolDispatch: suspend (String, tools.jackson.databind.JsonNode?, ServiceBearerVerifier.Session) -> ToolCallResult =
     { name, _, _ -> ToolCallResult(content = listOf(ContentItem(type = "text", text = "write:$name"))) }
 
   private val auditLog = mockk<AuditLog>(relaxed = true)
@@ -134,8 +134,8 @@ class McpEndpointTest {
     val resp = rpc("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""", bearer = accessToken())
     assertEquals(HttpStatusCode.OK, resp.status)
     val body = mapper.readTree(resp.bodyAsText())
-    assertEquals("2025-06-18", body["result"]["protocolVersion"].asText())
-    assertEquals("sempods-mcp", body["result"]["serverInfo"]["name"].asText())
+    assertEquals("2025-06-18", body["result"]["protocolVersion"].asString())
+    assertEquals("sempods-mcp", body["result"]["serverInfo"]["name"].asString())
   }
 
   @Test
@@ -158,7 +158,7 @@ class McpEndpointTest {
   fun `tools list advertises the authorize tool to an authenticated session`() = testApplication {
     install()
     val tools = mapper.readTree(rpc("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""", bearer = accessToken()).bodyAsText())["result"]["tools"]
-    val authorize = tools.first { it["name"].asText() == "authorize" }
+    val authorize = tools.first { it["name"].asString() == "authorize" }
     assertTrue(authorize["inputSchema"]["properties"].has("reauthorize"), "authorize must expose a reauthorize property")
   }
 
@@ -166,7 +166,7 @@ class McpEndpointTest {
   fun `tools list adds the read tools for an authenticated session`() = testApplication {
     install()
     val tools = mapper.readTree(rpc("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""", bearer = accessToken()).bodyAsText())["result"]["tools"]
-    val names = tools.map { it["name"].asText() }.toSet()
+    val names = tools.values().map { it["name"].asString() }.toSet()
     assertTrue(names.contains("authorize"), names.toString())
     assertTrue(names.containsAll(hostedToolCatalog.readToolNames), "authenticated tools/list must advertise all read tools: $names")
     assertTrue(names.containsAll(hostedToolCatalog.writeToolNames), "authenticated tools/list must advertise all write tools: $names")
@@ -192,9 +192,9 @@ class McpEndpointTest {
   fun `read and write tools route to their dispatchers with a valid bearer`() = testApplication {
     install()
     val read = rpc("""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_pods","arguments":{}}}""", bearer = accessToken())
-    assertEquals("read:list_pods", mapper.readTree(read.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("read:list_pods", mapper.readTree(read.bodyAsText())["result"]["content"][0]["text"].asString())
     val write = rpc("""{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"create_resource","arguments":{}}}""", bearer = accessToken())
-    assertEquals("write:create_resource", mapper.readTree(write.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("write:create_resource", mapper.readTree(write.bodyAsText())["result"]["content"][0]["text"].asString())
   }
 
   @Test
@@ -233,7 +233,7 @@ class McpEndpointTest {
       """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_pods","arguments":{}}}""",
       bearer = accessToken(profile = "private"), path = "/private",
     )
-    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asString())
     // The challenge on that path advertises the profile-scoped resource.
     val challenge = rpc(
       """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_pods","arguments":{}}}""",
@@ -252,7 +252,7 @@ class McpEndpointTest {
       """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_pods","arguments":{}}}""",
       bearer = accessToken(profile = "private"), path = "/private/",
     )
-    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asString())
   }
 
   @Test
@@ -279,7 +279,7 @@ class McpEndpointTest {
     install()
     val resp = rpc("""{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"authorize","arguments":{}}}""", bearer = accessToken())
     assertEquals(HttpStatusCode.OK, resp.status)
-    val text = mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asText()
+    val text = mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asString()
     assertTrue(text.startsWith("Signed in"), text)
   }
 
@@ -294,7 +294,7 @@ class McpEndpointTest {
     val token2 = accessToken(jti = "jti-2")
     val replay = rpc("""{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"authorize","arguments":{"reauthorize":true}}}""", bearer = token2)
     assertEquals(HttpStatusCode.OK, replay.status)
-    assertTrue(mapper.readTree(replay.bodyAsText())["result"]["content"][0]["text"].asText().startsWith("Signed in"))
+    assertTrue(mapper.readTree(replay.bodyAsText())["result"]["content"][0]["text"].asString().startsWith("Signed in"))
   }
 
   @Test
@@ -336,7 +336,7 @@ class McpEndpointTest {
     assertEquals(HttpStatusCode.OK, third.status)
     val body = mapper.readTree(third.bodyAsText())
     assertEquals(-32000, body["error"]["code"].asInt())
-    assertTrue("Rate limit" in body["error"]["message"].asText(), body.toString())
+    assertTrue("Rate limit" in body["error"]["message"].asString(), body.toString())
     verify(exactly = 1) { auditLog.rateLimited(user, "default") }
   }
 
@@ -348,7 +348,7 @@ class McpEndpointTest {
     val toolsList = rpc("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""", bearer = accessToken())
     assertTrue(mapper.readTree(toolsList.bodyAsText())["result"]["tools"].size() > 0)
     val init = rpc("""{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""", bearer = accessToken())
-    assertEquals("sempods-mcp", mapper.readTree(init.bodyAsText())["result"]["serverInfo"]["name"].asText())
+    assertEquals("sempods-mcp", mapper.readTree(init.bodyAsText())["result"]["serverInfo"]["name"].asString())
   }
 
   @Test
@@ -359,7 +359,7 @@ class McpEndpointTest {
     repeat(3) { assertEquals(HttpStatusCode.Unauthorized, rpc(toolsCall(it), bearer = "forged").status) }
     // The authenticated user still has its full budget.
     val resp = rpc(toolsCall(9), bearer = accessToken())
-    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("read:list_pods", mapper.readTree(resp.bodyAsText())["result"]["content"][0]["text"].asString())
   }
 
   @Test
@@ -375,7 +375,7 @@ class McpEndpointTest {
     // user who exhausted the budget could never re-consent to recover.
     val authorize = rpc("""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"authorize","arguments":{}}}""", bearer = accessToken(user))
     assertEquals(HttpStatusCode.OK, authorize.status)
-    assertTrue(mapper.readTree(authorize.bodyAsText())["result"]["content"][0]["text"].asText().startsWith("Signed in"))
+    assertTrue(mapper.readTree(authorize.bodyAsText())["result"]["content"][0]["text"].asString().startsWith("Signed in"))
     // reauthorize (forces a fresh OAuth challenge) must also get through the exhausted budget.
     val reauth = rpc("""{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"authorize","arguments":{"reauthorize":true}}}""", bearer = accessToken(user))
     assertEquals(HttpStatusCode.Unauthorized, reauth.status)
@@ -392,7 +392,7 @@ class McpEndpointTest {
     assertEquals(-32000, overQuota["error"]["code"].asInt())
     // ...the same user's named profile has its own budget (profiles are isolation bundles).
     val sibling = rpc(toolsCall(3), bearer = accessToken(user, profile = "private"), path = "/private")
-    assertEquals("read:list_pods", mapper.readTree(sibling.bodyAsText())["result"]["content"][0]["text"].asText())
+    assertEquals("read:list_pods", mapper.readTree(sibling.bodyAsText())["result"]["content"][0]["text"].asString())
   }
 
   /**
@@ -435,6 +435,23 @@ class McpEndpointTest {
       """{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}""",
       rpc("""{"jsonrpc":"1.0","id":10,"method":"ping"}""", bearer = accessToken()).bodyAsText(),
     )
+  }
+
+  @Test
+  fun `a member that is not a string answers a JSON-RPC error`() = testApplication {
+    install()
+
+    val version = rpc("""{"jsonrpc":{"v":"2.0"},"id":11,"method":"ping"}""", bearer = accessToken())
+    assertEquals(HttpStatusCode.BadRequest, version.status)
+    assertEquals(-32600, mapper.readTree(version.bodyAsText())["error"]["code"].asInt())
+
+    val method = rpc("""{"jsonrpc":"2.0","id":12,"method":["ping"]}""", bearer = accessToken())
+    assertEquals(HttpStatusCode.OK, method.status)
+    assertEquals(-32601, mapper.readTree(method.bodyAsText())["error"]["code"].asInt())
+
+    val tool = rpc("""{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":{"n":"list_pods"},"arguments":{}}}""", bearer = accessToken())
+    assertEquals(HttpStatusCode.OK, tool.status)
+    assertEquals(-32601, mapper.readTree(tool.bodyAsText())["error"]["code"].asInt())
   }
 
   /**

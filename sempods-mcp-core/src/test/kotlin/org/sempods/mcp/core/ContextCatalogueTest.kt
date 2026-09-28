@@ -1,6 +1,6 @@
 package org.sempods.mcp.core
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -36,10 +36,10 @@ class ContextCatalogueTest {
       ),
     )
 
-    assertEquals(listOf(tasks, notes), payload.path("contexts").map { it.path("context_iri").asText() })
-    assertEquals(listOf("read", "write", "manage"), payload.path("contexts")[0].path("permissions").map { it.asText() })
-    assertEquals(listOf("read"), payload.path("contexts")[1].path("permissions").map { it.asText() })
-    assertEquals(listOf(tasks), payload.path("writable_contexts").map { it.asText() })
+    assertEquals(listOf(tasks, notes), payload.path("contexts").values().map { it.path("context_iri").asString() })
+    assertEquals(listOf("read", "write", "manage"), payload.path("contexts")[0].path("permissions").values().map { it.asString() })
+    assertEquals(listOf("read"), payload.path("contexts")[1].path("permissions").values().map { it.asString() })
+    assertEquals(listOf(tasks), payload.path("writable_contexts").values().map { it.asString() })
   }
 
   @Test
@@ -74,8 +74,8 @@ class ContextCatalogueTest {
       ),
     )
 
-    assertEquals(listOf(tasks), payload.path("contexts").map { it.path("context_iri").asText() })
-    assertEquals(listOf("read"), payload.path("contexts")[0].path("permissions").map { it.asText() })
+    assertEquals(listOf(tasks), payload.path("contexts").values().map { it.path("context_iri").asString() })
+    assertEquals(listOf("read"), payload.path("contexts")[0].path("permissions").values().map { it.asString() })
     assertTrue(payload.path("writable_contexts").isEmpty)
   }
 

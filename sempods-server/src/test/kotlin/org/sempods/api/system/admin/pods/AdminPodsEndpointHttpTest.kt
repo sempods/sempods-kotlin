@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.pods
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.inject.Inject
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
@@ -13,6 +12,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.junit.jupiter.api.Test
+import tools.jackson.databind.ObjectMapper
 import java.net.URLEncoder
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -68,7 +68,7 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
   private fun TestHttpResponse.field(name: String): String =
-    objectMapper.readTree(responseBody).path(name).asText()
+    objectMapper.readTree(responseBody).path(name).asString()
 
   @Test
   fun `PUT creates the pod and stores the owner as the WebID derived from the email`() {

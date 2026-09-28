@@ -1,6 +1,5 @@
 package org.sempods.ai.sem
 
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
 import org.eclipse.rdf4j.model.IRI
@@ -10,6 +9,7 @@ import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.Rio
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.node.ObjectNode
 import java.io.StringReader
 
 class AiSemShaclGuidanceDeriver @Inject constructor() {
@@ -141,7 +141,7 @@ class AiSemShaclGuidanceDeriver @Inject constructor() {
       hint.datatype?.let { term.put("datatype", it) }
       hint.minCount?.let { term.put("minCount", it) }
       hint.maxCount?.let { term.put("maxCount", it) }
-      terms.set<ObjectNode>(hint.path, term)
+      terms.set(hint.path, term)
     }
     return terms
   }

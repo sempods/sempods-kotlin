@@ -23,19 +23,14 @@ dependencyAnalysis {
     // declare themselves, the build file names it instead.
     //
     // Hence no bundle over `org.eclipse.rdf4j`, and none pairing `rdf4j-model` with
-    // `rdf4j-model-api` or `jackson-datatype-jsr310` with `jackson-databind`: those three splits
-    // are visible, and correcting them is why this plugin is here.
+    // `rdf4j-model-api`: those two splits are visible, and correcting them is why this plugin is here.
 
-    // `core` and `annotations` are how `jackson-databind` is packaged, and Jackson 3 is packaged the
-    // same way under `tools.jackson`.
-    bundle("jackson") {
-      primary("com.fasterxml.jackson.core:jackson-databind")
-      includeDependency("com.fasterxml.jackson.core:jackson-core")
-      includeDependency("com.fasterxml.jackson.core:jackson-annotations")
-    }
+    // `core` and `annotations` are how `jackson-databind` is packaged. The annotations kept Jackson
+    // 2's coordinates, which is why the group differs.
     bundle("jackson3") {
       primary("tools.jackson.core:jackson-databind")
       includeDependency("tools.jackson.core:jackson-core")
+      includeDependency("com.fasterxml.jackson.core:jackson-annotations")
     }
 
     // The sync driver and the core under it. Not `bson`: `ObjectId` and `Document` sit in the
