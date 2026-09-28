@@ -142,6 +142,10 @@ class PodServiceClientStore @Inject constructor(
   internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
     dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
 
+  /** See [PodServiceClientDao.reinstateDeadline]. */
+  internal fun reinstateDeadline(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, pendingUntil: Instant): Boolean =
+    dao.reinstateDeadline(pod.objectId(), clientId, expected.objectId(), pendingUntil)
+
   /**
    * Makes [scopes] the grants of the registration [expected] names, if they are still at
    * [expectedVersion]. Throws, like [register], for a scope a service client cannot hold.

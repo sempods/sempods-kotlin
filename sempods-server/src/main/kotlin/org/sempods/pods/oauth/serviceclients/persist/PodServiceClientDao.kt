@@ -189,6 +189,25 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       activating(grantsUpdate(Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at)),
     ).matchedCount > 0L
 
+  /**
+   * Puts [pendingUntil] back on the registration [expectedId] names, where an activating write left
+   * it holding nothing: the grant it activated for did not survive the check after the write. Only
+   * while the row is still empty and still carries no deadline, so a grant that landed in between
+   * keeps its activation. `false` where that no longer holds.
+   */
+  internal fun reinstateDeadline(podId: ObjectId, clientId: String, expectedId: ObjectId, pendingUntil: Instant): Boolean =
+    serviceClients.updateOne(
+      Filters.and(
+        registrationFilter(podId, clientId, expectedId),
+        Filters.exists(PodServiceClientDboFields.pendingUntil, false),
+        Filters.or(
+          Filters.exists(PodServiceClientDboFields.scopes, false),
+          Filters.size(PodServiceClientDboFields.scopes, 0),
+        ),
+      ),
+      Updates.set(PodServiceClientDboFields.pendingUntil, Date.from(pendingUntil)),
+    ).matchedCount > 0L
+
   /** [changedBy] removes [scopes]; answers the row afterwards, or `null` where there is none. */
   internal fun removeScopes(
     podId: ObjectId,

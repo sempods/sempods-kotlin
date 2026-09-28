@@ -679,7 +679,8 @@ GET {pod}/_system/auth/grant?client_id=<caller>&redirect_uri=<its redirect>&stat
 - **Checked again at redemption.** The pod must still be the person's, the registration unchanged,
   and every ticked context still there.
 - **It activates.** Grants and activation are one write; a registration past its deadline is
-  refused and not revived. Ticking nothing is a refusal, which activates nothing.
+  refused and not revived. Ticking nothing is a refusal, which activates nothing, and so is a
+  grant whose contexts all went while it was written: the registration keeps its deadline.
 - **It only adds.** Taking grants away is
   [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
 

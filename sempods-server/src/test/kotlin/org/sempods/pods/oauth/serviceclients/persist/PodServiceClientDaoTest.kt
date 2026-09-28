@@ -342,6 +342,22 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a deadline goes back only on a registration the activating write left empty`() {
+    val deadline = Instant.now().plusSeconds(3_600).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+    val emptied = checkNotNull(create("emptied-app", emptySet(), pendingUntil = deadline).id)
+    val kept = checkNotNull(create("kept-app", emptySet(), pendingUntil = deadline).id)
+    serviceClientDao.addScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"), changedBy = OWNER)
+    serviceClientDao.dropScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"))
+    serviceClientDao.addScopes(probePodId, "kept-app", kept, setOf("$notesRoot#read"), changedBy = OWNER)
+
+    assertTrue(serviceClientDao.reinstateDeadline(probePodId, "emptied-app", emptied, deadline))
+    assertFalse(serviceClientDao.reinstateDeadline(probePodId, "kept-app", kept, deadline), "a surviving grant keeps it active")
+
+    assertEquals(deadline, assertNotNull(serviceClientDao.findByClientId(probePodId, "emptied-app")).pendingUntil)
+    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "kept-app")).pendingUntil)
+  }
+
+  @Test
   fun `the deadline is a TTL index`() {
     val index = rows.listIndexes().single { it.get("key", Document::class.java).containsKey(PodServiceClientDboFields.pendingUntil) }
 

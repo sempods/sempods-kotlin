@@ -189,6 +189,9 @@ class PodServiceClientGrantFlow @Inject internal constructor(
     }
     val granted = ticked - lost
     if (granted.isEmpty()) {
+      // The write activated a registration it then left holding nothing. Nothing was granted, so
+      // nothing activates: its deadline goes back.
+      registration.pendingUntil?.let { serviceClients.reinstateDeadline(pod.id, registration.clientId, registration.id, it) }
       return denied(target, state, pod, transaction.serviceClientId, "its contexts went while being granted")
     }
 
