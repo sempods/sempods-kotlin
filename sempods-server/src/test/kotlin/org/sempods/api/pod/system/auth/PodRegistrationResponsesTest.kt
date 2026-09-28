@@ -82,6 +82,7 @@ class PodRegistrationResponsesTest {
     assertEquals("client_secret_basic", body["token_endpoint_auth_method"])
     assertEquals(listOf("client_credentials"), body["grant_types"])
     assertEquals(listOf("http://127.0.0.1/cb"), body["redirect_uris"])
+    assertFalse("response_types" in body, "no browser flow beside the redirect: $body")
     assertEquals(deadline.epochSecond.toInt(), body["activation_expires_at"])
     assertEquals("no-store", response.getHeaderString("Cache-Control"))
   }

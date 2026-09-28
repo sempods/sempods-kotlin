@@ -104,6 +104,9 @@ internal object PodRegistrationResponses {
     val response = ClientInformationResponse(information, true).toHTTPResponse()
     val body = information.toJSONObject().apply {
       put(ACTIVATION_EXPIRES_AT, client.activationExpiresAt.epochSecond)
+      // The SDK writes its default `["code"]` beside redirect URIs; a client authenticating with a
+      // secret has no browser flow, and the registration refuses the member for that reason.
+      remove("response_types")
     }
     response.setBody(body.toJSONString())
     return jaxrs(response)
