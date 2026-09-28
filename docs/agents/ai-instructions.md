@@ -59,17 +59,19 @@ its pointer file and add a row here.
 
 ## Auto-injection constraints
 
-Some files are loaded by their tool **in isolation** — the tool reads that one file and follows no
-link out of it. A pure pointer would be useless there, so a minimal subset is duplicated inline.
-This is the complete list; nothing else in this repository may duplicate rules.
+Some files and sections are loaded by their tool **in isolation** — the tool reads that text and
+may follow no link out of it. A pure pointer would be useless there, so a minimal subset is
+duplicated inline. This is the complete list; nothing else in this repository may duplicate rules.
 
 | File | Injected by | What stays inline |
 |---|---|---|
-| `.github/copilot-instructions.md` | Copilot Chat and the Copilot coding agent | The invariants in short form, the build and test commands, the documentation duty, the naming rule |
+| `.github/copilot-instructions.md` | Copilot Chat, code review and the coding agent | The invariants in short form, the build and test commands, the documentation duty, the naming rule |
+| Root `AGENTS.md` §"Code Review Rules" | Codex pull-request review | The documentation checks from [`doc-review.md`](doc-review.md) that fail quietly |
 
 The rules for that duplication: the source of truth is always the canonical file the subset was
 taken from — `AGENTS.md`, except for the invariants, whose canonical file is `CONTRIBUTING.md`
-§"What this project will not change"; update that file first and sync the subset after; keep the
+§"What this project will not change", and the review checks, whose canonical file is
+[`doc-review.md`](doc-review.md); update that file first and sync the subset after; keep the
 subset minimal and let it link out for everything else.
 
 ## Shared principles

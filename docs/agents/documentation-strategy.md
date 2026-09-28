@@ -85,7 +85,10 @@ from current documentation. A title alone never makes something implemented.
 **3. Document deviations only.** A Guice module bound the usual way, a DAO reading the usual
 shape, an endpoint doing what its verb says — none of it gets a paragraph or a comment. When a special
 case becomes the norm, delete its explanation, prose and comments alike; the commit message says what
-moved.
+moved. Build files, workflow files and `gradle.properties` too: a pinned version, or a configuration
+that looks wrong until you know what it prevents, keeps its reasoning even when that takes several
+paragraphs. A dependency on `implementation` because nothing it holds is in a public signature gets
+no comment.
 
 **4. Field-level contracts live in KDoc**: what a field means, what may be null, what an implementation
 owes its caller. Markdown stays high-level and links the code path.
@@ -237,12 +240,12 @@ behaviour change is not finished until, **in the same change**:
 - the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
 - nothing you wrote gives a fact a second owner, and what the change made redundant is gone
   (rules 9 and 11). This is the one that fails quietly, because every copy reads correctly on its
-  own — [`documentation-sync.md`](documentation-sync.md) §5 is where it is caught;
+  own — [`doc-review.md`](doc-review.md) §6 is where it is caught;
 - nothing you added to an `AGENTS.md` is a fact some document owns (§"Instruction files are
   maps"). This one fails quietly too, and for the opposite reason: there is only one copy, so no
   search finds it.
 
-[`documentation-sync.md`](documentation-sync.md) is the procedure that walks this list.
+[`doc-review.md`](doc-review.md) is the procedure that walks this list.
 
 `./gradlew checkDocLinks` checks the mechanical half — that every relative markdown link resolves.
 The rest is a judgement, which is why it is written down here rather than automated.

@@ -71,4 +71,4 @@ they govern how the rest of this directory is written rather than describing the
 [`ai-instructions.md`](agents/ai-instructions.md) is the hub,
 [`documentation-strategy.md`](agents/documentation-strategy.md) the authority on types and issue planning,
 [`issue-work.md`](agents/issue-work.md) the work procedure, and
-[`documentation-sync.md`](agents/documentation-sync.md) the per-PR documentation procedure.
+[`doc-review.md`](agents/doc-review.md) the documentation review for a change, a pull request or a path.

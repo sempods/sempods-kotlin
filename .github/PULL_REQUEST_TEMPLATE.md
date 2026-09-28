@@ -16,8 +16,8 @@
 ## Verification and documentation
 
 <!-- Give commands and results, documentation updates or a specific no-change reason, and any
-     remaining acceptance. Use docs/agents/documentation-strategy.md#definition-of-done to review
-     the affected surfaces. Record evidence for this PR even when its issue spans several PRs. -->
+     remaining acceptance. Review the documentation with docs/agents/doc-review.md for this PR.
+     Record evidence for this PR even when its issue spans several PRs. -->
 
 ## Before requesting review
 
@@ -27,6 +27,8 @@
       public signature moved
 - [ ] `./gradlew checkDocLinks` passes — every relative link in a markdown file
       still resolves
+- [ ] `doc-review` ran on this PR — its updates, or the reason none were
+      needed, are listed above
 - [ ] A model that did substantial work here is named in a `Co-Authored-By:`
       trailer, and the change is one I can defend in review
 

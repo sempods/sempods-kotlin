@@ -76,20 +76,10 @@ list, not a pull request here.
 
 ## Documentation
 
-[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) is the authority.
-The short version:
-
-- **Code contracts are the source of truth.** Field-level detail goes in KDoc; markdown stays
-  high-level and links to the code path.
-- **Maintained documentation describes what the code does today.** Public plans live in issues,
-  with occasional explicitly proposed design documents.
-- **Logic that follows the standard needs no documentation at all** — and when a special case
-  becomes ordinary, its documentation and its comments are deleted. Documentation shrinking is what
-  a simplification is supposed to produce.
-- **No history and no decision log.** Keep only the reasoning a future reader needs in order not to
-  undo the decision; the rest is what commit messages are for.
-- The three document types — Vision, maintained IST documentation and Proposal — nest under any
-  `docs/` directory.
+[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) is the authority:
+the document types, the writing rules and the definition of done. Read it before touching any
+`*.md`. [`docs/agents/doc-review.md`](docs/agents/doc-review.md) checks a change, a pull request or
+a path against it.
 
 ## Auth layer (sempods-auth)
 
@@ -115,7 +105,7 @@ Key design choices:
 ## Documentation map
 
 Agent instructions: `docs/agents/` — the hub, documentation strategy,
-[issue-work procedure](docs/agents/issue-work.md) and `documentation-sync.md`.
+[issue-work procedure](docs/agents/issue-work.md) and [doc-review procedure](docs/agents/doc-review.md).
 
 Vision and architecture:
 
@@ -149,7 +139,6 @@ IST documentation:
 - Any behavior change must come with tests (prefer HTTP-level conformance tests).
 - Prefer explicit specs + conformance tests over clever query rewriting. This is a working rule
   rather than a property of the model, which is why it is here and not in the list above.
-- Keep docs/spec aligned with implementation.
 - Be conservative with backward-incompatible changes.
 - Most modules here are published. An artifact whose types appear in a module's public signatures
   is declared by that module, on `api` — not inherited from a sibling that brings it, and not the
@@ -193,18 +182,8 @@ introduce one, and do not assume one has run. Style comes from the surrounding f
 - no file-level licence headers — a file starts with `package`
 - KDoc on interfaces and DTOs carries the field-level contract; most files open with one
 
-Build files, workflow files and `gradle.properties` carry the reasoning for a value that is **not**
-what a reader would expect — a pinned version, a configuration that looks wrong until you know what
-it prevents. That reasoning is often several paragraphs, and it is not to be compressed away while
-the value still needs it.
-
-The other half of that rule matters as much and is the one that gets skipped: a value doing the
-ordinary thing carries **no** comment, and a value that *becomes* ordinary loses the comment it had.
-A dependency on `implementation` because nothing it holds is in a public signature needs no more
-explanation than a `val` needs a comment saying it is a variable. What does not happen is a comment
-recording that it used to be otherwise — that is what the commit message is for. This is rule 3 of
-[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md), which applies to code
-comments exactly as it applies to markdown; nothing about a `.kts` file exempts it.
+Comments in build files, workflow files and `gradle.properties` follow writing rule 3 in
+[`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md#the-writing-rules).
 
 **No schema-migration system.** `SempodsUpdater` runs a hardcoded list every boot, with no history
 and no already-applied check. Do not propose a migration framework as a fix for a data change.
@@ -215,10 +194,9 @@ and no already-applied check. Do not propose a migration framework as a fix for 
    infrastructure step above.
 2. `./gradlew buildHealth` — the `api`/`implementation` boundary. A dependency in the wrong
    configuration fails a separate CI job, not this one.
-3. Documentation, in this same change:
-   [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md) §"Definition of
-   done". IST documents, KDoc, issue/PR completion evidence, and `context7.json`. The
-   `sync-docs` procedure ([`docs/agents/documentation-sync.md`](docs/agents/documentation-sync.md)) walks it.
+3. Documentation, in this same change: run
+   [`doc-review`](docs/agents/doc-review.md) with `--fix` on your change. It walks §"Definition of
+   done" in [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md).
 4. `git commit -s`. The DCO workflow fails the pull request without a `Signed-off-by` line. Work
    done with an AI assistant also carries `Co-Authored-By` for the model —
    [`CONTRIBUTING.md`](CONTRIBUTING.md) §"AI-assisted contributions" is the policy, and it is the
@@ -230,6 +208,28 @@ and no already-applied check. Do not propose a migration framework as a fix for 
    needs" (writing rule 7 in
    [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md)). The body
    explains what was wrong and why the fix has the shape it does.
+
+## Code Review Rules
+
+Codex's pull-request review reads this section for every changed file, so it stands on its own.
+The canonical procedure is [`docs/agents/doc-review.md`](docs/agents/doc-review.md); this is its
+registered subset (see [`docs/agents/ai-instructions.md`](docs/agents/ai-instructions.md)
+§"Auto-injection constraints").
+
+### Documentation
+
+Flag a pull request whose documentation no longer matches its code. These are the checks that
+fail quietly:
+
+- Behaviour, a public signature, a stored shape or an HTTP surface changed; the IST document or
+  KDoc describing it did not.
+- A documented special case became ordinary; its section or comment is still there.
+- The change restates a fact another document or KDoc already owns.
+- A fact about the code landed in an `AGENTS.md`.
+- The change contradicts a sempods-spec requirement (`SPS-…`, cited in the changed code, its tests
+  or its documents), and no companion change is linked.
+- A `context7.json` rule is no longer true.
+- The description has no documentation evidence: the updates, or why none were needed.
 
 ## Naming conventions
 

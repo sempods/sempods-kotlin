@@ -15,7 +15,8 @@ Main components:
 ## Rules for changes
 
 - Keep provider-agnostic contracts stable in `AiService` DTOs.
-- Keep field-level contract documentation in KDoc on interfaces/DTOs; markdown docs should stay high-level.
+- Field-level contracts follow
+  [writing rule 4](../../../../../../../docs/agents/documentation-strategy.md#the-writing-rules).
 - Document provider-specific behavior in `docs/ai-layer.md`.
 - Keep endpoint-level behavior documented in `docs/ai/semweb/text2model.md` and use-case guidance in `docs/ai/semweb/use-cases/tasks.md`.
 - Public SHACL hard-validation plans follow
