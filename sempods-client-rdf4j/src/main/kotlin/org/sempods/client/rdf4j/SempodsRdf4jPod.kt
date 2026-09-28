@@ -18,6 +18,9 @@ import org.sempods.client.SempodsPod
  * **Only the body changes.** Every call is the operation of [pod]'s endpoint group, so authentication,
  * the resend, admission, the deadline and the transport are the ones a raw call on the same pod gets,
  * and so are the status and headers of an answer. A raw call and a model call can share one pod.
+ *
+ * A relative IRI in an answer resolves against [org.sempods.client.SempodsResponse.url], the URL the
+ * request went to.
  */
 class SempodsRdf4jPod(
   val pod: SempodsPod,
@@ -48,3 +51,7 @@ class SempodsRdf4jPod(
   /** CONSTRUCT and DESCRIBE graphs as models, and SELECT results as binding sets. */
   fun sparql(): SempodsRdf4jSparql = sparqlGroup
 }
+
+/** This pod as RDF4J models: `pod.rdf4j().subjects()`. From Java, `new SempodsRdf4jPod(pod)`. */
+@JvmSynthetic
+fun SempodsPod.rdf4j(): SempodsRdf4jPod = SempodsRdf4jPod(this)

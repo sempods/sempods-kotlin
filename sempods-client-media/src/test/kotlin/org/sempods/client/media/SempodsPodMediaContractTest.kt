@@ -44,7 +44,7 @@ class SempodsPodMediaContractTest {
       SempodsPodBase.of("http://localhost:${server.port}/alice"),
       SempodsRequestAuth.bearer("service-token"),
     )
-    media = SempodsPodMedia(SempodsPod(session, client))
+    media = SempodsPod(session, client).media()
   }
 
   @AfterAll
