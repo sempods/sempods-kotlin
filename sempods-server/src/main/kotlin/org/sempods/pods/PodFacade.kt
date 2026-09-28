@@ -221,9 +221,8 @@ class PodFacade @Inject constructor(
     label: String?,
     description: String?,
   ): Boolean {
-    // **This throws where a caller may only want to skip.** `PodConsentFlow` logs a context it
-    // cannot build and carries on; it reaches here only with a URI `ContextPathRules.resolve` built
-    // from the pod's own base, so the check cannot fire for it.
+    // **This throws.** `ConsentSelection` reaches here only with a URI `ContextPathRules.resolve`
+    // built from the pod's own base, so the check cannot fire for it.
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,

@@ -33,6 +33,16 @@ import java.time.Duration
  * stops the *same* page being posted twice; it does nothing about a second page opened before the
  * person disconnected the app or narrowed it, which would otherwise write its own older selection
  * back on submission. What it was rendered under is compared with what stands.
+ *
+ * **The screen also carries its request.** A token issued with a [Binding] holds the authorization
+ * request the page answers and the rows it offered, and the submission reads both from here. A form
+ * cannot then redirect the answer to another client, drop the PKCE challenge, or tick a row the
+ * person was never shown.
+ *
+ * A transaction without a [Binding] was written by an older node during a rollout. The submission
+ * then reads the request from the form. The rule and how long it holds are in `docs/auth/oauth.md`
+ * §"Authorize flow (overview)"; the next minor release removes it with the two unbound [issue]
+ * overloads.
  */
 class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
 
@@ -48,6 +58,8 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   rendered. The submission compares it with the count standing now: a page from before an
    *   ending would hand back what the person removed, and a page that is merely older than some
    *   other answer would not.
+   * @param binding the request and the rows this screen answers; `null` on a transaction an older
+   *   node wrote.
    */
   data class Transaction(
     val pod: String,
@@ -55,6 +67,31 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     val consentGeneration: Long?,
     val offeredFeatureScopes: Set<String>,
     val disconnects: Long,
+    val binding: Binding? = null,
+  )
+
+  /**
+   * What the screen was rendered for, as normalized by `/authorize`.
+   *
+   * @param clientId the recipient, and [redirectUri] where its answer goes. The submission answers
+   *   this client and no other.
+   * @param state the client's `state`, `null` where it sent none.
+   * @param codeChallenge the PKCE challenge the code will carry, and [codeChallengeMethod] its
+   *   method; `null` where the request carried none.
+   * @param offeredScopes every checkbox value the screen rendered under `scope`: each context row as
+   *   `<iri>#read|write|manage`, and `public-read` where it was offered. A submitted scope outside
+   *   this set is refused.
+   * @param contextCreationOffered whether the screen let the person create contexts. A submission
+   *   that creates one on a screen that did not offer it is refused.
+   */
+  data class Binding(
+    val clientId: String,
+    val redirectUri: String,
+    val state: String?,
+    val codeChallenge: String?,
+    val codeChallengeMethod: String?,
+    val offeredScopes: Set<String>,
+    val contextCreationOffered: Boolean,
   )
 
   private val transactions = OneTimeStore(
@@ -69,6 +106,15 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
       putNotNull("consentGeneration", it.consentGeneration)
       putStrings("offeredFeatureScopes", it.offeredFeatureScopes)
       putNotNull("disconnects", it.disconnects.takeIf { count -> count > 0 })
+      it.binding?.let { binding ->
+        put("clientId", binding.clientId)
+        put("redirectUri", binding.redirectUri)
+        putNotNull("state", binding.state)
+        putNotNull("codeChallenge", binding.codeChallenge)
+        putNotNull("codeChallengeMethod", binding.codeChallengeMethod)
+        putStrings("offeredScopes", binding.offeredScopes)
+        put("contextCreationOffered", binding.contextCreationOffered)
+      }
     },
     read = {
       Transaction(
@@ -81,6 +127,19 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         // Absent means none, which is what a screen rendered before this field existed also means:
         // it compares equal to a document that has never recorded an ending.
         disconnects = get("disconnects", Number::class.java)?.toLong() ?: 0L,
+        // Absent on a transaction an older node wrote; see the class comment for how long that is
+        // accepted.
+        binding = getString("clientId")?.let { clientId ->
+          Binding(
+            clientId = clientId,
+            redirectUri = getString("redirectUri") ?: return@OneTimeStore null,
+            state = getString("state"),
+            codeChallenge = getString("codeChallenge"),
+            codeChallengeMethod = getString("codeChallengeMethod"),
+            offeredScopes = getStringSet("offeredScopes"),
+            contextCreationOffered = getBoolean("contextCreationOffered") ?: false,
+          )
+        },
       )
     },
   )
@@ -90,8 +149,9 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   null where nothing was recorded. Compared on submission.
    * @return the token to put in the form.
    */
+  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a Binding.")
   fun issue(pod: String, webId: String, consentGeneration: Long? = null): String =
-    issue(pod, webId, consentGeneration, emptySet(), disconnects = 0)
+    transactions.issue(Transaction(pod, webId, consentGeneration, emptySet(), disconnects = 0))
 
   /**
    * The same, for a screen that puts a privileged feature scope to the person.
@@ -102,6 +162,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * @param offeredFeatureScopes see [Transaction.offeredFeatureScopes].
    * @param disconnects see [Transaction.disconnects].
    */
+  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a Binding.")
   fun issue(
     pod: String,
     webId: String,
@@ -110,6 +171,22 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     disconnects: Long = 0,
   ): String = transactions.issue(
     Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects),
+  )
+
+  /**
+   * A screen bound to the request it answers and the rows it offers — the form `/authorize` uses.
+   *
+   * @param binding see [Transaction.binding].
+   */
+  fun issue(
+    pod: String,
+    webId: String,
+    consentGeneration: Long?,
+    offeredFeatureScopes: Set<String>,
+    disconnects: Long,
+    binding: Binding,
+  ): String = transactions.issue(
+    Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects, binding),
   )
 
   /** The screen behind the token, spent in the same operation. */

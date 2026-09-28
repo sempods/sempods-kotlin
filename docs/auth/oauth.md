@@ -21,7 +21,7 @@ step see `identity.md`.
 | Endpoint | Purpose |
 |---|---|
 | `GET /{pod}/_system/auth/authorize` | Authorization Code request |
-| `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, remove an app's access, sign out |
+| `POST /{pod}/_system/auth/authorize/consent` | The consent form: authorize, cancel, remove an app's access, sign out |
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
 | `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration, and — with an installation authority — one service client |
@@ -152,6 +152,34 @@ does not imply consent to anything. The single-use half matters because
 a submission writes the ticked selection as *the* grant set, so a
 replayable form could restore a selection the person has since
 narrowed.
+
+The token also records what the screen was rendered for: the client,
+`redirect_uri`, `state`, the PKCE challenge, the rows it offered and
+whether it offered to create a context. The submission reads these from
+the token, so the form posts only the token, the ticked boxes and the
+button pressed. A submission the dialog could not have produced changes
+nothing:
+
+| Submission | Answer | Grants |
+|---|---|---|
+| Rows ticked | `code` | Replaced by the selection |
+| Nothing ticked | `access_denied`, `app disconnected` — `no scopes selected` where the app held nothing | Removed, with the app's refresh tokens |
+| Cancel | `access_denied`, `cancelled` | Unchanged |
+| A row the dialog did not offer | `invalid_scope` | Unchanged |
+| A context to create that the path rules refuse, or on a dialog that offers no creation | `invalid_request` | Unchanged; nothing is created |
+| A client, `redirect_uri`, `state` or challenge other than the rendered one | `400`, no redirect | Unchanged |
+
+The replacement covers every explicit grant the app holds for this
+person on this pod, `public-read` included. A row below a context the
+app holds `manage` on keeps its own boxes; the dialog notes that the
+root reaches it too. A context created in the dialog is private and
+owner-only.
+
+**Rollout.** A token written by a node that predates this binding
+carries no request. The submission then reads the request from the form
+that node rendered and checks no rows, for the token's fifteen minutes.
+This holds for the rest of 0.2.x and is removed in the next minor
+release ([#341](https://github.com/sempods/sempods-kotlin/issues/341)).
 
 `scope` never carries contexts — the person ticks those in the consent UI.
 What it carries is the values the discovery documents advertise:

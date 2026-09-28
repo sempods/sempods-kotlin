@@ -54,8 +54,12 @@ internal data class PodConsentScreen(
  * One context in the dialog, with the three permissions it can carry.
  *
  * **The property names are the template's.** `templates/consent.html` reads `ctx.uri`,
- * `ctx.relativePath`, `ctx.readGranted`, `ctx.writeGranted` and `ctx.manageGranted` by reflection,
- * so renaming one here fails at render time and not at compile time.
+ * `ctx.relativePath`, `ctx.readGranted`, `ctx.writeGranted`, `ctx.manageGranted` and
+ * `ctx.managedVia` by reflection, so renaming one here fails at render time and not at compile time.
+ *
+ * @param managedVia the relative path of a context this app already holds `#manage` on and this
+ *   row lies below, `null` otherwise. Shown as a note without a box: the grant it describes is
+ *   the root's.
  */
 internal data class PodConsentContext(
   val uri: String,
@@ -64,4 +68,5 @@ internal data class PodConsentContext(
   val readGranted: Boolean,
   val writeGranted: Boolean,
   val manageGranted: Boolean,
+  val managedVia: String? = null,
 )

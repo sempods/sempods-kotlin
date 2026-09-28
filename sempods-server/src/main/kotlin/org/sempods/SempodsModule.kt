@@ -33,6 +33,7 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.PodSigningKeyStore
 import org.sempods.pods.oauth.flows.PodAuthorizationCodes
+import org.sempods.pods.oauth.flows.ConsentSelection
 import org.sempods.pods.oauth.flows.PodAppHoldings
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
@@ -211,6 +212,7 @@ class SempodsModule : BaseModule() {
     bind<PodAppHoldings>().asSingleton()
     bind<PodAuthorizeFlow>().asSingleton()
     bind<PodClientRegistration>().asSingleton()
+    bind<ConsentSelection>().asSingleton()
     bind<PodConsentFlow>().asSingleton()
     bind<PodServiceClientProvisioning>().asSingleton()
     bind<PodOwnerAuthority>().asSingleton()

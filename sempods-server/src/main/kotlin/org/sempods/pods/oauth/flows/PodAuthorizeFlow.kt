@@ -20,6 +20,7 @@ import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.grants.ScopePermission
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
@@ -567,7 +568,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     isOwner: Boolean,
     privilegedFeatures: List<String> = emptyList(),
   ): PodAuthorizeResult {
-    val contexts = consentContexts(userGrants, existingGrants)
+    val contexts = consentContexts(pod, userGrants, existingGrants)
     val registration = dynamicClientStore.registrationOf(pod.id, normalizedClientId)
     val displayName = clientDisplayName(registration, normalizedClientId)
 
@@ -622,6 +623,17 @@ class PodAuthorizeFlow @Inject internal constructor(
           // server rather than from a field the form carries.
           privilegedFeatures.toSet(),
           subjectDecision?.disconnects ?: 0L,
+          // The request and the rows, for the same reason: the submission answers what was
+          // rendered, whatever the form carries back.
+          ConsentTransactionStore.Binding(
+            clientId = normalizedClientId,
+            redirectUri = normalizedRedirectUri,
+            state = state,
+            codeChallenge = codeChallenge,
+            codeChallengeMethod = codeChallengeMethod,
+            offeredScopes = offeredScopes(contexts, publicContexts),
+            contextCreationOffered = isOwner && privilegedFeatures.isEmpty(),
+          ),
         ),
         webId = identity.webId,
         contexts = contexts,
@@ -644,12 +656,26 @@ class PodAuthorizeFlow @Inject internal constructor(
   }
 
   /**
+   * Every value the dialog renders as a `scope` checkbox: three per context row, and `public-read`
+   * where its section is shown. The privileged ones are bound apart, as
+   * [ConsentTransactionStore.Transaction.offeredFeatureScopes].
+   */
+  private fun offeredScopes(contexts: List<PodConsentContext>, publicContexts: List<String>): Set<String> =
+    contexts.flatMapTo(mutableSetOf()) { ctx -> ScopePermission.entries.map { "${ctx.uri}#${it.value}" } }
+      .apply { if (publicContexts.isNotEmpty()) add(PUBLIC_READ_SCOPE) }
+
+  /**
    * The contexts the dialog lists, one row of read/write/manage per context the person can reach.
    *
    * Pre-ticked from the grants a previous authorization of this app left. No app-suggested scopes —
    * the person always decides their own data topology.
+   *
+   * A row below a context this app holds `#manage` on names that root in
+   * [PodConsentContext.managedVia]. Its own boxes stay the explicit grants they are: the app reaches
+   * the row through the root either way, and unticking the root takes that away.
    */
   private fun consentContexts(
+    pod: HostedPod,
     userGrants: Set<String>,
     existingGrants: Set<String>,
   ): List<PodConsentContext> {
@@ -662,18 +688,32 @@ class PodAuthorizeFlow @Inject internal constructor(
       .distinct()
       .sorted()
 
+    val manageSuffix = "#${ScopePermission.manage.value}"
+    val managedRoots = existingGrants
+      .filter { it.endsWith(manageSuffix) }
+      .map { it.removeSuffix(manageSuffix) }
+
+    fun relativePathOf(uri: String): String {
+      val path = URI(uri).path?.trimStart('/') ?: uri
+      // everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
+      return path.substringAfter('/', path)
+    }
+
     return contextUris.map { uri ->
       val path = URI(uri).path?.trimStart('/') ?: uri
-      // relativePath = everything after the pod name segment (e.g. "podname/public/tasks" → "public/tasks")
-      val relativePath = path.substringAfter('/', path)
       val label = path.trimEnd('/').substringAfterLast('/')
       PodConsentContext(
         uri = uri,
-        relativePath = relativePath,
+        relativePath = relativePathOf(uri),
         label = label,
         readGranted = existingGrants.contains("$uri#read"),
         writeGranted = existingGrants.contains("$uri#write"),
-        manageGranted = existingGrants.contains("$uri#manage"),
+        manageGranted = existingGrants.contains("$uri$manageSuffix"),
+        // The nearest root, where several nest: it is the one a person unticks to take this row.
+        managedVia = managedRoots
+          .filter { root -> uri.startsWith("$root/") && root.startsWith(pod.baseUrl) }
+          .maxByOrNull { it.length }
+          ?.let(::relativePathOf),
       )
     }
   }

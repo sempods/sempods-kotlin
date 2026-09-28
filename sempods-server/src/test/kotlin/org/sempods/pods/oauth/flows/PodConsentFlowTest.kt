@@ -350,8 +350,8 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val marker = "forged-${randomId()}"
     val forged = "../x\n2026-01-01 21:00:00,000 WARN  [jetty] $marker"
 
-    val lines = CapturedLog.linesFrom(PodConsentFlow::class.java) {
-      issuedCode(
+    val lines = CapturedLog.linesFrom(ConsentSelection::class.java) {
+      redirectedError(
         flow.submit(
           owned.pod,
           form(csrf = owned.ticket(), scopes = listOf(owned.readScope), newContexts = listOf(forged)),
@@ -390,8 +390,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a context path the rules refuse is skipped, and the rest of the submission stands`() {
-    // Losing the whole flow over a mistyped context name would be the worse outcome.
+  fun `a context path the rules refuse refuses the whole submission, and nothing is written`() {
+    // Skipping it would drop a row the person ticked without a word, and the replace would take the
+    // grant with it.
     val owned = Owned()
     val bad = "_system/contexts/nope"
 
@@ -406,12 +407,12 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       owned.session,
     )
 
-    issuedCode(result)
-    assertEquals(setOf(owned.readScope), owned.held(), "the typed context is not granted, the ticked one is")
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, redirectedError(result).code)
+    assertEquals(emptySet(), owned.held(), "not even the ticked row is granted")
   }
 
   @Test
-  fun `a permission the grammar does not name is dropped from a pending context`() {
+  fun `a permission the grammar does not name refuses the submission, and creates no context`() {
     val owned = Owned()
     val path = "notes-${randomId()}"
 
@@ -426,8 +427,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
       owned.session,
     )
 
-    issuedCode(result)
-    assertEquals(setOf(owned.readScope), owned.held())
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, redirectedError(result).code)
+    assertEquals(emptySet(), owned.held())
+    assertFalse(podFacade.getContexts(owned.pod.name).any { it.toString().endsWith("/$path") }, "no context was created")
   }
 
   // ── The installation screen's submission ───────────────────────────────────

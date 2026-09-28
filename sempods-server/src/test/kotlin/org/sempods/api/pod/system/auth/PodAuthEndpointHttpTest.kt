@@ -105,6 +105,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private val testCodeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
   private val testCodeChallengeMethod = "S256"
 
+  /** [testCodeChallenge]'s verifier (RFC 7636 appendix B), for a code from a page rendered with it. */
+  private val testCodeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+
   /** Registers a `dyn:` client via DCR and returns its client_id. */
   private fun registerDynamicClient(podName: String, redirectUri: String = "http://localhost:5173/callback"): String {
     val response = http.preparePost(registerUrl(podName))
@@ -2040,14 +2043,19 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Suppress("UNCHECKED_CAST")
-  private fun exchangeCodeRaw(pod: org.sempods.pods.mongo.persist.PodDbo, code: String) = postForm(
+  private fun exchangeCodeRaw(pod: org.sempods.pods.mongo.persist.PodDbo, code: String, verifier: String? = null) = postForm(
     tokenUrl(pod.name),
     "grant_type=authorization_code&code=${enc(code)}" +
-      "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}",
+      "&redirect_uri=${enc(testRedirectUri)}&client_id=${enc(testClientId)}" +
+      (verifier?.let { "&code_verifier=${enc(it)}" } ?: ""),
   )
 
-  private fun exchangeCode(pod: org.sempods.pods.mongo.persist.PodDbo, code: String): Map<String, Any?> {
-    val response = exchangeCodeRaw(pod, code)
+  private fun exchangeCode(
+    pod: org.sempods.pods.mongo.persist.PodDbo,
+    code: String,
+    verifier: String? = null,
+  ): Map<String, Any?> {
+    val response = exchangeCodeRaw(pod, code, verifier)
     assertEquals(200, response.statusCode, response.responseBody)
     return JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
   }
@@ -3255,10 +3263,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `consent skips a context whose name breaks the rules, without failing the authorization`() {
-    // Mid-consent is the wrong moment to abort over a mistyped context name: the user loses the
-    // whole flow. The context is skipped and simply not granted — the grant set is computed from
-    // what exists.
+  fun `consent refuses a context whose name breaks the rules, and creates none of them`() {
+    // Skipping the bad name would drop what the person ticked on it without a word. The form checks
+    // the name before submitting, so this is a submission the dialog does not produce: refused
+    // whole, before anything is created.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -3279,9 +3287,10 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
 
-    assertEquals(303, response.statusCode, "the authorization must still complete")
+    assertEquals(303, response.statusCode)
+    assertTrue("error=invalid_request" in response.getHeader("Location").orEmpty(), response.getHeader("Location"))
     val contexts = podContextsDao.fetchByPod(checkNotNull(pod.id))
-    assertTrue(contexts.any { it.contextUri.endsWith("ok/one") }, "the valid context must exist")
+    assertTrue(contexts.none { it.contextUri.endsWith("ok/one") }, "the valid one is not created either")
     assertTrue(
       contexts.none { it.contextUri.endsWith("apps/claimed") },
       "an owner must not claim a type root through the consent dialog: ${contexts.map { it.contextUri }}",
@@ -3393,10 +3402,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false)
       .execute()
 
-    // The valid one still goes through — a bad name is skipped, it does not fail the flow.
-    assertEquals(303, response.statusCode, "the authorization must still complete")
+    // Refused whole: a bad name does not leave the valid one half-done beside it.
+    assertEquals(303, response.statusCode)
+    assertTrue("error=invalid_request" in response.getHeader("Location").orEmpty(), response.getHeader("Location"))
     val contexts = podContextsDao.fetchByPod(checkNotNull(pod.id)).map { it.contextUri }
-    assertTrue(contexts.any { it == contextUri(pod.name, "fine/one") }, "the valid context must exist: $contexts")
+    assertTrue(contexts.none { it == contextUri(pod.name, "fine/one") }, "nothing is created: $contexts")
     assertTrue(contexts.none { it.contains("#") }, "no context IRI may carry a fragment: $contexts")
     assertTrue(contexts.none { it.contains("..") }, "no context IRI may carry a relative segment: $contexts")
 
@@ -3405,11 +3415,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       appId = testClientId,
       webIds = listOf(ownerWebId),
     )
-    assertEquals(
-      setOf("${contextUri(pod.name, "fine/one")}#read"),
-      grants,
-      "only the context that was actually created may carry a grant",
-    )
+    assertEquals(emptySet(), grants, "nothing is granted")
   }
 
   @Test
@@ -5399,7 +5405,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       )
       .setFollowRedirect(false).execute()
     assertEquals(303, submitted.statusCode, submitted.responseBody)
-    return exchangeCode(pod, codeFrom(submitted))
+    // The page was rendered with a challenge, and the code carries it whatever the form posts.
+    return exchangeCode(pod, codeFrom(submitted), testCodeVerifier)
   }
 
   // ── Installing a service client: the registration ──────────────────────────
@@ -5550,7 +5557,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     val page = ordinaryPage(pod, ownerWebId)
     assertTrue("disconnectBtn" in page, "the unspent authority is something this app holds")
-    val disconnected = submitConsent(pod, ownerWebId, state = "gone", disconnect = true, csrf = formToken(page))
+    val disconnected = submitConsent(pod, ownerWebId, state = "ordinary", disconnect = true, csrf = formToken(page))
     val location = URI(checkNotNull(disconnected.getHeader("Location")))
     assertEquals(
       "app disconnected",

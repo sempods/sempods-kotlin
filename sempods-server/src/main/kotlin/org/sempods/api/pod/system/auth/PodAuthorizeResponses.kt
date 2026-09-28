@@ -182,6 +182,7 @@ internal object PodAuthorizeResponses {
     PodConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> text(400, "redirect_uri not allowed for this client_id")
     PodConsentRefusal.SESSION_EXPIRED -> text(401, "session expired — please re-authorize")
     PodConsentRefusal.FORM_EXPIRED -> text(403, "this form is no longer valid — please re-authorize")
+    PodConsentRefusal.FORM_MISMATCH -> text(400, "this form was not issued for this request — please re-authorize")
   }
 
   /**
@@ -211,10 +212,6 @@ internal object PodAuthorizeResponses {
       "clientName" to screen.clientName,
       "clientUri" to (screen.clientUri ?: ""),
       "logoUri" to (screen.logoUri ?: ""),
-      "redirectUri" to screen.redirectUri,
-      "state" to (screen.state ?: ""),
-      "codeChallenge" to (screen.codeChallenge ?: ""),
-      "codeChallengeMethod" to (screen.codeChallengeMethod ?: ""),
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
       "contexts" to screen.contexts,
@@ -222,8 +219,8 @@ internal object PodAuthorizeResponses {
       // For the preview the form shows while a context is being typed. The posted value is the
       // relative path — the consent submission builds the IRI, there and nowhere else.
       "contextPathPrefix" to SempodsUriBuilder.CONTEXT_PATH_PREFIX,
-      // The reserved names, so the form can say *why* a name is refused instead of the server
-      // silently dropping it from the grant list.
+      // The reserved names, so the form can say *why* a name is refused before the server refuses
+      // the whole submission.
       "reservedSegment" to ContextPathRules.RESERVED_SEGMENT,
       "delegationTypes" to ContextPathRules.DELEGATION_TYPES.joinToString(","),
       "implementedTypes" to ContextPathRules.IMPLEMENTED_TYPES.joinToString(","),
