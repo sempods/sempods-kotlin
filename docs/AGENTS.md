@@ -13,21 +13,13 @@ belongs there, and what is written here is what this implementation does about i
 
 [`agents/documentation-strategy.md`](agents/documentation-strategy.md) is the authority — the three
 document types, how they nest, and when something should not be documented at all. Read it before
-editing anything here. What it means for this folder:
-
-- English.
-- `vision.md` gives direction; maintained documentation describes current code; occasional
-  proposals carry explicitly unimplemented design.
-- Never mix runtime facts and target state in the same section.
-- High-level and example-driven; field-level contracts go into KDoc on interfaces and DTOs, and the
-  document links to the file.
-- Logic that follows the standard gets no document at all. When a special case becomes ordinary,
-  its section goes.
+editing anything here. [`agents/doc-review.md`](agents/doc-review.md) checks a change, a pull
+request or a path against it.
 
 ## Key references
 
 - `docs/agents/` — the AI instruction hub, documentation strategy,
-  [issue work](agents/issue-work.md) and `documentation-sync.md`
+  [issue work](agents/issue-work.md) and [doc review](agents/doc-review.md)
 - [docs/concepts/](concepts/README.md) — current architecture: deployment seams, graph retrieval,
   hosted MCP and service-client provisioning
 - [docs/proposals/](proposals/README.md) — proposed designs and their owning issues

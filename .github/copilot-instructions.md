@@ -67,6 +67,8 @@ Logic that follows the standard needs no documentation at all — and when a spe
 ordinary, its documentation and comments are deleted.
 
 Full rules: [`docs/agents/documentation-strategy.md`](../docs/agents/documentation-strategy.md).
+To review documentation — a change, a pull request or a path — follow
+[`docs/agents/doc-review.md`](../docs/agents/doc-review.md).
 
 ## Naming
 

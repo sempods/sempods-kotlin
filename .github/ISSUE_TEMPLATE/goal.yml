@@ -45,7 +45,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Each implementation PR runs documentation-sync and updates affected documentation in that PR, or records why no update is needed.
+        Each implementation PR runs doc-review and updates affected documentation in that PR, or records why no update is needed.
         Before closure, verify all acceptance and record merged PRs, check results and documentation evidence.
   - type: textarea
     id: documentation
