@@ -63,7 +63,10 @@ Either way:
 ## Consent
 
 A registered service asks the owner for access with one URL. This is a sempods extension, named in
-the pod's AS metadata as `sempods_service_consent_endpoint`.
+the pod's AS metadata as `sempods_service_consent_endpoint`. It assigns grants after registration,
+which deviates from
+[`SPS-AUTH-013`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-013);
+[sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) proposes the profile.
 
 ```
 GET {pod}/_system/auth/service-consent?client_id=svc:…&state=<opaque>[&redirect_uri=<registered>]
