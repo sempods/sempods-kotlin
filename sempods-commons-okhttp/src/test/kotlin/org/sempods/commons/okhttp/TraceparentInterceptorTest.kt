@@ -25,6 +25,7 @@ class TraceparentInterceptorTest {
 
   private lateinit var server: HttpServer
   private var received: String? = null
+  private var receivedState: String? = null
 
   private val client = OkHttpClient.Builder()
     .addInterceptor(TraceparentInterceptor)
@@ -35,6 +36,7 @@ class TraceparentInterceptorTest {
     server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
     server.createContext("/") { exchange ->
       received = exchange.requestHeaders.getFirst(TraceContext.TRACEPARENT)
+      receivedState = exchange.requestHeaders.getFirst(TraceContext.TRACESTATE)
       exchange.sendResponseHeaders(204, -1)
       exchange.close()
     }
@@ -49,24 +51,39 @@ class TraceparentInterceptorTest {
 
   @Test
   fun `a bound trace travels as a fresh child span`() {
-    val bound = TraceContext.random()
+    val bound = TraceContext.random().copy(traceState = "congo=t61rcWkgMzE")
 
     TraceContextHolder.with(bound) { get() }
 
     val sent = checkNotNull(TraceContext.parse(received)) { "no traceparent reached the server" }
     assertEquals(bound.traceId, sent.traceId, "the journey is what carries")
     assertNotEquals(bound.spanId, sent.spanId, "every hop mints its own span")
+    assertEquals(bound.traceState, receivedState)
   }
 
   @Test
   fun `a traceparent the caller set explicitly is left alone`() {
     val explicit = TraceContext.random()
 
-    TraceContextHolder.with(TraceContext.random()) {
+    TraceContextHolder.with(TraceContext.random().copy(traceState = "congo=t61rcWkgMzE")) {
       get { it.header(TraceContext.TRACEPARENT, explicit.toHeader()) }
     }
 
     assertEquals(explicit.toHeader(), received)
+    assertNull(receivedState, "the ambient tracestate belongs to the ambient trace")
+  }
+
+  @Test
+  fun `a tracestate the caller set alone does not ride along with the ambient trace`() {
+    TraceContextHolder.with(TraceContext.random()) {
+      get { it.header(TraceContext.TRACESTATE, "stray=1") }
+    }
+    assertNull(receivedState)
+
+    TraceContextHolder.with(TraceContext.random().copy(traceState = "congo=t61rcWkgMzE")) {
+      get { it.header(TraceContext.TRACESTATE, "stray=1") }
+    }
+    assertEquals("congo=t61rcWkgMzE", receivedState)
   }
 
   @Test
@@ -74,6 +91,7 @@ class TraceparentInterceptorTest {
     get()
 
     assertNull(received)
+    assertNull(receivedState)
   }
 
   private fun get(customise: (Request.Builder) -> Unit = {}) {

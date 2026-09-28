@@ -2,26 +2,33 @@
 
 How a single request stays identifiable across processes, threads and log lines.
 
-The mechanism is W3C Trace Context (`traceparent`, https://www.w3.org/TR/trace-context/).
+The mechanism is W3C Trace Context (`traceparent` and `tracestate`,
+https://www.w3.org/TR/trace-context/).
 This document describes what runs today; open items live as `// TODO` at the code locations
 that would have to change.
 
 ## What is carried
 
-One header, four fields:
+Two headers:
 
 ```
-traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
              ─┬  ──────────── trace id ───────── ───── span id ──── ─┬
         version                                                   flags
+tracestate:  congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
 ```
 
 The **trace id** identifies the journey and never changes while a request travels — it is the
 value to correlate on. The **span id** identifies one hop; every caller mints a fresh one before
-it sends. The flags byte carries only the `sampled` bit, and generated traces set it: nothing
-here samples, so claiming otherwise would tell a future collector to discard them.
+it sends. Of the **flags**, the `sampled` bit (`01`) and the `random-trace-id` bit of Trace Context
+Level 2 (`02`) travel as received, and the reserved bits leave as `0`. A generated trace sets both:
+nothing here samples, so claiming otherwise would tell a future collector to discard it, and every
+bit of its trace id is random.
 
-`tracestate`, the companion header for vendor data, is not forwarded.
+**`tracestate`** is the caller's vendor data. sempods adds no entry, so every outbound call of the
+trace sends it as it arrived. It never outlives its `traceparent`: a request whose `traceparent` is
+missing or malformed starts a fresh trace without one. `TraceContext.parse` lists how white space,
+an unparseable value and a value over 512 characters are handled.
 
 ## Where the binding lives
 
@@ -56,7 +63,7 @@ A pipeline interception rather than a `createApplicationPlugin` hook, because th
 *wrap* the call and no `onCall`-style hook can do that.
 
 **JAX-RS** — `TraceContextFilter` (registered for every JAX-RS connector in `JaxRsServerModule`) parses the
-incoming header, or starts a fresh trace when it is absent — or malformed, which the spec says
+incoming headers, or starts a fresh trace when `traceparent` is absent — or malformed, which the spec says
 to treat identically. The received context is adopted as-is rather than opened as a child span:
 nothing records spans here, so a parent chain would be written and never read.
 
@@ -71,8 +78,8 @@ are pooled, so a trace left bound would leak into the next request. `PodResource
 406 case is the pin for both halves at once: the echo on a matching failure is simultaneously the
 evidence that the trace was bound before matching and that the response filter still released it.
 
-Browser clients need the header through CORS in both directions — `CorsFilter.allowedHeaders`
-for the preflight, `exposedHeaders` so the echo is readable.
+Browser clients need both headers allowed in the preflight, `CorsFilter.allowedHeaders`. The echo
+is `traceparent` alone, and `exposedHeaders` makes it readable.
 
 ## Outbound
 
@@ -103,10 +110,11 @@ Two paths, because two HTTP clients are in use:
   alone does not reach. `PodIoTest` pins that, together with cancellation reaching the socket and a
   fan-out running concurrently.
 
-Both send `TraceContext.newChild()`, so the trace id carries and the span does not.
+Both send `TraceContext.newChild()`: the trace id and the `tracestate` carry, the span does not.
 
 **An explicit `traceparent` beats the ambient one.** Both the OkHttp interceptor and the Ktor
-plugin leave a request that already carries one alone.
+plugin leave a request that already carries one alone, `tracestate` included: the ambient one
+belongs to another trace.
 
 ## Across threads
 
@@ -118,7 +126,7 @@ work to an executor owes the same two lines.
 ## Scope
 
 Propagation only. No OpenTelemetry SDK, no collector, no spans with timestamps — so there is no
-waterfall view, only a shared id across log lines. A collector added later reads the header
+waterfall view, only a shared id across log lines. A collector added later reads the headers
 without any change here, which is why the standard was chosen over a bespoke one.
 
 All three services — the pod server, the identity service and the hosted MCP service — are wired. What is still open is narrower: work that starts *outside* a request
@@ -127,10 +135,12 @@ its pod calls go out without a header.
 
 ## Tests
 
-- `TraceContextTest` — parsing and validation against the spec's edge cases.
-- `TraceContextFilterTest` — adoption, fresh start, MDC, echo, release.
+- `TraceContextTest` — parsing and validation against the spec's edge cases, `tracestate` and the
+  flags included.
+- `TraceContextFilterTest` — adoption, fresh start without `tracestate`, MDC, echo, release.
 - `KtorTraceContextTest` — the same contract for the Ktor side, plus the two things only that
   side can get wrong: the binding surviving a dispatch to another thread, and the outbound
   plugin minting a child span rather than repeating the caller's.
-- `TraceparentInterceptorTest` — the OkHttp side: a bound trace leaving as a fresh child span, a
-  `traceparent` the caller set explicitly left alone, and no header at all outside a trace.
+- `TraceparentInterceptorTest` — the OkHttp side: a bound trace leaving as a fresh child span with
+  its `tracestate`, a `traceparent` the caller set explicitly left alone, and no header at all
+  outside a trace.
