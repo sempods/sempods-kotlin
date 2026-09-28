@@ -646,6 +646,19 @@ class ClientFromJavaTest {
   }
 
   @Test
+  void reachesAPodNamedElsewhereFromJava() throws IOException {
+    // Named on its public host and reached at this server: a context of the name is read at the address.
+    SempodsPodBase named = SempodsPodBase.of("https://acme.example/alice").reachedAt(base("alice"));
+    assertEquals("https://acme.example/alice", named.toString());
+    assertEquals(named.getAddress(),
+        SempodsPodBase.of("https://acme.example/alice").reachedOverPlaintextAt(base("alice")).getAddress());
+
+    SempodsPodContexts contexts = new SempodsPod(new SempodsSession(named), client).contexts();
+    SempodsResponse<String> description = contexts.getText("https://acme.example/alice/_system/contexts/apps/example/tasks");
+    assertEquals("/alice/_system/contexts/apps/example/tasks", description.getHeaders().get("X-Saw-Path"));
+  }
+
+  @Test
   void exportsAContextAsAStreamFromJava() throws IOException {
     SempodsPodContexts contexts = pod("alice").contexts();
     String tasks = base("alice") + "/_system/contexts/tasks";

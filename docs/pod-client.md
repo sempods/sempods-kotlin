@@ -34,10 +34,15 @@ lossy for it even when semantically faithful, and spends a parser round trip on 
 queries. A consumer that wants meaning should equally not be handed JSON to walk. Under both is the
 core, which answers the bytes the pod sent and reads none of them as RDF.
 
-**A pod is addressed by its base URL, and nothing here addresses one by name.** A consumer serving
-many pods resolves its own names and builds one session per pod; where the names come from is a
-question only that consumer can answer. The busiest consumer, the hosted MCP service, keys pods by
-base URL — `PodConnection.pod` *is* the pod base URL.
+**A pod is identified by its base URL, and nothing here looks one up by a name of its own.** A
+consumer serving many pods resolves its own names and builds one session per pod; where the names
+come from is a question only that consumer can answer. The busiest consumer, the hosted MCP service,
+keys pods by base URL — `PodConnection.pod` *is* the pod base URL.
+
+**Requests go to the base URL unless the consumer names another address.** Behind a proxy that
+terminates TLS, an in-cluster caller keeps the public base URL for the pod's IRIs, its issuer and the
+pages a browser opens, and sends the requests and the credential to the internal address:
+`SempodsPodBase.reachedAt`, or `reachedOverPlaintextAt` for a plain `http` hop the deployment trusts.
 
 **Nothing here projects a resource onto a typed view either**, for the same reason one step further
 in. A closed, compile-time predicate list belongs to whoever publishes that vocabulary, not to a
@@ -86,7 +91,7 @@ opinion about, and it adds it to the consumer's own client.
 
 | | |
 |---|---|
-| `SempodsPodBase` | the base URL rules, and containment |
+| `SempodsPodBase` | the base URL rules, the address a pod is reached at, and containment |
 | `SempodsSession` | one pod and one credential; `newRequest` builds a request only a sempods client can send |
 | `SempodsOkHttp` | `install` puts the policy on an `OkHttpClient.Builder`: confinement, authentication per attempt, resend, admission, the guard |
 | `SempodsRequestAuth` | how a session authenticates, replaceable and decoratable |
@@ -127,8 +132,8 @@ Four decisions shape everything above it. Each lives in one class, whose KDoc ca
 - **A credential never leaves its pod** (`SempodsPodBase`, `SempodsSession`). The base is validated
   against [`SPS-CORE-019`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-019)
   and [`SPS-CORE-020`](https://github.com/sempods/sempods-spec/blob/main/spec/core/index.md#SPS-CORE-020);
-  every call is confined before the first attempt and again on the request about to be written; and
-  authentication may set headers only.
+  every call is confined to the address the pod is reached at, before the first attempt and again on
+  the request about to be written; and authentication may set headers only.
 - **A session's request needs the policy to go out** (`SempodsSession`). It carries the placeholder
   host `sempods-session.invalid` until the client's interceptor binds it to the pod, so a plain
   `OkHttpClient` cannot resolve it and never sends it anonymously.
@@ -211,6 +216,8 @@ rdf.slots().add("did:web:bob.example", knows, Values.iri(carol), SempodsWriteOpt
 List<BindingSet> rows = rdf.sparql().select("SELECT ?s WHERE { ?s ?p ?o }").getBody().getBindingSets();
 ```
 
+In Kotlin, `pod.rdf4j()` builds the same adapter.
+
 **Only the body changes.** Each call is the endpoint group's, so a raw call and a model call on one pod
 share authentication, the resend, admission and the transport, and an answer keeps its status and
 headers. It reads and writes resources, subjects and slots, reads the registry and a context's export,
@@ -243,6 +250,8 @@ var media = new SempodsPodMedia(pod);
 UploadedMedia stored = media.upload(tasks, "image/png", () -> Files.newInputStream(png), Files.size(png)).getBody();
 media.assign(stored.getMediaId(), notes);
 ```
+
+In Kotlin, `pod.media()` builds the same group.
 
 **It writes no triple.** Whoever wants a `schema:ImageObject` writes it themselves and points its
 `schema:contentUrl` at what the upload answered — the pod knows the address it is published at, and a

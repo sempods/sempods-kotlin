@@ -134,7 +134,7 @@ class SempodsPodSparql private constructor(
   private fun resultsRequest(query: String, selection: SempodsContextSelection) = request(query, RESULTS_JSON, selection)
 
   private fun request(query: String, accept: String, selection: SempodsContextSelection): Request {
-    val url = session.podBase.resolve(ROUTE).newBuilder()
+    val url = session.podBase.dial(ROUTE).newBuilder()
     if (selection.isRestricted && selection.contextUris.isEmpty()) {
       url.addQueryParameter(DEFAULT_GRAPH, "")
     } else if (selection.isRestricted) {

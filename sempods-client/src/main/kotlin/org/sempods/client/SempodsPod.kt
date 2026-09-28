@@ -15,8 +15,11 @@ import okhttp3.Call
  *
  * **Everything a call carries comes from [session] and [calls]**: authentication and confinement
  * from the session; resend, admission and the deadline from the client [SempodsOkHttp.install]
- * configured. No group adds a credential, an executor or a retry of its own. A handle is as cheap as
- * its session, and any number of them share one client.
+ * configured. No group adds a credential, an executor or a retry of its own.
+ *
+ * **A handle is as cheap as its session.** It holds no connection, and any number of them share one
+ * client. A host serving many tenants builds one per tenant where the call happens: each tenant's
+ * pod has a name and a credential of its own, so one handle cannot serve two.
  *
  * [calls] is a `Call.Factory`, so a factory wrapping an installed client — OpenTelemetry's
  * `createCallFactory` — serves as well as the client itself. Over a plain client a session's request
