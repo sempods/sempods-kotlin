@@ -25,10 +25,10 @@ step see `identity.md`.
 | `POST /{pod}/_system/auth/token` | Token exchange & refresh |
 | `GET /{pod}/_system/auth/jwks.json` | Pod's public signing keys |
 | `POST /{pod}/_system/auth/register` | RFC 7591 Dynamic Client Registration: a public client, or a service registering itself |
-| `GET`, `POST /{pod}/_system/auth/grant` | The grant consent: the owner gives a registered service client its contexts, which activates it |
+| `GET`, `POST /{pod}/_system/auth/service-consent` | The service consent: the owner decides which contexts a registered service reaches, which activates it — [`service-clients.md`](service-clients.md#consent) |
 | `/{pod}/_system/auth/service-clients` | An owner's list, rotation, grant removal and revocation — [`service-clients.md`](service-clients.md#managing-an-installed-service-client) |
 | `GET /{pod}/.well-known/oauth-protected-resource` | RFC 9728 Protected Resource Metadata |
-| `GET /{pod}/.well-known/oauth-authorization-server` | RFC 8414 Authorization Server Metadata. Its `issuer` is the pod base URL; the endpoints above stay under `/_system/auth` |
+| `GET /{pod}/.well-known/oauth-authorization-server` | RFC 8414 Authorization Server Metadata. Its `issuer` is the pod base URL; the endpoints above stay under `/_system/auth`. The sempods member `sempods_service_consent_endpoint` names the service consent |
 
 ## Client identity: `did:web:*`, `dyn:*` and `svc:*`
 
@@ -113,7 +113,8 @@ at registration and omitted where it is read.
 - Confidential: `client_secret_basic` and `client_credentials`, and from
   there an ordinary service client ([`service-clients.md`](service-clients.md)).
 - `/authorize` answers no identifier of this class. A service client
-  authenticates with its secret and has no browser flow.
+  authenticates with its secret; the owner decides what it reaches at the
+  [service consent](service-clients.md#consent).
 
 `/token` exchanges are unaffected by the consent override — in-session
 refreshes stay silent for both browser-facing classes.
@@ -143,6 +144,10 @@ refreshes stay silent for both browser-facing classes.
    as none (RFC 6749 §3.1).
 6. On failure, redirects with `?error=...&error_description=...` and the same
    `state`; `error_uri` only where the deployment configures one.
+
+No other page may frame a consent dialog (`Content-Security-Policy:
+frame-ancestors 'none'` and `X-Frame-Options: DENY`), so none can steer
+the person's clicks onto its buttons.
 
 Submitting the consent form requires two things: the pod session cookie
 (who) and a single-use token minted for that one screen (which screen,
@@ -611,8 +616,8 @@ A service registers itself at `POST {pod}/_system/auth/register`, without a bear
 ```
 
 The registration is **provisional**: it holds a `svc:` identifier and a secret, and no data rights.
-Only the owner's consent ([§"Granting it contexts"](#granting-it-contexts)) activates it. Without
-that consent within 24 hours, the pod removes it. A JVM program runs the whole sequence through
+Only the owner's [consent](service-clients.md#consent) activates it. Without that consent within 24
+hours, the pod removes it. A JVM program runs the whole sequence through
 `sempods-client` ([`../pod-client.md`](../pod-client.md#registering-a-service-client)).
 
 - **The server names it.** The answer carries a `svc:` identifier, `client_id_issued_at`, the
@@ -623,7 +628,7 @@ that consent within 24 hours, the pod removes it. A JVM program runs the whole s
   first holds nothing and is removed at its deadline.
 - **Provisional means no token.** Client Credentials answers `invalid_scope` while the registration
   holds no grants, as for any registration without grants. Past its deadline it is gone to every
-  read — authentication, listing, the grant consent — even before the TTL monitor removes the row,
+  read — authentication, listing, the consent — even before the TTL monitor removes the row,
   so a token request is `invalid_client` and a late consent activates nothing.
 - **Activation is one write.** The consent writes the grants and removes the deadline in the same
   single-document update, filtered on the deadline still lying ahead. An active registration
@@ -641,7 +646,7 @@ What the body may carry (RFC 7591 §2):
 |---|---|
 | `client_name` | Required: it names the service in the consent |
 | `grant_types`, `token_endpoint_auth_method` | `["client_credentials"]` and `client_secret_basic`; another value is `invalid_client_metadata` |
-| `redirect_uris` | Optional, checked like a public client's; a bad one is `invalid_redirect_uri`. Stored with the registration; the grant consent below returns to the public client that opened it, not to these |
+| `redirect_uris` | Optional, checked like a public client's; a bad one is `invalid_redirect_uri`. The consent returns only to one of these, a loopback one on any port |
 | `jwks`, `jwks_uri`, `scope`, non-empty `response_types` | `invalid_client_metadata`: a key, a scope or a browser flow this profile does not have |
 | `client_uri`, `logo_uri`, `contacts`, `tos_uri`, `policy_uri`, `software_*` | Dropped: not stored, not echoed |
 | Anything else | Ignored |
@@ -656,44 +661,6 @@ clients are bound by
 [`SPS-AUTH-011`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011)
 and [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012),
 so this profile is an experimental extension with known deviations — [sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) carries them.
-
-### Granting it contexts
-
-The owner's consent, which grants a registered service its contexts and activates it. The caller
-sends the owner's browser to
-
-```
-GET {pod}/_system/auth/grant?client_id=<caller>&redirect_uri=<its redirect>&state=<opaque>
-    &service_client=svc:…&scope=<ctx>#read <ctx>#write
-```
-
-- **The caller names itself** with `client_id` and a registered `redirect_uri`, as at `/authorize`;
-  the program's own public client qualifies. A pair that does not match gets a plain `400` and no
-  redirect. Without a session the person signs in first.
-- **The dialog names the service** by its label, beside the `svc:` identifier and the registration
-  time. The label is the service's own text; the other two are how an owner tells an expected
-  service from a crafted one. Requested rows arrive ticked, and the owner may untick any.
-- **Once, in the session that opened it.** The dialog is bound to the registration, the offered
-  rows, the person and their sign-in time. A replay, another session or an expired page is a plain
-  `403`.
-- **Checked again at redemption.** The pod must still be the person's, the registration unchanged,
-  and every ticked context still there.
-- **It activates.** Grants and activation are one write; a registration past its deadline is
-  refused and not revived. Ticking nothing is a refusal, which activates nothing, and so is a
-  grant whose contexts all went while it was written: the registration keeps its deadline.
-- **It only adds.** Taking grants away is
-  [`service-clients.md`](service-clients.md#managing-an-installed-service-client)'s.
-
-The answer is a `303` to the caller's redirect, with its `state`:
-
-| Outcome | Query |
-|---|---|
-| Granted | `result=granted&scope=<what was granted>` |
-| Refused, nothing ticked, not the owner, no such service or past its deadline, or no longer grantable | `error=access_denied` |
-| A row the dialog did not offer, or a scope that is not a context scope | `error=invalid_scope` |
-| A form naming another service | `error=invalid_request` |
-
-`access_denied` is one answer on purpose: the caller cannot tell whether the owner saw the dialog.
 
 ## Managing service clients
 

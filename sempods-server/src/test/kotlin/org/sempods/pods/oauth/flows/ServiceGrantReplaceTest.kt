@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * a check against contexts deleted meanwhile.
  *
  * The other paths run as they do in production: the context deletion through
- * [PodFacade.removeContext], the approval through [PodServiceClientGrantFlow], the removal through
+ * [PodFacade.removeContext], the approval through [PodServiceConsentFlow], the removal through
  * [PodServiceClientManagement].
  */
 internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
@@ -62,18 +62,11 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a replace prepared before an approval at the grant consent writes nothing and reports a conflict`() {
+  fun `a replace prepared before an approval at the service consent writes nothing and reports a conflict`() {
     val owned = Owned()
     val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, service.clientId, owned.readScope)).screen
 
-    assertIs<PodServiceClientGrantResult.Granted>(
-      serviceClientGrants.submit(
-        owned.pod,
-        PodServiceClientGrantForm(screen.csrfToken, service.clientId, listOf(owned.readScope), "grant"),
-        owned.session,
-      ),
-    )
+    assertIs<PodServiceConsentResult.Answered>(confirmServiceConsent(owned, service.clientId, setOf(owned.readScope)))
 
     assertConflict(owned, service, expectedScopes = setOf(owned.readScope))
   }
@@ -83,7 +76,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
     val owned = Owned()
     val notes = owned.context("notes")
     val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope, "$notes#read"), owned.webId)
+    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), owned.webId)
     val prepared = current(owned, installed.clientId)
 
     assertIs<PodServiceClientManagementResult.Done<*>>(

@@ -115,22 +115,6 @@ class PodServiceClientStore @Inject constructor(
   internal fun list(pod: PodId): List<ServiceClientRegistration> =
     dao.findByPod(pod.objectId()).map { it.toRegistration() }
 
-  /**
-   * Adds [scopes] to the registration [expected] names, and answers whether it was still there.
-   * Throws, like [register], for a scope a service client cannot hold. [changedBy] is the person
-   * approving them.
-   */
-  internal fun addScopes(
-    pod: HostedPod,
-    clientId: String,
-    expected: ServiceClientRegistrationId,
-    scopes: Set<String>,
-    changedBy: String,
-  ): Boolean {
-    requireGrantable(pod, clientId, scopes)
-    return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes, changedBy)
-  }
-
   /** [changedBy] removes [scopes]; answers the registration afterwards, or `null` where there is none. */
   internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>, changedBy: String): ServiceClientRegistration? =
     dao.removeScopes(pod.objectId(), clientId, scopes, changedBy)?.toRegistration()
@@ -141,10 +125,6 @@ class PodServiceClientStore @Inject constructor(
    */
   internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
     dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
-
-  /** See [PodServiceClientDao.reinstateDeadline]. */
-  internal fun reinstateDeadline(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, pendingUntil: Instant): Boolean =
-    dao.reinstateDeadline(pod.objectId(), clientId, expected.objectId(), pendingUntil)
 
   /**
    * Makes [scopes] the grants of the registration [expected] names, if they are still at

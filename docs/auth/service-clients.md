@@ -28,9 +28,8 @@ authorizes it, so no pod token reaches it. The caller names the
 without a bearer — [`oauth.md`](oauth.md#registering-a-service-client)
 is that flow, what the body must say and what the answer carries. There
 the server names the client `svc:…`, and there is no sandbox to derive:
-the registration is provisional until the owner grants it contexts at
-the [grant consent](oauth.md#granting-it-contexts), and removed after 24
-hours if they never do.
+the registration is provisional until the owner confirms its
+[consent](#consent), and removed after 24 hours if they never do.
 
 Either way:
 
@@ -53,13 +52,77 @@ Either way:
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
 - An operator-provisioned client holds the scope it was provisioned with.
-  A self-registered one starts with none; the owner grants it contexts at
-  the [grant consent](oauth.md#granting-it-contexts) and takes them away
+  A self-registered one starts with none; the owner decides them at the
+  [consent](#consent) and takes them away
   [below](#managing-an-installed-service-client).
 - The scope set may be empty: the registration holds a credential and no
   authority, and the token endpoint answers it `invalid_scope`. That is
   a provisional registration, one whose last grant was removed, and one
   whose last anchor was deleted.
+
+## Consent
+
+A registered service asks the owner for access with one URL. This is a sempods extension, named in
+the pod's AS metadata as `sempods_service_consent_endpoint`. It assigns grants after registration,
+which deviates from
+[`SPS-AUTH-013`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-013);
+[sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) proposes the profile.
+
+```
+GET {pod}/_system/auth/service-consent?client_id=svc:…&state=<opaque>[&redirect_uri=<registered>]
+```
+
+- **`client_id`** names a live `svc:` registration, pending or active. An unknown one, a `dyn:` one,
+  an operator-provisioned one or one past its deadline gets a plain `400` and no redirect.
+- **`redirect_uri`** is optional. It must be one the service registered; a loopback one matches on
+  any port (RFC 8252 §7.3). Another gets a plain `400` and no redirect.
+- **Nothing else is read.** The URL suggests no rows: the owner picks them.
+- **Only the owner decides.** Without a session the owner signs in first. Anyone else gets `403`.
+
+The dialog shares its rows and context creation with delegated access
+([`oauth.md`](oauth.md#authorize-flow-overview)); rows arrive ticked with what the service holds
+now. Anyone can build this URL for any service, and any registration can call itself
+`sempods-syncer`, so the dialog shows only what the pod knows: the name as the service's claim,
+that it acts as itself, its `svc:` identifier, when it registered, and what it holds now. It does
+not say the service asked, and it does not show the return address, which receives nothing.
+
+| The owner | With `redirect_uri` | Without | Grants |
+|---|---|---|---|
+| Confirms rows | `303` to `?state=…` | a page: go back to the program | Replaced by the selection; a provisional registration is activated |
+| Confirms nothing | `303` to `?state=…` | the same page | All removed; the registration stays and is activated |
+| Cancels | `303` to `?error=access_denied&state=…` | a page: nothing changed | Unchanged |
+
+The return carries no grant and no credential. Every other answer is a page and writes nothing:
+a replayed or foreign form (`403`), a form for another screen (`400`), a selection the dialog could
+not have produced (`400`), grants that changed after the page was rendered (`409`), and a
+registration removed meanwhile (`404`). Contexts created in the dialog before a `409` or `404` stay,
+private and without grants, and the page names them.
+
+### Learning the result
+
+The service learns what it may do the way it uses it: a Client Credentials token, then
+`GET {pod}/_system/contexts`.
+
+| The service sees | Means |
+|---|---|
+| A token, and every context it needs listed | Done |
+| A token, and a context it needs missing | The owner has not decided, or chose other contexts |
+| `400 invalid_scope` at the token endpoint | It holds no grant: pending, or confirmed empty |
+| `401 invalid_client` | The registration expired or was removed. Stop |
+
+So it waits for the contexts it needs, never for a token. A service holding `contacts#read` that
+asks for `calendar` gets a token before the owner decides. The wait is bounded, cancellable, and
+backs off under the token endpoint's [rate limit](oauth.md#rate-limit).
+`SempodsServiceAccessWait` does this for a JVM program
+([`../pod-client.md`](../pod-client.md#registering-a-service-client)).
+
+**Accepted limit of 0.2.** Nothing reports a particular consent. A headless service cannot tell a
+cancelled dialog from an open one, or an empty confirmation from no decision; its time limit ends
+the wait.
+
+**Phishing.** A link that arrives from someone else can name any service. The owner compares the
+identifier with the one their program shows and cancels when they differ. No other page may frame
+the dialog, as for delegated access ([`oauth.md`](oauth.md#authorize-flow-overview)).
 
 ## Sandbox via manage-root
 

@@ -80,12 +80,12 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `scopes are added to the registration named, and removed down to none`() {
+  fun `scopes are replaced on the registration named, and removed down to none`() {
     val created = create("notes-app", emptySet())
     val id = checkNotNull(created.id)
 
-    assertTrue(serviceClientDao.addScopes(probePodId, "notes-app", id, setOf("$notesRoot#read", "$eventsRoot#read"), changedBy = OWNER))
-    assertFalse(serviceClientDao.addScopes(probePodId, "notes-app", org.bson.types.ObjectId(), setOf("$notesRoot#write"), changedBy = OWNER))
+    assertTrue(serviceClientDao.replaceScopes(probePodId, "notes-app", id, 0L, setOf("$notesRoot#read", "$eventsRoot#read"), changedBy = OWNER))
+    assertFalse(serviceClientDao.replaceScopes(probePodId, "notes-app", org.bson.types.ObjectId(), 1L, setOf("$notesRoot#write"), changedBy = OWNER))
     assertEquals(
       emptySet(),
       assertNotNull(serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$notesRoot#read", "$eventsRoot#read"), OWNER)).scopes,
@@ -212,14 +212,14 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
     assertEquals(0L, version(), "a new row has never had its grants written")
     assertFalse(rawRow(probePodId, "notes-app").containsKey(PodServiceClientDboFields.grantsVersion), "absent spells 0")
 
-    serviceClientDao.addScopes(probePodId, "notes-app", id, setOf("$notesRoot#read"), changedBy = OWNER)
-    assertEquals(1L, version(), "an approval")
+    assertTrue(serviceClientDao.replaceScopes(probePodId, "notes-app", id, 0L, setOf("$notesRoot#read", "$eventsRoot#manage"), changedBy = OWNER))
+    assertEquals(1L, version(), "a replace")
     serviceClientDao.removeScopes(probePodId, "notes-app", setOf("$notesRoot#read"), changedBy = OWNER)
     assertEquals(2L, version(), "a removal")
     serviceClientDao.revokeByContextScope(probePodId, eventsRoot)
     assertEquals(3L, version(), "a context deletion")
     assertTrue(serviceClientDao.replaceScopes(probePodId, "notes-app", id, 3L, setOf("$notesRoot#write"), changedBy = OWNER))
-    assertEquals(4L, version(), "a replace")
+    assertEquals(4L, version(), "another replace")
 
     serviceClientDao.replaceSecretHash(probePodId, "notes-app", SECRET_HASH, "rotated")
     serviceClientDao.touchLastUsed(probePodId, "notes-app")
@@ -314,7 +314,6 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
     assertNull(serviceClientDao.findByClientId(probePodId, "expired-app"))
     assertTrue(serviceClientDao.findByPod(probePodId).none { it.clientId == "expired-app" })
     assertFalse(serviceClientDao.exists(probePodId, "expired-app", id))
-    assertFalse(serviceClientDao.addScopes(probePodId, "expired-app", id, setOf("$notesRoot#read"), changedBy = OWNER))
     assertFalse(serviceClientDao.replaceScopes(probePodId, "expired-app", id, 0L, setOf("$notesRoot#read"), changedBy = OWNER))
     assertFalse(serviceClientDao.replaceSecretHash(probePodId, "expired-app", SECRET_HASH, "revived"))
     assertNull(serviceClientDao.removeScopes(probePodId, "expired-app", setOf("$notesRoot#read"), OWNER))
@@ -325,36 +324,20 @@ class PodServiceClientDaoTest : SempodsIntegrationTest() {
   @Test
   fun `a grant write activates a provisional row, and a removal does not`() {
     val pending = Instant.now().plusSeconds(3_600)
-    val added = checkNotNull(create("added-app", emptySet(), pendingUntil = pending).id)
     val replaced = checkNotNull(create("replaced-app", emptySet(), pendingUntil = pending).id)
+    val emptied = checkNotNull(create("emptied-app", emptySet(), pendingUntil = pending).id)
     create("removed-app", setOf("$notesRoot#read"), pendingUntil = pending)
 
     assertNotNull(serviceClientDao.removeScopes(probePodId, "removed-app", setOf("$notesRoot#read"), OWNER))
-    assertTrue(serviceClientDao.addScopes(probePodId, "added-app", added, setOf("$notesRoot#read"), changedBy = OWNER))
-    assertTrue(serviceClientDao.replaceScopes(probePodId, "replaced-app", replaced, 0L, emptySet(), changedBy = OWNER))
+    assertTrue(serviceClientDao.replaceScopes(probePodId, "replaced-app", replaced, 0L, setOf("$notesRoot#read"), changedBy = OWNER))
+    assertTrue(serviceClientDao.replaceScopes(probePodId, "emptied-app", emptied, 0L, emptySet(), changedBy = OWNER))
 
     assertNotNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "removed-app")).pendingUntil)
-    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "added-app")).pendingUntil)
+    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "replaced-app")).pendingUntil)
     assertNull(
-      assertNotNull(serviceClientDao.findByClientId(probePodId, "replaced-app")).pendingUntil,
+      assertNotNull(serviceClientDao.findByClientId(probePodId, "emptied-app")).pendingUntil,
       "an empty selection activates too",
     )
-  }
-
-  @Test
-  fun `a deadline goes back only on a registration the activating write left empty`() {
-    val deadline = Instant.now().plusSeconds(3_600).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
-    val emptied = checkNotNull(create("emptied-app", emptySet(), pendingUntil = deadline).id)
-    val kept = checkNotNull(create("kept-app", emptySet(), pendingUntil = deadline).id)
-    serviceClientDao.addScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"), changedBy = OWNER)
-    serviceClientDao.dropScopes(probePodId, "emptied-app", emptied, setOf("$notesRoot#read"))
-    serviceClientDao.addScopes(probePodId, "kept-app", kept, setOf("$notesRoot#read"), changedBy = OWNER)
-
-    assertTrue(serviceClientDao.reinstateDeadline(probePodId, "emptied-app", emptied, deadline))
-    assertFalse(serviceClientDao.reinstateDeadline(probePodId, "kept-app", kept, deadline), "a surviving grant keeps it active")
-
-    assertEquals(deadline, assertNotNull(serviceClientDao.findByClientId(probePodId, "emptied-app")).pendingUntil)
-    assertNull(assertNotNull(serviceClientDao.findByClientId(probePodId, "kept-app")).pendingUntil)
   }
 
   @Test

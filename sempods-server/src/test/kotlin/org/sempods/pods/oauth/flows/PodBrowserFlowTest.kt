@@ -47,7 +47,7 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
   protected lateinit var podFacade: PodFacade
 
   @Inject
-  protected lateinit var serviceClientGrants: PodServiceClientGrantFlow
+  protected lateinit var serviceConsents: PodServiceConsentFlow
 
   @Inject
   protected lateinit var managementAuthorities: PodManagementAuthorityStore
@@ -110,13 +110,19 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
       consentDecisionStore.find(pod.id, clientId, listOf(webId))?.disconnects ?: 0L
   }
 
-  /** Opens the grant consent for [serviceClient], as the owner of [owned]. */
-  protected fun openGrant(owned: Owned, serviceClient: String, scope: String): PodServiceClientGrantResult =
-    serviceClientGrants.open(
+  /** Opens the service consent for [serviceClient], as the owner of [owned], with no return address. */
+  protected fun openServiceConsent(owned: Owned, serviceClient: String): PodServiceConsentResult =
+    serviceConsents.open(owned.pod, PodServiceConsentRequest(serviceClient, null, "s"), owned.session)
+
+  /** Opens the service consent for [serviceClient] and confirms [scopes] on it. */
+  protected fun confirmServiceConsent(owned: Owned, serviceClient: String, scopes: Set<String>): PodServiceConsentResult {
+    val screen = (openServiceConsent(owned, serviceClient) as PodServiceConsentResult.Screen).screen
+    return serviceConsents.submit(
       owned.pod,
-      PodServiceClientGrantRequest(clientId, redirectUri, "s", serviceClient, scope),
+      PodServiceConsentForm(screen.csrfToken, null, scopes.toList(), null, null, null),
       owned.session,
     )
+  }
 
   /** A `service-clients:manage` bearer for [webId], with the authority the dialog would record. */
   protected fun manager(

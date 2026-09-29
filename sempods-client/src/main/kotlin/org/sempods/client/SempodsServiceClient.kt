@@ -22,7 +22,7 @@ class SempodsServiceClient private constructor(
    */
   val origin: String,
   /**
-   * When the pod removes it unless the owner grants it contexts first; null once it is active, and
+   * When the pod removes it unless the owner confirms its consent first; null once it is active, and
    * for one the host operator set up.
    */
   val activationExpiresAt: Instant? = null,

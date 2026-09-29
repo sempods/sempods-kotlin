@@ -123,27 +123,22 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `the grant consent URL is the pod's own and names the caller, the service and the rows`() {
-    val url = serviceClients().grantConsentUrl("dyn:abc", "http://127.0.0.1:4711/cb", "g1", "svc:1", listOf("urn:a#read", "urn:b#write"))
+  fun `the consent URL is the pod's own and names the service, its state and its return address`() {
+    val url = serviceClients().consentUrl("svc:1", "c1", "http://127.0.0.1:4711/cb")
 
-    assertEquals("$origin/alice/_system/auth/grant", url.newBuilder().query(null).build().toString())
+    assertEquals("$origin/alice/_system/auth/service-consent", url.newBuilder().query(null).build().toString())
     assertEquals(
-      mapOf(
-        "client_id" to "dyn:abc",
-        "redirect_uri" to "http://127.0.0.1:4711/cb",
-        "state" to "g1",
-        "service_client" to "svc:1",
-        "scope" to "urn:a#read urn:b#write",
-      ),
+      mapOf("client_id" to "svc:1", "state" to "c1", "redirect_uri" to "http://127.0.0.1:4711/cb"),
       url.queryParameterNames.associateWith { url.queryParameter(it) },
     )
     assertTrue(server.retrieveRecordedRequests(request()).isEmpty(), "building the URL sent a request")
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = ["http://127.0.0.1/cb?result=local", "http://127.0.0.1/cb?error=x", "not a url"])
-  fun `a grant redirect that is not a URL, or already carries a member of the answer, is refused`(redirect: String) {
-    assertThrows<IllegalArgumentException> { serviceClients().grantConsentUrl("dyn:abc", redirect, "g1", "svc:1", listOf("urn:a#read")) }
+  @Test
+  fun `a consent URL without a return address carries none, and suggests no rows`() {
+    val url = serviceClients().consentUrl("svc:1", "c1")
+
+    assertEquals(setOf("client_id", "state"), url.queryParameterNames)
   }
 
   @Test

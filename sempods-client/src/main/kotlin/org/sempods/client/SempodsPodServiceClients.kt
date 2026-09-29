@@ -5,7 +5,6 @@ import com.nimbusds.oauth2.sdk.auth.ClientAuthenticationMethod
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
@@ -14,25 +13,25 @@ import java.time.DateTimeException
 import java.time.Instant
 
 /**
- * A pod's service clients: a service registering itself, the owner granting it contexts, and the
+ * A pod's service clients: a service registering itself, sending the owner to its consent, and the
  * owner managing the ones that exist. This is an experimental 0.2 extension of the pod's OAuth
- * profile; `docs/auth/oauth.md` §"Registering a service client" has the pod's side.
+ * profile; `docs/auth/service-clients.md` has the pod's side.
  *
  * | What | Lives | |
  * |---|---|---|
- * | the registration | until it is revoked, once the owner grants it contexts | until [SempodsServiceClientRegistration.activationExpiresAt] before that: a registration the owner never activates is removed |
+ * | the registration | until it is revoked, once the owner confirms its consent | until [SempodsServiceClientRegistration.activationExpiresAt] before that: a registration the owner never confirms is removed |
  * | its secret | until it is rotated or the registration is removed | answered once, by [register] or [rotateSecret] |
  *
  * ```java
  * var registering = new SempodsPodServiceClients(new SempodsSession(alice), client);
  * SempodsServiceClientRegistration service = registering.register("Notes Sync").getBody();
- * HttpUrl grant = registering.grantConsentUrl(app, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
+ * HttpUrl consent = registering.consentUrl(service.getClientId(), state);
  * ```
  *
  * `docs/pod-client.md` §"Registering a service client" has the whole sequence.
  *
  * **Built on a session of its own.** [register] needs no credential, and a session without one is
- * enough; the rest need a `service-clients:manage` bearer. [grantConsentUrl] sends nothing.
+ * enough; the rest need a `service-clients:manage` bearer. [consentUrl] sends nothing.
  *
  * **What is safe to send again:**
  *
@@ -63,16 +62,15 @@ class SempodsPodServiceClients(
 
   /**
    * Registers a service at `POST {pod}/_system/auth/register`, named [clientName], with no grants.
-   * The registration is provisional until the owner grants it contexts, and removed at
-   * [SempodsServiceClientRegistration.activationExpiresAt] if they never do.
+   * The registration is provisional until the owner confirms its consent ([consentUrl]), and
+   * removed at [SempodsServiceClientRegistration.activationExpiresAt] if they never do.
    */
   @Throws(IOException::class)
   fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> = register(clientName, emptyList())
 
   /**
    * The same, with [redirectUris] registered for the service: https, or http on a loopback host.
-   * They are metadata of the registration. The grant consent returns to the public client that
-   * opened it ([grantConsentUrl]), not to these.
+   * The consent returns only to one of these ([consentUrl]); a loopback address matches on any port.
    */
   @Throws(IOException::class)
   fun register(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsServiceClientRegistration> =
@@ -84,30 +82,23 @@ class SempodsPodServiceClients(
     exchange.run(registration(clientName, emptyList()), ANSWERS, BodyReading.TEXT)
 
   /**
-   * Where to send the owner's browser to grant [serviceClientId] the context [scopes]:
-   * `{pod}/_system/auth/grant`. The pod shows the owner the service's name, identifier and
-   * registration time, and sends the browser back to [redirectUri] with [state];
-   * [SempodsGrantOutcome.readQuery] reads what it brings.
+   * Where to send the owner's browser to decide what [serviceClientId] reaches:
+   * `{pod}/_system/auth/service-consent`. The pod shows the owner the service's name as its claim,
+   * its identifier, its registration time and the grants it holds now. The request suggests no
+   * contexts; the owner picks them.
    *
-   * [callerClientId] and [redirectUri] name the caller as `/authorize` knows it; the program's own
-   * public client qualifies. A pair the pod does not know gets no redirect at all.
-   *
-   * @throws IllegalArgumentException when [redirectUri] is not a URL, or its query already carries a
-   *   member of the answer (`result`, `scope`, `state`, `error`, `error_description`, `error_uri`),
-   *   which would make the answer ambiguous.
+   * With [redirectUri] the browser returns there with [state] once the owner decides, and with
+   * `error=access_denied` beside it on a cancel. It must be one the service registered. Without it
+   * the pod tells the owner to go back to the program. Either way nothing about the grants comes
+   * back: [SempodsServiceAccessWait] learns them the way the service uses them.
    */
-  fun grantConsentUrl(callerClientId: String, redirectUri: String, state: String, serviceClientId: String, scopes: Collection<String>): HttpUrl {
-    val redirect = requireNotNull(redirectUri.toHttpUrlOrNull()) { "'$redirectUri' is not a redirect URL." }
-    val carried = redirect.queryParameterNames.firstOrNull { it in GRANT_ANSWER_MEMBERS }
-    require(carried == null) { "'$redirectUri' carries '$carried', which the grant consent's answer adds itself." }
-    return session.podBase.resolve(GRANT).newBuilder()
-      .addQueryParameter("client_id", callerClientId)
-      .addQueryParameter("redirect_uri", redirectUri)
+  @JvmOverloads
+  fun consentUrl(serviceClientId: String, state: String, redirectUri: String? = null): HttpUrl =
+    session.podBase.resolve(CONSENT).newBuilder()
+      .addQueryParameter("client_id", serviceClientId)
       .addQueryParameter("state", state)
-      .addQueryParameter("service_client", serviceClientId)
-      .addQueryParameter("scope", scopeText(scopes))
+      .apply { redirectUri?.let { addQueryParameter("redirect_uri", it) } }
       .build()
-  }
 
   /** Every service client on the pod, with its grants and when it was last used. */
   @Throws(IOException::class)
@@ -186,9 +177,7 @@ class SempodsPodServiceClients(
 
   private companion object {
 
-    const val GRANT = "_system/auth/grant"
-
-    val GRANT_ANSWER_MEMBERS = setOf("result", "scope", "state", "error", "error_description", "error_uri")
+    const val CONSENT = "_system/auth/service-consent"
 
     const val SERVICE_CLIENTS = "_system/auth/service-clients"
 

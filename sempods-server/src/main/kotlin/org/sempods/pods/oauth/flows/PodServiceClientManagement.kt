@@ -16,7 +16,7 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
  * client".
  *
  * Every operation needs [SERVICE_CLIENTS_MANAGE_SCOPE]. Nothing here widens a grant — that is
- * [PodServiceClientGrantFlow]'s. Only registrations this pod named (`svc:`) are changed; an
+ * [PodServiceConsentFlow]'s. Only registrations this pod named (`svc:`) are changed; an
  * operator-provisioned one is listed and refused.
  */
 class PodServiceClientManagement @Inject internal constructor(

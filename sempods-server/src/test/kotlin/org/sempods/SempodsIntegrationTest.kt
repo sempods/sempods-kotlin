@@ -255,15 +255,8 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected fun unescapeHtml(value: String): String =
     value.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
 
-  /**
-   * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
-   *
-   * One copy, because an owner-installed `client_id` carries a `:` of its own: a test that joins
-   * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug
-   * in the store.
-   */
-  protected fun basicHeader(clientId: String, secret: String): String =
-    "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
+  /** [clientSecretBasicHeader]. */
+  protected fun basicHeader(clientId: String, secret: String): String = clientSecretBasicHeader(clientId, secret)
 
   /**
    * Deletes a pod the way anything deletes a pod: `DELETE /_system/admin/pods/{pod}` with the host
@@ -340,4 +333,16 @@ internal val sempodsInjector: Injector by lazy {
     Modules.override(SempodsModule())
       .with(SempodsTestModule())
   )
+}
+
+/**
+ * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
+ *
+ * One copy, because a registered service's `client_id` carries a `:` of its own: a test that joins
+ * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug in
+ * the store.
+ */
+internal fun clientSecretBasicHeader(clientId: String, secret: String): String {
+  fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
+  return "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
 }

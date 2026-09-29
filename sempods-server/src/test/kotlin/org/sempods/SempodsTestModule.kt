@@ -8,6 +8,7 @@ import org.sempods.commons.tests.TestUtil
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow
+import org.sempods.api.pod.system.auth.ServiceAccessFlow
 import org.sempods.auth.core.HttpTransport
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
@@ -29,6 +30,7 @@ data class SempodsTestModule(
 
     bind<SempodsTestFactory>().asSingleton()
     bind<DelegatedAccessFlow>().asSingleton()
+    bind<ServiceAccessFlow>().asSingleton()
 
     // How the suite seeds pod state: an HTTP client against this JVM's own server, see
     // `docs/testing.md` §"Seeding a pod". Deliberately without an in-process alternative to

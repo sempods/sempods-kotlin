@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Give a service access</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f7; color: #1d1d1f; line-height: 1.5; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem;
+    }
+    .consent-card {
+      background: #fff; border-radius: 12px; max-width: 540px; width: 100%; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.06);
+    }
+    .consent-header { padding: 1.5rem 1.5rem 1rem; border-bottom: 1px solid #e5e5e7; }
+    .consent-header h1 { font-size: 1.25rem; font-weight: 600; }
+    .note { margin-top: .5rem; font-size: .875rem; color: #6e6e73; }
+    .facts { margin-top: .75rem; font-size: .875rem; color: #6e6e73; }
+    .facts dt { font-weight: 600; color: #1d1d1f; }
+    .facts dd { margin-bottom: .25rem; word-break: break-all; }
+    .btn-link { padding: 0; border: none; background: none; color: #0071e3; font: inherit; cursor: pointer; }
+    .btn-link:hover { text-decoration: underline; }
+    .consent-footer {
+      padding: 1rem 1.5rem 1.5rem; border-top: 1px solid #e5e5e7;
+      display: flex; gap: .75rem; justify-content: flex-end;
+    }
+    .btn {
+      padding: .5rem 1.25rem; border-radius: 8px; font-size: .875rem; font-weight: 500;
+      cursor: pointer; border: 1px solid transparent;
+    }
+    .btn-primary { background: #0071e3; color: #fff; }
+    .btn-secondary { background: #e5e5e7; color: #1d1d1f; }
+  </style>
+  <style th:replace="~{grant-selection :: styles}"></style>
+</head>
+<body>
+<!-- The service consent. Anyone can build this link for any registered service, and any
+     registration may call itself anything, so the page claims nothing it cannot know: the name is
+     the service's own claim, the identifier and the time are the pod's facts, and the page never
+     says the service asked. It does not show where the browser returns, since that address
+     receives nothing. -->
+<div class="consent-card">
+  <form id="serviceConsentForm" method="post" th:action="${consentAction}">
+    <input type="hidden" name="csrf" th:value="${csrfToken}"/>
+
+    <div class="consent-header">
+      <h1>Give a service access to your pod?</h1>
+      <p class="note" th:if="${!clientName.isEmpty()}">
+        It calls itself <strong id="clientName" th:text="${clientName}">sempods-syncer</strong>.
+        Any service can choose that name.
+      </p>
+      <p class="note">
+        It acts as itself, without you, with the access you give it here, until you change that or
+        remove the service.
+      </p>
+      <dl class="facts">
+        <dt>Identifier on this pod</dt>
+        <dd id="clientId" th:text="${clientId}">svc:…</dd>
+        <dt>Registered</dt>
+        <dd id="registeredAt" th:text="${registeredAt}">2026-01-01T00:00:00Z</dd>
+        <th:block th:if="${!activationExpiresAt.isEmpty()}">
+          <dt>Removed unless you confirm by</dt>
+          <dd id="activationExpiresAt" th:text="${activationExpiresAt}">2026-01-02T00:00:00Z</dd>
+        </th:block>
+        <dt>It holds now</dt>
+        <dd id="held">
+          <th:block th:if="${held.isEmpty()}">nothing</th:block>
+          <th:block th:each="grant, it : ${held}"><span th:text="${grant}">notes (read)</span><th:block th:if="${!it.last}">, </th:block></th:block>
+        </dd>
+      </dl>
+      <p class="note">
+        If you did not just set up this service, or the identifier is not the one it showed you,
+        cancel.
+      </p>
+      <p class="note">
+        Signed in as <strong th:text="${webId}">https://id.sempods.org/e/abc</strong> ·
+        <button type="submit" class="btn-link" id="signOutBtn" name="action" value="signout" formnovalidate
+                onclick="return confirm('Sign out of this pod everywhere? Your sign-in ends in every browser, and every app connected to this pod loses its connection right away. The access you granted stays as it is.')">
+          Sign out everywhere
+        </button>
+      </p>
+    </div>
+
+    <div th:replace="~{grant-selection :: contexts}"></div>
+
+    <th:block th:replace="~{grant-selection :: creation}"></th:block>
+
+    <div class="consent-footer">
+      <!-- Cancel changes nothing. Confirming with nothing ticked removes every grant and keeps
+           the service. -->
+      <button type="submit" class="btn btn-secondary" id="cancelBtn" name="action" value="cancel"
+              formnovalidate>Cancel</button>
+      <button type="submit" class="btn btn-primary" id="confirmBtn">Save access</button>
+    </div>
+  </form>
+</div>
+
+<th:block th:if="${contextCreationAvailable}">
+  <script th:replace="~{grant-selection :: creation-script}"></script>
+</th:block>
+</body>
+</html>

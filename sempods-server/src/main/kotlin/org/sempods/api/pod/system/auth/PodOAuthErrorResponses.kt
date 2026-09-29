@@ -54,7 +54,7 @@ internal object PodOAuthErrorResponses {
     error: OAuthErrorCode,
     description: String,
     config: SempodsConfig,
-  ): Response = render(pending.redirectUri, error, description, pending.clientState, config)
+  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, config)
 
   private fun render(
     redirectUri: String?,

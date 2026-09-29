@@ -171,43 +171,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   internal fun exists(podId: ObjectId, clientId: String, expectedId: ObjectId): Boolean =
     serviceClients.find(liveRegistrationFilter(podId, clientId, expectedId)).limit(1).first() != null
 
-  /**
-   * Adds [scopes] to the registration [expectedId] names and activates it, and answers whether it
-   * was still there. The id keeps an approval off a registration re-created under the same
-   * `clientId`; the deadline keeps it off one that expired.
-   */
-  internal fun addScopes(
-    podId: ObjectId,
-    clientId: String,
-    expectedId: ObjectId,
-    scopes: Set<String>,
-    changedBy: String,
-    at: Instant = Instant.now(),
-  ): Boolean =
-    serviceClients.updateOne(
-      liveRegistrationFilter(podId, clientId, expectedId, at),
-      activating(grantsUpdate(Updates.addEachToSet(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at)),
-    ).matchedCount > 0L
-
-  /**
-   * Puts [pendingUntil] back on the registration [expectedId] names, where an activating write left
-   * it holding nothing: the grant it activated for did not survive the check after the write. Only
-   * while the row is still empty and still carries no deadline, so a grant that landed in between
-   * keeps its activation. `false` where that no longer holds.
-   */
-  internal fun reinstateDeadline(podId: ObjectId, clientId: String, expectedId: ObjectId, pendingUntil: Instant): Boolean =
-    serviceClients.updateOne(
-      Filters.and(
-        registrationFilter(podId, clientId, expectedId),
-        Filters.exists(PodServiceClientDboFields.pendingUntil, false),
-        Filters.or(
-          Filters.exists(PodServiceClientDboFields.scopes, false),
-          Filters.size(PodServiceClientDboFields.scopes, 0),
-        ),
-      ),
-      Updates.set(PodServiceClientDboFields.pendingUntil, Date.from(pendingUntil)),
-    ).matchedCount > 0L
-
   /** [changedBy] removes [scopes]; answers the row afterwards, or `null` where there is none. */
   internal fun removeScopes(
     podId: ObjectId,

@@ -85,8 +85,7 @@ internal class PodClientDirectory(
     if (!RedirectUri.isValid(redirectUri)) return false
     if (!clientId.startsWith(DYNAMIC_PREFIX)) return didWeb.permits(clientId, redirectUri)
     val registered = registrations(clientId) ?: return false
-    val requested = RedirectUri.canonicalize(redirectUri)
-    return registered.any { RedirectUri.canonicalize(it) == requested }
+    return RedirectUri.matchesRegistered(redirectUri, registered)
   }
 
   companion object {
