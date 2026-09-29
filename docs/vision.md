@@ -89,12 +89,7 @@ are possible as long as they follow the standard.
       [`ContextPathRules`](../sempods-server/src/main/kotlin/org/sempods/pods/contexts/ContextPathRules.kt)
       owns the rule.
 
-## Optional modules and future work
-
-This implementation also provides the optional context-management, OIDC, media and MCP modules;
-the [README](../README.md#what-a-pod-is-in-five-points) says what is core and what is optional.
-
-Public contexts, anonymous Linked Open Data and WebID-based permissions are already available.
+## Future directions
 
 Plan public goals and iterations through [GitHub issues](https://github.com/sempods/sempods-kotlin/issues)
 under the [issue-planning convention](agents/documentation-strategy.md#issue-planning).
