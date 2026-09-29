@@ -161,8 +161,8 @@ internal fun buildAuthorizationServerMetadata(
     "registration_endpoint" to "$endpoints/register",
     "jwks_uri" to "$endpoints/jwks.json",
     "response_types_supported" to listOf("code"),
-    // `client_credentials` is the 2-leg flow consumed by statically-registered
-    // pod service clients (see [PodServiceClientStore]). DCR-based clients
+    // `client_credentials` is service access, for registered pod service
+    // clients (see [PodServiceClientStore]). `dyn:` clients
     // (MCP, app integrations) cannot use it — but RFC 8414 §2 wants this list
     // to reflect what the token endpoint actually accepts, so we advertise it
     // honestly. `client_secret_basic` is its required authentication method.

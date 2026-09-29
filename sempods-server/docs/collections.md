@@ -58,7 +58,7 @@ disconnect. `consent` records the version of the consent text the person approve
 (`PrivilegedAuthorityRows.consentTextOf`); a row without it reads as the first,
 `PrivilegedAuthorityRows.FIRST_CONSENT`.
 
-`oauth.installationAuthorities` is retired with the installer scope. Its rows expired within an
+`oauth.installationAuthorities` is retired with the installer authority. Its rows expired within an
 hour; once every node runs a release without it, an operator may `drop()` the empty collection. A
 node still on the old code recreates its indexes when it starts.
 

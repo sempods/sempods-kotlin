@@ -52,7 +52,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
 
   @Test
   fun `naming the registration that is there changes nothing, and hands back no secret`() {
-    // The point of the assertion: a caller re-running its installation must not be given a second
+    // The point of the assertion: a caller re-running its provisioning must not be given a second
     // secret it then races its own health check against.
     val pod = pod()
     val first = provisioned(provision(pod))

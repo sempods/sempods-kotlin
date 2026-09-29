@@ -52,7 +52,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a registration holding no grants authenticates and mints nothing`() {
-    // What an installation looks like between the two consents: the credential exists, and the
+    // What a registration looks like before the owner's consent: the credential exists, and the
     // rights it will be given have not been granted yet. The refusal is `invalid_scope` rather
     // than an authentication failure — the secret is the right one.
     val pod = sempodsTestFactory.newPod()

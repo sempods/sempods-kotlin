@@ -1,8 +1,9 @@
-# Service Clients (2-leg OAuth)
+# Service access with Client Credentials
 
-How backend services obtain pod-scoped access tokens without a user in
-the loop. The typical client is an application backend that manages its
-own app data on its users' pods through this flow.
+How a client acting as itself — *service access* — obtains pod-scoped
+access tokens, with no person behind them. The typical client is an
+application backend that manages its own app data on its users' pods
+through this flow.
 
 The flow is the standard **OAuth 2.0 Client Credentials grant**
 (RFC 6749 §4.4) with `client_secret_basic` authentication at the token
@@ -10,8 +11,8 @@ endpoint. Nothing sempods-specific happens at the protocol level; the
 sempods profile below defines which clients may use it and what the
 resulting tokens look like.
 
-For the user-facing flows (Authorization Code + PKCE, refresh,
-public-read) see `oauth.md`. For scopes, grants, and enforcement see
+For delegated access (Authorization Code + PKCE, refresh) and
+public-read see `oauth.md`. For scopes, grants, and enforcement see
 sempods-spec `spec/core/grants.md`.
 
 ## Registration

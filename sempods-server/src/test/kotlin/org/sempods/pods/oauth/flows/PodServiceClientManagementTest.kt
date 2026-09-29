@@ -87,20 +87,20 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   fun `a replace narrows, and an empty one keeps the registration`() {
     val owned = Owned()
     val notes = owned.context("notes")
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    serviceClients.replaceScopes(owned.pod, service.clientId, service.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
 
     val narrowed = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
-      management.replaceGrants(owned.pod, manager(owned), installed.clientId, 1L, setOf("$notes#read")),
+      management.replaceGrants(owned.pod, manager(owned), service.clientId, 1L, setOf("$notes#read")),
     ).value
     assertEquals(setOf("$notes#read"), narrowed.scopes)
     assertEquals(2L, narrowed.grantsVersion)
 
     val emptied = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
-      management.replaceGrants(owned.pod, manager(owned), installed.clientId, 2L, emptySet()),
+      management.replaceGrants(owned.pod, manager(owned), service.clientId, 2L, emptySet()),
     ).value
     assertEquals(emptySet(), emptied.scopes)
-    assertEquals(installed.id, emptied.id)
+    assertEquals(service.id, emptied.id)
   }
 
   @Test
@@ -122,14 +122,14 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `a replace at a stale version writes nothing`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val manager = manager(owned)
 
     assertEquals(
       PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH),
-      management.replaceGrants(owned.pod, manager, installed.clientId, 7L, setOf(owned.readScope)),
+      management.replaceGrants(owned.pod, manager, service.clientId, 7L, setOf(owned.readScope)),
     )
-    val stored = assertNotNull(serviceClients.find(owned.pod.id, installed.clientId))
+    val stored = assertNotNull(serviceClients.find(owned.pod.id, service.clientId))
     assertEquals(emptySet(), stored.scopes)
     assertNotNull(stored.pendingUntil, "nothing activated it")
   }
@@ -137,45 +137,45 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `a replace is refused whole for a scope a service cannot hold or no context of the pod`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val namespace = owned.contextUri.substringBeforeLast('/')
 
     for (scope in listOf("public-read", "openid", "$namespace#manage", "${owned.pod.baseUrl}#manage", "$namespace/absent#read", " ${owned.readScope}")) {
-      val result = management.replaceGrants(owned.pod, manager(owned), installed.clientId, 0L, setOf(owned.readScope, scope))
+      val result = management.replaceGrants(owned.pod, manager(owned), service.clientId, 0L, setOf(owned.readScope, scope))
       assertEquals(PodServiceClientManagementRefusal.UNGRANTABLE, assertIs<PodServiceClientManagementResult.Refused>(result).reason, scope)
     }
-    assertEquals(emptySet(), serviceClients.find(owned.pod.id, installed.clientId)?.scopes)
+    assertEquals(emptySet(), serviceClients.find(owned.pod.id, service.clientId)?.scopes)
   }
 
   @Test
   fun `an authority approved under the first consent reads and removes, and neither assigns`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val earlier = manager(owned, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
 
     assertIs<PodServiceClientManagementResult.Done<*>>(management.list(owned.pod, earlier))
-    assertIs<PodServiceClientManagementResult.Done<*>>(management.get(owned.pod, earlier, installed.clientId))
+    assertIs<PodServiceClientManagementResult.Done<*>>(management.get(owned.pod, earlier, service.clientId))
     assertEquals(
       PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED),
-      management.replaceGrants(owned.pod, earlier, installed.clientId, 0L, setOf(owned.readScope)),
+      management.replaceGrants(owned.pod, earlier, service.clientId, 0L, setOf(owned.readScope)),
     )
-    assertIs<PodServiceClientManagementResult.Done<*>>(management.revoke(owned.pod, earlier, installed.clientId))
+    assertIs<PodServiceClientManagementResult.Done<*>>(management.revoke(owned.pod, earlier, service.clientId))
   }
 
   @Test
   fun `a service consent opened and confirmed grants what was ticked, once`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
 
-    val screen = assertIs<PodServiceConsentResult.Screen>(openServiceConsent(owned, installed.clientId)).screen
+    val screen = assertIs<PodServiceConsentResult.Screen>(openServiceConsent(owned, service.clientId)).screen
     assertEquals("notes", screen.clientName)
-    assertEquals(installed.createdAt, screen.registeredAt)
-    assertEquals(installed.pendingUntil, screen.activationExpiresAt)
+    assertEquals(service.createdAt, screen.registeredAt)
+    assertEquals(service.pendingUntil, screen.activationExpiresAt)
 
     val form = PodServiceConsentForm(screen.csrfToken, null, listOf(owned.readScope), null, null, null)
     val answered = assertIs<PodServiceConsentResult.Answered>(consents.submit(owned.pod, form, owned.session))
     assertEquals(PodServiceConsentOutcome.CONFIRMED, answered.outcome)
-    val stored = assertNotNull(serviceClients.find(owned.pod.id, installed.clientId))
+    val stored = assertNotNull(serviceClients.find(owned.pod.id, service.clientId))
     assertEquals(setOf(owned.readScope), stored.scopes)
     assertNull(stored.pendingUntil, "confirming activates")
 
@@ -188,8 +188,8 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   @Test
   fun `an approval stops counting once the pod changes hands`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    val screen = assertIs<PodServiceConsentResult.Screen>(openServiceConsent(owned, installed.clientId)).screen
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val screen = assertIs<PodServiceConsentResult.Screen>(openServiceConsent(owned, service.clientId)).screen
 
     // The session's person, no longer the owner: the approval is measured against now.
     val transferred = owned.pod.copy(ref = owned.pod.ref.copy(owner = "https://id.test/new-owner"))
@@ -200,15 +200,15 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     )
 
     assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER), answered)
-    assertEquals(emptySet(), serviceClients.find(owned.pod.id, installed.clientId)?.scopes)
+    assertEquals(emptySet(), serviceClients.find(owned.pod.id, service.clientId)?.scopes)
   }
 
   @Test
   fun `a cancel by someone no longer the owner is not delivered to the service`() {
     val owned = Owned()
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", listOf("http://127.0.0.1/cb")).registration
+    val service = serviceClients.registerProvisional(owned.pod, "notes", listOf("http://127.0.0.1/cb")).registration
     val screen = assertIs<PodServiceConsentResult.Screen>(
-      consents.open(owned.pod, PodServiceConsentRequest(installed.clientId, "http://127.0.0.1/cb", "s"), owned.session),
+      consents.open(owned.pod, PodServiceConsentRequest(service.clientId, "http://127.0.0.1/cb", "s"), owned.session),
     ).screen
 
     val transferred = owned.pod.copy(ref = owned.pod.ref.copy(owner = "https://id.test/new-owner"))
@@ -233,17 +233,17 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   fun `an authority approved under the first consent may narrow a registered service and nothing more`() {
     val owned = Owned()
     val notes = owned.context("notes")
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    serviceClients.replaceScopes(owned.pod, service.clientId, service.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
     val earlier = manager(owned, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
 
     assertEquals(
       PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED),
-      management.replaceGrants(owned.pod, earlier, installed.clientId, 1L, setOf(owned.readScope, "$notes#write")),
+      management.replaceGrants(owned.pod, earlier, service.clientId, 1L, setOf(owned.readScope, "$notes#write")),
       "widening is the new text's",
     )
     val narrowed = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
-      management.replaceGrants(owned.pod, earlier, installed.clientId, 1L, setOf("$notes#read")),
+      management.replaceGrants(owned.pod, earlier, service.clientId, 1L, setOf("$notes#read")),
     ).value
     assertEquals(setOf("$notes#read"), narrowed.scopes)
     assertEquals(2L, narrowed.grantsVersion)

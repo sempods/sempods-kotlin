@@ -75,12 +75,12 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   fun `a replace prepared before an owner's replace over the API writes nothing and reports a conflict`() {
     val owned = Owned()
     val notes = owned.context("notes")
-    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), owned.webId)
-    val prepared = current(owned, installed.clientId)
+    val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    serviceClients.replaceScopes(owned.pod, service.clientId, service.id, 0L, setOf(owned.readScope, "$notes#read"), owned.webId)
+    val prepared = current(owned, service.clientId)
 
     assertIs<PodServiceClientManagementResult.Done<*>>(
-      management.replaceGrants(owned.pod, manager(owned), installed.clientId, prepared.grantsVersion, setOf("$notes#read")),
+      management.replaceGrants(owned.pod, manager(owned), service.clientId, prepared.grantsVersion, setOf("$notes#read")),
     )
 
     assertConflict(owned, prepared, expectedScopes = setOf("$notes#read"))

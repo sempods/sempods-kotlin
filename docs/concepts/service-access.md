@@ -1,4 +1,4 @@
-# Service-client provisioning and connection consent
+# Service access and connection lifetime
 
 A service client reaches a pod by host-operator provisioning, by registering itself, or through
 the owner's own tool. A self-registered service holds nothing until the owner confirms its consent,
@@ -12,8 +12,8 @@ Whichever way it arrived, the owner decides its grants afterwards:
 The host operator registers a service client out of band:
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a private app root
 `<pod>/_system/contexts/apps/{clientId}`, registers `<root>#manage`, and returns a secret exactly
-once. It only creates: a later call leaves the grants and the root to the owner. That route is host-admin authority, not pod authority; it exists for the first caller that
-needed it, not because OAuth requires service clients to be installed by the host.
+once. It only creates: a later call leaves the grants and the root to the owner. The route needs
+host-admin authority.
 
 The service client itself is standard OAuth Client Credentials at the token endpoint. The
 registration side is sempods policy: context roots, grants, revocation and audit are not defined by

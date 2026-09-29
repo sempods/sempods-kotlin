@@ -21,7 +21,7 @@ request or a path against it.
 - `docs/agents/` — the AI instruction hub, documentation strategy,
   [issue work](agents/issue-work.md) and [doc review](agents/doc-review.md)
 - [docs/concepts/](concepts/README.md) — current architecture: deployment seams, graph retrieval,
-  hosted MCP and service-client provisioning
+  hosted MCP and service access
 - [docs/proposals/](proposals/README.md) — proposed designs and their owning issues
 - `docs/naming.md` — how the name is written in prose and in code, the package
   namespace, and the names that are frozen because something outside this repo depends on them (IST)
