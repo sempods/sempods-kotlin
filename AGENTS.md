@@ -105,7 +105,8 @@ Key design choices:
 ## Documentation map
 
 Agent instructions: `docs/agents/` — the hub, documentation strategy,
-[issue-work procedure](docs/agents/issue-work.md) and [doc-review procedure](docs/agents/doc-review.md).
+[issue-work procedure](docs/agents/issue-work.md), [doc-review procedure](docs/agents/doc-review.md)
+and [release procedure](docs/agents/release.md).
 
 Vision and architecture:
 
