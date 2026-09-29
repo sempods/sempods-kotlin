@@ -135,16 +135,11 @@ class SempodsControlPlaneClient(
    * `POST {server}/_system/admin/pods/{pod}/service-clients/{clientId}` — registers [clientId] as a
    * service client on [podName] and returns the sandbox root it was scoped to.
    *
-   * **It creates; the pod owner decides afterwards.** The call that creates the registration makes
-   * the private app root and grants the sandbox. A later call changes neither the root nor the
-   * grants: the owner may have narrowed or removed them, and [ProvisionServiceClientResult.scopes]
-   * says what the client holds now.
-   *
-   * [expectedRegistrationId] and [expectedSecretId] are the caller's assertion about what it already
-   * holds, the [ProvisionServiceClientResult.registrationId] and [ProvisionServiceClientResult.secretId]
-   * an earlier answer gave. Both matching yields `alreadyProvisioned` **without** a secret. Anything
-   * else returns a secret exactly once: for a new registration, or a new one for the registration
-   * there, whose `registrationId` stays the same. Passing `null` for both means "I hold nothing".
+   * It creates; a later call leaves the grants and the app root to the pod owner. [expectedRegistrationId]
+   * and [expectedSecretId] are the [ProvisionServiceClientResult.registrationId] and
+   * [ProvisionServiceClientResult.secretId] an earlier answer gave, or `null` for "I hold nothing".
+   * What each combination answers is the server's `docs/auth/service-clients.md` §"Provisioning over
+   * the admin surface".
    *
    * **Deliberately not repeatable.** A `POST` is resent after a lost connection only on
    * `SempodsRepeatable`, and this one carries no such mark: an attempt that reached the server before
@@ -194,16 +189,10 @@ class SempodsControlPlaneClient(
 enum class CreatePodResult { created, alreadyExists }
 
 /**
- * Outcome of [SempodsControlPlaneClient.provisionServiceClient].
- *
- * [contextRoot] and [scopes] come back on **both** results, so no caller has to rebuild the
- * `apps/<clientId>` convention. [scopes] are the grants the client holds now: the sandbox when the
- * call created the registration, and what the pod owner left afterwards, possibly nothing.
- * [contextRoot] is the derived name; the owner may have deleted it. [secret] is present only when
- * one was issued; on [alreadyProvisioned] the caller keeps the credential it already holds, because
- * the server hands a secret out exactly once. [registrationId] stays the same until the registration
- * is removed; [secretId] names the current secret and changes with every one issued. A caller stores
- * both beside the secret and sends them back.
+ * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.
+ * What each member means is the server's `docs/auth/service-clients.md` §"Provisioning over the
+ * admin surface". [secret] is null on [alreadyProvisioned]; a caller stores [registrationId] and
+ * [secretId] beside the secret it holds and sends them back.
  */
 data class ProvisionServiceClientResult(
   val alreadyProvisioned: Boolean,

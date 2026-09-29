@@ -26,11 +26,9 @@ authorizes it, so no pod token reaches it. The caller names the
 
 **A service**, or the owner's own tool, registers at
 `POST /{pod}/_system/auth/register` — [`oauth.md`](oauth.md#registering-a-service-client)
-is that flow, what the body must say and what the answer carries. There
-the server names the client `svc:…`, and there is no sandbox to derive.
-Without a bearer the registration is provisional until the owner confirms
-its [consent](#consent), and removed after 24 hours if they never do. With
-the owner's `service-clients:manage` bearer it is active at once.
+is that flow: what the body must say, what the answer carries, and when
+the registration is provisional. There the server names the client
+`svc:…`, and there is no sandbox to derive.
 
 Either way:
 
@@ -167,14 +165,10 @@ registration for an app. Only the call that creates it touches the pod:
    minted. The pod keeps only the bcrypt hash, so it can never be
    produced again.
 
-Every answer carries `registrationId`, `secretId` (names the secret that
-authenticates now), `scopes` (the grants stored now) and `contextRoot`
-(the sandbox root). Callers should use the returned
-`contextRoot` rather than rebuilding the path from the convention. The
-server owns where the sandbox lives; a caller that derives it
-independently keeps writing under the old root the day that location
-changes, while its scope points at the new one — a runtime 403, not a
-build error. Where the sandbox lives today is sempods-spec
+Every answer carries `registrationId`, `secretId`, `scopes` and
+`contextRoot`; `ProvisionServiceClientResponse` (`AdminPodsEndpoint`)
+says what each means. A caller uses the returned `contextRoot` and never
+rebuilds the path; where the sandbox lives today is sempods-spec
 `spec/core/contexts.md` §2.
 
 **Provisioning creates; the owner decides afterwards.** A later call for

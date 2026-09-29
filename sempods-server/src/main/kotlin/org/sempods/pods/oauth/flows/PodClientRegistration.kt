@@ -146,12 +146,9 @@ class PodClientRegistration @Inject internal constructor(
    * is `docs/auth/oauth.md` §"Registering a service client"; [REFUSED_MEMBERS] are the ones refused,
    * and anything else this pod does not read is neither stored nor echoed.
    *
-   * Without a bearer the registration is provisional, with a deadline for the owner's consent. A
-   * bearer is the owner's initial access token (RFC 7591 §3.1): its standing
-   * [SERVICE_CLIENTS_MANAGE_SCOPE] authority, approved under the consent that promises registration,
-   * makes the registration active. Any other bearer is refused, so a caller that
-   * meant to present authority never walks away with a provisional registration it did not expect.
-   * The pod's budget is charged only for a provisional registration whose body would be accepted.
+   * The two ways in are the class's. A bearer that is not the owner's authority is refused rather
+   * than ignored, so a caller that meant to present authority never walks away with a provisional
+   * registration it did not expect.
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
     val owner = request.caller?.let { caller ->
@@ -183,9 +180,7 @@ class PodClientRegistration @Inject internal constructor(
       )
     }
 
-    // Each registration costs a bcrypt run, and without a bearer nothing authenticates the caller.
-    // The owner's own registration is not counted, so anonymous ones cannot hold it up; the
-    // protected address budget and the authority bound it.
+    // Only a self-registration is counted, and only for a body that would be accepted.
     if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
     val registered = serviceClients.registerService(pod, label, request.client.redirectUris.toList(), provisional = owner == null)

@@ -171,38 +171,12 @@ class AdminPodsEndpoint @Inject constructor(
 
   /**
    * Registers `clientId` as a service client on `pod`, sandboxed to its own app root
-   * (`<pod>/_system/contexts/apps/{clientId}#manage`) — the pod-side half of provisioning, which
-   * a consumer used to perform in-process. See `docs/auth/service-clients.md`.
+   * (`<pod>/_system/contexts/apps/{clientId}#manage`). What each call writes and answers, and the
+   * idempotency through `expectedRegistrationId` and `expectedSecretId`, is
+   * `docs/auth/service-clients.md` §"Provisioning over the admin surface".
    *
-   * **Provisioning creates; the owner decides afterwards.** Only the call that creates the
-   * registration touches the pod: it registers the app root private, demoting a pre-existing
-   * **public** root (a public root would expose every future descendant write to anonymous reads;
-   * `createContext` is create-only and cannot fix it), and grants the sandbox once. A later call
-   * leaves the root and the grants alone, so an owner who narrowed the grants, deleted the root or
-   * made it public is not overruled.
-   *
-   * **Idempotency contract.** The server does not and cannot know the caller's credential — only
-   * the caller can decrypt and verify its own stored secret. So the caller asserts what it holds
-   * via `expectedRegistrationId` and `expectedSecretId`, the two identifiers an earlier answer gave:
-   *
-   * - Both match the current registration and its current secret → nothing is written, 200
-   *   `{result:"alreadyProvisioned"}`, and **no secret is returned** (the existing one is still
-   *   valid and the plaintext is unrecoverable here).
-   * - Either is omitted or stale while a registration exists → the registration and its grants
-   *   stay, and 200 `{result:"provisioned"}` carries a new secret for it, under the same
-   *   `registrationId` and a new `secretId`. This is the answer for a half-provisioned state
-   *   (registration exists, caller's credential row lost), and for a caller whose secret another call
-   *   replaced.
-   * - No registration → it is created, with its secret.
-   *
-   * The secret is returned **exactly once**, at the moment it is minted; the pod keeps only a
-   * bcrypt hash. A new secret invalidates the previous one, but outstanding service tokens ride out
-   * their ≤600 s TTL — revocation is registration-level, not token-level.
-   *
-   * **Concurrency.** If another call issued a secret or created the registration between this
-   * request's read and its write, the answer is `409`, not a `200` carrying a secret that no longer
-   * works. The server does not retry, because only the caller knows whether it now holds a usable
-   * credential; it re-reads and decides, exactly as with the two identifiers.
+   * **Concurrency.** A `409` is not retried here, because only the caller knows whether it now
+   * holds a usable credential; it re-reads and decides, as with the two identifiers.
    *
    * What that does **not** promise: that a `200` stays valid forever. Two calls without matching
    * identifiers that do not overlap both succeed and the later secret wins. Rejecting the second

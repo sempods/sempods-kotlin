@@ -61,11 +61,7 @@ class PodServiceClientsEndpoint @Inject constructor(
 
   /**
    * Makes the JSON array of scopes in [body] the service's grants, at the version `If-Match` names.
-   * `[]` removes every grant and keeps the registration.
-   *
-   * `If-Match` is one strong entity tag, the `ETag` a read answered: without it `428`, so two tools
-   * never overwrite each other unseen. `*` or a list is `400`: either would let the replace land on
-   * grants the caller never read.
+   * Its answers are `docs/auth/service-clients.md` §"Managing service clients".
    */
   @PUT
   @Path("{clientId}/grants")

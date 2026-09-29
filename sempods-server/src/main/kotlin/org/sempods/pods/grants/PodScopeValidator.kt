@@ -22,10 +22,9 @@ const val PUBLIC_READ_SCOPE = "public-read"
 const val OFFLINE_ACCESS_SCOPE = "offline_access"
 
 /**
- * OAuth scope literal by which a program asks to register service clients on this pod and decide
- * what each reaches: list and read them, replace any service's grants, rotate and revoke the ones
- * registered there. Through the services it holds secrets for it reaches the person's data. What
- * it allows is `docs/auth/oauth.md` §"Managing service clients".
+ * OAuth scope literal for the owner's authority over this pod's service clients: registering them
+ * and deciding what each reaches, and so, through their secrets, the person's data. What it allows
+ * is `docs/auth/oauth.md` §"Managing service clients".
  *
  * Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator classifies it, the consent
  * screen offers it, [GrantStorePodAuthorizer] refuses context permissions to a token carrying it,
