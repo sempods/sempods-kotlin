@@ -5,7 +5,6 @@ import com.nimbusds.oauth2.sdk.auth.ClientAuthenticationMethod
 import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
@@ -14,33 +13,35 @@ import java.time.DateTimeException
 import java.time.Instant
 
 /**
- * A pod's service clients: a service registering itself, the owner granting it contexts, and the
- * owner managing the ones that exist. This is an experimental 0.2 extension of the pod's OAuth
- * profile; `docs/auth/oauth.md` §"Registering a service client" has the pod's side.
+ * A pod's service clients: a service registering itself, sending the owner to its consent, and the
+ * owner registering services and deciding what each reaches. This is an experimental 0.2 extension
+ * of the pod's OAuth profile; `docs/auth/service-clients.md` has the pod's side.
  *
  * | What | Lives | |
  * |---|---|---|
- * | the registration | until it is revoked, once the owner grants it contexts | until [SempodsServiceClientRegistration.activationExpiresAt] before that: a registration the owner never activates is removed |
+ * | the registration | until it is revoked, once it is active | until [SempodsServiceClientRegistration.activationExpiresAt] while it is provisional: a registration the owner never confirms is removed |
  * | its secret | until it is rotated or the registration is removed | answered once, by [register] or [rotateSecret] |
  *
  * ```java
- * var registering = new SempodsPodServiceClients(new SempodsSession(alice), client);
+ * var registering = new SempodsPodServiceClients(new SempodsSession(pod), client);
  * SempodsServiceClientRegistration service = registering.register("Notes Sync").getBody();
- * HttpUrl grant = registering.grantConsentUrl(app, redirectUri, state, service.getClientId(), List.of(notes + "#write"));
+ * HttpUrl consent = registering.consentUrl(service.getClientId(), state);
  * ```
  *
- * `docs/pod-client.md` §"Registering a service client" has the whole sequence.
+ * `docs/pod-client.md` §"Registering a service client" has the whole sequence, and the owner's tool
+ * that registers a service active and gives it its grants.
  *
- * **Built on a session of its own.** [register] needs no credential, and a session without one is
- * enough; the rest need a `service-clients:manage` bearer. [grantConsentUrl] sends nothing.
+ * **Built on a session of its own.** [register] needs no credential: without one the registration
+ * is provisional. With a `service-clients:manage` bearer it is active, and the rest need that bearer.
+ * [consentUrl] sends nothing.
  *
  * **What is safe to send again:**
  *
  * | Operation | After a lost connection |
  * |---|---|
- * | [register] | not sent again. A second call registers a second service; the one whose answer was lost holds no grants and is removed at its deadline |
+ * | [register] | not sent again. A second call registers a second service. The one whose answer was lost is removed at its deadline where it is provisional; one the owner's bearer registered stays, and [list] and [revoke] remove it (`docs/auth/oauth.md` §"Registering a service client") |
  * | [rotateSecret] | not sent again. A lost answer leaves a secret nobody holds; rotate once more |
- * | [list], [removeGrants], [revoke] | sent once more, as any idempotent request |
+ * | [list], [get], [replaceGrants], [revoke] | sent once more, as any idempotent request. A [replaceGrants] whose answer was lost hears `412` on the resend if the first attempt landed: read the grants again |
  *
  * A refusal is a [SempodsStatusException] with the status, the headers and the pod's error document:
  *
@@ -48,10 +49,12 @@ import java.time.Instant
  * |---|---|
  * | `400 invalid_client_metadata`, `400 invalid_redirect_uri` | [register]: the body |
  * | `401` with `WWW-Authenticate: Bearer error="invalid_token"` | the token is unknown, expired or withdrawn |
- * | `403` with `error="insufficient_scope"` | the token lacks the scope, or its person does not own the pod |
- * | `403` without a challenge | a service client the host operator provisioned, which is not changed here |
+ * | `400` | [replaceGrants]: a scope a service cannot hold, or one on no context of the pod |
+ * | `403` with `error="insufficient_scope"` | the token lacks the scope, its person does not own the pod, or it was approved before the consent promised registering and assigning; ask for it again |
+ * | `403` without a challenge | [rotateSecret], [revoke]: a service client the host operator provisioned |
  * | `404` | no such service client |
  * | `409` | [rotateSecret]: it changed in between; read it again |
+ * | `412` | [replaceGrants]: the grants changed since [SempodsServiceClient.grantsVersion]; read them again |
  * | `429 slow_down` | [register]: the pod's registration budget; try later |
  */
 class SempodsPodServiceClients(
@@ -63,16 +66,18 @@ class SempodsPodServiceClients(
 
   /**
    * Registers a service at `POST {pod}/_system/auth/register`, named [clientName], with no grants.
-   * The registration is provisional until the owner grants it contexts, and removed at
-   * [SempodsServiceClientRegistration.activationExpiresAt] if they never do.
+   *
+   * Without a credential the registration is provisional until the owner confirms its consent
+   * ([consentUrl]), and removed at [SempodsServiceClientRegistration.activationExpiresAt] if they
+   * never do. With a `service-clients:manage` bearer it is active, and [replaceGrants] decides what it
+   * reaches.
    */
   @Throws(IOException::class)
   fun register(clientName: String): SempodsResponse<SempodsServiceClientRegistration> = register(clientName, emptyList())
 
   /**
    * The same, with [redirectUris] registered for the service: https, or http on a loopback host.
-   * They are metadata of the registration. The grant consent returns to the public client that
-   * opened it ([grantConsentUrl]), not to these.
+   * The consent returns only to one of these ([consentUrl]); a loopback address matches on any port.
    */
   @Throws(IOException::class)
   fun register(clientName: String, redirectUris: List<String>): SempodsResponse<SempodsServiceClientRegistration> =
@@ -84,30 +89,23 @@ class SempodsPodServiceClients(
     exchange.run(registration(clientName, emptyList()), ANSWERS, BodyReading.TEXT)
 
   /**
-   * Where to send the owner's browser to grant [serviceClientId] the context [scopes]:
-   * `{pod}/_system/auth/grant`. The pod shows the owner the service's name, identifier and
-   * registration time, and sends the browser back to [redirectUri] with [state];
-   * [SempodsGrantOutcome.readQuery] reads what it brings.
+   * Where to send the owner's browser to decide what [serviceClientId] reaches:
+   * `{pod}/_system/auth/service-consent`. The pod shows the owner the service's name as its claim,
+   * its identifier, its registration time and the grants it holds now. The request suggests no
+   * contexts; the owner picks them.
    *
-   * [callerClientId] and [redirectUri] name the caller as `/authorize` knows it; the program's own
-   * public client qualifies. A pair the pod does not know gets no redirect at all.
-   *
-   * @throws IllegalArgumentException when [redirectUri] is not a URL, or its query already carries a
-   *   member of the answer (`result`, `scope`, `state`, `error`, `error_description`, `error_uri`),
-   *   which would make the answer ambiguous.
+   * With [redirectUri] the browser returns there with [state] once the owner decides, and with
+   * `error=access_denied` beside it on a cancel. It must be one the service registered. Without it
+   * the pod tells the owner to go back to the program. Either way nothing about the grants comes
+   * back: [SempodsServiceAccessWait] learns them the way the service uses them.
    */
-  fun grantConsentUrl(callerClientId: String, redirectUri: String, state: String, serviceClientId: String, scopes: Collection<String>): HttpUrl {
-    val redirect = requireNotNull(redirectUri.toHttpUrlOrNull()) { "'$redirectUri' is not a redirect URL." }
-    val carried = redirect.queryParameterNames.firstOrNull { it in GRANT_ANSWER_MEMBERS }
-    require(carried == null) { "'$redirectUri' carries '$carried', which the grant consent's answer adds itself." }
-    return session.podBase.resolve(GRANT).newBuilder()
-      .addQueryParameter("client_id", callerClientId)
-      .addQueryParameter("redirect_uri", redirectUri)
+  @JvmOverloads
+  fun consentUrl(serviceClientId: String, state: String, redirectUri: String? = null): HttpUrl =
+    session.podBase.resolve(CONSENT).newBuilder()
+      .addQueryParameter("client_id", serviceClientId)
       .addQueryParameter("state", state)
-      .addQueryParameter("service_client", serviceClientId)
-      .addQueryParameter("scope", scopeText(scopes))
+      .apply { redirectUri?.let { addQueryParameter("redirect_uri", it) } }
       .build()
-  }
 
   /** Every service client on the pod, with its grants and when it was last used. */
   @Throws(IOException::class)
@@ -128,18 +126,30 @@ class SempodsPodServiceClients(
   @Throws(IOException::class)
   fun rotateSecretJson(clientId: String): SempodsResponse<String> = exchange.run(rotation(clientId), ANSWERS, BodyReading.TEXT)
 
-  /**
-   * Takes [scopes] away from [clientId] and answers what it holds afterwards. Removing the last one
-   * keeps the registration.
-   */
+  /** One service client, with its grants and the [SempodsServiceClient.grantsVersion] they are at. */
   @Throws(IOException::class)
-  fun removeGrants(clientId: String, scopes: Collection<String>): SempodsResponse<SempodsServiceClient> =
-    exchange.run(grantRemoval(clientId, scopes), ANSWERS, DESCRIBED)
+  fun get(clientId: String): SempodsResponse<SempodsServiceClient> = exchange.run(clientRequest("GET", clientId), ANSWERS, DESCRIBED)
 
   /** The same answer with the body as the text the server sent, malformed or not. */
   @Throws(IOException::class)
-  fun removeGrantsJson(clientId: String, scopes: Collection<String>): SempodsResponse<String> =
-    exchange.run(grantRemoval(clientId, scopes), ANSWERS, BodyReading.TEXT)
+  fun getJson(clientId: String): SempodsResponse<String> = exchange.run(clientRequest("GET", clientId), ANSWERS, BodyReading.TEXT)
+
+  /**
+   * Makes [scopes] the grants of [clientId], such as `<context-iri>#read`, and answers the service
+   * afterwards. Anything not in [scopes] is taken away; an empty list removes every grant and keeps
+   * the registration. A provisional registration becomes active.
+   *
+   * Only if the grants are still at [grantsVersion], the [SempodsServiceClient.grantsVersion] of a
+   * read: otherwise `412`, and nothing changes.
+   */
+  @Throws(IOException::class)
+  fun replaceGrants(clientId: String, scopes: Collection<String>, grantsVersion: Long): SempodsResponse<SempodsServiceClient> =
+    exchange.run(grantsReplace(clientId, scopes, grantsVersion), ANSWERS, DESCRIBED)
+
+  /** The same answer with the body as the text the server sent, malformed or not. */
+  @Throws(IOException::class)
+  fun replaceGrantsJson(clientId: String, scopes: Collection<String>, grantsVersion: Long): SempodsResponse<String> =
+    exchange.run(grantsReplace(clientId, scopes, grantsVersion), ANSWERS, BodyReading.TEXT)
 
   /**
    * Removes [clientId]'s registration; the contexts it wrote stay. It mints no token afterwards, and a
@@ -172,23 +182,24 @@ class SempodsPodServiceClients(
 
   private fun rotation(clientId: String) = clientRequest("POST", clientId, "secret")
 
-  private fun grantRemoval(clientId: String, scopes: Collection<String>) =
-    clientRequest("DELETE", clientId, "grants", query = mapOf("scope" to scopeText(scopes)))
+  private fun grantsReplace(clientId: String, scopes: Collection<String>, grantsVersion: Long): Request {
+    require(grantsVersion >= 0) { "A grants version is not negative." }
+    return clientRoute("PUT", clientId, "grants")
+      .header("If-Match", "\"$grantsVersion\"")
+      .put(encodeStrings(scopes.distinct()).toRequestBody(JSON_MEDIA_TYPE))
+      .build()
+  }
 
   /** A request to one client's route, its identifier added as one path segment. */
-  private fun clientRequest(method: String, clientId: String, below: String? = null, query: Map<String, String> = emptyMap()): Request {
-    val built = session.newRequest(method, SERVICE_CLIENTS, *listOfNotNull(clientId, below).toTypedArray())
+  private fun clientRequest(method: String, clientId: String, below: String? = null): Request = clientRoute(method, clientId, below).build()
+
+  private fun clientRoute(method: String, clientId: String, below: String? = null): Request.Builder =
+    session.newRequest(method, SERVICE_CLIENTS, *listOfNotNull(clientId, below).toTypedArray())
       .header("Accept", "application/json")
-      .build()
-    val url = built.url.newBuilder().apply { query.forEach { (name, value) -> addQueryParameter(name, value) } }.build()
-    return built.newBuilder().url(url).build()
-  }
 
   private companion object {
 
-    const val GRANT = "_system/auth/grant"
-
-    val GRANT_ANSWER_MEMBERS = setOf("result", "scope", "state", "error", "error_description", "error_uri")
+    const val CONSENT = "_system/auth/service-consent"
 
     const val SERVICE_CLIENTS = "_system/auth/service-clients"
 
@@ -227,6 +238,7 @@ class SempodsPodServiceClients(
       // Null says it never minted a token, so a missing member is not read as that.
       lastUsedAt = if ("last_used_at" in document.names()) instant(document, "last_used_at") else throw document.violation("last_used_at: expected a member"),
       scopes = scopesOf(document.string("scope")),
+      grantsVersion = document.longOrNull("grants_version") ?: throw document.violation("grants_version: expected an integer"),
       origin = document.string("origin"),
       activationExpiresAt = instant(document, "activation_expires_at"),
     )

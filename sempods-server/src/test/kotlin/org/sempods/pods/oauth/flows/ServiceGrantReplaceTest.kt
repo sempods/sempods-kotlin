@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * a check against contexts deleted meanwhile.
  *
  * The other paths run as they do in production: the context deletion through
- * [PodFacade.removeContext], the approval through [PodServiceClientGrantFlow], the removal through
+ * [PodFacade.removeContext], the approval through [PodServiceConsentFlow], the removal through
  * [PodServiceClientManagement].
  */
 internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
@@ -62,32 +62,25 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a replace prepared before an approval at the grant consent writes nothing and reports a conflict`() {
+  fun `a replace prepared before an approval at the service consent writes nothing and reports a conflict`() {
     val owned = Owned()
     val service = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    val screen = assertIs<PodServiceClientGrantResult.Screen>(openGrant(owned, service.clientId, owned.readScope)).screen
 
-    assertIs<PodServiceClientGrantResult.Granted>(
-      serviceClientGrants.submit(
-        owned.pod,
-        PodServiceClientGrantForm(screen.csrfToken, service.clientId, listOf(owned.readScope), "grant"),
-        owned.session,
-      ),
-    )
+    assertIs<PodServiceConsentResult.Answered>(confirmServiceConsent(owned, service.clientId, setOf(owned.readScope)))
 
     assertConflict(owned, service, expectedScopes = setOf(owned.readScope))
   }
 
   @Test
-  fun `a replace prepared before an owner's removal writes nothing and reports a conflict`() {
+  fun `a replace prepared before an owner's replace over the API writes nothing and reports a conflict`() {
     val owned = Owned()
     val notes = owned.context("notes")
     val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.addScopes(owned.pod, installed.clientId, installed.id, setOf(owned.readScope, "$notes#read"), owned.webId)
+    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), owned.webId)
     val prepared = current(owned, installed.clientId)
 
     assertIs<PodServiceClientManagementResult.Done<*>>(
-      management.removeGrants(owned.pod, manager(owned), installed.clientId, setOf(owned.readScope)),
+      management.replaceGrants(owned.pod, manager(owned), installed.clientId, prepared.grantsVersion, setOf("$notes#read")),
     )
 
     assertConflict(owned, prepared, expectedScopes = setOf("$notes#read"))
@@ -97,15 +90,16 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
 
   @Test
   fun `a replace for a registration re-created under the same clientId reports not found`() {
-    // Operator provisioning re-mints under a new id when the scopes drift, which is the one path
-    // that re-creates a registration under a name somebody may already hold a replace for.
+    // An operator's identifier outlives its registration: removed with the pod's other rows and
+    // provisioned again, it names a new registration somebody may still hold a replace for.
     val owned = Owned()
     val sandbox = "${sempodsUriBuilder.buildContext(owned.pod.name, "apps/notes-app")}#manage"
     val first = assertIs<PodServiceClientResult.Provisioned>(
-      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", setOf(sandbox), null, null)),
+      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", setOf(sandbox), null, null, null)),
     ).registration
+    serviceClients.remove(owned.pod.id, "notes-app", first.id)
     val second = assertIs<PodServiceClientResult.Provisioned>(
-      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", emptySet(), null, first.id.value)),
+      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", emptySet(), null, first.id.value, first.secretId)),
     ).registration
 
     val answer = replace(owned, first, setOf(owned.readScope))

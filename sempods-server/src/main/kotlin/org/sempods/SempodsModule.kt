@@ -23,7 +23,6 @@ import org.sempods.pods.grants.GrantStorePodAuthorizer
 import org.sempods.pods.grants.PodAuthorizer
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
-import org.sempods.pods.oauth.ServiceClientGrantTransactionStore
 import org.sempods.pods.oauth.DynamicClientRegistrationDao
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.OAuthSigningKeyDao
@@ -38,7 +37,7 @@ import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
 import org.sempods.pods.oauth.flows.PodConsentFlow
-import org.sempods.pods.oauth.flows.PodServiceClientGrantFlow
+import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodSignIn
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
@@ -202,7 +201,6 @@ class SempodsModule : BaseModule() {
     bind<OAuthSigningKeyDao>().asSingleton()
     bind<PodConsentDecisionStore>().asSingleton()
     bind<PodManagementAuthorityStore>().asSingleton()
-    bind<ServiceClientGrantTransactionStore>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
@@ -215,7 +213,7 @@ class SempodsModule : BaseModule() {
     bind<PodServiceClientProvisioning>().asSingleton()
     bind<PodOwnerAuthority>().asSingleton()
     bind<PodServiceClientManagement>().asSingleton()
-    bind<PodServiceClientGrantFlow>().asSingleton()
+    bind<PodServiceConsentFlow>().asSingleton()
     bind<PodSignIn>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()

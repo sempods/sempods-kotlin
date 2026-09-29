@@ -9,6 +9,8 @@ import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.api.system.admin.pods.AdminPodsEndpoint
@@ -124,6 +126,28 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     webId: String,
     subjectUris: Set<String> = setOf(webId),
     clientId: String = CONTEXTS_MANAGER_CLIENT_ID,
+  ): String = mintManagerToken(podName, webId, CONTEXTS_MANAGE_SCOPE, subjectUris, clientId, PrivilegedAuthorityRows.FIRST_CONSENT)
+
+  /**
+   * The same for [SERVICE_CLIENTS_MANAGE_SCOPE]. `PodServiceClientsEndpointHttpTest` walks the round
+   * trip.
+   *
+   * @param consent the consent text the owner approved; an earlier one stands for an authority from
+   *   before that text.
+   */
+  protected fun mintServiceClientsManagerToken(
+    podName: String,
+    webId: String,
+    consent: Int = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
+  ): String = mintManagerToken(podName, webId, SERVICE_CLIENTS_MANAGE_SCOPE, setOf(webId), SERVICE_CLIENTS_MANAGER_CLIENT_ID, consent)
+
+  private fun mintManagerToken(
+    podName: String,
+    webId: String,
+    scope: String,
+    subjectUris: Set<String>,
+    clientId: String,
+    consent: Int,
   ): String {
     val podId = checkNotNull(podDao.fetchByName(podName)) { "no pod named '$podName'" }.toHostedPod(sempodsUriBuilder).id
     val disconnects = consentDecisionStore.recordWithoutLifetime(podId, clientId, webId).disconnects
@@ -131,10 +155,10 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
       pod = podName,
       webId = webId,
       clientId = clientId,
-      scopes = setOf(CONTEXTS_MANAGE_SCOPE),
+      scopes = setOf(scope),
       ttlSeconds = PodTokenIssuer.USER_TOKEN_TTL_SECONDS,
     )
-    managementAuthorities.record(podId, issued.jti, clientId, webId, disconnects, subjectUris)
+    managementAuthorities.record(podId, issued.jti, clientId, webId, disconnects, subjectUris, consent)
     return issued.token
   }
 
@@ -255,15 +279,8 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected fun unescapeHtml(value: String): String =
     value.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
 
-  /**
-   * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
-   *
-   * One copy, because an owner-installed `client_id` carries a `:` of its own: a test that joins
-   * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug
-   * in the store.
-   */
-  protected fun basicHeader(clientId: String, secret: String): String =
-    "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
+  /** [clientSecretBasicHeader]. */
+  protected fun basicHeader(clientId: String, secret: String): String = clientSecretBasicHeader(clientId, secret)
 
   /**
    * Deletes a pod the way anything deletes a pod: `DELETE /_system/admin/pods/{pod}` with the host
@@ -318,6 +335,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     /** The app [mintContextsManagerToken] issues to unless told otherwise. */
     const val CONTEXTS_MANAGER_CLIENT_ID = "did:web:contexts-manager.example"
 
+    /** The app [mintServiceClientsManagerToken] issues its bearer to. */
+    const val SERVICE_CLIENTS_MANAGER_CLIENT_ID = "did:web:service-clients-manager.example"
+
     @BeforeAll
     @JvmStatic
     fun beforeAll() {
@@ -340,4 +360,16 @@ internal val sempodsInjector: Injector by lazy {
     Modules.override(SempodsModule())
       .with(SempodsTestModule())
   )
+}
+
+/**
+ * `client_secret_basic`, encoded the way [org.sempods.client.SempodsRequestAuth] encodes it.
+ *
+ * One copy, because a registered service's `client_id` carries a `:` of its own: a test that joins
+ * the raw strings sends a username of `svc` and gets a credential failure that looks like a bug in
+ * the store.
+ */
+internal fun clientSecretBasicHeader(clientId: String, secret: String): String {
+  fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
+  return "Basic " + Base64.getEncoder().encodeToString("${enc(clientId)}:${enc(secret)}".toByteArray(Charsets.UTF_8))
 }

@@ -28,6 +28,8 @@ class PodAuthorizationCodes @Inject internal constructor(
    * @param session the sign-in this code is issued under, or `null` for the anonymous one.
    * @param subjectUris every identity URI the person was recognised by, for a code whose exchange
    *   records them. Empty on every other code.
+   * @param consentText the privileged consent text the person approved, for a code whose exchange
+   *   records an authority; `null` on every other code.
    */
   internal fun issue(
     pod: HostedPod,
@@ -41,6 +43,7 @@ class PodAuthorizationCodes @Inject internal constructor(
     via: PodCodeIssuance,
     consentGeneration: Long? = null,
     subjectUris: Set<String> = emptySet(),
+    consentText: Int? = null,
     session: PodTokenIssuer.SessionPrincipal?,
   ): PodCodeResult {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
@@ -70,6 +73,7 @@ class PodAuthorizationCodes @Inject internal constructor(
       codeChallengeMethod = codeChallengeMethod,
       consentGeneration = consentGeneration,
       subjectUris = subjectUris,
+      consentText = consentText,
     )
 
     logger.info {

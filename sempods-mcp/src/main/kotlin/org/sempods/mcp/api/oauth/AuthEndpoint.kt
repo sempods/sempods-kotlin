@@ -674,10 +674,6 @@ private suspend fun ApplicationCall.respondTokenEndpoint(status: HttpStatusCode,
 private suspend fun ApplicationCall.respondJson(status: HttpStatusCode, objectMapper: ObjectMapper, body: Any) =
   respondText(objectMapper.writeValueAsString(body), ContentType.Application.Json, status)
 
-private fun redirectUriRegistered(redirectUri: String, registered: Set<String>): Boolean {
-  val canonical = RedirectUri.canonicalize(redirectUri)
-  return registered.any { RedirectUri.canonicalize(it) == canonical }
-}
 
 /**
  * Whether a dynamically registered client may be answered at an address, for one request profile.
@@ -690,7 +686,7 @@ private fun redirectUriRegistered(redirectUri: String, registered: Set<String>):
  */
 private fun redirectPolicyFor(dcrClientDao: DcrClientDao, profile: String) = ClientRedirectPolicy { clientId, redirectUri ->
   if (!RedirectUri.isValid(redirectUri)) false
-  else dcrClientDao.findByClientId(profile, clientId)?.let { redirectUriRegistered(redirectUri, it.redirectUris) } == true
+  else dcrClientDao.findByClientId(profile, clientId)?.let { RedirectUri.matchesRegistered(redirectUri, it.redirectUris) } == true
 }
 
 private fun enc(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)

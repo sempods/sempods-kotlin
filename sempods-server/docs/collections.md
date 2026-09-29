@@ -45,7 +45,8 @@ because the reaper runs on its own schedule. They are two rather than one becaus
 *who* is submitting a consent form and the transaction says *which screen* it is and that it has not
 been submitted before, which one value cannot answer. A consent transaction also holds the request
 its screen answers and the rows it offered; a row written without them by an older node is still
-read, as `ConsentTransactionStore` describes.
+read, as `ConsentTransactionStore` describes. A service consent's row adds the registration and its
+grants version, and may carry no redirect.
 
 Both exist because nothing that authenticates a person travels through the browser any more.
 
@@ -53,12 +54,17 @@ Both exist because nothing that authenticates a person travels through the brows
 under the SHA-256 of that token's `jti`, read with `peek` for the bearer's hour. Its TTL is derived
 from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS`, so the row cannot outlive the bearer. The consent
 dialog also looks it up by pod, app and person, over an index on those three, to offer a
-disconnect.
+disconnect. `consent` records the version of the consent text the person approved
+(`PrivilegedAuthorityRows.consentTextOf`); a row without it reads as the first,
+`PrivilegedAuthorityRows.FIRST_CONSENT`.
 
 `oauth.installationAuthorities` is retired with the installer scope. Its rows expired within an
 hour; once every node runs a release without it, an operator may `drop()` the empty collection. A
-node still on the old code recreates its indexes when it starts. `oauth.serviceClientGrantTransactions` is one grant
-consent, consumed on its answer like `oauth.consentTransactions`.
+node still on the old code recreates its indexes when it starts.
+
+`oauth.serviceClientGrantTransactions` is retired with the grant consent; the service consent keeps
+its screens in `oauth.consentTransactions`. Its rows expire within fifteen minutes, and the same
+`drop()` applies once every node runs the new code.
 
 ## Two collections with no field order, and filters that miss rows
 
@@ -79,7 +85,7 @@ Each is an instance of a rule stated in the document contract, and all are this 
 - **`oauth.serviceClients` removes a self-registered service by TTL on `pendingUntil`**, and every
   read and write filters a passed deadline out, because the TTL monitor lags. Rows without the field
   — activated, provisioned, or older than it — never expire. Activation unsets it in the update that
-  writes the grants (`PodServiceClientDao.addScopes`, `replaceScopes`). No transform.
+  writes the grants (`PodServiceClientDao.replaceScopes`). No transform.
 
 ## Conventions
 

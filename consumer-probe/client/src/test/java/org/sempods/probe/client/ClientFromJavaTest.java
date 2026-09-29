@@ -56,7 +56,6 @@ import org.sempods.client.SempodsContextSelection;
 import org.sempods.client.SempodsCredentialSupplier;
 import org.sempods.client.SempodsDecodingException;
 import org.sempods.client.SempodsForeignTarget;
-import org.sempods.client.SempodsGrantOutcome;
 import org.sempods.client.SempodsGraphFormat;
 import org.sempods.client.SempodsOkHttp;
 import org.sempods.client.SempodsPkce;
@@ -129,12 +128,16 @@ class ClientFromJavaTest {
       String path = exchange.getRequestURI().getRawPath();
       if (path.endsWith("/secret")) {
         json(exchange, 200, "{\"client_id\":\"svc:1\",\"client_secret\":\"sc_2\"}");
+      } else if (path.endsWith("/grants")) {
+        exchange.getResponseHeaders().add("X-Saw-If-Match", header(exchange, "If-Match"));
+        json(exchange, 200, "{\"client_id\":\"svc:1\",\"client_name\":\"Notes Sync\",\"client_id_issued_at\":1700000000,"
+            + "\"last_used_at\":null,\"scope\":\"urn:b#read\",\"grants_version\":1,\"origin\":\"registered\"}");
       } else if (exchange.getRequestMethod().equals("DELETE")) {
         exchange.sendResponseHeaders(204, -1);
         exchange.close();
       } else {
         json(exchange, 200, "{\"serviceClients\":[{\"client_id\":\"svc:1\",\"client_name\":\"Notes Sync\","
-            + "\"client_id_issued_at\":1700000000,\"last_used_at\":null,\"scope\":\"urn:a#read\",\"origin\":\"installed\"}]}");
+            + "\"client_id_issued_at\":1700000000,\"last_used_at\":null,\"scope\":\"urn:a#read\",\"grants_version\":0,\"origin\":\"registered\"}]}");
       }
     });
     server.createContext("/alice/_system/slow", exchange -> {
@@ -411,11 +414,9 @@ class ClientFromJavaTest {
     SempodsPodAuthorization authorization = new SempodsPodAuthorization(new SempodsSession(alice), client);
     SempodsPublicClient program = authorization.registerClient("Notes", List.of("http://127.0.0.1/cb")).getBody();
     assertEquals("dyn:1", program.getClientId());
-    HttpUrl grant = registering.grantConsentUrl(program.getClientId(), redirect, "g1", service.getClientId(), List.of("urn:a#read"));
-    assertEquals("svc:1", grant.queryParameter("service_client"));
-    SempodsGrantOutcome outcome = SempodsGrantOutcome.readQuery("error=access_denied&state=g1", "g1");
-    assertFalse(outcome.isGranted());
-    assertEquals("access_denied", outcome.getError());
+    HttpUrl serviceConsent = registering.consentUrl(service.getClientId(), "c1", redirect);
+    assertEquals("svc:1", serviceConsent.queryParameter("client_id"));
+    assertNull(registering.consentUrl(service.getClientId(), "c1").queryParameter("redirect_uri"));
 
     SempodsPkce pkce = SempodsPkce.generate();
     HttpUrl consent = authorization.authorizationUrl(program.getClientId(), redirect, "service-clients:manage", "s1", pkce);
@@ -429,6 +430,10 @@ class ClientFromJavaTest {
     SempodsServiceClient listed = managing.list().getBody().get(0);
     assertEquals(Set.of("urn:a#read"), listed.getScopes());
     assertNull(listed.getLastUsedAt());
+    SempodsResponse<SempodsServiceClient> replaced = managing.replaceGrants("svc:1", List.of("urn:b#read"), listed.getGrantsVersion());
+    assertEquals(Set.of("urn:b#read"), replaced.getBody().getScopes());
+    assertEquals(1L, replaced.getBody().getGrantsVersion());
+    assertEquals("\"0\"", replaced.getHeaders().get("X-Saw-If-Match"));
     assertEquals("sc_2", managing.rotateSecret("svc:1").getBody().getClientSecret());
     assertTrue(managing.revoke("svc:1"));
   }

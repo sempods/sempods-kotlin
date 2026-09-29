@@ -1,5 +1,7 @@
 package org.sempods.pods.oauth.flows
 
+import java.net.URI
+
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 
@@ -69,4 +71,9 @@ internal data class PodConsentContext(
   val writeGranted: Boolean,
   val manageGranted: Boolean,
   val managedVia: String? = null,
-)
+) {
+  companion object {
+    /** [uri]'s path after the pod name segment: `…/alice/public/tasks` is `public/tasks`. */
+    fun relativePathOf(uri: String): String = (URI(uri).path?.trimStart('/') ?: uri).let { it.substringAfter('/', it) }
+  }
+}

@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import com.mongodb.MongoWriteException
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.mongo.isDuplicateKey
+import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.objectId
@@ -90,9 +91,14 @@ class PodServiceClientStore @Inject constructor(
     return Registered(stored.toRegistration(), secret)
   }
 
-  /** Why each of [scopes] cannot be held by a service client, by scope; empty when all can. */
+  /**
+   * Why each of [scopes] cannot be held by a service client, by scope; empty when all can. A scope is
+   * held as written, so one the validator would have to trim first is refused rather than stored
+   * padded.
+   */
   internal fun ungrantable(pod: HostedPod, scopes: Set<String>): Map<String, String> =
     scopes.mapNotNull { scope ->
+      if (scope != scope.trim()) return@mapNotNull scope to "a scope carries no surrounding whitespace"
       when (val parsed = podScopeValidator.validate(scope, pod.baseUrl)) {
         is ScopeValidationResult.Context -> null
         is ScopeValidationResult.Invalid -> scope to parsed.reason
@@ -116,35 +122,11 @@ class PodServiceClientStore @Inject constructor(
     dao.findByPod(pod.objectId()).map { it.toRegistration() }
 
   /**
-   * Adds [scopes] to the registration [expected] names, and answers whether it was still there.
-   * Throws, like [register], for a scope a service client cannot hold. [changedBy] is the person
-   * approving them.
-   */
-  internal fun addScopes(
-    pod: HostedPod,
-    clientId: String,
-    expected: ServiceClientRegistrationId,
-    scopes: Set<String>,
-    changedBy: String,
-  ): Boolean {
-    requireGrantable(pod, clientId, scopes)
-    return dao.addScopes(pod.id.objectId(), clientId, expected.objectId(), scopes, changedBy)
-  }
-
-  /** [changedBy] removes [scopes]; answers the registration afterwards, or `null` where there is none. */
-  internal fun removeScopes(pod: PodId, clientId: String, scopes: Set<String>, changedBy: String): ServiceClientRegistration? =
-    dao.removeScopes(pod.objectId(), clientId, scopes, changedBy)?.toRegistration()
-
-  /**
    * Drops [scopes] from the registration [expected] names, for the server's check after a grant
    * write; one re-created under the same `clientId` is left alone. `false` where it is gone.
    */
   internal fun dropScopes(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, scopes: Set<String>): Boolean =
     dao.dropScopes(pod.objectId(), clientId, expected.objectId(), scopes)
-
-  /** See [PodServiceClientDao.reinstateDeadline]. */
-  internal fun reinstateDeadline(pod: PodId, clientId: String, expected: ServiceClientRegistrationId, pendingUntil: Instant): Boolean =
-    dao.reinstateDeadline(pod.objectId(), clientId, expected.objectId(), pendingUntil)
 
   /**
    * Makes [scopes] the grants of the registration [expected] names, if they are still at
@@ -178,13 +160,16 @@ class PodServiceClientStore @Inject constructor(
   /**
    * Replaces the secret and answers the new one, the only time it is readable. The registration and
    * its grants stay. [SecretRotation.Conflict] where another rotation landed in between: answering a
-   * second secret would hand out one that does not work.
+   * second secret would hand out one that does not work. [expectedSecretId], where given, is the
+   * secret the caller decided on; another one standing now is such a rotation.
    */
-  internal fun rotateSecret(pod: PodId, clientId: String): SecretRotation {
+  internal fun rotateSecret(pod: PodId, clientId: String, expectedSecretId: String? = null): SecretRotation {
     val row = dao.findByClientId(pod.objectId(), clientId) ?: return SecretRotation.NotFound
+    if (expectedSecretId != null && row.toRegistration().secretId != expectedSecretId) return SecretRotation.Conflict
     val secret = mintSecret()
-    val replaced = dao.replaceSecretHash(pod.objectId(), clientId, row.secretHash, hashSecret(secret))
-    return if (replaced) SecretRotation.Rotated(row.toRegistration(), secret) else SecretRotation.Conflict
+    val hash = hashSecret(secret)
+    val replaced = dao.replaceSecretHash(pod.objectId(), clientId, row.secretHash, hash)
+    return if (replaced) SecretRotation.Rotated(row.copy(secretHash = hash).toRegistration(), secret) else SecretRotation.Conflict
   }
 
   /** What [rotateSecret] did. */
@@ -214,13 +199,20 @@ class PodServiceClientStore @Inject constructor(
    * [PodClientDirectory][org.sempods.pods.oauth.flows.PodClientDirectory] places nowhere.
    */
   internal fun registerProvisional(pod: HostedPod, label: String, redirectUris: List<String>): Registered =
+    registerService(pod, label, redirectUris, provisional = true)
+
+  /**
+   * Registers a service as [registerProvisional] does, or active from the start where it is not
+   * [provisional]: what the owner's own authority registers.
+   */
+  internal fun registerService(pod: HostedPod, label: String, redirectUris: List<String>, provisional: Boolean): Registered =
     register(
       pod,
       SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(),
       scopes = emptySet(),
       label = label,
       redirectUris = redirectUris,
-      pendingUntil = Instant.now().plus(ACTIVATION_WINDOW),
+      pendingUntil = if (provisional) Instant.now().plus(ACTIVATION_WINDOW) else null,
     )
 
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
@@ -236,6 +228,8 @@ class PodServiceClientStore @Inject constructor(
     grantsVersion = grantsVersion,
     redirectUris = redirectUris,
     pendingUntil = pendingUntil,
+    // Derived from the hash, whose salt is new with every secret, so no row needs a field for it.
+    secretId = sha256Hex(secretHash).take(SECRET_ID_LENGTH),
   )
 
   /**
@@ -254,10 +248,10 @@ class PodServiceClientStore @Inject constructor(
   //   pool. Service-client secrets are 32 random bytes (high-entropy, not
   //   password-derived), so a constant-time HMAC compare is the right
   //   primitive; bcrypt's slowness buys nothing here. Migration is free only
-  //   while no production service clients exist — i.e. before the
-  //   live service-client bootstrap registered a client on every
-  //   pod; after that it becomes a forced secret rotation (unregister every
-  //   affected client, then re-run the idempotent bootstrap to re-mint).
+  //   while no production service clients exist; after that it becomes a
+  //   forced secret rotation (re-running the provisioning with a stale
+  //   `expectedRegistrationId` rotates an operator's client, an owner rotates
+  //   a `svc:` one).
   //   Touch points: [mintSecret], [hashSecret],
   //   [verifySecret], plus a new pod-scoped verifier key alongside the RSA
   //   signing key.
@@ -325,6 +319,9 @@ class PodServiceClientStore @Inject constructor(
     /** How long a self-registered service waits for the owner's consent before it is removed. */
     internal val ACTIVATION_WINDOW: Duration = Duration.ofHours(24)
 
+    /** Hex characters of [ServiceClientRegistration.secretId]: 128 bits. */
+    private const val SECRET_ID_LENGTH = 32
+
     /** Lets operators recognise pod service-client secrets at a glance. */
     private const val SECRET_PREFIX = "sc_"
 
@@ -360,10 +357,16 @@ internal data class ServiceClientRegistration(
   val redirectUris: List<String> = emptyList(),
   /** See `PodServiceClientDbo.pendingUntil`: set until the owner activates it, `null` after. */
   val pendingUntil: Instant? = null,
+  /**
+   * Names the secret that authenticates now, and changes with every secret issued; it tells nothing
+   * about the secret itself. The admin API hands it out as `secretId`, so a caller can tell whether
+   * the secret it holds is still the current one while [id] stays the same.
+   */
+  val secretId: String,
 ) {
 
   /** Whether this pod named it (`svc:`). `false` for an operator-provisioned client. */
-  val installed: Boolean get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)
+  val registered: Boolean get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)
 }
 
 /**

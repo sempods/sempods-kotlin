@@ -18,8 +18,8 @@ class ControlPlaneJsonTest {
 
   @Test
   fun `holding nothing travels as an explicit null`() {
-    assertEquals("""{"expectedRegistrationId":null}""", ControlPlaneJson.provisionRequest(null))
-    assertEquals("""{"expectedRegistrationId":"r1"}""", ControlPlaneJson.provisionRequest("r1"))
+    assertEquals("""{"expectedRegistrationId":null,"expectedSecretId":null}""", ControlPlaneJson.provisionRequest(null, null))
+    assertEquals("""{"expectedRegistrationId":"r1","expectedSecretId":"s1"}""", ControlPlaneJson.provisionRequest("r1", "s1"))
   }
 
   @Test
@@ -30,6 +30,7 @@ class ControlPlaneJsonTest {
         "result": "provisioned",
         "clientId": "notes-app",
         "registrationId": "r1",
+        "secretId": "s1",
         "scopes": ["https://pods.example/alice/_system/contexts/apps/notes#manage"],
         "contextRoot": "https://pods.example/alice/_system/contexts/apps/notes",
         "secret": "sc_secret",
@@ -41,6 +42,7 @@ class ControlPlaneJsonTest {
 
     assertFalse(result.alreadyProvisioned)
     assertEquals("r1", result.registrationId)
+    assertEquals("s1", result.secretId)
     assertEquals("sc_secret", result.secret)
     assertEquals(URI("https://pods.example/alice/_system/contexts/apps/notes"), result.contextRoot)
     assertEquals(setOf("https://pods.example/alice/_system/contexts/apps/notes#manage"), result.scopes)
@@ -64,7 +66,7 @@ class ControlPlaneJsonTest {
 
   @Test
   fun `each missing contract field is named rather than passing silently`() {
-    listOf("result", "registrationId", "contextRoot", "scopes").forEach { missing ->
+    listOf("result", "registrationId", "secretId", "contextRoot", "scopes").forEach { missing ->
       val refused = assertThrows<IllegalArgumentException>("missing '$missing' must not pass silently") {
         ControlPlaneJson.provisioned(complete(without = missing), fallbackClientId = "notes-app")
       }
@@ -93,6 +95,7 @@ class ControlPlaneJsonTest {
       "result" to "\"alreadyProvisioned\"",
       "clientId" to "\"notes-app\"",
       "registrationId" to "\"r1\"",
+      "secretId" to "\"s1\"",
       "scopes" to """["s"]""",
       "contextRoot" to "\"https://pods.example/a\"",
       "secret" to "\"sc_secret\"",

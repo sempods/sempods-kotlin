@@ -87,9 +87,10 @@ internal class DelegatedAccessFlow {
     fun has(id: String): Boolean = Regex("""\sid="${Regex.escape(id)}"""").containsMatchIn(form)
 
     companion object {
-      fun of(response: TestHttpResponse): ConsentPage {
+      /** @param formId `consentForm` for delegated access, `serviceConsentForm` for a service consent. */
+      fun of(response: TestHttpResponse, formId: String = "consentForm"): ConsentPage {
         assertEquals(200, response.statusCode, "no consent page: ${response.getHeader("Location")} ${response.responseBody}")
-        val form = checkNotNull(Regex("""<form id="consentForm".*?</form>""", RegexOption.DOT_MATCHES_ALL).find(response.responseBody)) {
+        val form = checkNotNull(Regex("""<form id="$formId".*?</form>""", RegexOption.DOT_MATCHES_ALL).find(response.responseBody)) {
           "no consent form: ${response.responseBody}"
         }.value.replace(Regex("<template.*?</template>", RegexOption.DOT_MATCHES_ALL), "")
         val action = unescape(checkNotNull(Regex("""<form[^>]*\saction="([^"]*)"""").find(form)).groupValues[1])

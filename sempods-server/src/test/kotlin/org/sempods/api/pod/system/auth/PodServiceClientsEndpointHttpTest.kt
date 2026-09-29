@@ -2,6 +2,7 @@ package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
+import org.sempods.api.pod.system.auth.ServiceAccessFlow.Service
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.assertPodBearerChallenge
@@ -14,14 +15,9 @@ import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
-import com.mongodb.client.MongoDatabase
-import com.mongodb.client.model.Filters
-import com.mongodb.client.model.Updates
-import org.sempods.SempodsCollections
-import org.sempods.pods.mongo.persist.podId
-import java.util.Date
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
 import java.net.URI
@@ -33,12 +29,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * An owner-installed service client after its registration: the grant consent that gives it
- * contexts, and the list, rotation, grant removal and revocation an owner manages it with
- * (`docs/auth/service-clients.md` §"Managing an installed service client").
+ * An owner's service clients over the API: registering one with the owner's authority, the reads,
+ * the grant replace, rotation and revocation (`docs/auth/service-clients.md` §"Managing service
+ * clients"). The consent that gives a service contexts in the browser is `ServiceConsentHttpTest`'s.
  *
- * Every step runs at the wire, installation included, because the two authorities involved —
- * installing and managing — are told apart by the scopes their bearers carry and nothing else.
+ * Every step runs at the wire, because the management authority is told apart by the scopes its
+ * bearer carries and nothing else.
  */
 @Suppress("UNCHECKED_CAST")
 class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
@@ -56,7 +52,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   private lateinit var podDao: PodDao
 
   @Inject
-  private lateinit var db: MongoDatabase
+  private lateinit var services: ServiceAccessFlow
 
   private val installerClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
@@ -67,14 +63,14 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   // ── The whole life of one installation ──────────────────────────────────────
 
   @Test
-  fun `an installed service is granted, used, narrowed, regranted, rotated and revoked`() {
+  fun `a registered service is granted, used, emptied, regranted, rotated and revoked`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
-    val installed = install(owned)
+    val installed = services.register(owned.pod)
 
-    // The second consent names the service by its label, beside the pod's own two facts.
-    val page = openGrant(owned, installed.clientId, "$notes#read")
+    // The owner's consent names the service by its label, beside the pod's own two facts.
+    val page = services.open(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie)
     assertEquals(200, page.statusCode, page.responseBody)
     assertTrue("Notes Sync" in page.responseBody, "the dialog names the service by its label")
     assertTrue(installed.clientId in page.responseBody, "and shows the identifier this pod assigned")
@@ -82,46 +78,36 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       Instant.ofEpochSecond(installed.issuedAt).toString() in page.responseBody,
       "and when it was registered",
     )
-
-    val granted = submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read"))
-    assertEquals(303, granted.statusCode, granted.responseBody)
-    val back = query(granted)
-    assertEquals("granted", back["result"], "the caller learns it was granted")
-    assertEquals("$notes#read", back["scope"])
-    assertEquals("grant-1", back["state"])
+    confirm(owned, installed, setOf("$notes#read"))
 
     // Inside the grant and not outside it.
-    val serviceToken = serviceToken(owned, installed.clientId, installed.secret)
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken))
-    assertFalse(diary in contextsReachableBy(owned.pod, serviceToken))
+    val serviceToken = services.accessToken(owned.pod, installed.clientId, installed.secret)
+    assertEquals(listOf(notes), services.contexts(owned.pod, serviceToken))
+    assertFalse(diary in services.contexts(owned.pod, serviceToken))
 
     // The owner's list: the grant, when it was last used, and never a secret.
     val manager = approveManagement(owned)
     val listed = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
     assertEquals("$notes#read", listed["scope"])
     assertEquals("Notes Sync", listed["client_name"])
-    assertEquals("installed", listed["origin"])
+    assertEquals("registered", listed["origin"])
     assertTrue(listed["last_used_at"] != null, "the token just minted is what makes it visible")
     assertFalse(listed.keys.any { "secret" in it }, "a list never carries a secret: $listed")
 
-    // Remove the last grant: the registration stays, holds nothing and mints nothing.
-    val narrowed = http.prepareDelete(grantsUrl(owned, installed.clientId))
-      .addQueryParam("scope", "$notes#read")
-      .addHeader("Authorization", "Bearer $manager")
-      .execute()
-    assertEquals(200, narrowed.statusCode, narrowed.responseBody)
-    assertEquals("", json(narrowed)["scope"])
-    assertEquals(400, mint(owned, installed.clientId, installed.secret).statusCode)
+    // Replace the grants with none: the registration stays, holds nothing and mints nothing.
+    val emptied = replaceGrants(owned, manager, installed.clientId, "[]", ifMatch = read(owned, manager, installed.clientId).tag)
+    assertEquals(200, emptied.statusCode, emptied.responseBody)
+    assertEquals("", json(emptied)["scope"])
+    assertEquals(400, services.token(owned.pod, installed.clientId, installed.secret).statusCode)
     assertEquals(
       emptyList(),
-      contextsReachableBy(owned.pod, serviceToken),
+      services.contexts(owned.pod, serviceToken),
       "a token minted before the removal reaches nothing on its next request",
     )
     assertTrue(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
 
     // And a later consent grants it again.
-    val regranted = submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$diary#write")), installed.clientId, listOf("$diary#write"))
-    assertEquals("granted", query(regranted)["result"], regranted.responseBody)
+    confirm(owned, installed, setOf("$diary#write"))
 
     // Rotation: the old secret stops at once, the new one works, the grants stay.
     val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(installed.clientId)}/secret")
@@ -130,9 +116,9 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, rotated.statusCode, rotated.responseBody)
     assertEquals("no-store", rotated.getHeader("Cache-Control"))
     val newSecret = json(rotated)["client_secret"] as String
-    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "the old secret is gone")
-    val afterRotation = serviceToken(owned, installed.clientId, newSecret)
-    assertEquals(listOf(diary), contextsReachableBy(owned.pod, afterRotation))
+    assertEquals(401, services.token(owned.pod, installed.clientId, installed.secret).statusCode, "the old secret is gone")
+    val afterRotation = services.accessToken(owned.pod, installed.clientId, newSecret)
+    assertEquals(listOf(diary), services.contexts(owned.pod, afterRotation))
     val (written, entry) = writeNote(diary, owned, afterRotation)
     assertEquals(201, written.statusCode, written.responseBody)
 
@@ -141,8 +127,8 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $manager")
       .execute()
     assertEquals(204, revoked.statusCode, revoked.responseBody)
-    assertEquals(401, mint(owned, installed.clientId, newSecret).statusCode)
-    assertEquals(emptyList(), contextsReachableBy(owned.pod, afterRotation))
+    assertEquals(401, services.token(owned.pod, installed.clientId, newSecret).statusCode)
+    assertEquals(emptyList(), services.contexts(owned.pod, afterRotation))
     assertTrue(
       podFacade.getContexts(owned.pod.name).any { it.toString() == diary },
       "revoking a service leaves the owner's contexts where they are",
@@ -154,327 +140,163 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertFalse(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
   }
 
-  // ── The grant consent as a transaction ──────────────────────────────────────
+  // ── The owner's API ─────────────────────────────────────────────────────────
 
   @Test
-  fun `a grant consent is redeemed once`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val token = formToken(openGrant(owned, installed.clientId, "$notes#read"))
-
-    assertEquals("granted", query(submitGrant(owned, token, installed.clientId, listOf("$notes#read")))["result"])
-    val replay = submitGrant(owned, token, installed.clientId, listOf("$notes#read"))
-    assertEquals(403, replay.statusCode, replay.responseBody)
-  }
-
-  @Test
-  fun `an answer for a different service is refused`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val first = install(owned)
-    val second = install(owned)
-    val token = formToken(openGrant(owned, first.clientId, "$notes#read"))
-
-    val swapped = submitGrant(owned, token, second.clientId, listOf("$notes#read"))
-
-    assertEquals("invalid_request", query(swapped)["error"], swapped.responseBody)
-    assertEquals("", serviceClientStore.find(owned.pod.hosted.id, second.clientId)!!.scopes.joinToString())
-    assertEquals("", serviceClientStore.find(owned.pod.hosted.id, first.clientId)!!.scopes.joinToString())
-  }
-
-  @Test
-  fun `an answer that widens or swaps the grant set is refused`() {
+  fun `a management bearer registers a service active, and a replace of C#read lets it read C`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
-    val installed = install(owned)
-
-    val widened = submitGrant(
-      owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId,
-      listOf("$notes#read", "$notes#write"),
-    )
-    assertEquals("invalid_scope", query(widened)["error"], widened.responseBody)
-
-    val swapped = submitGrant(
-      owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId, listOf("$diary#manage"),
-    )
-    assertEquals("invalid_scope", query(swapped)["error"], swapped.responseBody)
-    assertTrue(serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes.isEmpty())
-  }
-
-  @Test
-  fun `a narrower answer grants only what stayed ticked, and an empty one is a refusal`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-
-    val partial = submitGrant(
-      owned, formToken(openGrant(owned, installed.clientId, "$notes#read $notes#write")), installed.clientId,
-      listOf("$notes#read"),
-    )
-    assertEquals("$notes#read", query(partial)["scope"], partial.responseBody)
-
-    val none = submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#write")), installed.clientId, emptyList())
-    assertEquals("access_denied", query(none)["error"], none.responseBody)
-
-    val refused = submitGrant(
-      owned, formToken(openGrant(owned, installed.clientId, "$notes#write")), installed.clientId, listOf("$notes#write"),
-      action = "refuse",
-    )
-    assertEquals("access_denied", query(refused)["error"], refused.responseBody)
-    assertEquals(setOf("$notes#read"), serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes)
-  }
-
-  @Test
-  fun `a transaction belongs to the browser session that opened it`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val token = formToken(openGrant(owned, installed.clientId, "$notes#read"))
-
-    // Same person, another sign-in.
-    val otherSession = sessionCookieSignedInAt(owned.pod.name, owned.webId, Instant.now().minusSeconds(120))
-    val answered = submitGrant(owned, token, installed.clientId, listOf("$notes#read"), cookie = otherSession)
-
-    assertEquals(403, answered.statusCode, answered.responseBody)
-    assertTrue(serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes.isEmpty())
-  }
-
-  @Test
-  fun `an approval is measured again when it is redeemed`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val token = formToken(openGrant(owned, installed.clientId, "$notes#read"))
-
-    // The context goes while the dialog stands open: the approval does not bring it back.
-    podFacade.removeContext(owned.pod.name, URI(notes))
-    val answered = submitGrant(owned, token, installed.clientId, listOf("$notes#read"))
-
-    assertEquals("access_denied", query(answered)["error"], answered.responseBody)
-    assertTrue(serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes.isEmpty())
-  }
-
-  @Test
-  fun `a service revoked while its dialog is open is not granted`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val token = formToken(openGrant(owned, installed.clientId, "$notes#read"))
-
-    val manager = approveManagement(owned)
-    assertEquals(
-      204,
-      http.prepareDelete("${serviceClientsUrl(owned)}/${enc(installed.clientId)}")
-        .addHeader("Authorization", "Bearer $manager").execute().statusCode,
-    )
-    val answered = submitGrant(owned, token, installed.clientId, listOf("$notes#read"))
-
-    assertEquals("access_denied", query(answered)["error"], answered.responseBody)
-    assertNull(serviceClientStore.find(owned.pod.hosted.id, installed.clientId))
-  }
-
-  @Test
-  fun `someone other than the owner is answered like a refusal`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-
-    val stranger = openGrant(owned, installed.clientId, "$notes#read", cookie = signIn(owned.pod.name, "https://id.test/stranger").cookie)
-
-    assertEquals(303, stranger.statusCode, stranger.responseBody)
-    assertEquals("access_denied", query(stranger)["error"])
-    assertEquals("the grant was not given", query(stranger)["error_description"])
-  }
-
-  @Test
-  fun `an unknown service reads exactly like a refusal`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-
-    val unknown = openGrant(owned, "svc:nobody", "$notes#read")
-
-    assertEquals("access_denied", query(unknown)["error"], unknown.responseBody)
-    assertEquals("the grant was not given", query(unknown)["error_description"])
-  }
-
-  @Test
-  fun `a redirect the requesting client does not own is answered to the browser, not delivered`() {
-    val owned = ownedPod()
-    val installed = install(owned)
-
-    val foreign = http.prepareGet(grantUrl(owned))
-      .addQueryParam("client_id", installerClientId)
-      .addQueryParam("redirect_uri", "https://evil.example/cb")
-      .addQueryParam("service_client", installed.clientId)
-      .addQueryParam("scope", "${owned.context("notes")}#read")
-      .addHeader("Cookie", signIn(owned.pod.name, owned.webId).cookie)
-      .setFollowRedirect(false).execute()
-
-    assertEquals(400, foreign.statusCode, foreign.responseBody)
-    assertTrue(foreign.getHeader("Location").isNullOrBlank())
-  }
-
-  @Test
-  fun `a grant consent opened without a session resumes after the sign-in`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-
-    val resumed = http.prepareGet(grantUrl(owned))
-      .addQueryParam("client_id", installerClientId)
-      .addQueryParam("redirect_uri", redirectUri)
-      .addQueryParam("state", "grant-1")
-      .addQueryParam("service_client", installed.clientId)
-      .addQueryParam("scope", "$notes#read")
-      .executeSignedInAs(owned.webId)
-
-    assertEquals(200, resumed.statusCode, resumed.responseBody)
-    assertTrue(installed.clientId in resumed.responseBody, "the callback resumes the grant dialog, not /authorize")
-  }
-
-  @Test
-  fun `a read grant on an existing context reads it and writes nothing`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val existing = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(notes))
-    val installed = install(owned)
-    submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId, listOf("$notes#read"))
-    val token = serviceToken(owned, installed.clientId, installed.secret)
-
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, token))
-    assertEquals(200, read(existing, token).statusCode, "what the context held before the service existed")
-    val write = writeNote(notes, owned, token).first
-    assertEquals(403, write.statusCode, write.responseBody)
-  }
-
-  @Test
-  fun `a write grant writes, and nothing beside the grants is read or written`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val diary = owned.context("diary")
-    val entry = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(diary))
-    val installed = install(owned)
-    submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#write")), installed.clientId, listOf("$notes#write"))
-    val token = serviceToken(owned, installed.clientId, installed.secret)
-
-    val (written, note) = writeNote(notes, owned, token)
-    assertEquals(201, written.statusCode, written.responseBody)
-    assertEquals(200, read(note, token).statusCode, "a write grant reads what it wrote")
-
-    val outside = writeNote(diary, owned, token).first
-    assertEquals(403, outside.statusCode, outside.responseBody)
-    assertEquals(404, read(entry, token).statusCode, "a context it was not granted reads as absent")
-  }
-
-  @Test
-  fun `a service holding no grants is rotated, and granted later`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
     val manager = approveManagement(owned)
 
-    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(installed.clientId)}/secret")
-      .addHeader("Authorization", "Bearer $manager")
-      .execute()
+    val registered = register(owned, manager)
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertFalse("activation_expires_at" in json(registered), "the owner's own authority activates it: ${registered.responseBody}")
+    val clientId = json(registered)["client_id"] as String
+    val secret = json(registered)["client_secret"] as String
+    assertTrue(clientId.startsWith("svc:"), clientId)
+
+    val before = read(owned, manager, clientId)
+    assertEquals("\"0\"", before.tag)
+    assertEquals(0, before.body["grants_version"])
+    assertEquals("", before.body["scope"])
+    assertFalse("activation_expires_at" in before.body)
+
+    val replaced = replaceGrants(owned, manager, clientId, """["$notes#read"]""", ifMatch = before.tag)
+    assertEquals(200, replaced.statusCode, replaced.responseBody)
+    assertEquals("\"1\"", replaced.getHeader("ETag"))
+    assertEquals("$notes#read", json(replaced)["scope"])
+    assertEquals("no-store", replaced.getHeader("Cache-Control"))
+
+    val serviceToken = services.accessToken(owned.pod, clientId, secret)
+    assertEquals(listOf(notes), services.contexts(owned.pod, serviceToken))
+    assertFalse(diary in services.contexts(owned.pod, serviceToken))
+    assertEquals(emptyList(), services.contexts(owned.pod, manager), "the management bearer itself reaches no data")
+  }
+
+  @Test
+  fun `a replace names the version it read, and a stale one is 412 and changes nothing`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val clientId = registeredClientId(owned, manager)
+    val first = read(owned, manager, clientId).tag
+    assertEquals(200, replaceGrants(owned, manager, clientId, """["$notes#read"]""", ifMatch = first).statusCode)
+
+    val stale = replaceGrants(owned, manager, clientId, "[]", ifMatch = first)
+    assertEquals(412, stale.statusCode, stale.responseBody)
+    val missing = replaceGrants(owned, manager, clientId, "[]", ifMatch = null)
+    assertEquals(428, missing.statusCode, missing.responseBody)
+    for (malformed in listOf("*", "W/\"1\"", "\"1\", \"2\"", "1")) {
+      val refused = replaceGrants(owned, manager, clientId, "[]", ifMatch = malformed)
+      assertEquals(400, refused.statusCode, "$malformed: ${refused.responseBody}")
+    }
+    for (body in listOf("", "{}", "\"$notes#read\"", "[1]", "[null]", "not json")) {
+      val refused = replaceGrants(owned, manager, clientId, body, ifMatch = "\"1\"")
+      assertEquals(400, refused.statusCode, "$body: ${refused.responseBody}")
+    }
+
+    val after = read(owned, manager, clientId)
+    assertEquals("$notes#read", after.body["scope"])
+    assertEquals("\"1\"", after.tag)
+  }
+
+  @Test
+  fun `a replace refuses public-read, OIDC scopes, a manage root at or above the namespace, and unknown contexts`() {
+    val owned = ownedPod()
+    owned.context("notes")
+    val manager = approveManagement(owned)
+    val clientId = registeredClientId(owned, manager)
+    val namespace = "${podBase(owned)}/_system/contexts"
+
+    for (scope in listOf(PUBLIC_READ_SCOPE, "openid", "offline_access", "$namespace#manage", "${podBase(owned)}#manage", "$namespace/absent#read")) {
+      val refused = replaceGrants(owned, manager, clientId, """["$namespace/notes#read", "$scope"]""", ifMatch = "\"0\"")
+      assertEquals(400, refused.statusCode, "$scope: ${refused.responseBody}")
+    }
+    assertEquals("", read(owned, manager, clientId).body["scope"])
+  }
+
+  @Test
+  fun `a replace of a provisional registration activates it`() {
+    val owned = ownedPod()
+    val provisional = services.register(owned.pod)
+    val manager = approveManagement(owned)
+    assertTrue("activation_expires_at" in read(owned, manager, provisional.clientId).body)
+
+    val activated = replaceGrants(owned, manager, provisional.clientId, "[]", ifMatch = "\"0\"")
+
+    assertEquals(200, activated.statusCode, activated.responseBody)
+    assertFalse("activation_expires_at" in json(activated), activated.responseBody)
+  }
+
+  // ── Who holds the authority ─────────────────────────────────────────────────
+
+  @Test
+  fun `a data token without the scope is 403 at registration and at the replace`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val existing = services.register(owned.pod)
+    val dataToken = mintScopedToken(owned.pod.name, scopes = listOf("$notes#manage"), webId = "https://id.test/someone-else")
+    val ownersApp = mintScopedToken(owned.pod.name, scopes = listOf("$notes#manage"), webId = owned.webId)
+
+    for (bearer in listOf(dataToken, ownersApp)) {
+      assertInsufficientScope(owned, register(owned, bearer))
+      assertInsufficientScope(owned, replaceGrants(owned, bearer, existing.clientId, """["$notes#read"]""", ifMatch = "\"0\""))
+    }
+    assertSecretStands(owned, existing)
+  }
+
+  @Test
+  fun `an authority approved before the consent promised registering can neither register nor assign`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val existing = services.register(owned.pod)
+    val earlier = mintServiceClientsManagerToken(owned.pod.name, owned.webId, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
+    val registrations = serviceClientStore.list(owned.pod.hosted.id).size
+
+    assertInsufficientScope(owned, register(owned, earlier))
+    assertInsufficientScope(owned, replaceGrants(owned, earlier, existing.clientId, """["$notes#read"]""", ifMatch = "\"0\""))
+    assertEquals(registrations, serviceClientStore.list(owned.pod.hosted.id).size, "nothing was registered")
+    assertEquals(200, http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $earlier").execute().statusCode,
+      "it still reads, as its consent said")
+    assertSecretStands(owned, existing)
+
+    // And it still takes a service away, as its consent said.
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(existing.clientId)}/secret")
+      .addHeader("Authorization", "Bearer $earlier").execute()
     assertEquals(200, rotated.statusCode, rotated.responseBody)
-    val newSecret = json(rotated)["client_secret"] as String
-    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "the old secret is gone")
-    val holdingNothing = mint(owned, installed.clientId, newSecret)
-    assertEquals(400, holdingNothing.statusCode, holdingNothing.responseBody)
-    assertTrue("invalid_scope" in holdingNothing.responseBody, "the new secret authenticates: ${holdingNothing.responseBody}")
-
-    submitGrant(owned, formToken(openGrant(owned, installed.clientId, "$notes#read")), installed.clientId, listOf("$notes#read"))
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, newSecret)))
+    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(existing.clientId)}")
+      .addHeader("Authorization", "Bearer $earlier").execute()
+    assertEquals(204, revoked.statusCode, revoked.responseBody)
   }
 
   @Test
-  fun `a broader consent opened later does not widen one already open`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val diary = owned.context("diary")
-    val installed = install(owned)
-    val narrow = formToken(openGrant(owned, installed.clientId, "$notes#read"))
-    val broad = formToken(openGrant(owned, installed.clientId, "$notes#read $diary#write"))
-
-    val widened = submitGrant(owned, narrow, installed.clientId, listOf("$notes#read", "$diary#write"))
-    assertEquals("invalid_scope", query(widened)["error"], widened.responseBody)
-    assertTrue(serviceClientStore.find(owned.pod.hosted.id, installed.clientId)!!.scopes.isEmpty())
-
-    val granted = submitGrant(owned, broad, installed.clientId, listOf("$notes#read", "$diary#write"))
-    assertEquals("granted", query(granted)["result"], granted.responseBody)
-  }
-
-  @Test
-  fun `an owner signed in under a linked alias grants the service its contexts`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val alias = "https://id.test/oidc/${org.sempods.commons.tests.TestUtil.randomId()}"
-    val cookie = signIn(owned.pod.name, alias, alsoKnownAs = listOf(owned.webId)).cookie
-
-    val page = openGrant(owned, installed.clientId, "$notes#read", cookie = cookie)
-    assertEquals(200, page.statusCode, page.responseBody)
-    val granted = submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read"), cookie = cookie)
-
-    assertEquals("granted", query(granted)["result"], granted.responseBody)
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, installed.secret)))
-  }
-
-  // ── Two authorities ─────────────────────────────────────────────────────────
-
-  @Test
-  fun `a grant approval activates a registration that was waiting for it`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val manager = approveManagement(owned)
-    val pending = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
-    assertTrue(pending["activation_expires_at"] is Number, "a provisional registration shows its deadline: $pending")
-
-    val page = openGrant(owned, installed.clientId, "$notes#read")
-    assertEquals("granted", query(submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read")))["result"])
-
-    val active = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
-    assertFalse("activation_expires_at" in active, "an active registration carries no deadline: $active")
-    assertNull(assertNotNull(serviceClientStore.find(owned.pod.podId(), installed.clientId)).pendingUntil)
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken(owned, installed.clientId, installed.secret)))
-  }
-
-  @Test
-  fun `a late approval does not revive a registration past its deadline`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val installed = install(owned)
-    val page = openGrant(owned, installed.clientId, "$notes#read")
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).updateOne(
-      Filters.eq("clientId", installed.clientId),
-      Updates.set("pendingUntil", Date.from(Instant.now().minusSeconds(60))),
-    )
-
-    val late = submitGrant(owned, formToken(page), installed.clientId, listOf("$notes#read"))
-
-    assertEquals("access_denied", query(late)["error"], late.getHeader("Location"))
-    assertNull(serviceClientStore.find(owned.pod.podId(), installed.clientId), "still absent to every read")
-    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "and it cannot authenticate")
-  }
-
-  @Test
-  fun `a management bearer reaches no data, and registers a service like anyone`() {
-    // What a manager's bearer adds to a registration is #332's to decide; here it adds nothing.
+  fun `a replace for an unknown service is 404, and a body of another media type is read after the bearer`() {
     val owned = ownedPod()
     owned.context("notes")
     val manager = approveManagement(owned)
 
-    val registered = http.preparePost(registerUrl(owned))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $manager")
-      .setBody(serviceBody)
+    val unknown = replaceGrants(owned, manager, "svc:nobody", "[]", ifMatch = "\"0\"")
+    assertEquals(404, unknown.statusCode, unknown.responseBody)
+
+    val clientId = registeredClientId(owned, manager)
+    fun plainText(bearer: String?) = http.preparePut(grantsUrl(owned, clientId))
+      .addHeader("Content-Type", "text/plain")
+      .addHeader("If-Match", "\"0\"")
+      .apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }
+      .setBody("[]")
       .execute()
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    assertTrue("activation_expires_at" in json(registered), registered.responseBody)
-    assertEquals(emptyList(), contextsReachableBy(owned.pod, manager))
+    assertPodBearerChallenge(plainText(null), owned.pod.name)
+    assertEquals(200, plainText(manager).statusCode, "the body is what is read, whatever it is labelled")
+  }
+
+  @Test
+  fun `the management consent says it registers services and gives them access`() {
+    val page = authorizePage(ownedPod(), SERVICE_CLIENTS_MANAGE_SCOPE)
+    assertEquals(200, page.statusCode, page.responseBody)
+    assertTrue("register new services and give them access to your data" in page.responseBody, page.responseBody)
+    assertTrue("change or take away the" in page.responseBody, page.responseBody)
+    assertFalse("cannot give" in page.responseBody, "the old promise is gone")
   }
 
   @Test
@@ -497,7 +319,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   fun `a management bearer sees only its own pod`() {
     val mine = ownedPod()
     val theirs = ownedPod()
-    val theirService = install(theirs)
+    val theirService = services.register(theirs.pod)
     val manager = approveManagement(mine)
 
     val listed = listServiceClients(mine, manager)
@@ -508,17 +330,25 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an operator-provisioned client is listed and not changed`() {
+  fun `an operator-provisioned client's grants are the owner's, and its secret and registration are not`() {
     val owned = ownedPod()
+    val notes = owned.context("notes")
     val appRoot = "${podBase(owned)}/_system/contexts/apps/backend"
     serviceClientStore.register(owned.pod.hosted, "backend", setOf("$appRoot#manage"), label = "backend")
     val manager = approveManagement(owned)
 
     val listed = listServiceClients(owned, manager).single { it["client_id"] == "backend" }
     assertEquals("provisioned", listed["origin"])
+    val narrowed = replaceGrants(owned, manager, "backend", """["$notes#read"]""", ifMatch = read(owned, manager, "backend").tag)
+    assertEquals(200, narrowed.statusCode, narrowed.responseBody)
+    assertEquals("$notes#read", json(narrowed)["scope"])
+
     val rotated = http.preparePost("${serviceClientsUrl(owned)}/backend/secret")
       .addHeader("Authorization", "Bearer $manager").execute()
     assertEquals(403, rotated.statusCode, rotated.responseBody)
+    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/backend")
+      .addHeader("Authorization", "Bearer $manager").execute()
+    assertEquals(403, revoked.statusCode, revoked.responseBody)
   }
 
   @Test
@@ -567,7 +397,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   fun `a missing bearer is answered exactly like a rejected one on every route`() {
     // SPS-CORE-015: every route here requires authentication.
     val owned = ownedPod()
-    val existing = install(owned)
+    val existing = services.register(owned.pod)
 
     for (route in managementRoutes(owned, existing.clientId)) {
       val missing = route(null)
@@ -585,21 +415,24 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a valid bearer without the owner's authority is 403 insufficient_scope on every route`() {
     val owned = ownedPod()
-    val existing = install(owned)
+    val existing = services.register(owned.pod)
     val someoneElsesApp = mintScopedToken(owned.pod.name, scopes = emptyList(), webId = "https://id.test/someone-else")
     val formerOwner = approveManagement(owned)
     podDao.setOwner(checkNotNull(owned.pod.id), webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email))
 
     for (bearer in listOf(someoneElsesApp, formerOwner)) {
       for (route in managementRoutes(owned, existing.clientId)) {
-        val response = route(bearer)
-        assertEquals(403, response.statusCode, response.responseBody)
-        val challenge = checkNotNull(response.getHeader("WWW-Authenticate"))
-        assertTrue("error=\"insufficient_scope\"" in challenge, challenge)
-        assertTrue("resource_metadata=\"${podBase(owned)}/.well-known/oauth-protected-resource\"" in challenge, challenge)
+        assertInsufficientScope(owned, route(bearer))
       }
     }
     assertSecretStands(owned, existing)
+  }
+
+  private fun assertInsufficientScope(owned: Owned, response: TestHttpResponse) {
+    assertEquals(403, response.statusCode, response.responseBody)
+    val challenge = checkNotNull(response.getHeader("WWW-Authenticate"))
+    assertTrue("error=\"insufficient_scope\"" in challenge, challenge)
+    assertTrue("resource_metadata=\"${podBase(owned)}/.well-known/oauth-protected-resource\"" in challenge, challenge)
   }
 
   // ── Fixture ─────────────────────────────────────────────────────────────────
@@ -612,8 +445,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  private data class Installed(val clientId: String, val secret: String, val issuedAt: Long)
-
   private fun ownedPod(): Owned {
     val owner = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = owner)
@@ -623,7 +454,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   private fun podBase(owned: Owned) = "${SempodsModule.config.apiBaseUrl}${owned.pod.name}"
   private fun serviceClientsUrl(owned: Owned) = "${podBase(owned)}/_system/auth/service-clients"
   private fun grantsUrl(owned: Owned, clientId: String) = "${serviceClientsUrl(owned)}/${enc(clientId)}/grants"
-  private fun grantUrl(owned: Owned) = "${podBase(owned)}/_system/auth/grant"
   private fun registerUrl(owned: Owned) = "${podBase(owned)}/_system/auth/register"
   private fun tokenUrl(owned: Owned) = "${podBase(owned)}/_system/auth/token"
 
@@ -698,86 +528,63 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     alsoKnownAs: List<String> = emptyList(),
   ): String = approvePrivileged(owned, SERVICE_CLIENTS_MANAGE_SCOPE, signedInAs, alsoKnownAs)["access_token"] as String
 
-  /** A service registering itself: provisional until the owner grants it contexts. */
-  private fun install(owned: Owned): Installed {
-    val registered = http.preparePost(registerUrl(owned))
-      .addHeader("Content-Type", "application/json")
-      .setBody(serviceBody)
-      .execute()
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    val body = json(registered)
-    return Installed(
-      clientId = body["client_id"] as String,
-      secret = body["client_secret"] as String,
-      issuedAt = (body["client_id_issued_at"] as Number).toLong(),
-    )
-  }
-
-  private fun openGrant(
-    owned: Owned,
-    serviceClient: String,
-    scope: String,
-    cookie: String = signIn(owned.pod.name, owned.webId).cookie,
-  ): TestHttpResponse = http.prepareGet(grantUrl(owned))
-    .addQueryParam("client_id", installerClientId)
-    .addQueryParam("redirect_uri", redirectUri)
-    .addQueryParam("state", "grant-1")
-    .addQueryParam("service_client", serviceClient)
-    .addQueryParam("scope", scope)
-    .addHeader("Cookie", cookie)
-    .setFollowRedirect(false).execute()
-
-  private fun submitGrant(
-    owned: Owned,
-    token: String,
-    serviceClient: String,
-    scopes: List<String>,
-    action: String = "grant",
-    cookie: String = signIn(owned.pod.name, owned.webId).cookie,
-  ): TestHttpResponse = http.preparePost(grantUrl(owned))
-    .addHeader("Content-Type", "application/x-www-form-urlencoded")
-    .addHeader("Cookie", cookie)
-    .setBody(
-      "csrf=${enc(token)}&service_client=${enc(serviceClient)}&action=$action" +
-        scopes.joinToString("") { "&scope=${enc(it)}" },
-    )
-    .setFollowRedirect(false).execute()
+  /** The owner's service consent for [installed], confirmed with [scopes] ticked. */
+  private fun confirm(owned: Owned, installed: Service, scopes: Set<String>) =
+    services.confirm(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie, scopes)
 
   private fun formToken(page: TestHttpResponse): String =
     Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)?.groupValues?.get(1)
       ?: error("no form token in the rendered page: ${page.statusCode} ${page.responseBody.take(300)}")
 
-  private fun mint(owned: Owned, clientId: String, secret: String): TestHttpResponse =
-    http.preparePost(tokenUrl(owned))
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(clientId, secret))
-      .setBody("grant_type=client_credentials")
-      .execute()
-
   /** The secret still authenticates, so nothing rotated or revoked it: `invalid_scope`, not `invalid_client`. */
-  private fun assertSecretStands(owned: Owned, installed: Installed) {
-    val minted = mint(owned, installed.clientId, installed.secret)
+  private fun assertSecretStands(owned: Owned, installed: Service) {
+    val minted = services.token(owned.pod, installed.clientId, installed.secret)
     assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
   }
 
-  private fun serviceToken(owned: Owned, clientId: String, secret: String): String {
-    val minted = mint(owned, clientId, secret)
-    assertEquals(200, minted.statusCode, minted.responseBody)
-    return json(minted)["access_token"] as String
-  }
-
-  /** List, rotate, remove grants and revoke [clientId], each sent with a bearer or without one. */
+  /** List, read, replace the grants of, rotate and revoke [clientId], each sent with a bearer or without one. */
   private fun managementRoutes(owned: Owned, clientId: String): List<(String?) -> TestHttpResponse> {
     val registration = "${serviceClientsUrl(owned)}/${enc(clientId)}"
     fun TestHttpRequest.send(bearer: String?) =
       apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }.execute()
     return listOf(
       { bearer -> http.prepareGet(serviceClientsUrl(owned)).send(bearer) },
+      { bearer -> http.prepareGet(registration).send(bearer) },
+      { bearer -> replaceGrants(owned, bearer, clientId, "[]", ifMatch = "\"0\"") },
       { bearer -> http.preparePost("$registration/secret").send(bearer) },
-      { bearer -> http.prepareDelete("${grantsUrl(owned, clientId)}?scope=${enc("${podBase(owned)}/_system/contexts/notes#read")}").send(bearer) },
       { bearer -> http.prepareDelete(registration).send(bearer) },
     )
   }
+
+  /** A registration with the service's metadata, sent with [bearer]. */
+  private fun register(owned: Owned, bearer: String): TestHttpResponse =
+    http.preparePost(registerUrl(owned))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .setBody(serviceBody)
+      .execute()
+
+  /** The `client_id` of a service [bearer] registers. */
+  private fun registeredClientId(owned: Owned, bearer: String): String = json(register(owned, bearer))["client_id"] as String
+
+  private class Read(val body: Map<String, Any?>, val tag: String)
+
+  /** The single read of [clientId]: its document and its `ETag`. */
+  private fun read(owned: Owned, bearer: String, clientId: String): Read {
+    val response = http.prepareGet("${serviceClientsUrl(owned)}/${enc(clientId)}").addHeader("Authorization", "Bearer $bearer").execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertEquals("no-store", response.getHeader("Cache-Control"))
+    return Read(json(response), checkNotNull(response.getHeader("ETag")) { "a read carries the grants version" })
+  }
+
+  /** `PUT …/grants` with [body], and [ifMatch] where it is not null. */
+  private fun replaceGrants(owned: Owned, bearer: String?, clientId: String, body: String, ifMatch: String?): TestHttpResponse =
+    http.preparePut(grantsUrl(owned, clientId))
+      .addHeader("Content-Type", "application/json")
+      .apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }
+      .apply { if (ifMatch != null) addHeader("If-Match", ifMatch) }
+      .setBody(body)
+      .execute()
 
   private fun listServiceClients(owned: Owned, bearer: String): List<Map<String, Any?>> {
     val response = http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $bearer").execute()
@@ -795,21 +602,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("<$note> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <$context> .")
       .execute()
     return response to note
-  }
-
-  private fun read(resource: URI, bearer: String): TestHttpResponse = http.prepareGet(resource.toString())
-    .addHeader("Accept", "application/ld+json")
-    .addHeader("Authorization", "Bearer $bearer")
-    .execute()
-
-  /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
-  private fun contextsReachableBy(pod: PodDbo, accessToken: String): List<String> {
-    val response = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts")
-      .addHeader("Accept", "application/json")
-      .addHeader("Authorization", "Bearer $accessToken")
-      .execute()
-    assertEquals(200, response.statusCode, response.responseBody)
-    return (json(response)["contexts"] as List<Map<String, Any?>>).map { it["context_iri"] as String }
   }
 
   private fun postForm(url: String, body: String) = http.preparePost(url)

@@ -36,6 +36,7 @@ internal class PodManagementAuthorityStoreTest : SempodsStoreTest() {
       webId = signedInAs,
       disconnects = disconnects,
       subjectUris = setOf(webId, alias),
+      consent = PrivilegedAuthorityRows.FIRST_CONSENT,
     )
   }
 

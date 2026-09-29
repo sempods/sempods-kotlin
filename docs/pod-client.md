@@ -100,7 +100,8 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
 | `SempodsPodTokens` | a pod's token endpoint: a service client's `client_credentials` grant, and redeeming an authorization code |
 | `SempodsPodAuthorization` | a public client's registration, the authorization URL its user opens, with `SempodsPkce`, and the answer that comes back |
-| `SempodsPodServiceClients` | a pod's service clients: registering one, the grant consent, and managing the ones that exist |
+| `SempodsPodServiceClients` | a pod's service clients: registering one, its consent URL, and the owner deciding what each reaches |
+| `SempodsServiceAccessWait` | a service waiting until the contexts it needs are reachable |
 
 ```java
 OkHttpClient client = SempodsOkHttp.install(new OkHttpClient.Builder()).build();
@@ -305,26 +306,41 @@ var pod = new SempodsPod(new SempodsSession(base, podBearer), client);
 
 ### Registering a service client
 
-A service registers itself, and the owner grants it contexts in one browser round trip; the service
-then mints its own tokens (§"A service token"). Until the owner grants it, the registration is
-provisional and holds nothing, and at `getActivationExpiresAt()` the pod removes it. The protocol
-is [`auth/oauth.md`](auth/oauth.md#registering-a-service-client)'s; the lifetimes, what may be sent
-again and the refusals are `SempodsPodServiceClients`' KDoc.
+A service registers itself and sends the owner to its consent; it then mints its own tokens
+(§"A service token"). Until the owner confirms, the registration is provisional and holds nothing,
+and at `getActivationExpiresAt()` the pod removes it. The protocol is
+[`auth/service-clients.md`](auth/service-clients.md#consent)'s; the lifetimes, what may be sent again
+and the refusals are `SempodsPodServiceClients`' KDoc.
 
 ```java
 var registering = new SempodsPodServiceClients(new SempodsSession(pod), client);
-SempodsServiceClientRegistration service = registering.register("Notes Sync").getBody();
+SempodsServiceClientRegistration service = registering.register("Notes Sync", List.of("http://127.0.0.1/callback")).getBody();
 store.save(service.getClientId(), service.getClientSecret());
 
-browser.open(registering.grantConsentUrl(app, redirectUri, grantState, service.getClientId(), scopes));
-SempodsGrantOutcome grants = SempodsGrantOutcome.readQuery(grantQuery, grantState);
+browser.open(registering.consentUrl(service.getClientId(), state, loopbackRedirect));
+
+var wait = new SempodsServiceAccessWait(
+    new SempodsSession(pod, SempodsRequestAuth.clientSecretBasic(service.getClientId(), service.getClientSecret())), client);
+SempodsServiceAccessWait.Outcome outcome = wait.await(List.of(notes), Duration.ofMinutes(10));
 ```
 
-`app` is the program's own public client, registered with `SempodsPodAuthorization`; the grant
-consent sends the browser back to it.
-The client has no HTTP server: the program serves its own loopback redirect.
-[`OwnerInstallation.java`](../sempods-server/src/test/java/org/sempods/example/OwnerInstallation.java)
-is the whole program, and `OwnerInstallationExampleHttpTest` runs it against a pod.
+The consent returns nothing but `state`, so the program learns its access by waiting for the
+contexts it needs. A headless program leaves out the return address, shows the owner the URL, and
+waits the same way.
+The client has no HTTP server: a program on the owner's laptop serves its own loopback redirect.
+[`ServiceConsent.java`](../sempods-server/src/test/java/org/sempods/example/ServiceConsent.java)
+is the whole program, both ways, and `ServiceConsentExampleHttpTest` runs it against a pod.
+
+The owner's own tool needs no dialog per service. With a `service-clients:manage` bearer
+([`auth/oauth.md`](auth/oauth.md#managing-service-clients)) it registers the service active and
+gives it its grants, at the version it read:
+
+```java
+var managing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(manageToken)), client);
+SempodsServiceClientRegistration service = managing.register("Backup").getBody();
+long version = managing.get(service.getClientId()).getBody().getGrantsVersion();
+managing.replaceGrants(service.getClientId(), List.of(notes + "#read"), version);
+```
 
 ### Asynchronous use
 
@@ -505,7 +521,7 @@ root, with a host credential, on the same installed OkHttp client.
 - `sempods-client/src/main/kotlin/org/sempods/client/` — `SempodsSession`,
   `SempodsOkHttp`, `SempodsRequestAuth`, `SempodsPodBase`, `SempodsAdmission`,
   `SempodsForeignTarget`, `SempodsPodTokens`, `SempodsPodAuthorization`,
-  `SempodsPodServiceClients`, and `net/` for the outbound guard
+  `SempodsPodServiceClients`, `SempodsServiceAccessWait`, and `net/` for the outbound guard
 - `sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/` — `SempodsRdf4jPod` and its
   groups, `Rdf4jCodec` for the pinned parser and writer settings
 - `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the media

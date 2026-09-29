@@ -8,7 +8,8 @@ import org.sempods.commons.mongo.putNotNull
 import java.time.Duration
 
 /**
- * The `/authorize` request a user left behind when they were sent to the id-server to sign in.
+ * The browser request a user left behind when they were sent to the id-server to sign in: an
+ * `/authorize`, or a service consent ([Pending.serviceConsent]).
  *
  * The flow used to need no such thing: the pod put its own request URI into a `return_to`
  * parameter and the id-server appended an identity token to it on the way back. That is what made
@@ -28,11 +29,12 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
    * @param prompt what the client asked to have re-prompted, minus the force-reauth values that
    *   were satisfied by this very login. Carrying the original would loop the user straight back
    *   into another sign-in.
+   * @param redirectUri `null` only on a service consent opened without one.
    */
   data class Pending(
     val pod: String,
     val clientId: String,
-    val redirectUri: String,
+    val redirectUri: String?,
     val clientState: String?,
     val scope: String?,
     val prompt: String?,
@@ -45,12 +47,15 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
      * is a bearer, so without this a captured login URL completes in whoever's browser opens it.
      */
     val browserPin: String,
+    /** Whether this is a parked service consent for the service [clientId]; else an `/authorize`. */
+    val serviceConsent: Boolean = false,
+  ) {
     /**
-     * The service client a parked grant consent is about; `null` for a parked `/authorize`, and on
-     * every row from before the field existed.
+     * Where a sign-in that failed is reported: [redirectUri] for an `/authorize`, and nowhere for a
+     * service consent, whose return address hears only the owner's decision.
      */
-    val serviceClient: String? = null,
-  )
+    val errorRedirectUri: String? get() = redirectUri.takeUnless { serviceConsent }
+  }
 
   private val states = OneTimeStore(
     db = db,
@@ -59,7 +64,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
     write = {
       put("pod", it.pod)
       put("clientId", it.clientId)
-      put("redirectUri", it.redirectUri)
+      putNotNull("redirectUri", it.redirectUri)
       putNotNull("clientState", it.clientState)
       putNotNull("scope", it.scope)
       putNotNull("prompt", it.prompt)
@@ -68,13 +73,16 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
       put("codeVerifier", it.codeVerifier)
       put("nonce", it.nonce)
       put("browserPin", it.browserPin)
-      putNotNull("serviceClient", it.serviceClient)
+      if (it.serviceConsent) put("serviceConsent", true)
     },
     read = {
+      // A `/grant` sign-in an older node parked: that route is gone, so the row reads as expired.
+      if (containsKey("serviceClient")) return@OneTimeStore null
+      val serviceConsent = getBoolean("serviceConsent") ?: false
       Pending(
         pod = getString("pod") ?: return@OneTimeStore null,
         clientId = getString("clientId") ?: return@OneTimeStore null,
-        redirectUri = getString("redirectUri") ?: return@OneTimeStore null,
+        redirectUri = getString("redirectUri") ?: if (serviceConsent) null else return@OneTimeStore null,
         clientState = getString("clientState"),
         scope = getString("scope"),
         prompt = getString("prompt"),
@@ -83,7 +91,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase) {
         codeVerifier = getString("codeVerifier") ?: return@OneTimeStore null,
         nonce = getString("nonce") ?: return@OneTimeStore null,
         browserPin = getString("browserPin") ?: return@OneTimeStore null,
-        serviceClient = getString("serviceClient"),
+        serviceConsent = serviceConsent,
       )
     },
   )
