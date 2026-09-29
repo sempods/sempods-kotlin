@@ -15,16 +15,12 @@ and a body.
 | [`sempods-client-media`](../sempods-client-media/README.md) | Uploading and assigning binary media | Java 21+ |
 | [`sempods-control-plane-client`](../sempods-control-plane-client/README.md) | Host administration, such as creating pods | Java 21+ |
 
-Use one BOM version for all modules. Snapshot builds need the snapshot repository.
+Use one BOM version for all modules:
 
 <!-- doc-example: illustrative; dependency coordinates checked against gradle.properties and settings.gradle.kts -->
 ```kotlin
-repositories {
-  mavenCentral()
-  maven("https://central.sonatype.com/repository/maven-snapshots/")
-}
 dependencies {
-  implementation(platform("org.sempods:sempods-bom:0.2.0-SNAPSHOT"))
+  implementation(platform("org.sempods:sempods-bom:0.2.0"))
   implementation("org.sempods:sempods-client")
 }
 ```

@@ -64,7 +64,7 @@ including Mongo database and collection names. The Kotlin package namespace rema
 Vocabulary terms follow the
 [specification's deprecation policy](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md).
 Changes to stored formats and token contracts need explicit compatibility handling and documentation.
-Maven coordinates freeze at the first release.
+Maven coordinates froze with `0.1.0`.
 
 **Deployment and upgrades.** The supplied composition has no supported upgrade path; a concrete
 deployment owns its upgrades ([deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades)).
@@ -124,16 +124,15 @@ its routes unregistered. See [AI providers](docs/ai-layer.md#providers-ist) for 
 Start with the [client guide](sempods-client/README.md) for the 0.2 API, module selection and
 examples. [Migration from 0.1](docs/migration/0.2.md) covers the breaking changes.
 
-The libraries are on Maven Central as of `0.1.0`. One version covers the whole repository, so pin
-the platform and let the modules carry no version of their own:
+The libraries are on Maven Central; the current release is `0.2.0`. One version covers the whole
+repository, so pin the platform and let the modules carry no version of their own:
 
-<!-- doc-example: illustrative; 0.1 release coordinates, BOM and dependency declarations checked against publishing configuration -->
+<!-- doc-example: illustrative; release coordinates, BOM and dependency declarations checked against publishing configuration -->
 ```kotlin
 dependencies {
-  implementation(platform("org.sempods:sempods-bom:0.1.0"))
+  implementation(platform("org.sempods:sempods-bom:0.2.0"))
 
   implementation("org.sempods:sempods-client")
-  implementation("org.sempods:sempods-model")
 }
 ```
 
@@ -186,6 +185,7 @@ sempods-commons/ sempods-commons-json/ sempods-commons-mongo/
 sempods-commons-okhttp/ sempods-commons-jaxrs/ sempods-commons-ktor/
                     framework-free shared base; take only what you need
 sempods-model/      the contract as code — service interfaces, URI builder, ontologies
+sempods-media/      the media contract a pod and its clients share
 sempods-server/     the pod server: RDF4J store, contexts, OAuth, SPARQL, AI layer, MCP
 sempods-media-s3/   the S3 binding of the media seam
 sempods-auth/       identity service (Ktor)

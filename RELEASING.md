@@ -19,7 +19,7 @@ Consumers pin the platform and name no versions:
 
 <!-- doc-example: illustrative; coordinates checked against `publishedModules` and `sempods-bom` in build.gradle.kts -->
 ```kotlin
-implementation(platform("org.sempods:sempods-bom:0.1.0"))
+implementation(platform("org.sempods:sempods-bom:0.2.0"))
 implementation("org.sempods:sempods-client")
 ```
 
