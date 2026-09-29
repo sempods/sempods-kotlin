@@ -2,13 +2,13 @@
 
 How apps and MCP-style clients obtain pod-scoped access tokens.
 
-The only user-facing flow sempods supports is **OAuth 2.1
+*Delegated access* — an app acting for a person — uses only **OAuth 2.1
 Authorization Code with PKCE** (S256). Implicit flow and password grants
 are not accepted. PKCE is mandatory for `dyn:*` clients (which register
 with `token_endpoint_auth_method=none`) and strongly recommended for
 `did:web:*` clients.
 
-Backend services without a user in the loop use the **Client
+*Service access* — a client acting as itself — uses the **Client
 Credentials grant** (RFC 6749 §4.4), restricted to registered service
 clients — see `service-clients.md`.
 
@@ -642,10 +642,6 @@ hours, the pod removes it. A JVM program runs the whole sequence through
   service active: no `activation_expires_at`, no deadline, and no grants until the owner
   [replaces them](service-clients.md#managing-service-clients). Any other bearer is
   `403 insufficient_scope` and registers nothing, and one this pod cannot verify is `401`.
-- **The installer scope is retired.** `/authorize` answers `service-clients:install` with
-  `invalid_scope`. A code minted for it before the release is refused at the exchange
-  (`invalid_grant`), and a token lives out its hour as it was minted: it reaches no data and passes
-  no gate that asks only for an app.
 
 What the body may carry (RFC 7591 §2):
 
@@ -821,7 +817,7 @@ constraints. The full list is in [`README.md`](README.md)
 - Identity tokens, OIDC bridge, anonymous subjects → `identity.md`.
 - Scopes, grants, server-side enforcement, error semantics →
   sempods-spec `spec/core/grants.md`.
-- Service clients (2-leg client credentials, service tokens, audit) →
+- Service access (Client Credentials, service tokens, audit) →
   `service-clients.md`.
 - Open items and follow-up work → [`README.md`](README.md)
   ("Known limitations").

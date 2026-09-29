@@ -344,7 +344,7 @@ open class SempodsBaseEndpoint(
   /**
    * Writes one [PodServiceAuditLogDbo] row for the in-flight request. Called whenever the
    * authenticator recognises a service-client (`client_credentials`) token, so every request a
-   * 2-leg caller makes leaves an audit entry.
+   * service client makes leaves an audit entry.
    *
    * `statusCode` is intentionally not populated here — this runs before the response is built. A
    * follow-up `ContainerResponseFilter` (TODO) will mutate the matching row once Jersey wires the

@@ -19,8 +19,8 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * Issues and verifies secrets for statically-registered pod service clients
- * (OAuth 2-leg, `client_credentials`).
+ * Issues and verifies secrets for pod service clients: service access, a client acting as itself
+ * through `client_credentials`.
  *
  * Bcrypt (OpenBSD variant via BouncyCastle) is used for the secret-at-rest
  * hash: deliberately slow, salt embedded in the encoded form, constant-time
@@ -46,8 +46,8 @@ class PodServiceClientStore @Inject constructor(
    * Each scope is validated against [podScopeValidator]: only well-formed
    * `<context-iri>#read|write|manage` strings inside the pod's own namespace are
    * accepted. OIDC scopes (`openid`, `offline_access`) and the `public-read`
-   * pseudo-scope are not applicable to 2-leg service clients (no end-user,
-   * no public-anonymous use case) and are rejected. Any other malformed
+   * pseudo-scope are not applicable to service clients (no person behind
+   * the token, no public-anonymous use case) and are rejected. Any other malformed
    * input — most importantly `<pod-base>#manage` (pod root, not a context),
    * which a downstream string-matching authorizer could mistake for a
    * pod-wide wildcard — throws [IllegalArgumentException] before the row is

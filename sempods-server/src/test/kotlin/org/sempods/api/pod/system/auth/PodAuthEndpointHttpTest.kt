@@ -5282,27 +5282,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the retired installer scope is refused at the authorize endpoint`() {
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-
-    val response = http.prepareGet(authorizeUrl(pod.name))
-      .addQueryParam("response_type", "code")
-      .addQueryParam("client_id", testClientId)
-      .addQueryParam("redirect_uri", testRedirectUri)
-      .addQueryParam("state", "install")
-      .addQueryParam("scope", "service-clients:install")
-      .addQueryParam("code_challenge", testCodeChallenge)
-      .addQueryParam("code_challenge_method", testCodeChallengeMethod)
-      .addHeader("Cookie", signIn(pod.name, ownerWebId).cookie)
-      .setFollowRedirect(false).execute()
-
-    assertEquals(303, response.statusCode, response.responseBody)
-    assertTrue("error=invalid_scope" in response.getHeader("Location").orEmpty(), response.getHeader("Location"))
-  }
-
-  @Test
   fun `a registered service is not an identifier the authorize endpoint answers`() {
     // A service client authenticates with a secret and has no browser flow. `/authorize` places
     // `did:web:` and `dyn:` and nothing else.

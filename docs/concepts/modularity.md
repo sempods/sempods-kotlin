@@ -133,7 +133,7 @@ rather than RDF statements.
 
 The boundary is marked by **two modules with two credentials** rather than two interfaces:
 `:sempods-client` (`SempodsSession`, the credential typed as `SempodsRequestAuth` —
-anonymous, or a 2-leg pod-scoped token) and
+anonymous, or a pod-scoped bearer) and
 `:sempods-control-plane-client` (`SempodsControlPlaneClient` — a host-level admin secret against
 `_system/admin/pods/…`).
 Keeping host administration in a separate module makes its proprietary authority visible

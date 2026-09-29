@@ -23,8 +23,8 @@ No proposal document is needed merely to open an issue.
 - [`concepts/graph-retrieval.md`](concepts/graph-retrieval.md) — `find`, then traverse: the read
   pattern every consumer builds on
 - [`concepts/hosted-mcp.md`](concepts/hosted-mcp.md) — one MCP service fronting many pods
-- [`concepts/app-installation.md`](concepts/app-installation.md) — current operator provisioning and
-  connection-consent lifetime
+- [`concepts/service-access.md`](concepts/service-access.md) — how a service reaches a pod, and
+  how long delegated access lasts
 
 ## Proposed designs
 

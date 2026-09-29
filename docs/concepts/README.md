@@ -6,7 +6,7 @@ organizational choice, not a separate document type.
 - [Modularity](modularity.md) — deployment-selected seams and invariant boundaries.
 - [Graph retrieval](graph-retrieval.md) — current find and structural traversal.
 - [Hosted MCP](hosted-mcp.md) — credential custody and the shared tool architecture.
-- [Service-client provisioning](app-installation.md) — current operator registration and consent lifetime.
+- [Service access](service-access.md) — how a service reaches a pod, and how long delegated access lasts.
 
 Unimplemented designs live in [proposals](../proposals/README.md), with planning owned by issues.
 

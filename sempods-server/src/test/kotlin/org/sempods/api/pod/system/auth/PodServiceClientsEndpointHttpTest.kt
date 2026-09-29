@@ -54,40 +54,40 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var services: ServiceAccessFlow
 
-  private val installerClientId = "did:web:localhost%3A5173"
+  private val ownerToolClientId = "did:web:localhost%3A5173"
   private val redirectUri = "http://localhost:5173/callback"
   private val codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
   private val serviceBody = """{"client_name":"Notes Sync","grant_types":["client_credentials"],""" +
     """"token_endpoint_auth_method":"client_secret_basic"}"""
 
-  // ── The whole life of one installation ──────────────────────────────────────
+  // ── The whole life of one service ───────────────────────────────────────────
 
   @Test
   fun `a registered service is granted, used, emptied, regranted, rotated and revoked`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
-    val installed = services.register(owned.pod)
+    val service = services.register(owned.pod)
 
     // The owner's consent names the service by its label, beside the pod's own two facts.
-    val page = services.open(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie)
+    val page = services.open(owned.pod, service.clientId, signIn(owned.pod.name, owned.webId).cookie)
     assertEquals(200, page.statusCode, page.responseBody)
     assertTrue("Notes Sync" in page.responseBody, "the dialog names the service by its label")
-    assertTrue(installed.clientId in page.responseBody, "and shows the identifier this pod assigned")
+    assertTrue(service.clientId in page.responseBody, "and shows the identifier this pod assigned")
     assertTrue(
-      Instant.ofEpochSecond(installed.issuedAt).toString() in page.responseBody,
+      Instant.ofEpochSecond(service.issuedAt).toString() in page.responseBody,
       "and when it was registered",
     )
-    confirm(owned, installed, setOf("$notes#read"))
+    confirm(owned, service, setOf("$notes#read"))
 
     // Inside the grant and not outside it.
-    val serviceToken = services.accessToken(owned.pod, installed.clientId, installed.secret)
+    val serviceToken = services.accessToken(owned.pod, service.clientId, service.secret)
     assertEquals(listOf(notes), services.contexts(owned.pod, serviceToken))
     assertFalse(diary in services.contexts(owned.pod, serviceToken))
 
     // The owner's list: the grant, when it was last used, and never a secret.
     val manager = approveManagement(owned)
-    val listed = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
+    val listed = listServiceClients(owned, manager).single { it["client_id"] == service.clientId }
     assertEquals("$notes#read", listed["scope"])
     assertEquals("Notes Sync", listed["client_name"])
     assertEquals("registered", listed["origin"])
@@ -95,39 +95,39 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertFalse(listed.keys.any { "secret" in it }, "a list never carries a secret: $listed")
 
     // Replace the grants with none: the registration stays, holds nothing and mints nothing.
-    val emptied = replaceGrants(owned, manager, installed.clientId, "[]", ifMatch = read(owned, manager, installed.clientId).tag)
+    val emptied = replaceGrants(owned, manager, service.clientId, "[]", ifMatch = read(owned, manager, service.clientId).tag)
     assertEquals(200, emptied.statusCode, emptied.responseBody)
     assertEquals("", json(emptied)["scope"])
-    assertEquals(400, services.token(owned.pod, installed.clientId, installed.secret).statusCode)
+    assertEquals(400, services.token(owned.pod, service.clientId, service.secret).statusCode)
     assertEquals(
       emptyList(),
       services.contexts(owned.pod, serviceToken),
       "a token minted before the removal reaches nothing on its next request",
     )
-    assertTrue(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
+    assertTrue(listServiceClients(owned, manager).any { it["client_id"] == service.clientId })
 
     // And a later consent grants it again.
-    confirm(owned, installed, setOf("$diary#write"))
+    confirm(owned, service, setOf("$diary#write"))
 
     // Rotation: the old secret stops at once, the new one works, the grants stay.
-    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(installed.clientId)}/secret")
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(service.clientId)}/secret")
       .addHeader("Authorization", "Bearer $manager")
       .execute()
     assertEquals(200, rotated.statusCode, rotated.responseBody)
     assertEquals("no-store", rotated.getHeader("Cache-Control"))
     val newSecret = json(rotated)["client_secret"] as String
-    assertEquals(401, services.token(owned.pod, installed.clientId, installed.secret).statusCode, "the old secret is gone")
-    val afterRotation = services.accessToken(owned.pod, installed.clientId, newSecret)
+    assertEquals(401, services.token(owned.pod, service.clientId, service.secret).statusCode, "the old secret is gone")
+    val afterRotation = services.accessToken(owned.pod, service.clientId, newSecret)
     assertEquals(listOf(diary), services.contexts(owned.pod, afterRotation))
     val (written, entry) = writeNote(diary, owned, afterRotation)
     assertEquals(201, written.statusCode, written.responseBody)
 
     // Revocation: nothing mints, an outstanding token reaches nothing, the contexts and their data stay.
-    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(installed.clientId)}")
+    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(service.clientId)}")
       .addHeader("Authorization", "Bearer $manager")
       .execute()
     assertEquals(204, revoked.statusCode, revoked.responseBody)
-    assertEquals(401, services.token(owned.pod, installed.clientId, newSecret).statusCode)
+    assertEquals(401, services.token(owned.pod, service.clientId, newSecret).statusCode)
     assertEquals(emptyList(), services.contexts(owned.pod, afterRotation))
     assertTrue(
       podFacade.getContexts(owned.pod.name).any { it.toString() == diary },
@@ -137,7 +137,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       podFacade.getResourceInContext(owned.pod.name, entry, URI(diary)),
       "and what the service wrote into them",
     )
-    assertFalse(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
+    assertFalse(listServiceClients(owned, manager).any { it["client_id"] == service.clientId })
   }
 
   // ── The owner's API ─────────────────────────────────────────────────────────
@@ -464,7 +464,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     alsoKnownAs: List<String> = emptyList(),
   ): TestHttpResponse = http.prepareGet("${podBase(owned)}/_system/auth/authorize")
     .addQueryParam("response_type", "code")
-    .addQueryParam("client_id", installerClientId)
+    .addQueryParam("client_id", ownerToolClientId)
     .addQueryParam("redirect_uri", redirectUri)
     .addQueryParam("state", "privileged")
     .addQueryParam("scope", scope)
@@ -486,7 +486,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
       .addHeader("Cookie", signIn(owned.pod.name, signedInAs, alsoKnownAs).cookie)
       .setBody(
-        "client_id=${enc(installerClientId)}&redirect_uri=${enc(redirectUri)}" +
+        "client_id=${enc(ownerToolClientId)}&redirect_uri=${enc(redirectUri)}" +
           "&state=privileged&csrf=${enc(formToken(page))}&scope=${enc(scope)}",
       )
       .setFollowRedirect(false).execute()
@@ -495,7 +495,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val exchanged = postForm(
       tokenUrl(owned),
       "grant_type=authorization_code&code=${enc(code)}&redirect_uri=${enc(redirectUri)}" +
-        "&client_id=${enc(installerClientId)}&code_verifier=${enc(DelegatedAccessFlow.CODE_VERIFIER)}",
+        "&client_id=${enc(ownerToolClientId)}&code_verifier=${enc(DelegatedAccessFlow.CODE_VERIFIER)}",
     )
     assertEquals(200, exchanged.statusCode, exchanged.responseBody)
     return json(exchanged)
@@ -512,7 +512,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
       .addHeader("Cookie", signIn(owned.pod.name, signedInAs, alsoKnownAs).cookie)
       .setBody(
-        "client_id=${enc(installerClientId)}&redirect_uri=${enc(redirectUri)}" +
+        "client_id=${enc(ownerToolClientId)}&redirect_uri=${enc(redirectUri)}" +
           "&state=privileged&csrf=${enc(formToken(page))}&action=disconnect",
       )
       .setFollowRedirect(false).execute()
@@ -528,17 +528,17 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     alsoKnownAs: List<String> = emptyList(),
   ): String = approvePrivileged(owned, SERVICE_CLIENTS_MANAGE_SCOPE, signedInAs, alsoKnownAs)["access_token"] as String
 
-  /** The owner's service consent for [installed], confirmed with [scopes] ticked. */
-  private fun confirm(owned: Owned, installed: Service, scopes: Set<String>) =
-    services.confirm(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie, scopes)
+  /** The owner's service consent for [service], confirmed with [scopes] ticked. */
+  private fun confirm(owned: Owned, service: Service, scopes: Set<String>) =
+    services.confirm(owned.pod, service.clientId, signIn(owned.pod.name, owned.webId).cookie, scopes)
 
   private fun formToken(page: TestHttpResponse): String =
     Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)?.groupValues?.get(1)
       ?: error("no form token in the rendered page: ${page.statusCode} ${page.responseBody.take(300)}")
 
   /** The secret still authenticates, so nothing rotated or revoked it: `invalid_scope`, not `invalid_client`. */
-  private fun assertSecretStands(owned: Owned, installed: Service) {
-    val minted = services.token(owned.pod, installed.clientId, installed.secret)
+  private fun assertSecretStands(owned: Owned, service: Service) {
+    val minted = services.token(owned.pod, service.clientId, service.secret)
     assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
   }
 

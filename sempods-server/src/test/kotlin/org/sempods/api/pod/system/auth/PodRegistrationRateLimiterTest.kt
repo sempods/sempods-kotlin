@@ -21,15 +21,15 @@ class PodRegistrationRateLimiterTest {
     clock: FakeClock = FakeClock(),
     public: Int = 2,
     protected: Int = 2,
-    installer: Int = 2,
+    service: Int = 2,
   ) = PodRegistrationRateLimiter(
     clock = clock,
     publicPerMinute = public,
     publicBurst = public,
     protectedPerMinute = protected,
     protectedBurst = protected,
-    servicePerMinute = installer,
-    serviceBurst = installer,
+    servicePerMinute = service,
+    serviceBurst = service,
   )
 
   /** A proxied request whose appended address is [address]. */
@@ -83,7 +83,7 @@ class PodRegistrationRateLimiterTest {
     }
   }
 
-  @Test fun `an installation is budgeted per pod`() {
+  @Test fun `a service registration is budgeted per pod`() {
     val limiter = limiter()
     repeat(2) { assertTrue(limiter.tryAcquire(PodId("pod-a"))) }
     assertFalse(limiter.tryAcquire(PodId("pod-a")))

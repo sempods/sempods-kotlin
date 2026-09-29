@@ -49,6 +49,8 @@ uses the control-plane client. A WebID plus operator allowlist is a proposed alt
 sharing a static admin credential; `PodOwnerAuthority` is an existing owner-recognition
 example, not an implementation of that admin policy.
 
-Owner grant CRUD over the existing grant/replace/revoke facade methods also needs an HTTP
-contract and owner or covering manage authorization. Review it with this interface boundary;
-service-client registration and consent are owned by [#325](https://github.com/sempods/sempods-kotlin/issues/325).
+The owner already registers services and replaces their grants over HTTP
+([`../auth/service-clients.md`](../auth/service-clients.md#managing-service-clients)). The grants of
+delegated access have no such contract yet: owner CRUD over the existing grant/replace/revoke facade
+methods needs one, with owner or covering manage authorization. Review it with this interface
+boundary.
