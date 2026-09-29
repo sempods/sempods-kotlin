@@ -183,19 +183,13 @@ class PodClientRegistration @Inject internal constructor(
     // Each registration costs a bcrypt run, and without a bearer nothing authenticates the caller.
     if (!serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
-    val redirectUris = request.client.redirectUris.toList()
-    val registered = if (owner == null) {
-      serviceClients.registerProvisional(pod, label, redirectUris)
-    } else {
-      serviceClients.registerActive(pod, label, redirectUris)
-    }
+    val registered = serviceClients.registerService(pod, label, request.client.redirectUris.toList(), provisional = owner == null)
     val registration = registered.registration
 
     logger.info {
-      "[oauth/register] Service client registered, ${if (owner == null) "pending activation" else "active"}: " +
-          "pod='${pod.name}', clientId='${registration.clientId}', label='${LogSafeText.of(label)}', " +
-          "redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
-          (if (owner == null) "activationExpiresAt=${registration.pendingUntil}" else "by='${owner.webId}'")
+      "[oauth/register] Service client registered: pod='${pod.name}', clientId='${registration.clientId}', " +
+          "label='${LogSafeText.of(label)}', redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
+          "activationExpiresAt=${registration.pendingUntil}, by='${owner?.webId}'"
     }
 
     return PodRegistrationResult.ServiceRegistered(

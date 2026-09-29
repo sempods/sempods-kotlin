@@ -29,7 +29,6 @@ import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodRegistrationRequest
-import org.sempods.pods.oauth.flows.PodRegistrationResult
 import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentForm
 import org.sempods.pods.oauth.flows.PodServiceConsentRequest
@@ -101,10 +100,9 @@ class PodAuthEndpoint @Inject constructor(
         ),
       )
     }
-    if (result is PodRegistrationResult.Unauthorized) {
-      return ownerAuthorityRefused(podDbo.name, result.reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
+    return PodRegistrationResponses.render(result) { reason ->
+      ownerAuthorityRefused(podDbo.name, reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
     }
-    return PodRegistrationResponses.render(result)
   }
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────

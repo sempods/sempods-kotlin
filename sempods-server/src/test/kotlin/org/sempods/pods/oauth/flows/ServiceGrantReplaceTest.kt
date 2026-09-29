@@ -95,11 +95,11 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
     val owned = Owned()
     val sandbox = "${sempodsUriBuilder.buildContext(owned.pod.name, "apps/notes-app")}#manage"
     val first = assertIs<PodServiceClientResult.Provisioned>(
-      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", setOf(sandbox), null, null)),
+      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", setOf(sandbox), null, null, null)),
     ).registration
     serviceClients.remove(owned.pod.id, "notes-app", first.id)
     val second = assertIs<PodServiceClientResult.Provisioned>(
-      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", emptySet(), null, first.id.value)),
+      provisioning.provision(owned.pod, PodServiceClientRequest("notes-app", emptySet(), null, first.id.value, first.secretId)),
     ).registration
 
     val answer = replace(owned, first, setOf(owned.readScope))

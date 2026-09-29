@@ -41,7 +41,7 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
   fun `a registration the owner's authority makes is active and holds nothing`() {
     val pod = sempodsTestFactory.newPod()
 
-    val active = store.registerActive(pod.hosted, "notes", emptyList()).registration
+    val active = store.registerService(pod.hosted, "notes", emptyList(), provisional = false).registration
 
     assertTrue(active.registered)
     assertNull(active.pendingUntil)

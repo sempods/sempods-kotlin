@@ -120,15 +120,11 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a replace names a version, and a stale one writes nothing`() {
+  fun `a replace at a stale version writes nothing`() {
     val owned = Owned()
     val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val manager = manager(owned)
 
-    assertEquals(
-      PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_REQUIRED),
-      management.replaceGrants(owned.pod, manager, installed.clientId, null, setOf(owned.readScope)),
-    )
     assertEquals(
       PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH),
       management.replaceGrants(owned.pod, manager, installed.clientId, 7L, setOf(owned.readScope)),

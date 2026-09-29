@@ -80,40 +80,36 @@ class PodServiceClientManagement @Inject internal constructor(
    * Every scope has to be a context grant the owner can give, on a context registered on the pod.
    * A scope that is not is refused whole, before anything is written.
    *
-   * @param expectedVersion the grants version the caller read; `null` when it named none, which is
-   *   refused, so two tools never overwrite each other unseen.
+   * @param expectedVersion the grants version the caller read. The write is conditional on it, so
+   *   two tools never overwrite each other unseen.
    */
   internal fun replaceGrants(
     pod: HostedPod,
     caller: SempodsCredentials,
     clientId: String,
-    expectedVersion: Long?,
+    expectedVersion: Long,
     scopes: Set<String>,
   ): PodServiceClientManagementResult<ServiceClientRegistration> =
     authorized(pod, caller, consent = PrivilegedAuthorityRows.CONSENT) { authority ->
-      if (expectedVersion == null) {
-        return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_REQUIRED)
-      }
-      val ungrantable = serviceClients.ungrantable(pod, scopes)
-      if (ungrantable.isNotEmpty()) {
-        return@authorized PodServiceClientManagementResult.Refused(
-          PodServiceClientManagementRefusal.UNGRANTABLE,
-          ungrantable.entries.sortedBy { it.key }.joinToString("; ") { (scope, reason) -> "'$scope': $reason" },
-        )
-      }
-      val delegatable = podGrantsFacade.resolveUserGrants(pod, authority.subjectUris)
-      val unknown = scopes.filterNot { it in delegatable }.sorted()
-      if (unknown.isNotEmpty()) {
-        return@authorized PodServiceClientManagementResult.Refused(
-          PodServiceClientManagementRefusal.UNGRANTABLE,
-          unknown.joinToString("; ") { "'$it': no context registered on this pod" },
-        )
-      }
       val registration = serviceClients.find(pod.id, clientId)
         ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
+      // Early and cheap; the conditional write below is what decides.
+      if (registration.grantsVersion != expectedVersion) {
+        return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH)
+      }
+      val invalid = serviceClients.ungrantable(pod, scopes)
+      val delegatable = if (scopes.isEmpty()) emptySet() else podGrantsFacade.resolveUserGrants(pod, authority.subjectUris)
+      val refused = scopes.sorted().mapNotNull { scope ->
+        val reason = invalid[scope] ?: "no context registered on this pod".takeIf { scope !in delegatable }
+        reason?.let { "'$scope': $it" }
+      }
+      if (refused.isNotEmpty()) {
+        return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.UNGRANTABLE, refused.joinToString("; "))
+      }
       val recipient = GrantRecipient.Service(registration.id, clientId, expectedVersion)
       when (podGrantsFacade.replaceGrants(pod, recipient, scopes, grantedBy = authority.webId)) {
         is GrantReplacement.Replaced -> {
+          // Read again for the new version, which the answer's ETag carries.
           val replaced = serviceClients.find(pod.id, clientId)
             ?.takeIf { it.id == registration.id }
             ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
@@ -183,9 +179,6 @@ internal enum class PodServiceClientManagementRefusal {
 
   /** Another change to the same registration landed in between. */
   CONFLICT,
-
-  /** A replace that named no version to write at. */
-  VERSION_REQUIRED,
 
   /** The grants are no longer at the version the replace named. */
   VERSION_MISMATCH,

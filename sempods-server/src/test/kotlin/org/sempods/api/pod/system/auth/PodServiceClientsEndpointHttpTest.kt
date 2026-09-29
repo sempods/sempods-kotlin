@@ -179,7 +179,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val manager = approveManagement(owned)
-    val clientId = json(register(owned, manager))["client_id"] as String
+    val clientId = registeredClientId(owned, manager)
     val first = read(owned, manager, clientId).tag
     assertEquals(200, replaceGrants(owned, manager, clientId, """["$notes#read"]""", ifMatch = first).statusCode)
 
@@ -206,7 +206,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
     owned.context("notes")
     val manager = approveManagement(owned)
-    val clientId = json(register(owned, manager))["client_id"] as String
+    val clientId = registeredClientId(owned, manager)
     val namespace = "${podBase(owned)}/_system/contexts"
 
     for (scope in listOf(PUBLIC_READ_SCOPE, "openid", "offline_access", "$namespace#manage", "${podBase(owned)}#manage", "$namespace/absent#read")) {
@@ -522,13 +522,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     return listOf(
       { bearer -> http.prepareGet(serviceClientsUrl(owned)).send(bearer) },
       { bearer -> http.prepareGet(registration).send(bearer) },
-      { bearer ->
-        http.preparePut(grantsUrl(owned, clientId))
-          .addHeader("Content-Type", "application/json")
-          .addHeader("If-Match", "\"0\"")
-          .setBody("[]")
-          .send(bearer)
-      },
+      { bearer -> replaceGrants(owned, bearer, clientId, "[]", ifMatch = "\"0\"") },
       { bearer -> http.preparePost("$registration/secret").send(bearer) },
       { bearer -> http.prepareDelete(registration).send(bearer) },
     )
@@ -542,6 +536,9 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(serviceBody)
       .execute()
 
+  /** The `client_id` of a service [bearer] registers. */
+  private fun registeredClientId(owned: Owned, bearer: String): String = json(register(owned, bearer))["client_id"] as String
+
   private class Read(val body: Map<String, Any?>, val tag: String)
 
   /** The single read of [clientId]: its document and its `ETag`. */
@@ -553,10 +550,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   /** `PUT …/grants` with [body], and [ifMatch] where it is not null. */
-  private fun replaceGrants(owned: Owned, bearer: String, clientId: String, body: String, ifMatch: String?): TestHttpResponse =
+  private fun replaceGrants(owned: Owned, bearer: String?, clientId: String, body: String, ifMatch: String?): TestHttpResponse =
     http.preparePut(grantsUrl(owned, clientId))
       .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $bearer")
+      .apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }
       .apply { if (ifMatch != null) addHeader("If-Match", ifMatch) }
       .setBody(body)
       .execute()

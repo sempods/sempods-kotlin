@@ -103,7 +103,7 @@ private object ProtocolJson {
 
   fun encodeObject(members: Map<String, Any>): ByteArray = mapper.writeValueAsBytes(members)
 
-  fun encodeStrings(values: Collection<String>): ByteArray = mapper.writeValueAsBytes(values.toList())
+  fun encodeStrings(values: Collection<String>): ByteArray = mapper.writeValueAsBytes(values)
 
   fun unreadable(failure: JacksonException): String {
     val what = if (failure is StreamConstraintsException) "JSON beyond this client's read limits" else "malformed JSON"

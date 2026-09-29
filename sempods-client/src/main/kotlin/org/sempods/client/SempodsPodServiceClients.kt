@@ -6,7 +6,6 @@ import com.nimbusds.oauth2.sdk.client.ClientMetadata
 import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.URI
@@ -193,18 +192,18 @@ class SempodsPodServiceClients(
 
   private fun grantsReplace(clientId: String, scopes: Collection<String>, grantsVersion: Long): Request {
     require(grantsVersion >= 0) { "A grants version is not negative." }
-    return clientRequest("PUT", clientId, "grants", encodeStrings(scopes.distinct()).toRequestBody(JSON_MEDIA_TYPE))
-      .newBuilder()
+    return clientRoute("PUT", clientId, "grants")
       .header("If-Match", "\"$grantsVersion\"")
+      .put(encodeStrings(scopes.distinct()).toRequestBody(JSON_MEDIA_TYPE))
       .build()
   }
 
   /** A request to one client's route, its identifier added as one path segment. */
-  private fun clientRequest(method: String, clientId: String, below: String? = null, body: RequestBody? = null): Request =
+  private fun clientRequest(method: String, clientId: String, below: String? = null): Request = clientRoute(method, clientId, below).build()
+
+  private fun clientRoute(method: String, clientId: String, below: String? = null): Request.Builder =
     session.newRequest(method, SERVICE_CLIENTS, *listOfNotNull(clientId, below).toTypedArray())
       .header("Accept", "application/json")
-      .apply { if (body != null) method(method, body) }
-      .build()
 
   private companion object {
 

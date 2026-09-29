@@ -69,6 +69,10 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
       .execute()
   }
 
+  /** Provisioning again, asserting the registration and secret an [earlier][holding] answer gave. */
+  private fun provision(pod: String, holding: TestHttpResponse): TestHttpResponse =
+    provision(pod, expectedRegistrationId = holding.field("registrationId"), expectedSecretId = holding.field("secretId"))
+
   private fun TestHttpResponse.field(name: String): String? =
     objectMapper.readTree(responseBody).path(name).takeIf { !it.isMissingNode }?.asString()
 
@@ -168,13 +172,13 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals(earlier.field("registrationId"), later.field("registrationId"))
     assertNotEquals(earlier.field("secretId"), later.field("secretId"))
 
-    val healed = provision(pod.name, expectedRegistrationId = earlier.field("registrationId"), expectedSecretId = earlier.field("secretId"))
+    val healed = provision(pod.name, holding = earlier)
 
     assertEquals("provisioned", healed.field("result"))
     assertNotNull(podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, assertNotNull(healed.field("secret"))))
     assertEquals(
       "alreadyProvisioned",
-      provision(pod.name, expectedRegistrationId = healed.field("registrationId"), expectedSecretId = healed.field("secretId")).field("result"),
+      provision(pod.name, holding = healed).field("result"),
       "the new pair is the current one",
     )
   }
@@ -360,7 +364,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals("provisioned", first.field("result"))
     assertEquals(expectedRoot, first.field("contextRoot"))
 
-    val second = provision(pod.name, expectedRegistrationId = first.field("registrationId"), expectedSecretId = first.field("secretId"))
+    val second = provision(pod.name, holding = first)
     assertEquals("alreadyProvisioned", second.field("result"))
     assertEquals(expectedRoot, second.field("contextRoot"), "also present when nothing was written")
 

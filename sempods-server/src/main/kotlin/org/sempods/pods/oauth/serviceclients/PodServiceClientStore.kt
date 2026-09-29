@@ -192,23 +192,20 @@ class PodServiceClientStore @Inject constructor(
    * [PodClientDirectory][org.sempods.pods.oauth.flows.PodClientDirectory] places nowhere.
    */
   internal fun registerProvisional(pod: HostedPod, label: String, redirectUris: List<String>): Registered =
-    registerService(pod, label, redirectUris, pendingUntil = Instant.now().plus(ACTIVATION_WINDOW))
+    registerService(pod, label, redirectUris, provisional = true)
 
   /**
-   * Registers a service the owner's own authority asked for: named as [registerProvisional] names
-   * one, with no grants, and active from the start.
+   * Registers a service as [registerProvisional] does, or active from the start where it is not
+   * [provisional]: what the owner's own authority registers.
    */
-  internal fun registerActive(pod: HostedPod, label: String, redirectUris: List<String>): Registered =
-    registerService(pod, label, redirectUris, pendingUntil = null)
-
-  private fun registerService(pod: HostedPod, label: String, redirectUris: List<String>, pendingUntil: Instant?) =
+  internal fun registerService(pod: HostedPod, label: String, redirectUris: List<String>, provisional: Boolean): Registered =
     register(
       pod,
       SERVICE_CLIENT_PREFIX + Secrets.newOpaqueId(),
       scopes = emptySet(),
       label = label,
       redirectUris = redirectUris,
-      pendingUntil = pendingUntil,
+      pendingUntil = if (provisional) Instant.now().plus(ACTIVATION_WINDOW) else null,
     )
 
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(

@@ -58,14 +58,15 @@ class PodServiceClientsEndpoint @Inject constructor(
   @GET
   @Path("{clientId}")
   fun get(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String): Response =
-    answer(pod, { p, caller -> management.get(p, caller, clientId) }) { described(it) }
+    answer(pod, { p, caller -> management.get(p, caller, clientId) }, ::described)
 
   /**
    * Makes the JSON array of scopes in [body] the service's grants, at the version `If-Match` names.
    * `[]` removes every grant and keeps the registration.
    *
-   * `If-Match` is one strong entity tag, the `ETag` a read answered. `*` or a list is `400`: either
-   * would let the replace land on grants the caller never read.
+   * `If-Match` is one strong entity tag, the `ETag` a read answered: without it `428`, so two tools
+   * never overwrite each other unseen. `*` or a list is `400`: either would let the replace land on
+   * grants the caller never read.
    */
   @PUT
   @Path("{clientId}/grants")
@@ -78,7 +79,8 @@ class PodServiceClientsEndpoint @Inject constructor(
   ): Response {
     val podDbo = fetchPodOrThrow(pod)
     val caller = requireBearerOrThrow(podDbo)
-    val expectedVersion = ifMatch?.let { grantsVersionOf(it) ?: return error(400, "If-Match is the one ETag a read of this service client answered") }
+    ifMatch ?: return error(428, "send If-Match with the ETag a read of this service client answered")
+    val expectedVersion = grantsVersionOf(ifMatch) ?: return error(400, "If-Match is the one ETag a read of this service client answered")
     val scopes = scopesOf(body) ?: return error(400, "the body is a JSON array of scope strings")
     return answer(podDbo, management.replaceGrants(podDbo.hosted, caller, clientId, expectedVersion, scopes), ::described)
   }
@@ -130,8 +132,6 @@ class PodServiceClientsEndpoint @Inject constructor(
     PodServiceClientManagementRefusal.PROVISIONED_BY_OPERATOR ->
       error(403, "this service client was provisioned by the host operator, who holds its secret and its registration")
     PodServiceClientManagementRefusal.CONFLICT -> error(409, "the service client changed in between; read it again")
-    PodServiceClientManagementRefusal.VERSION_REQUIRED ->
-      error(428, "send If-Match with the ETag a read of this service client answered")
     PodServiceClientManagementRefusal.VERSION_MISMATCH ->
       error(412, "the grants changed since the version If-Match names; read them again")
     PodServiceClientManagementRefusal.UNGRANTABLE -> error(400, "a service client cannot be given ${detail ?: "these scopes"}")
@@ -149,14 +149,8 @@ class PodServiceClientsEndpoint @Inject constructor(
     } catch (_: Exception) {
       return null
     }
-    if (!node.isArray) return null
-    val scopes = mutableSetOf<String>()
-    for (index in 0 until node.size()) {
-      val element = node.get(index)
-      if (!element.isString) return null
-      scopes += element.stringValue()
-    }
-    return scopes
+    val elements = node.takeIf { it.isArray }?.values() ?: return null
+    return if (elements.all { it.isString }) elements.mapTo(linkedSetOf()) { it.stringValue() } else null
   }
 
   private fun error(status: Int, description: String): Response =

@@ -31,13 +31,12 @@ internal object ControlPlaneJson {
    * assertion the caller makes, and an absent member and a `null` would have to mean the same thing
    * for that to be safe.
    */
-  fun provisionRequest(expectedRegistrationId: String?, expectedSecretId: String?): String {
-    val request = mapper.createObjectNode()
-    for ((name, value) in listOf("expectedRegistrationId" to expectedRegistrationId, "expectedSecretId" to expectedSecretId)) {
-      if (value == null) request.putNull(name) else request.put(name, value)
-    }
-    return mapper.writeValueAsString(request)
-  }
+  fun provisionRequest(expectedRegistrationId: String?, expectedSecretId: String?): String =
+    mapper.writeValueAsString(
+      mapper.createObjectNode()
+        .put("expectedRegistrationId", expectedRegistrationId)
+        .put("expectedSecretId", expectedSecretId),
+    )
 
   /**
    * The answer of `POST …/service-clients/{clientId}`.

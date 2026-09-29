@@ -16,6 +16,7 @@ import com.nimbusds.oauth2.sdk.id.SoftwareID
 import com.nimbusds.oauth2.sdk.id.SoftwareVersion
 import jakarta.ws.rs.core.Response
 import org.sempods.pods.oauth.flows.PodRegistrationError
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.oauth.flows.PodRegistrationResult
 import java.net.URI
 import java.util.Date
@@ -40,13 +41,16 @@ internal object PodRegistrationResponses {
    */
   internal const val ACTIVATION_EXPIRES_AT = "activation_expires_at"
 
-  fun render(result: PodRegistrationResult): Response = when (result) {
+  /**
+   * @param unauthorized the answer for a bearer holding no authority to register a service: the
+   *   pod's bearer challenge, which the endpoint builds.
+   */
+  fun render(result: PodRegistrationResult, unauthorized: (PodOwnerAuthorityRefusal) -> Response): Response = when (result) {
     is PodRegistrationResult.Registered -> created(publicClient(result))
     is PodRegistrationResult.ServiceRegistered -> createdService(result)
     is PodRegistrationResult.Refused -> refused(result)
     PodRegistrationResult.RateLimited -> rateLimited()
-    // The endpoint answers it with the pod's bearer challenge, which is not this object's to build.
-    is PodRegistrationResult.Unauthorized -> error("an unauthorized registration is the endpoint's answer")
+    is PodRegistrationResult.Unauthorized -> unauthorized(result.reason)
   }
 
   /**

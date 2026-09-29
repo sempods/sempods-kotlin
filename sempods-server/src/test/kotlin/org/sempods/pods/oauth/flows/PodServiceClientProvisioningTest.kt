@@ -114,8 +114,8 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
     val pod = pod()
     var runs = 0
 
-    provisioning.provision(pod, PodServiceClientRequest(CLIENT_ID, setOf(manageScope(pod)), CLIENT_ID, null)) { runs++ }
-    provisioning.provision(pod, PodServiceClientRequest(CLIENT_ID, setOf(manageScope(pod)), CLIENT_ID, null)) { runs++ }
+    provision(pod) { runs++ }
+    provision(pod) { runs++ }
 
     assertEquals(1, runs)
   }
@@ -137,6 +137,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
     expectedRegistrationId: String? = null,
     scopes: Set<String> = setOf(manageScope(pod)),
     expectedSecretId: String? = null,
+    beforeCreating: () -> Unit = {},
   ): PodServiceClientResult = provisioning.provision(
     pod,
     PodServiceClientRequest(
@@ -146,6 +147,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
       expectedRegistrationId = expectedRegistrationId,
       expectedSecretId = expectedSecretId,
     ),
+    beforeCreating,
   )
 
   private fun provisioned(result: PodServiceClientResult) =

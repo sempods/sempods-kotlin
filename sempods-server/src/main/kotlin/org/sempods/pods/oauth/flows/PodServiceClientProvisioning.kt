@@ -89,7 +89,7 @@ internal data class PodServiceClientRequest(
   val scopes: Set<String>,
   val label: String?,
   val expectedRegistrationId: String?,
-  val expectedSecretId: String? = null,
+  val expectedSecretId: String?,
 )
 
 /** What provisioning answers. */
