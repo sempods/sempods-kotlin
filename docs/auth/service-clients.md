@@ -56,9 +56,13 @@ Either way:
   one starts with none. Afterwards the owner decides the grants of both,
   at the [consent](#consent) or [over the API](#managing-service-clients).
 - The scope set may be empty: the registration holds a credential and no
-  authority, and the token endpoint answers it `invalid_scope`. That is
-  a provisional registration, one the owner gave nothing or took
-  everything from, and one whose last anchor was deleted.
+  authority, and the token endpoint answers it `invalid_scope`. Only the
+  first of these cases has a deadline:
+  - a provisional registration, removed at `activation_expires_at` unless
+    the owner confirms it;
+  - an active one the owner gave nothing, or took everything from: it
+    stays until it is revoked;
+  - an active one whose last anchor was deleted: it stays too.
 
 ## Consent
 
