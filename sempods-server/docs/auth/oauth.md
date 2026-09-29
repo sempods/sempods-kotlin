@@ -183,7 +183,8 @@ covers activation, consent callbacks and checking access.
 The [registration contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodClientRegistration.kt)
 owns validation. On a lost response, a retry creates another registration; a provisional one
 expires, and an active one needs [removal](service-clients.md#managing-service-clients).
-This profile is experimental; see [specification deviations](#specification-deviations).
+This profile is experimental; the [service guide](service-clients.md#consent) links the proposed
+portable profiles.
 
 ## Managing service clients
 
@@ -219,13 +220,8 @@ reports management-only permission, unlike a normal `#manage` grant; see
 
 | Behavior | Deviates from | Tracked in |
 |---|---|---|
-| [Services register themselves](#registering-a-service-client) at `/register` and receive `svc:` IDs | `SPS-AUTH-008`, `SPS-AUTH-011`, `SPS-AUTH-012` | [sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) |
-| [Service consent](service-clients.md#consent) and `PUT …/grants` assign a service's grants after registration | `SPS-AUTH-013` | [sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) |
 | [`contexts:manage`](#managing-contexts) reports management-only permission in the catalogue | `SPS-CTX-034`, `SPS-GRANT-009` | [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114) |
 | Pod access tokens carry no `aud` claim ([sharp edge](operations.md#sharp-edges)) | `SPS-MCP-038` | — |
-
-[sempods-spec#125](https://github.com/sempods/sempods-spec/issues/125) proposes removing the
-service-client requirements above.
 
 ## What lives elsewhere
 

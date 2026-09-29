@@ -72,7 +72,9 @@ There is no per-consent status endpoint.
 [SempodsServiceAccessWait](../../../sempods-client/src/main/kotlin/org/sempods/client/SempodsServiceAccessWait.kt)
 waits for catalogue visibility with a time limit and defines what each token-endpoint answer means.
 
-This is an experimental 0.2 extension with [specification deviations](oauth.md#specification-deviations).
+Registration and consent are experimental 0.2 extensions. Their portable profiles are proposed in
+[sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) and
+[#123](https://github.com/sempods/sempods-spec/issues/123).
 
 ## Use the JVM client
 

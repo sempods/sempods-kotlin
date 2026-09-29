@@ -52,8 +52,9 @@ import java.io.OutputStream
  * `rdfs:seeAlso`. Those are read and written through [SempodsPodSubjects], in whatever context they
  * live in.
  *
- * **Every operation takes the IRI as the pod gave it** (SPS-CTX-005, SPS-CTX-023): it is the route as
- * well as the identity, and this client composes neither. What a context may be named is the pod's to
+ * **Every operation takes the IRI as the pod gave it**, following the
+ * [discovery guidance](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md#3-discovery).
+ * It is the route as well as the identity (SPS-CTX-005). What a context may be named is the pod's to
  * say (SPS-CTX-009) — `grüße` travels percent-encoded and arrives as it was written. What is refused
  * is an IRI that could not be addressed as itself: one outside this pod's `_system/contexts/`, or
  * carrying a query, a fragment, a percent-encoded octet, an empty or a dot segment. That is an
