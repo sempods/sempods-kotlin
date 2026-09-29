@@ -26,10 +26,10 @@ authority where the two overlap.
   invariants. Canonical there rather than here, because the same list binds contributors; see the
   section below.
 
-`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/` are compatibility
-pointers back to this file — Codex and opencode read it directly. Everything canonical is here,
-under `docs/agents/`, or — for the invariants alone — in `CONTRIBUTING.md`; a pointer that grows
-rules of its own is a pointer that drifts.
+`GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/` are compatibility
+pointers back to this file — Codex, opencode and Claude Code (2.1.277+) read it directly. Everything
+canonical is here, under `docs/agents/`, or — for the invariants alone — in `CONTRIBUTING.md`; a
+pointer that grows rules of its own is a pointer that drifts.
 
 ## Project mission
 
