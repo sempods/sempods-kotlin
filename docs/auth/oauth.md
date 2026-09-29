@@ -625,9 +625,11 @@ hours, the pod removes it. A JVM program runs the whole sequence through
 - **The server names it.** The answer carries a `svc:` identifier, `client_id_issued_at`, the
   secret, `client_secret_expires_at: 0` — RFC 7591 §3.2.1's spelling for a secret that does not
   expire — and the sempods member `activation_expires_at`, the deadline in epoch seconds.
-- **A lost answer costs nothing but the row.** The secret lives only in that response
-  ([`service-clients.md`](service-clients.md#registration)). A retry registers a second service; the
-  first holds nothing and is removed at its deadline.
+- **A lost answer leaves a row.** The secret lives only in that response
+  ([`service-clients.md`](service-clients.md#registration)), and a retry registers a second service.
+  Without a bearer the first holds nothing and is removed at its deadline. Registered with the
+  owner's bearer it is active and stays: the owner's tool finds it in the
+  [list](service-clients.md#managing-service-clients) by its name and revokes it.
 - **Provisional means no token.** Client Credentials answers `invalid_scope` while the registration
   holds no grants, as for any registration without grants. Past its deadline it is gone to every
   read — authentication, listing, the consent — even before the TTL monitor removes the row,

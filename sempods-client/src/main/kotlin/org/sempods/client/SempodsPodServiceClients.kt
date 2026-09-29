@@ -39,7 +39,7 @@ import java.time.Instant
  *
  * | Operation | After a lost connection |
  * |---|---|
- * | [register] | not sent again. A second call registers a second service; the one whose answer was lost holds no grants and is removed at its deadline |
+ * | [register] | not sent again. A second call registers a second service. The one whose answer was lost is removed at its deadline where it is provisional; one the owner's bearer registered stays, and [list] and [revoke] remove it (`docs/auth/oauth.md` §"Registering a service client") |
  * | [rotateSecret] | not sent again. A lost answer leaves a secret nobody holds; rotate once more |
  * | [list], [get], [replaceGrants], [revoke] | sent once more, as any idempotent request. A [replaceGrants] whose answer was lost hears `412` on the resend if the first attempt landed: read the grants again |
  *
