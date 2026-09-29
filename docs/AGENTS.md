@@ -19,7 +19,8 @@ request or a path against it.
 ## Key references
 
 - `docs/agents/` — the AI instruction hub, documentation strategy,
-  [issue work](agents/issue-work.md) and [doc review](agents/doc-review.md)
+  [issue work](agents/issue-work.md), [doc review](agents/doc-review.md) and
+  [release](agents/release.md)
 - [docs/concepts/](concepts/README.md) — current architecture: deployment seams, graph retrieval,
   hosted MCP and service access
 - [docs/proposals/](proposals/README.md) — proposed designs and their owning issues

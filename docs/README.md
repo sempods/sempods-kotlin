@@ -73,4 +73,6 @@ These pages describe the current implementation.
 The [instruction hub](agents/ai-instructions.md) routes to repository and module rules.
 The [documentation strategy](agents/documentation-strategy.md) defines page ownership and example
 checks; [documentation review](agents/doc-review.md) is the per-change checklist.
+The [release procedure](agents/release.md) walks a release with the maintainer, on top of
+[RELEASING.md](../RELEASING.md).
 [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) own public plans and progress.
