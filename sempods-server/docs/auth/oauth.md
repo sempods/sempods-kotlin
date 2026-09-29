@@ -183,7 +183,8 @@ covers activation, consent callbacks and checking access.
 The [registration contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodClientRegistration.kt)
 owns validation. On a lost response, a retry creates another registration; a provisional one
 expires, and an active one needs [removal](service-clients.md#managing-service-clients).
-This profile is experimental; see [specification deviations](#specification-deviations).
+This profile is experimental; the [service guide](service-clients.md#consent) links the proposed
+portable profiles.
 
 ## Managing service clients
 

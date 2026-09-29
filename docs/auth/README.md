@@ -52,4 +52,4 @@ for its token exchange.
 
 These pages describe the current implementation. Self-registered `svc:*` clients are an
 experimental 0.2 extension; the [service guide](../../sempods-server/docs/auth/service-clients.md)
-links its deviations from the specification.
+links the proposed portable profiles for registration and consent.
