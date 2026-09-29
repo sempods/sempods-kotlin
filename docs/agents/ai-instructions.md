@@ -52,7 +52,7 @@ its pointer file and add a row here.
 |---|---|---|
 | Codex | `AGENTS.md` | Native. Walks the tree itself; needs no pointer file. |
 | opencode | `AGENTS.md` | Native. Same. |
-| Claude Code | `AGENTS.md` | Native since 2.1.277; reads it directly with no `CLAUDE.md` present. Skills in `.claude/skills/` wrap the procedures in this folder. |
+| Claude Code | `AGENTS.md` | Native from v2.1.277, [with conditions](https://code.claude.com/docs/en/memory#agents-md). A `CLAUDE.md` or `CLAUDE.local.md` in the working directory or above turns it off. Skills in `.claude/skills/` wrap the procedures in this folder. |
 | GitHub Copilot | `.github/copilot-instructions.md` | Auto-injected in isolation — see the constraint below. |
 | Gemini CLI | `GEMINI.md` → `AGENTS.md` | Pointer. |
 | Cursor | `.cursor/rules/sempods.mdc` → `AGENTS.md` | Pointer, `alwaysApply: true`. |
