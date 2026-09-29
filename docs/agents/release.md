@@ -1,134 +1,118 @@
 # Procedure: release sempods
 
-Assess, prepare or publish a release of sempods-kotlin. Use this procedure with a target version
-and the user's requested mode. [RELEASING.md](../../RELEASING.md) owns the version policy,
-credentials, signing and publication commands. This procedure coordinates those commands and the
-release review.
+Assess, prepare or publish a release of sempods-kotlin. [RELEASING.md](../../RELEASING.md) owns
+the version policy, the publication steps and their commands. This procedure reviews the release
+and walks those steps with the maintainer, who runs every step that needs a credential.
 
-## 1. Establish the target and mode
+Wrapped for Claude Code as the `release` skill. Any other agent: *"Follow
+`docs/agents/release.md` to assess, prepare or publish `<version>`."*
 
-Read the root and applicable scoped instructions, RELEASING.md and the current publishing build
-and workflows. Establish the repository, target version, previous published release tag, target
-commit and existing release work record. Use the user's supplied values; otherwise derive what
-the repository proves. Ask about unresolved choices that affect the release.
+## 1. Target and mode
 
-| Request | Result |
-|---|---|
-| Assess readiness | Read-only report with blockers, warnings and evidence. Do not edit files, run publication tasks or update GitHub records. |
-| Prepare | Reviewable release changes, consolidated notes and check results. Use the existing issue/PR or follow [issue work](issue-work.md). No upload, tag push or public release. |
-| Publish | Publish the prepared, reviewed commit through the documented release steps, then verify the result. |
+Read the root and scoped instructions, RELEASING.md, the publishing build and its workflows.
+Establish the target version, the previous release tag, the candidate commit and the release
+issue — from the user, or from what the repository shows. Ask about any open choice that changes
+the release.
 
-A bare skill invocation means assess. A preparation request does not authorize publication.
-An explicit publication request authorizes the documented steps for that release; do not ask
-again unless a material target, scope or permission is unresolved. A request to change this skill
-does not start a release.
+| Mode | Result | Ends before |
+|---|---|---|
+| Assess (the default) | A report of blockers, warnings and evidence. Changes no file and no GitHub record. | section 3 |
+| Prepare | The version change, one reviewed notes draft and check results, in the release issue and PR. | section 4 |
+| Publish | The prepared, merged commit on Central, tagged and announced. | — |
 
-Assessment reads the evidence for sections 2 and 3 and ends with a report. Preparation ends
-before section 4. Publication rechecks the prepared candidate and its evidence before proceeding.
+Only an explicit publication request publishes. It covers the steps in RELEASING.md for that
+version; ask again only when the target, scope or a permission is unclear. A request to change this
+procedure starts no release.
 
-Inspect the worktree and preserve unrelated changes. Assess the committed candidate separately
-from local changes; identify which one each finding describes. Preparation uses a release branch
-or suitable isolated checkout. Publication requires a clean checkout of the exact merged commit
-whose version matches the requested release, with no snapshot suffix. Keep the specification's
-version independent, as RELEASING.md and gradle.properties describe.
+Keep unrelated local changes. Say for each finding whether it concerns the committed candidate or
+local changes. Prepare on a release branch or a separate checkout. Publish from a clean checkout of
+the merged commit, whose `version` has no `-SNAPSHOT`. `specVersion` keeps its own line; its comment
+in `gradle.properties` says why.
 
 ## 2. Review the release range
 
-Confirm the previous release tag against GitHub and inspect its commit range to the candidate.
-Read the diff, merged PRs and linked issues; PR titles alone do not establish what shipped. Cover
-direct commits as well as merged PRs. Report unavailable history or GitHub access as missing
-evidence, not as a successful check.
+Confirm the previous release tag on GitHub and read the range from it to the candidate: the diff,
+direct commits, merged PRs and their issues. A PR title alone does not say what shipped. Report
+missing history or GitHub access as missing evidence.
 
 - Group user-visible changes into features, fixes, compatibility changes and operator actions.
-  Account for moved or removed APIs, coordinates, runtime requirements, configuration, stored
-  data and authentication behavior. Keep internal maintenance and dependency updates concise.
-- Apply [doc-review](doc-review.md) to the release range, using its documentation map, KDoc,
-  specification and context7 checks. Its default branch comparison is replaced by this range.
-  In assessment and publication modes, report findings without editing the candidate; preparation
-  applies bounded corrections under section 3.
-  Compare compatibility changes with the applicable migration guide; report uncovered changes.
-- Inspect the agreed release milestone and explicit blockers, when they exist. Compare claimed
-  completion with acceptance criteria and merged work. Report open delivered issues, incomplete
-  closed issues and missing required companion work. Follow issue-work before changing status.
-  No milestone is required; unrelated open issues do not block a release.
-- Review newly introduced TODOs, disabled tests and deprecations where they affect delivery.
-  Keep local TODOs under the documentation strategy's rule. Do not turn hygiene into a repository
-  cleanup, bulk issue closure or speculative security audit.
+  Check moved or removed APIs, coordinates, runtime requirements, configuration, stored data and
+  authentication behaviour. Summarise maintenance and dependency updates briefly.
+- Run [doc-review](doc-review.md) with the range as its target. Assess and publish report its
+  findings; prepare applies them (section 3). Check each compatibility change against its
+  migration guide, such as [`docs/migration/0.2.md`](../migration/0.2.md).
+- Where a release milestone or named blockers exist, compare their issues with acceptance and
+  merged work: open issues already delivered, closed issues not delivered, missing companion work.
+  Change issue status only under [issue work](issue-work.md). A release needs no milestone, and
+  unrelated open issues do not block it.
+- Check new TODOs, disabled tests and deprecations that affect the release. TODOs follow the
+  [TODO rule](documentation-strategy.md#minor-local-omissions). Keep to the release: no repository
+  cleanup, bulk closing or security audit.
 
-Distinguish an actual release blocker from a follow-up improvement. Each finding names its
-source and consequence; identify which areas were reviewed and which remain unchecked.
+Mark each finding as a blocker or a follow-up, with its source and consequence. List the areas
+reviewed and those left unchecked.
 
 ## 3. Prepare the candidate
 
-Reuse an existing release PR and notes draft. Otherwise prepare the version change and a single
-notes draft for review under the issue-planning rules. Keep public release preparation in its
-issue/PR; use a local draft when GitHub writes are not authorized. Do not create a parallel roadmap
-or duplicate migration document.
+Reuse an existing release PR and notes draft; otherwise open them under
+[issue work](issue-work.md). Without permission to write to GitHub, keep the draft in a local file.
+Add no roadmap file and no second migration guide.
 
-Write notes from the evidence in step 2: highlights, breaking changes, required migration or
-operator actions, known limitations and the full comparison link. Follow RELEASING.md for
-including migration notes. Preserve reviewed wording on subsequent runs. Generated PR lists are
-supporting material, not a substitute for the consumer-facing explanation.
+Write the notes from section 2: highlights, breaking changes, migration and operator actions, known
+limitations and the comparison link. Keep wording a reviewer has approved. RELEASING.md step 5 says
+how they reach the GitHub release.
 
-In preparation mode, correct bounded documentation omissions and run doc-review on those edits.
-Report product changes that are needed as separate blocking work. Follow the root commit policy
-if committing, and attach any PR created through the host's artifact tool when available.
+Fix bounded documentation gaps and run doc-review on the fixes. A needed product change is
+separate work, and a blocker. Commit under the root commit rules.
 
-Read the current required CI checks from the repository rather than maintaining a second command
-list here. Run the applicable checks with their documented infrastructure, or cite successful
-results for the exact candidate SHA. Identify failures, skipped required tests and missing checks.
-PR-head or older-commit results do not prove the final merged candidate passed. A change to the
-candidate invalidates previous evidence for the changed state.
+Take the required checks from the CI workflows and branch protection; this procedure keeps no list.
+Run them with their documented infrastructure, or cite a green run for the exact candidate SHA. A
+result for the PR head or an earlier commit does not cover the merged commit, and any change to the
+candidate voids earlier results. Report failures, skipped required tests and missing checks.
 
 ## 4. Publish and verify
 
-Do not publish with unresolved release blockers or missing required check results. Report the
-blocking evidence and complete independent work within the requested mode.
+Publish only with no open blocker and every required check green for the candidate. Before any
+external change, compare an existing tag, GitHub release or Central deployment for this version
+with the candidate. Stop on a tag that names another commit, or a version already on Central from
+an unknown build. Never move a release tag; Central never replaces a version.
 
-Before changing external state, reconcile any existing tag, GitHub release and Central deployment
-with the target version and commit. Refuse a conflicting tag or an already published version of
-unknown provenance. Never move an existing release tag or attempt to replace Central artifacts.
+**The maintainer runs every step that needs a credential** — the signing key, the Central token,
+the Portal login — in their own terminal. The agent never asks for a secret, reads one from the
+environment or runs such a step itself. It hands over that step's command block from RELEASING.md
+with the version filled in, and checks what the step left behind:
 
-Follow RELEASING.md from the verified merged commit. Keep signing local under its current key
-policy. Do not print credentials, private key material or authenticated headers, or save them in
-the release record. Missing credentials block the relevant step; complete independent preparation
-and explain the missing prerequisite without requesting secrets in chat.
+| RELEASING.md step | Run by | The agent then checks |
+|---|---|---|
+| 1. Release version on `main` | agent opens the PR, maintainer merges | the merged commit is the candidate, with the release `version` |
+| 2–3. Sign and build the bundle | maintainer, in the agent's checkout | the staged modules against the list in step 3; the SHA-256 of `build/central-bundle.zip` |
+| 4. Upload, release in the Portal | maintainer, once | the deployment id is recorded; every expected artifact resolves from `repo1.maven.org` |
+| 5. Signed tag | maintainer | the remote tag names the candidate SHA |
+| 5. GitHub release | agent | the release URL and its notes |
+| 6. Next development version | agent opens the PR | the version is the agreed one; ask if the next line is open |
 
-Build the signed bundle with the existing tasks. Inspect the expected publications from the build
-and BOM against the staged files, including required classifiers and dependency versions.
-`checkCentralBundle` checks companions of files that exist; it does not establish that every
-expected publication exists or cryptographically verify signatures. Do not claim either from a
-successful task alone. Record any additional checks actually performed.
+The maintainer reports each result; a deployment id is not a secret. When the Portal reports a
+validation failure, record its diagnostics and stop. The corrected candidate starts again at
+section 3.
 
-Upload once and retain the returned Central deployment ID immediately. With a user-managed
-deployment, wait for validation and complete the documented Portal step, or use the current
-official Publisher API if available and authorized. Use bounded status checks. Distinguish
-validation from publication; an upload response is not proof of either. On validation failure,
-report the diagnostics and stop publication until the candidate is corrected and checked again.
+## 5. Record and resume
 
-Only after Central reports publication, verify that the expected artifacts resolve from Central,
-then create the documented signed tag on the candidate SHA and publish the reviewed GitHub notes.
-Reuse a matching existing tag or release when recovering. Check remote tag identity, release URL
-and published coordinates before reporting success. Prepare the next development-version PR
-according to RELEASING.md; use an agreed next version or ask if the release line is undecided.
+Prepare and publish keep a release record in the release issue, or in a named local file without
+GitHub write access. Update it after every external step:
 
-## 5. Keep evidence and resume safely
+- version, previous tag, candidate SHA, where the reviewed notes are
+- check results with links, open findings, and what the user asked to publish
+- bundle path, its SHA-256, the Central deployment id and its last known state
+- tag target, GitHub release URL, artifact availability, next-version PR
 
-For preparation and publication, keep a durable release record in the existing release work
-record, or in a named local file when external writes are not authorized. Record progress after
-each external operation:
+Never record a credential, key material or an authorization header.
 
-- Repository, version, previous tag, candidate SHA and reviewed notes location.
-- Check results and links, unresolved findings and the scope of the user's publication request.
-- Bundle path, SHA-256 checksum and Central deployment ID with last observed state.
-- Tag target, GitHub release URL, artifact availability and next-version PR, as each exists.
+On resume, read the record and check live state first. A recorded deployment keeps its recorded
+bundle; a rebuild means a new deployment, which the maintainer decides. Check an upload with an
+unknown outcome in the Portal before any retry. When Central is done and GitHub is not, finish
+GitHub. When state cannot be established, name the missing evidence and stop the steps that depend
+on it.
 
-On resume, read the record and verify live state before continuing. Reuse the retained bundle for
-the recorded deployment; do not rebuild it silently. If an upload's outcome is unknown, reconcile
-it in Central before retrying. If Central succeeded and GitHub failed, finish GitHub only. When
-state cannot be established, report the exact missing evidence and stop that dependent operation.
-
-The final report states what was assessed, changed or published, the evidence, remaining blockers
-and the next action. After a release, suggest small procedure improvements based on observed
-friction. Update the procedure when requested, keeping publication facts in RELEASING.md and
-historical run results in the release record.
+The final report says what was assessed, changed or published, the evidence, open blockers and the
+next action. After a release, propose small improvements to this procedure from what got in the
+way. Publication facts go into RELEASING.md, the run's results into the release record.

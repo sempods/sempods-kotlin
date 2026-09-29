@@ -927,7 +927,7 @@ allprojects {
 // unsigned — and it rejects the deployment whole. Same questions, asked locally first.
 val checkCentralBundle = tasks.register("checkCentralBundle") {
   group = "verification"
-  description = "Fails if the staged release bundle is incomplete, unsigned, or carries a stale version."
+  description = "Fails if a staged file lacks its signature or checksums, or the bundle carries a snapshot or stale version."
   doLast {
     val root = centralBundleDir.get().asFile
     if (!root.isDirectory) {
@@ -975,7 +975,7 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
       )
     }
 
-    logger.lifecycle("Bundle is complete: ${artifacts.size} artifacts, each signed and checksummed.")
+    logger.lifecycle("Bundle checked: ${artifacts.size} artifacts, each signed and checksummed.")
   }
 }
 

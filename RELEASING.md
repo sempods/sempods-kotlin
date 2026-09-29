@@ -95,9 +95,14 @@ Then, per release:
    ```bash
    ./gradlew centralBundle
    ```
-   `checkCentralBundle` runs as part of it and refuses a bundle that is unsigned, incomplete, built
-   from a snapshot, or carrying leftovers from an earlier release — all of which Central would
-   otherwise reject after the upload, which is a slow way to find out.
+   `checkCentralBundle` runs as part of it. It refuses a bundle built from a snapshot, a file
+   without its `.asc`, `.md5` or `.sha1`, and leftovers from an earlier release — all of which
+   Central would otherwise reject after the upload, which is a slow way to find out. It checks that
+   each signature exists; Central checks that it verifies.
+
+   The task does not know which publications to expect, so a module missing from the bundle
+   entirely passes. Compare the directories under `build/central-bundle/org/sempods/` with
+   `publishedModules` plus `sempods-bom` before uploading.
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
    ```bash
@@ -118,18 +123,24 @@ Then, per release:
    **waits for you to release it** from the Portal UI — which is the safer default: a release
    cannot be taken back, and this is the last point at which it can be dropped. Add
    `&publishingType=AUTOMATIC` once the process is boring.
-5. Tag the commit you built from, and cut a GitHub Release from the tag:
+5. Once the Portal shows the deployment as published and the release resolves from Central —
+   `https://repo1.maven.org/maven2/org/sempods/sempods-bom/$VERSION/` lists the BOM — tag the
+   commit you built from, and cut a GitHub Release from the tag:
    ```bash
    git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
-   gh release create "v$VERSION" --generate-notes
+   gh release create "v$VERSION" --notes-file release-notes.md --generate-notes
    ```
+   The tag waits for Central because until then the deployment can still fail validation or be
+   dropped, and the fix is a new commit that a tag pushed earlier would not name.
+
    The ruleset guards branches, not tags, so the tag push needs no pull request. The release is
    what anyone watching the repository is notified by; Central carries the artifacts and announces
    nothing.
 
-   `--generate-notes` collects pull-request titles and nothing else, so **a version that moves or
-   removes something a consumer calls needs its migration notes pasted in**: for 0.2 that is
-   [`docs/migration/0.2.md`](docs/migration/0.2.md).
+   `--generate-notes` collects pull-request titles and nothing else. `release-notes.md` holds the
+   notes reviewed in the release pull request, and `gh` puts them above that list: highlights,
+   breaking changes and, for **a version that moves or removes something a consumer calls, its
+   migration notes** — for 0.2, [`docs/migration/0.2.md`](docs/migration/0.2.md).
 6. Open a second pull request bumping `version` to the next minor with `-SNAPSHOT` restored.
 
 ## What Central requires, and what already satisfies it
