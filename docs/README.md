@@ -6,6 +6,9 @@ Guides for using, extending and operating this implementation. The protocol is d
 The [repository README](../README.md#documentation) is the entry point and links guides by task.
 This index lists shared and module documentation.
 
+For the distinction between required protocol behavior and optional modules, start with the
+[README's pod model](../README.md#what-a-pod-is-in-five-points).
+
 ## Module documentation
 
 - [JVM client](../sempods-client/README.md): [API guide](../sempods-client/docs/client.md) and

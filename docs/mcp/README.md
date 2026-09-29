@@ -23,8 +23,7 @@ Three primitives:
   `authorize` tool that drives the OAuth handshake. System-layer
   property-value tools (`set_property_values`, `add_property_value`,
   `remove_property_value`, `clear_property_values`) add
-  triple-granular writes and must ship in the same delivery cut as the
-  LOD-CRUD HTTP System layer.
+  triple-granular writes through the HTTP System layer.
 - **Sandbox** — every tool call is restricted to the contexts the
   caller's bearer (or anonymous public-read) covers. Not enforced twice:
   a tool call *is* a call to the pod's `_system/…` routes, made over HTTP
@@ -44,8 +43,9 @@ Three primitives:
   serves all usage patterns; new patterns require new contexts, not new
   MCP variants. App-/user-defined MCP surfaces under `apps/…` and
   `users/…` are a future extension along the same path schema.
-- **Auth by token, sandbox by context.** Every tool call resolves the
-  caller's sandbox from OAuth scopes. The pod's own consent UI drives
+- **Auth by token, sandbox by context.** The pod resolves context permissions from
+  server-side grants on every request; OAuth scopes carry coarse capabilities such as
+  `public-read`. The pod's own consent UI drives
   grant changes — no MCP-specific auth UI.
 - **Reuse existing flows.** `/{pod}/_system/auth/authorize`, the token
   endpoint, and `id.sempods.org` are already in place. The MCP rides on
@@ -81,9 +81,9 @@ Standards are *named*, not re-explained in these docs.
   (RFC 9728 / 8414, append- and host-rooted variants), error codes.
 - **`tools.md`** — every tool (`authorize`, `list_contexts`,
   `sparql_select`, `sparql_graph`, `create_resource`,
-  `update_resource`, `delete_resource`) plus planned System-layer slot
-  tools, the autodiscovery recipe, the SPARQL guardrails (write-keyword
-  + `SERVICE` rejection, 10 s timeout), and request/response examples.
+  `update_resource`, `delete_resource`) and System-layer slot tools, the autodiscovery
+  recipe, the SPARQL guardrails (parser-based Update and `SERVICE` rejection,
+  10 s timeout), and request/response examples.
 - **`authentication.md`** — anonymous vs. bearer behavior,
   `public-read` semantics, the synthetic `authorize` tool and its
   `reauthorize=true` upgrade flow, the WWW-Authenticate replay,
