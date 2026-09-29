@@ -701,9 +701,10 @@ expire, so this outlasts the hour. Register a service, give it `apps/notes#write
 still writes `apps/notes` the next day. The consent says so.
 
 **An authority approved under an earlier consent text keeps what that text promised.** The row
-records the text it was approved under (`PrivilegedAuthorityRows.CONSENT`). One approved before the
-text named registering and assigning still lists, rotates and revokes, and is `403
-insufficient_scope` at the registration and the replace.
+records the version of the text it was approved under, which the dialog carries through the code
+(`PrivilegedAuthorityRows.consentTextOf`). One approved before the
+text named registering and assigning still lists, rotates and revokes, and may narrow an active
+`svc:` service's grants. Registering, and any other replace, is `403 insufficient_scope`.
 
 The operations are [`service-clients.md`](service-clients.md#managing-service-clients)'s.
 

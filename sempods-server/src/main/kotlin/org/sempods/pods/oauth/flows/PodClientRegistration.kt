@@ -152,7 +152,7 @@ class PodClientRegistration @Inject internal constructor(
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
     val owner = request.caller?.let { caller ->
-      when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.CONSENT)) {
+      when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT)) {
         is PodOwnerAuthorityCheck.Standing -> check.authority
         is PodOwnerAuthorityCheck.Refused -> return PodRegistrationResult.Unauthorized(check.reason)
       }

@@ -48,7 +48,7 @@ class PodServiceClientProvisioning @Inject internal constructor(
           "${LogSafeText.of(request.expectedRegistrationId ?: "(none)")}, current=${existing.id}, " +
           "expectedSecretId=${LogSafeText.of(request.expectedSecretId ?: "(none)")}, currentSecretId=${existing.secretId})"
     }
-    return when (val rotation = serviceClients.rotateSecret(pod.id, request.clientId)) {
+    return when (val rotation = serviceClients.rotateSecret(pod.id, request.clientId, expectedSecretId = existing.secretId)) {
       is PodServiceClientStore.SecretRotation.Rotated -> PodServiceClientResult.Provisioned(rotation.registration, rotation.secret)
       // Another rotation landed in between, or the registration went: a secret answered now would
       // not be the one that works.

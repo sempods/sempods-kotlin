@@ -1,7 +1,6 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
-import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.HeaderParam
@@ -70,7 +69,8 @@ class PodServiceClientsEndpoint @Inject constructor(
    */
   @PUT
   @Path("{clientId}/grants")
-  @Consumes(MediaType.APPLICATION_JSON)
+  // No `@Consumes`: Jersey would answer another media type 415 before the bearer is read. A body
+  // that is not a JSON array of strings is 400, after it.
   fun replaceGrants(
     @PathParam("pod") pod: String,
     @PathParam("clientId") clientId: String,

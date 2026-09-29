@@ -260,6 +260,34 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $earlier").execute().statusCode,
       "it still reads, as its consent said")
     assertSecretStands(owned, existing)
+
+    // And it still takes a service away, as its consent said.
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(existing.clientId)}/secret")
+      .addHeader("Authorization", "Bearer $earlier").execute()
+    assertEquals(200, rotated.statusCode, rotated.responseBody)
+    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(existing.clientId)}")
+      .addHeader("Authorization", "Bearer $earlier").execute()
+    assertEquals(204, revoked.statusCode, revoked.responseBody)
+  }
+
+  @Test
+  fun `a replace for an unknown service is 404, and a body of another media type is read after the bearer`() {
+    val owned = ownedPod()
+    owned.context("notes")
+    val manager = approveManagement(owned)
+
+    val unknown = replaceGrants(owned, manager, "svc:nobody", "[]", ifMatch = "\"0\"")
+    assertEquals(404, unknown.statusCode, unknown.responseBody)
+
+    val clientId = registeredClientId(owned, manager)
+    fun plainText(bearer: String?) = http.preparePut(grantsUrl(owned, clientId))
+      .addHeader("Content-Type", "text/plain")
+      .addHeader("If-Match", "\"0\"")
+      .apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }
+      .setBody("[]")
+      .execute()
+    assertPodBearerChallenge(plainText(null), owned.pod.name)
+    assertEquals(200, plainText(manager).statusCode, "the body is what is read, whatever it is labelled")
   }
 
   @Test

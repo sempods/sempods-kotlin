@@ -25,6 +25,7 @@ import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import java.util.UUID
 
 /**
@@ -639,6 +640,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           privilegedFeatures.toSet(),
           subjectDecision?.disconnects ?: 0L,
           binding,
+          // The text this screen shows, which the authority it grants records.
+          consentText = privilegedFeatures.singleOrNull()?.let(PrivilegedAuthorityRows::consentTextOf),
         ),
         webId = identity.webId,
         contexts = contexts,

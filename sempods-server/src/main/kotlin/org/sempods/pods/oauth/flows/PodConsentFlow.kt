@@ -16,6 +16,7 @@ import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -202,6 +203,7 @@ class PodConsentFlow @Inject internal constructor(
         submitted = submittedPrivileged,
         rawSubmitted = rawSubmitted,
         isOwner = isOwner,
+        consentText = transaction.consentText ?: PrivilegedAuthorityRows.FIRST_CONSENT,
       )
     }
 
@@ -349,6 +351,7 @@ class PodConsentFlow @Inject internal constructor(
     submitted: Set<String>,
     rawSubmitted: Set<String>,
     isOwner: Boolean,
+    consentText: Int,
   ): PodConsentResult {
     // Authority first, then what the submission is shaped like, then what it says. The screen was
     // rendered for an owner; a session that stopped being one in between decides nothing here.
@@ -395,6 +398,7 @@ class PodConsentFlow @Inject internal constructor(
       // Recorded here because here is where it is still known. `PodClientRegistration` asks
       // `isOwner` again against this set, an hour later and with no browser in front of it.
       subjectUris = identity.allUris.toSet(),
+      consentText = consentText,
       session = session,
     ).asResult()
   }

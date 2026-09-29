@@ -54,6 +54,11 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
      * `PodGrantDbo.subjectUris` is that same set, recorded for that same reason.
      */
     val subjectUris: Set<String> = emptySet(),
+    /**
+     * Which consent text the person approved, for a server that versions that text; null where the
+     * concept does not apply, and on a code issued before this field existed.
+     */
+    val consentText: Int? = null,
   )
 
   /**
@@ -78,6 +83,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       putNotNull("nonce", it.nonce)
       putNotNull("consentGeneration", it.consentGeneration)
       putStrings("subjectUris", it.subjectUris)
+      putNotNull("consentText", it.consentText)
     },
     read = {
       val subject = getString("subject") ?: return@OneTimeStore null
@@ -95,6 +101,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
         // class's wire format is kept stable for puts exactly such a code in front of a node
         // that reads it. The subject is the one URI it does record.
         subjectUris = getStringSet("subjectUris").ifEmpty { setOf(subject) },
+        consentText = get("consentText", Number::class.java)?.toInt(),
       )
     },
   )
@@ -110,6 +117,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
     nonce: String? = null,
     consentGeneration: Long? = null,
     subjectUris: Set<String> = emptySet(),
+    consentText: Int? = null,
   ): String = codes.issue(
     Entry(
       subject = subject,
@@ -122,6 +130,7 @@ class AuthorizationCodeStore(db: MongoDatabase, collectionName: String) {
       nonce = nonce,
       consentGeneration = consentGeneration,
       subjectUris = subjectUris,
+      consentText = consentText,
     ),
   )
 

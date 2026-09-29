@@ -218,13 +218,34 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `an operator-provisioned client is not this consent's`() {
+  fun `an operator-provisioned client's grants are decided at this consent too`() {
     val owned = Owned()
-    val provisioned = serviceClients.register(owned.pod, "backend", emptySet()).registration
+    val sandbox = "${owned.context("apps/backend")}#manage"
+    val provisioned = serviceClients.register(owned.pod, "backend", setOf(sandbox)).registration
 
-    val opened = openServiceConsent(owned, provisioned.clientId)
+    val answered = confirmServiceConsent(owned, provisioned.clientId, setOf(owned.readScope))
 
-    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE), opened)
-    assertNull(serviceClients.find(owned.pod.id, provisioned.clientId)?.scopes?.firstOrNull())
+    assertEquals(PodServiceConsentOutcome.CONFIRMED, assertIs<PodServiceConsentResult.Answered>(answered).outcome)
+    assertEquals(setOf(owned.readScope), serviceClients.find(owned.pod.id, provisioned.clientId)?.scopes)
+  }
+
+  @Test
+  fun `an authority approved under the first consent may narrow a registered service and nothing more`() {
+    val owned = Owned()
+    val notes = owned.context("notes")
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
+    val earlier = manager(owned, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
+
+    assertEquals(
+      PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED),
+      management.replaceGrants(owned.pod, earlier, installed.clientId, 1L, setOf(owned.readScope, "$notes#write")),
+      "widening is the new text's",
+    )
+    val narrowed = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
+      management.replaceGrants(owned.pod, earlier, installed.clientId, 1L, setOf("$notes#read")),
+    ).value
+    assertEquals(setOf("$notes#read"), narrowed.scopes)
+    assertEquals(2L, narrowed.grantsVersion)
   }
 }

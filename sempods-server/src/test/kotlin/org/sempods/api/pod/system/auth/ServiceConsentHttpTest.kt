@@ -177,12 +177,11 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
   // ── The consent URL ─────────────────────────────────────────────────────────
 
   @Test
-  fun `an unknown, a delegated or an operator-provisioned identifier is answered 400 without a redirect`() {
+  fun `an unknown or a delegated identifier is answered 400 without a redirect`() {
     val owned = ownedPod()
     val app = flow.register(owned.pod, redirectUri = loopback)
-    serviceClientStore.register(owned.pod.hosted, "backend", emptySet(), label = "backend")
 
-    for (clientId in listOf("svc:nobody", app.clientId, "backend", "")) {
+    for (clientId in listOf("svc:nobody", app.clientId, "")) {
       val answer = services.open(owned.pod, clientId, owned.cookie, redirectUri = loopback)
       assertEquals(400, answer.statusCode, "$clientId: ${answer.responseBody}")
       assertTrue(answer.getHeader("Location").isNullOrBlank(), clientId)

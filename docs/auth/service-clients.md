@@ -69,11 +69,12 @@ which deviates from
 [sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) proposes the profile.
 
 ```
-GET {pod}/_system/auth/service-consent?client_id=svc:…&state=<opaque>[&redirect_uri=<registered>]
+GET {pod}/_system/auth/service-consent?client_id=<service>&state=<opaque>[&redirect_uri=<registered>]
 ```
 
-- **`client_id`** names a live `svc:` registration, pending or active. An unknown one, a `dyn:` one,
-  an operator-provisioned one or one past its deadline gets a plain `400` and no redirect.
+- **`client_id`** names a live service registration: a `svc:` one, pending or active, or an
+  operator-provisioned one, whose grants are the owner's too. An unknown one, a `dyn:` one or one
+  past its deadline gets a plain `400` and no redirect.
 - **`redirect_uri`** is optional. It must be one the service registered; a loopback one matches on
   any port (RFC 8252 §7.3). Another gets a plain `400` and no redirect.
 - **Nothing else is read.** The URL suggests no rows: the owner picks them.
@@ -237,7 +238,7 @@ A registration is described by `client_id`, `client_name`,
   its registration. The owner takes its access away with `[]`.
 - Any other bearer is `403 insufficient_scope`, and so is an authority
   approved under an [earlier consent text](oauth.md#managing-service-clients)
-  at the registration and the replace.
+  at the registration and at a replace that does more than narrow.
 
 The replace answers:
 

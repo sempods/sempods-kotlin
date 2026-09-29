@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
+import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.GrantReplacement
 import org.sempods.pods.grants.PodGrantsFacade
@@ -12,6 +13,7 @@ import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
+import java.net.URI
 
 /**
  * An owner's reads, grant replacement, rotation and revocation of the service clients on their pod.
@@ -25,6 +27,7 @@ class PodServiceClientManagement @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
   private val ownerAuthority: PodOwnerAuthority,
   private val podGrantsFacade: PodGrantsFacade,
+  private val podFacade: PodFacade,
 ) {
 
   /** Every registration on [pod], with no secret. */
@@ -80,6 +83,9 @@ class PodServiceClientManagement @Inject internal constructor(
    * Every scope has to be a context grant the owner can give, on a context registered on the pod.
    * A scope that is not is refused whole, before anything is written.
    *
+   * An authority approved under the first consent text, which promised only to take access away,
+   * may narrow the grants of an active `svc:` registration and nothing more.
+   *
    * @param expectedVersion the grants version the caller read. The write is conditional on it, so
    *   two tools never overwrite each other unseen.
    */
@@ -90,29 +96,41 @@ class PodServiceClientManagement @Inject internal constructor(
     expectedVersion: Long,
     scopes: Set<String>,
   ): PodServiceClientManagementResult<ServiceClientRegistration> =
-    authorized(pod, caller, consent = PrivilegedAuthorityRows.CONSENT) { authority ->
+    authorized(pod, caller) { authority ->
       val registration = serviceClients.find(pod.id, clientId)
         ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
+      // What the first text allowed: taking access away from an active service this pod named.
+      val narrowing = registration.registered && registration.pendingUntil == null && registration.scopes.containsAll(scopes)
+      if (authority.consent < PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT && !narrowing) {
+        return@authorized PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED)
+      }
       // Early and cheap; the conditional write below is what decides.
       if (registration.grantsVersion != expectedVersion) {
         return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH)
       }
+      // The authority is the owner's, who can give any registered context: asked per context rather
+      // than by listing every context the pod has.
       val invalid = serviceClients.ungrantable(pod, scopes)
-      val delegatable = if (scopes.isEmpty()) emptySet() else podGrantsFacade.resolveUserGrants(pod, authority.subjectUris)
+      val unregistered = scopes.filterNot { it in invalid }.map { it.substringBeforeLast('#') }.distinct()
+        .filterNot { podFacade.contextExists(pod, URI(it)) }.toSet()
       val refused = scopes.sorted().mapNotNull { scope ->
-        val reason = invalid[scope] ?: "no context registered on this pod".takeIf { scope !in delegatable }
+        val reason = invalid[scope] ?: "no context registered on this pod".takeIf { scope.substringBeforeLast('#') in unregistered }
         reason?.let { "'$scope': $it" }
       }
       if (refused.isNotEmpty()) {
         return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.UNGRANTABLE, refused.joinToString("; "))
       }
       val recipient = GrantRecipient.Service(registration.id, clientId, expectedVersion)
-      when (podGrantsFacade.replaceGrants(pod, recipient, scopes, grantedBy = authority.webId)) {
+      when (val replacement = podGrantsFacade.replaceGrants(pod, recipient, scopes, grantedBy = authority.webId)) {
         is GrantReplacement.Replaced -> {
-          // Read again for the new version, which the answer's ETag carries.
-          val replaced = serviceClients.find(pod.id, clientId)
-            ?.takeIf { it.id == registration.id }
-            ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
+          // The write moved the version by one and activated the registration. Only where the check
+          // after it dropped a grant did more change, and the answer reads it again.
+          val replaced = if (replacement.granted == scopes) {
+            registration.copy(scopes = scopes, grantsVersion = expectedVersion + 1, pendingUntil = null)
+          } else {
+            serviceClients.find(pod.id, clientId)?.takeIf { it.id == registration.id }
+              ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
+          }
           logger.info {
             "[service-clients] Grants replaced: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}', " +
                 "webId='${authority.webId}', scopes='${LogSafeText.of(replaced.scopes.sorted().joinToString(" "))}'"

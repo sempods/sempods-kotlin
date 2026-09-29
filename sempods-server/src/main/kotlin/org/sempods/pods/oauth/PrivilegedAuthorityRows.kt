@@ -7,6 +7,7 @@ import org.sempods.auth.core.OneTimeStore
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putStrings
 import org.sempods.pods.PodId
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import java.time.Duration
 
 /**
@@ -35,8 +36,8 @@ abstract class PrivilegedAuthorityRows internal constructor(
    *   consent moves — one authority would then withdraw the other.
    * @param subjectUris every identity URI the person was recognised by at the dialog, [webId] among
    *   them. An empty set recognises nobody.
-   * @param consent the consent text the person approved, as [CONSENT] was when they did. A row
-   *   without one was approved under the first text.
+   * @param consent the version of the consent text the person approved for the bearer's scope
+   *   ([consentTextOf]). A row without one was approved under the first text.
    */
   internal data class Authority(
     val pod: PodId,
@@ -82,7 +83,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
     webId: String,
     disconnects: Long,
     subjectUris: Set<String>,
-    consent: Int = CONSENT,
+    consent: Int,
   ) {
     require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
     rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris, consent))
@@ -122,10 +123,14 @@ abstract class PrivilegedAuthorityRows internal constructor(
     const val FIRST_CONSENT = 1
 
     /**
-     * The consent text this server shows. `2` says that `service-clients:manage` registers services
-     * and gives them access to the person's data; an authority approved under `1` was told it could
-     * not, and [org.sempods.pods.oauth.flows.PodOwnerAuthority] keeps it to what `1` said.
+     * The `service-clients:manage` text that says the authority registers services and gives them
+     * access to the person's data. An authority approved under [FIRST_CONSENT] was told it could not,
+     * and [org.sempods.pods.oauth.flows.PodOwnerAuthority] keeps it to what that text said.
      */
-    const val CONSENT = 2
+    const val SERVICE_CLIENTS_CONSENT = 2
+
+    /** The version of the consent text this server shows for the privileged [scope]. */
+    fun consentTextOf(scope: String): Int =
+      if (scope == SERVICE_CLIENTS_MANAGE_SCOPE) SERVICE_CLIENTS_CONSENT else FIRST_CONSENT
   }
 }

@@ -126,7 +126,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     webId: String,
     subjectUris: Set<String> = setOf(webId),
     clientId: String = CONTEXTS_MANAGER_CLIENT_ID,
-  ): String = mintManagerToken(podName, webId, CONTEXTS_MANAGE_SCOPE, subjectUris, clientId, PrivilegedAuthorityRows.CONSENT)
+  ): String = mintManagerToken(podName, webId, CONTEXTS_MANAGE_SCOPE, subjectUris, clientId, PrivilegedAuthorityRows.FIRST_CONSENT)
 
   /**
    * The same for [SERVICE_CLIENTS_MANAGE_SCOPE]. `PodServiceClientsEndpointHttpTest` walks the round
@@ -138,7 +138,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected fun mintServiceClientsManagerToken(
     podName: String,
     webId: String,
-    consent: Int = PrivilegedAuthorityRows.CONSENT,
+    consent: Int = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
   ): String = mintManagerToken(podName, webId, SERVICE_CLIENTS_MANAGE_SCOPE, setOf(webId), SERVICE_CLIENTS_MANAGER_CLIENT_ID, consent)
 
   private fun mintManagerToken(

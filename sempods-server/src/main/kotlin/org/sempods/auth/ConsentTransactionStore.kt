@@ -62,6 +62,9 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   other answer would not.
    * @param binding the request and the rows this screen answers; `null` on a transaction an older
    *   node wrote.
+   * @param consentText the version of the privileged consent text this screen rendered, which the
+   *   authority the person approves records; `null` on an ordinary screen and on one an older node
+   *   rendered.
    */
   data class Transaction @JvmOverloads constructor(
     val pod: String,
@@ -70,6 +73,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     val offeredFeatureScopes: Set<String>,
     val disconnects: Long,
     val binding: Binding? = null,
+    val consentText: Int? = null,
   )
 
   /**
@@ -122,6 +126,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
       putNotNull("consentGeneration", it.consentGeneration)
       putStrings("offeredFeatureScopes", it.offeredFeatureScopes)
       putNotNull("disconnects", it.disconnects.takeIf { count -> count > 0 })
+      putNotNull("consentText", it.consentText)
       it.binding?.let { binding ->
         put("clientId", binding.clientId)
         putNotNull("redirectUri", binding.redirectUri)
@@ -148,6 +153,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         // Absent means none, which is what a screen rendered before this field existed also means:
         // it compares equal to a document that has never recorded an ending.
         disconnects = get("disconnects", Number::class.java)?.toLong() ?: 0L,
+        consentText = get("consentText", Number::class.java)?.toInt(),
         // Absent on a transaction an older node wrote; see the class comment for how long that is
         // accepted.
         binding = getString("clientId")?.let { clientId ->
@@ -207,7 +213,9 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * A screen bound to the request it answers and the rows it offers — the form `/authorize` uses.
    *
    * @param binding see [Transaction.binding].
+   * @param consentText see [Transaction.consentText].
    */
+  @JvmOverloads
   fun issue(
     pod: String,
     webId: String,
@@ -215,8 +223,9 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     offeredFeatureScopes: Set<String>,
     disconnects: Long,
     binding: Binding,
+    consentText: Int? = null,
   ): String = transactions.issue(
-    Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects, binding),
+    Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects, binding, consentText),
   )
 
   /** The screen behind the token, spent in the same operation. */

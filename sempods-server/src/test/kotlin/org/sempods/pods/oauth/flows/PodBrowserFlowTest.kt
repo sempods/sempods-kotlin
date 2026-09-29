@@ -133,7 +133,7 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
     owned: Owned,
     webId: String = owned.webId,
     subjectUris: Set<String> = setOf(webId),
-    consent: Int = PrivilegedAuthorityRows.CONSENT,
+    consent: Int = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
   ): SempodsCredentials {
     val jti = randomId()
     val disconnects = consentDecisionStore.recordWithoutLifetime(owned.pod.id, clientId, webId).disconnects

@@ -370,7 +370,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
    * An owner's `service-clients:manage` bearer, as the adapter would have verified it; with the
    * authority the dialog records behind it where [recorded], approved under [consent].
    */
-  private fun manager(pod: HostedPod, recorded: Boolean = false, consent: Int = PrivilegedAuthorityRows.CONSENT): SempodsCredentials {
+  private fun manager(pod: HostedPod, recorded: Boolean = false, consent: Int = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT): SempodsCredentials {
     val jti = randomId()
     if (recorded) managementAuthorities.record(pod.id, jti, "dyn:manager", pod.owner, 0L, setOf(pod.owner), consent)
     return SempodsCredentials(

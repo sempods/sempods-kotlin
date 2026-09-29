@@ -94,6 +94,19 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a rotation decided on one secret does not replace another issued meanwhile`() {
+    val pod = sempodsTestFactory.newPod()
+    val registered = store.registerProvisional(pod.hosted, "notes", emptyList()).registration
+    val meanwhile = store.rotateSecret(pod.hosted.id, registered.clientId) as PodServiceClientStore.SecretRotation.Rotated
+
+    assertEquals(
+      PodServiceClientStore.SecretRotation.Conflict,
+      store.rotateSecret(pod.hosted.id, registered.clientId, expectedSecretId = registered.secretId),
+    )
+    assertNotNull(store.authenticate(pod.hosted.id, meanwhile.registration.clientId, meanwhile.secret), "the one issued meanwhile stands")
+  }
+
+  @Test
   fun `a rotation keeps the registration and replaces the secret`() {
     val pod = sempodsTestFactory.newPod()
     val installed = store.registerProvisional(pod.hosted, "notes", emptyList())

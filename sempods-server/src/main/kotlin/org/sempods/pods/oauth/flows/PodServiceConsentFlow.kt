@@ -54,7 +54,6 @@ class PodServiceConsentFlow @Inject internal constructor(
     // names an address this service may be sent to.
     val registration = request.clientId?.trim()?.takeIf { it.isNotBlank() }
       ?.let { serviceClients.find(pod.id, it) }
-      ?.takeIf { it.registered }
       ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE)
     val redirectUri = request.redirectUri?.trim()?.takeIf { it.isNotBlank() }
     val target = redirectUri?.let {
@@ -314,7 +313,7 @@ internal enum class PodServiceConsentOutcome { CONFIRMED, CANCELLED }
 
 /** Why the service consent answered with a page. */
 internal enum class PodServiceConsentRefusal {
-  /** Not a live `svc:` registration on this pod. */
+  /** Not a live service registration on this pod. */
   UNKNOWN_SERVICE,
   REDIRECT_URI_NOT_ALLOWED,
   IDENTITY_PROVIDER_UNAVAILABLE,
