@@ -57,13 +57,10 @@ including Mongo database and collection names. The Kotlin package namespace rema
 Vocabulary terms follow the
 [specification's deprecation policy](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md).
 Changes to stored formats and token contracts need explicit compatibility handling and documentation.
-Snapshots are mutable and expire; Maven coordinates freeze at the first release.
+Maven coordinates freeze at the first release.
 
-**Deployment and upgrades.** This repository provides building blocks and a reference
-implementation. The supplied composition supports development and trying out the services;
-it has no supported upgrade path. A concrete deployment chooses its components and owns its
-update strategy. See [deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades)
-for the boundary between components, storage implementations and deployments.
+**Deployment and upgrades.** The supplied composition has no supported upgrade path; a concrete
+deployment owns its upgrades ([deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades)).
 
 The project is maintained by one person with substantial AI assistance. Independent review of
 the SPARQL sandbox, grant resolution and OAuth flows is especially welcome.
@@ -137,20 +134,18 @@ dependencies {
 values and the media routes in artifacts of their own — [`docs/migration/0.2.md`](docs/migration/0.2.md)
 is what a `0.1.0` consumer reads before raising the platform.
 
-Use one BOM version across modules. `platform(...)` supplies version constraints;
-`enforcedPlatform(...)` forces those versions even when another dependency requests a newer one.
+`platform(...)` supplies version constraints; `enforcedPlatform(...)` forces those versions even
+when another dependency requests a newer one.
 
 Published bytecode targets **Java 21**, and building this repository needs 25. A module that brings
-RDF4J needs **Java 25** to run, because RDF4J 6 is built for it: `sempods-client`,
-`sempods-client-media` and `sempods-media` run on 21; `sempods-client-rdf4j`,
-`sempods-model` and the modules built on them need 25.
+RDF4J needs **Java 25** to run, because RDF4J 6 is built for it. The
+[client guide](sempods-client/README.md#choose-modules) lists the runtime of each client module.
 
 Gradle consumers can use the published `testFixtures(...)` capabilities. Maven consumers need
 the `test-fixtures` classifier and must supply its test dependencies themselves; these dependencies
 are intentionally absent from the ordinary POM.
 
-Development snapshots require the [snapshot repository](sempods-client/README.md#choose-modules).
-They are mutable and expire after 90 days. [Releasing](RELEASING.md) explains publication.
+[Releasing](RELEASING.md) explains development snapshots and publication.
 
 ## The three services
 
@@ -174,7 +169,8 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revisi
 
 `<sha>-dirty` and `unknown` identify uncommitted or unavailable source state and receive no commit
 tag. A commit tag identifies source, not exact bytes: base images can change on rebuild. Pin a digest
-for exact content. Images are published manually with each service's `jib` task.
+for exact content. Images are pushed by hand with each service's `jib` task, so the label is the
+only record of which commit reached the registry.
 
 ## Repository layout
 

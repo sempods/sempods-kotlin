@@ -7,8 +7,8 @@ The pod server issues access tokens and checks context grants. Start with the fl
 - [Service access](service-clients.md): register a service, obtain a token, manage access.
 - [Delegated access](user-access.md): register an app, request approval, redeem the code.
 
-[Host provisioning](../host-provisioning.md) is a separate deployment-specific setup option;
-its admin routes use a host address and operator credentials.
+[Host provisioning](../host-provisioning.md) is a separate setup path for the host operator,
+with a host address and operator credentials.
 
 For implementation and operation:
 

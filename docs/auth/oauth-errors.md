@@ -11,7 +11,7 @@ location and error headings stable.
 
 ## `invalid_request`
 
-The request could not be processed as written. Three cases produce it:
+The request could not be processed as written. These cases produce it:
 
 - `code_challenge` missing on a dynamically registered client. PKCE is mandatory for
   them — they hold no secret, so it is the only thing binding the code to the caller.
@@ -19,9 +19,27 @@ The request could not be processed as written. Three cases produce it:
   only method OAuth 2.1 keeps.
 - `prompt=none` combined with another `prompt` value. `none` is exclusive per OIDC
   Core 1.0 §3.1.2.1.
+- `a privileged screen does not end an app's access`: a consent form for a privileged scope
+  was submitted with the "Remove access" action.
+- `a context to create was refused`: the consent form asked for a new context the pod refused,
+  for example an invalid path or one that exists. The pod log names the reason.
 
-**Recovery:** fix the request. Retrying it unchanged fails identically — this is a bug
-in the client, not a state on the server.
+**Recovery:** fix the request or the form input. Retrying it unchanged fails identically.
+
+## `invalid_scope`
+
+The app asked for a scope it cannot have, or the consent form carried a row the dialog did not
+offer. A privileged scope such as `service-clients:manage` produces most of these:
+
+| `error_description` | Case |
+|---|---|
+| `'<scope>' is the pod owner's to grant` | the signed-in person is not the pod owner |
+| `'<scope>' cannot be combined with public-read or a context scope` | the request also asked for data access |
+| `'<scopes>' are granted one at a time` | the request asked for more than one privileged scope |
+| `'<scope>' cannot be combined with access to data`, `'<scope>' is granted once and does not renew`, `'<scope>' was not offered on this screen`, `a context this dialog did not offer` | the submitted consent form differs from the dialog the pod rendered |
+
+**Recovery:** fix the request, then start a fresh `/authorize`. Ask for a privileged scope alone,
+and only for the pod owner.
 
 ## `unsupported_response_type`
 
@@ -40,14 +58,14 @@ contexts exist. See [public-read authorization](../../sempods-server/docs/auth/o
 
 ## `consent_required`
 
-Consent cannot be reused, or the pod has no access to offer. A `dyn:*` client always needs
-interactive user consent. **Recovery:** follow the case below; a submitted form is single-use,
-so restart authorization rather than submitting it again.
+Consent cannot be reused, or the pod has no access to offer. **Recovery:** follow the case
+below; a submitted form is single-use, so restart authorization rather than submitting it again.
 
 | `error_description` | Case | What recovers it |
 |---|---|---|
 | `no app-specific scopes; re-authorize with scope=public-read for read-only access` | `prompt=none`, no grants for this user, but the pod has public contexts | re-run without `prompt=none`; the consent page renders |
-| `user has not granted access to this app` | `prompt=none`, grants exist but not for this app | re-run without `prompt=none`; the consent page renders |
+| `user has not granted access to this app` | `prompt=none`, and the person holds grants but none this app may reuse silently. A `dyn:*` client never reuses consent silently | re-run without `prompt=none`; the consent page renders |
+| `'<scope>' is granted at the dialog` | `prompt=none` asked for a privileged scope | re-run without `prompt=none` |
 | `granted access changed while consenting; please re-authorize` | the user's grants moved between the consent page being rendered and submitted | start a fresh `/authorize`; the page is rebuilt from what they now hold |
 | `pod has no public-read contexts and no per-context scopes were selected` | `public-read` was the only box ticked, and the pod publishes none. Ticking *nothing at all* is `access_denied`, not this | start a fresh `/authorize` **and** tick one of their own contexts. Only open to somebody who has one — for anyone else this is the row below |
 
@@ -75,7 +93,8 @@ same error. Do not retry automatically; let the person choose whether to try aga
 | Identity provider reported `access_denied`, or Apple's `user_cancelled_authorize` | the upstream code, and its description where it sent one |
 
 Service consent has its own [callback rules](../../sempods-server/docs/auth/service-clients.md#consent):
-an empty confirmation keeps the service active with no grants; cancellation leaves it unchanged.
+an empty confirmation removes every grant and activates a provisional registration; cancellation
+leaves the service unchanged.
 
 After `app disconnected`, the next authorization starts without the old grants. After `signed out`,
 the person signs in again but keeps their grants. Unrecognized provider errors are reported as

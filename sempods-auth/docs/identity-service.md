@@ -37,6 +37,9 @@ and Apple. Each direction has its own code exchange and client identity.
 | `GET` or `POST /login/oidc/{provider}/callback` | Receive the upstream provider's answer |
 | `GET /e/{hash}`, `GET /oidc/{hash}` | Read a WebID profile |
 
+The callback path is registered in Apple's and Google's developer consoles, so it cannot move.
+`/oidc/{hash}` is a person's identity document; no protocol endpoint sits under `/oidc/`.
+
 ### The provider flow
 
 For example, a pod on `pods.example` identifies itself as `did:web:pods.example` and sends the
@@ -67,9 +70,14 @@ when those identities affect consent.
 ## Email → Grant Flow
 
 A pod can derive Bob's WebID from his email before Bob has logged in. When a provider later
-returns that same verified email, this service derives the same WebID. This is an identity
-mapping, not an invitation or email-verification UI: the current pod server has no owner UI for
-granting access to another person.
+returns that same verified email, this service derives the same WebID. The pod server has no owner
+UI for granting access to another person.
+
+Each WebID has a URN twin with the same hash: `{ID_BASE_URL}/e/<hash>` ↔ `urn:sempods:e:<hash>`,
+and `/oidc/<hash>` ↔ `urn:sempods:oidc:<hash>`. A grant made before Bob's first login can name the
+URN. The pod derives the twin of the token's `sub` and matches the grant; the twin is never sent in
+a claim. A grant before the first login needs an email, because only an email hash is derivable in
+advance.
 
 ### Limitation: provider-side relay addresses
 
@@ -97,31 +105,33 @@ and configure relying services to trust that issuer. The relevant settings are:
 | `MONGODB_URL`, `MONGODB_DB_NAME` | The service's database |
 | `ID_BASE_URL` | Public issuer and profile base URL |
 | `GOOGLE_OIDC_CLIENT_ID`, `GOOGLE_OIDC_CLIENT_SECRET` | Enable Google |
-| `APPLE_TEAM_ID`, `APPLE_SERVICE_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_PEM` | Enable Apple |
+| `APPLE_OIDC_TEAM_ID`, `APPLE_OIDC_SERVICE_ID`, `APPLE_OIDC_KEY_ID`, `APPLE_PRIVATE_KEY_PEM` | Enable Apple |
+| `APPLE_DOMAIN_ASSOCIATION` | Optional [domain-association file](../src/main/kotlin/org/sempods/auth/api/login/AppleDomainAssociationEndpoint.kt) for Apple's portal |
 
 [SempodsAuthConfig](../src/main/kotlin/org/sempods/auth/SempodsAuthConfig.kt) is the configuration
 contract. With no provider configured, authorization returns `server_error`; one skips the chooser;
-several show a chooser.
-Apple returns a cross-site POST and may send the display name only on first authorization, so
-its callback supports POST and login fills a previously empty name.
+several show a chooser. Apple returns a cross-site POST and may send the display name only on first
+authorization, so its callback supports POST and login fills a previously empty name. Its client
+secret is a signed assertion minted for each token exchange.
 
 ## Current limits
 
 The service maintains no login session: `prompt=none` returns `login_required`. Google receives
 `prompt=login`; Apple offers no equivalent guarantee. Signing keys are persisted but not
-rotated automatically. Existing legacy identity tokens require an operator to clear the signing-key
-rows in `oauth.signingKeys` if they must be invalidated; removing an endpoint does not revoke them.
+rotated automatically. Identity tokens from the removed `GET /login` carry no `aud`, so the pod and
+the hosted MCP service refuse them; their signatures verify until an operator clears the rows in
+`oauth.signingKeys`.
 [OIDC timeout tests](../src/test/kotlin/org/sempods/auth/oidc/OidcHttpTimeoutsTest.kt) pin the upstream
 HTTP budgets; [pod operations](../../sempods-server/docs/auth/operations.md) describes the chain.
 
 ### Profile management
 
-Profile editing and identity linking have no user-facing UI. DPoP is not implemented;
-[its issue](https://github.com/sempods/sempods-kotlin/issues/112) tracks future work.
+Profile editing and identity linking have no user-facing UI.
 
 ## Verification
 
 [Provider HTTP tests](../src/test/kotlin/org/sempods/auth/api/provider/OpenIdProviderEndpointTest.kt)
-exercise discovery, PKCE, redirects and code redemption. [Login tests](../src/test/kotlin/org/sempods/auth/login/)
-cover WebID derivation and equivalent identities. They use local provider fixtures, not live
-Google or Apple accounts.
+exercise discovery, PKCE, redirects and code redemption. [JwtIssuerTest](../src/test/kotlin/org/sempods/auth/login/JwtIssuerTest.kt)
+covers token claims and equivalent identities, and
+[WebIdUriDeriverTest](../../sempods-commons/src/test/kotlin/org/sempods/commons/identity/WebIdUriDeriverTest.kt)
+covers WebID derivation. The tests use local provider fixtures and no live Google or Apple accounts.

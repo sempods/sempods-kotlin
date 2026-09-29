@@ -3,19 +3,20 @@
 Guides for using, extending and operating this implementation. The protocol is defined in
 [sempods-spec](https://github.com/sempods/sempods-spec), rendered at [spec.sempods.org](https://spec.sempods.org).
 
-## Start by task
+The [repository README](../README.md#documentation) is the entry point and links guides by task.
+This index lists shared and module documentation.
 
-| Task | Guide |
-|---|---|
-| Use the JVM client | [Client family and quick start](../sempods-client/README.md) |
-| Choose service or delegated access | [Auth overview](auth/README.md) |
-| Configure a backend service | [Service access](../sempods-server/docs/auth/service-clients.md) |
-| Connect a user-facing app | [Delegated access](../sempods-server/docs/auth/user-access.md) |
-| Operate the identity service | [sempods-auth](../sempods-auth/README.md) |
-| Work on shared OAuth components | [sempods-auth-core](../sempods-auth-core/README.md) |
+## Module documentation
 
-The [repository README](../README.md) is the entry point. Module READMEs introduce local APIs;
-module `docs/` pages explain their details. This index links both local and shared documentation.
+- [JVM client](../sempods-client/README.md): [API guide](../sempods-client/docs/client.md) and
+  [transport](../sempods-client/docs/transport.md)
+- [Pod OAuth](../sempods-server/docs/auth/README.md),
+  [host provisioning](../sempods-server/docs/host-provisioning.md) and
+  [collections](../sempods-server/docs/collections.md) in the pod server
+- [Identity service](../sempods-auth/README.md): [details](../sempods-auth/docs/identity-service.md)
+- [Shared auth library](../sempods-auth-core/README.md)
+- [Hosted MCP service](../sempods-mcp/docs/README.md)
+- [MongoDB document contract](../sempods-commons-mongo/docs/document-contract.md)
 
 ## Vision — why this exists
 
@@ -44,8 +45,7 @@ These pages describe the current implementation.
 
 **By area**
 
-- [`auth/`](auth/) — what this implementation does around the OAuth contract: identity and WebIDs,
-  the OAuth surface, service clients, and the recovery page every `error_uri` points at
+- [`auth/`](auth/README.md) — the cross-module auth overview and the OAuth error recovery page
 - [`mcp/`](mcp/) — the pod's MCP surfaces: the tool reference, the endpoint, authentication, and how
   real clients actually behave
 - [`architecture/`](architecture/) — [`module-layering.md`](architecture/module-layering.md), which

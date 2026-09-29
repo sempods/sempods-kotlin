@@ -2,9 +2,9 @@
 
 [Control-plane client](../../sempods-control-plane-client/README.md) · [Service access](auth/service-clients.md)
 
-This is the **deployment-specific hosting API used by sempods.org**. A host operator can create
-a service credential and a private app context for a hosted pod. Applications connecting to an
-arbitrary pod use [service registration and consent](auth/service-clients.md#registration-and-consent) instead.
+This is a **deployment-specific hosting API**. A host operator can create a service credential and
+a private app context for a hosted pod. An application connecting to an arbitrary pod uses
+[service registration and consent](auth/service-clients.md#registration-and-consent).
 
 ## Address and authority
 
@@ -19,10 +19,9 @@ For example, an operator provisions `notes-app` on Alice's hosted pod:
 | Operator setup | `https://pods.example/_system/admin/pods/alice/service-clients/notes-app` |
 | Service token exchange | `https://pods.example/alice/_system/auth/token` |
 
-**Current code placement:** [AdminPodsEndpoint](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt)
-is registered unconditionally in [SempodsModule](../src/main/kotlin/org/sempods/SempodsModule.kt).
-It is still bundled with the reference server, rather than isolated into the sempods.org deployment.
-Without configured admin authority, requests return 503.
+[AdminPodsEndpoint](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt)
+is registered in [SempodsModule](../src/main/kotlin/org/sempods/SempodsModule.kt). Without
+configured admin authority, its requests return 503.
 
 ## Sandbox via manage-root
 
@@ -40,7 +39,7 @@ context name; the server owns its location.
 For an existing registration, send both `expectedRegistrationId` and `expectedSecretId` from
 the credential you still hold:
 
-| Request | Result |
+| Case | Result |
 |---|---|
 | Both identifiers match | `alreadyProvisioned`, no write and no secret in the response. |
 | An identifier is missing or stale | `provisioned`, a fresh secret for the same registration; `secretId` changes. |
@@ -52,11 +51,10 @@ it, delete the root or make it public; provisioning again preserves those decisi
 the initial root without checking that it still exists.
 
 For example, a caller that lost its secret omits both expected identifiers to obtain a new one.
-The old secret stops working immediately. Existing tokens keep using the service's current grants
-until expiry, at most ten minutes. A `409` means another call changed the credential or created
-the registration in between.
+[Rotation](auth/service-clients.md#managing-service-clients) describes the old secret and live
+tokens. A `409` means another call changed the credential or created the registration in between.
 
 The [endpoint contract](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt)
 owns validation, concurrency and response fields. Credential storage in the calling application
-is the application's responsibility. Internal user IDs never become pod identities; the pod
+is the application's responsibility. Never use an internal user ID as a pod identity; the pod
 identifies people by WebID.

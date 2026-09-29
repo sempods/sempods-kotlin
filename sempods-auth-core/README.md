@@ -4,7 +4,8 @@
 
 `sempods-auth-core` provides OAuth and OIDC components for the pod server, identity service and
 hosted MCP service. It has no HTTP routes or executable server. An app calling a pod normally
-uses [`sempods-client`](../sempods-client/README.md).
+uses [`sempods-client`](../sempods-client/README.md). The coordinate is
+`org.sempods:sempods-auth-core`, versioned by the [platform](../README.md#using-it-as-a-library).
 
 ## What to use
 

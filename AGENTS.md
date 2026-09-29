@@ -55,7 +55,8 @@ This is not a business idea. Optimize for openness, clarity, and interoperabilit
   policy, resolved per request from the grant store — it never travels in an access token.
 - Scope: an OAuth scope in the RFC 6749 sense — a coarse feature capability such as `public-read`.
   These *do* travel in the token. See [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md)
-  §1; parts of the code still say "scope" where "grant" is meant.
+  §1; parts of the code still say "scope" where "grant" is meant. Ask `PodScopeValidator` which
+  shape a string is.
 
 ## Non-negotiable invariants
 
@@ -97,10 +98,8 @@ Key design choices:
 - WebID URI space: `id.sempods.org/e/<sha256(email)>` (EMAIL) and `id.sempods.org/oidc/<sha256(iss+sub)>` (OIDC)
 - Live: WebID profiles + content negotiation (Turtle / JSON-LD / HTML), the OIDC bridge with
   Google and Apple, and a standard provider surface (`/.well-known/openid-configuration`,
-  `/authorize`, `/token`) that the pod server and the hosted MCP service sign in against. `/login`
-  — an implicit grant with unrestricted callbacks, which `sempods-server/docs/auth/oauth.md` rules out — is gone;
-  everything it issued stays valid until the signing-key rows are cleared, which is an operator
-  step against the `oauth.signingKeys` collection rather than a release
+  `/authorize`, `/token`) that the pod server and the hosted MCP service sign in against. Tokens
+  from the removed `GET /login`: [current limits](sempods-auth/docs/identity-service.md#current-limits)
 
 ## Documentation map
 
@@ -120,7 +119,7 @@ IST documentation:
 - Naming (IST): `docs/naming.md` — the authority for how "sempods" is written in prose and
   in code, the package namespace, and the names that are frozen because a deployed host, a database
   or a published IRI depends on them
-- Client family: [sempods-client/README.md](sempods-client/README.md) — quick start and OAuth examples;
+- Client family: [sempods-client/README.md](sempods-client/README.md) — quick start and module choice;
   [client API guide](sempods-client/docs/client.md) and [transport](sempods-client/docs/transport.md);
   [RDF4J](sempods-client-rdf4j/README.md), [media](sempods-client-media/README.md) and
   [host administration](sempods-control-plane-client/README.md)
@@ -146,10 +145,8 @@ IST documentation:
 - Prefer explicit specs + conformance tests over clever query rewriting. This is a working rule
   rather than a property of the model, which is why it is here and not in the list above.
 - Be conservative with backward-incompatible changes.
-- Keep upgrade orchestration with the concrete deployment. A local data change is not a reason to
-  add a universal migration framework to shared modules. Document component compatibility and any
-  required data conversion; deployment-specific upgrade strategies are in scope. See
-  [deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades).
+- Upgrade orchestration belongs to the concrete deployment; add no migration framework to shared
+  modules ([deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades)).
 - Most modules here are published. An artifact whose types appear in a module's public signatures
   is declared by that module, on `api` — not inherited from a sibling that brings it, and not the
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against

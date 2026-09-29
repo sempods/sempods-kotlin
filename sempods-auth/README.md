@@ -10,21 +10,18 @@ in with Google or Apple. The service returns an authorization code to the pod. T
 that code for an `id_token` naming Alice's WebID, verifies it, then asks which contexts she wants
 to share with the app. The pod issues the app's access token.
 
-## Two OIDC roles
-
-| Direction | Role | Endpoints |
-|---|---|---|
-| Pod or hosted MCP → identity service | OpenID Provider | `/.well-known/openid-configuration`, `/authorize`, `/token` |
-| Identity service → Google or Apple | Relying party | `/login/oidc/{provider}/callback` |
-
-The service does not grant access to pod data. A backend using
-[Client Credentials](../sempods-server/docs/auth/service-clients.md) calls the pod's token endpoint.
+The service is an OpenID Provider toward pods and a relying party toward Google and Apple
+([OIDC bridge](docs/identity-service.md#oidc-bridge)). It grants no access to pod data. A backend
+using [Client Credentials](../sempods-server/docs/auth/service-clients.md) calls the pod's token
+endpoint.
 
 ## Run or embed it
 
-Configure providers in [SempodsAuthConfig](src/main/kotlin/org/sempods/auth/SempodsAuthConfig.kt).
-Only configured providers appear in the login flow. The service uses its own MongoDB database;
-[identity-service.md](docs/identity-service.md#self-hosted-deployment) lists deployment settings.
+With the local MongoDB from the [quick start](../README.md#quick-start) running,
+`ID_BASE_URL=http://localhost:8091 ./gradlew :sempods-auth:run` starts the service. Only configured
+providers appear in the login flow; [identity-service.md](docs/identity-service.md#self-hosted-deployment)
+lists the settings. The container image is `ghcr.io/haed/sempods-auth`, and the library
+coordinate is `org.sempods:sempods-auth`.
 
 [SempodsAuthMain](src/main/kotlin/org/sempods/auth/SempodsAuthMain.kt) starts the service.
 [SempodsAuthModule](src/main/kotlin/org/sempods/auth/SempodsAuthModule.kt) wires its components.

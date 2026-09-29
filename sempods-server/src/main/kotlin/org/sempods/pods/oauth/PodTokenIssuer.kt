@@ -29,7 +29,8 @@ import java.util.UUID
  * TODO: nothing performs a rotation. The persisted schema already carries `kid`, `algorithm` and
  *  `retiredAt`, and the JWKS endpoint publishes every persisted key, so this is a change to
  *  [SigningKeys] — mark the active key retired, mint a successor, keep the old one in JWKS for the
- *  grace period — rather than a migration. Named as a limitation in `docs/auth/README.md`.
+ *  grace period — rather than a migration. Named as a limitation in `sempods-server/docs/auth/operations.md`
+ *  §"Sharp edges".
  */
 class PodTokenIssuer(
   private val apiBaseUrl: String,

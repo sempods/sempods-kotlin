@@ -1,5 +1,14 @@
 // Snippets name their compiled source region; copying code without its test must fail CI too.
-// See docs/agents/documentation-strategy.md#checking-examples for the marker format.
+// The marker format is docs/agents/documentation-strategy.md#checking-examples.
+//
+// Every `.md` file is scanned, outside build output and `.claude/worktrees`, because module READMEs
+// carry as many examples as root `docs/`. KDoc is not scanned; its examples rely on review.
+// Common indentation is ignored, since a region sits indented inside a test and the fence does not.
+// A region must exist exactly once, or the snippet could match a copy the test no longer runs.
+// Only a page marked `<!-- doc-examples: checked -->` fails on an unmarked fence: older pages adopt
+// the marker when their examples are revised. A match proves the text only; the ordinary `test`
+// task runs the region. `testDocExampleChecker` runs the scanner on fixtures first, so a scanner
+// that accepts everything fails the build.
 data class ExampleScan(val failures: List<String>, val checked: Int, val illustrative: Int)
 
 fun scanExamples(repositoryRoot: File, documents: Sequence<File>): ExampleScan {

@@ -38,6 +38,9 @@ On `invalid_grant`, reconnect through authorization; do not retry indefinitely. 
 retire older refresh families. Deleting a context removes its grants immediately and can also end
 a connection when that deletion removes its last delegation.
 
+A refresh token the pod does not recognise is logged with a fingerprint of the token. The log
+cannot name the person: no family or WebID remains, and `client_id` names an app.
+
 The [shared refresh store](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/RefreshTokenStore.kt)
 owns hashing and replay detection. The
 [pod refresh store](../../src/main/kotlin/org/sempods/pods/oauth/PodRefreshTokenStore.kt) owns lifetime
@@ -53,10 +56,11 @@ and family-retirement rules. Deployments predating lifetime consent need the
 | `consent` | Show consent |
 | `login` or `select_account` | Authenticate again; forward to the provider where supported |
 
-A `dyn:*` client cannot reuse user consent silently; interactive authorization shows consent.
-Anonymous [public-read](oauth.md#public-read-flow) has its own silent flow. `login_required` and
-`consent_required` require an interactive retry. A session avoids another identity-provider login but grants no data access
-by itself. Google supports forwarded prompts; Apple does not guarantee them.
+`prompt=none` answers `login_required` without a pod session and `consent_required` when consent
+cannot be reused, as for every [`dyn:*` client](oauth.md#dyn--dynamically-registered-apps). Both
+require an interactive retry. Anonymous [public-read](oauth.md#public-read-flow) has its own silent
+flow. A session avoids another identity-provider login but grants no data access by itself.
+Google supports forwarded prompts; Apple does not guarantee them.
 
 The pod session lasts twelve hours from its last authorization, capped at thirty days from sign-in.
 Data requests and token refresh do not renew it. Browser cookie rules can prevent silent login
@@ -71,7 +75,8 @@ identity provider, other people and service clients keep their own sessions or c
 Sign-out keeps grants, so an app may reuse them after another login. Removing one app's access
 also removes its grants. The calling app receives `access_denied` with `error_description=signed out`.
 
-Sign-out is available on the consent page and requires its session cookie and one-time form token.
+Sign-out is available on the consent page and the service consent page, and requires the session
+cookie and that page's one-time form token.
 There is no separate sign-out page or per-browser option; a person with no grants or public
 contexts may never reach that screen. Replicas need synchronized clocks for the time-based cutoff.
 [PodSignOut](../../src/main/kotlin/org/sempods/pods/oauth/PodSignOut.kt) owns the exact boundary,

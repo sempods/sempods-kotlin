@@ -300,7 +300,7 @@ class PodTokenExchange @Inject internal constructor(
    *
    * **No family.** A refresh token would make the authority renewable, which is the one thing it
    * must not be; `offline_access` in the request preselected a control the privileged dialog does
-   * not render, and there was never an answer for it to carry. `sempods-server/docs/auth/oauth.md`
+   * not render, and there was never an answer for it to carry. `sempods-server/docs/auth/connections.md`
    * §"offline_access" lists this beside the two other exchanges that seed none.
    *
    * **The token is inert on its own.** It carries no context permission — `GrantStorePodAuthorizer`

@@ -15,15 +15,11 @@ import java.util.UUID
  * Issues the identity tokens this service is here to produce, and publishes the keys that verify
  * them.
  *
- * The key comes from [SigningKeys] and therefore survives a restart. It used to be generated per
- * process, which meant every deploy invalidated every token this service had ever signed and
- * logged everyone out — the pod server solved that long ago and this side never did.
+ * The key comes from [SigningKeys] and therefore survives a restart: a deploy invalidates no token
+ * this service signed.
  *
  * [issueIdToken] is an OIDC `id_token`: audienced to the client that asked for it, carrying the
  * `nonce` from the request, so a copy is worth nothing anywhere but at its intended recipient.
- * There was a second shape until `/login` was removed — no `aud`, therefore valid at every pod that
- * trusts this issuer. That was the feature (one login, many pods) and it was also what made a
- * leaked one worth stealing.
  */
 class JwtIssuer(
   private val issuer: String,
@@ -82,8 +78,8 @@ class JwtIssuer(
    * **It authorizes nothing today.** This service has no protected resource: a WebID document at
    * `/e/<hash>` is public Linked Data by design, which is what makes it dereferenceable at all.
    * The token exists so that the response conforms and so that a relying party's library accepts
-   * it — a `/userinfo` endpoint, or the profile management sketched in `identity-service.md`
-   * §"Profile management", would be its first real consumer.
+   * it — a `/userinfo` endpoint, or the profile management that `identity-service.md`
+   * §"Profile management" lists as missing, would be its first real consumer.
    *
    * Two things keep it from being mistaken for the identity token it travels beside, because a pod
    * verifying an identity JWT checks the issuer, the expiry and the signature — all three of which

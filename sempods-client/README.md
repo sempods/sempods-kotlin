@@ -6,8 +6,6 @@ Use the client to read and write a remote pod from Kotlin or Java. You supply a 
 for private data, a credential. Endpoint groups handle the HTTP paths and return status, headers
 and a body.
 
-This guide describes the **0.2 API in this checkout**. It differs from the released 0.1 client.
-
 ## Choose modules
 
 | Module | Use it for | Runtime |
@@ -17,8 +15,7 @@ This guide describes the **0.2 API in this checkout**. It differs from the relea
 | [`sempods-client-media`](../sempods-client-media/README.md) | Uploading and assigning binary media | Java 21+ |
 | [`sempods-control-plane-client`](../sempods-control-plane-client/README.md) | Host administration, such as creating pods | Java 21+ |
 
-Use one BOM version for all modules. The development coordinate below needs the snapshot
-repository; replace it with the 0.2 release coordinate when that release is published.
+Use one BOM version for all modules. Snapshot builds need the snapshot repository.
 
 <!-- doc-example: illustrative; dependency coordinates checked against gradle.properties and settings.gradle.kts -->
 ```kotlin
@@ -36,7 +33,7 @@ dependencies {
 
 Install the sempods policy on an OkHttp client and reuse it across calls:
 
-<!-- doc-example: illustrative; initialization is compiled in DocumentationExamplesTest -->
+<!-- doc-example: sempods-client/src/test/kotlin/org/sempods/client/DocumentationExamplesTest.kt#install -->
 ```kotlin
 val http = SempodsOkHttp.install(OkHttpClient.Builder()).build()
 ```
@@ -90,15 +87,15 @@ conditional read's `304`, or a write's `412` can be returned normally; each oper
 lists its outcomes. Unexpected statuses throw `SempodsStatusException`; invalid response bodies
 throw `SempodsDecodingException`. Network failures are `IOException`s.
 
-Calls block. [SempodsAsync](src/main/kotlin/org/sempods/client/SempodsAsync.kt) offers cancellable
-work on virtual threads. Buffered answers are limited to 16 MiB; use streaming graph exports
-for larger results. For user-supplied pod URLs, configure the optional
+Calls block; [asynchronous use](docs/client.md#asynchronous-use) moves them off the caller's thread.
+Buffered answers are limited to 16 MiB; for larger graphs use `contexts().exportTo` or
+`sparql().graphTo`. For user-supplied pod URLs, configure the optional
 [outbound guard](docs/transport.md#the-guard).
 
 ## Details
 
 - [Client design and API guide](docs/client.md): extension points, endpoint behavior and authentication.
-- [Transport](docs/transport.md): deadlines, admission, tracing and address checks.
+- [Transport](docs/transport.md): why OkHttp, tracing, the outbound guard.
 - [Public source and KDoc](src/main/kotlin/org/sempods/client/): exact contracts.
 - [Examples and their checks](../docs/agents/documentation-strategy.md#checking-examples): how snippets stay in sync.
 

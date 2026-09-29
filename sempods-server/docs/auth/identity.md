@@ -57,9 +57,3 @@ identity mapping. See `SPS-OIDC-016`, `SPS-OIDC-017` and `SPS-OIDC-018` for the 
 Ordinary public reads need no OAuth token. An app using
 [anonymous public-read authorization](oauth.md#public-read-flow) gets a synthetic subject for
 that token's lifetime. It identifies no person and grants access only to public contexts.
-
-## Self-hosted deployments
-
-Set `ID_BASE_URL` to the trusted issuer and configure its relying clients accordingly.
-Bearer tokens are currently used throughout; DPoP is
-[proposed](https://github.com/sempods/sempods-kotlin/issues/112).

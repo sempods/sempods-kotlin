@@ -59,18 +59,13 @@ Rules for choosing the level:
 
 ### Reader navigation
 
-The repository `README.md` is the front door. Link common developer tasks to short guides:
-choosing a module, making a first call, or completing an auth flow. `docs/README.md` indexes
-both shared and module-local documentation.
+The repository `README.md` links common developer tasks to their guides. `docs/README.md` indexes
+shared and module documentation.
 
-An independently usable module has a `README.md` with its purpose, dependencies, a small example
-and links to its API and deeper `docs/`. A family of modules has one entry point that helps readers
-choose members; adapters link back to it. Cross-module flow overviews stay at the root, while
-implementation details live beside the code that owns them. Do not create empty module indexes.
-
-A standard mechanism may need a short usage example here. Explain the local setup and the result,
-then link the standard for protocol detail. Rule 3 excludes duplicate protocol explanations,
-not developer instructions for using this implementation.
+An independently usable module has a `README.md` with its purpose, its dependency coordinate, a
+small example and links to its API and `docs/`. A module family has one entry README, and its
+members link back to it. Cross-module overviews live in root `docs/`; details live with the module
+that owns them. Create no empty module index.
 
 ### Instruction files are maps
 
@@ -159,37 +154,21 @@ review it for repetition and unnecessary detail. Keep explanations and examples 
 
 ## Checking examples
 
-Examples are maintained API consumers. When changing an API, endpoint, configuration setting or
-flow, search for its names in **all** Markdown, KDoc and example sources, including module READMEs.
-Do not search only root `docs/`. For example, use `rg -n 'SempodsPodTokens|client_credentials'`
-and `rg -n 'doc-example'` from the repository root.
+Examples are maintained API consumers. When an API, endpoint, configuration setting or flow
+changes, search Markdown, KDoc and example sources for its names from the repository root, for
+example `git grep -n 'SempodsPodTokens\|client_credentials'`.
 
-For new or substantially revised developer guides:
+A new or revised developer guide carries `<!-- doc-examples: checked -->`. Each Java, Kotlin,
+shell, JSON, HTTP, JavaScript or Turtle fence on it then needs a marker on the line above:
 
-1. Mark the page with `<!-- doc-examples: checked -->`. Every Java, Kotlin, shell, JSON, HTTP,
-   JavaScript or Turtle fenced example on that page then needs a check annotation.
-2. Prefer a snippet from compiled, exercised test code. Put
-   `// doc-example:start <name>` and `// doc-example:end <name>` around its source region.
-   Immediately before the Markdown fence put
-   `<!-- doc-example: repository/path/to/Test.kt#name -->`.
-   Link the complete source and explain required inputs and omitted application plumbing.
-3. For schematic requests, configuration or commands that cannot safely run in CI, use
-   `<!-- doc-example: illustrative; <specific review evidence or test> -->`.
-   State placeholders and prerequisites in prose. This is manual review evidence, not execution.
-4. Run `./gradlew checkDocLinks` and the tests containing the source regions. For behavioral
-   examples, assert the relevant HTTP request and outcome; compilation alone cannot check consent,
-   grants or response semantics. Never use live accounts or production credentials for examples.
+- `<!-- doc-example: path/to/Test.kt#name -->` names a source region between
+  `// doc-example:start name` and `// doc-example:end name` in test code that runs. Prefer it.
+- `<!-- doc-example: illustrative; <evidence> -->` is for code CI cannot run: destructive
+  commands, deployment configuration, schematic HTTP. The evidence names the file or test the
+  example was checked against.
 
-`checkDocLinks` runs `checkDocExamples`, including `testDocExampleChecker` fixtures for valid
-snippets and failure cases. The scan discovers markers throughout the repository,
-checks that each source region exists exactly once and matches the printed code, ignoring common
-indentation, and rejects unannotated executable fences on marked pages. Run
-`./gradlew checkDocExamples` for the comparisons alone. CI's ordinary `test` task executes the
-example tests. A matching snippet alone does not prove its behavior.
-
-Existing unmarked pages and KDoc fences still need the search and review above; this check does
-not compile arbitrary Markdown or prove every example in the repository. Adopt the annotations
-when those examples are revised, rather than marking unchecked copies as verified.
+Run `./gradlew checkDocLinks` and the tests holding the regions. A behavioural example's test
+asserts the HTTP outcome. Examples use no live accounts or production credentials.
 
 ## Issue planning
 

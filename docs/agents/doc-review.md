@@ -43,11 +43,11 @@ For a path, step 3 checks every claim against the code and tests, and step 7 doe
 ## 2. Find what documents it
 
 Do not guess. Walk from each changed file, or the target path, upwards through the `AGENTS.md`
-files; each names the documents for its scope. The root `AGENTS.md` carries the full map. Check both the
-repository `docs/`, module READMEs and each module's own `docs/`. Search changed API names,
-endpoint paths and configuration names through Markdown, KDoc and test/example sources.
-Use `rg -n 'doc-example'` to find source-linked snippets and their review annotations; follow
-[Checking examples](documentation-strategy.md#checking-examples).
+files; each names the documents for its scope. The root `AGENTS.md` carries the full map. Check the
+repository `docs/`, the module READMEs and each module's own `docs/`. Search changed API names,
+endpoint paths and configuration names through Markdown, KDoc and test/example sources with
+`git grep -n --untracked` (step 6 says why). Searching `doc-example` finds the marked examples;
+follow [Checking examples](documentation-strategy.md#checking-examples).
 
 ## 3. Check the IST documentation
 

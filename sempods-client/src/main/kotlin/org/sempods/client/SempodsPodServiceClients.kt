@@ -28,8 +28,8 @@ import java.time.Instant
  * HttpUrl consent = registering.consentUrl(service.getClientId(), state);
  * ```
  *
- * `sempods-client/docs/client.md` §"Registering a service client" has the whole sequence, and the owner's tool
- * that registers a service active and gives it its grants.
+ * `sempods-client/docs/client.md` §"Registering a service client" has the whole sequence, and §"Managing
+ * service access" the owner's tool that registers a service active and gives it its grants.
  *
  * **Built on a session of its own.** [register] needs no credential: without one the registration
  * is provisional. With a `service-clients:manage` bearer it is active, and the rest need that bearer.

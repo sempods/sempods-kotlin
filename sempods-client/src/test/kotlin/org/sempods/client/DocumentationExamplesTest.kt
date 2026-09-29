@@ -17,7 +17,9 @@ class DocumentationExamplesTest : MockPodTest() {
 
   private val json = JsonMapper()
 
-  private val http = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+  // doc-example:start install
+  val http = SempodsOkHttp.install(OkHttpClient.Builder()).build()
+  // doc-example:end install
 
   @AfterAll
   fun stopClient() {

@@ -5,8 +5,8 @@
 ## Rate limit
 
 `/token` charges an address budget before a finer address-and-client budget. The address is the
-rightmost `X-Forwarded-For` entry appended by the trusted reverse proxy. Without it, address
-limiting is disabled. The client identity is the Basic username for Client Credentials and the
+rightmost `X-Forwarded-For` entry appended by the trusted reverse proxy. Without that header,
+`/token` has no rate limit. The client identity is the Basic username for Client Credentials and the
 form `client_id` for other grants. The pod is not part of either key, so cycling through pods or
 inventing client IDs cannot multiply the address budget.
 
@@ -22,7 +22,8 @@ refusal returns `429`, `Retry-After: 60` and `slow_down`, before any pod lookup.
 the refusing tier once per address per minute. Terminal `invalid_grant` requires reauthorization;
 other retryable errors need backoff.
 
-The per-client rate set to zero disables both tiers; an address rate of zero disables only that
+A per-client rate of zero disables both tiers while the address rate keeps its default; an
+explicit positive address rate beside it fails startup. An address rate of zero disables only that
 tier. Limits default to off outside a deployment. Negative settings fail startup. Buckets are
 per process, so replicas multiply capacity. Bounded key maps evict entries rather than refusing
 new callers because the map is full. Rate limits do not prevent refresh-token replay: one accepted
@@ -38,19 +39,20 @@ reuse is enough to revoke a family.
 | Protected | Address | Bearer present, before pod lookup | 10, 20 |
 | Service | Pod | Valid self-registration body, before creating a secret | 2, 5 |
 
-Address handling matches `/token`. Each address budget spans pods. Repeat public DCR spends a
-request even when it returns an existing client ID. A hosted service registering many users'
-connections shares an address budget; size `SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*` accordingly.
+Address handling matches `/token`; without the header, only the service budget applies. Each
+address budget spans pods. Repeat public DCR spends a request even when it returns an existing
+client ID. A hosted service registering many users' connections shares an address budget; size
+`SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*` accordingly.
 
 The service budget bounds secret creation on one pod. Invalid bodies do not spend it. Registration
 with the owner's management bearer skips this budget and uses the protected address budget.
 
 Configure `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and `_BURST`.
-Unset `SERVICE` settings fall back to the older `INSTALLER` names. A zero rate disables that budget;
-a zero burst follows its rate. Negative values fail startup. Refusals return `429`,
+`INSTALLER` names are read when the matching `SERVICE` setting is unset. A zero rate disables that
+budget; a zero burst follows its rate. Negative values fail startup. Refusals return `429`,
 `Retry-After: 60`, `Cache-Control: no-store` and `slow_down`. Budgets are per process.
-Provisional services expire at their activation deadline. Unused public registrations have no
-cleanup yet ([#251](https://github.com/sempods/sempods-kotlin/issues/251)).
+Provisional services expire at their activation deadline. Unused public registrations are
+never removed ([#251](https://github.com/sempods/sempods-kotlin/issues/251)).
 
 ## Protected Resource Metadata (RFC 9728)
 
@@ -60,15 +62,21 @@ used by generic discovery. [MCP discovery](../../../docs/mcp/endpoint.md#oauth-d
 lists all routes.
 
 Protected-resource metadata includes `resource`, `authorization_servers`, `bearer_methods_supported`
-and `scopes_supported`. Optional extensions are a human-readable `name` and the count of
-`public_contexts`. Context IRIs are not exposed through that count. Authorization-server metadata
-advertises the same scope list; its issuer is the pod base URL. It also advertises
+and `scopes_supported`. Two extensions follow: the count `public_contexts`, always present, and a
+human-readable `name` when the pod has one. The count exposes no context IRIs. Authorization-server
+metadata advertises the same scope list; its issuer is the pod base URL. It also advertises
 `sempods_service_consent_endpoint` for service consent.
 
-## Sharp edges (current state)
+## Sharp edges
 
 There is no application-level rate limit on `/authorize`; use deployment infrastructure where
-one is needed. Signing keys persist, but nothing rotates them automatically. DPoP is not implemented.
+one is needed. Signing keys persist, but nothing rotates them automatically. DPoP is not implemented
+([#112](https://github.com/sempods/sempods-kotlin/issues/112)).
+
+Pod access tokens carry no `aud` claim. A pod accepts every token it signed on all its routes: a
+token an app obtained for the REST API also works at the pod's MCP endpoint. This is a
+[specification deviation](oauth.md#specification-deviations).
+
 Non-owner grants have storage but no owner management UI. Public-context visibility is held in the
 operational store, not in RDF. [User connections](connections.md) covers sign-out and refresh limits.
 
@@ -107,26 +115,22 @@ describes stored fields and the currently unpopulated response status.
 
 ## Consent and grant updates
 
-Service consent checks the grants version shown on the screen; a changed registration returns
-`409`, a removed one `404`. Contexts created before that refusal remain private, without grants;
-the page names them. The management API uses `If-Match` and returns `412` on a stale version.
+Service consent and the management API check the grants version they read. Their answers are in
+[Consent](service-clients.md#consent) and [Managing service clients](service-clients.md#managing-service-clients).
 
-Delegated consent replaces grants for one app and WebID. Sequential confirmations leave the last
-selection. Concurrent writes are not atomic and can leave a combined selection; serializing them
-is open work in [#338](https://github.com/sempods/sempods-kotlin/issues/338).
+Delegated consent replaces grants for one app and WebID. Two concurrent confirmations can leave a
+combined selection ([#338](https://github.com/sempods/sempods-kotlin/issues/338)).
 
-During a mixed rollout, old consent tokens without a bound request retain form-based validation
-for their remaining fifteen minutes. New forms submitted to an older node can return `400`,
-requiring authorization to restart. This compatibility ends after 0.2.x
-([#341](https://github.com/sempods/sempods-kotlin/issues/341)).
+During a mixed rollout, an old consent token without a bound request stays valid for its remaining
+fifteen minutes. Its posted rows are taken as offered; only rows the person can still delegate are
+granted. New forms submitted to an older node can return `400`, requiring authorization to restart.
+This compatibility ends after 0.2.x ([#341](https://github.com/sempods/sempods-kotlin/issues/341)).
 
 ## Upgrading old delegations
 
-**A deployment older than the consent control clears its delegations
-once.** Those authorizations hold grants with no answer beside them, so
-their codes are refused and their families die at the next rotation.
-Predating the control is a property of the deployment rather than of a
-tenant, so this empties three collections for **every pod on the server**:
+A deployment upgraded from a release without the connection-lifetime question holds delegations
+with no stored answer. The pod refuses their codes and ends their refresh families at the next
+rotation. Clear them once; this affects **every pod on the server**:
 
 <!-- doc-example: illustrative; destructive operator maintenance, reviewed against PodTokenExchange and consent-generation checks -->
 ```js
@@ -135,9 +139,7 @@ db["oauth.refreshTokens"].deleteMany({})
 db["oauth.authCodes"].deleteMany({})
 ```
 
-The documents, not the collections — both stores build their indexes in
-their constructors, so a `drop()` against a running server leaves them
-unindexed until the next boot. The codes are in flight rather than
-durable and are here because the decisions are kept: one minted just
-before the reset still matches its generation and would redeem against
-grants that are gone.
+Use `deleteMany`: the stores create their indexes when the server starts, so `drop()` on a running
+server leaves the collections unindexed until the next start. Clear the codes too: a code issued
+just before the reset still matches its consent generation and would redeem against grants that
+are gone.

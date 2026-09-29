@@ -8,8 +8,9 @@ owns the protocol; this page describes the current implementation and its extens
 
 ## Endpoints
 
-All paths are relative to the **full pod URL**, such as `https://pods.example/alice`.
-Use advertised endpoint URLs from discovery where available.
+All paths are relative to the **full pod URL**, such as `https://pods.example/alice`: the token
+endpoint is `https://pods.example/alice/_system/auth/token`. Use advertised endpoint URLs from
+discovery where available.
 
 | Method and path | Purpose |
 |---|---|
@@ -18,7 +19,9 @@ Use advertised endpoint URLs from discovery where available.
 | `POST /_system/auth/token` | Exchange a code, refresh token or service credential |
 | `GET /_system/auth/jwks.json` | Read the pod's public signing keys |
 | `POST /_system/auth/register` | Register a public client or service |
-| `GET /_system/auth/service-consent` | Let the owner decide a registered service's context grants |
+| `GET /_system/auth/service-consent` | Let the owner decide a service's context grants |
+| `POST /_system/auth/service-consent` | Submit the service consent form |
+| `GET /_system/auth/oidc/callback` | Receive the identity provider's login response |
 | `/_system/auth/service-clients` | [List and manage service registrations](service-clients.md#managing-service-clients) |
 | `GET /.well-known/oauth-protected-resource` | Discover the resource and its authorization server |
 | `GET /.well-known/oauth-authorization-server` | Discover authorization endpoints and supported capabilities |
@@ -35,7 +38,7 @@ S256 PKCE; services use Client Credentials.
 | `svc:*` | Service registration, followed by owner consent | Client Credentials with `client_secret_basic` |
 
 Public DCR never returns a service secret. Service IDs cannot use `/authorize`.
-[Host provisioning](../host-provisioning.md) is a separate deployment-specific setup option.
+[Host provisioning](../host-provisioning.md) is a separate setup path.
 
 ### Redirect rules
 
@@ -64,10 +67,9 @@ Desktop and MCP clients register their callback at `/_system/auth/register`. Loo
 vary; other callbacks remain port-strict. Repeat registrations with the same
 [fingerprint](../../../docs/mcp/authentication.md#dcr-fingerprint) reuse the client ID.
 
-Interactive authorization always shows consent, with existing grants preselected. A silent
-request (`prompt=none`) cannot reuse user consent: it returns `consent_required` with a session
-or `login_required` without one. Anonymous
-[public-read](#public-read-flow) is the separate exception. Token refresh itself remains silent.
+Interactive authorization always shows consent, with existing grants preselected. A
+[silent request](connections.md#the-prompt-parameter) cannot reuse that consent. Token refresh
+stays silent.
 
 ### `svc:*` — registered services
 
@@ -79,21 +81,26 @@ service uses [Client Credentials](service-clients.md#token-exchange), with no br
 The [Delegated walkthrough](user-access.md) shows the client calls. An authorization request sends
 `response_type=code`, `client_id`, `redirect_uri`, a fresh `state`, and S256 PKCE parameters.
 The pod signs the person in if needed, then reuses or asks for consent according to
-[`prompt`](#the-prompt-parameter).
+[`prompt`](connections.md#the-prompt-parameter).
 
 On approval, the callback carries `code` and the supplied `state`. On refusal, it carries `error`,
 `error_description` and `state`; an `error_uri` may be configured. Check the callback before
 redeeming the code. An omitted or empty `state` is not returned.
 
 The consent form requires the pod session cookie and a single-use token bound to that screen's
-client, callback, PKCE parameters and offered rows. Altered requests or unoffered rows are refused.
-For ordinary delegated access:
+client, callback, PKCE parameters and offered rows. For ordinary delegated access:
 
-| Action | Result |
+| Submission | Result |
 |---|---|
-| Confirm selected contexts | Replace the app's explicit grants for the signed-in WebID with that selection. |
-| Confirm nothing | Disconnect the app and remove its grants and refresh tokens. |
-| Cancel | Leave access unchanged. |
+| Selected contexts | Replace the app's explicit grants for the signed-in WebID with that selection; redirect with `code`. |
+| Nothing selected, or "Remove access" | Disconnect the app and remove its grants and refresh tokens; `access_denied`. |
+| Cancel, or "Sign out everywhere" | Leave grants unchanged; `access_denied`. |
+| A row or privileged scope the screen did not offer | `invalid_scope`; nothing is written. |
+| A context to create that is refused | `invalid_request`; nothing is written. |
+| No selected row the person can still delegate | `consent_required`; contexts created stay private, without grants. |
+| No session, a spent, foreign or outdated form token, a form for another request, or an unknown client or redirect | A `400`, `401` or `403` page, with no redirect. |
+
+[OAuth errors](../../../docs/auth/oauth-errors.md) lists each `error_description` and its recovery.
 
 Existing grants are preselected. A `#manage` grant still reaches descendants even when a child has
 no explicit grant of its own. Grants under linked identities survive replacement under the current
@@ -127,46 +134,27 @@ request and never appear in the token. Refresh down-scoping applies only to feat
 Pod tokens are RS256-signed; public keys are at `/_system/auth/jwks.json`.
 [PodTokenIssuer](../../src/main/kotlin/org/sempods/pods/oauth/PodTokenIssuer.kt) owns the claim contract.
 
-### Rate limit
-
-See [OAuth operations](operations.md#rate-limit).
-
-### `offline_access`
-
-See [connection lifetimes](connections.md#offline_access).
-
-### Refresh token rotation
-
-See [rotation and reconnects](connections.md#refresh-token-rotation).
-
-## The `prompt` parameter
-
-See [interactive and silent authorization](connections.md#the-prompt-parameter).
-
-## Signing out
-
-See [signing out of a pod](connections.md#signing-out).
-
 ## Public-read flow
 
 Ordinary public resource reads need no token. For a client that needs a bearer, `scope=public-read`
-can issue one limited to public contexts. A signed-in user keeps their WebID as subject; the
-anonymous variant uses a new synthetic subject and has no refresh token.
+can issue one limited to public contexts. For a signed-in app with context grants, `public-read`
+adds the public contexts to those grants (`SPS-GRANT-020`).
+
+An interactive public-read request signs the person in if needed and can show consent with
+public-read preselected; `prompt=consent` requests that screen. The token's subject is the
+person's WebID.
 
 Anonymous authorization requires `prompt=none`, only `public-read`, and no valid pod session.
-This shortcut also works for a `dyn:*` client. A failed provider login is returned as an error;
-it does not resume as anonymous authorization. With no public contexts, the result is
-`consent_required`. An interactive public-read request signs the person in if needed and can
-show consent with public-read preselected. `prompt=consent` explicitly requests that screen.
+It also works for a `dyn:*` client, and its token has a new synthetic subject. A failed provider
+login is returned as an error and does not resume as anonymous authorization. With no public
+contexts, the result is `consent_required`.
 
-For a signed-in app with context grants, `public-read` adds public contexts to those grants
-(`SPS-GRANT-020`). [PodAuthorizeFlow](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodAuthorizeFlow.kt)
-owns the validation order and authorization decisions.
+[PodAuthorizeFlow](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodAuthorizeFlow.kt) owns the
+validation order and authorization decisions.
 
 ## Registering a service client
 
-Send this body to `POST /_system/auth/register` without a bearer for self-registration.
-`redirect_uris` is optional; omit it for a headless service.
+Send this body to `POST /_system/auth/register` without a bearer for self-registration:
 
 <!-- doc-example: illustrative; metadata checked against PodClientRegistration and ServiceConsentHttpTest -->
 ```json
@@ -179,38 +167,41 @@ Send this body to `POST /_system/auth/register` without a bearer for self-regist
 ```
 
 The response carries a `svc:` ID, a one-time secret and `activation_expires_at` in epoch seconds.
-The registration has no grants and expires unless the owner activates it. With a valid
-`service-clients:manage` bearer, registration is active immediately and has no deadline; it still
-starts without grants. Another bearer is refused. The [service walkthrough](service-clients.md#registration-and-consent)
+The registration has no grants and is removed after 24 hours unless the owner activates it. With a
+valid `service-clients:manage` bearer, registration is active immediately and has no deadline; it
+still starts without grants. Another bearer is refused. The [service walkthrough](service-clients.md#registration-and-consent)
 covers activation, consent callbacks and checking access.
 
-`scope`, `jwks`, `jwks_uri` and non-empty `response_types` are refused for this profile.
-Display metadata beyond the required `client_name` is ignored. The
-[registration contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodClientRegistration.kt)
-owns validation. On a lost response, a retry creates another registration; a provisional one
-expires automatically, while an active one needs explicit removal.
+| Member | Handling |
+|---|---|
+| `grant_types`, `token_endpoint_auth_method` | Exactly `["client_credentials"]` and `client_secret_basic`; another secret-holding shape is `invalid_client_metadata` |
+| `client_name` | Required; `invalid_client_metadata` without it |
+| `redirect_uris` | Optional; omit it for a headless service. Each follows the [redirect rules](#redirect-rules), else `invalid_redirect_uri` |
+| A non-empty `scope`, `jwks`, `jwks_uri` or `response_types` | `invalid_client_metadata` |
+| Any other member, display metadata included | Neither stored nor echoed |
 
-This experimental profile deviates from `SPS-AUTH-008`, `SPS-AUTH-011` and `SPS-AUTH-012`;
-[sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) tracks the proposed profile.
-Service consent assigns grants after registration, a deviation from `SPS-AUTH-013` tracked in
-[sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123).
+The [registration contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodClientRegistration.kt)
+owns validation. On a lost response, a retry creates another registration; a provisional one
+expires, and an active one needs [removal](service-clients.md#managing-service-clients).
+This profile is experimental; see [specification deviations](#specification-deviations).
 
 ## Managing service clients
 
-Request `service-clients:manage` through owner consent. The bearer lasts one hour, has no refresh
-token, and can register services, replace their grants, and manage their credentials. It resolves
-no context permissions itself, but can obtain service credentials and assign them lasting data
-access. The consent explicitly asks for that authority.
+Request `service-clients:manage` through owner consent. The bearer lasts one hour and can register
+services, replace their grants, and manage their credentials. It resolves no context permissions
+itself. **It can create lasting data access:** the tool can obtain a service secret, grant contexts
+and use that service after its own authority expires. The consent asks for that authority explicitly.
 
 Request one privileged scope at a time; combining it with ordinary access scopes is refused.
 `offline_access` is ignored. Approval is required each time; `prompt=none` cannot obtain it.
 Declining this screen leaves existing access unchanged. Disconnecting the management app revokes
 its authority. Each management call checks the current pod owner.
 
-An authority approved before the consent text included registration and grant assignment keeps
-its earlier powers. Registration or a replacement that broadens them returns `403 insufficient_scope`;
-request fresh owner consent. The [management API](service-clients.md#managing-service-clients)
-and [authority contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodServiceClientManagement.kt)
+An authority stored under consent version 1 may only narrow the grants of an active `svc:`
+registration. Registration, and a replacement that widens grants or targets a provisional or
+operator-provisioned registration, return `403 insufficient_scope`; request fresh owner consent.
+The [management API](service-clients.md#managing-service-clients) and
+[authority contract](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodServiceClientManagement.kt)
 describe operations and version checks.
 
 ## Managing contexts
@@ -221,26 +212,25 @@ An ordinary app, including the owner's app, can only manage contexts covered by 
 For example, authority over `apps/notes` does not authorize deletion of `contacts`.
 
 This privileged scope reads no data, but deleting a context deletes its data. The catalogue
-reports management-only permission. That differs from normal `#manage` grants and is an
-experimental deviation from `SPS-CTX-034` and `SPS-GRANT-009`, tracked in
-[sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114).
+reports management-only permission, unlike a normal `#manage` grant; see
+[specification deviations](#specification-deviations).
 
-## Registration rate limit
+## Specification deviations
 
-See [OAuth operations](operations.md#registration-rate-limit).
+| Behavior | Deviates from | Tracked in |
+|---|---|---|
+| [Services register themselves](#registering-a-service-client) at `/register` and receive `svc:` IDs | `SPS-AUTH-008`, `SPS-AUTH-011`, `SPS-AUTH-012` | [sempods-spec#122](https://github.com/sempods/sempods-spec/issues/122) |
+| [Service consent](service-clients.md#consent) and `PUT …/grants` assign a service's grants after registration | `SPS-AUTH-013` | [sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) |
+| [`contexts:manage`](#managing-contexts) reports management-only permission in the catalogue | `SPS-CTX-034`, `SPS-GRANT-009` | [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114) |
+| Pod access tokens carry no `aud` claim ([sharp edge](operations.md#sharp-edges)) | `SPS-MCP-038` | — |
 
-## Protected Resource Metadata (RFC 9728)
-
-See [OAuth operations](operations.md#protected-resource-metadata-rfc-9728).
-
-## Sharp edges (current state)
-
-See [OAuth operations](operations.md#sharp-edges-current-state).
+[sempods-spec#125](https://github.com/sempods/sempods-spec/issues/125) proposes removing the
+service-client requirements above.
 
 ## What lives elsewhere
 
 - [Identity and trust](identity.md): WebIDs and pod login.
 - [User connections](connections.md): lifetime, refresh and sign-out.
-- [Operations](operations.md): rate limits, discovery, audit retention and maintenance.
+- [Operations](operations.md): rate limits, discovery, sharp edges, audit retention and maintenance.
 
 <!-- doc-examples: checked -->

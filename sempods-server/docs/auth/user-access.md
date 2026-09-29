@@ -6,8 +6,7 @@ Use **Authorization Code + PKCE** when an app acts for a person. For example, Al
 opens Notes, signs in, and allows it to write her notes context. The app receives a pod access
 token identifying both the app and Alice. It can access only the contexts she approved.
 
-`podUrl` is the full pod URL, such as `https://pods.example/alice`. For example, its token
-endpoint is `https://pods.example/alice/_system/auth/token`; use advertised URLs when available.
+`podUrl` is the [full pod URL](oauth.md#endpoints), such as `https://pods.example/alice`.
 
 ## The flow
 
@@ -21,7 +20,7 @@ endpoint is `https://pods.example/alice/_system/auth/token`; use advertised URLs
 7. It sends the access token as a bearer on requests to that pod.
 
 Keep the PKCE verifier and `state` bound to this login attempt. The callback must reach the
-application that started it. Never redeem a code before checking the returned state and issuer.
+application that started it. Never redeem a code before checking the returned `state`.
 
 ## Start from the JVM client
 
@@ -64,11 +63,8 @@ as an ordinary outcome; the example's `check` simply stops before token exchange
 
 ## Stay connected
 
-Ordinary authenticated consent issues a refresh token. The lifetime control chooses between a
-shorter and a durable connection; `offline_access` preselects the durable option, which the user
-can decline. Anonymous public-read and privileged management flows issue no refresh token.
-Access tokens last at most one hour, bounded by the remaining connection lifetime. [User connections](connections.md#offline_access) explains
-refresh rotation, lifetime choices and sign-out.
+[User connections](connections.md#offline_access) explains which flows issue a refresh token,
+lifetime choices, refresh rotation and sign-out.
 
 The current JVM `SempodsTokenResponse` exposes the access token, type, expiry and scope only.
 It does **not** expose `refresh_token`, and `SempodsPodTokens` has no refresh-grant method.

@@ -177,8 +177,8 @@ issuer. The auth endpoints live below it, under `/_system/auth`.
 Three of the six below are append forms under the pod's own base URL; two of them are the ones the
 specification requires (`SPS-AUTH-045`, `SPS-AUTH-066`). The other three are *host-rooted*: the
 well-known segment is inserted in front of the path, so the route lives on the origin and no pod can
-serve it alone. [`../auth/README.md`](../auth/README.md) §"What this implementation adds" says why
-this deployment serves them.
+serve it alone. `SPS-AUTH-067` makes them optional; this deployment serves them because a generic
+OAuth client probes there before it has seen a `401`.
 
 ### Pod-level
 

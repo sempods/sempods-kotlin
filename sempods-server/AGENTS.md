@@ -24,7 +24,7 @@ scope), the documentation rules and the AI documentation map for the whole of se
 ## Documentation
 
 - [Pod OAuth](docs/auth/README.md) — service and user flows, identity trust and operating limits.
-- [Host provisioning](docs/host-provisioning.md) — deployment-specific operator API and current code placement.
+- [Host provisioning](docs/host-provisioning.md) — operator API and current code placement.
 - [Collections](docs/collections.md) — persistence and startup maintenance.
 - [Shared auth overview](../docs/auth/README.md) — module responsibilities and client entry points.
 

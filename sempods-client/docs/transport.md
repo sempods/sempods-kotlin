@@ -8,8 +8,8 @@ credential. The [quick start](../README.md#read-public-data) shows the setup.
 
 ## Blocking calls and OkHttp
 
-Calls block so Kotlin and Java consumers use the same API. [Asynchronous use](client.md#asynchronous-use)
-runs those calls on virtual threads and propagates cancellation to the HTTP operation.
+Calls block so Kotlin and Java consumers use the same API. A blocking call on a virtual thread
+holds no platform thread while it waits; [asynchronous use](client.md#asynchronous-use) builds on that.
 
 OkHttp provides a per-client DNS hook for validating and pinning resolved addresses. The JDK
 HTTP client's resolver extension changes the whole JVM, which is unsuitable for this library.
@@ -35,8 +35,9 @@ network interceptor creates a span for each network attempt, including retries.
 ### Two OkHttp clients in one process, on purpose
 
 The pod client and `sempods-commons-okhttp` keep separate client instances by default. They
-usually call different hosts: pods versus identity, model and media services. A caller can share
-an existing pool by installing policy on `theirs.newBuilder()`.
+usually call different hosts: the pod client calls pods; `sempods-commons-okhttp` calls identity
+and model services and media source URLs. A caller can share an existing pool by installing policy
+on `theirs.newBuilder()`.
 
 Separate instances do not imply a thread per client: these paths use blocking calls, and OkHttp
 shares its connection-pool task runner. Keeping the instances separate also keeps their request
@@ -51,7 +52,7 @@ any supplied address.
 
 Two checks are required: URL policy rejects disallowed IP literals before the request; the DNS
 hook vets and pins resolved addresses during connection. Either alone leaves a gap. Guarded
-clients disable proxies so remote proxy resolution cannot bypass DNS checks. The installed
+clients disable proxies by default so remote proxy resolution cannot bypass DNS checks. The installed
 policy also refuses automatic redirects.
 
 [SempodsUrlPolicy](../src/main/kotlin/org/sempods/client/net/SempodsUrlPolicy.kt) owns address

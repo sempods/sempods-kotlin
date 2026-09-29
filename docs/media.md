@@ -121,7 +121,7 @@ code:
 - `sempods-media/src/main/kotlin/org/sempods/media/` — `PodMediaSource`, the media type that tells an
   instruction from a body, and `UploadedMedia`, what an upload answers. Both sides read them here
 - `sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt` — the client's
-  side of these routes ([Client API guide](../sempods-client/docs/client.md) §"The media routes")
+  side of these routes ([media client guide](../sempods-client-media/README.md))
 
 ## The obligation a deployment takes on
 

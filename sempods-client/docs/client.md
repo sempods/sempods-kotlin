@@ -50,27 +50,16 @@ method or body. Retries share the original call's deadline and cancellation. The
 The [quick start](../README.md#find-an-operation) maps groups to tasks. Core RDF bodies remain
 text or bytes; protocol JSON, such as token responses or SPARQL SELECT results, has typed readers.
 
-A write always names its target context. A read may select contexts using `SempodsReadOptions`.
-SPARQL uses protocol dataset parameters for that selection; a different pod implementation may
-ignore them under `SPS-SPARQL-011`, so a client cannot use selection as an authorization boundary.
-The server's grants remain that boundary.
+Resource, subject and slot reads select contexts with `SempodsReadOptions`. SPARQL takes a
+`SempodsContextSelection` and sends it as protocol dataset parameters. A different pod
+implementation may ignore them under `SPS-SPARQL-011`, so a client cannot use selection as an
+authorization boundary. The server's grants remain that boundary.
 
-Buffered bodies are limited to 16 MiB. For larger exports use `contexts().exportTo`,
-`sparql().graphTo`, or a streaming reader. The caller owns the output stream.
-
-Each method documents its normal statuses; other responses become `SempodsStatusException`.
-For example, a resource's `404` can be an expected absence, while a media assignment's `404`
-may hide unreadable media and fails. See [result handling](../README.md#handle-results).
-
-### The RDF4J adapter
-
-See the [RDF4J guide](../../sempods-client-rdf4j/README.md). `SempodsResponse.map` changes the body
-while preserving status and headers, so an adapter needs no separate response or error hierarchy.
-
-### The media routes
-
-See the [media guide](../../sempods-client-media/README.md). Its routes use the same execution
-policy and credential as the pod handle.
+Each method lists the statuses that carry its route's meaning. A client refusing an answer makes
+no pod conformant, so such a status is listed even where a requirement names another: an upload
+answered `200` stored the media, although `SPS-MEDIA-011` asks for `201`. A status with another
+meaning throws: a media assignment's `404` says the caller may not read the media.
+[Result handling](../README.md#handle-results) covers the caller's side.
 
 ### A foreign URI
 
@@ -84,8 +73,10 @@ parses the returned RDF. Its KDoc defines formats, remote JSON-LD context loadin
 ### A service token
 
 The [service example](../../sempods-server/docs/auth/service-clients.md#use-the-jvm-client)
-uses separate sessions for the service credential and its bearer. A credential supplier must
-fetch through `attempt.calls(client)` to share the original call's admission and cancellation.
+uses separate sessions for the service credential and its bearer. A credential supplier fetches
+through `attempt.calls(client)` so the token request runs on the call's admission slot. Fetched
+on a slot of its own, it can wait for that slot until the deadline.
+[SempodsAuthAttempt](../src/main/kotlin/org/sempods/client/SempodsAuthAttempt.kt) lists the cases.
 
 ### Registering a service client
 
@@ -113,10 +104,9 @@ val waiting = SempodsServiceAccessWait(credentials, http)
 val outcome = waiting.await(listOf(notes), Duration.ofMinutes(10))
 ```
 
-`REACHABLE` means the catalogue lists notes; check the actual read/write operations you need.
-`TIME_LIMIT` cannot distinguish cancellation from an unfinished or empty consent. `cancel()` ends
-the wait. [The service guide](../../sempods-server/docs/auth/service-clients.md#check-the-result)
-explains the error cases and the bearer to use for data calls.
+[SempodsServiceAccessWait](../src/main/kotlin/org/sempods/client/SempodsServiceAccessWait.kt)
+defines the outcomes. [The service guide](../../sempods-server/docs/auth/service-clients.md#check-the-result)
+names the bearer to use for data calls.
 
 [ServiceConsent.java](../../sempods-server/src/test/java/org/sempods/example/ServiceConsent.java)
 is a complete program with credential storage, headless operation and an optional loopback callback.
@@ -138,22 +128,16 @@ val current = checkNotNull(managing.get(service.clientId).body)
 val updated = managing.replaceGrants(service.clientId, listOf("$notes#read"), current.grantsVersion)
 ```
 
-Save this service's secret too. Replacement is the **whole grant set**, not an addition; pass an
-empty list to remove access. A `412` means the version changed: read and review before retrying.
+Save this service's secret too. Replacement sets the whole grant set; an empty list removes access.
 [SempodsPodServiceClients](../src/main/kotlin/org/sempods/client/SempodsPodServiceClients.kt)
-owns the operation and retry contracts. [Host provisioning](../../sempods-server/docs/host-provisioning.md)
-is a deployment-specific alternative for initial setup.
+owns the operation, retry and `412` contracts. See also [Host provisioning](../../sempods-server/docs/host-provisioning.md).
 
 ### Asynchronous use
 
-[SempodsAsync](../src/main/kotlin/org/sempods/client/SempodsAsync.kt) runs blocking work on virtual
-threads. Build calls through the factory supplied to the operation so `cancel()` reaches them.
-Trace context needs an executor that carries it, such as OpenTelemetry's `Context.taskWrapping`.
+[SempodsAsync](../src/main/kotlin/org/sempods/client/SempodsAsync.kt) runs blocking work away from
+the caller's thread. Build calls through the factory supplied to the operation so `cancel()`
+reaches them. Its KDoc covers threads, executors and trace context.
 The [manual load comparison](../../consumer-probe/client/docs/load.md) measures the alternatives.
-
-## The transport: OkHttp, blocking
-
-The [transport guide](transport.md) explains the choice of OkHttp, tracing and the outbound guard.
 
 ## What the client is not
 
@@ -181,15 +165,20 @@ supported JVMs. [Modularity](../../docs/concepts/modularity.md#open-source-readi
 
 [Host administration](../../sempods-control-plane-client/README.md) uses a session on the server
 root and a host credential. A pod credential cannot create a pod that does not yet exist.
-Both clients use the same execution components; their authority remains separate.
+Both clients use the same execution components; their authority remains separate, as
+[the authority boundary](../../docs/concepts/modularity.md#the-authority-boundary) explains.
 
 ## What may be added, and where
 
 - Implement each core route once, in an endpoint group.
-- A representation adapter calls that group and maps the body; it adds no competing route.
+- A representation adapter calls that group and maps the body with `SempodsResponse.map`, which
+  keeps status and headers. It adds no route and no error hierarchy.
 - An optional surface, such as media, builds on `SempodsSession` and `SempodsExchange`.
-- Keep generic passthroughs generic. App-specific queries belong to their applications.
+- Keep generic passthroughs generic: `sparql()` must not grow a `findRaw` or `describeRaw` twin.
+  App-specific queries belong to their applications.
 - Add a typed method when a real consumer needs it; replace redundant raw methods at that layer.
+
+The test: a new pod route can be added without forcing a method on the adapters.
 
 For example, `resources()` addresses an IRI under the pod by its path; `subjects()` addresses
 any IRI through the system resource route. The RDF4J adapter provides a model for each.

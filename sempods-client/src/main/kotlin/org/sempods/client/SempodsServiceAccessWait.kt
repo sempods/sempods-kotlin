@@ -16,8 +16,8 @@ import java.util.concurrent.TimeUnit
  * that access: a `client_credentials` token ([SempodsPodTokens]), then the context catalogue
  * ([SempodsPodContexts.listBytes]). It reads the catalogue's `sd:namedGraph` members, whose
  * canonical JSON-LD spelling the specification fixes (SPS-CRUD-024, SPS-CTX-033).
- * It checks catalogue visibility, not read/write permissions or a particular consent. Verify the
- * operations the service needs separately. A token alone proves nothing: a service
+ * A context listed there is readable. The listing proves no write or manage grant and no particular
+ * consent, so check any other operation the service needs. A token alone proves nothing: a service
  * that already holds one context gets a token before the owner decides about the next, and the owner
  * may grant other contexts than the ones asked for.
  *
@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit
  * | Outcome | Means |
  * |---|---|
  * | [Outcome.REACHABLE] | every context named is listed for the service's token |
- * | [Outcome.TIME_LIMIT] | the time limit ended the wait. The owner cancelled, confirmed other contexts or nothing, or has not decided: the pod does not say which |
+ * | [Outcome.TIME_LIMIT] | the time limit ended the wait. The owner declined, confirmed other contexts or nothing, or has not decided: the pod does not say which |
  * | [Outcome.CANCELLED] | [cancel] ended the wait |
  * | a [SempodsStatusException] with status `401` | `invalid_client`: the registration expired or was removed, or the secret is wrong. Waiting longer changes nothing |
  *

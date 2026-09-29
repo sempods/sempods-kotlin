@@ -25,7 +25,7 @@ provides service credentials.
 
 Pod OAuth calls use endpoints relative to the **full pod URL**, such as
 `https://pods.example/alice/_system/auth/token`. [Host provisioning](../../sempods-server/docs/host-provisioning.md)
-is a deployment-specific operator API with a separate address and credential.
+uses a separate address and credential.
 
 ## Which module does what?
 

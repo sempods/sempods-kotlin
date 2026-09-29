@@ -45,7 +45,7 @@ class OidcHttpTimeoutsTest {
    * time, because the source caches for five minutes and refreshes ahead of expiry in the
    * background; the window that matters is a cold cache, which is every process's first login.
    *
-   * Pinned for the same reason as the pair above: `oauth.md` quotes these, and this leg is the
+   * Pinned for the same reason as the pair above: `operations.md` quotes these, and this leg is the
    * one the paragraph missed twice while claiming to describe the whole round trip.
    */
   @Test
