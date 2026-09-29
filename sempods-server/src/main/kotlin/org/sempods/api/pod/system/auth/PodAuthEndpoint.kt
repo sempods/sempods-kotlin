@@ -20,6 +20,7 @@ import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.pods.PodFacade
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
@@ -28,6 +29,7 @@ import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodRegistrationRequest
+import org.sempods.pods.oauth.flows.PodRegistrationResult
 import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentForm
 import org.sempods.pods.oauth.flows.PodServiceConsentRequest
@@ -98,6 +100,9 @@ class PodAuthEndpoint @Inject constructor(
           caller = caller,
         ),
       )
+    }
+    if (result is PodRegistrationResult.Unauthorized) {
+      return ownerAuthorityRefused(podDbo.name, result.reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
     }
     return PodRegistrationResponses.render(result)
   }

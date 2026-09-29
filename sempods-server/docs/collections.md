@@ -54,7 +54,8 @@ Both exist because nothing that authenticates a person travels through the brows
 under the SHA-256 of that token's `jti`, read with `peek` for the bearer's hour. Its TTL is derived
 from `PodTokenIssuer.USER_TOKEN_TTL_SECONDS`, so the row cannot outlive the bearer. The consent
 dialog also looks it up by pod, app and person, over an index on those three, to offer a
-disconnect.
+disconnect. `consent` records the consent text the person approved; a row without it reads as the
+first (`PrivilegedAuthorityRows.CONSENT`).
 
 `oauth.installationAuthorities` is retired with the installer scope. Its rows expired within an
 hour; once every node runs a release without it, an operator may `drop()` the empty collection. A

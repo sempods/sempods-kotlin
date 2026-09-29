@@ -45,7 +45,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * PUT    /_system/admin/pods/{pod}                             {ownerEmail}
  * DELETE /_system/admin/pods/{pod}
  * GET    /_system/admin/pods/{pod}
- * POST   /_system/admin/pods/{pod}/service-clients/{clientId}   {expectedRegistrationId?}
+ * POST   /_system/admin/pods/{pod}/service-clients/{clientId}   {expectedRegistrationId?, expectedSecretId?}
  * ```
  *
  * The only root resource under `_system/admin` since the maintenance route was retired with the
@@ -170,47 +170,45 @@ class AdminPodsEndpoint @Inject constructor(
   }
 
   /**
-   * Registers `clientId` as a 2-leg service client on `pod`, sandboxed to its own app root
+   * Registers `clientId` as a service client on `pod`, sandboxed to its own app root
    * (`<pod>/_system/contexts/apps/{clientId}#manage`) — the pod-side half of provisioning, which
    * a consumer used to perform in-process. See `docs/auth/service-clients.md`.
    *
-   * Always performed, before anything else, because they are the sandbox invariant:
-   * the app root context is created if missing, and a pre-existing **public** root is demoted to
-   * private (a public root would expose every future descendant write to anonymous reads;
-   * `createContext` is create-only and cannot fix it).
+   * **Provisioning creates; the owner decides afterwards.** Only the call that creates the
+   * registration touches the pod: it registers the app root private, demoting a pre-existing
+   * **public** root (a public root would expose every future descendant write to anonymous reads;
+   * `createContext` is create-only and cannot fix it), and grants the sandbox once. A later call
+   * leaves the root and the grants alone, so an owner who narrowed the grants, deleted the root or
+   * made it public is not overruled.
    *
    * **Idempotency contract.** The server does not and cannot know the caller's credential — only
    * the caller can decrypt and verify its own stored secret. So the caller asserts what it holds
-   * via `expectedRegistrationId`:
+   * via `expectedRegistrationId` and `expectedSecretId`, the two identifiers an earlier answer gave:
    *
-   * - It matches the current pod-side registration **and** the registered scope set is exactly the
-   *   sandbox scope → nothing is written, 200 `{result:"alreadyProvisioned"}`, and **no secret is
-   *   returned** (the existing one is still valid and the plaintext is unrecoverable here).
-   * - Anything else — omitted, stale, or scope drift → the registration is replaced
-   *   (unregister + register) and 200 `{result:"provisioned"}` carries the freshly minted secret.
-   *   This is the correct answer for a caller with no credential at all (fresh pod) and for a
-   *   half-provisioned state (registration exists, caller's credential row lost).
+   * - Both match the current registration and its current secret → nothing is written, 200
+   *   `{result:"alreadyProvisioned"}`, and **no secret is returned** (the existing one is still
+   *   valid and the plaintext is unrecoverable here).
+   * - Either is omitted or stale while a registration exists → the registration and its grants
+   *   stay, and 200 `{result:"provisioned"}` carries a new secret for it, under the same
+   *   `registrationId` and a new `secretId`. This is the answer for a half-provisioned state
+   *   (registration exists, caller's credential row lost), and for a caller whose secret another call
+   *   replaced.
+   * - No registration → it is created, with its secret.
    *
    * The secret is returned **exactly once**, at the moment it is minted; the pod keeps only a
-   * bcrypt hash. Re-minting invalidates the previous secret, but outstanding service tokens ride
-   * out their ≤600 s TTL — revocation is registration-level, not token-level.
+   * bcrypt hash. A new secret invalidates the previous one, but outstanding service tokens ride out
+   * their ≤600 s TTL — revocation is registration-level, not token-level.
    *
-   * **Concurrency.** The replace is conditional on the registration this request read: if another
-   * provisioning call replaced it in between — or inserted first on a fresh pod — the answer is
-   * `409`, not a `200` carrying a secret the competing registration already invalidated. The
-   * server does not retry, because only the caller knows whether it now holds a usable
-   * credential; it re-reads and decides, exactly as with `expectedRegistrationId`.
+   * **Concurrency.** If another call issued a secret or created the registration between this
+   * request's read and its write, the answer is `409`, not a `200` carrying a secret that no longer
+   * works. The server does not retry, because only the caller knows whether it now holds a usable
+   * credential; it re-reads and decides, exactly as with the two identifiers.
    *
-   * What that does **not** promise: that a `200` stays valid forever. Two rotations without a
-   * matching `expectedRegistrationId` both succeed and the later one wins — whether they run
-   * back-to-back or overlap, because a rotation that observes the other's committed registration
-   * is an ordinary rotation, not a lost update. Serialising per `(pod, clientId)` would not change
-   * that; it would only make the order deterministic. Rejecting the second would mean declaring a
-   * rotation invalid because another happened "recently", which is not a notion this contract has
-   * — and it would break the self-healing path a stale `expectedRegistrationId` deliberately
-   * takes. The caller detects the situation on its own side, where the knowledge is: the
-   * credential no longer pairs with the pod-side registration id, so the next provisioning run
-   * mints cleanly, which is what the caller's own health check is for.
+   * What that does **not** promise: that a `200` stays valid forever. Two calls without matching
+   * identifiers that do not overlap both succeed and the later secret wins. Rejecting the second
+   * would mean declaring a rotation invalid because another happened "recently", which is not a
+   * notion this contract has. The caller detects it on its next run: the `secretId` it stored is no
+   * longer the current one, so it is answered a new secret rather than `alreadyProvisioned`.
    */
   @POST
   @Path("{pod}/service-clients/{clientId}")
@@ -230,16 +228,14 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, ProvisionServiceClientRequest::class.java)
       ?: ProvisionServiceClientRequest()
 
-    // Read once. Every store call used to resolve the name itself, so the re-mint path ran three
-    // more `fetchByName` queries against a row this already holds.
+    // Read once; every store call below takes the pod.
     val pod = podDao.fetchByName(podName)?.toHostedPod(sempodsUriBuilder)
       ?: throw WebApplicationException(errorResponse(404, "unknown pod '$podName'"))
 
     // This route's own policy, and deliberately not the provisioning contract's: an owner-facing
-    // registration names the contexts it wants (#35), where operator provisioning had nobody to
-    // ask and derives a sandbox instead.
+    // registration starts with no grants and gets them from the owner, where operator provisioning
+    // had nobody to ask and derives a sandbox instead.
     val rootContextUri = sempodsUriBuilder.buildContext(podName, "$APP_CONTEXT_ROOT_PREFIX$clientId")
-    ensurePrivateAppRoot(podName = podName, clientId = clientId, rootContextUri = rootContextUri)
 
     val result = podServiceClientProvisioning.provision(
       pod = pod,
@@ -248,7 +244,9 @@ class AdminPodsEndpoint @Inject constructor(
         scopes = setOf("$rootContextUri#manage"),
         label = clientId,
         expectedRegistrationId = request.expectedRegistrationId,
+        expectedSecretId = request.expectedSecretId,
       ),
+      beforeCreating = { ensurePrivateAppRoot(podName = podName, clientId = clientId, rootContextUri = rootContextUri) },
     )
 
     // One answer, three ways of arriving at it — a field added to the response must not be
@@ -260,7 +258,7 @@ class AdminPodsEndpoint @Inject constructor(
       is PodServiceClientResult.Provisioned -> {
         logger.info {
           "Admin '$adminClientId' provisioned service client '$clientId' on pod '$podName' " +
-              "(scope: $rootContextUri#manage)"
+              "(registration: ${result.registration.id}, scopes: ${result.registration.scopes})"
         }
         Triple(PROVISIONED, result.registration, result.secret)
       }
@@ -279,8 +277,8 @@ class AdminPodsEndpoint @Inject constructor(
         result = outcome,
         clientId = clientId,
         registrationId = registration.id.value,
-        // The stored set, not the requested one — on the already-provisioned path they are equal
-        // by definition, since scope drift is what takes the re-mint branch instead.
+        secretId = registration.secretId,
+        // The stored set: an existing registration's grants are the owner's.
         scopes = registration.scopes,
         contextRoot = rootContextUri.toString(),
         secret = secret,
@@ -290,7 +288,8 @@ class AdminPodsEndpoint @Inject constructor(
 
   /**
    * Registers the app root context private, and demotes it if it already exists and is public.
-   * `createContext` is create-only idempotent, so the demotion has to be explicit.
+   * `createContext` is create-only idempotent, so the demotion has to be explicit. Runs only before
+   * a registration is created: afterwards the root is the owner's.
    */
   private fun ensurePrivateAppRoot(podName: String, clientId: String, rootContextUri: URI) {
     val created = podFacade.createContext(
@@ -308,7 +307,7 @@ class AdminPodsEndpoint @Inject constructor(
 
   /**
    * Parses an optional JSON body with [JsonMappers.strict]: a typo'd `expectedRegistrationId` must
-   * not silently become "no assertion" and re-mint a healthy client's secret.
+   * not silently become "no assertion" and replace a healthy client's secret.
    */
   private fun <T> parseBody(body: String?, type: Class<T>): T? {
     val raw = body?.takeIf { it.isNotBlank() } ?: return null
@@ -323,7 +322,7 @@ class AdminPodsEndpoint @Inject constructor(
     WebApplicationException(errorResponse(400, message))
 
   /**
-   * 409 — the registration changed between reading it and replacing it. Deliberately not a retry
+   * 409 — the registration changed between reading it and writing it. Deliberately not a retry
    * on the server: only the caller knows whether it now holds a usable credential, so it has to
    * re-read and decide (that is the same reasoning behind `expectedRegistrationId`).
    */
@@ -380,11 +379,17 @@ data class PodExistsResponse(
 /** Body of `POST /_system/admin/pods/{pod}/service-clients/{clientId}`. */
 data class ProvisionServiceClientRequest(
   /**
-   * The registration id the caller believes it holds a secret for. Absent means "I hold nothing" —
-   * which always re-mints. See
+   * The registration id the caller believes it holds a secret for. Absent means "I hold nothing",
+   * which answers a new secret whether or not a registration exists. See
    * [AdminPodsEndpoint.provisionServiceClient] for the full idempotency contract.
    */
   val expectedRegistrationId: String? = null,
+
+  /**
+   * The `secretId` of the secret the caller holds. Absent means "I do not know", which answers a new
+   * secret wherever a registration exists.
+   */
+  val expectedSecretId: String? = null,
 )
 
 /**
@@ -392,7 +397,7 @@ data class ProvisionServiceClientRequest(
  *
  * [secret] is present **only** when [result] is `provisioned` — it is the one and only time the
  * plaintext exists outside the caller. On `alreadyProvisioned` nothing was written and no secret
- * can be produced.
+ * can be produced. [registrationId] stays the same across calls until the registration is removed.
  */
 data class ProvisionServiceClientResponse(
   val result: String,
@@ -400,20 +405,25 @@ data class ProvisionServiceClientResponse(
   val registrationId: String,
 
   /**
+   * Names the secret that authenticates now: the one in [secret], or on `alreadyProvisioned` the one
+   * the caller holds. It changes with every secret issued, and says nothing about the secret itself.
+   */
+  val secretId: String,
+
+  /**
    * The registration's scope set, verbatim — what the client may actually request at the token
-   * endpoint. A statement about *state*, mirroring `ServiceClientRegistration.scopes`, so a caller can
-   * verify its own health assumptions without re-deriving anything.
+   * endpoint. A statement about *state*, mirroring `ServiceClientRegistration.scopes`. The sandbox
+   * scope on the creating call; afterwards whatever the owner left, possibly nothing.
    */
   val scopes: Set<String>,
 
   /**
-   * The sandbox root this call created or made sure of, and where the app hangs its own
-   * sub-contexts. A statement about an *action*, which is why it is separate from [scopes]: it is
-   * the one context host-level authority creates, because it cannot create contexts any other way
+   * The sandbox root, where the app hangs its own sub-contexts. The creating call created it; a later
+   * one names it without looking, so it may since have been deleted or made public by the owner.
+   * Separate from [scopes], which states what the client holds now. It is the one context
+   * host-level authority creates, because it cannot create contexts any other way
    * (`PodContextsEndpoint` authorizes on pod-owner principal or a covering `#manage` scope, and an
-   * admin bearer is neither). Today the two are redundant — `scopes == {"$contextRoot#manage"}` —
-   * but they answer different questions, and once a caller may pass its own scopes there is no
-   * single "the root" to derive from them.
+   * admin bearer is neither).
    *
    * Returned on **both** results, because the caller needs it either way. Sent rather than left to
    * be derived so the naming convention lives in one place: a caller that rebuilds this string is

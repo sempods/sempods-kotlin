@@ -208,23 +208,25 @@
 
     <!-- The management screen's whole question. Offered only where the request asked for it, and
          never pre-ticked: a capability the person did not go looking for is not one they approve
-         by leaving a box as they found it. Alone on the screen. It adds no grant: a service is
-         given contexts only at the consent that names it. -->
+         by leaving a box as they found it. Alone on the screen. It reaches data through the
+         services it creates or re-keys, so the text says so; PrivilegedAuthorityRows.CONSENT
+         counts this text, and moves when what it promises changes. -->
     <div class="public-read-section" th:if="${managementRequested}">
-      <h2>Manage the apps installed on this pod</h2>
+      <h2>Manage the services on this pod</h2>
       <label class="public-read-toggle">
         <input type="checkbox"
                id="managementToggle"
                name="scope"
                th:value="${managementScope}"/>
         <span class="text">
-          Let <th:block th:text="${clientName}">this app</th:block> see, re-key and remove the apps
-          installed on this pod, for the next hour.
+          Let <th:block th:text="${clientName}">this app</th:block> register services on this pod and
+          decide which of your data each may reach, for the next hour.
           <span class="description">
-            It sees their names, when they were installed and last used, and what they may reach.
-            It can take access away from an app or remove it. It can also issue an app a new secret
-            and keep it. With that secret it acts as that app and has all of its access, also after
-            this hour. It cannot give an app more access.
+            It can register new services and give them access to your data, change or take away the
+            access of any service on this pod, and remove the services registered here. It sees their
+            names, when they were registered and last used, and what they may reach. It receives the
+            secret of each service it registers, and can issue a registered service a new one. With a
+            secret it acts as that service and has all of its access, also after this hour.
           </span>
         </span>
       </label>

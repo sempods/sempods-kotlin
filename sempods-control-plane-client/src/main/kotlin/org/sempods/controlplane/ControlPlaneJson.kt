@@ -31,12 +31,10 @@ internal object ControlPlaneJson {
    * assertion the caller makes, and an absent member and a `null` would have to mean the same thing
    * for that to be safe.
    */
-  fun provisionRequest(expectedRegistrationId: String?): String {
+  fun provisionRequest(expectedRegistrationId: String?, expectedSecretId: String?): String {
     val request = mapper.createObjectNode()
-    if (expectedRegistrationId == null) {
-      request.putNull("expectedRegistrationId")
-    } else {
-      request.put("expectedRegistrationId", expectedRegistrationId)
+    for ((name, value) in listOf("expectedRegistrationId" to expectedRegistrationId, "expectedSecretId" to expectedSecretId)) {
+      if (value == null) request.putNull(name) else request.put(name, value)
     }
     return mapper.writeValueAsString(request)
   }
@@ -59,6 +57,7 @@ internal object ControlPlaneJson {
       alreadyProvisioned = text(root, "result") == ALREADY_PROVISIONED,
       clientId = optionalText(root, "clientId") ?: fallbackClientId,
       registrationId = text(root, "registrationId"),
+      secretId = text(root, "secretId"),
       scopes = strings(root, "scopes"),
       contextRoot = uri(text(root, "contextRoot"), "contextRoot"),
       // absent on `alreadyProvisioned` (@JsonInclude NON_NULL) — the caller keeps what it holds

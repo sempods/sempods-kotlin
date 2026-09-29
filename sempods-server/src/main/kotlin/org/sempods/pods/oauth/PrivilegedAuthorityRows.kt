@@ -35,6 +35,8 @@ abstract class PrivilegedAuthorityRows internal constructor(
    *   consent moves — one authority would then withdraw the other.
    * @param subjectUris every identity URI the person was recognised by at the dialog, [webId] among
    *   them. An empty set recognises nobody.
+   * @param consent the consent text the person approved, as [CONSENT] was when they did. A row
+   *   without one was approved under the first text.
    */
   internal data class Authority(
     val pod: PodId,
@@ -42,6 +44,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
     val webId: String,
     val disconnects: Long,
     val subjectUris: Set<String>,
+    val consent: Int,
   )
 
   internal val rows = OneTimeStore<Authority>(
@@ -55,6 +58,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
       put("webId", it.webId)
       put("disconnects", it.disconnects)
       putStrings("subjectUris", it.subjectUris)
+      put("consent", it.consent)
     },
     read = {
       val webId = getString("webId") ?: return@OneTimeStore null
@@ -65,6 +69,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
         // A row without a count stands for nothing, so it reads as no row.
         disconnects = get("disconnects", Number::class.java)?.toLong() ?: return@OneTimeStore null,
         subjectUris = getStringSet("subjectUris").ifEmpty { setOf(webId) },
+        consent = get("consent", Number::class.java)?.toInt() ?: FIRST_CONSENT,
       )
     },
   )
@@ -77,9 +82,10 @@ abstract class PrivilegedAuthorityRows internal constructor(
     webId: String,
     disconnects: Long,
     subjectUris: Set<String>,
+    consent: Int = CONSENT,
   ) {
     require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
-    rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris))
+    rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris, consent))
   }
 
   /** Whether this authority stands on [pod]: granted there, and not withdrawn by a disconnect since. */
@@ -109,4 +115,17 @@ abstract class PrivilegedAuthorityRows internal constructor(
 
   private fun disconnectsUnder(pod: PodId, clientId: String, webId: String): Long =
     consentDecisions.find(pod, clientId, listOf(webId))?.disconnects ?: 0L
+
+  internal companion object {
+
+    /** The consent text rows recorded before [Authority.consent] existed were approved under. */
+    const val FIRST_CONSENT = 1
+
+    /**
+     * The consent text this server shows. `2` says that `service-clients:manage` registers services
+     * and gives them access to the person's data; an authority approved under `1` was told it could
+     * not, and [org.sempods.pods.oauth.flows.PodOwnerAuthority] keeps it to what `1` said.
+     */
+    const val CONSENT = 2
+  }
 }

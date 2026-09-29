@@ -15,6 +15,8 @@ import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PodManagementAuthorityStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import java.time.Instant
@@ -56,6 +58,9 @@ class PodClientRegistrationTest : SempodsStoreTest() {
 
   @Inject
   private lateinit var serviceClientDao: PodServiceClientDao
+
+  @Inject
+  private lateinit var managementAuthorities: PodManagementAuthorityStore
 
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
@@ -202,13 +207,30 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a bearer changes nothing about a service registration`() {
-    // The registration holds no rights to give, so whoever presents one registers like anyone.
+  fun `the owner's standing authority registers a service active`() {
     val pod = pod()
 
-    val registered = service(register(pod, client = named("With bearer"), raw = serviceBody(), caller = manager(pod)))
+    val registered = service(register(pod, client = named("With bearer"), raw = serviceBody(), caller = manager(pod, recorded = true)))
 
-    assertNotNull(assertNotNull(serviceClients.find(pod.id, registered.clientId)).pendingUntil)
+    assertNull(registered.activationExpiresAt)
+    val stored = assertNotNull(serviceClients.find(pod.id, registered.clientId))
+    assertNull(stored.pendingUntil, "no deadline: the owner's authority is the owner's consent")
+    assertEquals(emptySet(), stored.scopes, "the grants are set afterwards")
+  }
+
+  @Test
+  fun `a bearer that holds no authority to register is refused`() {
+    // A caller presenting authority expects it to count; a provisional registration would surprise it.
+    val pod = pod()
+
+    for ((caller, reason) in listOf(
+      manager(pod, recorded = false) to PodOwnerAuthorityRefusal.AUTHORITY_WITHDRAWN,
+      manager(pod, recorded = true, consent = PrivilegedAuthorityRows.FIRST_CONSENT) to PodOwnerAuthorityRefusal.CONSENT_OUTDATED,
+      manager(pod, recorded = true).copy(oauthScopes = setOf("${pod.baseUrl}/_system/contexts/notes#read")) to PodOwnerAuthorityRefusal.SCOPE_REQUIRED,
+    )) {
+      assertEquals(PodRegistrationResult.Unauthorized(reason), register(pod, client = named("With bearer"), raw = serviceBody(), caller = caller))
+    }
+    assertEquals(emptyList(), serviceClientDao.findByPod(ObjectId(pod.id.value)), "nothing was registered")
   }
 
   @Test
@@ -344,15 +366,22 @@ class PodClientRegistrationTest : SempodsStoreTest() {
     "grant_types" to listOf("client_credentials"),
   )
 
-  /** An owner's `service-clients:manage` bearer, as the adapter would have verified it. */
-  private fun manager(pod: HostedPod) = SempodsCredentials(
-    pod = pod.ref,
-    restrictedContexts = emptySet(),
-    oauthClientId = "dyn:manager",
-    oauthScopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
-    tokenJti = randomId(),
-    tokenSub = pod.owner,
-  )
+  /**
+   * An owner's `service-clients:manage` bearer, as the adapter would have verified it; with the
+   * authority the dialog records behind it where [recorded], approved under [consent].
+   */
+  private fun manager(pod: HostedPod, recorded: Boolean = false, consent: Int = PrivilegedAuthorityRows.CONSENT): SempodsCredentials {
+    val jti = randomId()
+    if (recorded) managementAuthorities.record(pod.id, jti, "dyn:manager", pod.owner, 0L, setOf(pod.owner), consent)
+    return SempodsCredentials(
+      pod = pod.ref,
+      restrictedContexts = emptySet(),
+      oauthClientId = "dyn:manager",
+      oauthScopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
+      tokenJti = jti,
+      tokenSub = pod.owner,
+    )
+  }
 
   private fun refusal(result: PodRegistrationResult) = assertIs<PodRegistrationResult.Refused>(result)
 

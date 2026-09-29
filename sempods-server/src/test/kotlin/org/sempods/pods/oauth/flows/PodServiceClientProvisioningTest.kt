@@ -11,6 +11,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -55,46 +57,67 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
     val pod = pod()
     val first = provisioned(provision(pod))
 
-    val again = provision(pod, expectedRegistrationId = first.registration.id.value)
+    val again = provision(pod, expectedRegistrationId = first.registration.id.value, expectedSecretId = first.registration.secretId)
 
     assertEquals(PodServiceClientResult.AlreadyProvisioned(first.registration), again)
+    assertIs<PodServiceClientResult.Provisioned>(
+      provision(pod, expectedRegistrationId = first.registration.id.value),
+      "the registration alone does not say the caller holds the current secret",
+    )
   }
 
   @Test
-  fun `naming a registration that is no longer there mints a new one`() {
+  fun `naming a registration that is not there issues a new secret for the one that is`() {
     // The self-healing path: a caller whose stored credential drifted from the pod gets a usable
-    // one back on its next run instead of a refusal it cannot act on.
+    // one back on its next run instead of a refusal it cannot act on. The registration, and the
+    // grants the owner may have given it since, stay.
     val pod = pod()
     val first = provisioned(provision(pod))
 
     val second = provisioned(provision(pod, expectedRegistrationId = "000000000000000000000000"))
 
-    assertNotEquals(first.registration.id, second.registration.id)
+    assertEquals(first.registration.id, second.registration.id)
     assertNotEquals(first.secret, second.secret)
-    assertEquals(second.registration, serviceClients.find(pod.id, CLIENT_ID), "only the newer one stands")
+    assertNotEquals(first.registration.secretId, second.registration.secretId)
+    assertEquals(second.registration.secretId, serviceClients.find(pod.id, CLIENT_ID)?.secretId, "the answer names the stored secret")
+    assertNull(serviceClients.authenticate(pod.id, CLIENT_ID, first.secret), "only the newer secret stands")
+    assertNotNull(serviceClients.authenticate(pod.id, CLIENT_ID, second.secret))
   }
 
   @Test
-  fun `claiming nothing always mints`() {
+  fun `claiming nothing issues a new secret and keeps the registration`() {
     val pod = pod()
     val first = provisioned(provision(pod))
 
     val second = provisioned(provision(pod, expectedRegistrationId = null))
 
-    assertNotEquals(first.registration.id, second.registration.id)
+    assertEquals(first.registration.id, second.registration.id)
   }
 
   @Test
-  fun `a registration whose scopes drifted is re-minted, id match or not`() {
-    // Drift would otherwise surface as 403s, and only once the tokens are actually used.
+  fun `an existing registration keeps its grants, whatever the caller asks for`() {
+    // The owner decides a service's grants once it exists, so provisioning never writes them.
     val pod = pod()
     val narrow = setOf("${sempodsUriBuilder.buildContext(pod.name, "apps/notes/public")}#manage")
     val first = provisioned(provision(pod, scopes = narrow))
 
-    val second = provisioned(provision(pod, expectedRegistrationId = first.registration.id.value))
+    assertEquals(
+      PodServiceClientResult.AlreadyProvisioned(first.registration),
+      provision(pod, expectedRegistrationId = first.registration.id.value, expectedSecretId = first.registration.secretId),
+    )
+    assertEquals(narrow, provisioned(provision(pod)).registration.scopes)
+    assertEquals(narrow, serviceClients.find(pod.id, CLIENT_ID)?.scopes)
+  }
 
-    assertNotEquals(first.registration.id, second.registration.id)
-    assertEquals(setOf(manageScope(pod)), second.registration.scopes)
+  @Test
+  fun `what is set up for a new client runs only when one is created`() {
+    val pod = pod()
+    var runs = 0
+
+    provisioning.provision(pod, PodServiceClientRequest(CLIENT_ID, setOf(manageScope(pod)), CLIENT_ID, null)) { runs++ }
+    provisioning.provision(pod, PodServiceClientRequest(CLIENT_ID, setOf(manageScope(pod)), CLIENT_ID, null)) { runs++ }
+
+    assertEquals(1, runs)
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -113,6 +136,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
     pod: HostedPod,
     expectedRegistrationId: String? = null,
     scopes: Set<String> = setOf(manageScope(pod)),
+    expectedSecretId: String? = null,
   ): PodServiceClientResult = provisioning.provision(
     pod,
     PodServiceClientRequest(
@@ -120,6 +144,7 @@ class PodServiceClientProvisioningTest : SempodsStoreTest() {
       scopes = scopes,
       label = CLIENT_ID,
       expectedRegistrationId = expectedRegistrationId,
+      expectedSecretId = expectedSecretId,
     ),
   )
 

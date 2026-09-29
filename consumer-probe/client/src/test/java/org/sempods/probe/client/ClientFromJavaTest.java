@@ -128,12 +128,16 @@ class ClientFromJavaTest {
       String path = exchange.getRequestURI().getRawPath();
       if (path.endsWith("/secret")) {
         json(exchange, 200, "{\"client_id\":\"svc:1\",\"client_secret\":\"sc_2\"}");
+      } else if (path.endsWith("/grants")) {
+        exchange.getResponseHeaders().add("X-Saw-If-Match", header(exchange, "If-Match"));
+        json(exchange, 200, "{\"client_id\":\"svc:1\",\"client_name\":\"Notes Sync\",\"client_id_issued_at\":1700000000,"
+            + "\"last_used_at\":null,\"scope\":\"urn:b#read\",\"grants_version\":1,\"origin\":\"registered\"}");
       } else if (exchange.getRequestMethod().equals("DELETE")) {
         exchange.sendResponseHeaders(204, -1);
         exchange.close();
       } else {
         json(exchange, 200, "{\"serviceClients\":[{\"client_id\":\"svc:1\",\"client_name\":\"Notes Sync\","
-            + "\"client_id_issued_at\":1700000000,\"last_used_at\":null,\"scope\":\"urn:a#read\",\"origin\":\"installed\"}]}");
+            + "\"client_id_issued_at\":1700000000,\"last_used_at\":null,\"scope\":\"urn:a#read\",\"grants_version\":0,\"origin\":\"registered\"}]}");
       }
     });
     server.createContext("/alice/_system/slow", exchange -> {
@@ -426,6 +430,10 @@ class ClientFromJavaTest {
     SempodsServiceClient listed = managing.list().getBody().get(0);
     assertEquals(Set.of("urn:a#read"), listed.getScopes());
     assertNull(listed.getLastUsedAt());
+    SempodsResponse<SempodsServiceClient> replaced = managing.replaceGrants("svc:1", List.of("urn:b#read"), listed.getGrantsVersion());
+    assertEquals(Set.of("urn:b#read"), replaced.getBody().getScopes());
+    assertEquals(1L, replaced.getBody().getGrantsVersion());
+    assertEquals("\"0\"", replaced.getHeaders().get("X-Saw-If-Match"));
     assertEquals("sc_2", managing.rotateSecret("svc:1").getBody().getClientSecret());
     assertTrue(managing.revoke("svc:1"));
   }

@@ -8,9 +8,11 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.oauth.DynamicClientStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 
@@ -44,6 +46,7 @@ class PodClientRegistration @Inject internal constructor(
   private val dynamicClientStore: DynamicClientStore,
   private val serviceClients: PodServiceClientStore,
   private val serviceBudget: PodServiceRegistrationBudget,
+  private val ownerAuthority: PodOwnerAuthority,
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
@@ -136,15 +139,25 @@ class PodClientRegistration @Inject internal constructor(
   // ─── The service profile ──────────────────────────────────────────────────
 
   /**
-   * A provisional service client: its identifier, its secret, and a deadline for the owner's
-   * consent. What happens to each member the body carries is `docs/auth/oauth.md` §"Registering a
-   * service client"; [REFUSED_MEMBERS] are the ones refused, and anything else this pod does not
-   * read is neither stored nor echoed.
+   * A service client: its identifier and its secret. What happens to each member the body carries
+   * is `docs/auth/oauth.md` §"Registering a service client"; [REFUSED_MEMBERS] are the ones refused,
+   * and anything else this pod does not read is neither stored nor echoed.
    *
-   * A bearer the request carries changes nothing here; the registration holds no rights to give.
+   * Without a bearer the registration is provisional, with a deadline for the owner's consent. A
+   * bearer is the owner's initial access token (RFC 7591 §3.1): its standing
+   * [SERVICE_CLIENTS_MANAGE_SCOPE] authority, approved under the consent that promises registration,
+   * makes the registration active. Any other bearer is refused, so a caller that
+   * meant to present authority never walks away with a provisional registration it did not expect.
    * The pod's budget is charged only for a body that would be accepted.
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
+    val owner = request.caller?.let { caller ->
+      when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.CONSENT)) {
+        is PodOwnerAuthorityCheck.Standing -> check.authority
+        is PodOwnerAuthorityCheck.Refused -> return PodRegistrationResult.Unauthorized(check.reason)
+      }
+    }
+
     REFUSED_MEMBERS.firstOrNull { it in request.raw && isGiven(request.raw[it]) }?.let { member ->
       return refused(
         PodRegistrationError.INVALID_CLIENT_METADATA,
@@ -167,17 +180,22 @@ class PodClientRegistration @Inject internal constructor(
       )
     }
 
-    // Each registration costs a bcrypt run, and nothing authenticates the caller.
+    // Each registration costs a bcrypt run, and without a bearer nothing authenticates the caller.
     if (!serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
-    val registered = serviceClients.registerProvisional(pod, label, request.client.redirectUris.toList())
+    val redirectUris = request.client.redirectUris.toList()
+    val registered = if (owner == null) {
+      serviceClients.registerProvisional(pod, label, redirectUris)
+    } else {
+      serviceClients.registerActive(pod, label, redirectUris)
+    }
     val registration = registered.registration
 
     logger.info {
-      "[oauth/register] Service client registered, pending activation: pod='${pod.name}', " +
-          "clientId='${registration.clientId}', label='${LogSafeText.of(label)}', " +
+      "[oauth/register] Service client registered, ${if (owner == null) "pending activation" else "active"}: " +
+          "pod='${pod.name}', clientId='${registration.clientId}', label='${LogSafeText.of(label)}', " +
           "redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
-          "activationExpiresAt=${registration.pendingUntil}"
+          (if (owner == null) "activationExpiresAt=${registration.pendingUntil}" else "by='${owner.webId}'")
     }
 
     return PodRegistrationResult.ServiceRegistered(
@@ -186,7 +204,7 @@ class PodClientRegistration @Inject internal constructor(
       issuedAt = registration.createdAt,
       secret = registered.secret,
       redirectUris = registration.redirectUris,
-      activationExpiresAt = checkNotNull(registration.pendingUntil) { "a provisional registration has a deadline" },
+      activationExpiresAt = registration.pendingUntil,
     )
   }
 
@@ -329,12 +347,13 @@ internal sealed interface PodRegistrationResult {
   data class Registered(val clientId: String, val client: PodClientMetadata) : PodRegistrationResult
 
   /**
-   * A provisional service client, and the one moment its secret can be read.
+   * A service client, and the one moment its secret can be read.
    *
    * [issuedAt] and [clientId] are the pod's own: [clientName] is whatever the service typed, so an
    * owner shown only that has no way to tell an expected service from a crafted one.
    *
-   * @param activationExpiresAt when the registration is removed unless the owner activates it.
+   * @param activationExpiresAt when the registration is removed unless the owner activates it;
+   *   `null` for one the owner's authority registered, which is active.
    */
   data class ServiceRegistered(
     val clientId: String,
@@ -342,8 +361,11 @@ internal sealed interface PodRegistrationResult {
     val issuedAt: Instant,
     val secret: String,
     val redirectUris: List<String>,
-    val activationExpiresAt: Instant,
+    val activationExpiresAt: Instant?,
   ) : PodRegistrationResult
+
+  /** A bearer came with a service registration and holds no owner authority to register one. */
+  data class Unauthorized(val reason: PodOwnerAuthorityRefusal) : PodRegistrationResult
 
   /**
    * @param description the wire's `error_description`, decided here because two of the three name

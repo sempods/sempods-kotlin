@@ -45,6 +45,8 @@ internal object PodRegistrationResponses {
     is PodRegistrationResult.ServiceRegistered -> createdService(result)
     is PodRegistrationResult.Refused -> refused(result)
     PodRegistrationResult.RateLimited -> rateLimited()
+    // The endpoint answers it with the pod's bearer challenge, which is not this object's to build.
+    is PodRegistrationResult.Unauthorized -> error("an unauthorized registration is the endpoint's answer")
   }
 
   /**
@@ -96,14 +98,15 @@ internal object PodRegistrationResponses {
     jaxrs(ClientInformationResponse(information, true).toHTTPResponse())
 
   /**
-   * [created], with [ACTIVATION_EXPIRES_AT] and the registered `redirect_uris`. The member is
+   * [created], with [ACTIVATION_EXPIRES_AT] while the registration is provisional, and the
+   * registered `redirect_uris`. The member is
    * sempods' own and the SDK has no field for it, so it is added to the SDK's JSON object.
    */
   private fun createdService(client: PodRegistrationResult.ServiceRegistered): Response {
     val information = serviceClient(client)
     val response = ClientInformationResponse(information, true).toHTTPResponse()
     val body = information.toJSONObject().apply {
-      put(ACTIVATION_EXPIRES_AT, client.activationExpiresAt.epochSecond)
+      client.activationExpiresAt?.let { put(ACTIVATION_EXPIRES_AT, it.epochSecond) }
       // The SDK writes its default `["code"]` beside redirect URIs; a client authenticating with a
       // secret has no browser flow, and the registration refuses the member for that reason.
       remove("response_types")

@@ -17,6 +17,7 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
 import java.net.URI
@@ -28,9 +29,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * A registered service client after its registration: the list, rotation, grant removal and
- * revocation an owner manages it with (`docs/auth/service-clients.md` §"Managing an installed service
- * client"). The consent that gives it contexts is `ServiceConsentHttpTest`'s.
+ * An owner's service clients over the API: registering one with the owner's authority, the reads,
+ * the grant replace, rotation and revocation (`docs/auth/service-clients.md` §"Managing service
+ * clients"). The consent that gives a service contexts in the browser is `ServiceConsentHttpTest`'s.
  *
  * Every step runs at the wire, because the management authority is told apart by the scopes its
  * bearer carries and nothing else.
@@ -62,7 +63,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   // ── The whole life of one installation ──────────────────────────────────────
 
   @Test
-  fun `an installed service is granted, used, narrowed, regranted, rotated and revoked`() {
+  fun `a registered service is granted, used, emptied, regranted, rotated and revoked`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
@@ -89,17 +90,14 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val listed = listServiceClients(owned, manager).single { it["client_id"] == installed.clientId }
     assertEquals("$notes#read", listed["scope"])
     assertEquals("Notes Sync", listed["client_name"])
-    assertEquals("installed", listed["origin"])
+    assertEquals("registered", listed["origin"])
     assertTrue(listed["last_used_at"] != null, "the token just minted is what makes it visible")
     assertFalse(listed.keys.any { "secret" in it }, "a list never carries a secret: $listed")
 
-    // Remove the last grant: the registration stays, holds nothing and mints nothing.
-    val narrowed = http.prepareDelete(grantsUrl(owned, installed.clientId))
-      .addQueryParam("scope", "$notes#read")
-      .addHeader("Authorization", "Bearer $manager")
-      .execute()
-    assertEquals(200, narrowed.statusCode, narrowed.responseBody)
-    assertEquals("", json(narrowed)["scope"])
+    // Replace the grants with none: the registration stays, holds nothing and mints nothing.
+    val emptied = replaceGrants(owned, manager, installed.clientId, "[]", ifMatch = read(owned, manager, installed.clientId).tag)
+    assertEquals(200, emptied.statusCode, emptied.responseBody)
+    assertEquals("", json(emptied)["scope"])
     assertEquals(400, services.token(owned.pod, installed.clientId, installed.secret).statusCode)
     assertEquals(
       emptyList(),
@@ -142,23 +140,135 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertFalse(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
   }
 
-  // ── Two authorities ─────────────────────────────────────────────────────────
+  // ── The owner's API ─────────────────────────────────────────────────────────
 
   @Test
-  fun `a management bearer reaches no data, and registers a service like anyone`() {
-    // What a manager's bearer adds to a registration is #332's to decide; here it adds nothing.
+  fun `a management bearer registers a service active, and a replace of C#read lets it read C`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val diary = owned.context("diary")
+    val manager = approveManagement(owned)
+
+    val registered = register(owned, manager)
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertFalse("activation_expires_at" in json(registered), "the owner's own authority activates it: ${registered.responseBody}")
+    val clientId = json(registered)["client_id"] as String
+    val secret = json(registered)["client_secret"] as String
+    assertTrue(clientId.startsWith("svc:"), clientId)
+
+    val before = read(owned, manager, clientId)
+    assertEquals("\"0\"", before.tag)
+    assertEquals(0, before.body["grants_version"])
+    assertEquals("", before.body["scope"])
+    assertFalse("activation_expires_at" in before.body)
+
+    val replaced = replaceGrants(owned, manager, clientId, """["$notes#read"]""", ifMatch = before.tag)
+    assertEquals(200, replaced.statusCode, replaced.responseBody)
+    assertEquals("\"1\"", replaced.getHeader("ETag"))
+    assertEquals("$notes#read", json(replaced)["scope"])
+    assertEquals("no-store", replaced.getHeader("Cache-Control"))
+
+    val serviceToken = services.accessToken(owned.pod, clientId, secret)
+    assertEquals(listOf(notes), services.contexts(owned.pod, serviceToken))
+    assertFalse(diary in services.contexts(owned.pod, serviceToken))
+    assertEquals(emptyList(), services.contexts(owned.pod, manager), "the management bearer itself reaches no data")
+  }
+
+  @Test
+  fun `a replace names the version it read, and a stale one is 412 and changes nothing`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val clientId = json(register(owned, manager))["client_id"] as String
+    val first = read(owned, manager, clientId).tag
+    assertEquals(200, replaceGrants(owned, manager, clientId, """["$notes#read"]""", ifMatch = first).statusCode)
+
+    val stale = replaceGrants(owned, manager, clientId, "[]", ifMatch = first)
+    assertEquals(412, stale.statusCode, stale.responseBody)
+    val missing = replaceGrants(owned, manager, clientId, "[]", ifMatch = null)
+    assertEquals(428, missing.statusCode, missing.responseBody)
+    for (malformed in listOf("*", "W/\"1\"", "\"1\", \"2\"", "1")) {
+      val refused = replaceGrants(owned, manager, clientId, "[]", ifMatch = malformed)
+      assertEquals(400, refused.statusCode, "$malformed: ${refused.responseBody}")
+    }
+    for (body in listOf("", "{}", "\"$notes#read\"", "[1]", "[null]", "not json")) {
+      val refused = replaceGrants(owned, manager, clientId, body, ifMatch = "\"1\"")
+      assertEquals(400, refused.statusCode, "$body: ${refused.responseBody}")
+    }
+
+    val after = read(owned, manager, clientId)
+    assertEquals("$notes#read", after.body["scope"])
+    assertEquals("\"1\"", after.tag)
+  }
+
+  @Test
+  fun `a replace refuses public-read, OIDC scopes, a manage root at or above the namespace, and unknown contexts`() {
     val owned = ownedPod()
     owned.context("notes")
     val manager = approveManagement(owned)
+    val clientId = json(register(owned, manager))["client_id"] as String
+    val namespace = "${podBase(owned)}/_system/contexts"
 
-    val registered = http.preparePost(registerUrl(owned))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $manager")
-      .setBody(serviceBody)
-      .execute()
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    assertTrue("activation_expires_at" in json(registered), registered.responseBody)
-    assertEquals(emptyList(), services.contexts(owned.pod, manager))
+    for (scope in listOf(PUBLIC_READ_SCOPE, "openid", "offline_access", "$namespace#manage", "${podBase(owned)}#manage", "$namespace/absent#read")) {
+      val refused = replaceGrants(owned, manager, clientId, """["$namespace/notes#read", "$scope"]""", ifMatch = "\"0\"")
+      assertEquals(400, refused.statusCode, "$scope: ${refused.responseBody}")
+    }
+    assertEquals("", read(owned, manager, clientId).body["scope"])
+  }
+
+  @Test
+  fun `a replace of a provisional registration activates it`() {
+    val owned = ownedPod()
+    val provisional = services.register(owned.pod)
+    val manager = approveManagement(owned)
+    assertTrue("activation_expires_at" in read(owned, manager, provisional.clientId).body)
+
+    val activated = replaceGrants(owned, manager, provisional.clientId, "[]", ifMatch = "\"0\"")
+
+    assertEquals(200, activated.statusCode, activated.responseBody)
+    assertFalse("activation_expires_at" in json(activated), activated.responseBody)
+  }
+
+  // ── Who holds the authority ─────────────────────────────────────────────────
+
+  @Test
+  fun `a data token without the scope is 403 at registration and at the replace`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val existing = services.register(owned.pod)
+    val dataToken = mintScopedToken(owned.pod.name, scopes = listOf("$notes#manage"), webId = "https://id.test/someone-else")
+    val ownersApp = mintScopedToken(owned.pod.name, scopes = listOf("$notes#manage"), webId = owned.webId)
+
+    for (bearer in listOf(dataToken, ownersApp)) {
+      assertInsufficientScope(owned, register(owned, bearer))
+      assertInsufficientScope(owned, replaceGrants(owned, bearer, existing.clientId, """["$notes#read"]""", ifMatch = "\"0\""))
+    }
+    assertSecretStands(owned, existing)
+  }
+
+  @Test
+  fun `an authority approved before the consent promised registering can neither register nor assign`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val existing = services.register(owned.pod)
+    val earlier = mintServiceClientsManagerToken(owned.pod.name, owned.webId, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
+    val registrations = serviceClientStore.list(owned.pod.hosted.id).size
+
+    assertInsufficientScope(owned, register(owned, earlier))
+    assertInsufficientScope(owned, replaceGrants(owned, earlier, existing.clientId, """["$notes#read"]""", ifMatch = "\"0\""))
+    assertEquals(registrations, serviceClientStore.list(owned.pod.hosted.id).size, "nothing was registered")
+    assertEquals(200, http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $earlier").execute().statusCode,
+      "it still reads, as its consent said")
+    assertSecretStands(owned, existing)
+  }
+
+  @Test
+  fun `the management consent says it registers services and gives them access`() {
+    val page = authorizePage(ownedPod(), SERVICE_CLIENTS_MANAGE_SCOPE)
+    assertEquals(200, page.statusCode, page.responseBody)
+    assertTrue("register new services and give them access to your data" in page.responseBody, page.responseBody)
+    assertTrue("change or take away the" in page.responseBody, page.responseBody)
+    assertFalse("cannot give" in page.responseBody, "the old promise is gone")
   }
 
   @Test
@@ -192,17 +302,25 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an operator-provisioned client is listed and not changed`() {
+  fun `an operator-provisioned client's grants are the owner's, and its secret and registration are not`() {
     val owned = ownedPod()
+    val notes = owned.context("notes")
     val appRoot = "${podBase(owned)}/_system/contexts/apps/backend"
     serviceClientStore.register(owned.pod.hosted, "backend", setOf("$appRoot#manage"), label = "backend")
     val manager = approveManagement(owned)
 
     val listed = listServiceClients(owned, manager).single { it["client_id"] == "backend" }
     assertEquals("provisioned", listed["origin"])
+    val narrowed = replaceGrants(owned, manager, "backend", """["$notes#read"]""", ifMatch = read(owned, manager, "backend").tag)
+    assertEquals(200, narrowed.statusCode, narrowed.responseBody)
+    assertEquals("$notes#read", json(narrowed)["scope"])
+
     val rotated = http.preparePost("${serviceClientsUrl(owned)}/backend/secret")
       .addHeader("Authorization", "Bearer $manager").execute()
     assertEquals(403, rotated.statusCode, rotated.responseBody)
+    val revoked = http.prepareDelete("${serviceClientsUrl(owned)}/backend")
+      .addHeader("Authorization", "Bearer $manager").execute()
+    assertEquals(403, revoked.statusCode, revoked.responseBody)
   }
 
   @Test
@@ -276,14 +394,17 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
 
     for (bearer in listOf(someoneElsesApp, formerOwner)) {
       for (route in managementRoutes(owned, existing.clientId)) {
-        val response = route(bearer)
-        assertEquals(403, response.statusCode, response.responseBody)
-        val challenge = checkNotNull(response.getHeader("WWW-Authenticate"))
-        assertTrue("error=\"insufficient_scope\"" in challenge, challenge)
-        assertTrue("resource_metadata=\"${podBase(owned)}/.well-known/oauth-protected-resource\"" in challenge, challenge)
+        assertInsufficientScope(owned, route(bearer))
       }
     }
     assertSecretStands(owned, existing)
+  }
+
+  private fun assertInsufficientScope(owned: Owned, response: TestHttpResponse) {
+    assertEquals(403, response.statusCode, response.responseBody)
+    val challenge = checkNotNull(response.getHeader("WWW-Authenticate"))
+    assertTrue("error=\"insufficient_scope\"" in challenge, challenge)
+    assertTrue("resource_metadata=\"${podBase(owned)}/.well-known/oauth-protected-resource\"" in challenge, challenge)
   }
 
   // ── Fixture ─────────────────────────────────────────────────────────────────
@@ -393,18 +514,52 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
   }
 
-  /** List, rotate, remove grants and revoke [clientId], each sent with a bearer or without one. */
+  /** List, read, replace the grants of, rotate and revoke [clientId], each sent with a bearer or without one. */
   private fun managementRoutes(owned: Owned, clientId: String): List<(String?) -> TestHttpResponse> {
     val registration = "${serviceClientsUrl(owned)}/${enc(clientId)}"
     fun TestHttpRequest.send(bearer: String?) =
       apply { if (bearer != null) addHeader("Authorization", "Bearer $bearer") }.execute()
     return listOf(
       { bearer -> http.prepareGet(serviceClientsUrl(owned)).send(bearer) },
+      { bearer -> http.prepareGet(registration).send(bearer) },
+      { bearer ->
+        http.preparePut(grantsUrl(owned, clientId))
+          .addHeader("Content-Type", "application/json")
+          .addHeader("If-Match", "\"0\"")
+          .setBody("[]")
+          .send(bearer)
+      },
       { bearer -> http.preparePost("$registration/secret").send(bearer) },
-      { bearer -> http.prepareDelete("${grantsUrl(owned, clientId)}?scope=${enc("${podBase(owned)}/_system/contexts/notes#read")}").send(bearer) },
       { bearer -> http.prepareDelete(registration).send(bearer) },
     )
   }
+
+  /** A registration with the service's metadata, sent with [bearer]. */
+  private fun register(owned: Owned, bearer: String): TestHttpResponse =
+    http.preparePost(registerUrl(owned))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .setBody(serviceBody)
+      .execute()
+
+  private class Read(val body: Map<String, Any?>, val tag: String)
+
+  /** The single read of [clientId]: its document and its `ETag`. */
+  private fun read(owned: Owned, bearer: String, clientId: String): Read {
+    val response = http.prepareGet("${serviceClientsUrl(owned)}/${enc(clientId)}").addHeader("Authorization", "Bearer $bearer").execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertEquals("no-store", response.getHeader("Cache-Control"))
+    return Read(json(response), checkNotNull(response.getHeader("ETag")) { "a read carries the grants version" })
+  }
+
+  /** `PUT …/grants` with [body], and [ifMatch] where it is not null. */
+  private fun replaceGrants(owned: Owned, bearer: String, clientId: String, body: String, ifMatch: String?): TestHttpResponse =
+    http.preparePut(grantsUrl(owned, clientId))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .apply { if (ifMatch != null) addHeader("If-Match", ifMatch) }
+      .setBody(body)
+      .execute()
 
   private fun listServiceClients(owned: Owned, bearer: String): List<Map<String, Any?>> {
     val response = http.prepareGet(serviceClientsUrl(owned)).addHeader("Authorization", "Bearer $bearer").execute()

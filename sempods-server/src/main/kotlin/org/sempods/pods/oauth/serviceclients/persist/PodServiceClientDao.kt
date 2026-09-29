@@ -3,10 +3,8 @@ package org.sempods.pods.oauth.serviceclients.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
-import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
-import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
@@ -171,20 +169,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   internal fun exists(podId: ObjectId, clientId: String, expectedId: ObjectId): Boolean =
     serviceClients.find(liveRegistrationFilter(podId, clientId, expectedId)).limit(1).first() != null
 
-  /** [changedBy] removes [scopes]; answers the row afterwards, or `null` where there is none. */
-  internal fun removeScopes(
-    podId: ObjectId,
-    clientId: String,
-    scopes: Set<String>,
-    changedBy: String,
-    at: Instant = Instant.now(),
-  ): PodServiceClientDbo? =
-    serviceClients.findOneAndUpdate(
-      liveKeyFilter(podId, clientId),
-      grantsUpdate(Updates.pullAll(PodServiceClientDboFields.scopes, scopes.toList()), changedBy, at),
-      FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER),
-    )?.toDbo()
-
   /**
    * Drops [scopes] from the registration [expectedId] names, as the server's check after a grant
    * write does: a registration re-created under the same `clientId` in between is left alone.
@@ -206,17 +190,11 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     ).modifiedCount > 0L
 
   /**
-   * Removes a single registration. Used by the provisioning bootstrap to replace a
-   * half-provisioned client (registration succeeded but the consumer-side
-   * credential row was never written, so the plaintext secret is lost) with a
-   * freshly minted one. Returns `true` if a row was removed.
+   * Removes a single registration: the owner's revocation. Returns `true` if a row was removed.
    *
    * [expectedId] makes the delete conditional on the row the caller actually observed —
-   * compare-and-swap rather than delete-by-key. A replace is `find` → `delete` → `insert`, and
-   * two of those interleaved would otherwise let the second caller's key-scoped delete remove
-   * the *first* caller's freshly inserted row: the first caller keeps a `200` response whose
-   * secret no longer authenticates. With the id in the filter that delete removes nothing, and
-   * the caller can answer `409` instead of handing out a dead secret. Pass `null` only where
+   * compare-and-swap rather than delete-by-key, so a registration re-created under the same
+   * `clientId` in between is left alone and the caller can answer `409`. Pass `null` only where
    * unconditional removal is intended (pod deletion, cleanup).
    */
   internal fun delete(podId: ObjectId, clientId: String, expectedId: ObjectId? = null): Boolean {

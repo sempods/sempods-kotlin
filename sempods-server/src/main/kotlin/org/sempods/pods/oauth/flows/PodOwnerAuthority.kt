@@ -23,8 +23,18 @@ class PodOwnerAuthority @Inject internal constructor(
   private val podGrantsFacade: PodGrantsFacade,
 ) {
 
-  /** The authority [caller] holds for [scope] on [pod], or why it holds none. */
-  internal fun check(pod: HostedPod, caller: SempodsCredentials, scope: String): PodOwnerAuthorityCheck {
+  /**
+   * The authority [caller] holds for [scope] on [pod], or why it holds none.
+   *
+   * @param consent the consent text the operation was first promised in. An authority approved
+   *   under an earlier text holds the rest of its scope but not this.
+   */
+  internal fun check(
+    pod: HostedPod,
+    caller: SempodsCredentials,
+    scope: String,
+    consent: Int = PrivilegedAuthorityRows.FIRST_CONSENT,
+  ): PodOwnerAuthorityCheck {
     if (scope !in caller.oauthScopes) {
       return PodOwnerAuthorityCheck.Refused(PodOwnerAuthorityRefusal.SCOPE_REQUIRED)
     }
@@ -33,6 +43,9 @@ class PodOwnerAuthority @Inject internal constructor(
     if (authority.subjectUris.none { podGrantsFacade.isPodOwner(pod, it) }) {
       logger.info { "[oauth/owner-authority] refused: no URI this authority names owns pod '${pod.name}'" }
       return PodOwnerAuthorityCheck.Refused(PodOwnerAuthorityRefusal.NOT_OWNER)
+    }
+    if (authority.consent < consent) {
+      return PodOwnerAuthorityCheck.Refused(PodOwnerAuthorityRefusal.CONSENT_OUTDATED)
     }
     return PodOwnerAuthorityCheck.Standing(authority)
   }
@@ -59,4 +72,7 @@ internal enum class PodOwnerAuthorityRefusal {
 
   /** No URI the dialog recognised the person by owns the pod now. */
   NOT_OWNER,
+
+  /** The person approved this authority under a consent text that did not promise the operation. */
+  CONSENT_OUTDATED,
 }

@@ -54,7 +54,7 @@ class PodServiceConsentFlow @Inject internal constructor(
     // names an address this service may be sent to.
     val registration = request.clientId?.trim()?.takeIf { it.isNotBlank() }
       ?.let { serviceClients.find(pod.id, it) }
-      ?.takeIf { it.installed }
+      ?.takeIf { it.registered }
       ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE)
     val redirectUri = request.redirectUri?.trim()?.takeIf { it.isNotBlank() }
     val target = redirectUri?.let {

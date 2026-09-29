@@ -212,12 +212,15 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val managing = example.manage(OwnerBrowser(owned))
     val listed = managing.list().body!!.single()
     assertEquals("Notes Sync", listed.clientName)
-    assertEquals("installed", listed.origin)
+    assertEquals("registered", listed.origin)
     assertEquals(service.issuedAt, listed.issuedAt)
     assertNotNull(listed.lastUsedAt, "the wait minted a token, which the list shows")
     assertEquals(setOf("$notes#read", "$diary#read"), listed.scopes)
 
-    assertEquals(setOf("$notes#read"), managing.removeGrants(service.clientId, listOf("$diary#read")).body!!.scopes)
+    val narrowed = managing.replaceGrants(service.clientId, listOf("$notes#read"), listed.grantsVersion).body!!
+    assertEquals(setOf("$notes#read"), narrowed.scopes)
+    val stale = assertThrows<SempodsStatusException> { managing.replaceGrants(service.clientId, emptyList(), listed.grantsVersion) }
+    assertEquals(412, stale.status, "the version it read is gone")
 
     val rotated = managing.rotateSecret(service.clientId).body!!
     assertEquals(401, mintStatus(owned, service.clientId, service.clientSecret), "the old secret stopped at once")
@@ -226,6 +229,24 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     assertTrue(managing.revoke(service.clientId))
     assertEquals(401, mintStatus(owned, service.clientId, rotated.clientSecret), "a revoked service mints nothing")
     assertFalse(managing.revoke(service.clientId))
+  }
+
+  @Test
+  fun `the owner's tool registers a service active and gives it a context without a dialog`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val diary = owned.context("diary")
+    val example = ServiceConsent(owned.base, client, null)
+    val managing = example.manage(OwnerBrowser(owned))
+
+    val service = managing.register("Backup").body!!
+    assertNull(service.activationExpiresAt, "the owner's own authority activates it")
+    val version = managing.get(service.clientId).body!!.grantsVersion
+    assertEquals(setOf("$notes#read"), managing.replaceGrants(service.clientId, listOf("$notes#read"), version).body!!.scopes)
+
+    val catalogue = checkNotNull(example.asService(service.clientId, service.clientSecret).contexts().listText().body)
+    assertTrue(catalogue.contains(notes), catalogue)
+    assertFalse(catalogue.contains(diary), catalogue)
   }
 
   @Test

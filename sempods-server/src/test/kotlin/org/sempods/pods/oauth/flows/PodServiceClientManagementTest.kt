@@ -4,7 +4,9 @@ import com.google.inject.Inject
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -82,16 +84,86 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `removing a grant narrows and never needs the consent`() {
+  fun `a replace narrows, and an empty one keeps the registration`() {
+    val owned = Owned()
+    val notes = owned.context("notes")
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope, "$notes#read"), changedBy = owned.webId)
+
+    val narrowed = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
+      management.replaceGrants(owned.pod, manager(owned), installed.clientId, 1L, setOf("$notes#read")),
+    ).value
+    assertEquals(setOf("$notes#read"), narrowed.scopes)
+    assertEquals(2L, narrowed.grantsVersion)
+
+    val emptied = assertIs<PodServiceClientManagementResult.Done<ServiceClientRegistration>>(
+      management.replaceGrants(owned.pod, manager(owned), installed.clientId, 2L, emptySet()),
+    ).value
+    assertEquals(emptySet(), emptied.scopes)
+    assertEquals(installed.id, emptied.id)
+  }
+
+  @Test
+  fun `a replace reaches an operator's registration, which rotation and removal do not`() {
+    val owned = Owned()
+    val sandbox = "${owned.context("apps/backup")}#manage"
+    val provisioned = serviceClients.register(owned.pod, "backup", setOf(sandbox)).registration
+    val manager = manager(owned)
+
+    assertIs<PodServiceClientManagementResult.Done<*>>(
+      management.replaceGrants(owned.pod, manager, provisioned.clientId, provisioned.grantsVersion, setOf(owned.readScope)),
+    )
+    assertEquals(setOf(owned.readScope), serviceClients.find(owned.pod.id, "backup")?.scopes)
+    for (result in listOf(management.rotate(owned.pod, manager, "backup"), management.revoke(owned.pod, manager, "backup"))) {
+      assertEquals(PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.PROVISIONED_BY_OPERATOR), result)
+    }
+  }
+
+  @Test
+  fun `a replace names a version, and a stale one writes nothing`() {
     val owned = Owned()
     val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
-    serviceClients.replaceScopes(owned.pod, installed.clientId, installed.id, 0L, setOf(owned.readScope), changedBy = owned.webId)
+    val manager = manager(owned)
 
-    val result = management.removeGrants(owned.pod, manager(owned), installed.clientId, setOf(owned.readScope))
+    assertEquals(
+      PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_REQUIRED),
+      management.replaceGrants(owned.pod, manager, installed.clientId, null, setOf(owned.readScope)),
+    )
+    assertEquals(
+      PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH),
+      management.replaceGrants(owned.pod, manager, installed.clientId, 7L, setOf(owned.readScope)),
+    )
+    val stored = assertNotNull(serviceClients.find(owned.pod.id, installed.clientId))
+    assertEquals(emptySet(), stored.scopes)
+    assertNotNull(stored.pendingUntil, "nothing activated it")
+  }
 
-    assertEquals(emptySet(), assertIs<PodServiceClientManagementResult.Done<*>>(result).let {
-      (it.value as org.sempods.pods.oauth.serviceclients.ServiceClientRegistration).scopes
-    })
+  @Test
+  fun `a replace is refused whole for a scope a service cannot hold or no context of the pod`() {
+    val owned = Owned()
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val namespace = owned.contextUri.substringBeforeLast('/')
+
+    for (scope in listOf("public-read", "openid", "$namespace#manage", "${owned.pod.baseUrl}#manage", "$namespace/absent#read")) {
+      val result = management.replaceGrants(owned.pod, manager(owned), installed.clientId, 0L, setOf(owned.readScope, scope))
+      assertEquals(PodServiceClientManagementRefusal.UNGRANTABLE, assertIs<PodServiceClientManagementResult.Refused>(result).reason, scope)
+    }
+    assertEquals(emptySet(), serviceClients.find(owned.pod.id, installed.clientId)?.scopes)
+  }
+
+  @Test
+  fun `an authority approved under the first consent reads and removes, and neither assigns`() {
+    val owned = Owned()
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
+    val earlier = manager(owned, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
+
+    assertIs<PodServiceClientManagementResult.Done<*>>(management.list(owned.pod, earlier))
+    assertIs<PodServiceClientManagementResult.Done<*>>(management.get(owned.pod, earlier, installed.clientId))
+    assertEquals(
+      PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED),
+      management.replaceGrants(owned.pod, earlier, installed.clientId, 0L, setOf(owned.readScope)),
+    )
+    assertIs<PodServiceClientManagementResult.Done<*>>(management.revoke(owned.pod, earlier, installed.clientId))
   }
 
   @Test

@@ -17,8 +17,13 @@ class SempodsServiceClient private constructor(
   val lastUsedAt: Instant?,
   scopes: Set<String>,
   /**
-   * `installed` for one registered at the pod itself, `provisioned` for one the host operator set up. The pod
-   * lists both and changes only the first.
+   * The version [scopes] are at, which [SempodsPodServiceClients.replaceGrants] names. Every change
+   * to the grants moves it.
+   */
+  val grantsVersion: Long,
+  /**
+   * `registered` for one registered at the pod itself, `provisioned` for one the host operator set
+   * up. The owner decides the grants of both; only the first is rotated or removed here.
    */
   val origin: String,
   /**
@@ -33,13 +38,13 @@ class SempodsServiceClient private constructor(
 
   override fun equals(other: Any?): Boolean =
     other is SempodsServiceClient && other.clientId == clientId && other.clientName == clientName && other.issuedAt == issuedAt &&
-      other.lastUsedAt == lastUsedAt && other.scopes == scopes && other.origin == origin &&
+      other.lastUsedAt == lastUsedAt && other.scopes == scopes && other.grantsVersion == grantsVersion && other.origin == origin &&
       other.activationExpiresAt == activationExpiresAt
 
-  override fun hashCode(): Int = listOf(clientId, clientName, issuedAt, lastUsedAt, scopes, origin, activationExpiresAt).hashCode()
+  override fun hashCode(): Int = listOf(clientId, clientName, issuedAt, lastUsedAt, scopes, grantsVersion, origin, activationExpiresAt).hashCode()
 
   override fun toString(): String =
-    "SempodsServiceClient(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, lastUsedAt=$lastUsedAt, scopes=$scopes, origin=$origin, activationExpiresAt=$activationExpiresAt)"
+    "SempodsServiceClient(clientId=$clientId, clientName=$clientName, issuedAt=$issuedAt, lastUsedAt=$lastUsedAt, scopes=$scopes, grantsVersion=$grantsVersion, origin=$origin, activationExpiresAt=$activationExpiresAt)"
 
   internal companion object {
 
@@ -50,8 +55,9 @@ class SempodsServiceClient private constructor(
       issuedAt: Instant,
       lastUsedAt: Instant?,
       scopes: Set<String>,
+      grantsVersion: Long,
       origin: String,
       activationExpiresAt: Instant? = null,
-    ) = SempodsServiceClient(clientId, clientName, issuedAt, lastUsedAt, scopes, origin, activationExpiresAt)
+    ) = SempodsServiceClient(clientId, clientName, issuedAt, lastUsedAt, scopes, grantsVersion, origin, activationExpiresAt)
   }
 }

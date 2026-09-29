@@ -23,7 +23,8 @@ class SempodsServiceClientRegistration private constructor(
   redirectUris: List<String>,
   /**
    * When the pod removes this registration unless the owner confirms its consent first — the sempods
-   * member `activation_expires_at`. Null on a pod that does not send it.
+   * member `activation_expires_at`. Null for an active registration, one made with the owner's
+   * `service-clients:manage` bearer, and on a pod that does not send it.
    */
   val activationExpiresAt: Instant?,
 ) {
