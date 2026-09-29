@@ -91,9 +91,14 @@ class PodServiceClientStore @Inject constructor(
     return Registered(stored.toRegistration(), secret)
   }
 
-  /** Why each of [scopes] cannot be held by a service client, by scope; empty when all can. */
+  /**
+   * Why each of [scopes] cannot be held by a service client, by scope; empty when all can. A scope is
+   * held as written, so one the validator would have to trim first is refused rather than stored
+   * padded.
+   */
   internal fun ungrantable(pod: HostedPod, scopes: Set<String>): Map<String, String> =
     scopes.mapNotNull { scope ->
+      if (scope != scope.trim()) return@mapNotNull scope to "a scope carries no surrounding whitespace"
       when (val parsed = podScopeValidator.validate(scope, pod.baseUrl)) {
         is ScopeValidationResult.Context -> null
         is ScopeValidationResult.Invalid -> scope to parsed.reason

@@ -140,7 +140,7 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
     val installed = serviceClients.registerProvisional(owned.pod, "notes", emptyList()).registration
     val namespace = owned.contextUri.substringBeforeLast('/')
 
-    for (scope in listOf("public-read", "openid", "$namespace#manage", "${owned.pod.baseUrl}#manage", "$namespace/absent#read")) {
+    for (scope in listOf("public-read", "openid", "$namespace#manage", "${owned.pod.baseUrl}#manage", "$namespace/absent#read", " ${owned.readScope}")) {
       val result = management.replaceGrants(owned.pod, manager(owned), installed.clientId, 0L, setOf(owned.readScope, scope))
       assertEquals(PodServiceClientManagementRefusal.UNGRANTABLE, assertIs<PodServiceClientManagementResult.Refused>(result).reason, scope)
     }
