@@ -84,7 +84,7 @@ The dialog shares its rows and context creation with delegated access
 ([`oauth.md`](oauth.md#authorize-flow-overview)); rows arrive ticked with what the service holds
 now. Anyone can build this URL for any service, and any registration can call itself
 `sempods-syncer`, so the dialog shows only what the pod knows: the name as the service's claim,
-that it acts as itself, its `svc:` identifier, when it registered, and what it holds now. It does
+that it acts as itself, its identifier, when it registered, and what it holds now. It does
 not say the service asked, and it does not show the return address, which receives nothing.
 
 | The owner | With `redirect_uri` | Without | Grants |

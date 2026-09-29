@@ -22,8 +22,8 @@ import java.net.URI
 import java.time.Instant
 
 /**
- * The service consent: a registered service (`svc:`) sends the pod owner here, and the owner decides
- * which contexts it reaches. What a service sends and learns is `docs/auth/service-clients.md`
+ * The service consent: a service sends the pod owner here, and the owner decides which contexts it
+ * reaches — one registered at the pod (`svc:`) or one the operator provisioned. What a service sends and learns is `docs/auth/service-clients.md`
  * §"Consent".
  *
  * **Nothing is delivered to the service.** Confirming answers `state` alone, cancelling
