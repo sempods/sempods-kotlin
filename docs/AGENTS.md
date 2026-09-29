@@ -51,8 +51,8 @@ identity shapes are [sempods-spec `spec/core/contexts.md`](https://github.com/se
 - `docs/auth/identity.md` — WebID identities, identity JWT, OIDC bridge concept
 - `docs/auth/oauth.md` — the numbers and limits the specification leaves open: the token endpoint's
   rate budget, the OIDC leg timeouts, the sharp edges
-- `docs/auth/service-clients.md` — provisioning over the admin surface, the audit trail and its
-  retention
+- `docs/auth/service-clients.md` — service access: registration, consent, the owner's management
+  API, provisioning over the admin surface, the audit trail and its retention
 - `docs/auth/oauth-errors.md` — the page every OAuth `error_uri` points at: one heading per error
   code a redirect can carry
 

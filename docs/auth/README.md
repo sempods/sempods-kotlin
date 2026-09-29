@@ -59,7 +59,7 @@ be a conforming pod if it were done differently:
 | Standard | Where it shows up |
 |---|---|
 | OAuth 2.1 (Authorization Code + PKCE) | App login (`oauth.md`) |
-| RFC 6749 §4.4 — Client Credentials | Service clients (`service-clients.md`) |
+| RFC 6749 §4.4 — Client Credentials | Service access (`service-clients.md`) |
 | OIDC Core 1.0 | `prompt` parameter, identity JWT shape (`identity.md`) |
 | OIDC Discovery 1.0 | The id-server's `/.well-known/openid-configuration` (`identity.md`) |
 | RFC 7636 — PKCE (S256) | Required by both the pod's and the id-server's `/authorize` |
@@ -171,8 +171,8 @@ code.
   endpoint's rate budget and its two tiers, the timeouts on both OIDC legs, and the
   sharp edges. The flows themselves are
   [`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md).
-- **`service-clients.md`** — provisioning a service client over the admin surface,
-  idempotency, the owner deciding every service's grants, the audit trail and its retention. What a service client *is* and what
+- **`service-clients.md`** — service access: registration, consent, provisioning over the admin
+  surface, idempotency, the owner deciding every service's grants, the audit trail and its retention. What a service client *is* and what
   it may hold is [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012) onwards.
 - **[`oauth-errors.md`](oauth-errors.md)** — the recovery page every OAuth `error_uri`
   points at: one heading per error code a redirect can carry.

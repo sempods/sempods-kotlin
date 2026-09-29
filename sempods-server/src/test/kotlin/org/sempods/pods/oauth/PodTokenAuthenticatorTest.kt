@@ -387,7 +387,8 @@ class PodTokenAuthenticatorTest {
   @Test
   fun `at DEBUG the success line names the flow it observed rather than a blank`() {
     // `client_type` is absent on an authorization-code token and only written by
-    // `PodTokenIssuer.issueServiceToken`, so its absence *is* the statement that this was delegated access.
+    // `PodTokenIssuer.issueServiceToken`, so its absence *is* the statement that this was
+    // delegated access.
     // Rendering it as `(unset)` read like a value someone forgot to set, and was misread as one.
     val delegated = linesLoggedAt(Level.DEBUG) { verified(token()) }
       .single { "Token verified" in it.formattedMessage }

@@ -643,7 +643,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     // What this closes: the management screen shares a consent document with the ordinary one.
     // Writing `durable = false` into it for a question nobody was asked is a withdrawal, and
     // `PodTokenExchange.endsOnRefusal` reads it as one — the app's durable family dies at its next
-    // refresh because its owner registered a service.
+    // refresh because its owner approved a management authority.
     val owned = Owned()
     owned.grant(owned.readScope)
     owned.answered(durable = true)
