@@ -42,9 +42,12 @@ For a path, step 3 checks every claim against the code and tests, and step 7 doe
 
 ## 2. Find what documents it
 
-Do not guess. Walk from each changed file, or the path, upwards through the `AGENTS.md` files; each
-one names the documents for its scope, and the root `AGENTS.md` carries the full documentation map.
-Check both the repository `docs/` and the module's own `docs/` if it has one.
+Do not guess. Walk from each changed file, or the target path, upwards through the `AGENTS.md`
+files; each names the documents for its scope. The root `AGENTS.md` carries the full map. Check the
+repository `docs/`, the module READMEs and each module's own `docs/`. Search changed API names,
+endpoint paths and configuration names through Markdown, KDoc and test/example sources with
+`git grep -n --untracked` (step 6 says why). Searching `doc-example` finds the marked examples;
+follow [Checking examples](documentation-strategy.md#checking-examples).
 
 ## 3. Check the IST documentation
 
@@ -126,7 +129,7 @@ acceptance and merged work, including follow-up actions.
 ## 8. context7.json
 
 Read the `rules` array in [`../../context7.json`](../../context7.json) against the change. It
-asserts facts about grants, contexts, the SPARQL surface, client identity shapes, the updater, the
+asserts facts about grants, contexts, the SPARQL surface, client identity shapes, deployment responsibilities, the
 build and trademark language — and it is published to agents outside this repository. A behaviour
 change is exactly what turns one of those assertions into a lie. Fix every rule the change made
 false.
@@ -140,7 +143,7 @@ them.
 - Repair every `AGENTS.md` and cross-link when a document moves or is deleted. Before removing a
   code comment such as `// see <doc> §N`, check whether it is the only pointer to a still-relevant
   non-obvious invariant. Preserve that explanation in its maintained owner and retarget the reference.
-- `./gradlew checkDocLinks`.
+- `./gradlew checkDocLinks` (includes source/snippet comparisons), plus the affected example tests.
 
 ## 10. Report
 

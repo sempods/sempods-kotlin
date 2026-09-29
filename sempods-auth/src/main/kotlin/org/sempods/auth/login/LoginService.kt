@@ -80,7 +80,7 @@ class LoginService(
    * Deliberately not an overwrite: a name already on the profile is the more considered value, and
    * a later login from a provider with a different spelling should not quietly replace it.
    *
-   * TODO: with profile management (see `docs/identity-service.md`, "Open Questions") this becomes
+   * TODO: with profile management (see `docs/identity-service.md`, "Profile management") this becomes
    *   the user's decision rather than a first-writer-wins rule.
    */
   private fun WebIdProfile.fillInMissingDisplayName(claims: OidcClaims): WebIdProfile {

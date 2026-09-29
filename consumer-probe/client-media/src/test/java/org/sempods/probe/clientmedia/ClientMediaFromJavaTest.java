@@ -110,7 +110,9 @@ class ClientMediaFromJavaTest {
 
   @Test
   void hasThePodFetchTheBytesItself() throws IOException {
+    // doc-example:start media-from-url
     var stored = media.uploadFromUrl("https://pods.example/alice/_system/contexts/tasks", "https://drive.example/a");
+    // doc-example:end media-from-url
 
     assertEquals("abc", stored.getBody().getMediaId());
   }

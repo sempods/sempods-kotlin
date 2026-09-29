@@ -28,7 +28,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * End-to-end coverage for the service-client `client_credentials` grant (see `docs/auth/service-clients.md`):
+ * End-to-end coverage for the service-client `client_credentials` grant (see `sempods-server/docs/auth/service-clients.md`):
  * the OAuth `client_credentials` grant on `{pod}/_system/auth/token`.
  */
 class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {

@@ -92,7 +92,7 @@ What the hosted service buys over a purely client-side (in-browser / in-app) too
   usable is that pod's policy: the service rotates on a conservative cadence
   and learns of an ending by being refused.
   At a sempods pod the person decides that length at consent
-  ([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and a connection
+  ([User connections](../../sempods-server/docs/auth/connections.md#offline_access)), and a connection
   consented as short-lived lapses after hours of disuse — this service does not
   hold it open, because holding it is the authority that answer declined.
 - **Cross-pod calls in one tool invocation**, with per-`(pod, context)`

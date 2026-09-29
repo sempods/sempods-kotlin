@@ -143,7 +143,7 @@ class PodClientRegistration @Inject internal constructor(
 
   /**
    * A service client: its identifier and its secret. What happens to each member the body carries
-   * is `docs/auth/oauth.md` §"Registering a service client"; [REFUSED_MEMBERS] are the ones refused,
+   * is `sempods-server/docs/auth/oauth.md` §"Registering a service client"; [REFUSED_MEMBERS] are the ones refused,
    * and anything else this pod does not read is neither stored nor echoed.
    *
    * The two ways in are the class's. A bearer that is not the owner's authority is refused rather

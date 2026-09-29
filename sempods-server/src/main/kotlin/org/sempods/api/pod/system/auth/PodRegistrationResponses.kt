@@ -28,7 +28,7 @@ import java.util.Date
  * client is; the SDK decides how that is spelled. `ClientInformationResponse` is also what puts
  * `Cache-Control: no-store` on the answer and what writes `client_secret_expires_at: 0` for a
  * secret with no expiry. A service's answer adds the sempods member [ACTIVATION_EXPIRES_AT] — see
- * `docs/auth/oauth.md` §"Registering a service client".
+ * `sempods-server/docs/auth/oauth.md` §"Registering a service client".
  *
  * Members are not written in the order §3.2.1 lists them: the SDK's JSON object is a hash map. A
  * caller reads members by name, which is what JSON promises.

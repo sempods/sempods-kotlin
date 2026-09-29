@@ -293,7 +293,7 @@ subprojects {
         if (offenders.isNotEmpty()) {
           throw GradleException(
             "A consumer of ${probe.probed} would resolve ${offenders.joinToString()}. What it may take with it: " +
-              "`docs/pod-client.md` §\"Consumable as an artifact\".",
+              "`sempods-client/docs/client.md` §\"Consumable as an artifact\".",
           )
         }
       }
@@ -1409,3 +1409,5 @@ val checkDocLinks = tasks.register("checkDocLinks") {
 }
 tasks.matching { it.name == "check" }.configureEach { dependsOn(checkDocLinks) }
 
+
+apply(from = "gradle/documentation-examples.gradle.kts")

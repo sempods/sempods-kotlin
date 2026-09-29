@@ -383,7 +383,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     // What that code buys is nothing — the exchange refuses it for want of a generation or of an
     // answer — and
     // answering `consent_required` here instead is not worth changing a live contract for a state
-    // the deployment step removes (`docs/auth/oauth.md` §"Refresh token rotation").
+    // the deployment step removes (`sempods-server/docs/auth/operations.md` §"Upgrading old delegations").
     val decisionRecorded = consentDecisionStore
       .find(pod.id, normalizedClientId, listOf(identity.webId))?.durable != null
     val mayAutoGrant = decisionRecorded || "none" in promptValues

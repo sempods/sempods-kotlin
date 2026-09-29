@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 
 /**
  * An owner's service clients over the API: registering one with the owner's authority, the reads,
- * the grant replace, rotation and revocation (`docs/auth/service-clients.md` §"Managing service
+ * the grant replace, rotation and revocation (`sempods-server/docs/auth/service-clients.md` §"Managing service
  * clients"). The consent that gives a service contexts in the browser is `ServiceConsentHttpTest`'s.
  *
  * Every step runs at the wire, because the management authority is told apart by the scopes its

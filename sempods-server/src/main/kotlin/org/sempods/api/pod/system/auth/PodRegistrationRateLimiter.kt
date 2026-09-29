@@ -31,7 +31,7 @@ import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
  * secret at bcrypt cost, and nothing authenticates the caller, so addresses alone do not bound it:
  * many addresses can register on one pod. A caller can spend a pod's budget and delay other
  * services' registrations for a minute; it cannot activate anything, and it cannot delay the
- * owner's, which this budget does not count — `docs/auth/oauth.md` §"Registration rate limit".
+ * owner's, which this budget does not count — `sempods-server/docs/auth/operations.md` §"Registration rate limit".
  *
  * **No proxy header, no address limit**, as at the token endpoint: a single shared bucket for
  * every request would be an outage rather than a limit.

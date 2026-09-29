@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 /**
  * Service access end to end: a registered service sends the owner to its consent, the owner decides
  * in the shared dialog, and the service learns the result from the token endpoint and
- * `GET /contexts` (`docs/auth/service-clients.md` §"Consent").
+ * `GET /contexts` (`sempods-server/docs/auth/service-clients.md` §"Consent").
  *
  * Every grant comes from the rendered dialog posted back. What the SDK's wait makes of these answers
  * is `ServiceConsentExampleHttpTest`'s.

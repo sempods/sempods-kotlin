@@ -42,8 +42,8 @@ import java.time.Duration
  * The same store holds the service consent's screens ([Binding.service]), under the same rules.
  *
  * A transaction without a [Binding] was written by an older node during a rollout. The submission
- * then reads the request from the form. The rule and how long it holds are in `docs/auth/oauth.md`
- * §"Authorize flow (overview)"; the next minor release removes it with the two unbound [issue]
+ * then reads the request from the form. The rule and how long it holds are in `sempods-server/docs/auth/operations.md`
+ * §"Consent and grant updates"; the next minor release removes it with the two unbound [issue]
  * overloads.
  */
 class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {

@@ -300,7 +300,7 @@ class PodTokenExchange @Inject internal constructor(
    *
    * **No family.** A refresh token would make the authority renewable, which is the one thing it
    * must not be; `offline_access` in the request preselected a control the privileged dialog does
-   * not render, and there was never an answer for it to carry. `docs/auth/oauth.md`
+   * not render, and there was never an answer for it to carry. `sempods-server/docs/auth/connections.md`
    * §"offline_access" lists this beside the two other exchanges that seed none.
    *
    * **The token is inert on its own.** It carries no context permission — `GrantStorePodAuthorizer`
@@ -458,7 +458,7 @@ class PodTokenExchange @Inject internal constructor(
       //  attempt to a person would mean keeping durable tombstones for tokens that no longer
       //  exist — a retention design that has to answer what is worth keeping about a credential
       //  that failed, not a log line. What the store can say is in
-      //  `docs/auth/oauth.md` §"Refresh token rotation".
+      //  `sempods-server/docs/auth/connections.md` §"Refresh token rotation".
       RefreshTokenStore.LookupState.NOT_FOUND -> {
         // "unknown or expired", because the two are the same row-absence here: an expired token
         // reports EXPIRED only until the TTL index reaps it, and NOT_FOUND ever after. Reading

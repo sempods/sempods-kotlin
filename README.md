@@ -10,20 +10,10 @@ A **pod** inverts that. It is a data space you host, addressed over HTTP, holdin
 linked data. Apps and agents come to your data instead of keeping copies of it, and you decide
 who may read or write what — and can change your mind without losing anything.
 
-This repository is the **reference implementation**. The specification is its own repository,
-[sempods-spec](https://github.com/sempods/sempods-spec) — a core every pod implements and optional modules on top, with
-hand-written OpenAPI descriptions of the HTTP surface.
-
-The split is not bookkeeping. A contract that lives inside one implementation is a contract nobody
-can tell apart from that implementation's habits; a second implementer reading `docs/` here would
-have had to guess which parts were obligations and which were Kotlin.
-
-The lower stack is intentionally familiar. This implementation uses existing HTTP, RDF, SPARQL,
-OAuth/OIDC and MCP machinery where it can; the sempods-specific work is the contract that makes
-those pieces behave as one pod: context-scoped data, server-side grant resolution, sandboxed query
-surfaces and the same authority model for apps, websites and agents.
-
----
+This repository provides Kotlin/JVM building blocks and the **reference implementation** of
+[sempods-spec](https://github.com/sempods/sempods-spec). It combines HTTP, RDF, SPARQL, OAuth/OIDC
+and MCP with context-based permissions. The specification defines the protocol; this repository
+provides the services and clients.
 
 ## What a pod is, in five points
 
@@ -35,11 +25,10 @@ surfaces and the same authority model for apps, websites and agents.
    permission boundary. Not the resource, not the property — the context. One concept carries
    the whole access-control model.
 
-3. **Permissions are grants on contexts**: `<context-iri>#read`, `#write`, `#manage`. Apps and
-   agents obtain them through OAuth 2.1 with PKCE; an app's identity is its origin, named
-   `did:web:<host>` — nothing is fetched, and in production the authorization code goes
-   nowhere but that origin. A grant is durable server-side policy — it never travels inside
-   a token.
+3. **Permissions are grants on contexts**: `<context-iri>#read`, `#write`, `#manage`.
+   A grant is durable server-side policy; it never travels inside a token. Apps acting for a
+   person use Authorization Code + PKCE; services acting as themselves use Client Credentials. The
+   [auth overview](docs/auth/README.md) explains both flows and their client identities.
 
 4. **SPARQL, with the sandbox enforced by the server.** A query sees exactly the contexts the
    caller may read, and writes reach exactly the contexts the caller may write. Client-supplied
@@ -54,63 +43,34 @@ more. Same identifier, different depth, no duplication.
 
 ## Status — read this before forming an opinion
 
-**`0.x`.** The surface moves. That is what the leading zero is for.
+**`0.x`: APIs can change.** Pod hosting, public Linked Open Data, apps using several pods,
+and both per-pod and hosted MCP are in use. A separate implementation also uses the specification.
+A conformance suite and one-command distribution are not available yet.
 
-**What runs in production today:** pod servers hosting real tenants; event organizers
-publishing their programme as Linked Open Data that anyone can dereference and query without
-authentication; applications reading from several pods at once; an MCP endpoint per pod plus a
-hosted MCP service that fronts many pods, including pods run by other people. A second
-implementation of this contract runs inside another organisation's stack, built to its own
-architecture — its own tenancy, its own authorisation, its own search engine — against this
-documentation rather than against this code. That is the first evidence that the contract is
-implementable somewhere else, which is the claim this project actually needs to support.
+The specification's [governance](https://github.com/sempods/sempods-spec/blob/main/GOVERNANCE.md#what-the-tag-changes-and-what-it-no-longer-does)
+owns protocol requirements, deviations and identifier stability. `gradle.properties` names the
+implemented specification version; `checkDocLinks` checks it against the vendored requirement index.
 
-**The specification owns the contract**, including before `0.1`. Its
-[governance](https://github.com/sempods/sempods-spec/blob/main/GOVERNANCE.md#what-the-tag-changes-and-what-it-no-longer-does)
-governs deviations, recorded specification defects and identifier stability. Code establishes what
-this implementation does; differences must be resolved under that governance. `gradle.properties`
-names the specification version this implements, and `./gradlew checkDocLinks` fails if that claim
-drifts from the vendored index in `gradle/spec/`.
+**Compatibility.** `0.x` allows API changes; it still requires care with deployed data and
+identifiers. The [naming contract](docs/naming.md) identifies stable deployed names,
+including Mongo database and collection names. The Kotlin package namespace remains `org.sempods.*`.
+Vocabulary terms follow the
+[specification's deprecation policy](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md).
+Changes to stored formats and token contracts need explicit compatibility handling and documentation.
+Maven coordinates freeze at the first release.
 
-**What does not exist yet:** a conformance suite — so nobody can prove an implementation conformant,
-including this one — and a one-command distribution.
+**Deployment and upgrades.** The supplied composition has no supported upgrade path; a concrete
+deployment owns its upgrades ([deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades)).
 
-**Stable despite `0.x`.** A leading zero is a licence to move the API, not the data. These do not
-move, because the first deployment that is not mine freezes them whatever the version number says
-— changing one later costs a migration in somebody else's database, not a recompile:
-
-- **Package names.** `org.sempods.*`, already moved once, and not again.
-- **Stored formats.** Mongo database and collection names, the shape of the refresh-token rows,
-  and the claim names in the tokens the services issue.
-- **Ontology IRIs.** Every term under `https://schema.sempods.org/` — see
-  [the vocabulary](https://github.com/sempods/sempods-spec/blob/main/vocabulary/README.md) in sempods-spec, which also states the deprecation
-  period they carry.
-
-The one surface deliberately *not* on that list is the Maven coordinates. Snapshots are published,
-but a snapshot is mutable and expires; the coordinates freeze at the first release.
-
-**And one thing that is not stable, with no mechanism behind it.** There is no schema migration
-system. `SempodsUpdater` runs a hardcoded list on every boot; an update can declare itself
-`blocking` and then finishes before the first request, which is the part that works. What is
-missing is around it: no history, no "already applied" check, and a failure — blocking or not — is
-logged while boot continues. The list holds one entry today.
-[`sempods-server/docs/collections.md`](sempods-server/docs/collections.md) §"Schema changes" says
-what that means for an upgrade.
-Take a backup first, and read the startup log.
-
-
-**Who wrote it:** one person, over years, with substantial AI assistance in the last of them.
-The security-relevant paths — the SPARQL sandbox, grant resolution, the OAuth flows — have had
-the most scrutiny, and independent review of them is the contribution I would value most. The
-project's subject is access control; it should be held to that standard rather than taken on
-trust.
+The project is maintained by one person with substantial AI assistance. Independent review of
+the SPARQL sandbox, grant resolution and OAuth flows is especially welcome.
 
 ## Quick start
 
-You need **Java 25** and **Docker with the Compose plugin** — the quick start's first command is
-`docker compose` (v2), not the standalone `docker-compose`. Either binary works if you adjust the
-line; `podman-compose` does too.
+You need **Java 25** and **Docker Compose**. The commands use the v2 `docker compose` spelling;
+standalone `docker-compose` or `podman-compose` can be substituted.
 
+<!-- doc-example: illustrative; local setup checked against deployment compose files, example env and Gradle run task -->
 ```bash
 # 1. the only infrastructure a pod server needs
 docker compose -f deployments/local/compose.yaml up -d
@@ -122,15 +82,12 @@ cp deployments/local/env/local.example.env deployments/local/env/local.env
 ./gradlew :deployments:sempods:image:run
 ```
 
-Create a pod and check it answers:
+Create a pod using the local host-admin API. Copying `local.example.env` enables the published
+development credential below. A deployment supplies its own `SEMPODS_ADMIN_CLIENTS`; without
+configured authority, admin routes return 503. The owner email is stored as a derived WebID.
 
+<!-- doc-example: illustrative; admin routes checked against AdminPodsEndpointHttpTest and local development credential configuration -->
 ```bash
-# the credential is the one step 2 armed. It is published with this source, so the server
-# only accepts it when SEMPODS_DEV_ADMIN_FALLBACK asks; a deployment sets SEMPODS_ADMIN_CLIENTS
-# instead, and without either every admin route answers 503.
-#
-# The owner is given as an email and stored as the WebID derived from it — sempods knows
-# persons only as WebID URIs. → 201 {"pod":"demo","result":"created"}
 curl -X PUT http://localhost:8090/_system/admin/pods/demo \
   -H "Authorization: Bearer sc_development-admin-secret" \
   -H "Content-Type: application/json" \
@@ -144,9 +101,10 @@ curl http://localhost:8090/_system/admin/pods/demo \
 curl http://localhost:8090/demo/.well-known/oauth-protected-resource
 ```
 
-From here, [`docs/auth/oauth.md`](docs/auth/oauth.md) walks through registering an app and
-obtaining a token, and the specification's [CRUD chapter](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md) covers reading
-and writing resources.
+Continue with the [auth overview](docs/auth/README.md) to choose a flow, or the
+[JVM client quick start](sempods-client/README.md). The specification's
+[CRUD chapter](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md)
+covers HTTP resource operations.
 
 Configuration is documented where it is used; the variables that matter for a first run are
 `SEMPODS_HTTP_PORT`, `SEMPODS_PUBLIC_BASE_URL` (the address the server is *known by* — pod IRIs
@@ -156,9 +114,13 @@ its routes unregistered. See [AI providers](docs/ai-layer.md#providers-ist) for 
 
 ## Using it as a library
 
+Start with the [client guide](sempods-client/README.md) for the 0.2 API, module selection and
+examples. [Migration from 0.1](docs/migration/0.2.md) covers the breaking changes.
+
 The libraries are on Maven Central as of `0.1.0`. One version covers the whole repository, so pin
 the platform and let the modules carry no version of their own:
 
+<!-- doc-example: illustrative; 0.1 release coordinates, BOM and dependency declarations checked against publishing configuration -->
 ```kotlin
 dependencies {
   implementation(platform("org.sempods:sempods-bom:0.1.0"))
@@ -172,41 +134,23 @@ dependencies {
 values and the media routes in artifacts of their own — [`docs/migration/0.2.md`](docs/migration/0.2.md)
 is what a `0.1.0` consumer reads before raising the platform.
 
-The modules are built, tested and released in lockstep, and a consumer holding
-`sempods-client` 0.2 against `sempods-model` 0.1 has a combination nothing ever ran — which is what the platform is
-for, and why hand-versioning them is the one thing to avoid. What it carries are ordinary
-constraints, so a *different* dependency asking for a newer sempods module can still pull that one
-ahead of the rest. `enforcedPlatform(...)` in place of `platform(...)` makes them strict and forces
-the platform's versions on the whole graph instead. That choice is left to you on purpose — made
-here, it would propagate to everyone.
+`platform(...)` supplies version constraints; `enforcedPlatform(...)` forces those versions even
+when another dependency requests a newer one.
 
 Published bytecode targets **Java 21**, and building this repository needs 25. A module that brings
-RDF4J needs **Java 25** to run, because RDF4J 6 is built for it: `sempods-client`,
-`sempods-client-media` and `sempods-media` run on 21; `sempods-client-rdf4j`,
-`sempods-model` and the modules built on them need 25.
+RDF4J needs **Java 25** to run, because RDF4J 6 is built for it. The
+[client guide](sempods-client/README.md#choose-modules) lists the runtime of each client module.
 
-The test fixtures — `testFixtures("org.sempods:sempods-server")` and the two `sempods-commons`
-ones — resolve from Gradle, which reads the capability that carries them. Maven has no notion of
-that capability, and the fixtures' own test libraries are deliberately kept out of the published
-POM so that an ordinary consumer does not inherit them. The jar itself is published under the
-`test-fixtures` classifier, so a Maven build can reach it — by naming that classifier and
-supplying those dependencies itself.
+Gradle consumers can use the published `testFixtures(...)` capabilities. Maven consumers need
+the `test-fixtures` classifier and must supply its test dependencies themselves; these dependencies
+are intentionally absent from the ordinary POM.
 
-Between releases `main` carries a `-SNAPSHOT` version, and merging to it republishes that version
-to `https://central.sonatype.com/repository/maven-snapshots/`, which a build has to add explicitly.
-Two things skip the publish: a version without `-SNAPSHOT`, so a `main` that is mid-release
-publishes nothing, and a commit that is no longer the tip once its run reaches the gate, so a burst
-of merges leaves only the newest — the snapshot follows `main`, not each commit on the way. A
-snapshot is mutable, unvalidated and removed by Central after 90 days; pin a release instead unless
-you specifically want to find out early that something changed.
+[Releasing](RELEASING.md) explains development snapshots and publication.
 
 ## The three services
 
-No service calls another in-process: they meet over HTTP and environment variables, and each
-starts, stops and scales without the others. What they *do* share is libraries — all three build on
-`sempods-auth-core`, the pod server and the hosted MCP on `sempods-mcp-core` — so a token, a scope
-and an MCP tool mean the same thing in each of them rather than nearly the same thing. Run one, two
-or all three.
+The services communicate over HTTP and can run independently. They share libraries for OAuth
+and MCP behavior.
 
 | Service | What it does | Needed when |
 |---|---|---|
@@ -214,20 +158,19 @@ or all three.
 | **identity** (`sempods-auth`) | WebID registry and OIDC bridge — gives *people* an identity a pod can grant to | you want person identities rather than only app credentials |
 | **hosted MCP** (`sempods-mcp`) | One MCP connection fronting many pods, including pods run by others | you want an AI client to reach several pods at once |
 
-Each ships as a container image — `ghcr.io/haed/sempods`, `…/sempods-auth`, `…/sempods-mcp` — under
-`latest`, which a deployment pulls and which moves, plus the short commit for a build from a clean
-checkout. That commit is always the OCI `revision` label, so a running container answers what it is
-without anything being pulled:
+Container images are `ghcr.io/haed/sempods`, `ghcr.io/haed/sempods-auth` and
+`ghcr.io/haed/sempods-mcp`. `latest` moves; clean builds also carry a short commit tag.
+Read the source revision of a running container with:
 
+<!-- doc-example: illustrative; OCI label checked against root Gradle image metadata configuration -->
 ```bash
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' <container>
 ```
 
-`<sha>-dirty` means uncommitted changes, `unknown` that the build could not identify its commit;
-neither gets a tag, since neither names one commit. The commit tag names the source and not the
-bytes — the base image floats, so rebuilding one commit republishes that tag with different content.
-Pin a digest where exact content is what matters. The images are pushed by hand — each service's
-`jib` task, no workflow — so that label is the only record of which commit reached the registry.
+`<sha>-dirty` and `unknown` identify uncommitted or unavailable source state and receive no commit
+tag. A commit tag identifies source, not exact bytes: base images can change on rebuild. Pin a digest
+for exact content. Images are pushed by hand with each service's `jib` task, so the label is the
+only record of which commit reached the registry.
 
 ## Repository layout
 
@@ -247,34 +190,31 @@ sempods-client/ sempods-client-rdf4j/ sempods-client-media/
 sempods-control-plane-client/
                     HTTP client for the host-level admin surface (pod hosting)
 deployments/        the server as a process, and the local stack
-docs/               how this implementation works, and why. The contract is sempods-spec
+docs/               shared concepts and a navigation index; local guides live with their modules
 ```
 
-The server is a **reference implementation, not one particular hosting**. Behaviours a
-deployment may need to replace — the RDF store, the `find` engine, resource expansion, the AI
-provider, admin authority — are interfaces with a deployment-selected binding rather than
-forks. Which ones exist, which do not yet, and what each costs is documented in
-[`docs/concepts/modularity.md`](docs/concepts/modularity.md).
+[Modularity](docs/concepts/modularity.md) explains which components a deployment can replace
+and where the current composition still fixes an implementation.
 
 ## Documentation
 
-| | |
-|---|---|
-| [**sempods-spec**](https://github.com/sempods/sempods-spec) | **the contract** — contexts, grants, auth, CRUD, SPARQL, find, and the three modules. Start there to implement a pod |
-| [**`docs/`**](docs/) | **everything about this implementation**, indexed as Vision, maintained IST documentation and occasional Proposal |
-| [`docs/vision.md`](docs/vision.md) | the model and why it is shaped this way |
-| [`docs/auth/`](docs/auth/) | what this implementation does around the OAuth contract: rate limits, timeouts, provisioning, the error page |
-| [`docs/mcp/`](docs/mcp/) | this implementation's MCP surfaces: the tool reference, the challenge store, and how real clients behave |
-| [`docs/concepts/graph-retrieval.md`](docs/concepts/graph-retrieval.md) | graph retrieval — `find`, then traverse |
-| [`docs/media.md`](docs/media.md) | the media storage seam: which backends exist, how a deployment picks one |
-| [`docs/concepts/modularity.md`](docs/concepts/modularity.md) | what a deployment may replace |
-| [`docs/concepts/`](docs/concepts/) | current architecture explanations |
-| [GitHub issues](https://github.com/sempods/sempods-kotlin/issues) | public goals, planned iterations, decisions and progress |
+Choose a starting point:
 
-Maintained documentation describes current code; issues own public plans, with occasional explicitly
-[proposed design documents](docs/proposals/README.md). The
-[documentation strategy](docs/agents/documentation-strategy.md) defines ownership and completion
-for human and AI contributors alike.
+| You want to… | Read |
+|---|---|
+| Build an app or backend against a pod | [JVM client guide](sempods-client/README.md) |
+| Understand login and permissions | [Auth overview](docs/auth/README.md) |
+| Connect a backend without a user at runtime | [Service access](sempods-server/docs/auth/service-clients.md) |
+| Let a user approve an app | [delegated access](sempods-server/docs/auth/user-access.md) |
+| Run or embed the identity service | [sempods-auth](sempods-auth/README.md) |
+| Reuse OAuth/OIDC components in a service | [sempods-auth-core](sempods-auth-core/README.md) |
+| Understand the architecture or find other topics | [Documentation index](docs/README.md) |
+| Implement the protocol in another stack | [sempods-spec](https://github.com/sempods/sempods-spec) |
+
+Module READMEs introduce their libraries or services. Their `docs/` directories hold local
+details; root `docs/` connects subjects spanning modules. Maintained documentation describes
+current code. [Issues](https://github.com/sempods/sempods-kotlin/issues) own public plans.
+The [documentation strategy](docs/agents/documentation-strategy.md) defines placement and example checks.
 
 ## Contributing
 
@@ -310,3 +250,5 @@ Vocabulary terms and their stability guarantees: [sempods-spec `vocabulary/`](ht
 ---
 
 Questions, ideas, or interest in building on this: **hello@sempods.org**
+
+<!-- doc-examples: checked -->

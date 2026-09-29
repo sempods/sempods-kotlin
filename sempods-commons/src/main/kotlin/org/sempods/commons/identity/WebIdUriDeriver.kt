@@ -45,8 +45,8 @@ class WebIdUriDeriver(private val idBaseUrl: String) {
    * sempods-auth** — always including [webId] itself.
    *
    * sempods-auth mints identity URIs in two namespaces, and in each one the dereferenceable WebID
-   * and its URN twin carry the *same* hash (`sempods-auth/docs/identity-service.md`, "Token
-   * format"):
+   * and its URN twin carry the *same* hash (`sempods-auth/docs/identity-service.md`, "Email →
+   * Grant Flow"):
    *
    * ```
    * {idBaseUrl}/e/<hash>     ↔  urn:sempods:e:<hash>       hash = sha256(normalize(email))
@@ -54,7 +54,7 @@ class WebIdUriDeriver(private val idBaseUrl: String) {
    * ```
    *
    * so either form is recoverable from the other by carrying the hash across. Both namespaces
-   * matter for revocation: a grant may be recorded under the URN (the Layer-0 form a pod can
+   * matter for revocation: a grant may be recorded under the URN (the form a pod can
    * compute without sempods-auth) while the revocation names the canonical WebID, or the other
    * way round.
    *

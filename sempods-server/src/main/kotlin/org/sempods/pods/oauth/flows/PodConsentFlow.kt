@@ -35,7 +35,7 @@ import org.sempods.pods.oauth.PodTokenIssuer
  * offered rows are read from the screen's transaction ([ConsentTransactionStore.Binding]). A form
  * naming another request is [PodConsentRefusal.FORM_MISMATCH]; a selection the dialog could not have
  * produced is refused by [ConsentSelection] with nothing written. What each submission is answered
- * is tabled in `docs/auth/oauth.md` §"Authorize flow (overview)".
+ * is tabled in `sempods-server/docs/auth/oauth.md` §"Authorize flow (overview)".
  */
 class PodConsentFlow @Inject internal constructor(
   private val codes: PodAuthorizationCodes,

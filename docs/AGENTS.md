@@ -31,36 +31,23 @@ request or a path against it.
   helpers implement, the two query asymmetries that follow from it, and the DAOs that bypass the
   helpers and therefore do not keep it
 - `sempods-server/docs/collections.md` — the pod server's collection layer: hand-written driver
-  DAOs, which database, and the boot-time updater
+  DAOs, which database, and startup maintenance
 - `docs/ai-layer.md` — AI provider abstraction
 - `docs/media.md` — pod-owned binaries: routes, authorization, the store seam and its
   three configuration states, the reference-counting lifecycle, and what is deliberately outside
 - `docs/ai/semweb/text2model.md`
 - `docs/ai/semweb/use-cases/tasks.md`
 
-## Auth and security docs
+## Client and auth documentation
 
-Pod-side authentication and authorization are **specified elsewhere** (above); what lives
-under `docs/auth/` is this implementation's side of it:
+- [Client family](../sempods-client/README.md) — quick start, API guide and adapter links.
+- [Auth overview](auth/README.md) — flow selection and module responsibilities.
+- [Pod OAuth](../sempods-server/docs/auth/README.md) — service and delegated access, identity trust and operation.
+- [Identity service](../sempods-auth/README.md) and [shared auth library](../sempods-auth-core/README.md).
+- [OAuth errors](auth/oauth-errors.md) — public recovery page linked by configured `error_uri` URLs;
+  preserve this published location when moving other auth documentation.
 
-**The authorization model itself is not here.** Contexts, grants, the OAuth profile and the client
-identity shapes are [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md),
-[`grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) and [`auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). What stays under
-`docs/auth/` is what this implementation does around that contract:
-
-- `docs/auth/README.md` — overview, mental model, doc map
-- `docs/auth/identity.md` — WebID identities, identity JWT, OIDC bridge concept
-- `docs/auth/oauth.md` — the numbers and limits the specification leaves open: the token endpoint's
-  rate budget, the OIDC leg timeouts, the sharp edges
-- `docs/auth/service-clients.md` — service access: registration, consent, the owner's management
-  API, provisioning over the admin surface, the audit trail and its retention
-- `docs/auth/oauth-errors.md` — the page every OAuth `error_uri` points at: one heading per error
-  code a redirect can carry
-
-Identity service (`sempods-auth/docs/`):
-
-- `sempods-auth/docs/README.md` — module overview
-- `sempods-auth/docs/identity-service.md` — id-server internals: URI namespaces, OIDC bridge, identity merge, federation
+The normative contracts remain in [sempods-spec](https://github.com/sempods/sempods-spec).
 
 ## The CRUD layer is not documented here
 

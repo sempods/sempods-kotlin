@@ -3,7 +3,7 @@
 This folder contains maintained explanations of current code. The folder name is an
 organizational choice, not a separate document type.
 
-- [Modularity](modularity.md) — deployment-selected seams and invariant boundaries.
+- [Modularity](modularity.md) — deployment-selected seams, upgrade responsibilities and invariant boundaries.
 - [Graph retrieval](graph-retrieval.md) — current find and structural traversal.
 - [Hosted MCP](hosted-mcp.md) — credential custody and the shared tool architecture.
 - [Service access](service-access.md) — how a service reaches a pod, and how long delegated access lasts.

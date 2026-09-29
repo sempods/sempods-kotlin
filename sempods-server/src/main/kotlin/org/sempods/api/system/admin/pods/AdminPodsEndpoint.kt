@@ -173,7 +173,7 @@ class AdminPodsEndpoint @Inject constructor(
    * Registers `clientId` as a service client on `pod`, sandboxed to its own app root
    * (`<pod>/_system/contexts/apps/{clientId}#manage`). What each call writes and answers, and the
    * idempotency through `expectedRegistrationId` and `expectedSecretId`, is
-   * `docs/auth/service-clients.md` §"Provisioning over the admin surface".
+   * `sempods-server/docs/host-provisioning.md` §"Provisioning over the admin surface".
    *
    * **Concurrency.** A `409` is not retried here, because only the caller knows whether it now
    * holds a usable credential; it re-reads and decides, as with the two identifiers.
@@ -307,7 +307,7 @@ class AdminPodsEndpoint @Inject constructor(
     private val logger = KotlinLogging.logger {}
 
     /**
-     * App-context convention (`docs/auth/service-clients.md`): an app's sandbox root is
+     * App-context convention (`sempods-server/docs/host-provisioning.md`): an app's sandbox root is
      * the `apps` type under the reserved context namespace, i.e.
      * `<pod>/_system/contexts/apps/<clientId>` once `SempodsUriBuilder.buildContext` prepends the
      * prefix. This is the only place a type root is created — the management route refuses to,

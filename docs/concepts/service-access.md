@@ -1,23 +1,18 @@
 # Service access and connection lifetime
 
-A service client reaches a pod by host-operator provisioning, by registering itself, or through
-the owner's own tool. A self-registered service holds nothing until the owner confirms its consent,
-which also activates it: [`../auth/oauth.md`](../auth/oauth.md#registering-a-service-client) has
-the registration and [`../auth/service-clients.md`](../auth/service-clients.md#consent) the consent.
+A service client reaches a pod by registering itself, through the owner's own tool, or by
+[host provisioning](#provisioning-by-the-operator). A self-registered service holds nothing until
+the owner confirms its consent, which also activates it:
+[OAuth reference](../../sempods-server/docs/auth/oauth.md#registering-a-service-client) has the
+registration and [Service access](../../sempods-server/docs/auth/service-clients.md#consent) the consent.
 Whichever way it arrived, the owner decides its grants afterwards:
-[`../auth/service-clients.md`](../auth/service-clients.md#managing-service-clients).
+[Service access](../../sempods-server/docs/auth/service-clients.md#managing-service-clients).
 
 ## Provisioning by the operator
 
-The host operator registers a service client out of band:
-`POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a private app root
-`<pod>/_system/contexts/apps/{clientId}`, registers `<root>#manage`, and returns a secret exactly
-once. It only creates: a later call leaves the grants and the root to the owner. The route needs
-host-admin authority.
-
-The service client itself is standard OAuth Client Credentials at the token endpoint. The
-registration side is sempods policy: context roots, grants, revocation and audit are not defined by
-OAuth.
+[Host provisioning](../../sempods-server/docs/host-provisioning.md) creates the service's initial
+private app root and grant. Afterwards the owner controls the grants; repeating provisioning
+preserves their decisions.
 
 ## The durable connection is the person's
 
@@ -25,7 +20,7 @@ Consent carries a control for how long the app stays connected, beside the conte
 names a lifetime class rather than a scope — two classes, one measured in days and one in months.
 Both are issued a refresh token; what the answer picks is the family's terms.
 `offline_access` in the request preselects that control and settles nothing else;
-[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns the rule and the numbers.
+[User connections](../../sempods-server/docs/auth/connections.md#offline_access) owns the rule and the numbers.
 
 The request cannot be the decision. OAuth defines refresh tokens but no way to ask for one, and
 `offline_access` is an OpenID Connect scope borrowed for an OAuth surface — a resource server may
@@ -58,8 +53,9 @@ refresh-token-free.
 
 ## Related
 
-- [`../auth/oauth.md`](../auth/oauth.md) — Authorization Code + PKCE, DCR, refresh tokens.
-- [`../auth/service-clients.md`](../auth/service-clients.md) — current service-client registration,
+- [OAuth reference](../../sempods-server/docs/auth/oauth.md) — Authorization Code + PKCE and DCR.
+- [User connections](../../sempods-server/docs/auth/connections.md#offline_access) — refresh tokens and connection lifetimes.
+- [Service access](../../sempods-server/docs/auth/service-clients.md) — current service-client registration,
   token exchange and audit.
 - [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) — scope versus grant and context
   permissions.
