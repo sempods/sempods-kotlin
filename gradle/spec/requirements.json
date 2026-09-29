@@ -62,7 +62,7 @@
       "id": "SPS-AUTH-008",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "An implementation MUST offer RFC 7591 dynamic client registration at `POST {pod}/_system/auth/register`, and MUST issue identifiers prefixed `dyn:`.",
+      "summary": "An implementation MUST offer RFC 7591 dynamic client registration at `POST {pod}/_system/auth/register`.",
       "withdrawn": false
     },
     {
@@ -87,17 +87,10 @@
       "withdrawn": false
     },
     {
-      "id": "SPS-AUTH-012",
-      "part": "core",
-      "chapter": "spec/core/auth.md",
-      "summary": "A service client MUST be registered out of band, through host-level operator authority.",
-      "withdrawn": false
-    },
-    {
       "id": "SPS-AUTH-013",
       "part": "core",
       "chapter": "spec/core/auth.md",
-      "summary": "A service client's grants MUST be fixed at registration and MUST consist only of per-context grants.",
+      "summary": "A service client's grants MUST consist only of per-context grants.",
       "withdrawn": false
     },
     {
@@ -1169,13 +1162,6 @@
       "part": "core",
       "chapter": "spec/core/contexts.md",
       "summary": "This route is the authoritative client-visible view of effective context permissions.",
-      "withdrawn": false
-    },
-    {
-      "id": "SPS-CTX-023",
-      "part": "core",
-      "chapter": "spec/core/contexts.md",
-      "summary": "A client MUST NOT construct a context IRI.",
       "withdrawn": false
     },
     {

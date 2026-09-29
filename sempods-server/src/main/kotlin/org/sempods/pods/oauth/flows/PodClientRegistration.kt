@@ -38,12 +38,6 @@ import java.time.Instant
  * Which profile a body asks for is read from the body as it arrived. The SDK fills in what RFC 7591
  * says a field defaults to, and a default must not be able to turn a request nobody made into a
  * profile this pod serves.
- *
- * The [`dyn:` prefix](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-008),
- * the [grant types a registration response may advertise](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-011)
- * and [out-of-band service clients](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012)
- * are bound by the specification, so the second profile is an experimental extension with known
- * deviations — sempods-spec#122 carries them.
  */
 class PodClientRegistration @Inject internal constructor(
   private val dynamicClientStore: DynamicClientStore,
