@@ -23,7 +23,7 @@ import org.sempods.spec.PodRef
  * but a user may deselect it, and then the bearer sees its explicit grants and nothing else. See
  * `SPS-GRANT-020` (sempods-spec).
  *
- * A token carrying one of [PodScopeValidator.inertScopes] reaches no data at all. That
+ * A token carrying one of [PodScopeValidator.privilegedFeatureScopes] reaches no data at all. That
  * has to be said here rather than left to the scope set, because context permissions never travel
  * in a token: a slim `service-clients:manage` bearer would otherwise resolve whatever the same client was
  * granted in some earlier, ordinary authorization of the same person. A management authority
@@ -40,13 +40,11 @@ class GrantStorePodAuthorizer @Inject constructor(
     val podId = podFacade.getPodId(pod.name)
 
     val validScopes = sanitizeTokenScopes(token.scopeValues, pod, podBaseUrl)
-    // A retired scope no longer validates, and is kept anyway: dropping it would turn the token it
-    // came with into an ordinary app token. See [PodScopeValidator.inertScopes].
     val tokenFeatureScopes = validScopes
       .filterNot { podScopeValidator.validate(it, podBaseUrl) is ScopeValidationResult.Context }
-      .toSet() + token.scopeValues.intersect(PodScopeValidator.retiredScopes)
+      .toSet()
 
-    val privileged = tokenFeatureScopes.intersect(PodScopeValidator.inertScopes)
+    val privileged = tokenFeatureScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     val resolved = when {
       podId == null -> ResolvedContextAccess(emptySet(), emptySet(), emptySet())
       // Before the resolver, so the grant store is not asked. See the note on this class.

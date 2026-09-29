@@ -111,7 +111,7 @@ Vision and architecture:
 
 - Vision: `docs/vision.md`
 - Architecture: [docs/concepts/](docs/concepts/README.md) — deployment seams, graph retrieval,
-  hosted MCP and current service-client provisioning
+  hosted MCP and service access
 - Proposals: [docs/proposals/](docs/proposals/README.md) — unimplemented designs with owning issues;
   module-local proposals are linked from their module instructions
 

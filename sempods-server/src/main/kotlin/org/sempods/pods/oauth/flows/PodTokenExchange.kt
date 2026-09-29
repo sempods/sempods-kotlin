@@ -142,17 +142,6 @@ class PodTokenExchange @Inject internal constructor(
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "authorization code superseded by a later consent")
     }
 
-    // A code an older release minted for a retired scope. Narrowed like any other scope, it would
-    // leave an ordinary token behind that resolves what this app holds for this person; the
-    // authority it was minted for no longer exists. See [PodScopeValidator.inertScopes].
-    entry.scopes.intersect(PodScopeValidator.retiredScopes).firstOrNull()?.let { retired ->
-      logger.info {
-        "[oauth/token] authorization code for a retired scope refused: pod='$podName', " +
-            "clientId='${entry.clientId}', scope='$retired'"
-      }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "'$retired' is no longer granted by this pod")
-    }
-
     // Hard guarantee the access token is slim: keep only feature scopes, whatever the
     // authorization-code entry happens to carry. Context permissions are resolved per request
     // from the grant store, never echoed into the token. This also bounds the refresh row.

@@ -217,19 +217,6 @@ class GrantStorePodAuthorizerTest {
   }
 
   @Test
-  fun `a token minted with the retired installer scope stays inert after the release`() {
-    // An installer token issued just before the upgrade lives out its hour. Its scope no longer
-    // validates; dropped, it would leave an ordinary app token behind.
-    every { resolver.resolve(podId, any(), podBaseUrl) } returns grants(ctx("tasks"))
-
-    val credentials = authorizer.authorize(pod, userToken("service-clients:install"))
-
-    assertEquals(emptySet(), credentials.restrictedContexts)
-    verify(exactly = 0) { resolver.resolve(any(), any(), any()) }
-    assertTrue(credentials.carriesPrivilegedFeature, "and no gate that asks only for an app lets it through")
-  }
-
-  @Test
   fun `the scope itself still travels, so a route can ask what the bearer is for`() {
     every { resolver.resolve(podId, any(), podBaseUrl) } returns noGrants
 

@@ -612,7 +612,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `an app the owner delegated a manage root reaches that root and nothing beside it`() {
-    // A delegated installer, both sides of the line: approved `apps/notely#manage` by the owner, it
+    // A delegated app, both sides of the line: approved `apps/notely#manage` by the owner, it
     // manages below that root and nowhere else, although its token names the owner.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
@@ -885,8 +885,8 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a delegated installer's catalogue and reads end at its manage root, though its token names the owner`() {
-    // Both sides of the line an owner installation (#35) rests on: approved `apps/notely#manage`,
+  fun `a delegated app's catalogue and reads end at its manage root, though its token names the owner`() {
+    // Both sides of the line a delegated manage root rests on: approved `apps/notely#manage`,
     // the app sees and reads that root and its descendants with every right, and nothing beside
     // them. The owner's own authority, beside it, manages everything and reads nothing.
     val ownerUser = sempodsTestFactory.newOwner()
@@ -899,16 +899,16 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val drafts = contextUri(pod.name, "apps/notely/drafts")
     val draft = sempodsTestFactory.seedEvent(pod = pod.name, context = URI(drafts), name = "draft-${TestUtil.randomId()}")
     val contact = sempodsTestFactory.seedEvent(pod = pod.name, context = URI(contextUri(pod.name, "contacts")), name = "contact-${TestUtil.randomId()}")
-    val installer = mintScopedToken(pod.name, listOf("$root#manage"), webId = ownerWebId)
+    val app = mintScopedToken(pod.name, listOf("$root#manage"), webId = ownerWebId)
 
-    val json = listedByJson(pod.name, installer)
+    val json = listedByJson(pod.name, app)
     assertEquals(setOf(root, drafts), json.contexts.map { it.contextIri }.toSet())
     json.contexts.forEach { entry ->
       assertEquals(listOf("manage", "read", "write"), entry.permissions.sorted(), entry.contextIri)
       assertEquals("manage", entry.source, entry.contextIri)
     }
-    assertEquals(200, lodGet(draft, installer).statusCode, "inside the root")
-    assertEquals(404, lodGet(contact, installer).statusCode, "beside the root")
+    assertEquals(200, lodGet(draft, app).statusCode, "inside the root")
+    assertEquals(404, lodGet(contact, app).statusCode, "beside the root")
 
     val owner = mintContextsManagerToken(pod.name, ownerWebId)
     assertEquals(registeredContexts(pod), listedByJson(pod.name, owner).contexts.map { it.contextIri }.toSet())

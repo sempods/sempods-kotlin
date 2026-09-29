@@ -13,8 +13,8 @@ import kotlin.test.assertTrue
 
 /**
  * That the address budgets at `/register` are reached on a real connector, and what a caller who
- * has spent one is told. The arithmetic is `PodRegistrationRateLimiterTest`'s; the installer
- * budget is covered beside the installation cases in `PodAuthEndpointHttpTest`.
+ * has spent one is told. The arithmetic is `PodRegistrationRateLimiterTest`'s; the per-pod
+ * service budget is covered beside the service registration cases in `PodAuthEndpointHttpTest`.
  *
  * Every case brings its own address, as in `PodAuthEndpointRateLimitHttpTest` and for the same
  * reason: the limiter is a JVM-wide singleton and these classes run concurrently.

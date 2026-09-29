@@ -47,9 +47,11 @@ are possible as long as they follow the standard.
       Body: JSON-LD describing the resource
 
 2) OAuth-based authorization:
-    - Apps are installed per pod (pod-local installation).
-    - Apps obtain tokens and are granted simple URI-based scopes.
-    - Scope format: `<context-uri>#read`, `<context-uri>#write`, `<context-uri>#manage`.
+    - Two kinds of access, named by who acts: *delegated access*, an app acting for a person, and
+      *service access*, a client acting as itself.
+    - Both obtain OAuth tokens. What they reach is decided by grants on contexts, resolved
+      server-side on every request.
+    - Grant format: `<context-uri>#read`, `<context-uri>#write`, `<context-uri>#manage`.
     - `manage` uses a concrete pod context URI as root and allows creating/managing sub-contexts below that URI only.
 
 3) Context-based access control (named graphs):
@@ -60,11 +62,11 @@ are possible as long as they follow the standard.
 
 4) SPARQL endpoint:
     - The endpoint supports general SPARQL queries.
-    - The server enforces a sandbox: queries can only access contexts readable by the token.
-    - Updates can only modify contexts writeable by the token, with a default write context if none is specified.
+    - The server enforces a sandbox: queries can only access contexts readable by the caller.
+    - Updates can only modify contexts writeable by the caller, with a default write context if none is specified.
 
 5) Protected system area:
-    - `/_system/*` is reserved for control-plane state (installations, grants, metadata).
+    - `/_system/*` is reserved for control-plane state (registrations, grants, metadata).
     - External RDF CRUD must not directly modify this area.
     - Changes to system state happen through explicit control-plane APIs.
     - Contexts are control-plane state and therefore live inside this area, under
@@ -72,7 +74,7 @@ are possible as long as they follow the standard.
     - A context delegated to someone carries a type: `/_system/contexts/{type}/{identifier}/...`,
       where `{type}` is a closed set (`apps`, `users`) and `{identifier}` names the app or
       person. The type roots are created by the control plane, not by the delegate; an app
-      manages contexts *below* its root, which is what its `<root>#manage` scope covers.
+      manages contexts *below* its root, which is what its `<root>#manage` grant covers.
     - A context the owner keeps carries no type and is named freely:
       `/_system/contexts/contacts`, `/_system/contexts/projects/alpha`. Nothing is delegated
       there, so there is nothing to name.

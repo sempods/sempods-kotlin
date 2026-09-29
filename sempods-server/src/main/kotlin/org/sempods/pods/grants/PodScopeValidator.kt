@@ -52,10 +52,10 @@ const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
  * them, because none of them looks at one — so what such a token may do is the scope it carries,
  * and the question has one owner here.
  *
- * See [PodScopeValidator.inertScopes], which counts a retired authority as one too.
+ * See [PodScopeValidator.privilegedFeatureScopes].
  */
 val SempodsCredentials.carriesPrivilegedFeature: Boolean
-  get() = oauthScopes.any { it in PodScopeValidator.inertScopes }
+  get() = oauthScopes.any { it in PodScopeValidator.privilegedFeatureScopes }
 
 class PodScopeValidator {
 
@@ -139,25 +139,6 @@ class PodScopeValidator {
      */
     val privilegedFeatureScopes: Set<String> =
       setOf(SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
-
-    /**
-     * Scopes this pod once granted and no longer does. Unlike an unknown scope, which `/authorize`
-     * drops, one of these is refused `invalid_scope`: a client still asking for it is following a
-     * flow that is gone, and a working token without it would hide that.
-     *
-     * `service-clients:install` authorized one service registration; a service now registers
-     * itself and waits for the owner's consent (`docs/auth/oauth.md` §"Registering a service
-     * client").
-     */
-    val retiredScopes: Set<String> = setOf("service-clients:install")
-
-    /**
-     * The scopes a bearer reaches no data with: [privilegedFeatureScopes] and [retiredScopes]. A
-     * token minted with a retired one lives out its hour after the release that retires it, and
-     * it stays as inert as it was minted — it must not become an ordinary app token that resolves
-     * whatever the same app holds for the same person.
-     */
-    val inertScopes: Set<String> = privilegedFeatureScopes + retiredScopes
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not

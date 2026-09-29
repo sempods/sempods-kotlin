@@ -169,14 +169,6 @@ class PodAuthorizeFlow @Inject internal constructor(
     // accumulates.
     val requestedScopes = OAuthSyntax.parseScope(request.scope)
 
-    // ── A retired scope is refused by name ────────────────────────────────
-    requestedScopes.intersect(PodScopeValidator.retiredScopes).firstOrNull()?.let { retired ->
-      return failed(
-        redirectTarget, OAuthErrorCode.INVALID_SCOPE,
-        "'$retired' is no longer granted by this pod", clientState,
-      )
-    }
-
     // ── A privileged feature scope stands alone ───────────────────────────
     // An authorization that administers service clients or contexts never holds data rights of its
     // own: a request for both is a request for an administrator that could write to the owner's

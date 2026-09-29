@@ -37,17 +37,17 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     answer(
       "/alice/_system/auth/register",
       201,
-      """{"client_id":"dyn:abc","client_name":"Installer","redirect_uris":["http://127.0.0.1/cb"],"token_endpoint_auth_method":"none"}""",
+      """{"client_id":"dyn:abc","client_name":"Notely","redirect_uris":["http://127.0.0.1/cb"],"token_endpoint_auth_method":"none"}""",
     )
 
-    val registered = authorization.registerClient("Installer", listOf("http://127.0.0.1/cb"))
+    val registered = authorization.registerClient("Notely", listOf("http://127.0.0.1/cb"))
 
-    assertEquals(SempodsPublicClient.of("dyn:abc", "Installer", listOf("http://127.0.0.1/cb")), registered.body)
+    assertEquals(SempodsPublicClient.of("dyn:abc", "Notely", listOf("http://127.0.0.1/cb")), registered.body)
     val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals("POST", sent.method.value)
     assertEquals("application/json", sent.getFirstHeader("Content-Type").substringBefore(';'))
     assertEquals(
-      json.readTree("""{"client_name":"Installer","redirect_uris":["http://127.0.0.1/cb"],"grant_types":["authorization_code"],""" +
+      json.readTree("""{"client_name":"Notely","redirect_uris":["http://127.0.0.1/cb"],"grant_types":["authorization_code"],""" +
         """"response_types":["code"],"token_endpoint_auth_method":"none"}"""),
       json.readTree(String(sent.body.rawBytes, Charsets.UTF_8)),
     )
@@ -59,7 +59,7 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
     val error = """{"error":"invalid_redirect_uri","error_description":"redirect_uri must be https"}"""
     answer("/alice/_system/auth/register", 400, error)
 
-    val failure = assertThrows<SempodsStatusException> { authorization.registerClient("Installer", listOf("http://example.org/cb")) }
+    val failure = assertThrows<SempodsStatusException> { authorization.registerClient("Notely", listOf("http://example.org/cb")) }
 
     assertEquals(400, failure.status)
     assertEquals(error, failure.bodyExcerpt)
@@ -119,8 +119,8 @@ class SempodsPodAuthorizationContractTest : MockPodTest() {
 
   @Test
   fun `a redirect that is not a URI, or already carries a member of the answer, is refused before anything is sent`() {
-    assertThrows<IllegalArgumentException> { authorization.registerClient("Installer", listOf("http://127.0.0.1/cb path")) }
-    assertThrows<IllegalArgumentException> { authorization.registerClient("Installer", listOf("http://127.0.0.1/cb?iss=local")) }
+    assertThrows<IllegalArgumentException> { authorization.registerClient("Notely", listOf("http://127.0.0.1/cb path")) }
+    assertThrows<IllegalArgumentException> { authorization.registerClient("Notely", listOf("http://127.0.0.1/cb?iss=local")) }
     assertThrows<IllegalArgumentException> {
       authorization.authorizationUrl("dyn:abc", "http://127.0.0.1/cb path", "service-clients:manage", "s1", SempodsPkce.generate())
     }
