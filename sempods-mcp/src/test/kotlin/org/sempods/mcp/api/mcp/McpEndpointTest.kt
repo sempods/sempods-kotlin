@@ -136,6 +136,7 @@ class McpEndpointTest {
     val body = mapper.readTree(resp.bodyAsText())
     assertEquals("2025-06-18", body["result"]["protocolVersion"].asString())
     assertEquals("sempods-mcp", body["result"]["serverInfo"]["name"].asString())
+    assertEquals(System.getProperty("sempods.version"), body["result"]["serverInfo"]["version"].asString())
   }
 
   @Test

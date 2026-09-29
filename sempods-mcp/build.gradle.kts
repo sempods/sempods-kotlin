@@ -93,6 +93,23 @@ application {
   mainClass = "org.sempods.mcp.SempodsMcpMainKt"
 }
 
+// The version this service reports — `serverInfo.version` and the DCR `software_version` it sends
+// a pod. Written at build time from `version`, because a literal in the source fell behind it once
+// already and a release would have introduced itself as a milestone. Read by `SempodsMcpVersion`.
+val versionResource = tasks.register("versionResource") {
+  val version = project.version.toString()
+  val output = layout.buildDirectory.dir("generated/version")
+  inputs.property("version", version)
+  outputs.dir(output)
+  doLast {
+    output.get().file("org/sempods/mcp/version").asFile.apply {
+      parentFile.mkdirs()
+      writeText(version)
+    }
+  }
+}
+sourceSets.main { resources.srcDir(versionResource) }
+
 jib {
   from {
     image = "ghcr.io/haed/java-base:latest"
@@ -131,3 +148,6 @@ jib {
 // and re-registering expectations per method would remove this coupling.
 // TODO: isolate the test server lifecycle before enabling concurrent classes here.
 tasks.test { systemProperty("junit.jupiter.execution.parallel.enabled", "false") }
+
+// What the `serverInfo` test compares against — the build's own value, not the resource it reads.
+tasks.test { systemProperty("sempods.version", project.version.toString()) }

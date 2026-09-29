@@ -47,12 +47,11 @@ client ID. A hosted service registering many users' connections shares an addres
 The service budget bounds secret creation on one pod. Invalid bodies do not spend it. Registration
 with the owner's management bearer skips this budget and uses the protected address budget.
 
-Configure `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and `_BURST`.
-`INSTALLER` names are read when the matching `SERVICE` setting is unset. A zero rate disables that
-budget; a zero burst follows its rate. Negative values fail startup. Refusals return `429`,
-`Retry-After: 60`, `Cache-Control: no-store` and `slow_down`. Budgets are per process.
-Provisional services expire at their activation deadline. Unused public registrations are
-never removed ([#251](https://github.com/sempods/sempods-kotlin/issues/251)).
+Configure `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and `_BURST`. A zero
+rate disables that budget; a zero burst follows its rate. Negative values fail startup. Refusals
+return `429`, `Retry-After: 60`, `Cache-Control: no-store` and `slow_down`. Budgets are per process.
+Provisional services expire at their activation deadline. Unused public registrations are never
+removed ([#251](https://github.com/sempods/sempods-kotlin/issues/251)).
 
 ## Protected Resource Metadata (RFC 9728)
 

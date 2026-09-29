@@ -124,6 +124,11 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(responseBody.contains("sempods-mcp-server"), "TestHttpResponse should contain server name")
     assertTrue(responseBody.contains("protocolVersion"), "TestHttpResponse should contain protocol version")
     assertTrue(responseBody.contains("capabilities"), "TestHttpResponse should contain capabilities")
+    assertEquals(
+      System.getProperty("sempods.version"),
+      objectMapper.readTree(responseBody)["result"]["serverInfo"]["version"].asString(),
+      "serverInfo.version is the build's version",
+    )
   }
 
   @Test

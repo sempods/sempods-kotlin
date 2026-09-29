@@ -2,6 +2,7 @@ package org.sempods.mcp.api.web
 
 import org.sempods.mcp.oauth.IdentityProvider
 import org.sempods.mcp.SempodsMcpConfig
+import org.sempods.mcp.SempodsMcpVersion
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.LoginCsrfPin
@@ -161,7 +162,7 @@ fun Application.webUiEndpoint(
         podOAuthClient.registerClient(
           metadata,
           redirectUri,
-          softwareVersion = SERVICE_VERSION,
+          softwareVersion = SempodsMcpVersion.current,
           clientName = PodClientIdentity.clientName(identity),
         )
       }
@@ -728,8 +729,6 @@ private fun enc(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8
 /** Append a pre-encoded `key=value` to a URL, choosing `?` or `&` by whether it already has a query. */
 private fun withParam(url: String, param: String): String =
   url + (if (url.contains('?')) '&' else '?') + param
-
-private const val SERVICE_VERSION = "0.2.0-M2"
 
 /**
  * The scope this service asks a pod for — on connect and on re-authorize, from every pod whose

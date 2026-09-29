@@ -655,15 +655,6 @@ class SempodsModule : BaseModule() {
     internal const val REGISTER_RATE_LIMIT_SERVICE_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_SERVICE_BURST"
 
     /**
-     * The service budget's names while it was the installer's. Still read where the new name is
-     * unset: every `SEMPODS_*` name is frozen (`docs/naming.md` §3), and an operator who set these
-     * keeps the values they chose.
-     */
-    internal const val REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE =
-      "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE"
-    internal const val REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE = "SEMPODS_REGISTER_RATE_LIMIT_INSTALLER_BURST"
-
-    /**
      * How long a connection lives — see [SempodsConfig.sessionConnectionIdleHours].
      *
      * `CONNECTION` in the name because the pod has a second session, the sign-in cookie
@@ -774,14 +765,9 @@ class SempodsModule : BaseModule() {
     internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
     internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
 
-    /**
-     * A registration budget from [variable], else from [formerly]: off in development, [default] in
-     * a deployment.
-     */
-    internal fun registerBudget(variable: String, default: Int, formerly: String? = null): Int {
-      val fallback = if (Env.isDevelopment) 0 else default
-      return Env.int(variable, default = formerly?.let { Env.int(it, fallback) } ?: fallback)
-    }
+    /** A registration budget from [variable]: off in development, [default] in a deployment. */
+    internal fun registerBudget(variable: String, default: Int): Int =
+      Env.int(variable, default = if (Env.isDevelopment) 0 else default)
 
     /**
      * The pod server's configuration, read once from the environment.
@@ -870,11 +856,9 @@ class SempodsModule : BaseModule() {
         ),
         registerRateLimitServicePerMinute = registerBudget(
           REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_SERVICE_PER_MINUTE,
-          formerly = REGISTER_RATE_LIMIT_INSTALLER_PER_MINUTE_ENV_VARIABLE,
         ),
         registerRateLimitServiceBurst = registerBudget(
           REGISTER_RATE_LIMIT_SERVICE_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_SERVICE_BURST,
-          formerly = REGISTER_RATE_LIMIT_INSTALLER_BURST_ENV_VARIABLE,
         ),
         sessionConnectionIdleHours = Env.int(
           SESSION_CONNECTION_IDLE_HOURS_ENV_VARIABLE,

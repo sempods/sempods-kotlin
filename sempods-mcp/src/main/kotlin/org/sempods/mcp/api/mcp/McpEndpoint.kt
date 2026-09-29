@@ -19,6 +19,7 @@ import org.sempods.mcp.core.ResourcesListResult
 import org.sempods.mcp.core.ToolsCapability
 import org.sempods.mcp.core.isNotification
 import org.sempods.mcp.SempodsMcpConfig
+import org.sempods.mcp.SempodsMcpVersion
 import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
@@ -139,7 +140,7 @@ fun Application.mcpEndpoint(
           call.respondRpc(objectMapper, id, InitializeResult(
             protocolVersion = negotiated,
             capabilities = Capabilities(ToolsCapability()),
-            serverInfo = Implementation(name = "sempods-mcp", version = "0.2.0-M2"),
+            serverInfo = Implementation(name = "sempods-mcp", version = SempodsMcpVersion.current),
             instructions = "Hosted MCP service fronting your sempods pods. You are signed in (this endpoint has no anonymous mode). Call `list_pods` / `list_contexts` to see your connected pods; if none are connected yet, connect one at $base/_system/ui. Read tools fan out across pods (optional `targets`); write tools target exactly one `target` pod + one `context_iri`.",
           ))
         }

@@ -34,6 +34,7 @@ import org.sempods.mcp.core.podAt
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.LogSafeText
+import org.sempods.SempodsServerVersion
 import org.sempods.api.InvalidBearerException
 import org.sempods.api.OAuthUpgradeRequiredException
 import org.sempods.api.SempodsBaseEndpoint
@@ -642,7 +643,7 @@ class McpEndpoint @Inject constructor(
       capabilities = Capabilities(
         tools = ToolsCapability(listChanged = true),
       ),
-      serverInfo = Implementation(name = "sempods-mcp-server", version = "1.0.0"),
+      serverInfo = Implementation(name = "sempods-mcp-server", version = SempodsServerVersion.current),
       instructions = buildInstructions(pod = pod, credentials = credentials)
     )
   }
