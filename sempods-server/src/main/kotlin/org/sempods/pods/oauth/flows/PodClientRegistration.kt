@@ -26,11 +26,14 @@ import java.time.Instant
  * `token_endpoint_auth_method` is always `none`: these clients hold no secret, and PKCE is what
  * binds a code to the caller that asked for it.
  *
- * **A service, registering itself.** A confidential client that authenticates with a secret and
- * uses Client Credentials. Nobody authorizes the call: the registration is provisional, holds no
- * data rights, and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
- * activates it by granting it contexts. The deadline and the per-pod budget bound what an open
- * endpoint costs; neither confirms who registered. The server names the client `svc:…`.
+ * **A service.** A confidential client that authenticates with a secret and uses Client Credentials.
+ * The server names it `svc:…`, and it holds no data rights until the owner grants them.
+ * - **Registering itself**, without a bearer: nobody authorizes the call. The registration is
+ *   provisional and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
+ *   activates it by granting it contexts. The deadline and the per-pod budget bound what an open
+ *   endpoint costs; neither confirms who registered.
+ * - **Registered by the owner's tool**, with a standing `service-clients:manage` authority as the
+ *   initial access token: active at once, with no deadline, and not counted in the per-pod budget.
  *
  * Which profile a body asks for is read from the body as it arrived. The SDK fills in what RFC 7591
  * says a field defaults to, and a default must not be able to turn a request nobody made into a
