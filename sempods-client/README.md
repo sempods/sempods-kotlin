@@ -76,8 +76,9 @@ and a local HTTP fixture.
 | `sparql()` | Run SELECT, ASK, CONSTRUCT or DESCRIBE |
 | `metadata()` | Check existence or last modification |
 
-Every write names its context with `SempodsWriteOptions.inContext(contextIri)`. Use the `ETag`
-from a read as `withIfMatch(...)` to avoid overwriting a concurrent change. The
+Every write names its context with `SempodsWriteOptions.inContext(contextIri)`. Pass the `ETag`
+of a read that selected only that context as `withIfMatch(...)` to avoid overwriting a concurrent
+change. The
 [RDF4J example](../sempods-client-rdf4j/README.md) shows a read and conditional write.
 
 ## Handle results

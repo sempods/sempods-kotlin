@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
@@ -78,17 +79,20 @@ class ClientRdf4jFromJavaTest {
 
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
-    // One resource in two contexts, at tag "v1"; a write is taken only under that tag.
+    // One resource in two contexts. Like the pod, the tag names the contexts a read selected, and a
+    // write into TASKS is taken only under the tag of a read that selected TASKS alone.
     server.createContext("/alice/events/1", exchange -> {
       String event = base("alice") + "/events/1";
       if (exchange.getRequestMethod().equals("GET")) {
-        exchange.getResponseHeaders().add("ETag", "\"v1\"");
-        send(exchange, 200, "<" + event + "> <https://schema.org/name> \"One\" <" + TASKS + "> .\n"
-            + "<" + event + "> <https://schema.org/about> \"RDF\" <" + NOTES + "> .\n");
+        String query = URLDecoder.decode(String.valueOf(exchange.getRequestURI().getRawQuery()), StandardCharsets.UTF_8);
+        boolean tasksOnly = !query.contains(NOTES);
+        exchange.getResponseHeaders().add("ETag", tasksOnly ? "\"tasks-v1\"" : "\"tasks-notes-v1\"");
+        String tasks = "<" + event + "> <https://schema.org/name> \"One\" <" + TASKS + "> .\n";
+        send(exchange, 200, tasksOnly ? tasks : tasks + "<" + event + "> <https://schema.org/about> \"RDF\" <" + NOTES + "> .\n");
       } else {
         exchange.getRequestBody().readAllBytes();
         String ifMatch = exchange.getRequestHeaders().getFirst("If-Match");
-        send(exchange, "\"v1\"".equals(ifMatch) ? 204 : 412, "");
+        send(exchange, "\"tasks-v1\"".equals(ifMatch) ? 204 : 412, "");
       }
     });
     server.createContext("/alice/events/broken", exchange -> send(exchange, 200, "<urn:s> <urn:p> .\n"));
@@ -161,12 +165,16 @@ class ClientRdf4jFromJavaTest {
     // doc-example:end rdf-read
     assertEquals(Set.<Resource>of(Values.iri(TASKS), Values.iri(NOTES)), model.contexts());
 
-    String tag = read.getHeaders().get("ETag");
     Model inTasks = model.filter(null, null, null, Values.iri(TASKS));
+    assertEquals(412, rdf.resources().put(event, inTasks,
+        SempodsWriteOptions.inContext(TASKS).withIfMatch(read.getHeaders().get("ETag"))).getStatus());
+
+    String tag = rdf.resources().getModel(event, SempodsReadOptions.of(SempodsContextSelection.of(TASKS)))
+        .getHeaders().get("ETag");
     assertEquals(204, rdf.resources().put(event, inTasks, SempodsWriteOptions.inContext(TASKS).withIfMatch(tag)).getStatus());
 
     SempodsResponse<byte[]> stale = rdf.resources().put(event, inTasks,
-        SempodsWriteOptions.inContext(TASKS).withIfMatch("\"v0\""));
+        SempodsWriteOptions.inContext(TASKS).withIfMatch("\"tasks-v0\""));
     assertEquals(412, stale.getStatus());
     assertNull(stale.getBody());
   }

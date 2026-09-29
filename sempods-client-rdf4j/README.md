@@ -18,8 +18,9 @@ Model model = read.getBody();
 ```
 
 A resource read retains each statement's context. To write back only the task statements,
-filter the model to `TASKS` and write it with `SempodsWriteOptions.inContext(TASKS).withIfMatch(etag)`,
-where `etag` is the read's `ETag`. The [complete Java test](../consumer-probe/client-rdf4j/src/test/java/org/sempods/probe/clientrdf4j/ClientRdf4jFromJavaTest.java) demonstrates that update and the stale-tag case.
+filter the model to `TASKS` and write it with `SempodsWriteOptions.inContext(TASKS).withIfMatch(etag)`.
+The pod accepts only the `ETag` of a read that selected `TASKS` alone, so read `TASKS` by itself for
+that tag; the tag of the two-context read above answers `412`. The [complete Java test](../consumer-probe/client-rdf4j/src/test/java/org/sempods/probe/clientrdf4j/ClientRdf4jFromJavaTest.java) demonstrates that update and the stale-tag case.
 
 ## Available representations
 
