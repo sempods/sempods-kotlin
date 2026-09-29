@@ -53,7 +53,8 @@ are possible as long as they follow the standard.
       server-side on every request.
     - Grant format: `<context-uri>#read`, `<context-uri>#write`, `<context-uri>#manage`.
     - `manage` covers its context root and slash-delimited descendants. Client-facing creation
-      and deletion belong to the optional context-management module.
+      and deletion belong to the optional
+      [context-management module](https://github.com/sempods/sempods-spec/blob/main/spec/modules/context-management.md).
 
 3) Context-based access control (named graphs):
     - The 4th RDF dimension (named graph) is called "Context".
@@ -72,8 +73,9 @@ are possible as long as they follow the standard.
     - Changes to system state happen through explicit control-plane APIs.
     - Contexts are control-plane state and therefore live inside this area, under
       `/_system/contexts/`.
-    - Grants can delegate a freely named context such as `/_system/contexts/contacts`.
-      Reserved `apps/` and `users/` namespaces also exist; the
+    - A context the owner keeps is named freely, such as `/_system/contexts/contacts`, and a grant
+      can still name it. A context delegated as someone's working area carries a type segment:
+      `apps/…`, with `users/…` reserved. The
       [context contract](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md)
       defines naming and reserved roots.
     - Protected does not mean undescribable: statements *about* a `_system` IRI are ordinary
@@ -89,11 +91,8 @@ are possible as long as they follow the standard.
 
 ## Optional modules and future work
 
-Contexts and their access rules are core. A client-facing API for creating and deleting them is
-the optional [context-management module](https://github.com/sempods/sempods-spec/blob/main/spec/modules/context-management.md).
-A deployment can provide fixed contexts without this API. The reference implementation supplies
-it, alongside the optional OIDC, media and MCP surfaces. The
-[specification index](https://github.com/sempods/sempods-spec/blob/main/spec/README.md) owns module scope.
+This implementation also provides the optional context-management, OIDC, media and MCP modules;
+the [README](../README.md#what-a-pod-is-in-five-points) says what is core and what is optional.
 
 Public contexts, anonymous Linked Open Data and WebID-based permissions are already available.
 
@@ -125,7 +124,8 @@ The AI layer is also replaceable and pod-owner-controlled: choose your provider
 access at any time — same as any other app.
 
 The model was designed around ~2018 from first principles. AI did not change the
-core — contexts, SPARQL, OAuth and Linked Open Data. SHACL-based app contracts remain a direction.
+core: contexts, SPARQL, OAuth and Linked Open Data remain what they were. SHACL-based app
+contracts remain a direction.
 The foundation was by design. The AI layer on top was by opportunity: active decisions
 that embraced what the foundation made possible, without changing it.
 
