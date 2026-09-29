@@ -21,7 +21,6 @@
   "excludeFiles": [
     "AGENTS.md",
     "**/AGENTS.md",
-    "CLAUDE.md",
     "GEMINI.md",
     "RELEASING.md",
     "CONTRIBUTING.md",
