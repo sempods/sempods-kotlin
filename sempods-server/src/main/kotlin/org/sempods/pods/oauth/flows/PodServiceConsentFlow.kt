@@ -22,8 +22,8 @@ import java.net.URI
 import java.time.Instant
 
 /**
- * The service consent: a registered service (`svc:`) sends the pod owner here, and the owner decides
- * which contexts it reaches. What a service sends and learns is `docs/auth/service-clients.md`
+ * The service consent: a service sends the pod owner here, and the owner decides which contexts it
+ * reaches — one registered at the pod (`svc:`) or one the operator provisioned. What a service sends and learns is `docs/auth/service-clients.md`
  * §"Consent".
  *
  * **Nothing is delivered to the service.** Confirming answers `state` alone, cancelling
@@ -54,7 +54,6 @@ class PodServiceConsentFlow @Inject internal constructor(
     // names an address this service may be sent to.
     val registration = request.clientId?.trim()?.takeIf { it.isNotBlank() }
       ?.let { serviceClients.find(pod.id, it) }
-      ?.takeIf { it.installed }
       ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_SERVICE)
     val redirectUri = request.redirectUri?.trim()?.takeIf { it.isNotBlank() }
     val target = redirectUri?.let {
@@ -314,7 +313,7 @@ internal enum class PodServiceConsentOutcome { CONFIRMED, CANCELLED }
 
 /** Why the service consent answered with a page. */
 internal enum class PodServiceConsentRefusal {
-  /** Not a live `svc:` registration on this pod. */
+  /** Not a live service registration on this pod. */
   UNKNOWN_SERVICE,
   REDIRECT_URI_NOT_ALLOWED,
   IDENTITY_PROVIDER_UNAVAILABLE,

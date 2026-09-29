@@ -139,15 +139,16 @@ class ControlPlaneFromJavaTest {
   @Test
   void readsAMintedRegistration() throws IOException {
     status = 200;
-    body = "{\"result\":\"provisioned\",\"clientId\":\"notes-app\",\"registrationId\":\"r1\","
+    body = "{\"result\":\"provisioned\",\"clientId\":\"notes-app\",\"registrationId\":\"r1\",\"secretId\":\"s1\","
         + "\"scopes\":[\"https://pods.example/alice/_system/contexts/apps/notes#manage\"],"
         + "\"contextRoot\":\"https://pods.example/alice/_system/contexts/apps/notes\","
         + "\"secret\":\"sc_secret\"}";
 
     ProvisionServiceClientResult minted =
-        admin.provisionServiceClient("alice", "notes-app", null).getBody();
+        admin.provisionServiceClient("alice", "notes-app", null, null).getBody();
 
     assertEquals("r1", minted.getRegistrationId());
+    assertEquals("s1", minted.getSecretId());
     assertEquals("notes-app", minted.getClientId());
     assertEquals("sc_secret", minted.getSecret());
     assertEquals(

@@ -16,6 +16,7 @@ import com.nimbusds.oauth2.sdk.id.SoftwareID
 import com.nimbusds.oauth2.sdk.id.SoftwareVersion
 import jakarta.ws.rs.core.Response
 import org.sempods.pods.oauth.flows.PodRegistrationError
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
 import org.sempods.pods.oauth.flows.PodRegistrationResult
 import java.net.URI
 import java.util.Date
@@ -40,11 +41,16 @@ internal object PodRegistrationResponses {
    */
   internal const val ACTIVATION_EXPIRES_AT = "activation_expires_at"
 
-  fun render(result: PodRegistrationResult): Response = when (result) {
+  /**
+   * @param unauthorized the answer for a bearer holding no authority to register a service: the
+   *   pod's bearer challenge, which the endpoint builds.
+   */
+  fun render(result: PodRegistrationResult, unauthorized: (PodOwnerAuthorityRefusal) -> Response): Response = when (result) {
     is PodRegistrationResult.Registered -> created(publicClient(result))
     is PodRegistrationResult.ServiceRegistered -> createdService(result)
     is PodRegistrationResult.Refused -> refused(result)
     PodRegistrationResult.RateLimited -> rateLimited()
+    is PodRegistrationResult.Unauthorized -> unauthorized(result.reason)
   }
 
   /**
@@ -96,14 +102,15 @@ internal object PodRegistrationResponses {
     jaxrs(ClientInformationResponse(information, true).toHTTPResponse())
 
   /**
-   * [created], with [ACTIVATION_EXPIRES_AT] and the registered `redirect_uris`. The member is
+   * [created], with [ACTIVATION_EXPIRES_AT] while the registration is provisional, and the
+   * registered `redirect_uris`. The member is
    * sempods' own and the SDK has no field for it, so it is added to the SDK's JSON object.
    */
   private fun createdService(client: PodRegistrationResult.ServiceRegistered): Response {
     val information = serviceClient(client)
     val response = ClientInformationResponse(information, true).toHTTPResponse()
     val body = information.toJSONObject().apply {
-      put(ACTIVATION_EXPIRES_AT, client.activationExpiresAt.epochSecond)
+      client.activationExpiresAt?.let { put(ACTIVATION_EXPIRES_AT, it.epochSecond) }
       // The SDK writes its default `["code"]` beside redirect URIs; a client authenticating with a
       // secret has no browser flow, and the registration refuses the member for that reason.
       remove("response_types")

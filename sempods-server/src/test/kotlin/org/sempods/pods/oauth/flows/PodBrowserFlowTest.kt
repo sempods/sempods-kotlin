@@ -16,6 +16,7 @@ import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import java.time.Instant
 
 /**
@@ -124,15 +125,19 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
     )
   }
 
-  /** A `service-clients:manage` bearer for [webId], with the authority the dialog would record. */
+  /**
+   * A `service-clients:manage` bearer for [webId], with the authority the dialog would record.
+   * [consent] is the consent text it was approved under; an earlier one is an authority from before.
+   */
   protected fun manager(
     owned: Owned,
     webId: String = owned.webId,
     subjectUris: Set<String> = setOf(webId),
+    consent: Int = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
   ): SempodsCredentials {
     val jti = randomId()
     val disconnects = consentDecisionStore.recordWithoutLifetime(owned.pod.id, clientId, webId).disconnects
-    managementAuthorities.record(owned.pod.id, jti, clientId, webId, disconnects, subjectUris)
+    managementAuthorities.record(owned.pod.id, jti, clientId, webId, disconnects, subjectUris, consent)
     return SempodsCredentials(
       pod = owned.pod.ref,
       restrictedContexts = emptySet(),

@@ -100,7 +100,7 @@ opinion about, and it adds it to the consumer's own client.
 | `SempodsForeignTarget` | a URI outside any pod, with a credential only when the call passes one |
 | `SempodsPodTokens` | a pod's token endpoint: a service client's `client_credentials` grant, and redeeming an authorization code |
 | `SempodsPodAuthorization` | a public client's registration, the authorization URL its user opens, with `SempodsPkce`, and the answer that comes back |
-| `SempodsPodServiceClients` | a pod's service clients: registering one, its consent URL, and managing the ones that exist |
+| `SempodsPodServiceClients` | a pod's service clients: registering one, its consent URL, and the owner deciding what each reaches |
 | `SempodsServiceAccessWait` | a service waiting until the contexts it needs are reachable |
 
 ```java
@@ -330,6 +330,17 @@ waits the same way.
 The client has no HTTP server: a program on the owner's laptop serves its own loopback redirect.
 [`ServiceConsent.java`](../sempods-server/src/test/java/org/sempods/example/ServiceConsent.java)
 is the whole program, both ways, and `ServiceConsentExampleHttpTest` runs it against a pod.
+
+The owner's own tool needs no dialog per service. With a `service-clients:manage` bearer
+([`auth/oauth.md`](auth/oauth.md#managing-service-clients)) it registers the service active and
+gives it its grants, at the version it read:
+
+```java
+var managing = new SempodsPodServiceClients(new SempodsSession(pod, SempodsRequestAuth.bearer(manageToken)), client);
+SempodsServiceClientRegistration service = managing.register("Backup").getBody();
+long version = managing.get(service.getClientId()).getBody().getGrantsVersion();
+managing.replaceGrants(service.getClientId(), List.of(notes + "#read"), version);
+```
 
 ### Asynchronous use
 

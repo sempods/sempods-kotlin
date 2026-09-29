@@ -140,8 +140,8 @@ class SempodsControlPlaneClientHttpTest {
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.createPod(bad, "alice@example.com") }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.deletePod(bad) }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.podExists(bad) }
-      assertThrows<IllegalArgumentException>("pod '$bad'") { client.provisionServiceClient(bad, "app", null) }
-      assertThrows<IllegalArgumentException>("client '$bad'") { client.provisionServiceClient("alice", bad, null) }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.provisionServiceClient(bad, "app", null, null) }
+      assertThrows<IllegalArgumentException>("client '$bad'") { client.provisionServiceClient("alice", bad, null, null) }
     }
 
     assertEquals(0, mockServer.retrieveRecordedRequests(request()).size, "nothing left this client")
@@ -229,6 +229,7 @@ class SempodsControlPlaneClientHttpTest {
               "result": "provisioned",
               "clientId": "notes-app",
               "registrationId": "r1",
+              "secretId": "s2",
               "scopes": ["https://pods.example/alice/_system/contexts/apps/notes#manage"],
               "contextRoot": "https://pods.example/alice/_system/contexts/apps/notes",
               "secret": "sc_secret"
@@ -241,6 +242,7 @@ class SempodsControlPlaneClientHttpTest {
       podName = "alice",
       clientId = "notes-app",
       expectedRegistrationId = null,
+      expectedSecretId = null,
     )
 
     assertEquals(200, answer.status)
@@ -248,6 +250,7 @@ class SempodsControlPlaneClientHttpTest {
     assertFalse(result.alreadyProvisioned)
     assertEquals("notes-app", result.clientId)
     assertEquals("r1", result.registrationId)
+    assertEquals("s2", result.secretId)
     assertEquals("sc_secret", result.secret)
     assertEquals(URI("https://pods.example/alice/_system/contexts/apps/notes"), result.contextRoot)
     assertEquals(setOf("https://pods.example/alice/_system/contexts/apps/notes#manage"), result.scopes)
@@ -255,7 +258,7 @@ class SempodsControlPlaneClientHttpTest {
     val sent = sent("POST")
     assertEquals("Bearer $ADMIN_SECRET", sent.getFirstHeader("Authorization"))
     assertEquals("application/json", sent.getFirstHeader("Content-Type"))
-    assertEquals("""{"expectedRegistrationId":null}""", body(sent))
+    assertEquals("""{"expectedRegistrationId":null,"expectedSecretId":null}""", body(sent))
   }
 
   @Test
@@ -272,6 +275,7 @@ class SempodsControlPlaneClientHttpTest {
               "result": "alreadyProvisioned",
               "clientId": "notes-app",
               "registrationId": "r1",
+              "secretId": "s1",
               "scopes": ["https://pods.example/alice/_system/contexts/apps/notes#manage"],
               "contextRoot": "https://pods.example/alice/_system/contexts/apps/notes"
             }
@@ -284,12 +288,13 @@ class SempodsControlPlaneClientHttpTest {
         podName = "alice",
         clientId = "notes-app",
         expectedRegistrationId = "r1",
+        expectedSecretId = "s1",
       ).body,
     )
 
     assertTrue(result.alreadyProvisioned)
     assertNull(result.secret, "the server hands a secret out exactly once")
-    assertEquals("""{"expectedRegistrationId":"r1"}""", body(sent("POST")))
+    assertEquals("""{"expectedRegistrationId":"r1","expectedSecretId":"s1"}""", body(sent("POST")))
   }
 
   @Test
@@ -299,7 +304,7 @@ class SempodsControlPlaneClientHttpTest {
       .respond(response().withStatusCode(409).withBody("concurrent provisioning"))
 
     val refused = assertThrows<SempodsStatusException> {
-      client.provisionServiceClient(podName = "alice", clientId = "notes-app", expectedRegistrationId = null)
+      client.provisionServiceClient(podName = "alice", clientId = "notes-app", expectedRegistrationId = null, expectedSecretId = null)
     }
 
     assertEquals(409, refused.status)
@@ -320,7 +325,7 @@ class SempodsControlPlaneClientHttpTest {
       )
 
     val refused = assertThrows<SempodsDecodingException> {
-      client.provisionServiceClient(podName = "alice", clientId = "notes-app", expectedRegistrationId = null)
+      client.provisionServiceClient(podName = "alice", clientId = "notes-app", expectedRegistrationId = null, expectedSecretId = null)
     }
 
     assertEquals(200, refused.status)

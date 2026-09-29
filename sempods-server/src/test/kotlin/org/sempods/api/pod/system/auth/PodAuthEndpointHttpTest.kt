@@ -5260,15 +5260,16 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a bearer on a service registration changes nothing`() {
+  fun `an owner's app bearer without the management authority registers no service`() {
+    // Owner identity alone is not the authority: only an approved `service-clients:manage` is.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ordinary = mintScopedToken(pod.name, emptyList(), webId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
 
-    val registered = postRegistration(pod, bearer = ordinary)
+    val refused = postRegistration(pod, bearer = ordinary)
 
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    assertTrue("activation_expires_at" in registered.responseBody, registered.responseBody)
+    assertEquals(403, refused.statusCode, refused.responseBody)
+    assertTrue("insufficient_scope" in refused.responseBody, refused.responseBody)
   }
 
   @Test

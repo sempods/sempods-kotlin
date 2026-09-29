@@ -21,6 +21,7 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -103,6 +104,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       generation: Long?,
       scopes: Set<String> = emptySet(),
       subjectUris: Set<String> = emptySet(),
+      consentText: Int? = null,
     ): String =
       authorizationCodeStore.issue(
         subject = webId,
@@ -114,6 +116,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
         codeChallengeMethod = null,
         consentGeneration = generation,
         subjectUris = subjectUris,
+        consentText = consentText,
       )
 
     fun redeem(
@@ -486,6 +489,30 @@ class PodTokenExchangeTest : SempodsStoreTest() {
 
     val authority = assertNotNull(managementAuthorities.standing(authorized.podId, jti))
     assertEquals(setOf(authorized.webId), authority.subjectUris)
+  }
+
+  @Test
+  fun `the authority records the consent text the code carries, and the first where it carries none`() {
+    // A dialog an older node rendered carries no text version, and neither does its code: the
+    // person saw the first text, whichever node redeems it.
+    val authorized = Authorized()
+    fun consentOf(code: String) =
+      assertNotNull(managementAuthorities.standing(authorized.podId, jtiOf(issued(authorized.redeem(code)).accessToken))).consent
+
+    assertEquals(
+      PrivilegedAuthorityRows.FIRST_CONSENT,
+      consentOf(authorized.code(authorized.answer(durable = false), scopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE))),
+    )
+    assertEquals(
+      PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
+      consentOf(
+        authorized.code(
+          authorized.answer(durable = false),
+          scopes = setOf(SERVICE_CLIENTS_MANAGE_SCOPE),
+          consentText = PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT,
+        ),
+      ),
+    )
   }
 
   @Test

@@ -28,10 +28,11 @@ import kotlin.test.assertTrue
  * Service-client provisioning over the admin surface:
  * `POST /_system/admin/pods/{pod}/service-clients/{clientId}`.
  *
- * Covers the half of provisioning that lives server-side — root-context creation, public-root
- * demotion, idempotency, and the self-healing re-mint. The credential-row half (decrypt check,
- * clientId drift, per-user bookkeeping) belongs to whichever application calls this route and is
- * covered on its side.
+ * Covers the half of provisioning that lives server-side — root-context creation and public-root
+ * demotion on the creating call, idempotency, a new secret for a caller that lost its own, and the
+ * owner's decisions a later call leaves alone. The credential-row half (decrypt check, clientId
+ * drift, per-user bookkeeping) belongs to whichever application calls this route and is covered on
+ * its side.
  */
 class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
 
@@ -52,17 +53,25 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     pod: String,
     clientId: String = CLIENT_ID,
     expectedRegistrationId: String? = null,
+    expectedSecretId: String? = null,
     authorization: String? = adminBearer,
   ): TestHttpResponse {
-    val body = expectedRegistrationId
-      ?.let { """{"expectedRegistrationId":"$it"}""" }
-      ?: "{}"
+    val body = objectMapper.writeValueAsString(
+      listOfNotNull(
+        expectedRegistrationId?.let { "expectedRegistrationId" to it },
+        expectedSecretId?.let { "expectedSecretId" to it },
+      ).toMap(),
+    )
     return http.preparePost(provisionUrl(pod, clientId))
       .addHeader("Content-Type", "application/json")
       .apply { authorization?.let { addHeader("Authorization", it) } }
       .setBody(body)
       .execute()
   }
+
+  /** Provisioning again, asserting the registration and secret an [earlier][holding] answer gave. */
+  private fun provision(pod: String, holding: TestHttpResponse): TestHttpResponse =
+    provision(pod, expectedRegistrationId = holding.field("registrationId"), expectedSecretId = holding.field("secretId"))
 
   private fun TestHttpResponse.field(name: String): String? =
     objectMapper.readTree(responseBody).path(name).takeIf { !it.isMissingNode }?.asString()
@@ -113,17 +122,19 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a matching expectedRegistrationId is a no-op and returns no secret`() {
+  fun `a matching registration and secret is a no-op and returns no secret`() {
     val pod = sempodsTestFactory.newPod()
     val first = provision(pod.name)
     val registrationId = assertNotNull(first.field("registrationId"))
+    val secretId = assertNotNull(first.field("secretId"))
     val firstSecret = assertNotNull(first.field("secret"))
 
-    val second = provision(pod.name, expectedRegistrationId = registrationId)
+    val second = provision(pod.name, expectedRegistrationId = registrationId, expectedSecretId = secretId)
 
     assertEquals(200, second.statusCode, "body=${second.responseBody}")
     assertEquals("alreadyProvisioned", second.field("result"))
     assertEquals(registrationId, second.field("registrationId"))
+    assertEquals(secretId, second.field("secretId"))
     assertFalse(second.hasField("secret"), "no secret may be produced when nothing was written: ${second.responseBody}")
     assertNotNull(
       podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, firstSecret),
@@ -132,7 +143,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a half-provisioned caller without an expectedRegistrationId is re-minted`() {
+  fun `a half-provisioned caller without an expectedRegistrationId gets a new secret for the same registration`() {
     // Registration exists on the pod, the caller lost its credential row — it can assert nothing,
     // so the only way back to a working state is a fresh secret.
     val pod = sempodsTestFactory.newPod()
@@ -142,7 +153,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     val second = provision(pod.name)
 
     assertEquals("provisioned", second.field("result"))
-    assertNotEquals(first.field("registrationId"), second.field("registrationId"), "re-minting replaces the row")
+    assertEquals(first.field("registrationId"), second.field("registrationId"), "the registration stays")
     val newSecret = assertNotNull(second.field("secret"))
     assertNotNull(podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, newSecret))
     assertNull(
@@ -152,65 +163,81 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a stale expectedRegistrationId is re-minted`() {
-    // Manual re-registration on the pod, or a restored dump on one side: the caller's assertion
-    // refers to a row that is no longer current.
+  fun `a caller whose secret another call replaced gets a new one, though its registration matches`() {
+    // Two runs that both held nothing: each got a secret for the one registration, and only the
+    // later works. The earlier caller's secretId tells it apart.
     val pod = sempodsTestFactory.newPod()
-    val stale = assertNotNull(provision(pod.name).field("registrationId"))
-    podServiceClientStore.remove(pod.podId(), CLIENT_ID, ServiceClientRegistrationId(stale))
-    podServiceClientStore.register(
-      pod = pod.hosted,
-      clientId = CLIENT_ID,
-      scopes = setOf("${rootContext(pod)}#manage"),
-      label = CLIENT_ID,
-    )
+    val earlier = provision(pod.name)
+    val later = provision(pod.name)
+    assertEquals(earlier.field("registrationId"), later.field("registrationId"))
+    assertNotEquals(earlier.field("secretId"), later.field("secretId"))
 
-    val response = provision(pod.name, expectedRegistrationId = stale)
+    val healed = provision(pod.name, holding = earlier)
+
+    assertEquals("provisioned", healed.field("result"))
+    assertNotNull(podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, assertNotNull(healed.field("secret"))))
+    assertEquals(
+      "alreadyProvisioned",
+      provision(pod.name, holding = healed).field("result"),
+      "the new pair is the current one",
+    )
+  }
+
+  @Test
+  fun `a stale expectedRegistrationId gets a new secret and keeps the registration`() {
+    // A restored dump on the caller's side: its assertion refers to a row that is not the current one.
+    val pod = sempodsTestFactory.newPod()
+    val current = assertNotNull(provision(pod.name).field("registrationId"))
+
+    val response = provision(pod.name, expectedRegistrationId = "0123456789abcdef01234567")
 
     assertEquals("provisioned", response.field("result"))
-    assertNotEquals(stale, response.field("registrationId"))
-    assertNotNull(response.field("secret"))
+    assertEquals(current, response.field("registrationId"))
+    assertNotNull(podServiceClientStore.authenticate(pod.podId(), CLIENT_ID, assertNotNull(response.field("secret"))))
   }
 
   @Test
   fun `an expectedRegistrationId cannot forge a log line`() {
-    // A body field, compared against the stored id and named in the re-mint line whether or not it
-    // matched — so it reaches the log exactly as sent. `docs/logging.md` §"Three rules".
+    // A body field, compared against the stored id and named in the line announcing a new secret
+    // whether or not it matched — so it reaches the log exactly as sent. `docs/logging.md`
+    // §"Three rules".
     val pod = sempodsTestFactory.newPod()
     provision(pod.name)
-    // Escaped for the JSON body, so what the endpoint parses out of it is a real newline.
-    val forged = "6890abc-${randomId()}\\n2026-01-01 21:00:00,000 WARN  [jetty] pod deleted by admin"
+    // A real newline, which the JSON body carries escaped and the endpoint parses back.
+    val forged = "6890abc-${randomId()}\n2026-01-01 21:00:00,000 WARN  [jetty] pod deleted by admin"
 
     val lines = CapturedLog.linesFrom(PodServiceClientProvisioning::class.java) {
       assertEquals("provisioned", provision(pod.name, expectedRegistrationId = forged).field("result"))
     }
 
-    val line = lines.single { forged.substringBefore('\\') in it }
+    val line = lines.single { forged.substringBefore('\n') in it }
     assertFalse('\n' in line, "was: $line")
     assertTrue("\\u000a" in line, line)
   }
 
   @Test
-  fun `scope drift is re-minted even when the registration id still matches`() {
-    // Drift would otherwise surface as 403s only once the tokens are actually used.
+  fun `grants the owner narrowed or emptied stay through every later provisioning`() {
     val pod = sempodsTestFactory.newPod()
-    podServiceClientStore.register(
-      pod = pod.hosted,
-      clientId = CLIENT_ID,
-      // narrower than the sandbox root
-      scopes = setOf("${rootContext(pod)}/public#manage"),
-      label = CLIENT_ID,
-    )
-    val drifted = assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).id.value
+    val first = provision(pod.name)
+    val registrationId = assertNotNull(first.field("registrationId"))
+    val below = sempodsUriBuilder.buildContext(pod.name, "apps/$CLIENT_ID/public")
+    podFacade.createContext(podName = pod.name, contextUri = below, public = false, label = "public", description = null)
+    val manager = mintServiceClientsManagerToken(pod.name, pod.owner)
 
-    val response = provision(pod.name, expectedRegistrationId = drifted)
+    assertEquals(200, replaceGrants(pod, manager, """["$below#read"]""", version = 0).statusCode)
+    var secretId = first.field("secretId")
+    for (expected in listOf(registrationId, null, "0123456789abcdef01234567")) {
+      val again = provision(pod.name, expectedRegistrationId = expected, expectedSecretId = secretId)
+      assertEquals(200, again.statusCode, again.responseBody)
+      assertEquals(setOf("$below#read"), scopesOf(again), "expectedRegistrationId=$expected")
+      assertEquals(registrationId, again.field("registrationId"))
+      secretId = again.field("secretId")
+    }
+    assertEquals(setOf("$below#read"), assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes)
 
-    assertEquals("provisioned", response.field("result"))
-    assertEquals(
-      setOf("${rootContext(pod)}#manage"),
-      assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes,
-      "scopes must be reset to the exact sandbox",
-    )
+    assertEquals(200, replaceGrants(pod, manager, "[]", version = 1).statusCode)
+    assertEquals(emptySet(), scopesOf(provision(pod.name)), "an emptied service is found and left empty")
+    assertEquals(emptySet(), assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID)).scopes)
   }
 
   @Test
@@ -230,17 +257,25 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the demotion also runs on an otherwise idempotent call`() {
-    // Self-repair is part of the contract, not of the "fresh registration" path.
+  fun `a later provisioning neither recreates a root the owner deleted nor demotes one they made public`() {
+    // Only the creating call touches the root; afterwards it is the owner's.
     val pod = sempodsTestFactory.newPod()
     val root = rootContext(pod)
     val registrationId = assertNotNull(provision(pod.name).field("registrationId"))
+
     podFacade.setContextPublic(podName = pod.name, contextUri = root, public = true)
+    for (expected in listOf(registrationId, null)) {
+      assertEquals(200, provision(pod.name, expectedRegistrationId = expected).statusCode)
+      assertTrue(podAccess.publicContextsOf(pod.name).contains(root), "expectedRegistrationId=$expected")
+    }
 
-    val response = provision(pod.name, expectedRegistrationId = registrationId)
-
-    assertEquals("alreadyProvisioned", response.field("result"))
-    assertFalse(podAccess.publicContextsOf(pod.name).contains(root), "root must have been demoted")
+    podFacade.removeContext(pod.name, root)
+    for (expected in listOf(registrationId, null)) {
+      val again = provision(pod.name, expectedRegistrationId = expected)
+      assertEquals(200, again.statusCode, again.responseBody)
+      assertEquals(root.toString(), again.field("contextRoot"), "the root is still named")
+      assertFalse(podAccess.contextsOf(pod.name).contains(root), "expectedRegistrationId=$expected")
+    }
   }
 
   @Test
@@ -254,23 +289,16 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `replacing a registration only deletes the row the caller observed`() {
-    // The delete in provisionServiceClient is conditional on the registration read moments
-    // earlier. Without that, two interleaved replacements delete each other's fresh row.
+  fun `a removal only deletes the row the caller observed`() {
     val pod = sempodsTestFactory.newPod()
-    val staleId = ServiceClientRegistrationId(assertNotNull(provision(pod.name).field("registrationId")))
-    provision(pod.name)  // someone else re-mints — the row now has a different id
+    provision(pod.name)
     val current = assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID))
-    assertNotEquals(staleId, current.id, "precondition: re-minting replaces the row")
 
     assertFalse(
-      podServiceClientStore.remove(pod.podId(), CLIENT_ID, staleId),
-      "a delete conditioned on a stale id must remove nothing",
+      podServiceClientStore.remove(pod.podId(), CLIENT_ID, ServiceClientRegistrationId("0123456789abcdef01234567")),
+      "a delete conditioned on another id must remove nothing",
     )
-    assertNotNull(
-      podServiceClientStore.find(pod.podId(), CLIENT_ID),
-      "the current registration must survive a stale-id delete",
-    )
+    assertNotNull(podServiceClientStore.find(pod.podId(), CLIENT_ID), "the current registration must survive it")
 
     assertTrue(podServiceClientStore.remove(pod.podId(), CLIENT_ID, current.id))
     assertNull(podServiceClientStore.find(pod.podId(), CLIENT_ID))
@@ -284,9 +312,9 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     //
     // Deliberately `any`, not `all`: rotation is last-one-wins by contract, so an earlier 200's
     // secret being dead is correct behaviour, not a defect — the same thing happens with two
-    // sequential calls (see `a half-provisioned caller without an expectedRegistrationId is
-    // re-minted`). What this asserts is that the surviving registration was actually handed out
-    // to somebody, i.e. no caller's write was silently dropped mid-flight.
+    // sequential calls (see `a half-provisioned caller without an expectedRegistrationId gets a new
+    // secret for the same registration`). What this asserts is that the surviving secret was
+    // actually handed out to somebody, i.e. no caller's write was silently dropped mid-flight.
     val pod = sempodsTestFactory.newPod()
 
     // The sends are blocking, so the four callers have to be four threads — collecting the futures
@@ -336,8 +364,7 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
     assertEquals("provisioned", first.field("result"))
     assertEquals(expectedRoot, first.field("contextRoot"))
 
-    val registrationId = assertNotNull(first.field("registrationId"))
-    val second = provision(pod.name, expectedRegistrationId = registrationId)
+    val second = provision(pod.name, holding = first)
     assertEquals("alreadyProvisioned", second.field("result"))
     assertEquals(expectedRoot, second.field("contextRoot"), "also present when nothing was written")
 
@@ -350,15 +377,13 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `the response mirrors the stored scope set`() {
-    // `scopes` is state (what the registration has), `contextRoot` is an action (what this call
-    // created). Redundant while there is exactly one scope, distinct once a caller may pass its
-    // own — so the response must not derive one from the other.
+    // `scopes` is state (what the registration has), `contextRoot` names the sandbox. They agree
+    // only until the owner changes the grants, so the response must not derive one from the other.
     val pod = sempodsTestFactory.newPod()
     val expectedScopes = setOf("${rootContext(pod)}#manage")
 
     listOf(provision(pod.name), provision(pod.name)).forEach { response ->
-      val scopes = objectMapper.readTree(response.responseBody).path("scopes").values().map { it.asString() }.toSet()
-      assertEquals(expectedScopes, scopes, "body=${response.responseBody}")
+      assertEquals(expectedScopes, scopesOf(response), "body=${response.responseBody}")
     }
     assertEquals(
       expectedScopes,
@@ -366,6 +391,18 @@ class AdminServiceClientProvisionHttpTest : SempodsIntegrationTest() {
       "the reported set must be the stored one",
     )
   }
+
+  private fun scopesOf(response: TestHttpResponse): Set<String> =
+    objectMapper.readTree(response.responseBody).path("scopes").values().map { it.asString() }.toSet()
+
+  /** The owner's replace of the service's grants, at [version]. */
+  private fun replaceGrants(pod: PodDbo, bearer: String, body: String, version: Long): TestHttpResponse =
+    http.preparePut("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/service-clients/$CLIENT_ID/grants")
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .addHeader("If-Match", "\"$version\"")
+      .setBody(body)
+      .execute()
 
   @Test
   fun `an unknown pod is a 404`() {

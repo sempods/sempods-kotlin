@@ -46,7 +46,7 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
 
   private val described =
     """{"client_id":"svc:1","client_name":"Notes Sync","client_id_issued_at":1700000000,"last_used_at":1700000600,""" +
-      """"scope":"urn:a#read urn:b#write","origin":"installed"}"""
+      """"scope":"urn:a#read urn:b#write","grants_version":3,"origin":"registered"}"""
 
   @Test
   fun `a service registers the confidential shape without a credential, and reads the secret and the deadline once`() {
@@ -69,6 +69,16 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
       json.readTree("""{"client_name":"Notes Sync","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic"}"""),
       json.readTree(String(sent.body.rawBytes, Charsets.UTF_8)),
     )
+  }
+
+  @Test
+  fun `a registration with the owner's bearer sends it, and reads an active registration without a deadline`() {
+    answer("/alice/_system/auth/register", 201, registration.replace(""","activation_expires_at":1700086400""", ""))
+
+    val registered = checkNotNull(serviceClients().register("Notes Sync").body)
+
+    assertNull(registered.activationExpiresAt)
+    assertEquals("Bearer tok-1", server.retrieveRecordedRequests(request()).single().getFirstHeader("Authorization"))
   }
 
   @Test
@@ -146,7 +156,7 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     answer(
       "/alice/_system/auth/service-clients",
       200,
-      """{"serviceClients":[$described,{"client_id":"ops-backup","client_name":null,"client_id_issued_at":1600000000,"last_used_at":null,"scope":"","origin":"provisioned"}]}""",
+      """{"serviceClients":[$described,{"client_id":"ops-backup","client_name":null,"client_id_issued_at":1600000000,"last_used_at":null,"scope":"","grants_version":0,"origin":"provisioned"}]}""",
     )
 
     val listed = checkNotNull(serviceClients().list().body)
@@ -155,9 +165,10 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
     assertEquals(
       listOf(
         SempodsServiceClient.of(
-          "svc:1", "Notes Sync", Instant.ofEpochSecond(1700000000), Instant.ofEpochSecond(1700000600), setOf("urn:a#read", "urn:b#write"), "installed",
+          "svc:1", "Notes Sync", Instant.ofEpochSecond(1700000000), Instant.ofEpochSecond(1700000600), setOf("urn:a#read", "urn:b#write"), 3L,
+          "registered",
         ),
-        SempodsServiceClient.of("ops-backup", null, Instant.ofEpochSecond(1600000000), null, emptySet(), "provisioned"),
+        SempodsServiceClient.of("ops-backup", null, Instant.ofEpochSecond(1600000000), null, emptySet(), 0L, "provisioned"),
       ),
       listed,
     )
@@ -194,15 +205,53 @@ class SempodsPodServiceClientsContractTest : MockPodTest() {
   }
 
   @Test
-  fun `a grant removal names the scopes in the query and reads what is left`() {
+  fun `a listed client without grants_version is a decoding failure`() {
+    answer("/alice/_system/auth/service-clients", 200, """{"serviceClients":[${described.replace(""""grants_version":3,""", "")}]}""")
+
+    assertThrows<SempodsDecodingException> { serviceClients().list() }
+  }
+
+  @Test
+  fun `a single read gets the client's own segment`() {
+    answer("/alice/_system/auth/service-clients/svc:1", 200, described, "ETag" to "\"3\"")
+
+    val read = checkNotNull(serviceClients().get("svc:1").body)
+
+    assertEquals(3L, read.grantsVersion)
+    assertEquals(setOf("urn:a#read", "urn:b#write"), read.scopes)
+    assertEquals("GET", server.retrieveRecordedRequests(request()).single().method.value)
+  }
+
+  @Test
+  fun `a grants replace puts the scopes as a JSON array, at the version it names`() {
+    answer("/alice/_system/auth/service-clients/svc:1/grants", 200, described.replace("urn:a#read urn:b#write", "urn:c#read").replace(":3,", ":4,"))
+
+    val replaced = checkNotNull(serviceClients().replaceGrants("svc:1", listOf("urn:c#read", "urn:c#read"), 3L).body)
+
+    assertEquals(setOf("urn:c#read"), replaced.scopes)
+    assertEquals(4L, replaced.grantsVersion)
+    val sent = server.retrieveRecordedRequests(request()).single()
+    assertEquals("PUT", sent.method.value)
+    assertEquals("\"3\"", sent.getFirstHeader("If-Match"))
+    assertEquals(json.readTree("""["urn:c#read"]"""), json.readTree(String(sent.body.rawBytes, Charsets.UTF_8)))
+    assertTrue(sent.getFirstHeader("Content-Type").startsWith("application/json"), sent.getFirstHeader("Content-Type"))
+  }
+
+  @Test
+  fun `an empty grants replace sends an empty array`() {
     answer("/alice/_system/auth/service-clients/svc:1/grants", 200, described.replace("urn:a#read urn:b#write", ""))
 
-    val left = checkNotNull(serviceClients().removeGrants("svc:1", listOf("urn:a#read", "urn:b#write")).body)
+    assertTrue(checkNotNull(serviceClients().replaceGrants("svc:1", emptyList(), 0L).body).scopes.isEmpty())
+    assertEquals(json.readTree("[]"), json.readTree(String(server.retrieveRecordedRequests(request()).single().body.rawBytes, Charsets.UTF_8)))
+  }
 
-    assertTrue(left.scopes.isEmpty())
-    val sent = server.retrieveRecordedRequests(request()).single()
-    assertEquals("DELETE", sent.method.value)
-    assertEquals("urn:a#read urn:b#write", sent.getFirstQueryStringParameter("scope"))
+  @Test
+  fun `a stale grants version keeps the pod's 412`() {
+    answer("/alice/_system/auth/service-clients/svc:1/grants", 412, """{"error_description":"the grants changed"}""")
+
+    val failure = assertThrows<SempodsStatusException> { serviceClients().replaceGrants("svc:1", listOf("urn:c#read"), 2L) }
+
+    assertEquals(412, failure.status)
   }
 
   @Test

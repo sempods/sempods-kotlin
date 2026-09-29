@@ -20,6 +20,7 @@ import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
 import org.sempods.pods.PodFacade
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
@@ -99,7 +100,9 @@ class PodAuthEndpoint @Inject constructor(
         ),
       )
     }
-    return PodRegistrationResponses.render(result)
+    return PodRegistrationResponses.render(result) { reason ->
+      ownerAuthorityRefused(podDbo.name, reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
+    }
   }
 
   // ─── OAuth authorize ──────────────────────────────────────────────────────

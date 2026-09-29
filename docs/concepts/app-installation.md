@@ -1,17 +1,18 @@
 # Service-client provisioning and connection consent
 
-A service client reaches a pod either by host-operator provisioning or by registering itself. A
-self-registered service holds nothing until the owner confirms its consent, which also activates
-it: [`../auth/oauth.md`](../auth/oauth.md#registering-a-service-client) has the registration and
-[`../auth/service-clients.md`](../auth/service-clients.md#consent) the consent. Managing it afterwards is in
-[`../auth/service-clients.md`](../auth/service-clients.md#managing-an-installed-service-client).
+A service client reaches a pod by host-operator provisioning, by registering itself, or through
+the owner's own tool. A self-registered service holds nothing until the owner confirms its consent,
+which also activates it: [`../auth/oauth.md`](../auth/oauth.md#registering-a-service-client) has
+the registration and [`../auth/service-clients.md`](../auth/service-clients.md#consent) the consent.
+Whichever way it arrived, the owner decides its grants afterwards:
+[`../auth/service-clients.md`](../auth/service-clients.md#managing-service-clients).
 
 ## Provisioning by the operator
 
 The host operator registers a service client out of band:
 `POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a private app root
 `<pod>/_system/contexts/apps/{clientId}`, registers `<root>#manage`, and returns a secret exactly
-once. That route is host-admin authority, not pod authority; it exists for the first caller that
+once. It only creates: a later call leaves the grants and the root to the owner. That route is host-admin authority, not pod authority; it exists for the first caller that
 needed it, not because OAuth requires service clients to be installed by the host.
 
 The service client itself is standard OAuth Client Credentials at the token endpoint. The

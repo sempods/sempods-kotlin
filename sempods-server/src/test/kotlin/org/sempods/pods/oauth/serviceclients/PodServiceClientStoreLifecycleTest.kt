@@ -34,11 +34,22 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     assertEquals(listOf(first.registration.clientId, second.registration.clientId), listed.map { it.clientId })
     assertNull(listed[0].lastUsedAt)
     assertNotNull(listed[1].lastUsedAt)
-    assertTrue(listed.all { it.installed })
+    assertTrue(listed.all { it.registered })
   }
 
   @Test
-  fun `grants are replaced on the registration named, and removing the last one keeps it`() {
+  fun `a registration the owner's authority makes is active and holds nothing`() {
+    val pod = sempodsTestFactory.newPod()
+
+    val active = store.registerService(pod.hosted, "notes", emptyList(), provisional = false).registration
+
+    assertTrue(active.registered)
+    assertNull(active.pendingUntil)
+    assertEquals(emptySet(), active.scopes)
+  }
+
+  @Test
+  fun `grants are replaced on the registration named, and replacing them with none keeps it`() {
     val pod = sempodsTestFactory.newPod()
     val notes = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/notes"
     val installed = store.registerProvisional(pod.hosted, "notes", emptyList()).registration
@@ -49,10 +60,11 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
     )
     assertEquals(setOf("$notes#read", "$notes#write"), store.find(pod.hosted.id, installed.clientId)?.scopes)
 
-    val remaining = store.removeScopes(pod.hosted.id, installed.clientId, setOf("$notes#read", "$notes#write"), changedBy = OWNER)
-    assertEquals(emptySet(), remaining?.scopes, "the registration outlives its last grant")
-    assertNotNull(store.find(pod.hosted.id, installed.clientId))
-    assertNull(store.removeScopes(pod.hosted.id, "svc:absent", setOf("$notes#read"), changedBy = OWNER))
+    assertEquals(
+      PodServiceClientStore.ScopeReplacement.Replaced,
+      store.replaceScopes(pod.hosted, installed.clientId, installed.id, 1L, emptySet(), changedBy = OWNER),
+    )
+    assertEquals(emptySet(), store.find(pod.hosted.id, installed.clientId)?.scopes, "the registration outlives its last grant")
   }
 
   @Test
@@ -79,6 +91,19 @@ class PodServiceClientStoreLifecycleTest : SempodsIntegrationTest() {
       store.replaceScopes(pod.hosted, installed.clientId, installed.id, 0L, setOf("public-read"), changedBy = OWNER)
     }
     assertEquals(emptySet(), store.find(pod.hosted.id, installed.clientId)?.scopes)
+  }
+
+  @Test
+  fun `a rotation decided on one secret does not replace another issued meanwhile`() {
+    val pod = sempodsTestFactory.newPod()
+    val registered = store.registerProvisional(pod.hosted, "notes", emptyList()).registration
+    val meanwhile = store.rotateSecret(pod.hosted.id, registered.clientId) as PodServiceClientStore.SecretRotation.Rotated
+
+    assertEquals(
+      PodServiceClientStore.SecretRotation.Conflict,
+      store.rotateSecret(pod.hosted.id, registered.clientId, expectedSecretId = registered.secretId),
+    )
+    assertNotNull(store.authenticate(pod.hosted.id, meanwhile.registration.clientId, meanwhile.secret), "the one issued meanwhile stands")
   }
 
   @Test

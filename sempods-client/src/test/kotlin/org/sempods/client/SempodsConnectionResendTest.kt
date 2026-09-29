@@ -421,11 +421,12 @@ class SempodsConnectionResendTest {
   }
 
   @Test
-  fun `a public registration, a service-client list and a grant removal are resent`() {
+  fun `a public registration, a service-client read and a grants replace are resent`() {
     val operations: List<(SempodsSession, OkHttpClient) -> SempodsResponse<String>> = listOf(
       { a, client -> SempodsPodAuthorization(a, client).registerClientJson("Notes", listOf("http://127.0.0.1/cb")) },
       { a, client -> SempodsPodServiceClients(a, client).listJson() },
-      { a, client -> SempodsPodServiceClients(a, client).removeGrantsJson("svc:1", listOf("urn:c#read")) },
+      { a, client -> SempodsPodServiceClients(a, client).getJson("svc:1") },
+      { a, client -> SempodsPodServiceClients(a, client).replaceGrantsJson("svc:1", listOf("urn:c#read"), 3L) },
     )
     sempodsClient().closing { client ->
       val a = session()

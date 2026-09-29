@@ -135,13 +135,15 @@ class SempodsControlPlaneClient(
    * `POST {server}/_system/admin/pods/{pod}/service-clients/{clientId}` — registers [clientId] as a
    * service client on [podName] and returns the sandbox root it was scoped to.
    *
-   * [expectedRegistrationId] is the caller's assertion about what it already holds: matching it
-   * yields `alreadyProvisioned` **without** a secret, anything else re-mints and returns one
-   * exactly once. Passing `null` means "I hold nothing", which always re-mints.
+   * It creates; a later call leaves the grants and the app root to the pod owner. [expectedRegistrationId]
+   * and [expectedSecretId] are the [ProvisionServiceClientResult.registrationId] and
+   * [ProvisionServiceClientResult.secretId] an earlier answer gave, or `null` for "I hold nothing".
+   * What each combination answers is the server's `docs/auth/service-clients.md` §"Provisioning over
+   * the admin surface".
    *
    * **Deliberately not repeatable.** A `POST` is resent after a lost connection only on
    * `SempodsRepeatable`, and this one carries no such mark: an attempt that reached the server before
-   * the connection went already minted a secret, and a second attempt would mint another — leaving
+   * the connection went already issued a secret, and a second attempt would issue another — leaving
    * the caller holding the one credential the server no longer accepts.
    *
    * A `409` means a concurrent caller won the race. The server deliberately does not retry — only
@@ -153,10 +155,11 @@ class SempodsControlPlaneClient(
     podName: String,
     clientId: String,
     expectedRegistrationId: String?,
+    expectedSecretId: String?,
   ): SempodsResponse<ProvisionServiceClientResult> {
     val request = pods("POST", podName, SERVICE_CLIENTS, clientId)
       .header("Accept", APPLICATION_JSON)
-      .post(json(ControlPlaneJson.provisionRequest(expectedRegistrationId)))
+      .post(json(ControlPlaneJson.provisionRequest(expectedRegistrationId, expectedSecretId)))
       .build()
 
     return exchange.text(request, 200).map { ControlPlaneJson.provisioned(it, clientId) }
@@ -186,17 +189,16 @@ class SempodsControlPlaneClient(
 enum class CreatePodResult { created, alreadyExists }
 
 /**
- * Outcome of [SempodsControlPlaneClient.provisionServiceClient].
- *
- * [contextRoot] and [scopes] come back on **both** results, so no caller has to rebuild the
- * `apps/<clientId>` convention. [secret] is present only when the registration was (re-)minted;
- * on [alreadyProvisioned] the caller keeps the credential it already holds, because the server
- * hands a secret out exactly once.
+ * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.
+ * What each member means is the server's `docs/auth/service-clients.md` §"Provisioning over the
+ * admin surface". [secret] is null on [alreadyProvisioned]; a caller stores [registrationId] and
+ * [secretId] beside the secret it holds and sends them back.
  */
 data class ProvisionServiceClientResult(
   val alreadyProvisioned: Boolean,
   val clientId: String,
   val registrationId: String,
+  val secretId: String,
   val scopes: Set<String>,
   val contextRoot: URI,
   val secret: String?,

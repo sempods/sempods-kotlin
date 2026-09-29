@@ -62,6 +62,10 @@ internal fun decodeObject(bytes: ByteArray): ProtocolObject = ProtocolJson.decod
 @JvmSynthetic
 internal fun encodeObject(members: Map<String, Any>): ByteArray = ProtocolJson.encodeObject(members)
 
+/** [values] as one JSON array of strings, in their order. */
+@JvmSynthetic
+internal fun encodeStrings(values: Collection<String>): ByteArray = ProtocolJson.encodeStrings(values)
+
 /**
  * The one place this module names Jackson, and in no declaration that is public in bytecode:
  * `checkPublishedSignatures` reads the class files, where `internal` is public.
@@ -98,6 +102,8 @@ private object ProtocolJson {
   }
 
   fun encodeObject(members: Map<String, Any>): ByteArray = mapper.writeValueAsBytes(members)
+
+  fun encodeStrings(values: Collection<String>): ByteArray = mapper.writeValueAsBytes(values)
 
   fun unreadable(failure: JacksonException): String {
     val what = if (failure is StreamConstraintsException) "JSON beyond this client's read limits" else "malformed JSON"

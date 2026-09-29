@@ -168,7 +168,8 @@ class PodRegistrationResponsesTest {
     return json(response)
   }
 
-  private fun render(result: PodRegistrationResult): Response = PodRegistrationResponses.render(result)
+  private fun render(result: PodRegistrationResult): Response =
+    PodRegistrationResponses.render(result) { error("no bearer in these cases: $it") }
 
   private fun json(response: Response): Map<String, Any?> =
     JsonMappers.default().readValue(response.entity as String, JsonUtil.dynamicTypeRef)

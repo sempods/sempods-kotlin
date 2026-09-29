@@ -331,6 +331,8 @@ open class SempodsBaseEndpoint(
         Triple(401, BearerChallenge.INVALID_TOKEN, "this authorization no longer stands")
       PodOwnerAuthorityRefusal.NOT_OWNER ->
         Triple(403, BearerChallenge.INSUFFICIENT_SCOPE, "this pod's owner manages its $manages")
+      PodOwnerAuthorityRefusal.CONSENT_OUTDATED ->
+        Triple(403, BearerChallenge.INSUFFICIENT_SCOPE, "this authorization was approved before it covered this; ask for '$scope' again")
     }
     return Response.status(status)
       .header(HttpHeaders.WWW_AUTHENTICATE, buildBearerChallenge(podName, code))

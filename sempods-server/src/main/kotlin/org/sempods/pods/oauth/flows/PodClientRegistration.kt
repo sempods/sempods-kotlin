@@ -8,9 +8,11 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.oauth.DynamicClientStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 
@@ -24,11 +26,14 @@ import java.time.Instant
  * `token_endpoint_auth_method` is always `none`: these clients hold no secret, and PKCE is what
  * binds a code to the caller that asked for it.
  *
- * **A service, registering itself.** A confidential client that authenticates with a secret and
- * uses Client Credentials. Nobody authorizes the call: the registration is provisional, holds no
- * data rights, and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
- * activates it by granting it contexts. The deadline and the per-pod budget bound what an open
- * endpoint costs; neither confirms who registered. The server names the client `svc:…`.
+ * **A service.** A confidential client that authenticates with a secret and uses Client Credentials.
+ * The server names it `svc:…`, and it holds no data rights until the owner grants them.
+ * - **Registering itself**, without a bearer: nobody authorizes the call. The registration is
+ *   provisional and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
+ *   activates it by granting it contexts. The deadline and the per-pod budget bound what an open
+ *   endpoint costs; neither confirms who registered.
+ * - **Registered by the owner's tool**, with a standing `service-clients:manage` authority as the
+ *   initial access token: active at once, with no deadline, and not counted in the per-pod budget.
  *
  * Which profile a body asks for is read from the body as it arrived. The SDK fills in what RFC 7591
  * says a field defaults to, and a default must not be able to turn a request nobody made into a
@@ -44,6 +49,7 @@ class PodClientRegistration @Inject internal constructor(
   private val dynamicClientStore: DynamicClientStore,
   private val serviceClients: PodServiceClientStore,
   private val serviceBudget: PodServiceRegistrationBudget,
+  private val ownerAuthority: PodOwnerAuthority,
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
@@ -136,15 +142,22 @@ class PodClientRegistration @Inject internal constructor(
   // ─── The service profile ──────────────────────────────────────────────────
 
   /**
-   * A provisional service client: its identifier, its secret, and a deadline for the owner's
-   * consent. What happens to each member the body carries is `docs/auth/oauth.md` §"Registering a
-   * service client"; [REFUSED_MEMBERS] are the ones refused, and anything else this pod does not
-   * read is neither stored nor echoed.
+   * A service client: its identifier and its secret. What happens to each member the body carries
+   * is `docs/auth/oauth.md` §"Registering a service client"; [REFUSED_MEMBERS] are the ones refused,
+   * and anything else this pod does not read is neither stored nor echoed.
    *
-   * A bearer the request carries changes nothing here; the registration holds no rights to give.
-   * The pod's budget is charged only for a body that would be accepted.
+   * The two ways in are the class's. A bearer that is not the owner's authority is refused rather
+   * than ignored, so a caller that meant to present authority never walks away with a provisional
+   * registration it did not expect.
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
+    val owner = request.caller?.let { caller ->
+      when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT)) {
+        is PodOwnerAuthorityCheck.Standing -> check.authority
+        is PodOwnerAuthorityCheck.Refused -> return PodRegistrationResult.Unauthorized(check.reason)
+      }
+    }
+
     REFUSED_MEMBERS.firstOrNull { it in request.raw && isGiven(request.raw[it]) }?.let { member ->
       return refused(
         PodRegistrationError.INVALID_CLIENT_METADATA,
@@ -167,17 +180,16 @@ class PodClientRegistration @Inject internal constructor(
       )
     }
 
-    // Each registration costs a bcrypt run, and nothing authenticates the caller.
-    if (!serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
+    // Only a self-registration is counted, and only for a body that would be accepted.
+    if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
-    val registered = serviceClients.registerProvisional(pod, label, request.client.redirectUris.toList())
+    val registered = serviceClients.registerService(pod, label, request.client.redirectUris.toList(), provisional = owner == null)
     val registration = registered.registration
 
     logger.info {
-      "[oauth/register] Service client registered, pending activation: pod='${pod.name}', " +
-          "clientId='${registration.clientId}', label='${LogSafeText.of(label)}', " +
-          "redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
-          "activationExpiresAt=${registration.pendingUntil}"
+      "[oauth/register] Service client registered: pod='${pod.name}', clientId='${registration.clientId}', " +
+          "label='${LogSafeText.of(label)}', redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
+          "activationExpiresAt=${registration.pendingUntil}, by='${owner?.webId}'"
     }
 
     return PodRegistrationResult.ServiceRegistered(
@@ -186,7 +198,7 @@ class PodClientRegistration @Inject internal constructor(
       issuedAt = registration.createdAt,
       secret = registered.secret,
       redirectUris = registration.redirectUris,
-      activationExpiresAt = checkNotNull(registration.pendingUntil) { "a provisional registration has a deadline" },
+      activationExpiresAt = registration.pendingUntil,
     )
   }
 
@@ -329,12 +341,13 @@ internal sealed interface PodRegistrationResult {
   data class Registered(val clientId: String, val client: PodClientMetadata) : PodRegistrationResult
 
   /**
-   * A provisional service client, and the one moment its secret can be read.
+   * A service client, and the one moment its secret can be read.
    *
    * [issuedAt] and [clientId] are the pod's own: [clientName] is whatever the service typed, so an
    * owner shown only that has no way to tell an expected service from a crafted one.
    *
-   * @param activationExpiresAt when the registration is removed unless the owner activates it.
+   * @param activationExpiresAt when the registration is removed unless the owner activates it;
+   *   `null` for one the owner's authority registered, which is active.
    */
   data class ServiceRegistered(
     val clientId: String,
@@ -342,8 +355,11 @@ internal sealed interface PodRegistrationResult {
     val issuedAt: Instant,
     val secret: String,
     val redirectUris: List<String>,
-    val activationExpiresAt: Instant,
+    val activationExpiresAt: Instant?,
   ) : PodRegistrationResult
+
+  /** A bearer came with a service registration and holds no owner authority to register one. */
+  data class Unauthorized(val reason: PodOwnerAuthorityRefusal) : PodRegistrationResult
 
   /**
    * @param description the wire's `error_description`, decided here because two of the three name
@@ -357,8 +373,9 @@ internal sealed interface PodRegistrationResult {
 
 /**
  * How fast services may register themselves on one pod — each registration mints a secret at
- * bcrypt cost, and nothing authenticates the caller. A port, so the budget is decided here and kept
- * by the adapter that keeps the other registration budgets.
+ * bcrypt cost, and nothing authenticates the caller. The owner's own registrations are not counted.
+ * A port, so the budget is decided here and kept by the adapter that keeps the other registration
+ * budgets.
  */
 fun interface PodServiceRegistrationBudget {
   fun tryAcquire(pod: PodId): Boolean

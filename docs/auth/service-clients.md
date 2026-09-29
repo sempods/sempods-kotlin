@@ -24,12 +24,11 @@ Two routes lead into one registry.
 authorizes it, so no pod token reaches it. The caller names the
 `clientId`, and the sandbox below is derived from it.
 
-**A service** registers itself at `POST /{pod}/_system/auth/register`,
-without a bearer — [`oauth.md`](oauth.md#registering-a-service-client)
-is that flow, what the body must say and what the answer carries. There
-the server names the client `svc:…`, and there is no sandbox to derive:
-the registration is provisional until the owner confirms its
-[consent](#consent), and removed after 24 hours if they never do.
+**A service**, or the owner's own tool, registers at
+`POST /{pod}/_system/auth/register` — [`oauth.md`](oauth.md#registering-a-service-client)
+is that flow: what the body must say, what the answer carries, and when
+the registration is provisional. There the server names the client
+`svc:…`, and there is no sandbox to derive.
 
 Either way:
 
@@ -51,14 +50,17 @@ Either way:
   would make any ancestor of it match every context on the pod. That
   covers `<pod>#manage` and `<pod>/_system#manage` alike, rather than
   the one spelling somebody happened to think of.
-- An operator-provisioned client holds the scope it was provisioned with.
-  A self-registered one starts with none; the owner decides them at the
-  [consent](#consent) and takes them away
-  [below](#managing-an-installed-service-client).
+- An operator-provisioned client starts with the sandbox scope. A `svc:`
+  one starts with none. Afterwards the owner decides the grants of both,
+  at the [consent](#consent) or [over the API](#managing-service-clients).
 - The scope set may be empty: the registration holds a credential and no
-  authority, and the token endpoint answers it `invalid_scope`. That is
-  a provisional registration, one whose last grant was removed, and one
-  whose last anchor was deleted.
+  authority, and the token endpoint answers it `invalid_scope`. Only the
+  first of these cases has a deadline:
+  - a provisional registration, removed at `activation_expires_at` unless
+    the owner confirms it;
+  - an active one the owner gave nothing, or took everything from: it
+    stays until it is revoked;
+  - an active one whose last anchor was deleted: it stays too.
 
 ## Consent
 
@@ -69,11 +71,12 @@ which deviates from
 [sempods-spec#123](https://github.com/sempods/sempods-spec/issues/123) proposes the profile.
 
 ```
-GET {pod}/_system/auth/service-consent?client_id=svc:…&state=<opaque>[&redirect_uri=<registered>]
+GET {pod}/_system/auth/service-consent?client_id=<service>&state=<opaque>[&redirect_uri=<registered>]
 ```
 
-- **`client_id`** names a live `svc:` registration, pending or active. An unknown one, a `dyn:` one,
-  an operator-provisioned one or one past its deadline gets a plain `400` and no redirect.
+- **`client_id`** names a live service registration: a `svc:` one, pending or active, or an
+  operator-provisioned one, whose grants are the owner's too. An unknown one, a `dyn:` one or one
+  past its deadline gets a plain `400` and no redirect.
 - **`redirect_uri`** is optional. It must be one the service registered; a loopback one matches on
   any port (RFC 8252 §7.3). Another gets a plain `400` and no redirect.
 - **Nothing else is read.** The URL suggests no rows: the owner picks them.
@@ -83,7 +86,7 @@ The dialog shares its rows and context creation with delegated access
 ([`oauth.md`](oauth.md#authorize-flow-overview)); rows arrive ticked with what the service holds
 now. Anyone can build this URL for any service, and any registration can call itself
 `sempods-syncer`, so the dialog shows only what the pod knows: the name as the service's claim,
-that it acts as itself, its `svc:` identifier, when it registered, and what it holds now. It does
+that it acts as itself, its identifier, when it registered, and what it holds now. It does
 not say the service asked, and it does not show the return address, which receives nothing.
 
 | The owner | With `redirect_uri` | Without | Grants |
@@ -149,8 +152,8 @@ host-level.
 
 ## Provisioning over the admin surface
 
-`POST /_system/admin/pods/{pod}/service-clients/{clientId}` performs
-the whole pod-side setup for an app:
+`POST /_system/admin/pods/{pod}/service-clients/{clientId}` creates a
+registration for an app. Only the call that creates it touches the pod:
 
 1. registers the app root context `<pod>/_system/contexts/apps/{clientId}`
    **private**, and demotes it to private if it already existed and was
@@ -160,68 +163,97 @@ the whole pod-side setup for an app:
    `<app-root>#manage` (the sandbox above);
 3. returns the minted secret — **exactly once**, at the moment it is
    minted. The pod keeps only the bcrypt hash, so it can never be
-   produced again;
-4. returns `scopes` (the registration's stored scope set) and
-   `contextRoot` (the sandbox root this call created or ensured) — both
-   on **both** results. They are redundant today, `scopes ==
-   {"<contextRoot>#manage"}`, but they answer different questions: one
-   is state, the other is what this call did. Once a caller may pass its
-   own scopes there is no single "the root" to derive from them.
+   produced again.
 
-Callers should use the returned `contextRoot` rather than rebuilding
-the path from the convention. The server owns where the sandbox lives;
-a caller that derives it independently keeps writing under the old root
-the day that location changes, while its scope points at the new one —
-a runtime 403, not a build error. Where the sandbox lives today is
-sempods-spec `spec/core/contexts.md` §2.
+Every answer carries `registrationId`, `secretId`, `scopes` and
+`contextRoot`; `ProvisionServiceClientResponse` (`AdminPodsEndpoint`)
+says what each means. A caller uses the returned `contextRoot` and never
+rebuilds the path; where the sandbox lives today is sempods-spec
+`spec/core/contexts.md` §2.
+
+**Provisioning creates; the owner decides afterwards.** A later call for
+the same `clientId` writes no grant and leaves the root alone. The owner
+may have narrowed the grants, emptied them, deleted the root or made it
+public, and provisioning again restores none of it. An emptied
+registration stays until the operator removes it, so an automatic
+re-run finds it and leaves it empty. `scopes` then says what the client
+holds, possibly nothing, and `contextRoot` is a name the call did not check.
 
 **Idempotency.** The server cannot know whether the caller still holds
 a working credential — only the caller can decrypt and verify its own
 secret. So the caller asserts what it holds via
-`expectedRegistrationId` in the request body:
+`expectedRegistrationId` and `expectedSecretId` in the request body, the
+two identifiers an earlier answer gave:
 
-- it matches the current registration **and** the registered scope set
-  is exactly the sandbox scope → nothing is written,
-  `{"result":"alreadyProvisioned"}`, **no secret in the response**;
-- anything else (omitted, stale, or scope drift) → the registration is
-  replaced and `{"result":"provisioned"}` carries a fresh secret.
+| The caller sends | A registration exists | Answer |
+|---|---|---|
+| the current `registrationId` and `secretId` | yes | `{"result":"alreadyProvisioned"}`, nothing written, **no secret** |
+| anything else, or nothing | yes | `{"result":"provisioned"}` with a new secret for the same registration; `registrationId` and grants stay, `secretId` changes |
+| anything | no | `{"result":"provisioned"}`: the registration is created, with its secret |
 
-Re-minting invalidates the previous secret; outstanding service tokens
-ride out their ≤10-minute TTL. An omitted `expectedRegistrationId`
-therefore always re-mints, which is the correct answer both for a fresh
-pod and for a half-provisioned caller whose credential row was lost.
+A new secret invalidates the previous one; outstanding service tokens
+ride out their ≤10-minute TTL. A caller that lost its credential row
+therefore sends nothing and gets a working secret back. Two callers that
+both sent nothing each got a secret, and only the later works; the
+earlier one's `secretId` is no longer current, so its next call gets a
+new secret instead of `alreadyProvisioned`. A `409` means
+another call issued a secret or created the registration in between.
 
 The caller keeps its own bookkeeping — the encrypted credential row,
 its internal user ids (which must never reach the pod: sempods knows
 persons only as WebID URIs) and the health decision. None of that is the
 pod's business, and none of it is defined here.
 
-## Managing an installed service client
+## Managing service clients
 
 The owner manages the registrations on their pod with a bearer carrying
 `service-clients:manage` — [`oauth.md`](oauth.md#managing-service-clients)
-is how one is granted. The client id travels path-encoded (`svc%3A…`).
-From a JVM program these are `SempodsPodServiceClients`
+is how one is granted, and what it lets the holder do. The same bearer
+registers a service active at `POST {pod}/_system/auth/register`
+([Registration](#registration)). The client id travels path-encoded
+(`svc%3A…`). From a JVM program these are `SempodsPodServiceClients`
 ([`../pod-client.md`](../pod-client.md#registering-a-service-client)).
 
 | Route | What it does |
 |---|---|
-| `GET {pod}/_system/auth/service-clients` | Every registration: `client_id`, `client_name`, `client_id_issued_at`, `last_used_at`, `scope`, `origin`, and `activation_expires_at` while it is provisional. Never a secret |
+| `GET {pod}/_system/auth/service-clients` | Every registration, described as below. Never a secret |
+| `GET …/service-clients/{clientId}` | One registration, with its `grants_version` as a strong `ETag` |
+| `PUT …/service-clients/{clientId}/grants` | Replaces the grants with the JSON array of scopes in the body, at the version `If-Match` names. `[]` removes every grant and keeps the registration. A provisional registration is activated |
 | `POST …/service-clients/{clientId}/secret` | A new `client_secret`, answered once with `Cache-Control: no-store`. `409` when another rotation landed in between |
-| `DELETE …/service-clients/{clientId}/grants?scope=…` | Takes the named scopes away and answers what is left. Removing the last one keeps the registration |
 | `DELETE …/service-clients/{clientId}` | Removes the registration. The contexts it wrote to stay |
+
+A registration is described by `client_id`, `client_name`,
+`client_id_issued_at`, `last_used_at`, `scope`, `grants_version`,
+`origin`, and `activation_expires_at` while it is provisional.
 
 - **`last_used_at`** is when the client last minted a token. A secret does
   not expire, so this is what makes a forgotten service visible.
-- **`origin`** is `installed` for a `svc:` client and `provisioned` for an
-  operator's. A provisioned one is listed and refused every change (`403`).
-- Any other bearer is `403 insufficient_scope`.
+- **`grants_version`** moves with every change to the grants: the owner's
+  replace, a consent, a context deletion.
+- **`origin`** is `registered` for a `svc:` client and `provisioned` for
+  an operator's. The owner replaces the grants of both. Rotating or
+  removing a provisioned one is `403`: the operator holds its secret and
+  its registration. The owner takes its access away with `[]`.
+- Any other bearer is `403 insufficient_scope`, and so is an authority
+  approved under an [earlier consent text](oauth.md#managing-service-clients)
+  at the registration and at a replace that does more than narrow.
+
+The replace answers:
+
+| Case | Answer |
+|---|---|
+| `If-Match` names the current version | `200` and the registration, with the new `ETag` |
+| `If-Match` names another version | `412`; nothing changed |
+| No `If-Match` | `428` |
+| `If-Match` is `*`, a list or a weak tag | `400` |
+| A body that is not an array of strings | `400` |
+| `public-read`, an OIDC scope, a `manage` root at or above the context namespace, or a scope on no context of the pod | `400`, naming the scope; nothing changed |
 
 What each change does to tokens the service already holds:
 
 | Change | The old secret | A token already minted |
 |---|---|---|
-| Grant removed | Still mints, for what is left | Reaches only what is left, from its next request |
+| Grants replaced | Still mints, for what it holds now | Reaches only that, from its next request |
 | Rotated | Stops minting at once | Keeps its grants until it expires (≤ 10 minutes) |
 | Revoked | Stops minting at once | Authenticates until it expires and reaches no context |
 

@@ -19,6 +19,7 @@ import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.oauth.PodConsentDecisionStore
+import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
@@ -362,6 +363,9 @@ class PodTokenExchange @Inject internal constructor(
       webId = entry.subject,
       disconnects = standing?.disconnects ?: 0L,
       subjectUris = entry.subjectUris,
+      // The text the dialog showed, carried by the code; a code from before it carried one was
+      // approved under the first.
+      consent = entry.consentText ?: PrivilegedAuthorityRows.FIRST_CONSENT,
     )
 
     logger.info {
