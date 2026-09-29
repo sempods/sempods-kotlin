@@ -17,6 +17,7 @@ nobody sees until a consumer resolves a version it never chose.
 
 Consumers pin the platform and name no versions:
 
+<!-- doc-example: illustrative; coordinates checked against `publishedModules` and `sempods-bom` in build.gradle.kts -->
 ```kotlin
 implementation(platform("org.sempods:sempods-bom:0.1.0"))
 implementation("org.sempods:sempods-client")
@@ -54,6 +55,7 @@ centralSnapshotsUsername=<portal token username>
 centralSnapshotsPassword=<portal token password>
 ```
 
+<!-- doc-example: illustrative; publishes to Central, task from the `centralSnapshots` repository in build.gradle.kts -->
 ```bash
 ./gradlew publishAllPublicationsToCentralSnapshotsRepository
 ```
@@ -76,6 +78,7 @@ Then, per release:
    has to be the one the artifacts were built from — otherwise checking out `v0.1.0` rebuilds
    `0.1.0-SNAPSHOT` and the release cannot be reproduced from its own tag. `main` is protected and
    the bypass list is empty, so this is a pull request like any other:
+   <!-- doc-example: illustrative; `version` checked against gradle.properties -->
    ```bash
    # on a branch: drop -SNAPSHOT from `version` in gradle.properties, commit, open the PR, merge
    git switch main && git pull
@@ -83,6 +86,7 @@ Then, per release:
    ```
    Everything below runs from that merged commit, and `$VERSION` now carries no `-SNAPSHOT`.
 2. Build and sign. The key is read from the environment, so nothing points at a secret on disk:
+   <!-- doc-example: illustrative; needs the signing key, variables checked against the signing block in build.gradle.kts -->
    ```bash
    export SIGNING_KEY="$(gpg --armor --export-secret-keys <key-id>)"
    export SIGNING_PASSWORD='<the key passphrase>'
@@ -92,6 +96,7 @@ Then, per release:
    snapshot do not need a key.
 3. Build the bundle. The task stages every publication into a directory in Maven repository
    layout, checks it, and zips it:
+   <!-- doc-example: illustrative; needs a signed build, task checked against `centralBundle` in build.gradle.kts -->
    ```bash
    ./gradlew centralBundle
    ```
@@ -105,6 +110,7 @@ Then, per release:
    `publishedModules` plus `sempods-bom` before uploading.
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
+   <!-- doc-example: illustrative; uploads to Central, zip path checked against `centralBundle` in build.gradle.kts -->
    ```bash
    # The same Portal token as the snapshot credentials above; the upload is a plain HTTP request,
    # so it reads the environment rather than `~/.gradle/gradle.properties`.
@@ -128,6 +134,7 @@ Then, per release:
    commit you built from, and cut a GitHub Release from the tag. First save the notes reviewed in
    the release pull request as `../release-notes.md`, beside the checkout so they stay out of the
    repository:
+   <!-- doc-example: illustrative; pushes a tag and a release, flags checked against `gh release create --help` -->
    ```bash
    git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
    gh release create "v$VERSION" --notes-file ../release-notes.md --generate-notes
@@ -157,3 +164,5 @@ Then, per release:
 | a `.asc` beside every file | the signing block, when `SIGNING_KEY` is set |
 | checksums | Gradle writes them |
 | a version not ending in `-SNAPSHOT` | step 1 above |
+
+<!-- doc-examples: checked -->
