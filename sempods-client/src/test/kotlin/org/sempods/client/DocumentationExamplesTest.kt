@@ -1,6 +1,8 @@
 package org.sempods.client
 
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.mockserver.model.HttpRequest.request
@@ -45,6 +47,28 @@ class DocumentationExamplesTest : MockPodTest() {
 
     assertEquals(200, result.status)
     assertTrue(server.retrieveRecordedRequests(request()).single().getFirstHeader("Authorization").isEmpty())
+  }
+
+  @Test
+  fun `the find example posts a repeatable JSON-LD search`() {
+    val podUrl = "$origin/alice"
+    server.`when`(request().withMethod("POST").withPath("/alice/_system/find"))
+      .respond(response().withStatusCode(200).withBody("""{"@graph":[]}"""))
+    val pod = SempodsPod(SempodsSession(SempodsPodBase.of(podUrl)), http)
+
+    // doc-example:start find
+    val search = """{"text":"summer party","limit":10}"""
+    val request = SempodsRepeatable.mark(pod.session.newRequest("POST", "_system/find"))
+      .header("Accept", "application/ld+json")
+      .post(search.toRequestBody("application/json".toMediaType()))
+      .build()
+    val found = SempodsExchange(pod.calls).text(request, 200)
+    // doc-example:end find
+
+    assertEquals(200, found.status)
+    val sent = server.retrieveRecordedRequests(request().withPath("/alice/_system/find")).single()
+    assertEquals("application/ld+json", sent.getFirstHeader("Accept"))
+    assertEquals(json.readTree(search), json.readTree(sent.bodyAsString))
   }
 
   @Test
