@@ -57,6 +57,16 @@ Rules for choosing the level:
   in one of the two, not a local override.
 - Every document is reachable through at least one `AGENTS.md` pointer.
 
+### Reader navigation
+
+The repository `README.md` links common developer tasks to their guides. `docs/README.md` indexes
+shared and module documentation.
+
+An independently usable module has a `README.md` with its purpose, its dependency coordinate, a
+small example and links to its API and `docs/`. A module family has one entry README, and its
+members link back to it. Cross-module overviews live in root `docs/`; details live with the module
+that owns them. Create no empty module index.
+
 ### Instruction files are maps
 
 Agent instructions and procedures govern work; they sit outside the three subject-document types.
@@ -141,6 +151,24 @@ resolve-and-pin lives) belongs, *which pull request changed it* does not.
 For example, replace "Retries twice" with "Retries three times" when the retry limit changes.
 When adding a paragraph, look for text it makes redundant. When a section grows substantially,
 review it for repetition and unnecessary detail. Keep explanations and examples readers need.
+
+## Checking examples
+
+Examples are maintained API consumers. When an API, endpoint, configuration setting or flow
+changes, search Markdown, KDoc and example sources for its names from the repository root, for
+example `git grep -n 'SempodsPodTokens\|client_credentials'`.
+
+A new or revised developer guide carries `<!-- doc-examples: checked -->`. Each Java, Kotlin,
+shell, JSON, HTTP, JavaScript or Turtle fence on it then needs a marker on the line above:
+
+- `<!-- doc-example: path/to/Test.kt#name -->` names a source region between
+  `// doc-example:start name` and `// doc-example:end name` in test code that runs. Prefer it.
+- `<!-- doc-example: illustrative; <evidence> -->` is for code CI cannot run: destructive
+  commands, deployment configuration, schematic HTTP. The evidence names the file or test the
+  example was checked against.
+
+Run `./gradlew checkDocLinks` and the tests holding the regions. A behavioural example's test
+asserts the HTTP outcome. Examples use no live accounts or production credentials.
 
 ## Issue planning
 
@@ -237,7 +265,10 @@ behaviour change is not finished until, **in the same change**:
   here. A change that contradicts a requirement is not finished until the companion change is open
   in that repository. It is the one item on this list that cannot land in the same commit, which is
   exactly why it is the one that gets forgotten;
-- the `AGENTS.md` pointers still resolve, and any new document is reachable from one;
+- the `AGENTS.md` pointers still resolve, and any new document is reachable from one and from a
+  reader-facing README or index;
+- affected examples have been found across Markdown, KDoc and source files, checked under
+  [Checking examples](#checking-examples), and their validation is recorded;
 - nothing you wrote gives a fact a second owner, and what the change made redundant is gone
   (rules 9 and 11). This is the one that fails quietly, because every copy reads correctly on its
   own — [`doc-review.md`](doc-review.md) §6 is where it is caught;
@@ -247,5 +278,5 @@ behaviour change is not finished until, **in the same change**:
 
 [`doc-review.md`](doc-review.md) is the procedure that walks this list.
 
-`./gradlew checkDocLinks` checks the mechanical half — that every relative markdown link resolves.
+`./gradlew checkDocLinks` checks relative link targets and annotated examples against source regions.
 The rest is a judgement, which is why it is written down here rather than automated.

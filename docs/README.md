@@ -1,14 +1,22 @@
 # Documentation
 
-**The contract is not here.** What a pod must do — contexts, grants, auth, CRUD, SPARQL, `find`,
-and the optional modules — lives in [`sempods-spec`](https://github.com/sempods/sempods-spec), rendered
-at [spec.sempods.org](https://spec.sempods.org). Read that to implement a pod. Read this to
-understand, extend or operate *this* implementation.
+Guides for using, extending and operating this implementation. The protocol is defined in
+[sempods-spec](https://github.com/sempods/sempods-spec), rendered at [spec.sempods.org](https://spec.sempods.org).
 
-The three types are **Vision**, **maintained IST documentation** and occasional **Proposal**;
-[the strategy](agents/documentation-strategy.md) defines their ownership. Public plans and progress
-live in [GitHub issues](https://github.com/sempods/sempods-kotlin/issues).
-No proposal document is needed merely to open an issue.
+The [repository README](../README.md#documentation) is the entry point and links guides by task.
+This index lists shared and module documentation.
+
+## Module documentation
+
+- [JVM client](../sempods-client/README.md): [API guide](../sempods-client/docs/client.md) and
+  [transport](../sempods-client/docs/transport.md)
+- [Pod OAuth](../sempods-server/docs/auth/README.md),
+  [host provisioning](../sempods-server/docs/host-provisioning.md) and
+  [collections](../sempods-server/docs/collections.md) in the pod server
+- [Identity service](../sempods-auth/README.md): [details](../sempods-auth/docs/identity-service.md)
+- [Shared auth library](../sempods-auth-core/README.md)
+- [Hosted MCP service](../sempods-mcp/docs/README.md)
+- [MongoDB document contract](../sempods-commons-mongo/docs/document-contract.md)
 
 ## Vision — why this exists
 
@@ -33,12 +41,11 @@ deployment designs. Each links its owning issue; none is a statement of shipped 
 
 ## Reference — what the system is today
 
-**IST.** Where one of these disagrees with the code, the code is right and the document is the bug.
+These pages describe the current implementation.
 
 **By area**
 
-- [`auth/`](auth/) — what this implementation does around the OAuth contract: identity and WebIDs,
-  the OAuth surface, service clients, and the recovery page every `error_uri` points at
+- [`auth/`](auth/README.md) — the cross-module auth overview and the OAuth error recovery page
 - [`mcp/`](mcp/) — the pod's MCP surfaces: the tool reference, the endpoint, authentication, and how
   real clients actually behave
 - [`architecture/`](architecture/) — [`module-layering.md`](architecture/module-layering.md), which
@@ -51,7 +58,6 @@ deployment designs. Each links its owning issue; none is a statement of shipped 
 **Repository-wide, one file each**
 
 - [`ai-layer.md`](ai-layer.md) — the AI layer at a high level; the exact contracts are KDoc
-- [`pod-client.md`](pod-client.md) — the client library, for consumers building against a pod
 - [`media.md`](media.md) — the media storage seam: which backends exist, how a deployment picks one
 - [`naming.md`](naming.md) — how the name is spelled, everywhere, and why it is not negotiable
 - [`logging.md`](logging.md) — what is logged at which level, and what must never be
@@ -60,15 +66,11 @@ deployment designs. Each links its owning issue; none is a statement of shipped 
 
 ## Moving between versions
 
-- [`migration/0.2.md`](migration/0.2.md) — what a 0.1.0 client calls, and what it calls instead. Not
-  IST: it describes a move rather than the system, and it goes when 0.2 is old enough that nobody is
-  making it.
+- [Migration to 0.2](migration/0.2.md) — changes a 0.1 client needs to make.
 
 ## Instructions for contributors, human and AI
 
-[`agents/`](agents/) — reached from [`../AGENTS.md`](../AGENTS.md) rather than from here, because
-they govern how the rest of this directory is written rather than describing the system:
-[`ai-instructions.md`](agents/ai-instructions.md) is the hub,
-[`documentation-strategy.md`](agents/documentation-strategy.md) the authority on types and issue planning,
-[`issue-work.md`](agents/issue-work.md) the work procedure, and
-[`doc-review.md`](agents/doc-review.md) the documentation review for a change, a pull request or a path.
+The [instruction hub](agents/ai-instructions.md) routes to repository and module rules.
+The [documentation strategy](agents/documentation-strategy.md) defines page ownership and example
+checks; [documentation review](agents/doc-review.md) is the per-change checklist.
+[GitHub issues](https://github.com/sempods/sempods-kotlin/issues) own public plans and progress.

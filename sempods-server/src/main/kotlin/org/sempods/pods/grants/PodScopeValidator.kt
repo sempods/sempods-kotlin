@@ -24,7 +24,7 @@ const val OFFLINE_ACCESS_SCOPE = "offline_access"
 /**
  * OAuth scope literal for the owner's authority over this pod's service clients: registering them
  * and deciding what each reaches, and so, through their secrets, the person's data. What it allows
- * is `docs/auth/oauth.md` §"Managing service clients".
+ * is `sempods-server/docs/auth/oauth.md` §"Managing service clients".
  *
  * Top-level for the same reason as [PUBLIC_READ_SCOPE]: the validator classifies it, the consent
  * screen offers it, [GrantStorePodAuthorizer] refuses context permissions to a token carrying it,
@@ -101,7 +101,7 @@ class PodScopeValidator {
     // uri.startsWith("$root/")`), so anything the context namespace sits *below* matches every
     // context on the pod at once. `<pod>#manage` was already refused by the check above;
     // `<pod>/_system#manage` and `<pod>/_system/contexts#manage` were not, and
-    // `docs/auth/service-clients.md` promises a service client is confined to a subtree.
+    // `sempods-server/docs/auth/service-clients.md` promises a service client is confined to a subtree.
     //
     // Stated as "no ancestor of the namespace" rather than "must be under the namespace": the
     // second would also retire the older context shapes `ContextPathRules` records, which is a

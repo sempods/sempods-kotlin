@@ -31,7 +31,7 @@ import org.sempods.client.SempodsSession;
 
 /**
  * A program registers a service on a pod and asks the owner for access: the worked example of
- * {@code docs/pod-client.md} §"Registering a service client". {@code ServiceConsentExampleHttpTest}
+ * {@code sempods-client/docs/client.md} §"Registering a service client". {@code ServiceConsentExampleHttpTest}
  * runs it against a real pod, with the test as the owner.
  *
  * <p>Two ways to ask, one flow:

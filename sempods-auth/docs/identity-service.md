@@ -1,343 +1,138 @@
-# sempods Identity Service
+# Identity service details
 
-## Purpose
+[Module guide](../README.md) · [Auth overview](../../docs/auth/README.md) · [Pod trust](../../sempods-server/docs/auth/identity.md)
 
-This document describes the external person-identity layer for sempods:
+For example, Alice signs in through Google. The service maps the verified claims to a WebID,
+creates its profile if needed, and returns that identity to the pod. It never grants access to
+Alice's pod data.
 
-- `id.sempods.org` — WebID registry, OIDC bridge, JWT issuance (all roles in one service)
+## WebID registry
 
-The service is implemented by `sempods-auth` and is **optional**. sempods
-works without it — but with reduced identity capabilities.
+[LoginService](../src/main/kotlin/org/sempods/auth/login/LoginService.kt) derives a profile URI
+from verified provider claims. With an email it uses `{ID_BASE_URL}/e/<hash>`; otherwise it uses
+`{ID_BASE_URL}/oidc/<hash>` from the provider issuer and subject.
+[WebIdUriDeriver](../../sempods-commons/src/main/kotlin/org/sempods/commons/identity/WebIdUriDeriver.kt)
+owns normalization and hashing.
 
-This document complements:
-- [sempods-spec `spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) (pod-side enforcement, grants and scopes)
-- `docs/auth/identity.md` (pod trust model for identity JWTs)
+SHA-256 is deliberate: a pod can derive an email's identifier without contacting an identity
+service or sharing a secret. Hashing provides a stable identifier, not email secrecy against
+someone guessing addresses. The profile document itself includes no email field.
 
----
+A profile is created on first login. A derived URI may return `404` before then.
+[WebIdEndpoint](../src/main/kotlin/org/sempods/auth/api/webid/WebIdEndpoint.kt) serves existing
+profiles as Turtle, JSON-LD or HTML. [WebIdDocument](../src/main/kotlin/org/sempods/auth/webid/WebIdDocument.kt)
+owns those representations.
 
-## Identity Layers
+## OIDC bridge
 
-sempods person identity is composed of three optional layers. Each layer adds
-capability without breaking the layer below.
+The service is an OpenID Provider toward pods and hosted MCP, and a relying party toward Google
+and Apple. Each direction has its own code exchange and client identity.
 
-### Layer 0 — Always, no external dependencies
-
-Every pod can address persons by a deterministic URI derived from their email:
-
-```
-urn:sempods:e:<sha256(normalize(email))>       ← person URI (deterministic)
-```
-
-The `urn:` URI is globally unique and deterministic — any system that knows
-the email and the open formula can produce the same URI.
-
-No server needs to be running. No LOD outside the pod, but a complete and
-consistent internal graph.
-
-### Layer 1 — opt-in: sempods-auth connected
-
-When a sempods deployment is configured with a sempods-auth instance, person
-URIs become dereferenceable WebIDs:
-
-```
-id.sempods.org/e/<sha256(normalize(email))>    ← WebID URI (dereferenceable)
-```
-
-The pod graph gains a `sameAs` link to the WebID URI, bridging the local
-anchor to the external identity document.
-Multi-identity support through the ID Token's equivalent-identity claim
-becomes available.
-
-Any pod can independently compute the WebID URI from an email — no server
-call needed for URI derivation. The document at that URI may not exist yet
-(404 before first login) — this is expected and only affects LOD enrichment,
-not grant matching.
-
-### Layer 2 — opt-in: federation between sempods-auth instances
-
-Multiple sempods-auth deployments can federate via `owl:sameAs` links between
-their WebID documents:
-
-```
-id.sempods.org/e/<hash>  owl:sameAs  id.alice.org/e/<hash>
-```
-
-This enables cross-deployment identity matching without a central registry.
-Each deployment is independently authoritative for its own namespace.
-
----
-
-## WebID Registry
-
-### URI namespaces
-
-```
-id.sempods.org/e/<sha256(normalize(email))>            ← EMAIL namespace
-id.sempods.org/oidc/<sha256(normalize(iss+":"+sub))>   ← OIDC namespace (no email)
-```
-
-**Why SHA-256 and not HMAC:** stateless, decentralized — any pod or connector
-can compute `id.sempods.org/e/<sha256(email)>` independently. HMAC would
-require a shared secret, coupling all deployments to a specific service instance.
-
-### WebID document
-
-Served with content negotiation:
-
-```
-GET https://id.sempods.org/e/<hash>
-Accept: text/turtle          → RDF/Turtle
-Accept: application/ld+json  → JSON-LD
-Accept: text/html            → HTML profile page
-```
-
-Turtle representation:
-
-```turtle
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
-@prefix owl:  <http://www.w3.org/2002/07/owl#> .
-
-<https://id.sempods.org/e/<hash>>
-    a foaf:Person ;
-    foaf:name "Alice" ;
-    owl:sameAs <https://id.alice.org/e/<hash>> .   # federation link (opt-in)
-```
-
-The email address is never included — only opaque hashes in the URI path.
-Federation links (`owl:sameAs`) to other sempods-auth instances are added
-opt-in when cross-deployment linking is configured.
-
----
-
-## OIDC Bridge
-
-### Role
-
-`id.sempods.org` is an identity broker:
-
-1. Accepts OIDC login from any supported provider (Google, Apple, ...)
-2. Verifies the OIDC token
-3. Derives the canonical WebID URI:
-   - Email present → `id.sempods.org/e/<sha256(normalize(email))>`
-   - No email → `id.sempods.org/oidc/<sha256(normalize(iss+":"+sub))>`
-4. Looks up or creates the WebID profile; collects all linked identities
-5. Issues a sempods JWT
-
-It is a broker in both directions at once, which is worth naming because the two legs point
-opposite ways and both are OIDC:
-
-- Toward a pod it is an **OpenID Provider** — it authenticates the person and says who they are.
-- Toward Google or Apple it is a **relying party** — it is the client asking them the same thing.
-
-The paths keep the two apart. `/authorize` and `/token` are the provider role;
-`/login/oidc/{provider}/callback` is where an upstream answer comes back. The third meaning of
-`oidc` in this service — `id.sempods.org/oidc/<hash>` — is neither: it is a person's identity
-document, which is why no protocol endpoint lives under that prefix.
-
-### Endpoints
-
-| Path | Role |
+| Endpoint | Purpose |
 |---|---|
-| `GET /.well-known/openid-configuration` | Provider metadata (OIDC Discovery 1.0 §3) |
-| `GET /.well-known/jwks.json` | The keys that verify what this service signs |
-| `GET /authorize` | Authorization Code + PKCE; starts the upstream login |
-| `POST /token` | Exchanges the code for an `id_token` |
-| `GET|POST /login/oidc/{provider}/callback` | Where Google or Apple answers |
-| `GET /e/{hash}`, `GET /oidc/{hash}` | The WebID documents |
+| `GET /.well-known/openid-configuration` | Discover the provider |
+| `GET /.well-known/jwks.json` | Read its public signing keys |
+| `GET /authorize` | Start Authorization Code + PKCE |
+| `POST /token` | Redeem the code for tokens |
+| `GET` or `POST /login/oidc/{provider}/callback` | Receive the upstream provider's answer |
+| `GET /e/{hash}`, `GET /oidc/{hash}` | Read a WebID profile |
 
-Every caller is on the provider surface: the pod server's `{pod}/_system/auth/authorize` and the
-hosted MCP service's AI-client and browser flows all begin an authorization request here and
-exchange a code at `/token`.
-
-`GET /login` used to sit alongside them — an implicit grant that appended an `aud`-less identity
-token to any `return_to` it was given. It is gone, together with
-`JwtIssuer.issueLegacyIdentityToken`. Tokens it already issued outlive it — this service persists
-its signing keys, so invalidating them means clearing the key rows — an operator step against
-the `oauth.signingKeys` collection. The `/login` prefix survives on the upstream callback
-alone, and only because Apple and Google hold that address in their consoles.
+The callback path is registered in Apple's and Google's developer consoles, so it cannot move.
+`/oidc/{hash}` is a person's identity document; no protocol endpoint sits under `/oidc/`.
 
 ### The provider flow
 
-```
-pod ──GET /authorize?client_id=did:web:<pod-host>&redirect_uri=…&response_type=code
-                    &scope=openid&state=…&nonce=…&code_challenge=…&code_challenge_method=S256
-                                                    │
-                                    (provider chooser, then Google or Apple)
-                                                    │
-pod ◀─302 <redirect_uri>?code=…&state=… ────────────┘        through the browser
+For example, a pod on `pods.example` identifies itself as `did:web:pods.example` and sends the
+browser to `/authorize` with `scope=openid`, an S256 challenge, `state`, `nonce` and its callback.
+After upstream login, the service redirects a one-time code to that callback. The pod exchanges
+it with the verifier and validates the resulting `id_token`.
 
-pod ──POST /token  grant_type=authorization_code&code=…&code_verifier=… ──▶   back channel
-pod ◀─{ "access_token": …, "id_token": …, "token_type": "Bearer", … } ─────┘
-```
+PKCE is mandatory on this service, including for `did:web` clients. Redirect policy checks the
+identifier's host, port and optional path locally; it fetches no DID document. The pod's own
+public-client rules are [documented separately](../../sempods-server/docs/auth/oauth.md#client-identity-didweb-dyn-and-svc).
 
-The `access_token` is there because the response must carry one (RFC 6749 §5.1; OIDC adds the
-`id_token` to that response rather than replacing it, and libraries validate the shape). It
-authorizes nothing at this service — a WebID document is public Linked Data, so there is no
-protected resource here. It is marked `typ: at+jwt` (RFC 9068) and audienced to this issuer rather
-than to the client, so it cannot be mistaken for the identity token beside it.
-
-What travels through the browser is a single-use code, not a credential. Redeeming it needs the
-PKCE verifier, which only the client that started the flow holds.
-
-Clients are **`did:web:` static identities** — an origin, no secret, nothing registered. The
-`redirect_uri` must sit on the origin the identifier names, and no document is fetched to
-establish that: the host match is the whole check, so there is no SSRF surface and no third party
-in the login path. PKCE is required with no exemption.
-
-The `id_token` carries `aud`: a copy is worth nothing anywhere except at the client it was issued to.
+The token response also contains an `access_token`, as required by the OAuth response shape.
+It authorizes no protected resource here. It has `typ: at+jwt` and the service as its audience,
+so it cannot stand in for the identity token beside it.
 
 ### Token format
 
-A person who signed in without an email and later linked one:
+[JwtIssuer](../src/main/kotlin/org/sempods/auth/login/JwtIssuer.kt) issues RS256 identity tokens:
+`sub` and `webid` name the canonical WebID; `aud` names the relying client; `nonce` binds the
+login request. The caller validates signature, issuer, audience, nonce and expiry.
 
-```json
-{
-  "iss": "https://id.sempods.org",
-  "sub": "https://id.sempods.org/oidc/<hash2>",
-  "aud": "did:web:pod.example.org",
-  "nonce": "<from the authorization request>",
-  "webid": "https://id.sempods.org/oidc/<hash2>",
-  "https://schema.sempods.org/claims/equivalent-identities": [
-    "https://id.sempods.org/e/<hash>"
-  ],
-  "exp": 1744198100,
-  "iat": 1744197200
-}
-```
+The optional `https://schema.sempods.org/claims/equivalent-identities` claim contains other
+HTTP(S) WebIDs recorded on the profile. `LoginService.equivalentIdentitiesFor` converts supported
+URN aliases and leaves unsupported values out. A profile with no links sends no such claim.
+The [pod trust model](../../sempods-server/docs/auth/identity.md#equivalent-identities) explains
+when those identities affect consent.
 
-**`sub`** — the WebID URI; dereferenceable, LOD-compatible, globally unique.
-Doubles as `webid` in v0 (no distinction needed until profile management
-becomes richer in later phases).
+## Email → Grant Flow
 
-**`https://schema.sempods.org/claims/equivalent-identities`** — the person's other WebIDs, from the
-links an identity merge recorded on the profile (`SPS-OIDC-005`). HTTP and HTTPS WebIDs only:
+A pod can derive Bob's WebID from his email before Bob has logged in. When a provider later
+returns that same verified email, this service derives the same WebID. The pod server has no owner
+UI for granting access to another person.
 
-| Recorded link | In the claim |
-|---|---|
-| `https://id.sempods.org/oidc/<hash2>` | as recorded |
-| `urn:sempods:e:<hash>` | its WebID twin, `https://id.sempods.org/e/<hash>` |
-| anything else | left out |
-
-The URN twin of `sub` is never sent: a pod derives it. A person with no links gets no claim at all,
-which is every first sign-in. A standard consumer ignores the claim.
-`LoginService.equivalentIdentitiesFor` owns the rules, and
-[`docs/auth/identity.md`](../../docs/auth/identity.md#equivalent-identities) how a pod reads it.
-
-Grant-before-login is not possible for a subject without an email: the pod owner waits for the first
-login, or the person links an email via identity merge.
-
-Signed with `id.sempods.org`'s private key (RS256).
-
----
-
-## Email → Grant Flow (no pre-registration)
-
-```
-1. Alice enters: bob@example.com in the grant UI
-2. Grant stored: <family#read> → <urn:sempods:e:<sha256("bob@example.com")>>
-   (or WebID URI if sempods-auth connected — same sha256 formula)
-3. Bob logs in with Google (email: bob@example.com)
-4. sempods-auth derives: sub = id.sempods.org/e/<sha256("bob@example.com")>
-5. The pod derives the twin of sub: urn:sempods:e:<sha256("bob@example.com")>
-6. Grant matches via that twin — no identity linking needed
-```
-
-No pre-registration. No placeholder. URI is deterministic from the open formula.
+Each WebID has a URN twin with the same hash: `{ID_BASE_URL}/e/<hash>` ↔ `urn:sempods:e:<hash>`,
+and `/oidc/<hash>` ↔ `urn:sempods:oidc:<hash>`. A grant made before Bob's first login can name the
+URN. The pod derives the twin of the token's `sub` and matches the grant; the twin is never sent in
+a claim. A grant before the first login needs an email, because only an email hash is derivable in
+advance.
 
 ### Limitation: provider-side relay addresses
 
-The flow rests on the provider handing over the address the grant was made against. Apple's
-"Hide My Email" breaks that assumption: it supplies a per-service relay alias
-(`<opaque>@privaterelay.appleid.com`, flagged by `is_private_email`), so step 4 derives a different
-hash and the grant in step 2 does not match.
+Apple's "Hide My Email" supplies a relay address, so a login can produce a different WebID from
+one derived from Alice's usual email. A grant to the latter then does not match. Until a verified
+link exists, grant access to the WebID the login actually produces. The service logs relay use;
+it currently offers no public [identity-linking workflow](#identity-merge).
 
-This is the formula working as specified, not a defect in it — the person genuinely did not
-present the address they were invited under. Resolving it belongs to
-[identity merge](#identity-merge): once the user links their real address, the grant matches
-through the equivalent-identity claim without anything being regranted. Until that is available to
-users, an Apple login with a hidden address needs a grant against the WebID it actually produces.
+## Identity merge
 
-The relay case is logged at login so that "the invitation did nothing" has a visible cause.
+[WebIdProfile](../src/main/kotlin/org/sempods/auth/persist/WebIdProfile.kt) stores linked identities;
+login can emit them in the identity claim and profile documents can show `owl:sameAs` links.
+The service currently has no public linking workflow, email-confirmation flow or automatic
+cross-deployment federation. A public `owl:sameAs` statement alone is not proof of control;
+the pod trusts its configured issuer's verified identity claims.
 
----
+## Self-hosted deployment
 
-## Identity Merge
+The service can run under your own domain. Configure `ID_BASE_URL` to its public issuer URL
+and configure relying services to trust that issuer. The relevant settings are:
 
-The WebID profile at `id.sempods.org` stores all verified identity links for
-a person. On each login, `id.sempods.org` collects all linked identities
-and puts them in the equivalent-identity claim.
-
-```
-Bob logs in without email
-  → sub = id.sempods.org/oidc/<hash>
-  → no claim; the pod derives urn:sempods:oidc:<hash>
-
-Bob links bob@example.com (email verification)
-  → linked identity added to profile
-  → next login: equivalent identities = ["https://id.sempods.org/e/<sha256(email)>"]
-  → the pod derives urn:sempods:e:<sha256(email)> as well
-  → grants against any of these four URIs now match
-```
-
-Verification requirements:
-
-| Identity type | Verification method |
+| Setting | Purpose |
 |---|---|
-| Email address | Email confirmation link |
-| OIDC provider | Successful OIDC login redirect |
-| External WebID | Challenge signed with WebID private key (future) |
+| `PORT` | HTTP listen port; defaults to 8091 |
+| `MONGODB_URL`, `MONGODB_DB_NAME` | The service's database |
+| `ID_BASE_URL` | Public issuer and profile base URL |
+| `GOOGLE_OIDC_CLIENT_ID`, `GOOGLE_OIDC_CLIENT_SECRET` | Enable Google |
+| `APPLE_OIDC_TEAM_ID`, `APPLE_OIDC_SERVICE_ID`, `APPLE_OIDC_KEY_ID`, `APPLE_PRIVATE_KEY_PEM` | Enable Apple |
+| `APPLE_DOMAIN_ASSOCIATION` | Optional [domain-association file](../src/main/kotlin/org/sempods/auth/api/login/AppleDomainAssociationEndpoint.kt) for Apple's portal |
 
----
+[SempodsAuthConfig](../src/main/kotlin/org/sempods/auth/SempodsAuthConfig.kt) is the configuration
+contract. With no provider configured, authorization returns `server_error`; one skips the chooser;
+several show a chooser. Apple returns a cross-site POST and may send the display name only on first
+authorization, so its callback supports POST and login fills a previously empty name. Its client
+secret is a signed assertion minted for each token exchange.
 
-## External WebID Support
+## Current limits
 
-Any valid WebID URI can be used as a grant target:
+The service maintains no login session: `prompt=none` returns `login_required`. A client's
+`prompt=login` or `prompt=select_account` is forwarded to the provider; without one, Google may
+reuse its session. Apple documents no `prompt`. Signing keys are persisted but not
+rotated automatically. Identity tokens from the removed `GET /login` carry no `aud`, so the pod and
+the hosted MCP service refuse them; their signatures verify until an operator clears the rows in
+`oauth.signingKeys`.
+[OIDC timeout tests](../src/test/kotlin/org/sempods/auth/oidc/OidcHttpTimeoutsTest.kt) pin the upstream
+HTTP budgets; [pod operations](../../sempods-server/docs/auth/operations.md) describes the chain.
 
-```turtle
-<https://sempods.org/alice/family#read>
-    sempods:grantedTo <https://bob.solidcommunity.net/profile/card#me> .
-```
+### Profile management
 
-External WebIDs can be linked via identity merge if the user authenticates
-through sempods-auth and verifies ownership.
+Profile editing and identity linking have no user-facing UI.
 
----
+## Verification
 
-## Auth Phases
-
-### v0 — OIDC proxy (current)
-
-- User authenticates via OIDC provider
-- `id.sempods.org` derives WebID URI, issues JWT
-- No private key management required for users
-
-### v1 — DPoP (future, opt-in)
-
-- User generates a key pair in the browser (Web Crypto API)
-- Public key registered in WebID document at `id.sempods.org`
-- DPoP auth: no OIDC provider needed — private key in browser IndexedDB
-
----
-
-## Self-Hosted Deployment
-
-All auth services can run within a single pod deployment:
-
-```
-pod.alice.org/          ← pod data plane
-pod.alice.org/auth/     ← login role
-pod.alice.org/id/       ← WebID registry role
-```
-
-No dependency on sempods.org infrastructure. Self-hosted instances federate
-with `id.sempods.org` via opt-in `owl:sameAs` links if cross-deployment
-identity matching is desired.
-
----
-
-## Open Questions
-
-- Key recovery for v1 (DPoP): lost device = lost key
-- Token revocation: short `exp` sufficient for v0, no server-side revocation needed
-- Multi-identity standards: track DIF and Solid OIDC; align when stable
-- Profile management UI: users managing name, avatar, keys in sempods-auth
+[Provider HTTP tests](../src/test/kotlin/org/sempods/auth/api/provider/OpenIdProviderEndpointTest.kt)
+exercise discovery, PKCE, redirects and code redemption. [JwtIssuerTest](../src/test/kotlin/org/sempods/auth/login/JwtIssuerTest.kt)
+covers token claims and equivalent identities, and
+[WebIdUriDeriverTest](../../sempods-commons/src/test/kotlin/org/sempods/commons/identity/WebIdUriDeriverTest.kt)
+covers WebID derivation. The tests use local provider fixtures and no live Google or Apple accounts.

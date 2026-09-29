@@ -76,10 +76,10 @@ against the same pod may need to retry.
 What the client already holds for the affected `(podId, clientId, person)`
 is ended on the original 401 — explicit reauthorize means *review current
 consent*, and two things would otherwise answer it from stock. A bearer
-carrying an authority granted for one named operation ends nothing here:
+carrying an authority granted for privileged management ends nothing here:
 it names the same client and person as the app's ordinary connection, and
 this route acts on that identity without consulting a context
-([`../auth/oauth.md`](../auth/oauth.md#managing-service-clients)). Its
+([OAuth reference](../../sempods-server/docs/auth/oauth.md#managing-service-clients)). Its
 **refresh tokens**, so parallel sessions cannot rotate around the consent
 UI. And any **authorization code it has not yet exchanged**: a code stays
 redeemable for five minutes and the client keeps its verifier, so one
@@ -88,7 +88,7 @@ family the challenge exists to make it ask for. Nothing sweeps those
 codes — raising the generation is what spends them, since the exchange
 compares a code against the answer standing for its authorization, and one
 carrying no generation at all is refused outright
-([`../auth/oauth.md`](../auth/oauth.md#offline_access)).
+([User connections](../../sempods-server/docs/auth/connections.md#offline_access)).
 
 The person is every URI derivable from the bearer's `sub`, not that one
 URI: a pod stores whichever WebID authenticated, and a family recorded
@@ -117,7 +117,7 @@ Nothing is raised where the authorization has no decision recorded, and
 nothing needs to be: creating one would turn a forced review into an
 answer nobody gave, and a code from such an authorization is refused at
 the exchange for carrying no generation
-([`../auth/oauth.md`](../auth/oauth.md#offline_access)). There is neither a
+([User connections](../../sempods-server/docs/auth/connections.md#offline_access)). There is neither a
 family nor a token to end.
 
 The store is Mongo-backed and its rows are TTL-indexed, so a deploy
@@ -137,17 +137,17 @@ with no sempods documentation in front of it finds the extension. Asking
 buys the preselected control and nothing else, and a client that never
 asks is connected past the hour just the same: what the person answers is
 how long, not whether.
-[`../auth/oauth.md`](../auth/oauth.md#offline_access) owns that rule.
+[User connections](../../sempods-server/docs/auth/connections.md#offline_access) owns that rule.
 
 The re-authorize path above ends what the client holds, which is not the
 same as asking again. Whether the next `/authorize` renders a dialog is
 the ordinary auto-grant question: a `dyn:` client — which is how the
-clients in [`clients.md`](clients.md) register — always gets the consent
-screen, while a static `did:web:` client whose grants survive is
+clients in [`clients.md`](clients.md) register — gets the consent
+screen on interactive authorization (`prompt=none` requires an interactive retry), while a static `did:web:` client whose grants survive is
 auto-granted and the recorded answer stands, minting a replacement family
 on that answer's terms. A static client that wants the review it
 just triggered sends `prompt=consent`;
-[`../auth/oauth.md`](../auth/oauth.md#the-prompt-parameter) has the rules.
+[User connections](../../sempods-server/docs/auth/connections.md#the-prompt-parameter) has the rules.
 
 ## Bearer challenge format
 

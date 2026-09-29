@@ -34,7 +34,7 @@ import net.minidev.json.parser.JSONParser
  *  with a derived client where one operation needs another. Neither of those shapes is available
  *  here. Persistent failure of a
  *  trusted issuer is also a case for a circuit breaker. `OidcHttpTimeoutsTest` pins the figures;
- *  named as a limitation in `docs/auth/README.md`.
+ *  listed in `sempods-server/docs/auth/operations.md` §"Sharp edges".
  */
 class OidcTokenExchange(private val httpClient: HttpClient) {
 

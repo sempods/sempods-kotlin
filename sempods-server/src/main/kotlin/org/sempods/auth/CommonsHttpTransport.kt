@@ -23,7 +23,7 @@ import java.time.Duration
  * socket, 60 s call). It is expressed as OkHttp's `callTimeout`, which **cancels the call** when it
  * expires rather than merely abandoning the wait — otherwise an id-server outage would leave every
  * abandoned login holding a connection for the remainder of the client's budget.
- * `docs/auth/oauth.md` quotes the figure; [CommonsHttpTransportTest] pins it and the
+ * `sempods-server/docs/auth/operations.md` quotes the figure; [CommonsHttpTransportTest] pins it and the
  * cancellation, because that paragraph has been wrong about this leg twice.
  */
 class CommonsHttpTransport internal constructor(

@@ -27,7 +27,7 @@ its challenge carries no `scope` and its metadata advertises two
 `offline_access` without knowing what it is.
 
 Nothing rests on the answer: the person decides how long the connection lives
-([`../auth/oauth.md`](../auth/oauth.md#offline_access)), and none of the four
+([User connections](../../sempods-server/docs/auth/connections.md#offline_access)), and none of the four
 above is known to send the scope. The `[oauth/authorize]` line carries `scope=`
 for what was asked and `durablePreselected=` for the box the person was shown.
 

@@ -138,7 +138,7 @@ class SempodsControlPlaneClient(
    * It creates; a later call leaves the grants and the app root to the pod owner. [expectedRegistrationId]
    * and [expectedSecretId] are the [ProvisionServiceClientResult.registrationId] and
    * [ProvisionServiceClientResult.secretId] an earlier answer gave, or `null` for "I hold nothing".
-   * What each combination answers is the server's `docs/auth/service-clients.md` §"Provisioning over
+   * What each combination answers is the server's `sempods-server/docs/host-provisioning.md` §"Provisioning over
    * the admin surface".
    *
    * **Deliberately not repeatable.** A `POST` is resent after a lost connection only on
@@ -190,7 +190,7 @@ enum class CreatePodResult { created, alreadyExists }
 
 /**
  * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.
- * What each member means is the server's `docs/auth/service-clients.md` §"Provisioning over the
+ * What each member means is the server's `sempods-server/docs/host-provisioning.md` §"Provisioning over the
  * admin surface". [secret] is null on [alreadyProvisioned]; a caller stores [registrationId] and
  * [secretId] beside the secret it holds and sends them back.
  */

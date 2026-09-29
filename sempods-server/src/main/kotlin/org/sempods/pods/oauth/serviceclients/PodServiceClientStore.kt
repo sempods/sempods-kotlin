@@ -311,7 +311,7 @@ class PodServiceClientStore @Inject constructor(
      * The `:` is what makes the two namespaces disjoint: `AdminPodsEndpoint` accepts
      * `[A-Za-z0-9._-]+` for an operator-chosen `clientId`, because that identifier becomes a
      * context path segment. It survives HTTP Basic because a client encodes its credentials the
-     * way [org.sempods.client.SempodsRequestAuth] does — `docs/auth/service-clients.md`
+     * way [org.sempods.client.SempodsRequestAuth] does — `sempods-server/docs/auth/service-clients.md`
      * §"Token exchange".
      */
     internal const val SERVICE_CLIENT_PREFIX = "svc:"

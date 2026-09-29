@@ -171,7 +171,7 @@ internal fun buildAuthorizationServerMetadata(
     "code_challenge_methods_supported" to listOf("S256"),
     "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic"),
     // A sempods extension member (RFC 8414 §2 allows them): where a registered service sends the
-    // owner to decide its access. `docs/auth/service-clients.md` §"Consent".
+    // owner to decide its access. `sempods-server/docs/auth/service-clients.md` §"Consent".
     "sempods_service_consent_endpoint" to "$endpoints/service-consent",
   )
   return Response.ok(body).build()

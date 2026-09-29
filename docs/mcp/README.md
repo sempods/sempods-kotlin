@@ -63,7 +63,7 @@ Three primitives:
 |---|---|
 | MCP 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25 | `initialize` protocol negotiation (`endpoint.md`) |
 | JSON-RPC 2.0 | All MCP requests (`endpoint.md`) |
-| OAuth 2.1 + PKCE | Bearer issuance (`authentication.md`, `../auth/oauth.md`) |
+| OAuth 2.1 + PKCE | Bearer issuance ([MCP authentication](authentication.md), [pod OAuth](../../sempods-server/docs/auth/README.md)) |
 | RFC 7591 — Dynamic Client Registration | `dyn:*` MCP clients (`authentication.md`) |
 | RFC 9728 — Protected Resource Metadata | `.well-known/oauth-protected-resource` routes (`endpoint.md`) |
 | RFC 8414 — Authorization Server Metadata | `.well-known/oauth-authorization-server` routes (`endpoint.md`) |

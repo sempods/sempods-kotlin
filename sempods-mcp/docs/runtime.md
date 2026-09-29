@@ -66,7 +66,7 @@ batch bound would stop bounding reads. A test explains all three sweep queries a
 them — filter, order and bound — and asserts that each reads exactly as many index keys and
 documents as it returns. The plan shape alone did not catch either fault: explaining the filter
 without the sort passed while a blocking sort was there, and `IXSCAN` with a residual filter
-passes while the scan reads everything. Against the pod server's own `/token` budget (`../../docs/auth/oauth.md` §"Rate
+passes while the scan reads everything. Against the pod server's own `/token` budget ([OAuth operations](../../sempods-server/docs/auth/operations.md) §"Rate
 limit": 20 a minute per `<address>|<client identity>`) this stays clear by a wide margin, and the
 cadence widens it: only one of a refresh's four requests is the token POST, and the pod's DCR
 dedup is per pod and profile, so every connection one profile holds *there* spends one `dyn:` key. A

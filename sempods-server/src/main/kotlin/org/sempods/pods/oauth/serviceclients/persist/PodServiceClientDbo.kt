@@ -9,7 +9,7 @@ import java.time.Instant
  *
  * An operator provisions one through the host admin surface, or a service registers itself at
  * `POST {pod}/_system/auth/register` and waits for the owner to activate it ([pendingUntil]); see
- * `docs/auth/service-clients.md`. Public clients registered there live in
+ * `sempods-server/docs/auth/service-clients.md`. Public clients registered there live in
  * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. Each row carries a bcrypt hash of the
  * shared secret; the plaintext never persists here.
  *

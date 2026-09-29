@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * **The name resolution is the suite's own, and that is the point.** A session is bound to one pod
  * base URL and one credential; a suite that creates a pod per test holds names and resolves them
- * itself, exactly as any multi-pod consumer does — see `docs/pod-client.md`.
+ * itself, exactly as any multi-pod consumer does — see `sempods-client/docs/client.md`.
  *
  * **So are the conveniences below.** The client answers the catalogue as a graph and a write as a
  * status; what a test wants is a set of context IRIs and a seeded resource. Those few lines are what

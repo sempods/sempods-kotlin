@@ -94,7 +94,7 @@ Two paths, because two HTTP clients are in use:
   An *application* interceptor, not a network one: the trace lives in a `ThreadLocal`, and only the
   application layer is guaranteed to run on the thread that called `execute()`. The core's
   `SempodsSession` sets no header of its own; the tracer goes on the client it sends with
-  ([`pod-client.md`](pod-client.md) §"Tracing").
+  ([client tracing](../sempods-client/docs/transport.md#tracing)).
 - **Ktor client** — `TraceparentClientPlugin` (`sempods-commons-ktor`), installed on `sempods-auth`'s OIDC
   client, which is its only production installation. It reads the ambient trace from the holder,
   correct inside a call because the server-side interceptor bound a `TraceContextElement` for its

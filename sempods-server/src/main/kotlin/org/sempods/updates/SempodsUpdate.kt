@@ -1,24 +1,17 @@
 package org.sempods.updates
 
+/** A startup maintenance task that must tolerate repeated and partially completed runs. */
 interface SempodsUpdate {
 
   val name: String
 
   /**
-   * Whether this update must finish **before** the server accepts requests.
-   *
-   * `false` (default) is right for an update that only adds data the running system does not read
-   * yet — a backfill of a secondary collection, say. It runs on a daemon thread while the server is
-   * already serving.
-   *
-   * `true` is required as soon as an update changes what existing data *means*, because the code
-   * around it already assumes the new meaning from the first request on. A migration that renames
-   * identifiers is the clear case: until it has run, the registry still holds the old names while
-   * routes, scopes and builders speak the new ones, so a request in that window gets a wrong answer
-   * (404/403) rather than a slow one — and its writes race the rewrite.
-   *
-   * The cost of `true` is boot time: [SempodsUpdater.runUpdates] is invoked while the injector is
-   * built, so a blocking update delays the point where Jetty starts.
+   * When `true`, the task runs synchronously before the server accepts requests.
+   * Otherwise it runs on a daemon thread and may overlap with requests.
+   * Choose `true` when requests depend on the task's work. A task that renames stored identifiers
+   * is blocking: until it has run, requests for the new names answer 404 or 403. A failure is
+   * logged and startup continues in either mode; completion of the attempt does not guarantee
+   * success.
    */
   val blocking: Boolean get() = false
 
