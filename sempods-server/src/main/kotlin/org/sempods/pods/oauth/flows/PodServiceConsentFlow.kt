@@ -145,6 +145,9 @@ class PodServiceConsentFlow @Inject internal constructor(
       return PodServiceConsentResult.SignedOut
     }
 
+    // Ahead of a cancel too: the service hears only the owner's decision.
+    if (!podGrantsFacade.isPodOwner(pod, identity.allUris)) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER)
+
     // Proven again against the registration the screen was rendered for. One removed since, or
     // re-created under the same identifier, is sent nothing.
     val registration = serviceClients.find(pod.id, clientId)?.takeIf { it.id.value == service.registrationId }
@@ -153,8 +156,6 @@ class PodServiceConsentFlow @Inject internal constructor(
       logger.info { "[service-clients/consent] Cancelled: pod='${pod.name}', serviceClient='$clientId'" }
       return PodServiceConsentResult.Answered(PodServiceConsentOutcome.CANCELLED, target, binding.state)
     }
-
-    if (!podGrantsFacade.isPodOwner(pod, identity.allUris)) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER)
 
     val recipient = GrantRecipient.Service(ServiceClientRegistrationId(service.registrationId), clientId, service.grantsVersion)
     val offer = ConsentSelection.Offer(binding.offeredContexts, publicRead = false, contextCreation = true)

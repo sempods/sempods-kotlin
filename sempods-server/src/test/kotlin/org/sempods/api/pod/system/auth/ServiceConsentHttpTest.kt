@@ -1,12 +1,18 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
 import org.junit.jupiter.api.Test
+import org.sempods.SempodsCollections
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.api.pod.system.auth.ServiceAccessFlow.Service
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.commons.okhttp.getAll
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.mongo.persist.PodDbo
@@ -43,6 +49,9 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var serviceClientStore: PodServiceClientStore
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   private val loopback = "http://127.0.0.1/callback"
 
@@ -208,6 +217,34 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
       .executeSignedInAs(owned.webId)
     assertEquals(200, resumed.statusCode, resumed.responseBody)
     assertTrue("serviceConsentForm" in resumed.responseBody, "the callback resumes the service consent, not /authorize")
+  }
+
+  @Test
+  fun `a failed sign-in behind a service consent is answered in the browser, never at the service`() {
+    val owned = ownedPod()
+    val service = services.register(owned.pod, redirectUris = listOf(loopback))
+    val (callback, pin) = parkedSignIn(owned, service)
+
+    val failed = http.prepareGet("$callback&error=temporarily_unavailable").addHeader("Cookie", pin).setFollowRedirect(false).execute()
+
+    assertEquals(400, failed.statusCode, failed.responseBody)
+    assertTrue(failed.getHeader("Location").isNullOrBlank(), "the service's return address hears nothing")
+  }
+
+  @Test
+  fun `a grant consent an older node parked reads as expired`() {
+    val owned = ownedPod()
+    val service = services.register(owned.pod, redirectUris = listOf(loopback))
+    val (callback, pin) = parkedSignIn(owned, service)
+    db.getCollection(SempodsCollections.OAUTH_LOGIN_STATES).updateMany(
+      Filters.eq("pod", owned.pod.name),
+      Updates.combine(Updates.set("serviceClient", service.clientId), Updates.unset("serviceConsent")),
+    )
+
+    val resumed = http.prepareGet("$callback&code=unused").addHeader("Cookie", pin).setFollowRedirect(false).execute()
+
+    assertEquals(400, resumed.statusCode, resumed.responseBody)
+    assertTrue("invalid or expired login state" in resumed.responseBody, resumed.responseBody)
   }
 
   @Test
@@ -437,6 +474,19 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     }
   }
 
+  @Test
+  fun `no other page may frame either consent dialog`() {
+    val owned = ownedPod()
+    val service = services.register(owned.pod)
+    val app = flow.register(owned.pod)
+
+    for (page in listOf(services.open(owned.pod, service.clientId, owned.cookie), flow.authorize(owned.pod, app, owned.cookie))) {
+      assertEquals(200, page.statusCode, page.responseBody)
+      assertEquals("frame-ancestors 'none'", page.getHeader("Content-Security-Policy"))
+      assertEquals("DENY", page.getHeader("X-Frame-Options"))
+    }
+  }
+
   // ── Fixture ─────────────────────────────────────────────────────────────────
 
   private inner class Owned(val pod: PodDbo, val webId: String) {
@@ -459,6 +509,18 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
 
   private fun confirm(owned: Owned, service: Service, scopes: Set<String>) =
     services.confirm(owned.pod, service.clientId, owned.cookie, scopes)
+
+  /**
+   * Opens the consent with no session, which parks it behind a sign-in. Answers the pod's callback
+   * with its `state` already in the query, and the browser pin cookie that callback asks for.
+   */
+  private fun parkedSignIn(owned: Owned, service: Service): Pair<String, String> {
+    val parked = services.open(owned.pod, service.clientId, cookie = null, redirectUri = loopback)
+    assertEquals(307, parked.statusCode, parked.responseBody)
+    val query = UrlUtil.queryParams(URI(checkNotNull(parked.getHeader("Location"))).rawQuery, decodeParams = true)
+    val pin = checkNotNull(parked.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
+    return "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}" to pin
+  }
 
   private fun stored(owned: Owned, service: Service) =
     assertNotNull(serviceClientStore.find(owned.pod.podId(), service.clientId), "registration ${service.clientId}")

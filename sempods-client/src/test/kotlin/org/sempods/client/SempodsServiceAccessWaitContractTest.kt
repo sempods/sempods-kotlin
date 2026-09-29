@@ -123,6 +123,17 @@ class SempodsServiceAccessWaitContractTest : MockPodTest() {
   }
 
   @Test
+  fun `the time limit also cuts short a call the pod is slow to answer`() {
+    server.`when`(request().withPath("/alice/_system/auth/token"))
+      .respond(response().withStatusCode(200).withBody(granted).withDelay(TimeUnit.SECONDS, 10))
+
+    val started = System.nanoTime()
+    assertEquals(SempodsServiceAccessWait.Outcome.TIME_LIMIT, waiting().await(listOf(c), Duration.ofMillis(500)))
+
+    assertTrue(Duration.ofNanos(System.nanoTime() - started) < Duration.ofSeconds(5))
+  }
+
+  @Test
   fun `cancel ends a pause at once`() {
     token(400, noGrant)
     val wait = waiting(initialDelay = Duration.ofSeconds(20))

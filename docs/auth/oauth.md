@@ -145,6 +145,10 @@ refreshes stay silent for both browser-facing classes.
 6. On failure, redirects with `?error=...&error_description=...` and the same
    `state`; `error_uri` only where the deployment configures one.
 
+No other page may frame a consent dialog (`Content-Security-Policy:
+frame-ancestors 'none'` and `X-Frame-Options: DENY`), so none can steer
+the person's clicks onto its buttons.
+
 Submitting the consent form requires two things: the pod session cookie
 (who) and a single-use token minted for that one screen (which screen,
 and not already submitted). Neither alone is enough — a token lifted

@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
  * failure of the network, ends the wait as its exception.
  *
  * **Backoff.** The first check runs at once. Each pause after it doubles, from [initialDelay] to at
- * most [maxDelay], with jitter, and none reaches past the time limit.
+ * most [maxDelay], with jitter. Neither a pause nor a call reaches past the time limit.
  *
  * **Cancellation.** [cancel] may be called from any thread: it ends a pause at once and cancels the
  * request in flight. An interrupt of the waiting thread ends the wait as an [InterruptedIOException].
@@ -61,10 +61,22 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
   @Volatile
   private var inFlight: Call? = null
 
-  /** Every call goes through here, so [cancel] reaches the one in flight. */
+  /** When the running [await] ends, as [System.nanoTime] counts; `null` before the first. */
+  @Volatile
+  private var deadline: Long? = null
+
+  /**
+   * Every call goes through here, so [cancel] reaches the one in flight, and no call outlasts the
+   * time limit: its own deadline is the shorter of the client's and the time left.
+   */
   private val tracked = Call.Factory { request ->
     calls.newCall(request).also { call ->
       inFlight = call
+      deadline?.let { end ->
+        val left = end - System.nanoTime()
+        val own = call.timeout().timeoutNanos().takeIf { it > 0 } ?: Long.MAX_VALUE
+        if (left < own) call.timeout().timeout(maxOf(left, 1), TimeUnit.NANOSECONDS)
+      }
       if (isCancelled) call.cancel()
     }
   }
@@ -88,6 +100,7 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
   fun await(contexts: Collection<String>, timeLimit: Duration): Outcome {
     val needed = contexts.toSet()
     val deadline = System.nanoTime() + timeLimit.toNanos()
+    this.deadline = deadline
     var pause = initialDelay
     var catalogue: SempodsPodContexts? = null
     while (true) {
@@ -107,6 +120,8 @@ class SempodsServiceAccessWait @JvmOverloads constructor(
         pause = maxOf(pause, maxDelay.dividedBy(2))
       } catch (e: IOException) {
         if (isCancelled) return Outcome.CANCELLED
+        // A call the time limit cut short.
+        if (System.nanoTime() - deadline >= 0) return Outcome.TIME_LIMIT
         throw e
       }
 

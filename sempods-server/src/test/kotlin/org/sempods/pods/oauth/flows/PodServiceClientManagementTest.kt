@@ -136,6 +136,20 @@ internal class PodServiceClientManagementTest : PodBrowserFlowTest() {
   }
 
   @Test
+  fun `a cancel by someone no longer the owner is not delivered to the service`() {
+    val owned = Owned()
+    val installed = serviceClients.registerProvisional(owned.pod, "notes", listOf("http://127.0.0.1/cb")).registration
+    val screen = assertIs<PodServiceConsentResult.Screen>(
+      consents.open(owned.pod, PodServiceConsentRequest(installed.clientId, "http://127.0.0.1/cb", "s"), owned.session),
+    ).screen
+
+    val transferred = owned.pod.copy(ref = owned.pod.ref.copy(owner = "https://id.test/new-owner"))
+    val answered = consents.submit(transferred, PodServiceConsentForm(screen.csrfToken, null, null, null, null, "cancel"), owned.session)
+
+    assertEquals(PodServiceConsentResult.Refused(PodServiceConsentRefusal.NOT_OWNER), answered)
+  }
+
+  @Test
   fun `an operator-provisioned client is not this consent's`() {
     val owned = Owned()
     val provisioned = serviceClients.register(owned.pod, "backend", emptySet()).registration

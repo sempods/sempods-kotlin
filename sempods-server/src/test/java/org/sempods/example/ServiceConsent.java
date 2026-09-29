@@ -125,11 +125,13 @@ public final class ServiceConsent {
       if (back == null) {
         return Access.TIME_LIMIT;
       }
-      // The return carries the decision and nothing else. A `state` that is not ours is not an answer.
-      if (!state.equals(back.queryParameter("state"))) {
-        throw new SempodsClientException("The consent returned with another state.");
+      // The return carries the decision and nothing else. It is ours only with exactly our `state`,
+      // and a repeated `error` is no single answer: whatever else reached the loopback is refused.
+      List<String> error = back.queryParameterValues("error");
+      if (!List.of(state).equals(back.queryParameterValues("state")) || error.size() > 1) {
+        throw new SempodsClientException("The consent returned something that is not its answer.");
       }
-      if ("access_denied".equals(back.queryParameter("error"))) {
+      if (error.contains("access_denied")) {
         return Access.CANCELLED;
       }
     }

@@ -121,7 +121,8 @@ cancelled dialog from an open one, or an empty confirmation from no decision; it
 the wait.
 
 **Phishing.** A link that arrives from someone else can name any service. The owner compares the
-identifier with the one their program shows and cancels when they differ.
+identifier with the one their program shows and cancels when they differ. No other page may frame
+the dialog, as for delegated access ([`oauth.md`](oauth.md#authorize-flow-overview)).
 
 ## Sandbox via manage-root
 

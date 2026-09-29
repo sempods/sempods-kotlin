@@ -91,16 +91,22 @@ internal class ServiceAccessFlow {
   }
 
   /** The Client Credentials request the service sends. */
-  fun token(pod: PodDbo, service: Service, secret: String = service.secret): TestHttpResponse =
+  fun token(pod: PodDbo, service: Service): TestHttpResponse = token(pod, service.clientId, service.secret)
+
+  /** The same, with a secret of the caller's, such as a rotated one. */
+  fun token(pod: PodDbo, clientId: String, secret: String): TestHttpResponse =
     http.preparePost("${podBase(pod)}/_system/auth/token")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", clientSecretBasicHeader(service.clientId, secret))
+      .addHeader("Authorization", clientSecretBasicHeader(clientId, secret))
       .setBody("grant_type=client_credentials")
       .execute()
 
   /** A token from [token], which must succeed. */
-  fun accessToken(pod: PodDbo, service: Service): String {
-    val minted = token(pod, service)
+  fun accessToken(pod: PodDbo, service: Service): String = accessToken(pod, service.clientId, service.secret)
+
+  /** The same, with a secret of the caller's. */
+  fun accessToken(pod: PodDbo, clientId: String, secret: String): String {
+    val minted = token(pod, clientId, secret)
     assertEquals(200, minted.statusCode, minted.responseBody)
     return json(minted)["access_token"] as String
   }

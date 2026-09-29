@@ -2,6 +2,7 @@ package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
 import org.sempods.SempodsIntegrationTest
+import org.sempods.api.pod.system.auth.ServiceAccessFlow.Service
 import org.sempods.SempodsModule
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.assertPodBearerChallenge
@@ -65,7 +66,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val diary = owned.context("diary")
-    val installed = install(owned)
+    val installed = services.register(owned.pod)
 
     // The owner's consent names the service by its label, beside the pod's own two facts.
     val page = services.open(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie)
@@ -79,9 +80,9 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     confirm(owned, installed, setOf("$notes#read"))
 
     // Inside the grant and not outside it.
-    val serviceToken = serviceToken(owned, installed.clientId, installed.secret)
-    assertEquals(listOf(notes), contextsReachableBy(owned.pod, serviceToken))
-    assertFalse(diary in contextsReachableBy(owned.pod, serviceToken))
+    val serviceToken = services.accessToken(owned.pod, installed.clientId, installed.secret)
+    assertEquals(listOf(notes), services.contexts(owned.pod, serviceToken))
+    assertFalse(diary in services.contexts(owned.pod, serviceToken))
 
     // The owner's list: the grant, when it was last used, and never a secret.
     val manager = approveManagement(owned)
@@ -99,10 +100,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     assertEquals(200, narrowed.statusCode, narrowed.responseBody)
     assertEquals("", json(narrowed)["scope"])
-    assertEquals(400, mint(owned, installed.clientId, installed.secret).statusCode)
+    assertEquals(400, services.token(owned.pod, installed.clientId, installed.secret).statusCode)
     assertEquals(
       emptyList(),
-      contextsReachableBy(owned.pod, serviceToken),
+      services.contexts(owned.pod, serviceToken),
       "a token minted before the removal reaches nothing on its next request",
     )
     assertTrue(listServiceClients(owned, manager).any { it["client_id"] == installed.clientId })
@@ -117,9 +118,9 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(200, rotated.statusCode, rotated.responseBody)
     assertEquals("no-store", rotated.getHeader("Cache-Control"))
     val newSecret = json(rotated)["client_secret"] as String
-    assertEquals(401, mint(owned, installed.clientId, installed.secret).statusCode, "the old secret is gone")
-    val afterRotation = serviceToken(owned, installed.clientId, newSecret)
-    assertEquals(listOf(diary), contextsReachableBy(owned.pod, afterRotation))
+    assertEquals(401, services.token(owned.pod, installed.clientId, installed.secret).statusCode, "the old secret is gone")
+    val afterRotation = services.accessToken(owned.pod, installed.clientId, newSecret)
+    assertEquals(listOf(diary), services.contexts(owned.pod, afterRotation))
     val (written, entry) = writeNote(diary, owned, afterRotation)
     assertEquals(201, written.statusCode, written.responseBody)
 
@@ -128,8 +129,8 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Authorization", "Bearer $manager")
       .execute()
     assertEquals(204, revoked.statusCode, revoked.responseBody)
-    assertEquals(401, mint(owned, installed.clientId, newSecret).statusCode)
-    assertEquals(emptyList(), contextsReachableBy(owned.pod, afterRotation))
+    assertEquals(401, services.token(owned.pod, installed.clientId, newSecret).statusCode)
+    assertEquals(emptyList(), services.contexts(owned.pod, afterRotation))
     assertTrue(
       podFacade.getContexts(owned.pod.name).any { it.toString() == diary },
       "revoking a service leaves the owner's contexts where they are",
@@ -157,7 +158,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     assertEquals(201, registered.statusCode, registered.responseBody)
     assertTrue("activation_expires_at" in json(registered), registered.responseBody)
-    assertEquals(emptyList(), contextsReachableBy(owned.pod, manager))
+    assertEquals(emptyList(), services.contexts(owned.pod, manager))
   }
 
   @Test
@@ -180,7 +181,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   fun `a management bearer sees only its own pod`() {
     val mine = ownedPod()
     val theirs = ownedPod()
-    val theirService = install(theirs)
+    val theirService = services.register(theirs.pod)
     val manager = approveManagement(mine)
 
     val listed = listServiceClients(mine, manager)
@@ -250,7 +251,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   fun `a missing bearer is answered exactly like a rejected one on every route`() {
     // SPS-CORE-015: every route here requires authentication.
     val owned = ownedPod()
-    val existing = install(owned)
+    val existing = services.register(owned.pod)
 
     for (route in managementRoutes(owned, existing.clientId)) {
       val missing = route(null)
@@ -268,7 +269,7 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a valid bearer without the owner's authority is 403 insufficient_scope on every route`() {
     val owned = ownedPod()
-    val existing = install(owned)
+    val existing = services.register(owned.pod)
     val someoneElsesApp = mintScopedToken(owned.pod.name, scopes = emptyList(), webId = "https://id.test/someone-else")
     val formerOwner = approveManagement(owned)
     podDao.setOwner(checkNotNull(owned.pod.id), webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email))
@@ -294,8 +295,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       return uri.toString()
     }
   }
-
-  private data class Installed(val clientId: String, val secret: String, val issuedAt: Long)
 
   private fun ownedPod(): Owned {
     val owner = sempodsTestFactory.newOwner()
@@ -380,46 +379,18 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     alsoKnownAs: List<String> = emptyList(),
   ): String = approvePrivileged(owned, SERVICE_CLIENTS_MANAGE_SCOPE, signedInAs, alsoKnownAs)["access_token"] as String
 
-  /** A service registering itself: provisional until the owner grants it contexts. */
-  private fun install(owned: Owned): Installed {
-    val registered = http.preparePost(registerUrl(owned))
-      .addHeader("Content-Type", "application/json")
-      .setBody(serviceBody)
-      .execute()
-    assertEquals(201, registered.statusCode, registered.responseBody)
-    val body = json(registered)
-    return Installed(
-      clientId = body["client_id"] as String,
-      secret = body["client_secret"] as String,
-      issuedAt = (body["client_id_issued_at"] as Number).toLong(),
-    )
-  }
-
   /** The owner's service consent for [installed], confirmed with [scopes] ticked. */
-  private fun confirm(owned: Owned, installed: Installed, scopes: Set<String>) =
+  private fun confirm(owned: Owned, installed: Service, scopes: Set<String>) =
     services.confirm(owned.pod, installed.clientId, signIn(owned.pod.name, owned.webId).cookie, scopes)
 
   private fun formToken(page: TestHttpResponse): String =
     Regex("""name="csrf" value="([^"]+)"""").find(page.responseBody)?.groupValues?.get(1)
       ?: error("no form token in the rendered page: ${page.statusCode} ${page.responseBody.take(300)}")
 
-  private fun mint(owned: Owned, clientId: String, secret: String): TestHttpResponse =
-    http.preparePost(tokenUrl(owned))
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(clientId, secret))
-      .setBody("grant_type=client_credentials")
-      .execute()
-
   /** The secret still authenticates, so nothing rotated or revoked it: `invalid_scope`, not `invalid_client`. */
-  private fun assertSecretStands(owned: Owned, installed: Installed) {
-    val minted = mint(owned, installed.clientId, installed.secret)
+  private fun assertSecretStands(owned: Owned, installed: Service) {
+    val minted = services.token(owned.pod, installed.clientId, installed.secret)
     assertTrue("invalid_scope" in minted.responseBody, minted.responseBody)
-  }
-
-  private fun serviceToken(owned: Owned, clientId: String, secret: String): String {
-    val minted = mint(owned, clientId, secret)
-    assertEquals(200, minted.statusCode, minted.responseBody)
-    return json(minted)["access_token"] as String
   }
 
   /** List, rotate, remove grants and revoke [clientId], each sent with a bearer or without one. */
@@ -451,16 +422,6 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("<$note> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <$context> .")
       .execute()
     return response to note
-  }
-
-  /** The contexts a bearer can reach, as the pod's own registry listing reports them. */
-  private fun contextsReachableBy(pod: PodDbo, accessToken: String): List<String> {
-    val response = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts")
-      .addHeader("Accept", "application/json")
-      .addHeader("Authorization", "Bearer $accessToken")
-      .execute()
-    assertEquals(200, response.statusCode, response.responseBody)
-    return (json(response)["contexts"] as List<Map<String, Any?>>).map { it["context_iri"] as String }
   }
 
   private fun postForm(url: String, body: String) = http.preparePost(url)

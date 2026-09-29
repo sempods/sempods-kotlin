@@ -54,7 +54,7 @@ internal object PodAuthorizeResponses {
       .build()
 
     is PodAuthorizeResult.Consent ->
-      Response.ok(consentPage(result.screen, templates, config), MediaType.TEXT_HTML).build()
+      dialog(consentPage(result.screen, templates, config))
 
     is PodAuthorizeResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
 
@@ -95,7 +95,7 @@ internal object PodAuthorizeResponses {
     config: SempodsConfig,
   ): Response = when (result) {
     is PodServiceConsentResult.Screen ->
-      Response.ok(serviceConsentPage(result.screen, templates, config), MediaType.TEXT_HTML).build()
+      dialog(serviceConsentPage(result.screen, templates, config))
 
     is PodServiceConsentResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
@@ -162,6 +162,16 @@ internal object PodAuthorizeResponses {
         templates, 404, "Service removed", "The service was removed while this page was open. Nothing was granted.", created,
       )
     }
+
+  /**
+   * A consent dialog, which no other page may frame: a framed dialog lets that page steer the
+   * signed-in person's clicks onto its buttons (clickjacking). Both headers, for browsers that read
+   * only the older one.
+   */
+  private fun dialog(page: String): Response = Response.ok(page, MediaType.TEXT_HTML)
+    .header("Content-Security-Policy", "frame-ancestors 'none'")
+    .header("X-Frame-Options", "DENY")
+    .build()
 
   /**
    * A page ending the service consent. [created] names contexts created before a refused
