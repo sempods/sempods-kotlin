@@ -65,14 +65,16 @@ how they reach the GitHub release.
 Fix bounded documentation gaps and run doc-review on the fixes. A needed product change is
 separate work, and a blocker. Commit under the root commit rules.
 
-Take the required checks from the CI workflows and branch protection; this procedure keeps no list.
-Run them with their documented infrastructure, or cite a green run for the exact candidate SHA. A
-result for the PR head or an earlier commit does not cover the merged commit, and any change to the
-candidate voids earlier results. Report failures, skipped required tests and missing checks.
+Take the required checks from branch protection and the workflows behind them; this procedure
+keeps no list. A check that also runs on `main` needs a green run for the merged candidate SHA, or
+a local run with its documented infrastructure; a result for the PR head does not cover the merged
+commit. A check that runs only on pull requests, such as the DCO check, counts from the PRs merged
+in the range. Any change to the candidate voids earlier results. Report failures, skipped required
+tests and missing checks.
 
 ## 4. Publish and verify
 
-Publish only with no open blocker and every required check green for the candidate. Before any
+Publish only with no open blocker and every required check green as section 3 counts it. Before any
 external change, compare an existing tag, GitHub release or Central deployment for this version
 with the candidate. Stop on a tag that names another commit, or a version already on Central from
 an unknown build. Never move a release tag; Central never replaces a version.
