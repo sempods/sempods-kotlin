@@ -88,7 +88,7 @@ with the version filled in, and checks what the step left behind:
 | 2–3. Sign and build the bundle | maintainer, in the agent's checkout | the staged modules against the list in step 3; the SHA-256 of `build/central-bundle.zip` |
 | 4. Upload, release in the Portal | maintainer, once | the deployment id is recorded; every expected artifact resolves from `repo1.maven.org` |
 | 5. Signed tag | maintainer | the remote tag names the candidate SHA |
-| 5. GitHub release | agent | the release URL and its notes |
+| 5. GitHub release | agent, after saving the reviewed notes where step 5 says | the release URL and its notes |
 | 6. Next development version | agent opens the PR | the version is the agreed one; ask if the next line is open |
 
 The maintainer reports each result; a deployment id is not a secret. When the Portal reports a

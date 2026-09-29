@@ -125,10 +125,12 @@ Then, per release:
    `&publishingType=AUTOMATIC` once the process is boring.
 5. Once the Portal shows the deployment as published and the release resolves from Central —
    `https://repo1.maven.org/maven2/org/sempods/sempods-bom/$VERSION/` lists the BOM — tag the
-   commit you built from, and cut a GitHub Release from the tag:
+   commit you built from, and cut a GitHub Release from the tag. First save the notes reviewed in
+   the release pull request as `../release-notes.md`, beside the checkout so they stay out of the
+   repository:
    ```bash
    git tag -s "v$VERSION" -m "v$VERSION" && git push origin "v$VERSION"
-   gh release create "v$VERSION" --notes-file release-notes.md --generate-notes
+   gh release create "v$VERSION" --notes-file ../release-notes.md --generate-notes
    ```
    The tag waits for Central because until then the deployment can still fail validation or be
    dropped, and the fix is a new commit that a tag pushed earlier would not name.
@@ -137,10 +139,10 @@ Then, per release:
    what anyone watching the repository is notified by; Central carries the artifacts and announces
    nothing.
 
-   `--generate-notes` collects pull-request titles and nothing else. `release-notes.md` holds the
-   notes reviewed in the release pull request, and `gh` puts them above that list: highlights,
-   breaking changes and, for **a version that moves or removes something a consumer calls, its
-   migration notes** — for 0.2, [`docs/migration/0.2.md`](docs/migration/0.2.md).
+   `--generate-notes` collects pull-request titles and nothing else. `gh` puts the reviewed notes
+   above that list: highlights, breaking changes and, for **a version that moves or removes
+   something a consumer calls, its migration notes** — for 0.2,
+   [`docs/migration/0.2.md`](docs/migration/0.2.md).
 6. Open a second pull request bumping `version` to the next minor with `-SNAPSHOT` restored.
 
 ## What Central requires, and what already satisfies it
