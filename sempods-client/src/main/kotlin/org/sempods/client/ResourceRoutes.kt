@@ -53,8 +53,9 @@ internal sealed class ResourceAddress {
   /**
    * `_system/contexts/{path}`, where a context's IRI **is** the route that manages it (SPS-CTX-005).
    *
-   * The IRI is taken as the pod gave it and the prefix cut off, so nothing here composes one
-   * (SPS-CTX-023). **What a context may be named is the pod's to say** (SPS-CTX-009): this refuses
+   * The IRI is taken as the pod gave it, following the
+   * [discovery guidance](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md#3-discovery).
+   * **What a context may be named is the pod's to say** (SPS-CTX-009): this refuses
    * only what could not be addressed as itself, because the pod takes this path decoded and builds
    * the IRI from it — a percent-encoded octet, an empty or a dot segment would name another context,
    * or none at all (SPS-CTX-013). Anything else travels percent-encoded or as it is and arrives as it
