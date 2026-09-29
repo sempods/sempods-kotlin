@@ -116,8 +116,9 @@ secret is a signed assertion minted for each token exchange.
 
 ## Current limits
 
-The service maintains no login session: `prompt=none` returns `login_required`. Google receives
-`prompt=login`; Apple offers no equivalent guarantee. Signing keys are persisted but not
+The service maintains no login session: `prompt=none` returns `login_required`. A client's
+`prompt=login` or `prompt=select_account` is forwarded to the provider; without one, Google may
+reuse its session. Apple documents no `prompt`. Signing keys are persisted but not
 rotated automatically. Identity tokens from the removed `GET /login` carry no `aud`, so the pod and
 the hosted MCP service refuse them; their signatures verify until an operator clears the rows in
 `oauth.signingKeys`.

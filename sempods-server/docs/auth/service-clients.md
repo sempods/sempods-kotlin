@@ -93,8 +93,8 @@ val contexts = pod.contexts().listText()
 
 The secret goes only to the token endpoint; data requests carry the resulting bearer.
 Keep the secret on the backend. This example caches the token and renews it once after a 401;
-it does not renew proactively by expiry. `attempt.calls(http)` keeps token acquisition within
-the original call's admission and cancellation boundary. The
+it does not renew proactively by expiry. `attempt.calls(http)` runs token acquisition on the
+original call's admission slot; cancelling that call does not cancel it. The
 [example test](../../../sempods-client/src/test/kotlin/org/sempods/client/DocumentationExamplesTest.kt)
 checks the credentials sent and the renewal path.
 
