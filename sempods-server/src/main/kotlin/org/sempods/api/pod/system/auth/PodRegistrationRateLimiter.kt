@@ -19,7 +19,7 @@ import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
  * |---|---|---|
  * | public | address | by the endpoint, before the pod row, for a request without a bearer |
  * | protected | address | by the endpoint, before the pod row, for a request with one |
- * | service | pod | by `PodClientRegistration`, as [PodServiceRegistrationBudget], for a service body it would accept |
+ * | service | pod | by `PodClientRegistration`, as [PodServiceRegistrationBudget], for a service registering itself with a body it would accept |
  *
  * **The address budgets** bound what a caller costs before anything is known about it. A public
  * registration writes a row for every `dyn:` fingerprint it has not seen or every service, and a
@@ -30,8 +30,8 @@ import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
  * **The service budget** bounds secret minting on one pod. Each service registration mints a
  * secret at bcrypt cost, and nothing authenticates the caller, so addresses alone do not bound it:
  * many addresses can register on one pod. A caller can spend a pod's budget and delay other
- * services' registrations for a minute; it cannot activate anything — `docs/auth/oauth.md`
- * §"Registration rate limit".
+ * services' registrations for a minute; it cannot activate anything, and it cannot delay the
+ * owner's, which this budget does not count — `docs/auth/oauth.md` §"Registration rate limit".
  *
  * **No proxy header, no address limit**, as at the token endpoint: a single shared bucket for
  * every request would be an outage rather than a limit.

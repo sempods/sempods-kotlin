@@ -219,6 +219,17 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `a spent service budget does not hold up the owner's registration`() {
+    val pod = pod()
+    repeat(serviceBudget) { service(register(pod, client = named("Filler $it"), raw = serviceBody())) }
+    assertEquals(PodRegistrationResult.RateLimited, register(pod, client = named("Late"), raw = serviceBody()))
+
+    val registered = service(register(pod, client = named("Owner's"), raw = serviceBody(), caller = manager(pod, recorded = true)))
+
+    assertNull(registered.activationExpiresAt)
+  }
+
+  @Test
   fun `a bearer that holds no authority to register is refused`() {
     // A caller presenting authority expects it to count; a provisional registration would surprise it.
     val pod = pod()

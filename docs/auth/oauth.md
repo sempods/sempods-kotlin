@@ -740,7 +740,7 @@ flood of public registrations does not hold up a service's, and the other way ro
 |---|---|---|---|
 | public | address | before the pod row, without a bearer | 10, 30 |
 | protected | address | before the pod row, with a bearer | 10, 20 |
-| service | pod | after a service's body is accepted | 2, 5 |
+| service | pod | after a self-registering service's body is accepted | 2, 5 |
 
 - **The address** is read as at `/token`: the rightmost `X-Forwarded-For` entry. No proxy, no
   address limit.
@@ -755,8 +755,10 @@ flood of public registrations does not hold up a service's, and the other way ro
   `SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*`, or routes it to the pod server without the proxy.
 - **The service budget** bounds secret minting on one pod: each service registration mints a
   bcrypt-hashed secret, nothing authenticates the caller, and many addresses can reach one pod. A
-  refused body is not charged. A caller can spend a pod's budget and delay other registrations for
-  a minute; it cannot activate anything.
+  refused body is not charged. A caller can spend a pod's budget and delay other self-registrations
+  for a minute; it cannot activate anything. The owner's registration with
+  [`service-clients:manage`](#managing-service-clients) is not counted, so it is never held up; the
+  protected address budget bounds it.
 - **Answer:** `429`, `Retry-After: 60`, `Cache-Control: no-store` and
   `{"error":"slow_down",…}`. RFC 7591 registers no code for this, so the answer is `/token`'s.
 - **Configuration:** `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and

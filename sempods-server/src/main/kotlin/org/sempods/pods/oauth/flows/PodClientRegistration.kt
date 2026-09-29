@@ -148,7 +148,7 @@ class PodClientRegistration @Inject internal constructor(
    * [SERVICE_CLIENTS_MANAGE_SCOPE] authority, approved under the consent that promises registration,
    * makes the registration active. Any other bearer is refused, so a caller that
    * meant to present authority never walks away with a provisional registration it did not expect.
-   * The pod's budget is charged only for a body that would be accepted.
+   * The pod's budget is charged only for a provisional registration whose body would be accepted.
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
     val owner = request.caller?.let { caller ->
@@ -181,7 +181,9 @@ class PodClientRegistration @Inject internal constructor(
     }
 
     // Each registration costs a bcrypt run, and without a bearer nothing authenticates the caller.
-    if (!serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
+    // The owner's own registration is not counted, so anonymous ones cannot hold it up; the
+    // protected address budget and the authority bound it.
+    if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
     val registered = serviceClients.registerService(pod, label, request.client.redirectUris.toList(), provisional = owner == null)
     val registration = registered.registration
@@ -373,8 +375,9 @@ internal sealed interface PodRegistrationResult {
 
 /**
  * How fast services may register themselves on one pod — each registration mints a secret at
- * bcrypt cost, and nothing authenticates the caller. A port, so the budget is decided here and kept
- * by the adapter that keeps the other registration budgets.
+ * bcrypt cost, and nothing authenticates the caller. The owner's own registrations are not counted.
+ * A port, so the budget is decided here and kept by the adapter that keeps the other registration
+ * budgets.
  */
 fun interface PodServiceRegistrationBudget {
   fun tryAcquire(pod: PodId): Boolean
