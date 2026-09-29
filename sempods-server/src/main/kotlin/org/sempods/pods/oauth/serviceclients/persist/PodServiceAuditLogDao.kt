@@ -84,7 +84,7 @@ class PodServiceAuditLogDao internal constructor(
     //
     // **It reaps only rows that carry the field.** The 100,140 rows written before this existed
     // have no `expiresAt` and are invisible to the reaper — see
-    // `docs/auth/service-clients.md` for the backfill that gives them one.
+    // `sempods-server/docs/auth/operations.md` for the backfill that gives them one.
     auditLog.createIndex(
       Indexes.ascending(PodServiceAuditLogDboFields.expiresAt),
       IndexOptions().expireAfter(0, TimeUnit.SECONDS),

@@ -154,9 +154,11 @@ class ClientRdf4jFromJavaTest {
     SempodsRdf4jPod rdf = new SempodsRdf4jPod(pod());
     String event = base("alice") + "/events/1";
 
+    // doc-example:start rdf-read
     SempodsResponse<Model> read = rdf.resources().getModel(event,
         SempodsReadOptions.of(SempodsContextSelection.of(TASKS, NOTES)));
     Model model = read.getBody();
+    // doc-example:end rdf-read
     assertEquals(Set.<Resource>of(Values.iri(TASKS), Values.iri(NOTES)), model.contexts());
 
     String tag = read.getHeaders().get("ETag");

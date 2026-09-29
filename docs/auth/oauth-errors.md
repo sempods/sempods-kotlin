@@ -1,25 +1,13 @@
 # OAuth error recovery
 
-An OAuth error this pod server returns through a redirect *may* carry an `error_uri`
-pointing at this page, with the error code as the fragment — whether it does is
-deployment configuration, see below. This is the page that fragment anchors into: what
-each code means, and what the client should do next. The codes themselves are returned
-either way; only the link to this page is conditional.
+Use this page to choose a recovery action after a pod authorization error. For example,
+`login_required` needs an interactive sign-in; repeating the same silent request will not help.
+Token errors arrive as JSON; see the [token exchange](../../sempods-server/docs/auth/oauth.md#token-exchange).
 
-Only `/authorize` errors reach a client this way — they arrive as query parameters on
-the `redirect_uri`. Token-endpoint errors are a JSON body per RFC 6749 §5.2 and carry
-no `error_uri`; `oauth.md` covers the exchange.
-
-**Where this page lives is deployment configuration.** `SEMPODS_OAUTH_ERROR_DOC_BASE`
-names the address serving it; with nothing set, error redirects carry no `error_uri`
-at all. That is the shipped state — the parameter is optional in RFC 6749 §4.1.2.1,
-and a link to a page nobody serves is worse than no link. Set the variable once this
-document is published somewhere your users can reach.
-
-A client that retries an error unchanged usually gets it again: most of these are
-either a malformed request or a state only somebody else can change. Where a retry
-does help, the entry says so. The one code that needs care is `access_denied`, which
-today covers both a person's refusal and a failed sign-in — see its section.
+A deployment can publish this page and set `SEMPODS_OAUTH_ERROR_DOC_BASE` to its URL.
+Authorization error redirects then include `error_uri` with the error code as a fragment.
+With no setting, the errors still work but carry no documentation link. Keep this page's
+location and error headings stable.
 
 ## `invalid_request`
 
@@ -44,34 +32,17 @@ authorization-code flow only; there is no implicit flow to fall back to.
 
 ## `login_required`
 
-`prompt=none` was requested and there is no session to answer from.
+A silent request has no usable session. **Recovery:** restart authorization without `prompt=none`
+and let the person sign in. The identity service always requires this because it holds no session.
 
-**One silent flow does not need a session, and it is checked first:** a request whose
-scope is exactly `public-read`, with `prompt=none` and no session, is answered with an
-anonymous authorization code — provided the pod publishes at least one public-read
-context. Only for that scope on its own; combined with any per-context scope the
-request falls through to here. A client that wants public data without an interactive
-login should ask for it that way rather than treating `login_required` as inevitable.
-
-Otherwise, and with a session absent, this is what a `prompt=none` gets — and at the
-identity service it is what `prompt=none` always gets, since it holds no session of its
-own yet. See "Known limitations" in [`README.md`](README.md).
-
-**Recovery:** repeat the request interactively, without `prompt=none`. Treat it as
-"needs a person", not as an error state to retry.
+The pod has one exception: `scope=public-read&prompt=none` can issue an anonymous code when public
+contexts exist. See [public-read authorization](../../sempods-server/docs/auth/oauth.md#public-read-flow).
 
 ## `consent_required`
 
-Nothing can be issued without somebody first agreeing to something — or, in one case,
-without the pod holding anything to agree about. **Whether a retry helps depends
-entirely on which case it is,** and the `error_description` is what tells them apart.
-
-**A retry resolves these**, but by different means depending on where the error came
-from. The two raised at `/authorize` are answered by dropping `prompt=none`. The two
-raised after the consent form was submitted were never silent to begin with, and the
-form cannot be sent again — the consent transaction is single-use, by design — so those
-need a fresh `/authorize`, and one of them needs the person to tick something different
-this time:
+Consent cannot be reused, or the pod has no access to offer. A `dyn:*` client always needs
+interactive user consent. **Recovery:** follow the case below; a submitted form is single-use,
+so restart authorization rather than submitting it again.
 
 | `error_description` | Case | What recovers it |
 |---|---|---|
@@ -80,7 +51,7 @@ this time:
 | `granted access changed while consenting; please re-authorize` | the user's grants moved between the consent page being rendered and submitted | start a fresh `/authorize`; the page is rebuilt from what they now hold |
 | `pod has no public-read contexts and no per-context scopes were selected` | `public-read` was the only box ticked, and the pod publishes none. Ticking *nothing at all* is `access_denied`, not this | start a fresh `/authorize` **and** tick one of their own contexts. Only open to somebody who has one — for anyone else this is the row below |
 
-**A retry cannot resolve these.** Both need somebody other than the caller to act:
+**These need a grant or visibility change:**
 
 | `error_description` | Case |
 |---|---|
@@ -92,27 +63,23 @@ without `prompt=none` renders a consent page rather than any of this.
 
 ## `access_denied`
 
-**A decision, and only a decision.** Somebody declined — at this pod's consent page by
-submitting it with nothing selected or by signing out, or upstream at the identity provider.
+The person declined, disconnected the app, or signed out. A provider cancellation can return the
+same error. Do not retry automatically; let the person choose whether to try again.
 
 | Path | `error_description` |
 |---|---|
+| Cancel on an ordinary consent page | `cancelled` — leave existing access unchanged |
 | Consent page submitted with nothing selected, by an app that holds nothing | `no scopes selected` |
 | Consent page submitted with nothing selected, or through its "Remove access" button, by an app that holds something | `app disconnected` — the grants are deleted, the refresh families revoked and a management authority withdrawn. The denial is real; it also has an effect |
-| Consent page's "Sign out everywhere", or a sign-out landing while the authorization was answered | `signed out` — every sign-in, connection, code and access token the person holds on the pod has ended ([`oauth.md`](oauth.md#signing-out)) |
+| Consent page's "Sign out everywhere", or a sign-out landing while the authorization was answered | `signed out` — every sign-in, connection, code and access token the person holds on the pod has ended ([User connections](../../sempods-server/docs/auth/connections.md#signing-out)) |
 | Identity provider reported `access_denied`, or Apple's `user_cancelled_authorize` | the upstream code, and its description where it sent one |
 
-**Recovery:** do not retry automatically. Repeating the flow asks the same question again,
-and the answer will be the same until the person changes their mind. Offer a "try again"
-and let them choose. After `app disconnected` a retry starts from nothing: the app holds no
-grant, so the next consent page is a first authorization again. After `signed out` the person
-signs in again first; the grants are still there.
+Service consent has its own [callback rules](../../sempods-server/docs/auth/service-clients.md#consent):
+an empty confirmation keeps the service active with no grants; cancellation leaves it unchanged.
 
-Only those two upstream codes earn this. **A code this pod does not recognise is reported
-as `server_error`, not as a refusal** — an unknown string is no evidence that a person
-declined, and telling a client somebody said no when nobody did is the worse of the two
-mistakes: it invites recording a decision that was never made, where the other way round
-only invites a retry that fails again.
+After `app disconnected`, the next authorization starts without the old grants. After `signed out`,
+the person signs in again but keeps their grants. Unrecognized provider errors are reported as
+`server_error`, so they are not mistaken for the person's refusal.
 
 ## `temporarily_unavailable`
 

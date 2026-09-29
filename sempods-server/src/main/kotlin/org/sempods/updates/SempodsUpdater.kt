@@ -5,9 +5,9 @@ import com.google.inject.Injector
 import java.util.concurrent.Executors
 import io.github.oshai.kotlinlogging.KotlinLogging
 
+/** Runs a fixed list of startup maintenance tasks on every boot, without recording run history. */
 class SempodsUpdater {
 
-  // Every registered update runs on each boot; each implementation must tolerate repetition.
   private val updates: List<SempodsUpdate> = listOf(
     DcrFingerprintUniqueness(),
   )
@@ -19,16 +19,9 @@ class SempodsUpdater {
   }
 
   /**
-   * Runs the registered updates, split by [SempodsUpdate.blocking].
-   *
-   * This method is called while Guice builds the injector (the updater is an eager singleton), and
-   * `BackendStarter` obtains the Jetty `Server` from that injector afterwards — so anything run
-   * synchronously here is finished before the first request is accepted, and anything submitted to
-   * the executor runs alongside a serving instance.
-   *
-   * That distinction is the whole point: an update that changes what existing data *means* has to
-   * be complete before traffic arrives, because the surrounding code already assumes the new
-   * meaning. Serving during such a migration does not produce slow answers, it produces wrong ones.
+   * Invoked while Guice builds the injector. Runs blocking tasks before scheduling background
+   * tasks, as defined by [SempodsUpdate.blocking]. Task exceptions are logged; remaining tasks
+   * and server startup continue.
    */
   @Inject
   fun runUpdates(injector: Injector) {
@@ -50,12 +43,6 @@ class SempodsUpdater {
     }
   }
 
-  /**
-   * One update, with its failure isolated: a broken update must not take the others with it, and a
-   * blocking one must not prevent the server from starting at all. What it *does* cost is
-   * correctness for whatever it failed to migrate — which is why the log is SEVERE and an update
-   * that changes what stored data means should report its own end state rather than only its work.
-   */
   private fun runUpdate(injector: Injector, update: SempodsUpdate) {
     try {
       logger.info { "[sempods/updates] Starting update '${update.name}'" }

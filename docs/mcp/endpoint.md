@@ -233,7 +233,7 @@ Notes:
   is short because per-context permissions are grants — agreed in the
   consent dialog and resolved per request, never asked for through
   `scope` — and it carries `offline_access`, the durable-connection
-  extension ([`../auth/oauth.md`](../auth/oauth.md#offline_access)).
+  extension ([User connections](../../sempods-server/docs/auth/connections.md#offline_access)).
   `openid` is absent: a pod issues no `id_token`.
 
 Authorization-server metadata (RFC 8414):
@@ -269,5 +269,5 @@ side uses the library and the producing side does not.
 - [`tools.md`](tools.md) — every tool definition + examples.
 - [`authentication.md`](authentication.md) — bearer / anonymous /
   public-read / `authorize` tool / DCR.
-- [`../auth/oauth.md`](../auth/oauth.md) — full OAuth flow at the pod
+- [OAuth reference](../../sempods-server/docs/auth/oauth.md) — full OAuth flow at the pod
   level.

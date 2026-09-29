@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * dispatcher bounds only for `enqueue`. Timeouts, the connection pool, event listeners and further
  * interceptors stay the consumer's, set on the same builder.
  *
- * Why OkHttp, and why blocking: `docs/pod-client.md` §"The transport".
+ * Why OkHttp, and why blocking: `sempods-client/docs/transport.md`.
  */
 object SempodsOkHttp {
 

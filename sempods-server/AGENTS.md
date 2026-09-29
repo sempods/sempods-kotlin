@@ -21,8 +21,12 @@ their current constraints, and the invariants that are not selectable at all.
 scope), the documentation rules and the AI documentation map for the whole of sempods.
 **Read it before changing behaviour here** — this file does not repeat it.
 
-This directory holds the server's code and nothing else: `src/` and `build.gradle.kts`. Where the
-project-level material sits beside it is that file's subject, not this one's.
+## Documentation
+
+- [Pod OAuth](docs/auth/README.md) — service and user flows, identity trust and operating limits.
+- [Host provisioning](docs/host-provisioning.md) — deployment-specific operator API and current code placement.
+- [Collections](docs/collections.md) — persistence and startup maintenance.
+- [Shared auth overview](../docs/auth/README.md) — module responsibilities and client entry points.
 
 ## Non-negotiable invariants
 

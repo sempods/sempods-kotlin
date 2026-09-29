@@ -25,7 +25,7 @@ class PodScopeValidatorTest {
   fun `the context namespace is not a context, nor is anything above it`() {
     // `covers()` reads a scope's context URI as a subtree root, so every path-ancestor of the
     // namespace is a pod-wide wildcard. `<pod>#manage` was already refused; these were not, and
-    // `docs/auth/service-clients.md` promised a service client is confined to a subtree.
+    // `sempods-server/docs/auth/service-clients.md` promised a service client is confined to a subtree.
     for (root in listOf(
       "https://sempods.org/my-pod/_system/contexts",
       "https://sempods.org/my-pod/_system/contexts/",

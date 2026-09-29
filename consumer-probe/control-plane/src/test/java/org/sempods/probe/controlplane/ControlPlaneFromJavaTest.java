@@ -144,8 +144,10 @@ class ControlPlaneFromJavaTest {
         + "\"contextRoot\":\"https://pods.example/alice/_system/contexts/apps/notes\","
         + "\"secret\":\"sc_secret\"}";
 
+    // doc-example:start provision-service
     ProvisionServiceClientResult minted =
         admin.provisionServiceClient("alice", "notes-app", null, null).getBody();
+    // doc-example:end provision-service
 
     assertEquals("r1", minted.getRegistrationId());
     assertEquals("s1", minted.getSecretId());

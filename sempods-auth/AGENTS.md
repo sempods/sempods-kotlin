@@ -52,7 +52,7 @@ SHA-256 without HMAC — stateless, decentralized; any pod can derive URIs indep
 
 ## Documentation
 
-- `sempods-auth/docs/README.md` — module overview
+- [Module guide](README.md) — role, login example and deployment entry points
 - `sempods-auth/docs/identity-service.md` — identity layers, WebID registry, OIDC bridge, JWT format, linked identities
 
 `sempods-auth/docs/` follows the repository's

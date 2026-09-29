@@ -41,7 +41,7 @@ import java.io.IOException
  * [`SPS-MEDIA-011`](https://github.com/sempods/sempods-spec/blob/main/spec/modules/media.md#SPS-MEDIA-011)
  * requires `201` whether or not the bytes were already stored, so a pod answering `200` has broken
  * it — and has stored the media all the same. Why such a status is listed rather than refused is
- * `docs/pod-client.md` §"Endpoint groups"; [SempodsResponse.status] is where a caller who wants to
+ * `sempods-client/docs/client.md` §"Endpoint groups"; [SempodsResponse.status] is where a caller who wants to
  * notice looks.
  *
  * **A media id is one path segment**, so [assign] and [unassign] refuse an id

@@ -121,40 +121,12 @@ deployment can point elsewhere.
 the service prefix: the signing keys are `oauth.signingKeys` in all three, because the database name
 already says whose they are.
 
-## Schema changes have no migration mechanism worth the name
+## Startup maintenance
 
-Nothing here versions the stored data or records that a change was applied. What exists is
-`SempodsUpdater`, an eager singleton whose `runUpdates` is called while Guice builds the injector —
-before `SempodsServerStarter` obtains the Jetty server from it. The list of updates it submits is
-**hardcoded**, and holds one entry: `DcrFingerprintUniqueness`, which builds the unique fingerprint
-index on `oauth.clientRegistrations` and sweeps the duplicate rows only where the build says there
-are some. It works that collection directly rather than through `DynamicClientRegistrationDao`,
-which builds the same index in its constructor. `DcrFingerprintIndex` owns the definition and the
-reasoning — including why it is the one index here with a name of its own.
+[`SempodsUpdater`](../src/main/kotlin/org/sempods/updates/SempodsUpdater.kt) is a small startup
+helper for registered maintenance tasks. It runs the list on every boot, keeps no run history,
+and logs task failures while startup continues. Its current task maintains the DCR fingerprint
+index. The execution contract is in
+[`SempodsUpdate`](../src/main/kotlin/org/sempods/updates/SempodsUpdate.kt).
 
-**Two execution modes, and the split is the part that works.** Each update declares `blocking`. A
-blocking one runs synchronously there, so it is finished before the first request is accepted; the
-rest go to a daemon thread and run alongside a serving instance. That distinction is deliberate and
-load-bearing: an update that changes what existing data *means* has to complete before traffic
-arrives, because the code around it already assumes the new meaning — serving during such a
-migration produces wrong answers, not slow ones. An update that only adds data nothing reads yet
-does not need to hold up boot.
-
-What is missing is everything around it, and it is worth knowing before you self-host across an
-upgrade:
-
-- **No history.** Nothing records that an update ran, when, or how it ended. There is nothing to
-  look up and nothing to skip.
-- **No "already applied" check.** Every entry runs on every boot, so idempotence is each entry's own
-  responsibility. An entry that walks every pod does that walk every restart.
-- **A failure does not stop anything** — including a blocking one. `runUpdate` catches, logs at
-  SEVERE and continues, on purpose: a broken update must not leave the server unable to start. The
-  cost is that a migration which failed looks exactly like one that succeeded unless somebody reads
-  the log, and the blocking mode's guarantee is then only that the attempt finished, not that it
-  worked.
-- **Retiring an update erases it.** Editing the list is the only way, and afterwards nothing records
-  that it ever existed.
-
-The practical consequence for an operator: **take a backup before upgrading**, and read the startup
-log rather than assuming a clean boot means a clean migration. A versioned registry with run history
-is designed and not built.
+Supported upgrades are a [deployment responsibility](../../docs/concepts/modularity.md#deployment-and-upgrades).

@@ -43,7 +43,7 @@ Argument: `reauthorize: boolean` (optional, default `false`).
 
 Returns the contexts (named graphs) this session can see, with the
 permission level on each. An entry with `manage` alone is the owner's
-[`contexts:manage`](../auth/oauth.md#managing-contexts) registry
+[`contexts:manage`](../../sempods-server/docs/auth/oauth.md#managing-contexts) registry
 authority, with no read or write, and no reason to reauthorize for data.
 The contract is:
 

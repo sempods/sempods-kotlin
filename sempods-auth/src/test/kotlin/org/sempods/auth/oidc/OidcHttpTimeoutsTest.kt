@@ -9,7 +9,7 @@ import kotlin.test.assertEquals
  * The timeouts the upstream OIDC leg actually runs under.
  *
  * Nothing in this repository sets them — `SempodsAuthModule.httpClient` installs one plugin and
- * takes the engine as it comes — so they are Ktor's CIO defaults, and `docs/auth/oauth.md`
+ * takes the engine as it comes — so they are Ktor's CIO defaults, and `sempods-server/docs/auth/operations.md`
  * §"Sharp edges" quotes them. That pairing is why this test exists: the same paragraph has now
  * carried two different wrong descriptions of this behaviour, first a "10 s with two retries" that
  * matched nothing in the tree, then a "no connect timeout, holds a coroutine indefinitely" that

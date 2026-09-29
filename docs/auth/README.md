@@ -1,181 +1,55 @@
-# Authentication & Authorization
+# Authentication and authorization
 
-**The auth model itself is not here any more.** Who may do what, the grant grammar,
-the client-identity shapes and the OAuth profile are the specification:
-[`spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md),
-[`spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md) and
-[`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). A second implementation reads those; nothing
-in this folder binds it.
+[Documentation](../README.md) · [JVM client](../../sempods-client/README.md)
 
-What stays here is what the specification deliberately leaves to an implementation —
-the numbers, the limits and the machinery this one chose. The token endpoint's rate
-budget, the timeouts on the OIDC legs, service-client provisioning over the admin
-surface and its audit trail, and the page every OAuth `error_uri` points at.
+A pod checks who calls and which contexts that caller may use. A **grant** is a permission such as
+`https://pods.example/alice/_system/contexts/notes#write`. The pod stores it and resolves it on
+each request. A token identifies the caller; its OAuth **scopes** carry coarse capabilities such
+as `public-read`. Context grants never travel inside the token.
 
-## The model is not here
+For example, Alice lets Notes Sync write her notes context. The service can read and write that
+context, but cannot read her contacts. Removing the grant stops further access on the next request,
+even if the service still holds an unexpired token. It cannot erase copies already downloaded.
 
-Identity, context, grant and token are [`spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md),
-[`spec/core/grants.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) and
-[`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md). Two points are worth carrying across, because
-this folder's documents lean on them and an old reading of either produces wrong code:
+## Choose a flow
 
-- A **grant** is durable server-side policy and never travels in a token
-  ([`SPS-GRANT-001`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-001)). An access token's `scope`
-  claim carries feature scopes only ([`SPS-AUTH-029`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-029));
-  per-context grants are resolved per request from the store, keyed by the verified
-  `(client, subject)` pair ([`SPS-GRANT-002`](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md#SPS-GRANT-002)).
-- Parts of this code still say "scope" where "grant" is meant, because both travel through the
-  OAuth `scope` parameter at consent time. `PodScopeValidator` is what tells the three shapes
-  apart — OIDC scope, feature scope, and the `<context-iri>#<permission>` grant request — and
-  anything that needs to know which it is asks the validator rather than matching on the string.
+| You are building | Flow | Start here |
+|---|---|---|
+| A backend or scheduled worker acting as a service | **Client Credentials** | [Service access](../../sempods-server/docs/auth/service-clients.md) |
+| An app acting for a person | **Authorization Code + PKCE** | [Delegated access](../../sempods-server/docs/auth/user-access.md) |
+| A reader of public data | Anonymous HTTP requests | [Client quick start](../../sempods-client/README.md#read-public-data) |
 
-## What this implementation adds
+A service acts as itself, even when its setup needs browser approval from the owner.
+A delegated app acts for a person. Public client registration (`dyn:*`) alone never
+provides service credentials.
 
-The rules above are the specification's. What follows is this deployment's own, and would still
-be a conforming pod if it were done differently:
+Pod OAuth calls use endpoints relative to the **full pod URL**, such as
+`https://pods.example/alice/_system/auth/token`. [Host provisioning](../../sempods-server/docs/host-provisioning.md)
+is a deployment-specific operator API with a separate address and credential.
 
-- **Pod-owned signing keys.** Each pod issues and signs its own access tokens with its own RSA
-  key pair, RS256. There is no shared authorization server and no shared key material, so a pod
-  is verifiable from its own JWKS alone and stays that way if it is moved.
-- **A second issuer in the same repository.** `sempods-auth` is an OIDC identity provider that
-  issues *identity* tokens; a pod issues *access* tokens. They are separate issuers with separate
-  keys that happen to ship together — [`identity.md`](identity.md) is the one that explains why
-  a WebID needs an issuer at all.
-- **Host-rooted OAuth metadata.** The specification requires both metadata documents at the
-  pod-relative append form, `GET /{pod}/.well-known/oauth-protected-resource` and
-  `GET /{pod}/.well-known/oauth-authorization-server`
-  ([`SPS-AUTH-045`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-045),
-  [`SPS-AUTH-066`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-066)). The addresses RFC 9728 §3.1 and RFC 8414 §3.1
-  construct sit on the *origin* instead — `/.well-known/oauth-protected-resource/{pod}` and
-  `/.well-known/oauth-authorization-server/{pod}` — which is above any one pod's base URL, so
-  [`SPS-AUTH-067`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-067) allows them without requiring them. This
-  deployment owns the origin and serves them, because a generic OAuth client probes there before it
-  has ever seen a `401`. A pod that served only the append forms would be exactly as conformant. The
-  same holds for the third host-rooted route, the one at the MCP URL —
-  [`../mcp/endpoint.md`](../mcp/endpoint.md) §"OAuth discovery routes" lists all six.
+## Which module does what?
 
-## Standards used
-
-| Standard | Where it shows up |
+| Module | Responsibility |
 |---|---|
-| OAuth 2.1 (Authorization Code + PKCE) | App login (`oauth.md`) |
-| RFC 6749 §4.4 — Client Credentials | Service access (`service-clients.md`) |
-| OIDC Core 1.0 | `prompt` parameter, identity JWT shape (`identity.md`) |
-| OIDC Discovery 1.0 | The id-server's `/.well-known/openid-configuration` (`identity.md`) |
-| RFC 7636 — PKCE (S256) | Required by both the pod's and the id-server's `/authorize` |
-| RFC 7591 — Dynamic Client Registration | `dyn:*` clients (`oauth.md`) |
-| RFC 9728 — Protected Resource Metadata | `/.well-known/oauth-protected-resource` (`oauth.md`) |
-| RFC 6749 §10.4 — Refresh-token rotation | Token family + reuse detection (`oauth.md`) |
-| RFC 6750 — Bearer Token usage | Resource-server requests |
-| RFC 8414 — Authorization Server Metadata | `/.well-known/oauth-authorization-server` (`oauth.md`) |
+| [`sempods-server`](../../sempods-server/docs/auth/README.md) | The pod's authorization server: consent, grants, service registrations, access tokens and enforcement |
+| [`sempods-auth`](../../sempods-auth/README.md) | Person identity: Google or Apple sign-in, WebID profiles and OIDC identity tokens |
+| [`sempods-auth-core`](../../sempods-auth-core/README.md) | Shared OAuth/OIDC building blocks used by the services |
+| [`sempods-client`](../../sempods-client/README.md) | App-side HTTP calls, PKCE, registration and token exchange |
+| [`sempods-mcp`](../concepts/hosted-mcp.md) | Hosted MCP connections to multiple pods |
 
-Standards are *named*, not re-explained in these docs.
+An identity token from `sempods-auth` is consumed during login. Apps call a pod with an **access
+token issued by that pod**. A service using Client Credentials does not need the identity service
+for its token exchange.
 
-## Known limitations
+## Read further
 
-What the model does not do yet. Named here rather than left to be
-discovered — none of it is a bug report, and none of it carries a date.
+- [Pod identity and trust](../../sempods-server/docs/auth/identity.md): how a verified WebID becomes a pod session.
+- [OAuth reference](../../sempods-server/docs/auth/oauth.md): client identifiers, consent, refresh and feature scopes.
+- [OAuth errors](oauth-errors.md): recovery for the errors linked from browser redirects.
+- [Specification](https://github.com/sempods/sempods-spec): normative
+  [auth](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md) and
+  [grant](https://github.com/sempods/sempods-spec/blob/main/spec/core/grants.md) contracts.
 
-**Sign-in happens once per pod.** The identity service holds no session of
-its own: every authorization runs the full provider leg, so `prompt=none`
-at its `/authorize` is always `login_required`, and signing in to a second
-pod re-authenticates at the upstream provider. The pod side has a session
-cookie; this is the other half.
-
-**A sign-out is everything or nothing, and only on a consent screen.**
-"Sign out everywhere" ([`oauth.md`](oauth.md#signing-out)) ends every
-sign-in and every app's connection the person holds on that pod. One browser
-or one app cannot be signed out alone: removing an app's access takes its
-grants too. The pod has no page of its own to sign out from, so the person
-reaches the button through an app that opens a consent screen, and signs
-out of each pod separately. A person the pod has nothing to offer — no grant
-and no public context — never sees one: `/authorize` answers
-`consent_required`, so they cannot sign out. Nothing they still hold opens
-a context then: a session grants nothing by itself, and a token resolves no
-grant and no public context.
-
-**A sign-out draws its line by the clock.** The sign-out and the
-credential it refuses can be dated by different replicas, so clock skew
-between them moves the line. It reaches the URIs the signing-out session
-knows the person by; an alias the identity service no longer asserts is
-not reached.
-
-**`prompt=login` cannot be guaranteed for an Apple sign-in.** The value is
-parsed and forwarded, and Google honours it. Apple's authorize endpoint
-does not document `prompt`, and an existing Apple session satisfies the
-flow regardless — so a pod that genuinely requires fresh authentication
-gets a promise the chain may not keep, and does not learn that it did not.
-
-**No rate limiting on `/authorize`** beyond what the surrounding
-infrastructure provides. `/token` and `/register` have budgets — see
-[`oauth.md`](oauth.md) for the keys they are spent against. The budgets are
-per process, so a deployment running several replicas hands out one per
-replica. `/register` is unauthenticated by design (RFC 7591): its budget
-bounds how fast rows are written, and nothing removes them yet
-([#251](https://github.com/sempods/sempods-kotlin/issues/251)).
-
-**The HTTP timeouts on the OIDC legs are nobody's decision, bar one.** A
-sign-in crosses three of them, on three different clients: the pod server's
-leg to the identity service gives up after ten seconds, which somebody
-chose; the identity service's token exchange with Google or Apple after
-fifteen; and the JWKS fetch that verifies the resulting token after half a
-second, the tightest of the three sitting on the step nobody thinks about
-(cached for five minutes, so it bites on a cold cache). All are bounded, so
-a slow provider does not hang a request — but only the first was picked,
-none is configurable, and the pod client core is the only place in the
-tree where these are modelled deliberately. Figures in `oauth.md`
-("Sharp edges").
-
-**A failed credential cannot be attributed to anybody.** When a refresh token is
-presented that this server does not recognise, the warning names which token
-missed — a short digest prefix — but not whose it was: there is no token to read a
-family or a WebID off, and the submitted `client_id` names an app rather than one
-person's installation of it. A pod owner reading his own logs cannot tell his own
-client from another person's holding a grant on the same pod.
-
-**Signing keys are persisted but never rotated.** The schema carries
-`kid`, `algorithm` and `retiredAt`, and the JWKS endpoint publishes every
-persisted key, so rotation is a change to the issuer rather than a
-migration — but nothing performs it today. Short of a sign-out, revocation
-before expiry is limited to refresh-family revocation; there is no `jti`
-blacklist, so an issued access token stays valid for its hour.
-
-**A connection whose grant died is marked, not pruned.** The RFC 6749 §5.2
-case (`invalid_grant` on refresh) sets a flag that surfaces as "reconnect
-needed". A token that is merely expired with no refresh token never
-reaches that path and still reads as healthy. Reconnecting reads the flag
-and re-registers a dynamic client rather than presenting the stored one;
-the background refresh does not read it at all, and keeps retrying a marked
-connection on every sweep until the pod is reconnected.
-
-**Access for non-owner WebIDs has storage but no interface.** The scope
-grammar and the grant store support `(pod, webId, scope)`; there is no
-pod-owner UI to manage such grants, so in practice access is owner plus
-whatever the owner delegates to apps, plus `public-read`.
-
-**Public contexts are flagged in the operational store, not in RDF.** A
-pod's public-read contexts come from a database flag rather than from
-pod-owned metadata, so the setting is not itself data the owner can read,
-copy or reason over.
-
-**DPoP is not implemented.** Tokens are bearer tokens. Sender-constrained
-tokens and browser-resident key pairs are a design in `identity.md`, not
-code.
-
-## Doc map
-
-- **`identity.md`** — authentication: WebID identity layers, identity
-  JWTs issued by `id.sempods.org`, the OIDC bridge, trust model,
-  anonymous subjects.
-- **`oauth.md`** — what the flows cost and where they are bounded here: the token
-  endpoint's rate budget and its two tiers, the timeouts on both OIDC legs, and the
-  sharp edges. The flows themselves are
-  [`spec/core/auth.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md).
-- **`service-clients.md`** — service access: registration, consent, provisioning over the admin
-  surface, idempotency, the owner deciding every service's grants, the audit trail and its retention. What a service client *is* and what
-  it may hold is [`SPS-AUTH-012`](https://github.com/sempods/sempods-spec/blob/main/spec/core/auth.md#SPS-AUTH-012) onwards.
-- **[`oauth-errors.md`](oauth-errors.md)** — the recovery page every OAuth `error_uri`
-  points at: one heading per error code a redirect can carry.
-- **`../../sempods-auth/docs/identity-service.md`** — implementation
-  details for the id-server (URI namespaces, OIDC bridge internals,
-  identity merge, federation).
+These pages describe the current implementation. Self-registered `svc:*` clients are an
+experimental 0.2 extension; the [service guide](../../sempods-server/docs/auth/service-clients.md)
+links its deviations from the specification.

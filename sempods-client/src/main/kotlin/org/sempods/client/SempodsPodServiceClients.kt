@@ -15,7 +15,7 @@ import java.time.Instant
 /**
  * A pod's service clients: a service registering itself, sending the owner to its consent, and the
  * owner registering services and deciding what each reaches. This is an experimental 0.2 extension
- * of the pod's OAuth profile; `docs/auth/service-clients.md` has the pod's side.
+ * of the pod's OAuth profile; `sempods-server/docs/auth/service-clients.md` has the pod's side.
  *
  * | What | Lives | |
  * |---|---|---|
@@ -28,7 +28,7 @@ import java.time.Instant
  * HttpUrl consent = registering.consentUrl(service.getClientId(), state);
  * ```
  *
- * `docs/pod-client.md` §"Registering a service client" has the whole sequence, and the owner's tool
+ * `sempods-client/docs/client.md` §"Registering a service client" has the whole sequence, and the owner's tool
  * that registers a service active and gives it its grants.
  *
  * **Built on a session of its own.** [register] needs no credential: without one the registration
@@ -39,7 +39,7 @@ import java.time.Instant
  *
  * | Operation | After a lost connection |
  * |---|---|
- * | [register] | not sent again. A second call registers a second service. The one whose answer was lost is removed at its deadline where it is provisional; one the owner's bearer registered stays, and [list] and [revoke] remove it (`docs/auth/oauth.md` §"Registering a service client") |
+ * | [register] | not sent again. A second call registers a second service. The one whose answer was lost is removed at its deadline where it is provisional; one the owner's bearer registered stays, and [list] and [revoke] remove it (`sempods-server/docs/auth/oauth.md` §"Registering a service client") |
  * | [rotateSecret] | not sent again. A lost answer leaves a secret nobody holds; rotate once more |
  * | [list], [get], [replaceGrants], [revoke] | sent once more, as any idempotent request. A [replaceGrants] whose answer was lost hears `412` on the resend if the first attempt landed: read the grants again |
  *

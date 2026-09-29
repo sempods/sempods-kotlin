@@ -24,8 +24,8 @@ ktorClientCio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 ktorUtils = { module = "io.ktor:ktor-utils", version.ref = "ktor" }
 
 # The HTTP engine under `:sempods-client` — and so under everything that dials a pod — and under
-# `:sempods-commons-okhttp`, which holds a client of its own (`docs/pod-client.md` §"Two OkHttp
-# clients in one process"). Why OkHttp: `docs/pod-client.md` §"The transport".
+# `:sempods-commons-okhttp`, which holds a client of its own (`sempods-client/docs/transport.md` §"Two OkHttp
+# clients in one process, on purpose"). Why OkHttp: `sempods-client/docs/transport.md`.
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 # S3, for `:sempods-media-s3`. The AWS SDK is the reference implementation of the *protocol* — Garage,
@@ -55,7 +55,7 @@ bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.86"
 
 guice = "com.google.inject:guice:7.0.0"
 # `JsonMapper` and `JsonNode` — the Jackson types this repository puts in public signatures. Inside
-# `:sempods-client` and its siblings they are named in no signature: `docs/pod-client.md`
+# `:sempods-client` and its siblings they are named in no signature: `sempods-client/docs/client.md`
 # §"Consumable as an artifact".
 jackson3Databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson3" }
 # A registration on a `JsonMapper`.

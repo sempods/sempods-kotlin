@@ -53,7 +53,7 @@ internal data class PodServiceAuditLogDbo(
    *
    * **Null on a row written before the retention existed.** A TTL index only reaps rows that
    * carry the field, so those are kept for ever unless an operator backfills them — the choice,
-   * and the one-off command, are in `docs/auth/service-clients.md`.
+   * and the one-off command, are in `sempods-server/docs/auth/operations.md`.
    */
   val expiresAt: Instant? = null,
 )

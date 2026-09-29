@@ -15,7 +15,7 @@ seam is visible.
 | **Query rewriting** | Let a deployment (or an individual pod) enforce additional constraints on SPARQL before execution. | Nothing exists; the sandbox is applied directly on the query path. |
 | **Store selection per pod** | Choose the store backend per pod (in-memory, file-based, remote SPARQL). The interface is there; the per-pod choice is not — and the write path still reaches through it to an RDF4J Sail for change capture, which is the actual blocker. | `PodRepositoryCache.initialize()` constructs `InMemoryPodRepository` unconditionally; `InMemoryPodRepository.doWork` casts to `NotifyingSailConnection`. Tracked in [issue #139](https://github.com/sempods/sempods-kotlin/issues/139). |
 | **`_system` extensions** | Let a deployment add endpoint sets under `_system/…` without patching the module. | The endpoint list in `SempodsModule.bindEndpoints(...)` is static. Partial precedent: `SempodsMediaModule` contributes a set from the deployment composition — the Multibinder behind `JaxRsApplicationModule.bindEndpoints` already allows it. |
-| **Transport without RDF** | Let a consumer of the host-level admin surface take the HTTP plumbing without the pod client — an operator console with no RDF anywhere. | Closed: `:sempods-control-plane-client` and the hosted MCP consumer both run on `:sempods-client` directly, so an operator console resolves no RDF library and no Jackson 2. See [`../pod-client.md`](../pod-client.md). |
+| **Transport without RDF** | Let a consumer of the host-level admin surface take the HTTP plumbing without the pod client — an operator console with no RDF anywhere. | Closed: `:sempods-control-plane-client` and the hosted MCP consumer both run on `:sempods-client` directly, so an operator console resolves no RDF library and no Jackson 2. See [Client API guide](../../sempods-client/docs/client.md). |
 
 ## Target profiles
 
@@ -40,6 +40,13 @@ profile ever becomes real, the honest form of it is a server that binds no conne
 until something enforces that, an authority that authorizes everyone is a footgun with no
 legitimate user.
 
+## Upgrade support for a concrete profile
+
+A possible single-pod example deployment could include tested upgrades for a fixed component
+selection and a limited feature set. Its documentation would name the supported version transitions,
+backup and recovery steps, and verification checks. That support would cover only this deployment's
+configuration. It is a proposal, with no upgrade path implemented or release commitment.
+
 ## Owner and operator interfaces
 
 An owner interface would use ordinary pod OAuth and the pod client across implementations.
@@ -50,7 +57,7 @@ sharing a static admin credential; `PodOwnerAuthority` is an existing owner-reco
 example, not an implementation of that admin policy.
 
 The owner already registers services and replaces their grants over HTTP
-([`../auth/service-clients.md`](../auth/service-clients.md#managing-service-clients)). The grants of
+([`../../sempods-server/docs/auth/service-clients.md`](../../sempods-server/docs/auth/service-clients.md#managing-service-clients)). The grants of
 delegated access have no such contract yet: owner CRUD over the existing grant/replace/revoke facade
 methods needs one, with owner or covering manage authorization. Review it with this interface
 boundary.

@@ -23,7 +23,7 @@ import java.time.Instant
 
 /**
  * The service consent: a service sends the pod owner here, and the owner decides which contexts it
- * reaches — one registered at the pod (`svc:`) or one the operator provisioned. What a service sends and learns is `docs/auth/service-clients.md`
+ * reaches — one registered at the pod (`svc:`) or one the operator provisioned. What a service sends and learns is `sempods-server/docs/auth/service-clients.md`
  * §"Consent".
  *
  * **Nothing is delivered to the service.** Confirming answers `state` alone, cancelling

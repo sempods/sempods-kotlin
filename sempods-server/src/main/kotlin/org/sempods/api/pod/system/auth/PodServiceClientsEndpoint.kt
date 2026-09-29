@@ -61,7 +61,7 @@ class PodServiceClientsEndpoint @Inject constructor(
 
   /**
    * Makes the JSON array of scopes in [body] the service's grants, at the version `If-Match` names.
-   * Its answers are `docs/auth/service-clients.md` §"Managing service clients".
+   * Its answers are `sempods-server/docs/auth/service-clients.md` §"Managing service clients".
    */
   @PUT
   @Path("{clientId}/grants")

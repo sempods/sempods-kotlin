@@ -83,7 +83,7 @@ class JwtIssuer(
    * `/e/<hash>` is public Linked Data by design, which is what makes it dereferenceable at all.
    * The token exists so that the response conforms and so that a relying party's library accepts
    * it — a `/userinfo` endpoint, or the profile management sketched in `identity-service.md`
-   * §"Open Questions", would be its first real consumer.
+   * §"Profile management", would be its first real consumer.
    *
    * Two things keep it from being mistaken for the identity token it travels beside, because a pod
    * verifying an identity JWT checks the issuer, the expiry and the signature — all three of which

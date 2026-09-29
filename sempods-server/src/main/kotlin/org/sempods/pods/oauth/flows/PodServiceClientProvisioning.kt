@@ -11,7 +11,7 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 /**
  * Giving a service client its credentials, idempotently. Provisioning creates; it never writes the
  * grants of a registration that exists, because those are the pod owner's
- * (`docs/auth/service-clients.md` §"Managing service clients").
+ * (`sempods-server/docs/auth/service-clients.md` §"Managing service clients").
  *
  * A service client authenticates with a secret and no person behind it, so provisioning it twice
  * must not quietly mint a second secret the caller then races its own health check against. The

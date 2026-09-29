@@ -17,7 +17,7 @@ import java.net.URI
 
 /**
  * An owner's reads, grant replacement, rotation and revocation of the service clients on their pod.
- * What each does on the wire is `docs/auth/service-clients.md` §"Managing service clients".
+ * What each does on the wire is `sempods-server/docs/auth/service-clients.md` §"Managing service clients".
  *
  * Every operation needs [SERVICE_CLIENTS_MANAGE_SCOPE]. [replaceGrants] reaches every registration;
  * rotation and revocation only those this pod named (`svc:`), since an operator holds the secret

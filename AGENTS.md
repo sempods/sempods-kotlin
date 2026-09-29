@@ -95,10 +95,10 @@ Key design choices:
 - Separate MongoDB database (`sempods-auth`), raw driver (no Morphia)
 - Ktor routing: extension functions in `api/` packages
 - WebID URI space: `id.sempods.org/e/<sha256(email)>` (EMAIL) and `id.sempods.org/oidc/<sha256(iss+sub)>` (OIDC)
-- Live: WebID profile CRUD + content negotiation (Turtle / JSON-LD / HTML), the OIDC bridge with
+- Live: WebID profiles + content negotiation (Turtle / JSON-LD / HTML), the OIDC bridge with
   Google and Apple, and a standard provider surface (`/.well-known/openid-configuration`,
   `/authorize`, `/token`) that the pod server and the hosted MCP service sign in against. `/login`
-  — an implicit grant with unrestricted callbacks, which `docs/auth/oauth.md` rules out — is gone;
+  — an implicit grant with unrestricted callbacks, which `sempods-server/docs/auth/oauth.md` rules out — is gone;
   everything it issued stays valid until the signing-key rows are cleared, which is an operator
   step against the `oauth.signingKeys` collection rather than a release
 
@@ -120,10 +120,16 @@ IST documentation:
 - Naming (IST): `docs/naming.md` — the authority for how "sempods" is written in prose and
   in code, the package namespace, and the names that are frozen because a deployed host, a database
   or a published IRI depends on them
-- Pod client (IST): `docs/pod-client.md` — the JVM client for the pod surface and its admin-surface sibling: the RDF-free core (`:sempods-client`) and its session, authentication, admission and outcome contracts; the adapters on it — RDF4J values (`:sempods-client-rdf4j`) and the media routes (`:sempods-client-media`); the rule for what may be added where; why the client is built on OkHttp, as part of the core's API; and what the client deliberately is not
+- Client family: [sempods-client/README.md](sempods-client/README.md) — quick start and OAuth examples;
+  [client API guide](sempods-client/docs/client.md) and [transport](sempods-client/docs/transport.md);
+  [RDF4J](sempods-client-rdf4j/README.md), [media](sempods-client-media/README.md) and
+  [host administration](sempods-control-plane-client/README.md)
+- Authentication: [docs/auth/README.md](docs/auth/README.md) — cross-module overview;
+  [pod OAuth](sempods-server/docs/auth/README.md), [identity service](sempods-auth/README.md)
+  and [shared auth library](sempods-auth-core/README.md)
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
 - MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
-- Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and the boot-time updater that is not a migration system
+- Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and startup maintenance
 - AI layer (IST): `docs/ai-layer.md`
 - MCP per-pod surface (IST): `docs/mcp/` — JSON-RPC endpoint, tools, OAuth-gated access, client behavioral clusters
 - LOD/REST/CRUD layer: **not here** — it is [sempods-spec `spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md). Two-layer model, context rules, base64url convention. Cited from this code by requirement identifier
@@ -140,6 +146,10 @@ IST documentation:
 - Prefer explicit specs + conformance tests over clever query rewriting. This is a working rule
   rather than a property of the model, which is why it is here and not in the list above.
 - Be conservative with backward-incompatible changes.
+- Keep upgrade orchestration with the concrete deployment. A local data change is not a reason to
+  add a universal migration framework to shared modules. Document component compatibility and any
+  required data conversion; deployment-specific upgrade strategies are in scope. See
+  [deployment responsibilities](docs/concepts/modularity.md#deployment-and-upgrades).
 - Most modules here are published. An artifact whose types appear in a module's public signatures
   is declared by that module, on `api` — not inherited from a sibling that brings it, and not the
   artifact one level up from the one the type is in. `./gradlew buildHealth` checks this against
@@ -184,9 +194,6 @@ introduce one, and do not assume one has run. Style comes from the surrounding f
 
 Comments in build files, workflow files and `gradle.properties` follow writing rule 3 in
 [`docs/agents/documentation-strategy.md`](docs/agents/documentation-strategy.md#the-writing-rules).
-
-**No schema-migration system.** `SempodsUpdater` runs a hardcoded list every boot, with no history
-and no already-applied check. Do not propose a migration framework as a fix for a data change.
 
 ## Before you commit
 

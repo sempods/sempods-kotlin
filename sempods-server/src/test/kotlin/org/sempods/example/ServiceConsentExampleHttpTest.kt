@@ -37,7 +37,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * [ServiceConsent], the worked example of `docs/pod-client.md` §"Registering a service client",
+ * [ServiceConsent], the worked example of `sempods-client/docs/client.md` §"Registering a service client",
  * against this pod server. The test is the owner: it opens each page the example sends it to, signed
  * in, submits the form the pod rendered, and follows the redirect back to the example's loopback
  * server. A headless owner does the same from another thread, a little later.

@@ -7,10 +7,10 @@ description = "The sempods pod client core: a pod, a credential and the endpoint
 
 dependencies {
   // `api`: `SempodsOkHttp` configures an `okhttp3.OkHttpClient.Builder` and `SempodsSession` hands
-  // out an `okhttp3.Request.Builder`. Why, and what it costs: `docs/pod-client.md` §"The transport".
+  // out an `okhttp3.Request.Builder`. Why, and what it costs: `sempods-client/docs/transport.md`.
   api(libs.okhttp)
 
-  // Jackson 3, and no RDF4J, Jena or Jackson 2: `docs/pod-client.md` §"Consumable as an artifact".
+  // Jackson 3, and no RDF4J, Jena or Jackson 2: `sempods-client/docs/client.md` §"Consumable as an artifact".
   // Nothing here logs.
   implementation(libs.jackson3Databind)
 

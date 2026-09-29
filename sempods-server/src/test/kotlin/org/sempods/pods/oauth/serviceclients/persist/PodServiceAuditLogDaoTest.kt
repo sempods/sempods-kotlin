@@ -124,7 +124,7 @@ class PodServiceAuditLogDaoTest : SempodsIntegrationTest() {
   fun `a row written before the retention existed carries no expiry, and the reaper cannot see it`() {
     // The 100,140 rows already on the live host. A TTL index only reaps documents that carry the
     // field, so these are kept until an operator backfills them — see
-    // `docs/auth/service-clients.md`. Written past the DAO on purpose: nothing in the
+    // `sempods-server/docs/auth/operations.md`. Written past the DAO on purpose: nothing in the
     // codebase can produce this row any more, which is exactly why the read path has to.
     db.getCollection(collection).insertOne(
       Document()

@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
  * that access: a `client_credentials` token ([SempodsPodTokens]), then the context catalogue
  * ([SempodsPodContexts.listBytes]). It reads the catalogue's `sd:namedGraph` members, whose
  * canonical JSON-LD spelling the specification fixes (SPS-CRUD-024, SPS-CTX-033).
- * It checks the contexts named, never a particular consent. A token alone proves nothing: a service
+ * It checks catalogue visibility, not read/write permissions or a particular consent. Verify the
+ * operations the service needs separately. A token alone proves nothing: a service
  * that already holds one context gets a token before the owner decides about the next, and the owner
  * may grant other contexts than the ones asked for.
  *

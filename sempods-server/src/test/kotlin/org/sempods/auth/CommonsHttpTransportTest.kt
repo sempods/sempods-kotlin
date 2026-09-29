@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
  * The pod server's leg to the identity service: the deadline it runs under, and what it does when
  * that deadline expires.
  *
- * The deadline is pinned because `docs/auth/oauth.md` §"Sharp edges" quotes it, and that
+ * The deadline is pinned because `sempods-server/docs/auth/operations.md` §"Sharp edges" quotes it, and that
  * paragraph has now described this leg wrongly twice: first as "10 s with two retries" — the right
  * number attributed to the wrong layer, and a retry count that exists nowhere — then as the 60 s
  * request budget of the client underneath, which this wrapper never lets anything reach. Measuring
