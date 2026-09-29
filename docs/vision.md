@@ -40,7 +40,7 @@ are possible as long as they follow the standard.
 1) Linked Data CRUD:
     - Resources are HTTP URIs in the pod namespace.
     - JSON-LD is the primary write format; JSON-LD and RDF serializations should be readable.
-    - Write operations target exactly one context per request (explicit context selector in v1).
+    - Write operations target exactly one explicitly selected context per request.
     - Example:
       PUT https://sempods.org/my-pod/events/event-1
       Query: `?context=https://sempods.org/my-pod/_system/contexts/apps/{app-id}/tasks`
@@ -52,7 +52,8 @@ are possible as long as they follow the standard.
     - Both obtain OAuth tokens. What they reach is decided by grants on contexts, resolved
       server-side on every request.
     - Grant format: `<context-uri>#read`, `<context-uri>#write`, `<context-uri>#manage`.
-    - `manage` uses a concrete pod context URI as root and allows creating/managing sub-contexts below that URI only.
+    - `manage` covers its context root and slash-delimited descendants. Client-facing creation
+      and deletion belong to the optional context-management module.
 
 3) Context-based access control (named graphs):
     - The 4th RDF dimension (named graph) is called "Context".
@@ -61,9 +62,9 @@ are possible as long as they follow the standard.
     - Context identity is always the full canonical IRI (no hidden internal IDs).
 
 4) SPARQL endpoint:
-    - The endpoint supports general SPARQL queries.
+    - The endpoint supports read-only SPARQL queries.
     - The server enforces a sandbox: queries can only access contexts readable by the caller.
-    - Updates can only modify contexts writeable by the caller, with a default write context if none is specified.
+    - SPARQL Update and `SERVICE` are rejected. HTTP CRUD writes name their target context explicitly.
 
 5) Protected system area:
     - `/_system/*` is reserved for control-plane state (registrations, grants, metadata).
@@ -71,15 +72,10 @@ are possible as long as they follow the standard.
     - Changes to system state happen through explicit control-plane APIs.
     - Contexts are control-plane state and therefore live inside this area, under
       `/_system/contexts/`.
-    - A context delegated to someone carries a type: `/_system/contexts/{type}/{identifier}/...`,
-      where `{type}` is a closed set (`apps`, `users`) and `{identifier}` names the app or
-      person. The type roots are created by the control plane, not by the delegate; an app
-      manages contexts *below* its root, which is what its `<root>#manage` grant covers.
-    - A context the owner keeps carries no type and is named freely:
-      `/_system/contexts/contacts`, `/_system/contexts/projects/alpha`. Nothing is delegated
-      there, so there is nothing to name.
-    - Both shapes go through the same rules ([`ContextPathRules`](../sempods-server/src/main/kotlin/org/sempods/pods/contexts/ContextPathRules.kt)): free naming is the norm,
-      the type segments and `_system` are reserved.
+    - Grants can delegate a freely named context such as `/_system/contexts/contacts`.
+      Reserved `apps/` and `users/` namespaces also exist; the
+      [context contract](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md)
+      defines naming and reserved roots.
     - Protected does not mean undescribable: statements *about* a `_system` IRI are ordinary
       data, because the control plane lives in MongoDB and is not reachable through the data
       path at all. See [sempods-spec `spec/core/contexts.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/contexts.md)
@@ -87,18 +83,26 @@ are possible as long as they follow the standard.
     - One exception, and a deviation from that chapter until
       [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides: a write
       about `/_system/contexts` or a subject under it is refused, because that namespace holds
-      the catalogue and the context IRIs and `GET` there is the registry. `ContextPathRules`
+      the catalogue and the context IRIs and `GET` there is the registry.
+      [`ContextPathRules`](../sempods-server/src/main/kotlin/org/sempods/pods/contexts/ContextPathRules.kt)
       owns the rule.
 
-## What comes later (extensions)
+## Optional modules and future work
+
+Contexts and their access rules are core. A client-facing API for creating and deleting them is
+the optional [context-management module](https://github.com/sempods/sempods-spec/blob/main/spec/modules/context-management.md).
+A deployment can provide fixed contexts without this API. The reference implementation supplies
+it, alongside the optional OIDC, media and MCP surfaces. The
+[specification index](https://github.com/sempods/sempods-spec/blob/main/spec/README.md) owns module scope.
+
+Public contexts, anonymous Linked Open Data and WebID-based permissions are already available.
 
 Plan public goals and iterations through [GitHub issues](https://github.com/sempods/sempods-kotlin/issues)
 under the [issue-planning convention](agents/documentation-strategy.md#issue-planning).
-[Proposals](proposals/README.md) hold substantive design detail. Key directions:
+[Proposals](proposals/README.md) hold substantive design detail. Further directions include:
 
 - SHACL as app definition (shape registration, discovery, enforcement)
-- Web identity access (granting context permissions to people, not just apps)
-- Public contexts and Linked Open Data (with Linked Data Signatures)
+- Linked Data Signatures for public data
 - Reactivity (ChangeStreams, Hooks, PubSub)
 - Vector search (llmLabel generation, semantic search with context sandbox)
 - Enhanced MCP / agent interface (shape-aware tools, agent self-discovery)
@@ -121,8 +125,8 @@ The AI layer is also replaceable and pod-owner-controlled: choose your provider
 access at any time — same as any other app.
 
 The model was designed around ~2018 from first principles. AI did not change the
-core — Contexts, SPARQL, OAuth, SHACL, LOD remain exactly what they were. The
-foundation was by design. The AI layer on top was by opportunity: active decisions
+core — contexts, SPARQL, OAuth and Linked Open Data. SHACL-based app contracts remain a direction.
+The foundation was by design. The AI layer on top was by opportunity: active decisions
 that embraced what the foundation made possible, without changing it.
 
 The five-primitive coherence wasn't planned top-down — it revealed itself through

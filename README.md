@@ -30,9 +30,9 @@ provides the services and clients.
    person use Authorization Code + PKCE; services acting as themselves use Client Credentials. The
    [auth overview](docs/auth/README.md) explains both flows and their client identities.
 
-4. **SPARQL, with the sandbox enforced by the server.** A query sees exactly the contexts the
-   caller may read, and writes reach exactly the contexts the caller may write. Client-supplied
-   dataset clauses are not trusted.
+4. **Read-only SPARQL, with the sandbox enforced by the server.** Queries see only contexts the
+   caller may read. SPARQL Update and `SERVICE` are rejected; writes use the HTTP CRUD routes
+   with an explicit context. Client-supplied dataset clauses are not trusted.
 
 5. **`/_system/*` is the control plane** — contexts, grants, media, retrieval, the OAuth
    surface. It is not reachable through ordinary RDF writes.
@@ -40,6 +40,13 @@ provides the services and clients.
 One resource can hold public and private properties in different contexts at the same URI. An
 anonymous reader sees the public ones — automatic Linked Open Data — an authorized reader sees
 more. Same identifier, different depth, no duplication.
+
+**Contexts are core; their management API is optional.** The specification's
+[context-management module](https://github.com/sempods/sempods-spec/blob/main/spec/modules/context-management.md)
+adds client-facing creation and deletion. A deployment can provision fixed contexts without that
+module. This reference implementation provides the management routes; the
+[specification's core and module index](https://github.com/sempods/sempods-spec/blob/main/spec/README.md)
+defines the boundary.
 
 ## Status — read this before forming an opinion
 
