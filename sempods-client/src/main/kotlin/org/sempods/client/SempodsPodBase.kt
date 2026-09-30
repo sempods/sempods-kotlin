@@ -45,11 +45,11 @@ import java.util.Locale
  *   .reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
  * ```
  *
- * **A path is ASCII.** A base URL is a URI
+ * **A path needs no percent-encoding.** A base URL is a URI
  * ([RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)), where `ü` must be written `%C3%BC`, and
- * SPS-CORE-020 refuses that spelling. So `https://pods.example/ü` is refused rather than bound
- * percent-encoded, which would leave [of] binding a base [reject] refuses. A non-ASCII host is fine:
- * `bücher.example` binds as `xn--bcher-kva.example`.
+ * SPS-CORE-020 refuses that spelling; the same holds for a space. So `https://pods.example/ü` is
+ * refused rather than bound percent-encoded, which would leave [of] binding a base [reject] refuses.
+ * A non-ASCII host is fine: `bücher.example` binds as `xn--bcher-kva.example`.
  *
  * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
  * would bind under another spelling.
@@ -221,6 +221,11 @@ class SempodsPodBase private constructor(
       // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
       // and the two spellings name the same pod, so this accepts the equivalent input.
       val url = spelled.removeSuffix("/").toHttpUrlOrNull() ?: return refused("not an absolute http(s) URL")
+      // The raw path held no `%`, so one here is `HttpUrl` encoding a character (a space, a `"`) that
+      // `of` would bind spelled in a way this method refuses.
+      if (url.encodedPath.contains('%')) {
+        return refused("path must not contain a character that needs percent-encoding (SPS-CORE-020)")
+      }
       if (url.query != null) return refused("must not carry a query (SPS-CORE-019)")
       if (url.fragment != null) return refused("must not carry a fragment (SPS-CORE-019)")
       if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
