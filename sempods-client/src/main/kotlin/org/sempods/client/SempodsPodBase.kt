@@ -202,21 +202,7 @@ class SempodsPodBase private constructor(
      * clause an address may break: `http` off a loopback address.
      */
     private fun validate(spelled: String, plaintext: Boolean): Pair<HttpUrl?, String?> {
-      // Checked before parsing: `HttpUrl` normalises a dot segment away and would report a path
-      // the caller never wrote, so the clause would pass on a URL that breaks it.
-      val beforeQuery = spelled.substringBefore('?').substringBefore('#')
-      val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
-      if (afterAuthority.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
-      if (afterAuthority.contains('\\')) return refused("path must not contain a backslash (SPS-CORE-020)")
-      // `HttpUrl` would bind `ü` as `%C3%BC`, an octet this clause refuses, so the two must not disagree.
-      if (afterAuthority.any { it.code > 0x7F }) {
-        return refused("path must be ASCII: a non-ASCII character would be percent-encoded (SPS-CORE-020)")
-      }
-      if (afterAuthority.split('/').any { it == "." || it == ".." }) {
-        return refused("path must not contain a dot segment (SPS-CORE-020)")
-      }
-      // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
-      if ("/$afterAuthority".endsWith("//")) return refused("path must not end in more than one slash (SPS-CORE-019)")
+      rawRefusal(spelled)?.let { return refused(it) }
 
       // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
       // and the two spellings name the same pod, so this accepts the equivalent input.
@@ -226,6 +212,8 @@ class SempodsPodBase private constructor(
       if (url.encodedPath.contains('%')) {
         return refused("path must not contain a character that needs percent-encoding (SPS-CORE-020)")
       }
+      // The parser also trims whitespace (`/alice// ` binds `/alice//`), so the bound form is read again.
+      rawRefusal(url.toString())?.let { return refused(it) }
       if (url.query != null) return refused("must not carry a query (SPS-CORE-019)")
       if (url.fragment != null) return refused("must not carry a fragment (SPS-CORE-019)")
       if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
@@ -235,6 +223,30 @@ class SempodsPodBase private constructor(
         return refused("http is allowed only on a loopback address (SPS-CORE-019)")
       }
       return url to null
+    }
+
+    /**
+     * The clause the path of [spelled] breaks, read off the string itself: `HttpUrl` normalises a
+     * dot segment away and would report a path the caller never wrote. Asked again of the bound URL,
+     * because the parser also trims whitespace and encodes characters, and what [of] binds must be
+     * something this accepts.
+     */
+    private fun rawRefusal(spelled: String): String? {
+      val beforeQuery = spelled.substringBefore('?').substringBefore('#')
+      val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
+      if (afterAuthority.contains('%')) return "path must not contain a percent-encoded octet (SPS-CORE-020)"
+      if (afterAuthority.contains('\\')) return "path must not contain a backslash (SPS-CORE-020)"
+      // `HttpUrl` would bind `ü` as `%C3%BC`, an octet this clause refuses, so the two must not disagree.
+      if (afterAuthority.any { it.code > 0x7F }) {
+        return "path must be ASCII: a non-ASCII character would be percent-encoded (SPS-CORE-020)"
+      }
+      if (afterAuthority.split('/').any { it == "." || it == ".." }) {
+        return "path must not contain a dot segment (SPS-CORE-020)"
+      }
+      // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
+      if ("/$afterAuthority".endsWith("//")) return "path must not end in more than one slash (SPS-CORE-019)"
+
+      return null
     }
 
     private fun refused(reason: String): Pair<HttpUrl?, String?> = null to reason

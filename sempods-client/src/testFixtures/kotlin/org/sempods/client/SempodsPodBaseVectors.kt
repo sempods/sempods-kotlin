@@ -68,6 +68,7 @@ object SempodsPodBaseVectors {
     "https://pods.example/a\\b" to "SPS-CORE-020 backslash",
     "https://pods.example/ü" to "SPS-CORE-020 non-ASCII path",
     "https://pods.example/alice/ü" to "SPS-CORE-020 non-ASCII path",
+    "https://pods.example/alice// " to "SPS-CORE-019 more than one trailing slash, after the parser trims",
     "https://pods.example/a b" to "SPS-CORE-020 character that needs percent-encoding",
   )
 }
