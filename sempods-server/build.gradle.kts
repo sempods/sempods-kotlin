@@ -133,3 +133,23 @@ dependencies {
   // and the binding itself comes from the root build script. Same reasoning as `:sempods-commons-jaxrs`.
   testImplementation(libs.logbackClassic)
 }
+
+// The version the pod-immanent MCP endpoint reports as `serverInfo.version`. Written at build time
+// from `version`, where a literal in the source had said `1.0.0` since the endpoint was written.
+// Read by `SempodsServerVersion`; `:sempods-mcp` does the same for the hosted service.
+val versionResource = tasks.register("versionResource") {
+  val version = project.version.toString()
+  val output = layout.buildDirectory.dir("generated/version")
+  inputs.property("version", version)
+  outputs.dir(output)
+  doLast {
+    output.get().file("org/sempods/version").asFile.apply {
+      parentFile.mkdirs()
+      writeText(version)
+    }
+  }
+}
+sourceSets.main { resources.srcDir(versionResource) }
+
+// What the `serverInfo` test compares against — the build's own value, not the resource it reads.
+tasks.test { systemProperty("sempods.version", project.version.toString()) }
