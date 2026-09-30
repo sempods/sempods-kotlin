@@ -45,6 +45,12 @@ import java.util.Locale
  *   .reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
  * ```
  *
+ * **A path is ASCII.** A base URL is a URI
+ * ([RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)), where `ü` must be written `%C3%BC`, and
+ * SPS-CORE-020 refuses that spelling. So `https://pods.example/ü` is refused rather than bound
+ * percent-encoded, which would leave [of] binding a base [reject] refuses. A non-ASCII host is fine:
+ * `bücher.example` binds as `xn--bcher-kva.example`.
+ *
  * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
  * would bind under another spelling.
  */
@@ -181,7 +187,8 @@ class SempodsPodBase private constructor(
     }
 
     /**
-     * Why [baseUrl] is not a pod base URL, or `null` when it is one.
+     * Why [baseUrl] is not a pod base URL, or `null` when it is one. What it accepts, [of] binds
+     * to a URL it accepts too; a non-ASCII path is refused, as the class documentation explains.
      *
      * Public so a consumer can validate configuration without catching an exception, and so
      * server-side configuration validation can assert against the same function rather than a
@@ -201,6 +208,10 @@ class SempodsPodBase private constructor(
       val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
       if (afterAuthority.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
       if (afterAuthority.contains('\\')) return refused("path must not contain a backslash (SPS-CORE-020)")
+      // `HttpUrl` would bind `ü` as `%C3%BC`, an octet this clause refuses, so the two must not disagree.
+      if (afterAuthority.any { it.code > 0x7F }) {
+        return refused("path must be ASCII: a non-ASCII character would be percent-encoded (SPS-CORE-020)")
+      }
       if (afterAuthority.split('/').any { it == "." || it == ".." }) {
         return refused("path must not contain a dot segment (SPS-CORE-020)")
       }

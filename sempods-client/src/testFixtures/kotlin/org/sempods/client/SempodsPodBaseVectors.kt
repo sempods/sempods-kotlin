@@ -47,6 +47,8 @@ object SempodsPodBaseVectors {
     "https://Pods.Example/alice" to "https://pods.example/alice",
     "HTTPS://pods.example/alice" to "https://pods.example/alice",
     "http://[0:0:0:0:0:0:0:1]:8090/alice" to "http://[::1]:8090/alice",
+    // A non-ASCII host is punycode, which is ASCII; only a path character needs percent-encoding.
+    "https://bücher.example/alice" to "https://xn--bcher-kva.example/alice",
   )
 
   /** Refused, each paired with the requirement it breaks. */
@@ -64,5 +66,7 @@ object SempodsPodBaseVectors {
     "https://pods.example/%2e%2e/b" to "SPS-CORE-020 percent-encoded octet",
     "https://pods.example/%61lice" to "SPS-CORE-020 percent-encoded octet",
     "https://pods.example/a\\b" to "SPS-CORE-020 backslash",
+    "https://pods.example/ü" to "SPS-CORE-020 non-ASCII path",
+    "https://pods.example/alice/ü" to "SPS-CORE-020 non-ASCII path",
   )
 }

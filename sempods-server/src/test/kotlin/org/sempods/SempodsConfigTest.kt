@@ -290,12 +290,11 @@ class SempodsConfigTest {
   }
 
   @Test
-  fun `a public base URL with a non-ASCII path is refused without a spelling the next boot refuses`() {
+  fun `a public base URL with a non-ASCII path is refused, and no spelling is suggested`() {
     val failure = assertFailsWith<IllegalStateException> {
       SempodsConfig.checkPublicBaseUrl("SEMPODS_PUBLIC_BASE_URL", "https://example.org/pöds/")
     }
 
-    assertContains(failure.message!!, "'https://example.org/p%C3%B6ds/'")
     assertContains(failure.message!!, "SPS-CORE-020")
     assertFalse("use '" in failure.message!!, failure.message)
   }
