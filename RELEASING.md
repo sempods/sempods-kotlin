@@ -100,14 +100,10 @@ Then, per release:
    ```bash
    ./gradlew centralBundle
    ```
-   `checkCentralBundle` runs as part of it. It refuses a bundle built from a snapshot, a file
-   without its `.asc`, `.md5` or `.sha1`, and leftovers from an earlier release — all of which
-   Central would otherwise reject after the upload, which is a slow way to find out. It checks that
-   each signature exists; Central checks that it verifies.
-
-   The task does not know which publications to expect, so a module missing from the bundle
-   entirely passes. Compare the directories under `build/central-bundle/org/sempods/` with
-   `publishedModules` plus `sempods-bom` before uploading.
+   `checkCentralBundle` runs as part of it. It refuses a bundle built from a snapshot, a module
+   from `publishedModules` or `sempods-bom` that is missing, a file without its `.asc`, `.md5` or
+   `.sha1`, and leftovers from an earlier release. Central would reject all of these only after the
+   upload. It checks that each signature exists; Central checks that it verifies.
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
    <!-- doc-example: illustrative; uploads to Central, zip path checked against `centralBundle` in build.gradle.kts -->
@@ -129,6 +125,17 @@ Then, per release:
    **waits for you to release it** from the Portal UI — which is the safer default: a release
    cannot be taken back, and this is the last point at which it can be dropped. Add
    `&publishingType=AUTOMATIC` once the process is boring.
+
+   The Portal UI shows the state; so does the API, with the same token:
+   <!-- doc-example: illustrative; reads Central, endpoint checked against the Portal publisher API -->
+   ```bash
+   curl --request POST --header "Authorization: Bearer $TOKEN" \
+     "https://central.sonatype.com/api/v1/publisher/status?id=<deployment id>"
+   ```
+   `deploymentState` moves through `PENDING` and `VALIDATING` to `VALIDATED`, where it waits for
+   you, or to `FAILED` with `errors` naming what Central refused. After you release it, it passes
+   `PUBLISHING` to `PUBLISHED`. Check the state before any retry: an upload whose answer was lost
+   may still have created a deployment.
 5. Once the Portal shows the deployment as published and the release resolves from Central —
    `https://repo1.maven.org/maven2/org/sempods/sempods-bom/$VERSION/` lists the BOM — tag the
    commit you built from, and cut a GitHub Release from the tag. First save the notes reviewed in

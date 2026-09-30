@@ -927,7 +927,9 @@ allprojects {
 // unsigned — and it rejects the deployment whole. Same questions, asked locally first.
 val checkCentralBundle = tasks.register("checkCentralBundle") {
   group = "verification"
-  description = "Fails if a staged file lacks its signature or checksums, or the bundle carries a snapshot or stale version."
+  description = "Fails if a published module is missing, a staged file lacks its signature or checksums, or the bundle carries a snapshot or stale version."
+  // On the `Project` receiver: inside `doLast`, `group` is this task's own, `verification`.
+  val groupPath = project.group.toString().replace('.', '/')
   doLast {
     val root = centralBundleDir.get().asFile
     if (!root.isDirectory) {
@@ -948,6 +950,14 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
       .toList()
 
     if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
+
+    // What the files cannot say about themselves: that a module is absent altogether. The platform
+    // constrains every name in `publishedModules`, so one missing here would be pinned by
+    // `sempods-bom` and yet not resolve from Central.
+    val staged = File(root, groupPath).listFiles { file -> file.isDirectory }?.map { it.name }.orEmpty()
+    (publishedModules + "sempods-bom" - staged.toSet()).forEach {
+      problems += "$it is published but missing from the bundle"
+    }
 
     // Per file, not per module: the one that goes missing is a single classifier.
     artifacts.forEach { artifact ->
@@ -975,7 +985,7 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
       )
     }
 
-    logger.lifecycle("Bundle checked: ${artifacts.size} artifacts, each signed and checksummed.")
+    logger.lifecycle("Bundle checked: ${staged.size} modules, ${artifacts.size} artifacts, each signed and checksummed.")
   }
 }
 

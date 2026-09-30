@@ -54,6 +54,9 @@ reviewed and those left unchecked.
 
 ## 3. Prepare the candidate
 
+Start from the current tip of `main`, not the assessed SHA. Read what merged in between as
+section 2 reads the range, and update findings it settles or adds.
+
 Reuse an existing release PR and notes draft; otherwise open them under
 [issue work](issue-work.md). Without permission to write to GitHub, keep the draft in a local file.
 Add no roadmap file and no second migration guide.
@@ -87,7 +90,7 @@ with the version filled in, and checks what the step left behind:
 | RELEASING.md step | Run by | The agent then checks |
 |---|---|---|
 | 1. Release version on `main` | agent opens the PR, maintainer merges | the merged commit is the candidate, with the release `version` |
-| 2–3. Sign and build the bundle | maintainer, in the agent's checkout | the staged modules against the list in step 3; the SHA-256 of `build/central-bundle.zip` |
+| 2–3. Sign and build the bundle | maintainer, in the agent's checkout | `checkCentralBundle` passed; the SHA-256 of `build/central-bundle.zip` |
 | 4. Upload, release in the Portal | maintainer, once | the deployment id is recorded; every expected artifact resolves from `repo1.maven.org` |
 | 5. Signed tag | maintainer | the remote tag names the candidate SHA |
 | 5. GitHub release | agent, after saving the reviewed notes where step 5 says | the release URL and its notes |
