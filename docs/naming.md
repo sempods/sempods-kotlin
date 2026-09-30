@@ -141,7 +141,7 @@ across the three services — one concept, one spelling.
 - `application/vnd.sempods.media-source+json` — the media-source media type.
 - MCP: `serverInfo.name` `sempods-mcp`, the DCR `CLIENT_NAME` registered at remote pods, and the
   `Bearer realm="sempods-mcp"` challenge.
-- The dev-mode KDF salt in `SecretCipher`. The cookie `sempods_return_to` was here too, until
+- The dev-mode key seed in `SecretCipher`. The cookie `sempods_return_to` was here too, until
   `GET /login` — the only thing that set it — was removed. Freezing forbids renaming a name, not
   retiring the thing it named.
 
@@ -190,8 +190,7 @@ its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempod
 `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies` and `org.sempods.rdf`, and where
 the two do read alike — `sempods-media` and `org.sempods.media` — nothing derives one from the
 other. That is what made the two renames in §3 cost zero imports, and why a module rename is a
-build-file edit. A **package** moves only where its coordinate breaks anyway: 0.2 moved
-`org.sempods.client.core` to `org.sempods.client` with the artifact under it, so a consumer editing
+build-file edit. A **package** moves only where its coordinate breaks anyway, so a consumer editing
 the dependency line edits the imports in the same sitting. Never rename one for consistency alone —
 the packages are the wire-adjacent half (KDoc links, logger names, the composition guard).
 
