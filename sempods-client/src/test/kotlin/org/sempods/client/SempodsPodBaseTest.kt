@@ -35,6 +35,13 @@ class SempodsPodBaseTest {
   }
 
   @Test
+  fun `what reject accepts, of binds to a base reject accepts too`() {
+    val given = SempodsPodBaseVectors.accepted + SempodsPodBaseVectors.canonicalized.map { it.first } +
+      SempodsPodBaseVectors.respelled.map { it.first }
+    given.forEach { assertNull(SempodsPodBase.reject(SempodsPodBase.of(it).toString()), it) }
+  }
+
+  @Test
   fun `a base the specification forbids is refused, naming the clause`() {
     SempodsPodBaseVectors.refused.forEach { (url, requirement) ->
       val reason = SempodsPodBase.reject(url) ?: ""

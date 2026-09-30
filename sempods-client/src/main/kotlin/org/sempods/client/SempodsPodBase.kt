@@ -3,6 +3,8 @@ package org.sempods.client
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.sempods.client.net.SempodsUrlPolicy
+import java.net.URI
+import java.net.URISyntaxException
 import java.util.Locale
 
 /**
@@ -44,6 +46,10 @@ import java.util.Locale
  * SempodsPodBase.of("https://acme.example/api/pod")
  *   .reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
  * ```
+ *
+ * **A path is written without percent-encoding.** `https://pods.example/ü` and `…/a b` are refused
+ * rather than bound as `…/%C3%BC`, which SPS-CORE-020 forbids. A non-ASCII host is fine:
+ * `bücher.example` binds as `xn--bcher-kva.example`.
  *
  * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
  * would bind under another spelling.
@@ -195,17 +201,21 @@ class SempodsPodBase private constructor(
      * clause an address may break: `http` off a loopback address.
      */
     private fun validate(spelled: String, plaintext: Boolean): Pair<HttpUrl?, String?> {
-      // Checked before parsing: `HttpUrl` normalises a dot segment away and would report a path
-      // the caller never wrote, so the clause would pass on a URL that breaks it.
-      val beforeQuery = spelled.substringBefore('?').substringBefore('#')
-      val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
-      if (afterAuthority.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
-      if (afterAuthority.contains('\\')) return refused("path must not contain a backslash (SPS-CORE-020)")
-      if (afterAuthority.split('/').any { it == "." || it == ".." }) {
-        return refused("path must not contain a dot segment (SPS-CORE-020)")
+      // `java.net.URI` keeps the path as written, where `HttpUrl` would normalise a dot segment away, trim
+      // whitespace and encode `ü`, so each clause would pass on a URL that breaks it. It also refuses
+      // what a URI may not hold unencoded: a space, a backslash, a quote.
+      val path = try {
+        URI(spelled).rawPath.orEmpty()
+      } catch (_: URISyntaxException) {
+        return refused("not a URI, or its path holds a character that needs percent-encoding, such as a space (SPS-CORE-020)")
       }
+      if (path.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
+      if (path.any { it.code > 0x7F }) {
+        return refused("path must be ASCII: a non-ASCII character needs percent-encoding (SPS-CORE-020)")
+      }
+      if (path.split('/').any { it == "." || it == ".." }) return refused("path must not contain a dot segment (SPS-CORE-020)")
       // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
-      if ("/$afterAuthority".endsWith("//")) return refused("path must not end in more than one slash (SPS-CORE-019)")
+      if (path.endsWith("//")) return refused("path must not end in more than one slash (SPS-CORE-019)")
 
       // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
       // and the two spellings name the same pod, so this accepts the equivalent input.
