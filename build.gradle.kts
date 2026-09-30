@@ -924,10 +924,116 @@ allprojects {
 }
 
 // Central validates after the upload, which is a slow way to learn that one sources jar went
-// unsigned — and it rejects the deployment whole. Same questions, asked locally first.
+// unsigned — and it rejects the deployment whole. Same questions, asked locally first, plus one
+// Central cannot ask: whether a module is missing altogether.
+//
+// A function of its inputs rather than the body of the task, so `checkCentralBundleGuard` can put
+// it to staged trees of its own.
+class CentralBundleCheck(val modules: Int, val artifacts: Int, val problems: List<String>)
+
+fun inspectCentralBundle(root: File, version: String, groupPath: String, expected: Collection<String>): CentralBundleCheck {
+  val problems = mutableListOf<String>()
+
+  // Central rejects the version outright, and a snapshot bundle means step one was skipped.
+  if (version.endsWith("-SNAPSHOT")) {
+    problems += "the version is $version — a release bundle cannot be built from a snapshot"
+  }
+
+  val artifacts = root.walkTopDown()
+    .filter { it.isFile && (it.extension == "jar" || it.extension == "pom" || it.extension == "module") }
+    .toList()
+
+  if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
+
+  // The platform constrains every expected name, so one missing here would be pinned by
+  // `sempods-bom` and yet not resolve from Central — which sees only the zip and publishes it
+  // without complaint. Counted from artifacts of this version, not from directories: a module
+  // directory holding nothing, or only an earlier release, is still a missing module.
+  val groupDir = File(root, groupPath)
+  val staged = artifacts
+    .filter { it.parentFile.name == version && it.parentFile.parentFile.parentFile == groupDir }
+    .map { it.parentFile.parentFile.name }
+    .toSet()
+  (expected - staged).sorted().forEach {
+    problems += "$it is published but missing from the bundle"
+  }
+
+  // Per file, not per module: the one that goes missing is a single classifier.
+  artifacts.forEach { artifact ->
+    listOf("asc", "md5", "sha1").forEach { suffix ->
+      val companion = File(artifact.parentFile, "${artifact.name}.$suffix")
+      if (!companion.isFile) {
+        problems += "${artifact.relativeTo(root)} has no .$suffix"
+      }
+    }
+  }
+
+  // A directory named for a version other than this one is last release's leftovers.
+  val versions = artifacts.map { it.parentFile.name }.toSortedSet()
+  (versions - version).forEach {
+    problems += "the bundle also carries version $it — stale output from an earlier release"
+  }
+
+  return CentralBundleCheck(staged.size, artifacts.size, problems)
+}
+
+// The check is the last thing between a partial bundle and a release Central never replaces, and
+// nothing else exercises it: it runs once per release, against whatever that release staged. This
+// stages the cases it has to refuse and fails if one of them passes.
+val checkCentralBundleGuard = tasks.register("checkCentralBundleGuard") {
+  group = "verification"
+  description = "Fails if `checkCentralBundle` has stopped refusing a bundle it must refuse."
+  val scratch = layout.buildDirectory.dir("tmp/checkCentralBundleGuard")
+  doLast {
+    val expected = listOf("alpha", "beta")
+
+    // A tree in Maven repository layout under `org/example`, each file with its three companions.
+    fun stage(name: String, files: Map<String, String>, companions: Boolean = true): File {
+      val root = scratch.get().dir(name).asFile.apply { deleteRecursively() }
+      files.forEach { (module, path) ->
+        val file = File(root, "org/example/$module/$path").apply { parentFile.mkdirs(); writeText(path) }
+        if (companions) listOf("asc", "md5", "sha1").forEach { File(file.parentFile, "${file.name}.$it").writeText("") }
+      }
+      return root
+    }
+    fun problems(root: File, version: String = "1.0.0") =
+      inspectCentralBundle(root, version, "org/example", expected).problems
+
+    val complete = mapOf("alpha" to "1.0.0/alpha-1.0.0.jar", "beta" to "1.0.0/beta-1.0.0.pom")
+    val failures = mutableListOf<String>()
+    fun expect(case: String, actual: List<String>, fragment: String?) {
+      val met = if (fragment == null) actual.isEmpty() else actual.any { fragment in it }
+      if (!met) failures += "$case: expected ${fragment?.let { "a problem naming '$it'" } ?: "no problem"}, got $actual"
+    }
+
+    expect("a complete bundle", problems(stage("complete", complete)), null)
+    expect("a module absent", problems(stage("absent", complete - "beta")), "beta is published but missing")
+    expect(
+      "a module directory without artifacts",
+      problems(stage("empty", complete - "beta").also { File(it, "org/example/beta/1.0.0").mkdirs() }),
+      "beta is published but missing",
+    )
+    expect(
+      "a module only in an earlier version",
+      problems(stage("earlier", complete + ("beta" to "0.9.0/beta-0.9.0.pom"))),
+      "beta is published but missing",
+    )
+    expect("a file without companions", problems(stage("unsigned", complete, companions = false)), "has no .asc")
+    expect("a snapshot", problems(stage("snapshot", complete), version = "1.0.0-SNAPSHOT"), "cannot be built from a snapshot")
+
+    if (failures.isNotEmpty()) {
+      throw GradleException(failures.joinToString(prefix = "`checkCentralBundle` let through:\n  - ", separator = "\n  - "))
+    }
+  }
+}
+// On `test` rather than `check`: CI names `test` and not `check`, and the root project's own `test`
+// runs nothing else.
+tasks.named("test") { dependsOn(checkCentralBundleGuard) }
+
 val checkCentralBundle = tasks.register("checkCentralBundle") {
   group = "verification"
   description = "Fails if a published module is missing, a staged file lacks its signature or checksums, or the bundle carries a snapshot or stale version."
+  dependsOn(checkCentralBundleGuard)
   // On the `Project` receiver: inside `doLast`, `group` is this task's own, `verification`.
   val groupPath = project.group.toString().replace('.', '/')
   doLast {
@@ -938,46 +1044,10 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
       )
     }
 
-    val problems = mutableListOf<String>()
-
-    // Central rejects the version outright, and a snapshot bundle means step one was skipped.
-    if (version.toString().endsWith("-SNAPSHOT")) {
-      problems += "the version is $version — a release bundle cannot be built from a snapshot"
-    }
-
-    val artifacts = root.walkTopDown()
-      .filter { it.isFile && (it.extension == "jar" || it.extension == "pom" || it.extension == "module") }
-      .toList()
-
-    if (artifacts.isEmpty()) problems += "the bundle contains no artifacts at all"
-
-    // What the files cannot say about themselves: that a module is absent altogether. The platform
-    // constrains every name in `publishedModules`, so one missing here would be pinned by
-    // `sempods-bom` and yet not resolve from Central.
-    val staged = File(root, groupPath).listFiles { file -> file.isDirectory }?.map { it.name }.orEmpty()
-    (publishedModules + "sempods-bom" - staged.toSet()).forEach {
-      problems += "$it is published but missing from the bundle"
-    }
-
-    // Per file, not per module: the one that goes missing is a single classifier.
-    artifacts.forEach { artifact ->
-      listOf("asc", "md5", "sha1").forEach { suffix ->
-        val companion = File(artifact.parentFile, "${artifact.name}.$suffix")
-        if (!companion.isFile) {
-          problems += "${artifact.relativeTo(root)} has no .$suffix"
-        }
-      }
-    }
-
-    // A directory named for a version other than this one is last release's leftovers.
-    val versions = artifacts.map { it.parentFile.name }.toSortedSet()
-    (versions - version.toString()).forEach {
-      problems += "the bundle also carries version $it — stale output from an earlier release"
-    }
-
-    if (problems.isNotEmpty()) {
+    val result = inspectCentralBundle(root, version.toString(), groupPath, publishedModules + "sempods-bom")
+    if (result.problems.isNotEmpty()) {
       throw GradleException(
-        problems.joinToString(
+        result.problems.joinToString(
           prefix = "The staged release bundle is not fit to upload:\n  - ",
           separator = "\n  - ",
           postfix = "\n\nSee RELEASING.md. Signing needs SIGNING_KEY in the environment.",
@@ -985,7 +1055,7 @@ val checkCentralBundle = tasks.register("checkCentralBundle") {
       )
     }
 
-    logger.lifecycle("Bundle checked: ${staged.size} modules, ${artifacts.size} artifacts, each signed and checksummed.")
+    logger.lifecycle("Bundle checked: ${result.modules} modules, ${result.artifacts} artifacts, each signed and checksummed.")
   }
 }
 

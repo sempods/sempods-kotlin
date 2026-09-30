@@ -100,10 +100,14 @@ Then, per release:
    ```bash
    ./gradlew centralBundle
    ```
-   `checkCentralBundle` runs as part of it. It refuses a bundle built from a snapshot, a module
-   from `publishedModules` or `sempods-bom` that is missing, a file without its `.asc`, `.md5` or
-   `.sha1`, and leftovers from an earlier release. Central would reject all of these only after the
-   upload. It checks that each signature exists; Central checks that it verifies.
+   `checkCentralBundle` runs as part of it. It refuses a bundle built from a snapshot, a file
+   without its `.asc`, `.md5` or `.sha1`, and leftovers from an earlier release, all of which
+   Central would reject only after the upload. It checks that each signature exists; Central checks
+   that it verifies.
+
+   It also refuses a bundle without a module from `publishedModules` or `sempods-bom`. Central
+   cannot catch that: it sees only the zip, and would publish the rest while the BOM pins a version
+   that never arrives.
 4. Upload it. Sonatype publishes no official Gradle plugin, and the Portal takes exactly this zip,
    so this is one request rather than a plugin in the build:
    <!-- doc-example: illustrative; uploads to Central, zip path checked against `centralBundle` in build.gradle.kts -->
