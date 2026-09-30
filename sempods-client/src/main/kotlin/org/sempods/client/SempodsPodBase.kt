@@ -3,6 +3,8 @@ package org.sempods.client
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.sempods.client.net.SempodsUrlPolicy
+import java.net.URI
+import java.net.URISyntaxException
 import java.util.Locale
 
 /**
@@ -45,11 +47,9 @@ import java.util.Locale
  *   .reachedOverPlaintextAt("http://sempods.internal:8080/api/pod")
  * ```
  *
- * **A path needs no percent-encoding.** A base URL is a URI
- * ([RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)), where `ü` must be written `%C3%BC`, and
- * SPS-CORE-020 refuses that spelling; the same holds for a space. So `https://pods.example/ü` is
- * refused rather than bound percent-encoded, which would leave [of] binding a base [reject] refuses.
- * A non-ASCII host is fine: `bücher.example` binds as `xn--bcher-kva.example`.
+ * **A path is written without percent-encoding.** `https://pods.example/ü` and `…/a b` are refused
+ * rather than bound as `…/%C3%BC`, which SPS-CORE-020 forbids. A non-ASCII host is fine:
+ * `bücher.example` binds as `xn--bcher-kva.example`.
  *
  * The pod server checks `SEMPODS_PUBLIC_BASE_URL` with [reject] too, and refuses a value that [of]
  * would bind under another spelling.
@@ -187,8 +187,7 @@ class SempodsPodBase private constructor(
     }
 
     /**
-     * Why [baseUrl] is not a pod base URL, or `null` when it is one. What it accepts, [of] binds
-     * to a URL it accepts too; a non-ASCII path is refused, as the class documentation explains.
+     * Why [baseUrl] is not a pod base URL, or `null` when it is one.
      *
      * Public so a consumer can validate configuration without catching an exception, and so
      * server-side configuration validation can assert against the same function rather than a
@@ -202,18 +201,25 @@ class SempodsPodBase private constructor(
      * clause an address may break: `http` off a loopback address.
      */
     private fun validate(spelled: String, plaintext: Boolean): Pair<HttpUrl?, String?> {
-      rawRefusal(spelled)?.let { return refused(it) }
+      // `java.net.URI` keeps the path as written, where `HttpUrl` would normalise a dot segment away, trim
+      // whitespace and encode `ü`, so each clause would pass on a URL that breaks it. It also refuses
+      // what a URI may not hold unencoded: a space, a backslash, a quote.
+      val path = try {
+        URI(spelled).rawPath.orEmpty()
+      } catch (_: URISyntaxException) {
+        return refused("not a URI, or its path holds a character that needs percent-encoding, such as a space (SPS-CORE-020)")
+      }
+      if (path.contains('%')) return refused("path must not contain a percent-encoded octet (SPS-CORE-020)")
+      if (path.any { it.code > 0x7F }) {
+        return refused("path must be ASCII: a non-ASCII character needs percent-encoding (SPS-CORE-020)")
+      }
+      if (path.split('/').any { it == "." || it == ".." }) return refused("path must not contain a dot segment (SPS-CORE-020)")
+      // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
+      if (path.endsWith("//")) return refused("path must not end in more than one slash (SPS-CORE-019)")
 
       // One trailing slash is trimmed rather than refused: SPS-CORE-019 asks for the canonical form
       // and the two spellings name the same pod, so this accepts the equivalent input.
       val url = spelled.removeSuffix("/").toHttpUrlOrNull() ?: return refused("not an absolute http(s) URL")
-      // The raw path held no `%`, so one here is `HttpUrl` encoding a character (a space, a `"`) that
-      // `of` would bind spelled in a way this method refuses.
-      if (url.encodedPath.contains('%')) {
-        return refused("path must not contain a character that needs percent-encoding (SPS-CORE-020)")
-      }
-      // The parser also trims whitespace (`/alice// ` binds `/alice//`), so the bound form is read again.
-      rawRefusal(url.toString())?.let { return refused(it) }
       if (url.query != null) return refused("must not carry a query (SPS-CORE-019)")
       if (url.fragment != null) return refused("must not carry a fragment (SPS-CORE-019)")
       if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
@@ -223,30 +229,6 @@ class SempodsPodBase private constructor(
         return refused("http is allowed only on a loopback address (SPS-CORE-019)")
       }
       return url to null
-    }
-
-    /**
-     * The clause the path of [spelled] breaks, read off the string itself: `HttpUrl` normalises a
-     * dot segment away and would report a path the caller never wrote. Asked again of the bound URL,
-     * because the parser also trims whitespace and encodes characters, and what [of] binds must be
-     * something this accepts.
-     */
-    private fun rawRefusal(spelled: String): String? {
-      val beforeQuery = spelled.substringBefore('?').substringBefore('#')
-      val afterAuthority = beforeQuery.substringAfter("//", "").substringAfter('/', "")
-      if (afterAuthority.contains('%')) return "path must not contain a percent-encoded octet (SPS-CORE-020)"
-      if (afterAuthority.contains('\\')) return "path must not contain a backslash (SPS-CORE-020)"
-      // `HttpUrl` would bind `ü` as `%C3%BC`, an octet this clause refuses, so the two must not disagree.
-      if (afterAuthority.any { it.code > 0x7F }) {
-        return "path must be ASCII: a non-ASCII character would be percent-encoded (SPS-CORE-020)"
-      }
-      if (afterAuthority.split('/').any { it == "." || it == ".." }) {
-        return "path must not contain a dot segment (SPS-CORE-020)"
-      }
-      // Empty segments are part of a path here, so `/alice//` is not `/alice` with a spelling variant.
-      if ("/$afterAuthority".endsWith("//")) return "path must not end in more than one slash (SPS-CORE-019)"
-
-      return null
     }
 
     private fun refused(reason: String): Pair<HttpUrl?, String?> = null to reason
