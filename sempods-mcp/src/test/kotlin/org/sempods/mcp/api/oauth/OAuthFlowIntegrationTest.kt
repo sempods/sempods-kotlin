@@ -671,6 +671,88 @@ class OAuthFlowIntegrationTest {
   }
 
   @Test
+  fun `a registration answer is uncacheable and names no member the client did not register`() = testApplication {
+    installAuth()
+
+    val resp = client.post("/register") {
+      contentType(ContentType.Application.Json)
+      setBody("""{"redirect_uris":["$REDIRECT"]}""")
+    }
+
+    assertEquals(HttpStatusCode.Created, resp.status)
+    // RFC 7591 §3.2.1: the answer carries the client's credentials and is never cached.
+    assertUncacheableJson(resp)
+    val json = mapper.readTree(resp.bodyAsText())
+    assertEquals(
+      setOf("client_id", "redirect_uris", "token_endpoint_auth_method", "grant_types", "response_types"),
+      json.propertyNames().toSet(),
+      "a nameless client reads back no client_name",
+    )
+    assertEquals("none", json["token_endpoint_auth_method"].asString())
+    assertEquals(setOf("authorization_code", "refresh_token"), strings(json["grant_types"]))
+    assertEquals(setOf("code"), strings(json["response_types"]))
+  }
+
+  private fun strings(array: tools.jackson.databind.JsonNode): Set<String> = (0 until array.size()).mapTo(mutableSetOf()) { array[it].asString() }
+
+  @Test
+  fun `a registration answer reads back the name and software statement, trimmed`() = testApplication {
+    installAuth()
+
+    val json = mapper.readTree(
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"  Notes  ","software_id":"notes-app","software_version":"1.4"}""")
+      }.bodyAsText(),
+    )
+
+    assertEquals("Notes", json["client_name"].asString())
+    assertEquals("notes-app", json["software_id"].asString())
+    assertEquals("1.4", json["software_version"].asString())
+  }
+
+  @Test
+  fun `a member of the wrong type is refused as client metadata`() = testApplication {
+    installAuth()
+    // RFC 7591 §2 types every member; a string where an array belongs, or a number where a string
+    // does, is not a value the service can store.
+    val bodies = listOf(
+      """{"redirect_uris":"$REDIRECT"}""",
+      """{"redirect_uris":["$REDIRECT"],"client_name":42}""",
+      """{"redirect_uris":["$REDIRECT"],"client_name":["Notes"]}""",
+      """{"redirect_uris":["$REDIRECT"],"software_id":""}""",
+      // Two the SDK refuses from a constructor, outside its parse error.
+      """{"redirect_uris":["$REDIRECT"],"software_version":" "}""",
+      """{"redirect_uris":[null]}""",
+    )
+
+    for (body in bodies) {
+      val resp = client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+      }
+      assertEquals(HttpStatusCode.BadRequest, resp.status, body)
+      assertEquals("invalid_client_metadata", mapper.readTree(resp.bodyAsText())["error"].asString(), body)
+    }
+  }
+
+  @Test
+  fun `a body that is not a JSON object is refused as malformed`() = testApplication {
+    installAuth()
+    // The SDK's own parser takes unquoted keys; the service's stays the stricter one.
+    for (body in listOf("""{redirect_uris:["$REDIRECT"]}""", "null", "[]", "")) {
+      val resp = client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+      }
+      assertEquals(HttpStatusCode.BadRequest, resp.status, body)
+      val json = mapper.readTree(resp.bodyAsText())
+      assertEquals("invalid_client_metadata", json["error"].asString(), body)
+      assertEquals("malformed JSON body", json["error_description"].asString(), body)
+    }
+  }
+
+  @Test
   fun `a second registration under one fingerprint is refused`() {
     val dao = DcrClientDao(db!!, freshCollection())
 
