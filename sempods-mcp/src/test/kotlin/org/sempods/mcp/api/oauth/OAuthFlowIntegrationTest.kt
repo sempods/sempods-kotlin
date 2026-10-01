@@ -17,6 +17,7 @@ import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebSession
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.RedirectUri
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
 import org.sempods.mcp.oauth.FakeIdentityProvider
@@ -635,6 +636,38 @@ class OAuthFlowIntegrationTest {
     assertEquals(first["client_id"].asString(), second["client_id"].asString(), "loopback re-register must dedup")
     // The response must echo the CURRENT request's port, not the stored first one.
     assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asString())
+  }
+
+  @Test
+  fun `an AI client reconnecting with its full registration finds the registration it had`() = testApplication {
+    // The members the MCP TypeScript SDK registers with, which is what Claude Code sends on every
+    // reconnect: the service reads two of them, and the rest must not stand in the way of the
+    // dedup. The port is the one thing that moves between launches.
+    installAuth()
+    val http = createClient { followRedirects = false }
+    fun registration(port: Int) = """{
+      "redirect_uris":["http://localhost:$port/callback"],
+      "token_endpoint_auth_method":"none",
+      "grant_types":["authorization_code","refresh_token"],
+      "response_types":["code"],
+      "client_name":"Claude Code (sempods)"
+    }"""
+    suspend fun register(port: Int) = http.post("/register") {
+      contentType(ContentType.Application.Json)
+      header(HttpHeaders.UserAgent, "claude-code/2.1.0")
+      setBody(registration(port))
+    }
+
+    val first = register(51234)
+    assertEquals(HttpStatusCode.Created, first.status)
+    val reconnect = register(61234)
+    assertEquals(HttpStatusCode.Created, reconnect.status)
+
+    val clientId = mapper.readTree(first.bodyAsText())["client_id"].asString()
+    assertEquals(clientId, mapper.readTree(reconnect.bodyAsText())["client_id"].asString(), "a reconnect must keep its consent's client_id")
+    // The check `/authorize` applies, without parking a login state other cases read back.
+    val stored = assertNotNull(DcrClientDao(db!!).findByClientId(PodKey.DEFAULT_PROFILE, clientId))
+    assertTrue(RedirectUri.matchesRegistered("http://localhost:61234/callback", stored.redirectUris), "the new port is accepted")
   }
 
   @Test
