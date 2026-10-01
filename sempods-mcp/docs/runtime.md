@@ -12,10 +12,9 @@ rotation, RS256 token issuer + JWKS), federates user login to id.sempods.org as 
 relying party (`user` = stable WebID), and ships the MCP JSON-RPC front-door. An AI client's
 refresh-token family ends after 90 days unused, and 365 days after its code exchange however often
 it rotates (`McpRefreshTokenStore`). The hosted
-service has **no anonymous mode** (unlike the per-pod MCP): every id-bearing request —
-`initialize` / `tools/list` / `tools/call` / `resources/list` / `prompts/list` / `ping` —
-requires a valid bearer; a missing or invalid token gets the 401 OAuth-upgrade challenge
-(notifications, which carry no id, are the only anonymous-acked exception). Persistence is the
+service has **no anonymous mode**, unlike the per-pod MCP;
+[`McpEndpoint`](../src/main/kotlin/org/sempods/mcp/api/mcp/McpEndpoint.kt) owns which requests
+need a bearer and what a request without one gets. Persistence is the
 plain Mongo sync driver (no Morphia, no framework), keyed `(user, profile, pod)`, in the
 service's own database `sempods-mcp`. The fourteen collection names are declared in
 `SempodsMcpCollections` and pinned by `SempodsMcpCollectionsTest`; the `oauth.*` ones are
@@ -64,9 +63,7 @@ a refresh token — a row without one can never be swept and nothing ever moves 
 plain index it would sit in the access path for good, fetched every tick to be discarded, and the
 batch bound would stop bounding reads. A test explains all three sweep queries as the sweep issues
 them — filter, order and bound — and asserts that each reads exactly as many index keys and
-documents as it returns. The plan shape alone did not catch either fault: explaining the filter
-without the sort passed while a blocking sort was there, and `IXSCAN` with a residual filter
-passes while the scan reads everything. Against the pod server's own `/token` budget ([OAuth operations](../../sempods-server/docs/auth/operations.md) §"Rate
+documents as it returns. Against the pod server's own `/token` budget ([OAuth operations](../../sempods-server/docs/auth/operations.md) §"Rate
 limit": 20 a minute per `<address>|<client identity>`) this stays clear by a wide margin, and the
 cadence widens it: only one of a refresh's four requests is the token POST, and the pod's DCR
 dedup is per pod and profile, so every connection one profile holds *there* spends one `dyn:` key. A
@@ -88,7 +85,8 @@ refresh posts the refresh token only while the recorded and the discovered issue
 and records the one she names now. `PodOAuthClient.discoverMetadata` lists the cases.
 
 **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
-minimal / `did:web`-static-client pod, e.g. the Staffbase KG pod) is connected by **convention**
+minimal / `did:web`-static-client pod, such as a third-party server publishing one knowledge
+graph) is connected by **convention**
 — the AS endpoints are the pod's own `…/_system/auth/authorize` and `…/token`, the service presents a
 **static `did:web` client** instead of registering: `did:web:<mcp-host>` for the default profile
 and, for a named one, an identifier scoped to that profile's callback, which is how a profile is a
@@ -107,8 +105,7 @@ namespace.
 
 The MCP front door serves the read surface across
 connected pods: `list_pods`, `list_contexts`, `get_resource`, `sparql_select`, `sparql_graph`,
-`find`, `get_property_values`. Tools are advertised only to an authenticated session and proxy to
-each pod's HTTP **System layer** (SSRF-guarded + pod-scoped bearer), fanning
+`find`, `get_property_values`. Tools proxy to each pod's HTTP **System layer** (SSRF-guarded + pod-scoped bearer), fanning
 out across the profile's connected pods (optional `targets`) into a **per-pod envelope** where one
 pod's failure does not poison the others. `ReadTools` handles fan-out, tokens, the result envelope and audit; `PodToolExecutor`
 owns single-pod execution. A shared `pods/PodTokenProvider` supplies a fresh pod token on demand — issuer-pinned, per-key-locked
@@ -125,9 +122,7 @@ property-mutation tools (`create_resource`, `update_resource`, `delete_resource`
 `api/mcp/WriteTools`. Unlike the read tools these **never fan out**: each takes a required single
 `target` pod + single `context_iri` and returns a single-pod envelope. The pod stays the authority
 on the `<context_iri>#write` grant and on ETag preconditions (`if_match` / `if_none_match: "*"` pass
-through; a 403/412/400 surfaces as the per-pod error, not a crash). Reads provide **partial-error
-surfacing**: a stable per-pod error `kind` plus a `partial` / `failed_pods` flag on the envelope.
-Resource authorization belongs to the pod. Argument parsing, absolute IRIs and ETag
+through; a 403/412/400 surfaces as the per-pod error, not a crash). Resource authorization belongs to the pod. Argument parsing, absolute IRIs and ETag
 normalization belong to `PodToolExecutor`.
 
 ## Profile isolation
@@ -190,9 +185,8 @@ exactly the hosts that need it. The strict/relaxed split stays the deploy-time `
 ## Durable state and refresh coordination
 
 The six OAuth flow stores (`AuthorizationCodeStore`, `LoginStateStore`, `ConsentTransactionStore`,
-`ReauthorizeChallengeRegistry`, `WebLoginStateStore`, `PodConnectStateStore`; the reauthorize implementation
-is `ReauthorizeChallengeStore` in `:sempods-mcp-core`, shared with the
-pod-immanent MCP) are
+`ReauthorizeChallengeStore`, `WebLoginStateStore`, `PodConnectStateStore`; the reauthorize store
+lives in `:sempods-mcp-core`, shared with the pod-immanent MCP) are
 **Mongo-backed** (`oauth.authCodes` / `oauth.loginStates` / `oauth.consentTransactions` / `oauth.reauthChallenges`
 / `oauth.webLoginStates` / `oauth.podConnectStates`), each TTL-indexed on `expiresAt`  — in-flight logins/consents/pod-connects survive a restart and span
 replicas. One-time consume is an **atomic `findOneAndDelete`** (exactly one of N concurrent
@@ -244,7 +238,7 @@ family revocation (`AuthEndpoint.handleRefreshToken`), and **one `TOOL_CALL` row
 `tools/call`** emitted in the dispatchers — the `authorize` helper and the endpoint-level
 unknown-tool rejection never reach them and are deliberately not audited
 (`ReadTools.fanOut` outcome `ok|partial|error` over the
-resolved targets incl. validation refusals; `WriteTools.runWrite` single-target, `detail` = the
+resolved targets incl. validation refusals; `WriteTools.dispatch` single-target, `detail` = the
 per-pod error `kind`). Rows carry **no token material, no arguments, no SPARQL, no messages** —
 `detail` is always a fixed label. **Per-user quota:** `api/mcp/UserRateLimiter` (a thin
 `(user, profile)` wrapper over the generalized `ratelimit/TokenBucketRateLimiter`, which lives in

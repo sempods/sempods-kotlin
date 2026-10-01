@@ -64,7 +64,7 @@ below; a submitted form is single-use, so restart authorization rather than subm
 | `error_description` | Case | What recovers it |
 |---|---|---|
 | `no app-specific scopes; re-authorize with scope=public-read for read-only access` | `prompt=none`, no grants for this user, but the pod has public contexts | re-run without `prompt=none`; the consent page renders |
-| `user has not granted access to this app` | `prompt=none`, and the person holds grants but none this app may reuse silently. A `dyn:*` client never reuses consent silently | re-run without `prompt=none`; the consent page renders |
+| `user has not granted access to this app` | `prompt=none`, and the person holds grants but none this app may reuse silently, which includes every [`dyn:*` client](../../sempods-server/docs/auth/oauth.md#dyn--dynamically-registered-apps) | re-run without `prompt=none`; the consent page renders |
 | `'<scope>' is granted at the dialog` | `prompt=none` asked for a privileged scope | re-run without `prompt=none` |
 | `granted access changed while consenting; please re-authorize` | the user's grants moved between the consent page being rendered and submitted | start a fresh `/authorize`; the page is rebuilt from what they now hold |
 | `pod has no public-read contexts and no per-context scopes were selected` | `public-read` was the only box ticked, and the pod publishes none. Ticking *nothing at all* is `access_denied`, not this | start a fresh `/authorize` **and** tick one of their own contexts. Only open to somebody who has one — for anyone else this is the row below |
@@ -92,9 +92,7 @@ same error. Do not retry automatically; let the person choose whether to try aga
 | Consent page's "Sign out everywhere", or a sign-out landing while the authorization was answered | `signed out` — every sign-in, connection, code and access token the person holds on the pod has ended ([User connections](../../sempods-server/docs/auth/connections.md#signing-out)) |
 | Identity provider reported `access_denied`, or Apple's `user_cancelled_authorize` | the upstream code, and its description where it sent one |
 
-Service consent has its own [callback rules](../../sempods-server/docs/auth/service-clients.md#consent):
-an empty confirmation removes every grant and activates a provisional registration; cancellation
-leaves the service unchanged.
+Service consent has its own [callback rules](../../sempods-server/docs/auth/service-clients.md#consent).
 
 After `app disconnected`, the next authorization starts without the old grants. After `signed out`,
 the person signs in again but keeps their grants. Unrecognized provider errors are reported as
@@ -102,28 +100,29 @@ the person signs in again but keeps their grants. Unrecognized provider errors a
 
 ## `temporarily_unavailable`
 
-**The identity service could not be reached, and the attempt is worth repeating.** The pod
-was unable to complete its token exchange because the transport failed — a connect or read
-failure rather than a verdict.
+**The sign-in did not complete for a reason that may pass, and the attempt is worth repeating.**
+Two paths reach it:
+
+| Path | `error_description` |
+|---|---|
+| The pod could not reach the identity service for its token exchange: a connect or read failure | `login failed` |
+| The identity provider reported `temporarily_unavailable` itself; the pod passes it on unchanged | the upstream code, and its description where it sent one |
 
 **Recovery:** one retry, after a delay, is reasonable. Back off if it repeats; the pod
 cannot tell a brief outage from a long one.
 
 ## `server_error`
 
-**The sign-in did not complete, and it was not the person's doing.** Four paths reach it:
+**The sign-in did not complete, and it was not the person's doing.**
 
-- the callback arrived carrying neither an authorization code nor an error;
-- the identity service answered with something this pod could not verify — an expired token,
-  a wrong signing key, a nonce that belongs to a different flow;
-- the identity provider reported its own `server_error`, or one of the relying-party faults
-  RFC 6749 §4.1.2.1 defines — `invalid_request`, `unauthorized_client`, `invalid_scope`,
-  `unsupported_response_type`. Those mean **this pod** sent a bad authorization request as a
-  relying party: a configuration fault its client can neither fix nor be blamed for;
-- the identity provider reported a code this pod does not recognise.
+| Path | `error_description` |
+|---|---|
+| The callback arrived carrying neither an authorization code nor an error | `no authorization code` |
+| The identity service answered with something this pod could not verify — an expired token, a wrong signing key, a nonce that belongs to a different flow | `login failed`; the pod log carries the cause |
+| The identity provider reported its own `server_error`, one of the relying-party faults RFC 6749 §4.1.2.1 defines — `invalid_request`, `unauthorized_client`, `invalid_scope`, `unsupported_response_type` — or a code this pod does not recognise | the upstream code, and its description where it sent one |
 
-Whatever the class, `error_description` carries the code the provider actually sent, so a
-reclassification never costs the one detail that finds the cause.
+The relying-party faults mean **this pod** sent a bad authorization request as a relying party: a
+configuration fault its client can neither fix nor be blamed for.
 
 **Recovery:** a retry may work if the cause was momentary, but repeating it will not fix a
 misconfiguration. Surface the failure rather than looping.
