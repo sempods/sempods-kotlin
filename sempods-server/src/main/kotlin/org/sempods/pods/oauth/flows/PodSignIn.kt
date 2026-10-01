@@ -14,7 +14,7 @@ import org.sempods.pods.HostedPod
  * The request stays here under a `state` this server minted, and the identity comes back over a
  * back channel with a verifier that never left this process. `state` is a bearer, so a browser pin
  * is minted beside it and the callback must see it again as a cookie; without it a captured login
- * URL completes in someone else's browser.
+ * URL completes in someone else's browser. [PodSignInCompletion] completes it at the callback.
  */
 class PodSignIn @Inject internal constructor(
   private val identityProvider: PodIdentityProvider,
