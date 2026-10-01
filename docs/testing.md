@@ -114,6 +114,20 @@ the trace**: code handed to an executor needs the same capture-and-rebind the pr
 The proxy needs an interface — it cannot wrap a final class. Where a collaborator is injected by
 concrete type, this mechanism does not apply.
 
+A test in `sempods-server` does not call `observe` itself. `SempodsIntegrationTest.withSetup`
+nests the observers and hands the block a `SempodsTestSetup` holding each seam's test
+implementation, which answers like the real one until the test changes it:
+
+```kotlin
+@Test
+fun `a rejected request is challenged`() = withSetup {
+  requestVerifier.answerWith { _, _ -> PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken) }
+  // requests made here reach that verifier; every other class still reaches the real one
+}
+```
+
+A new seam's test implementation joins the setup as one more nested `observe`.
+
 ## Stubbing an external API
 
 A test that needs an external HTTP API stubs it with a local server and passes the base URI into
