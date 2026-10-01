@@ -8,10 +8,7 @@ import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodTokenIssuer
-import org.sempods.pods.oauth.PodTokenAuthenticator
-import org.sempods.pods.oauth.PodRequestVerifierTestImpl
-import org.sempods.pods.oauth.spi.PodRequestVerifier
-import org.sempods.commons.guice.GuiceAppTestProxy
+import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
@@ -101,20 +98,14 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   }
 
   @Inject
-  private lateinit var requestVerifierProxy: GuiceAppTestProxy<PodRequestVerifier>
-
-  @Inject
-  private lateinit var podTokenAuthenticator: PodTokenAuthenticator
+  private lateinit var requestVerifierObserver: PodRequestVerifierObserver
 
   /**
    * Runs [block] in a fresh [SempodsTestSetup]. Each seam's test implementation is observed for the
    * block's trace, so what a test changes there reaches its own requests and no other class's.
    */
   protected fun <R> withSetup(block: SempodsTestSetup.() -> R): R =
-    requestVerifierProxy.observe(
-      delegate = PodRequestVerifierTestImpl(podTokenAuthenticator),
-      useDelegateResult = true,
-    ) { requestVerifier ->
+    requestVerifierObserver.observeWithTestImpl { requestVerifier ->
       SempodsTestSetup(requestVerifier = requestVerifier).block()
     }
 

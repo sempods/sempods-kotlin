@@ -1,12 +1,10 @@
 package org.sempods
 
 import com.google.inject.Provides
-import com.google.inject.TypeLiteral
 import com.google.inject.name.Named
 import com.google.inject.Singleton
 import org.sempods.commons.guice.BaseModule
-import org.sempods.commons.guice.GuiceAppTestProxy
-import org.sempods.pods.oauth.PodTokenAuthenticator
+import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.commons.tests.TestUtil
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
@@ -16,7 +14,6 @@ import org.sempods.auth.core.HttpTransport
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
-import org.sempods.pods.oauth.spi.PodRequestVerifier
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient
 import okhttp3.OkHttpClient
@@ -49,24 +46,9 @@ data class SempodsTestModule(
     bind<AdminAuthorizer>().toInstance(adminAuthorizer)
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
 
-    bindRequestVerifierForTests()
+    PodRequestVerifierObserver.bindTestProxy(binder())
 
     bindMediaForTests()
-  }
-
-  /**
-   * The real [PodTokenAuthenticator] behind a [GuiceAppTestProxy], so a test can put another
-   * [PodRequestVerifier] in front of its own requests — keyed on the trace, so no other class sees
-   * it. The authenticator comes through a provider because it is built by this same injector.
-   */
-  private fun bindRequestVerifierForTests() {
-    val authenticator = getProvider(PodTokenAuthenticator::class.java)
-    val proxy = GuiceAppTestProxy(
-      type = PodRequestVerifier::class,
-      globalDefaultBehavior = PodRequestVerifier { request, pod -> authenticator.get().verify(request, pod) },
-    )
-    bind(object : TypeLiteral<GuiceAppTestProxy<PodRequestVerifier>>() {}).toInstance(proxy)
-    bind<PodRequestVerifier>().toInstance(proxy.injectableProxy)
   }
 
   /**
