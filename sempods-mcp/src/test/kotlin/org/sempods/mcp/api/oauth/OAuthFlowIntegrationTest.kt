@@ -696,7 +696,7 @@ class OAuthFlowIntegrationTest {
   private fun strings(array: tools.jackson.databind.JsonNode): Set<String> = (0 until array.size()).mapTo(mutableSetOf()) { array[it].asString() }
 
   @Test
-  fun `a registration answer reads back the name and software statement, trimmed`() = testApplication {
+  fun `a registration answer reads back the name and software identifiers, trimmed`() = testApplication {
     installAuth()
 
     val json = mapper.readTree(

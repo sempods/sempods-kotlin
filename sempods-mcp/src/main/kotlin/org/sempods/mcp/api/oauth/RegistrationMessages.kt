@@ -31,8 +31,9 @@ import java.net.URI
  * The grammar is the SDK's, as it is at the pod's registration: `ClientMetadata` decides which
  * member may hold which type and which of the two §3.2.2 codes a malformed body earns, and
  * `ClientInformationResponse` spells the answer, `Cache-Control: no-store` included. What this adds
- * is the projection the service stores: the redirect URIs, and the name and software statement
- * trimmed, with a blank one read as absent.
+ * is the projection the service stores: the redirect URIs, and the name, `software_id` and
+ * `software_version` trimmed. A blank name is read as absent; a blank `software_id` or
+ * `software_version` is refused as `invalid_client_metadata`, as the SDK refuses it.
  *
  * Jackson reads the body first because it is the stricter parser. The SDK's accepts unquoted keys.
  */
