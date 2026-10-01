@@ -64,8 +64,8 @@ interface PodMediaStore {
    * and an SDK's not-found from an object store. Normalising them would mean wrapping every call in
    * a translation nobody reads, for a distinction no caller makes: everything above this either
    * checked [exists] first or treats "cannot read the bytes" as one outcome. Where that outcome
-   * reaches HTTP it is already a fixed string with the detail in the log, because a store's message
-   * is its physical layout — see `PodMediaEndpoint`.
+   * reaches HTTP, `ApiExceptionMapper` answers a fixed `500` and logs the message, which is the
+   * store's physical layout.
    */
   fun open(ref: PodMediaRef): InputStream
 

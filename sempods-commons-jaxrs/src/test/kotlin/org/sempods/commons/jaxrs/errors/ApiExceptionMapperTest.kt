@@ -7,7 +7,9 @@ import ch.qos.logback.core.read.ListAppender
 import io.mockk.every
 import io.mockk.mockk
 import jakarta.ws.rs.NotAcceptableException
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.container.ContainerRequestContext
+import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriInfo
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -112,6 +114,31 @@ class ApiExceptionMapperTest {
 
     assertEquals(500, response.status)
     assertEquals("something gave up [DELETE v1/pods/alice]", loggedLine("something gave up"))
+  }
+
+  @Test
+  fun `an unknown exception's message stays out of the body`() {
+    // The message is written for an operator: a filesystem store's names the media root, a
+    // library's names its own internals. The line above keeps it; the caller gets none of it.
+    bindRequest("GET", "v1/pods/alice/_system/media/m1/content")
+
+    val response = mapper.toResponse(IllegalStateException("/var/sempods/media/alice/m1"))
+
+    assertEquals(500, response.status)
+    assertEquals("internal server error", response.entity)
+  }
+
+  @Test
+  fun `a mapped refusal keeps its own body`() {
+    // Only the unknown branch is made generic; a 4xx a resource built on purpose is its answer.
+    bindRequest("POST", "v1/pods/alice/events")
+
+    val response = mapper.toResponse(
+      WebApplicationException(Response.status(400).entity("context is required").type("text/plain").build()),
+    )
+
+    assertEquals(400, response.status)
+    assertEquals("context is required", response.entity)
   }
 
   @Test
