@@ -2,6 +2,8 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.ConsentBinding
+import org.sempods.auth.ConsentServiceRecipient
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PersonIdentity
 import org.sempods.auth.PodLoginStateStore
@@ -14,7 +16,7 @@ import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.GrantReplacement
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.SessionPrincipal
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistrationId
@@ -31,7 +33,7 @@ import java.time.Instant
  * do from the token endpoint and `GET /contexts`, the way it uses that access.
  *
  * **Confirming replaces the service's grants** through [ConsentSelection], at the version the screen
- * was rendered at ([ConsentTransactionStore.ServiceRecipient]), and activates a provisional
+ * was rendered at ([ConsentServiceRecipient]), and activates a provisional
  * registration in the same write. An empty confirmation removes every grant and activates too.
  * Only the pod owner approves.
  */
@@ -48,7 +50,7 @@ class PodServiceConsentFlow @Inject internal constructor(
   internal fun open(
     pod: HostedPod,
     request: PodServiceConsentRequest,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
   ): PodServiceConsentResult {
     // Both asked before any sign-in, and both answered to the browser: until they hold, nothing
     // names an address this service may be sent to.
@@ -79,7 +81,7 @@ class PodServiceConsentFlow @Inject internal constructor(
       consentGeneration = null,
       offeredFeatureScopes = emptySet(),
       disconnects = 0,
-      binding = ConsentTransactionStore.Binding(
+      binding = ConsentBinding(
         clientId = registration.clientId,
         redirectUri = target?.uri,
         state = state,
@@ -88,7 +90,7 @@ class PodServiceConsentFlow @Inject internal constructor(
         offeredContexts = contexts.mapTo(mutableSetOf()) { it.uri },
         publicReadOffered = false,
         contextCreationOffered = true,
-        service = ConsentTransactionStore.ServiceRecipient(registration.id.value, registration.grantsVersion),
+        service = ConsentServiceRecipient(registration.id.value, registration.grantsVersion),
       ),
     )
     logger.info {
@@ -115,7 +117,7 @@ class PodServiceConsentFlow @Inject internal constructor(
   internal fun submit(
     pod: HostedPod,
     form: PodServiceConsentForm,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
   ): PodServiceConsentResult {
     if (session == null) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SESSION_EXPIRED)
     val presented = form.csrf?.trim()?.takeIf { it.isNotBlank() }

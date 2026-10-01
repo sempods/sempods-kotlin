@@ -15,9 +15,9 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
-import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import java.time.Instant
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * The pod and the person the two browser routes are exercised against.
@@ -71,7 +71,7 @@ internal open class PodBrowserFlowTest : SempodsStoreTest() {
      * Signed in a minute ago, so a sign-out written during a case is unambiguously later than the
      * session it has to end.
      */
-    val session = PodTokenIssuer.SessionPrincipal(webId, emptyList(), Instant.now().minusSeconds(60))
+    val session = SessionPrincipal(webId, emptyList(), Instant.now().minusSeconds(60))
 
     fun grant(vararg scopes: String) {
       podGrantsFacade.replaceGrants(

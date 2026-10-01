@@ -7,6 +7,7 @@ import org.sempods.auth.core.DidWebRedirectPolicy
 import org.sempods.auth.core.RedirectUri
 import org.sempods.commons.config.Env
 import org.sempods.pods.PodId
+import org.sempods.pods.oauth.DynamicClient
 import org.sempods.pods.oauth.DynamicClientStore
 
 /**
@@ -122,9 +123,9 @@ internal sealed interface PodClientIdentity {
 }
 
 /** The registration behind a `dyn:` client; `null` for any other class. */
-internal fun DynamicClientStore.registrationOf(pod: PodId, clientId: String): DynamicClientStore.Registration? =
+internal fun DynamicClientStore.registrationOf(pod: PodId, clientId: String): DynamicClient? =
   if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) lookup(pod, clientId) else null
 
 /** What a dialog calls a client: the name it registered with, or its identifier. */
-internal fun clientDisplayName(registration: DynamicClientStore.Registration?, clientId: String): String =
+internal fun clientDisplayName(registration: DynamicClient?, clientId: String): String =
   registration?.clientName?.takeIf { it.isNotBlank() } ?: clientId

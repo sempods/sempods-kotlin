@@ -11,6 +11,7 @@ import org.sempods.pods.PodId
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.carriesPrivilegedFeature
+import org.sempods.pods.oauth.DynamicClient
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
@@ -240,7 +241,7 @@ class PodClientRegistration @Inject internal constructor(
   //  Stage 2 pins the per-agent identity model. The second line below logs the whole submitted
   //  body, which is caller-controlled text on an unauthenticated endpoint — the log volume is
   //  theirs to choose, not this server's.
-  private fun announce(pod: HostedPod, registration: DynamicClientStore.Registration) {
+  private fun announce(pod: HostedPod, registration: DynamicClient) {
     val action = if (registration.deduplicatedFromRegisteredAt != null) {
       "Dynamic client dedup hit (reused existing registration from ${registration.deduplicatedFromRegisteredAt})"
     } else {

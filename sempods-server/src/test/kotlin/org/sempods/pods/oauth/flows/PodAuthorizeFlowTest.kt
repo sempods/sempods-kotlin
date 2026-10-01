@@ -10,7 +10,6 @@ import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,6 +17,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * What `/authorize` decides, without a server and without a protocol message type.
@@ -439,7 +439,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
   @Test
   fun `a person who does not own the pod is refused the management scope`() {
     val owned = Owned()
-    val stranger = PodTokenIssuer.SessionPrincipal(
+    val stranger = SessionPrincipal(
       "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
     )
 
@@ -453,7 +453,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
   @Test
   fun `an owner signed in under an alias is offered the management authority`() {
     val owned = Owned()
-    val alias = PodTokenIssuer.SessionPrincipal(
+    val alias = SessionPrincipal(
       webId = "https://id.test/${randomId()}",
       alsoKnownAs = listOf(owned.webId),
       authTime = Instant.now().minusSeconds(60),

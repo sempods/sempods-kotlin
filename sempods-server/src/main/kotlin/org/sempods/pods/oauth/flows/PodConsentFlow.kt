@@ -2,6 +2,7 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.ConsentBinding
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PersonIdentity
 import org.sempods.auth.core.OAuthErrorCode
@@ -19,7 +20,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * What a pod does with the consent dialog coming back: decide whether this submission may be acted
@@ -32,7 +33,7 @@ import org.sempods.pods.oauth.PodTokenIssuer
  * see [endAuthorization].
  *
  * **It answers the screen that was rendered.** The client, redirect, `state`, PKCE challenge and
- * offered rows are read from the screen's transaction ([ConsentTransactionStore.Binding]). A form
+ * offered rows are read from the screen's transaction ([ConsentBinding]). A form
  * naming another request is [PodConsentRefusal.FORM_MISMATCH]; a selection the dialog could not have
  * produced is refused by [ConsentSelection] with nothing written. What each submission is answered
  * is tabled in `sempods-server/docs/auth/oauth.md` §"Authorize flow (overview)".
@@ -53,7 +54,7 @@ class PodConsentFlow @Inject internal constructor(
   internal fun submit(
     pod: HostedPod,
     form: PodConsentForm,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
   ): PodConsentResult {
     // Two questions, two answers. The session says *who* is submitting; the transaction says
     // *which screen* this is, and that it has not been submitted before. Neither alone is enough:
@@ -346,7 +347,7 @@ class PodConsentFlow @Inject internal constructor(
     request: ConsentRequest,
     target: Redirectable,
     state: String?,
-    session: PodTokenIssuer.SessionPrincipal,
+    session: SessionPrincipal,
     offered: Set<String>,
     submitted: Set<String>,
     rawSubmitted: Set<String>,
@@ -565,7 +566,7 @@ private data class ConsentRequest(
      *   service consent's. The form no longer renders these fields, so a value there was put in by
      *   hand; one that agrees is harmless.
      */
-    fun of(binding: ConsentTransactionStore.Binding?, form: PodConsentForm): ConsentRequest? {
+    fun of(binding: ConsentBinding?, form: PodConsentForm): ConsentRequest? {
       if (binding?.service != null) return null
       val posted = ConsentRequest(
         clientId = form.clientId?.trim()?.takeIf { it.isNotBlank() },

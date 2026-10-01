@@ -34,14 +34,14 @@ import java.time.Duration
  * person disconnected the app or narrowed it, which would otherwise write its own older selection
  * back on submission. What it was rendered under is compared with what stands.
  *
- * **The screen also carries its request.** A token issued with a [Binding] holds the authorization
+ * **The screen also carries its request.** A token issued with a [ConsentBinding] holds the authorization
  * request the page answers and the rows it offered, and the submission reads both from here. A form
  * cannot then redirect the answer to another client, drop the PKCE challenge, or tick a row the
  * person was never shown.
  *
- * The same store holds the service consent's screens ([Binding.service]), under the same rules.
+ * The same store holds the service consent's screens ([ConsentBinding.service]), under the same rules.
  *
- * A transaction without a [Binding] was written by an older node during a rollout. The submission
+ * A transaction without a [ConsentBinding] was written by an older node during a rollout. The submission
  * then reads the request from the form. The rule and how long it holds are in `sempods-server/docs/auth/operations.md`
  * §"Consent and grant updates"; the next minor release removes it with the two unbound [issue]
  * overloads.
@@ -72,47 +72,9 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     val consentGeneration: Long?,
     val offeredFeatureScopes: Set<String>,
     val disconnects: Long,
-    val binding: Binding? = null,
+    val binding: ConsentBinding? = null,
     val consentText: Int? = null,
   )
-
-  /**
-   * What the screen was rendered for, as normalized by `/authorize`.
-   *
-   * @param clientId the recipient, and [redirectUri] where its answer goes; `null` only on a service
-   *   consent opened without one. The submission answers this client and no other.
-   * @param state the client's `state`, `null` where it sent none.
-   * @param codeChallenge the PKCE challenge the code will carry, and [codeChallengeMethod] its
-   *   method; `null` where the request carried none.
-   * @param offeredContexts the IRI of every context row the screen rendered, each with its
-   *   `read`, `write` and `manage` boxes. The privileged feature scopes are
-   *   [Transaction.offeredFeatureScopes].
-   * @param publicReadOffered whether the screen rendered the `public-read` box.
-   * @param contextCreationOffered whether the screen let the person create contexts.
-   * @param service set on a service consent, `null` on a delegated one. Each submission route
-   *   refuses the other's screen.
-   */
-  data class Binding @JvmOverloads constructor(
-    val clientId: String,
-    val redirectUri: String?,
-    val state: String?,
-    val codeChallenge: String?,
-    val codeChallengeMethod: String?,
-    val offeredContexts: Set<String>,
-    val publicReadOffered: Boolean,
-    val contextCreationOffered: Boolean,
-    val service: ServiceRecipient? = null,
-  )
-
-  /**
-   * The service registration a service consent was rendered for.
-   *
-   * @param registrationId the registration's own id, so a registration removed and re-created under
-   *   the same `client_id` is not the one approved.
-   * @param grantsVersion its grants' version when the screen was rendered. The replace writes only
-   *   at this version.
-   */
-  data class ServiceRecipient(val registrationId: String, val grantsVersion: Long)
 
   private val transactions = OneTimeStore(
     db = db,
@@ -158,12 +120,12 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         // accepted.
         binding = getString("clientId")?.let { clientId ->
           val service = getString("serviceRegistrationId")?.let { registrationId ->
-            ServiceRecipient(
+            ConsentServiceRecipient(
               registrationId = registrationId,
               grantsVersion = get("serviceGrantsVersion", Number::class.java)?.toLong() ?: return@OneTimeStore null,
             )
           }
-          Binding(
+          ConsentBinding(
             clientId = clientId,
             // A delegated screen always has one; only a service consent may go without.
             redirectUri = getString("redirectUri") ?: if (service == null) return@OneTimeStore null else null,
@@ -185,7 +147,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    *   null where nothing was recorded. Compared on submission.
    * @return the token to put in the form.
    */
-  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a Binding.")
+  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a ConsentBinding.")
   fun issue(pod: String, webId: String, consentGeneration: Long? = null): String =
     transactions.issue(Transaction(pod, webId, consentGeneration, emptySet(), disconnects = 0))
 
@@ -198,7 +160,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
    * @param offeredFeatureScopes see [Transaction.offeredFeatureScopes].
    * @param disconnects see [Transaction.disconnects].
    */
-  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a Binding.")
+  @Deprecated("Unbound: accepted only for the rest of 0.2.x. Issue with a ConsentBinding.")
   fun issue(
     pod: String,
     webId: String,
@@ -222,7 +184,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
     consentGeneration: Long?,
     offeredFeatureScopes: Set<String>,
     disconnects: Long,
-    binding: Binding,
+    binding: ConsentBinding,
     consentText: Int? = null,
   ): String = transactions.issue(
     Transaction(pod, webId, consentGeneration, offeredFeatureScopes, disconnects, binding, consentText),

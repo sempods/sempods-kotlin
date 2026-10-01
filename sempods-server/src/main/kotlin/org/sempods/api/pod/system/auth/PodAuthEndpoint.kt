@@ -24,6 +24,7 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
+import org.sempods.pods.oauth.SessionPrincipal
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
@@ -167,7 +168,7 @@ class PodAuthEndpoint @Inject constructor(
    */
   private fun withRenewedSession(
     pod: String,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
     answer: Response,
   ): Response {
     val renewed = session?.let { podTokenIssuer.renewSession(pod, it) } ?: return answer
@@ -286,7 +287,7 @@ class PodAuthEndpoint @Inject constructor(
   private fun resumeServiceConsent(
     podDbo: PodDbo,
     pending: PodLoginStateStore.Pending,
-    session: PodTokenIssuer.SessionPrincipal,
+    session: SessionPrincipal,
   ): Response = render(
     podDbo.name,
     podServiceConsentFlow.open(
@@ -535,7 +536,7 @@ class PodAuthEndpoint @Inject constructor(
       podTokenIssuer.issueSession(
         podDbo.name, verified.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
       )
-    val principal = PodTokenIssuer.SessionPrincipal(verified.webId, aliases, authTime)
+    val principal = SessionPrincipal(verified.webId, aliases, authTime)
     val answer = if (pending.serviceConsent) resumeServiceConsent(podDbo, pending, principal) else render(
       podDbo.name,
       podAuthorizeFlow.authorize(
@@ -578,7 +579,7 @@ class PodAuthEndpoint @Inject constructor(
    * The person this browser already proved itself as on this pod, or null — also where they have
    * signed out since, which reads exactly like a session that expired.
    */
-  private fun readSession(podDbo: PodDbo, cookieValue: String?): PodTokenIssuer.SessionPrincipal? =
+  private fun readSession(podDbo: PodDbo, cookieValue: String?): SessionPrincipal? =
     podTokenIssuer.readSession(podDbo.name, cookieValue)
       // The pod as the row this request read, because [PodSignOut] takes the id on it — see its
       // KDoc for what resolving the name again would cost.

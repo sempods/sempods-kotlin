@@ -10,6 +10,7 @@ import org.sempods.pods.grants.GrantReplacement
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.PrivilegedAuthority
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
@@ -153,7 +154,7 @@ class PodServiceClientManagement @Inject internal constructor(
     pod: HostedPod,
     caller: SempodsCredentials,
     consent: Int = PrivilegedAuthorityRows.FIRST_CONSENT,
-    operation: (PrivilegedAuthorityRows.Authority) -> PodServiceClientManagementResult<T>,
+    operation: (PrivilegedAuthority) -> PodServiceClientManagementResult<T>,
   ): PodServiceClientManagementResult<T> =
     when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, consent)) {
       is PodOwnerAuthorityCheck.Standing -> operation(check.authority)

@@ -1,6 +1,12 @@
 package org.sempods.pods.oauth.flows
 
+import com.tngtech.archunit.core.domain.JavaClass
 import com.tngtech.archunit.core.domain.JavaClasses
+import com.tngtech.archunit.core.domain.JavaModifier
+import com.tngtech.archunit.lang.ArchCondition
+import com.tngtech.archunit.lang.ConditionEvents
+import com.tngtech.archunit.lang.SimpleConditionEvent
+import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.ArchRule
@@ -17,8 +23,7 @@ import kotlin.test.assertTrue
  * what it reaches for. A driver type used inside a method body breaks the rule as surely as one in
  * a signature, which is why this reads the compiled classes rather than the source.
  *
- * The three rules are separate so a failure says which one broke rather than only that something
- * did.
+ * The rules are separate so a failure says which one broke rather than only that something did.
  */
 class PodOAuthFlowsBoundaryTest {
 
@@ -63,6 +68,17 @@ class PodOAuthFlowsBoundaryTest {
   }
 
   @Test
+  fun `the layer's contracts name no type a store or the issuer defines`() {
+    // A type nested in a store or in the issuer is that class's vocabulary: a contract naming one is
+    // tied to the class that persists or signs it. #154 decided that this, not a port per store, is
+    // the persistence boundary. It holds the contract — what a non-private member takes, returns or
+    // holds — and not what a method body calls.
+    classes().that().resideInAPackage(LAYER)
+      .should(nameNoStoreTypeInTheirContract)
+      .check(layer)
+  }
+
+  @Test
   fun `the rules have something to hold`() {
     // Fails closed. A rule whose subject moved away passes vacuously, and the move is exactly the
     // change that would need it most — `allowEmptyShould(false)` below says the same thing to
@@ -83,6 +99,28 @@ class PodOAuthFlowsBoundaryTest {
     private val layer: JavaClasses = ClassFileImporter()
       .withImportOption(ImportOption.DoNotIncludeTests())
       .importPackages(LAYER.removeSuffix(".."))
+
+    /** Nested in a store, a rows class or the issuer — the classes that persist or sign. */
+    private fun JavaClass.isStoreType(): Boolean {
+      val enclosing = enclosingClass.orElse(null) ?: return false
+      return simpleName != "Companion" &&
+        (enclosing.simpleName.endsWith("Store") || enclosing.simpleName.endsWith("Rows") || enclosing.simpleName == "PodTokenIssuer")
+    }
+
+    private val nameNoStoreTypeInTheirContract =
+      object : ArchCondition<JavaClass>("name no type a store or the issuer defines in a non-private member") {
+        override fun check(item: JavaClass, events: ConditionEvents) {
+          val named = item.fields.filterNot { it.modifiers.contains(JavaModifier.PRIVATE) }
+            .map { it.description to listOf(it.rawType) } +
+            item.codeUnits.filterNot { it.modifiers.contains(JavaModifier.PRIVATE) || it.modifiers.contains(JavaModifier.SYNTHETIC) }
+              .map { it.description to (it.rawParameterTypes + it.rawReturnType) }
+          named.forEach { (member, types) ->
+            types.filter { it.isStoreType() }.forEach { type ->
+              events.add(SimpleConditionEvent.violated(item, "$member names ${type.name}"))
+            }
+          }
+        }
+      }
 
     /** A rule that matches nothing is a rule that holds nothing. */
     private fun ArchRule.check(classes: JavaClasses) = allowEmptyShould(false).check(classes)

@@ -22,6 +22,6 @@ class PodManagementAuthorityStore @Inject internal constructor(
 ) {
 
   /** The authority behind [jti] if it still stands on [pod]; otherwise `null`, for every reason alike. */
-  internal fun standing(pod: PodId, jti: String): Authority? =
+  internal fun standing(pod: PodId, jti: String): PrivilegedAuthority? =
     rows.peek(jti)?.takeIf { it.standsOn(pod) }
 }

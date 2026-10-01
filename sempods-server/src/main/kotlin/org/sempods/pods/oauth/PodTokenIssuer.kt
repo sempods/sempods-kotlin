@@ -265,13 +265,6 @@ class PodTokenIssuer(
    */
   data class RenewedSession(val token: String, val ttlSeconds: Long)
 
-  /**
-   * @param authTime when the person signed in at the id-server, which a renewal carries forward
-   *   rather than resetting. Older than the cookie's own `iat` on every session that has been
-   *   renewed at least once.
-   */
-  data class SessionPrincipal(val webId: String, val alsoKnownAs: List<String>, val authTime: Instant)
-
   private fun issueToken(
     pod: String,
     subject: String,

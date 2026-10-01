@@ -26,29 +26,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
     db.getCollection(collectionName).createIndex(Indexes.ascending("podId", "clientId", "webId"))
   }
 
-  /**
-   * @param pod the pod the authority was granted on.
-   * @param clientId the app the person authorized — the program holding the bearer, not a service
-   *   client it creates or manages.
-   * @param webId the person who granted it.
-   * @param disconnects `PodConsentDecisionStore.Decision.disconnects` when the authority was
-   *   granted; a disconnect since withdraws it. Not the consent generation, which every privileged
-   *   consent moves — one authority would then withdraw the other.
-   * @param subjectUris every identity URI the person was recognised by at the dialog, [webId] among
-   *   them. An empty set recognises nobody.
-   * @param consent the version of the consent text the person approved for the bearer's scope
-   *   ([consentTextOf]). A row without one was approved under the first text.
-   */
-  internal data class Authority(
-    val pod: PodId,
-    val clientId: String,
-    val webId: String,
-    val disconnects: Long,
-    val subjectUris: Set<String>,
-    val consent: Int,
-  )
-
-  internal val rows = OneTimeStore<Authority>(
+  internal val rows = OneTimeStore<PrivilegedAuthority>(
     db = db,
     collectionName = collectionName,
     // The bearer's own hour, derived so the two cannot drift apart.
@@ -63,7 +41,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
     },
     read = {
       val webId = getString("webId") ?: return@OneTimeStore null
-      Authority(
+      PrivilegedAuthority(
         pod = PodId(getString("podId") ?: return@OneTimeStore null),
         clientId = getString("clientId") ?: return@OneTimeStore null,
         webId = webId,
@@ -86,18 +64,18 @@ abstract class PrivilegedAuthorityRows internal constructor(
     consent: Int,
   ) {
     require(webId in subjectUris) { "the URIs a person was recognised by include the one they are" }
-    rows.create(jti, Authority(pod, clientId, webId, disconnects, subjectUris, consent))
+    rows.create(jti, PrivilegedAuthority(pod, clientId, webId, disconnects, subjectUris, consent))
   }
 
   /** Whether this authority stands on [pod]: granted there, and not withdrawn by a disconnect since. */
-  internal fun Authority.standsOn(pod: PodId): Boolean =
+  internal fun PrivilegedAuthority.standsOn(pod: PodId): Boolean =
     this.pod == pod && disconnectsUnder(pod, clientId, webId) == disconnects
 
   /**
    * Whether a live row [clientId] holds on [pod] from one of [webIds] is one a disconnect by that
    * person would withdraw. An expired row is gone and counts for nothing.
    *
-   * Matched on [Authority.webId] alone, not on its recognised URIs: [standsOn] reads the disconnect
+   * Matched on [PrivilegedAuthority.webId] alone, not on its recognised URIs: [standsOn] reads the disconnect
    * count under that URI, and a disconnect moves it only for the URIs it is made under. That count
    * is part of the filter, so the answer is one indexed read however many authorities were issued.
    */
@@ -119,7 +97,7 @@ abstract class PrivilegedAuthorityRows internal constructor(
 
   internal companion object {
 
-    /** The consent text rows recorded before [Authority.consent] existed were approved under. */
+    /** The consent text rows recorded before [PrivilegedAuthority.consent] existed were approved under. */
     const val FIRST_CONSENT = 1
 
     /**
