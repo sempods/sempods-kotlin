@@ -1,12 +1,12 @@
 [ {
   "name" : "authorize",
-  "description" : "Start (or restart) the OAuth authorization flow for this pod. Concerned with scopes/grants (which contexts the session may read or write), not with identity (that is handled by the underlying login). Idempotent by default: when called without a valid bearer the server returns HTTP 401 with a WWW-Authenticate Bearer challenge that points at the pod's protected-resource metadata; the MCP client is expected to interpret this as a signal to begin its OAuth flow. When called with a valid bearer, returns a JSON description of the active session (clientId, scopes count) — useful for verifying that an interactive auth flow has actually completed. Pass `reauthorize: true` to force the OAuth flow to start again even when the session is already authorized; use this to request additional contexts/scopes that the current grant does not cover. You are NOT authorized for write operations on this pod. Call this tool when the user wants to write data, see private contexts, or upgrade the current anonymous/public-read-only session — the server replies with HTTP 401 + WWW-Authenticate, which the MCP client should follow to start the OAuth flow.",
+  "description" : "Start (or restart) the OAuth authorization flow for this pod. Concerned with grants (which contexts the session may read or write), not with identity (that is handled by the underlying login). Idempotent by default: when called without a valid bearer the server returns HTTP 401 with a WWW-Authenticate Bearer challenge that points at the pod's protected-resource metadata; the MCP client is expected to interpret this as a signal to begin its OAuth flow. When called with a valid bearer, returns a JSON description of the active session (clientId, scopes count) — useful for verifying that an interactive auth flow has actually completed. Pass `reauthorize: true` to force the OAuth flow to start again even when the session is already authorized; use this to request additional grants on contexts the current session does not cover. You are NOT authorized for write operations on this pod. Call this tool when the user wants to write data, see private contexts, or upgrade the current anonymous/public-read-only session — the server replies with HTTP 401 + WWW-Authenticate, which the MCP client should follow to start the OAuth flow.",
   "inputSchema" : {
     "type" : "object",
     "properties" : {
       "reauthorize" : {
         "type" : "boolean",
-        "description" : "If true, force the OAuth flow to start again even if the session is already authorized. Use to request additional contexts/scopes that the current grant does not cover. Default: false."
+        "description" : "If true, force the OAuth flow to start again even if the session is already authorized. Use to request grants on contexts the current session does not cover. Default: false."
       }
     },
     "required" : [ ],
