@@ -75,6 +75,27 @@ class ControlPlaneJsonTest {
   }
 
   @Test
+  fun `a result the route does not answer is refused rather than read as a fresh provisioning`() {
+    listOf("\"provisoned\"", "\"pending\"", "\"\"", "1").forEach { value ->
+      val refused = assertThrows<IllegalArgumentException>("result $value must not pass") {
+        ControlPlaneJson.provisioned(complete().replace("\"alreadyProvisioned\"", value), fallbackClientId = "notes-app")
+      }
+      assertTrue(refused.message!!.contains("result"), "for result $value: ${refused.message}")
+    }
+  }
+
+  @Test
+  fun `a fresh provisioning without the secret it issued is refused`() {
+    val provisioned = complete(without = "secret").replace("\"alreadyProvisioned\"", "\"provisioned\"")
+
+    val refused = assertThrows<IllegalArgumentException> {
+      ControlPlaneJson.provisioned(provisioned, fallbackClientId = "notes-app")
+    }
+
+    assertTrue(refused.message!!.contains("secret"), refused.message!!)
+  }
+
+  @Test
   fun `an answer that is not the route's document is refused`() {
     listOf(
       """["notes-app"]""",
