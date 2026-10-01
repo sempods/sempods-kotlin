@@ -11,13 +11,10 @@ import kotlin.test.assertTrue
 /**
  * What a seam's contract may name, for every `spi` package this module can see.
  *
- * An `spi` package holds the types an alternative implementation is written against
- * (`docs/naming.md` §4). It is only a boundary if none of them names an HTTP framework, a
- * protocol library, a database driver or a stored row — otherwise the implementation it was meant to
- * hide comes along with it. This reads the compiled classes, so a type used inside a method body
- * counts as much as one in a signature.
+ * Holds the rule in `docs/naming.md` §4. It reads the compiled classes, so a type used inside a
+ * method body counts as much as one in a signature.
  *
- * By package rather than by name, so a seam that gains an `spi` package is held from its first class.
+ * Held by package, so a seam that gains an `spi` package is checked from its first class.
  */
 class SpiBoundaryTest {
 
@@ -32,7 +29,7 @@ class SpiBoundaryTest {
         "com.mongodb..",
         "org.bson..",
       )
-      .because("an alternative implementation is written against values, not against one engine's types")
+      .because("an alternative implementation is written against plain values")
       .check(classes)
   }
 
@@ -41,7 +38,7 @@ class SpiBoundaryTest {
     noClasses().that().resideInAPackage(SPI)
       .should().dependOnClassesThat().haveSimpleNameEndingWith("Dbo")
       .orShould().dependOnClassesThat().resideInAPackage("..impls..")
-      .because("a stored row or an implementation is one deployment's choice, not the contract")
+      .because("a stored row or an implementation belongs to one deployment")
       .check(classes)
   }
 

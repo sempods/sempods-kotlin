@@ -197,7 +197,7 @@ the packages are the wire-adjacent half (KDoc links, logger names, the compositi
 **A seam splits into `spi` and `impls`.** A seam is an interface a deployment may replace
 ([modularity](concepts/modularity.md)). Its contract — the interface and every type it takes or
 returns — goes in `<seam>.spi`; each implementation goes in `<seam>.impls.<technology>`, named for
-what it is built on rather than for being the default:
+what it is built on:
 
 ```text
 org.sempods.pods.oauth.spi            PodRequestVerifier, PodResourceRequest, PodAccessToken, …
@@ -207,7 +207,7 @@ org.sempods.ai.impls.ollama           the Ollama provider
 
 An `spi` package names no HTTP framework, protocol library, database type, stored row or
 implementation; `SpiBoundaryTest` in `sempods-server` holds that. The older seams keep their
-contract beside the facade until they are moved.
+contract beside the facade; the rule above decides when a package may move.
 
 ## Related
 

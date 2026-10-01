@@ -12,18 +12,17 @@ import java.net.URI
  * will) can be added behind it without touching an endpoint. Its answer is a verified caller or a
  * classified reason, never a status: the endpoint maps [PodTokenRejection] to 401 or 403.
  *
- * **Protocol, not policy.** An implementation answers *is this credential good, and for this pod*.
- * What the verified caller may reach is [org.sempods.pods.grants.PodAuthorizer], resolved per
- * request from the grant store, and a sign-out is asked by the endpoint after this. A verifier that
- * accepts every request, or a token of a foreign issuer, is not an implementation of this contract.
+ * An implementation answers only *is this credential good, and for this pod*. What the verified
+ * caller may reach is [org.sempods.pods.grants.PodAuthorizer], and the endpoint asks about a
+ * sign-out afterwards. A verifier that accepts every request, or a token of a foreign issuer, breaks
+ * this contract.
  *
  * The three outcomes stay distinct: no credentials ([PodTokenAuthentication.NoToken]), rejected
  * credentials ([PodTokenAuthentication.Rejected]) and verified ones
- * ([PodTokenAuthentication.Verified]) — the last may still lack authority, which is not decided here.
+ * ([PodTokenAuthentication.Verified]). A verified caller may still lack authority; that is decided
+ * later.
  *
- * The production implementation is `org.sempods.pods.oauth.PodTokenAuthenticator`. Like every `spi`
- * package, this one names no HTTP framework, protocol library or database type; `SpiBoundaryTest`
- * holds that.
+ * The production implementation is `org.sempods.pods.oauth.PodTokenAuthenticator`.
  */
 fun interface PodRequestVerifier {
 

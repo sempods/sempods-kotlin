@@ -207,10 +207,7 @@ open class SempodsBaseEndpoint(
       else -> outcome
     }
 
-  /**
-   * This request as a [PodResourceRequest]: its target is the address this deployment is known by
-   * ([SempodsConfig.apiBaseUrl]), not the one it arrived on.
-   */
+  /** This request as [PodRequestVerifier] takes it, addressed by [SempodsConfig.apiBaseUrl]. */
   private fun resourceRequest(): PodResourceRequest {
     val context = currentRequestContext()
     return PodResourceRequest(

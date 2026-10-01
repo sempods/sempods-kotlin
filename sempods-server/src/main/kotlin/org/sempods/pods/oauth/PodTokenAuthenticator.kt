@@ -18,22 +18,8 @@ import org.sempods.commons.net.BearerAuth
 import org.sempods.spec.PodRef
 
 /**
- * Verifies an incoming pod bearer token: protocol, not policy.
- *
- * The production [PodRequestVerifier], and one half of what the endpoint's bearer handling used to
- * do in one piece. It answers *who is calling and is the token good* — signature, expiry, the issuer being this pod,
- * and the claims a caller is identified by. It answers nothing about **what** the caller may
- * reach; that is [org.sempods.pods.grants.PodAuthorizer]. Nothing here is selected per deployment:
- * every deployment verifies the same self-issued JWT against the same keys. What is replaceable is
- * the [PodRequestVerifier] boundary the endpoints depend on, so a verification that needs more than
- * the bearer string can stand behind it.
- *
- * A token that verifies here can still be refused: its person may have signed out of the pod since
- * it was issued, which only a store can say — `SempodsBaseEndpoint` asks [PodSignOut] after this.
- *
- * Failures are returned, not thrown, and they are *reasons* rather than statuses: the same
- * [PodTokenRejection.podMismatch] is a 401 on the read path and a 403 on the app-token path, and
- * that mapping belongs to the endpoint. See `SempodsBaseEndpoint`.
+ * The production [PodRequestVerifier]: verifies a bearer this pod issued itself — signature,
+ * expiry, the issuer being this pod, and the claims a caller is identified by.
  */
 class PodTokenAuthenticator @Inject constructor(
   signingKeys: SigningKeys,
