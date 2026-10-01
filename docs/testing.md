@@ -111,8 +111,9 @@ assertEquals(200, read.status)
 ```
 
 Once a route's happy path runs through the client, the route needs no separate "the client core
-against this route" test: every happy-path test is that check. `PodResourceEndpointHttpTest` is the
-reference for the split; the other areas still use raw HTTP for both columns.
+against this route" test: every happy-path test is that check. The resource routes follow the
+split (`PodResourceEndpointHttpTest`, `PodResourceByIriEndpointHttpTest`, `PodSlotEndpointHttpTest`);
+the other areas still use raw HTTP for both columns.
 
 ## The test observer
 

@@ -8,18 +8,11 @@ import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.commons.okhttp.TestHttpClient
-import okhttp3.OkHttpClient
 import org.sempods.client.SempodsContent
 import org.sempods.client.SempodsContextSelection
 import org.sempods.client.SempodsGraphFormat
-import org.sempods.client.SempodsOkHttp
-import org.sempods.client.SempodsPod
-import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsReadOptions
-import org.sempods.client.SempodsRequestAuth
-import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsWriteOptions
-import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Models
 import org.eclipse.rdf4j.model.util.Values
@@ -106,13 +99,36 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
   // ── acceptance: full lifecycle on an external IRI ────────────────────────────────
 
   @Test
-  fun `create merge-patch delete cycle on an external foaf IRI`() {
+  fun `create merge-patch delete cycle on an external IRI`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "privat")
+    val subjects = podAs(pod.name, bearer = token).subjects()
+    val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
+
+    for (iri in listOf("https://example.org/people/alice", "did:web:bob.example")) {
+      assertEquals(201, subjects.put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$iri","$schemaName":"Alice"}"""), inPrivat).status, iri)
+      val read = subjects.getText(iri, options = SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+      assertEquals(200, read.status, iri)
+
+      // Under the tag of that read; adds a property and keeps the name.
+      val patched = subjects.patch(iri, SempodsContent.of("""{"@id":"$iri","$schemaJobTitle":"Engineer"}"""), inPrivat.withIfMatch(read.headers["ETag"]))
+      assertEquals(204, patched.status, iri)
+      val afterPatch = subjects.getText(iri).body.orEmpty()
+      assertTrue(afterPatch.contains("Alice"), "name must survive the merge-patch: $afterPatch")
+      assertTrue(afterPatch.contains("Engineer"), "patched property must be present: $afterPatch")
+
+      assertEquals(204, subjects.delete(iri, inPrivat).status, iri)
+      assertEquals(404, subjects.getText(iri).status, "resource must be gone after delete: $iri")
+    }
+  }
+
+  @Test
+  fun `a write on the System route locates the b64 route and claims no tag, and a patch under an old tag is 412`() {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
     val alice = "https://example.org/people/alice"
     val url = withContext(resourceUrl(pod.name, alice), contextUri)
 
-    // CREATE
     val created = put(url, token, """{"@id":"$alice","$schemaName":"Alice"}""")
     assertEquals(201, created.statusCode)
     val location = assertNotNull(created.headers.get("Location"), "201 must carry Location")
@@ -125,67 +141,60 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
     assertNull(created.headers.get("ETag"), "PUT 201 must not claim an ETag")
     val createTag = assertNotNull(get(url, token).headers.get("ETag"))
 
-    // MERGE-PATCH under that tag (adds a property, keeps name)
     val patched = patch(url, token, """{"@id":"$alice","$schemaJobTitle":"Engineer"}""", ifMatch = createTag)
     assertEquals(204, patched.statusCode)
     assertNull(patched.headers.get("ETag"), "PATCH 204 must not claim an ETag")
-
-    val afterPatch = get(url, token)
-    assertEquals(200, afterPatch.statusCode)
-    assertTrue(afterPatch.responseBody.contains("Alice"), "name must survive the merge-patch")
-    assertTrue(afterPatch.responseBody.contains("Engineer"), "patched property must be present")
     assertEquals(412, patch(url, token, """{"@id":"$alice","$schemaName":"Eve"}""", ifMatch = createTag).statusCode)
-
-    // DELETE
-    assertEquals(204, delete(url, token).statusCode)
-    assertEquals(404, get(url, token).statusCode, "resource must be gone after delete")
   }
 
   // ── acceptance: GET an external IRI as canonical JSON-LD with an ETag ─────────────
 
   @Test
-  fun `GET on external IRI returns canonical JSON-LD with an ETag`() {
+  fun `GET on external IRI returns canonical JSON-LD with an ETag`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
     val bob = "did:web:bob.example"
-    val url = withContext(resourceUrl(pod.name, bob), contextUri)
+    val subjects = podAs(pod.name, bearer = token).subjects()
+    val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
+    assertEquals(201, subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","$schemaName":"Bob"}"""), inPrivat).status)
 
-    assertEquals(201, put(url, token, """{"@id":"$bob","$schemaName":"Bob"}""").statusCode)
+    val read = subjects.getText(bob, options = SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
 
-    val response = get(url, token)
-    assertEquals(200, response.statusCode)
-    assertNotNull(response.headers.get("ETag"), "a readable resource must carry an ETag")
-    assertTrue(response.responseBody.contains("Bob"))
+    assertEquals(200, read.status)
+    assertNotNull(read.headers["ETag"], "a readable resource must carry an ETag")
+    assertTrue(read.body.orEmpty().contains("Bob"), read.body)
   }
 
   // ── Open question 1 resolved: ETag parity across both routes for a pod-owned IRI ─────
 
   @Test
-  fun `ETag and body are identical via canonical path and b64 route for a pod-owned IRI`() {
+  fun `ETag and body are identical via canonical path and b64 route for a pod-owned IRI`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
-    val podOwnedPath = "things/thing1"
-    val podOwnedIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/$podOwnedPath"
+    val podOwnedIri = "${SempodsModule.config.apiBaseUrl}${pod.name}/things/thing1"
+    val core = podAs(pod.name, bearer = token)
+    val inPrivat = SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString()))
 
-    // Write via the canonical LOD path.
-    val canonicalUrl = withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/$podOwnedPath", contextUri)
-    assertEquals(201, put(canonicalUrl, token, """{"@id":"$podOwnedIri","$schemaName":"Thing"}""").statusCode)
+    // Written through the canonical LOD path.
+    val created = core.resources().put(
+      podOwnedIri,
+      SempodsGraphFormat.JSON_LD,
+      SempodsContent.of("""{"@id":"$podOwnedIri","$schemaName":"Thing"}"""),
+      SempodsWriteOptions.inContext(contextUri.toString()),
+    )
+    assertEquals(201, created.status)
 
-    val viaCanonical = get(canonicalUrl, token)
-    val viaB64 = get(withContext(resourceUrl(pod.name, podOwnedIri), contextUri), token)
+    val viaCanonical = core.resources().getText(podOwnedIri, SempodsGraphFormat.JSON_LD, inPrivat)
+    val viaB64 = core.subjects().getText(podOwnedIri, SempodsGraphFormat.JSON_LD, inPrivat)
 
-    assertEquals(200, viaCanonical.statusCode)
-    assertEquals(200, viaB64.statusCode)
+    assertEquals(200, viaCanonical.status)
+    assertEquals(200, viaB64.status)
     assertEquals(
-      viaCanonical.headers.get("ETag"),
-      viaB64.headers.get("ETag"),
+      viaCanonical.headers["ETag"],
+      viaB64.headers["ETag"],
       "ETag must be byte-identical across canonical path and b64 route (cross-route conditional writes)",
     )
-    assertEquals(
-      viaCanonical.responseBody,
-      viaB64.responseBody,
-      "canonical JSON-LD body must be identical across both routes",
-    )
+    assertEquals(viaCanonical.body, viaB64.body, "canonical JSON-LD body must be identical across both routes")
   }
 
   // ── Conditional writes ──────────────────────────────────────────────────────────────
@@ -306,65 +315,26 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(400, response.statusCode)
   }
 
-  // ── The client core against this route ──────────────────────────────────────────
-
-
-  private fun <T> withCorePod(podName: String, auth: SempodsRequestAuth, block: (SempodsPod) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    try {
-      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client))
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
-  }
-
   @Test
-  fun `the client core creates, patches and deletes a did subject through the System route`() {
-    val pod = sempodsTestFactory.newPod()
-    val (contextUri, token) = createContextWithToken(pod, "privat")
-    val bob = "did:web:bob.example"
-    val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
-
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val subjects = core.subjects()
-
-      val created = subjects.put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","$schemaName":"Bob"}"""), inPrivat)
-      assertEquals(201, created.status)
-      assertEquals("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/ZGlkOndlYjpib2IuZXhhbXBsZQ", created.headers["Location"])
-      val read = subjects.getText(bob, options = SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
-      assertTrue(read.body.orEmpty().contains("Bob"))
-
-      val patched = subjects.patch(bob, SempodsContent.of("""{"@id":"$bob","$schemaJobTitle":"Engineer"}"""), inPrivat.withIfMatch(read.headers["ETag"]))
-      assertEquals(204, patched.status)
-      assertTrue(subjects.getText(bob).body.orEmpty().contains("Engineer"))
-
-      assertEquals(204, subjects.delete(bob, inPrivat).status)
-      assertEquals(404, subjects.getText(bob).status)
-    }
-  }
-
-  @Test
-  fun `the strict decoder takes the client core's segment where the standard alphabet would differ`() {
+  fun `an IRI whose segment the standard base64 alphabet would spell differently is written and read back`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
     val inPrivat = SempodsWriteOptions.inContext(contextUri.toString())
+    val subjects = podAs(pod.name, bearer = token).subjects()
 
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      listOf("urn:x:ab~", "https://example.org/ü").forEach { iri ->
-        val created = core.subjects().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$iri","$schemaName":"Awkward"}"""), inPrivat)
-        assertEquals(201, created.status, iri)
-        val read = core.subjects().getText(iri)
-        assertEquals(200, read.status, iri)
-        assertTrue(read.body.orEmpty().contains("Awkward"), iri)
-      }
+    listOf("urn:x:ab~", "https://example.org/ü").forEach { iri ->
+      val created = subjects.put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$iri","$schemaName":"Awkward"}"""), inPrivat)
+      assertEquals(201, created.status, iri)
+      val read = subjects.getText(iri)
+      assertEquals(200, read.status, iri)
+      assertTrue(read.body.orEmpty().contains("Awkward"), iri)
     }
   }
 
   // ── The RDF4J adapter against this route ────────────────────────────────────────
 
   @Test
-  fun `the RDF4J adapter writes a did subject from a model and reads it back with its context`() {
+  fun `the RDF4J adapter writes a did subject from a model and reads it back with its context`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (contextUri, token) = createContextWithToken(pod, "privat")
     val bob = "did:web:bob.example"
@@ -373,12 +343,10 @@ class PodResourceByIriEndpointHttpTest : SempodsIntegrationTest() {
       add(Values.iri(bob), Values.iri(schemaJobTitle), Values.literal("Ingenieur", "de-CH"), Values.iri(contextUri.toString()))
     }
 
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val subjects = SempodsRdf4jPod(core).subjects()
+    val subjects = rdfAs(pod.name, bearer = token).subjects()
 
-      assertEquals(201, subjects.put(bob, model, SempodsWriteOptions.inContext(contextUri.toString())).status)
-      val read = subjects.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
-      assertTrue(Models.isomorphic(model, assertNotNull(read.body)), "read back: ${read.body}")
-    }
+    assertEquals(201, subjects.put(bob, model, SempodsWriteOptions.inContext(contextUri.toString())).status)
+    val read = subjects.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(contextUri.toString())))
+    assertTrue(Models.isomorphic(model, assertNotNull(read.body)), "read back: ${read.body}")
   }
 }
