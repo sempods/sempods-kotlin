@@ -7,6 +7,7 @@ import org.sempods.pods.HostedPod
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientAlreadyRegistered
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
+import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
 
 /**
  * Giving a service client its credentials, idempotently. Provisioning creates; it never writes the
@@ -49,11 +50,11 @@ class PodServiceClientProvisioning @Inject internal constructor(
           "expectedSecretId=${LogSafeText.of(request.expectedSecretId ?: "(none)")}, currentSecretId=${existing.secretId})"
     }
     return when (val rotation = serviceClients.rotateSecret(pod.id, request.clientId, expectedSecretId = existing.secretId)) {
-      is PodServiceClientStore.SecretRotation.Rotated -> PodServiceClientResult.Provisioned(rotation.registration, rotation.secret)
+      is ServiceClientSecretRotation.Rotated -> PodServiceClientResult.Provisioned(rotation.registration, rotation.secret)
       // Another rotation landed in between, or the registration went: a secret answered now would
       // not be the one that works.
-      PodServiceClientStore.SecretRotation.Conflict,
-      PodServiceClientStore.SecretRotation.NotFound -> PodServiceClientResult.Refused(PodServiceClientRefusal.MODIFIED_CONCURRENTLY)
+      ServiceClientSecretRotation.Conflict,
+      ServiceClientSecretRotation.NotFound -> PodServiceClientResult.Refused(PodServiceClientRefusal.MODIFIED_CONCURRENTLY)
     }
   }
 

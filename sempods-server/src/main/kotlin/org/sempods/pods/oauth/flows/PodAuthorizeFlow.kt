@@ -4,8 +4,8 @@ import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.ConsentBinding
 import org.sempods.auth.ConsentTransactionStore
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.PersonIdentity
-import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
@@ -270,7 +270,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         else -> null
       }
       val started = signIn.park(pod, forwardedPrompt) { codeVerifier, nonce, browserPin ->
-        PodLoginStateStore.Pending(
+        PendingLogin(
           pod = pod.name,
           clientId = normalizedClientId,
           redirectUri = normalizedRedirectUri,

@@ -11,6 +11,7 @@ import jakarta.ws.rs.core.Response
 import java.io.IOException
 import java.time.Instant
 import org.sempods.api.SempodsBaseEndpoint
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
@@ -286,7 +287,7 @@ class PodAuthEndpoint @Inject constructor(
   /** Re-enters a service consent parked behind a sign-in. */
   private fun resumeServiceConsent(
     podDbo: PodDbo,
-    pending: PodLoginStateStore.Pending,
+    pending: PendingLogin,
     session: SessionPrincipal,
   ): Response = render(
     podDbo.name,
@@ -620,7 +621,7 @@ class PodAuthEndpoint @Inject constructor(
    * only thing that opens this door.
    */
   private fun oauthErrorToParked(
-    pending: PodLoginStateStore.Pending,
+    pending: PendingLogin,
     error: OAuthErrorCode,
     errorDescription: String,
   ): Response =

@@ -100,20 +100,22 @@ class PodOAuthFlowsBoundaryTest {
       .withImportOption(ImportOption.DoNotIncludeTests())
       .importPackages(LAYER.removeSuffix(".."))
 
-    /** Nested in a store, a rows class or the issuer — the classes that persist or sign. */
+    /** Nested, at any depth, in a store, a rows class or the issuer — the classes that persist or sign. */
     private fun JavaClass.isStoreType(): Boolean {
-      val enclosing = enclosingClass.orElse(null) ?: return false
-      return simpleName != "Companion" &&
-        (enclosing.simpleName.endsWith("Store") || enclosing.simpleName.endsWith("Rows") || enclosing.simpleName == "PodTokenIssuer")
+      if (simpleName == "Companion") return false
+      return generateSequence(enclosingClass.orElse(null)) { it.enclosingClass.orElse(null) }
+        .any { it.simpleName.endsWith("Store") || it.simpleName.endsWith("Rows") || it.simpleName == "PodTokenIssuer" }
     }
 
     private val nameNoStoreTypeInTheirContract =
       object : ArchCondition<JavaClass>("name no type a store or the issuer defines in a non-private member") {
         override fun check(item: JavaClass, events: ConditionEvents) {
+          // Every class a signature involves, type arguments included: `Result<Store.Rotated>` names
+          // the store's type as surely as `Store.Rotated` does.
           val named = item.fields.filterNot { it.modifiers.contains(JavaModifier.PRIVATE) }
-            .map { it.description to listOf(it.rawType) } +
+            .map { it.description to it.type.allInvolvedRawTypes } +
             item.codeUnits.filterNot { it.modifiers.contains(JavaModifier.PRIVATE) || it.modifiers.contains(JavaModifier.SYNTHETIC) }
-              .map { it.description to (it.rawParameterTypes + it.rawReturnType) }
+              .map { unit -> unit.description to (unit.parameterTypes + unit.returnType).flatMap { it.allInvolvedRawTypes } }
           named.forEach { (member, types) ->
             types.filter { it.isStoreType() }.forEach { type ->
               events.add(SimpleConditionEvent.violated(item, "$member names ${type.name}"))

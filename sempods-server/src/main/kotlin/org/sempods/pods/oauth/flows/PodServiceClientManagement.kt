@@ -15,6 +15,7 @@ import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import java.net.URI
+import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
 
 /**
  * An owner's reads, grant replacement, rotation and revocation of the service clients on their pod.
@@ -40,16 +41,16 @@ class PodServiceClientManagement @Inject internal constructor(
     pod: HostedPod,
     caller: SempodsCredentials,
     clientId: String,
-  ): PodServiceClientManagementResult<PodServiceClientStore.SecretRotation.Rotated> = authorized(pod, caller) {
+  ): PodServiceClientManagementResult<ServiceClientSecretRotation.Rotated> = authorized(pod, caller) {
     changeable(clientId) {
       when (val rotation = serviceClients.rotateSecret(pod.id, clientId)) {
-        is PodServiceClientStore.SecretRotation.Rotated -> {
+        is ServiceClientSecretRotation.Rotated -> {
           logger.info { "[service-clients] Secret rotated: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}'" }
           PodServiceClientManagementResult.Done(rotation)
         }
 
-        PodServiceClientStore.SecretRotation.NotFound -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
-        PodServiceClientStore.SecretRotation.Conflict -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.CONFLICT)
+        ServiceClientSecretRotation.NotFound -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
+        ServiceClientSecretRotation.Conflict -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.CONFLICT)
       }
     }
   }

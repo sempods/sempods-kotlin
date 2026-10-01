@@ -2,6 +2,7 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.Secrets
@@ -33,7 +34,7 @@ class PodSignIn @Inject internal constructor(
   internal fun park(
     pod: HostedPod,
     prompt: String?,
-    parked: (codeVerifier: String, nonce: String, browserPin: String) -> PodLoginStateStore.Pending,
+    parked: (codeVerifier: String, nonce: String, browserPin: String) -> PendingLogin,
   ): Parked? {
     val relyingParty = try {
       identityProvider.relyingParty(pod.name)

@@ -159,24 +159,17 @@ class PodServiceClientStore @Inject constructor(
 
   /**
    * Replaces the secret and answers the new one, the only time it is readable. The registration and
-   * its grants stay. [SecretRotation.Conflict] where another rotation landed in between: answering a
+   * its grants stay. [ServiceClientSecretRotation.Conflict] where another rotation landed in between: answering a
    * second secret would hand out one that does not work. [expectedSecretId], where given, is the
    * secret the caller decided on; another one standing now is such a rotation.
    */
-  internal fun rotateSecret(pod: PodId, clientId: String, expectedSecretId: String? = null): SecretRotation {
-    val row = dao.findByClientId(pod.objectId(), clientId) ?: return SecretRotation.NotFound
-    if (expectedSecretId != null && row.toRegistration().secretId != expectedSecretId) return SecretRotation.Conflict
+  internal fun rotateSecret(pod: PodId, clientId: String, expectedSecretId: String? = null): ServiceClientSecretRotation {
+    val row = dao.findByClientId(pod.objectId(), clientId) ?: return ServiceClientSecretRotation.NotFound
+    if (expectedSecretId != null && row.toRegistration().secretId != expectedSecretId) return ServiceClientSecretRotation.Conflict
     val secret = mintSecret()
     val hash = hashSecret(secret)
     val replaced = dao.replaceSecretHash(pod.objectId(), clientId, row.secretHash, hash)
-    return if (replaced) SecretRotation.Rotated(row.copy(secretHash = hash).toRegistration(), secret) else SecretRotation.Conflict
-  }
-
-  /** What [rotateSecret] did. */
-  internal sealed interface SecretRotation {
-    data class Rotated(val registration: ServiceClientRegistration, val secret: String) : SecretRotation
-    data object NotFound : SecretRotation
-    data object Conflict : SecretRotation
+    return if (replaced) ServiceClientSecretRotation.Rotated(row.copy(secretHash = hash).toRegistration(), secret) else ServiceClientSecretRotation.Conflict
   }
 
   /** The registration for `(pod, clientId)`, or `null`. */

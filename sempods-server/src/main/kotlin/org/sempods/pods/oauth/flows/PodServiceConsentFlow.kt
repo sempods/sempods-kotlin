@@ -5,8 +5,8 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.ConsentBinding
 import org.sempods.auth.ConsentServiceRecipient
 import org.sempods.auth.ConsentTransactionStore
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.PersonIdentity
-import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.Redirectable
 import org.sempods.auth.core.RedirectUri
@@ -208,7 +208,7 @@ class PodServiceConsentFlow @Inject internal constructor(
     state: String?,
   ): PodServiceConsentResult {
     val parked = signIn.park(pod, prompt = null) { codeVerifier, nonce, browserPin ->
-      PodLoginStateStore.Pending(
+      PendingLogin(
         pod = pod.name,
         clientId = clientId,
         redirectUri = redirectUri,

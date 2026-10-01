@@ -3,8 +3,8 @@ package org.sempods.api.pod.system.auth
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.core.OAuthErrorCode
-import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.Redirectable
@@ -45,12 +45,12 @@ internal object PodOAuthErrorResponses {
    * `oidc/callback` resumes a request parked up to fifteen minutes earlier. Re-deriving the address
    * there would turn a redirect into a direct 400 for a client whose registration was cleared in
    * the meantime — a different answer to a different question — so the proof is the parked record
-   * rather than a [Redirectable]. It takes that record: holding a [PodLoginStateStore.Pending] is
+   * rather than a [Redirectable]. It takes that record: holding a [PendingLogin] is
    * what being resumed *means*, so an address off the current request cannot get in. #154 owns
    * moving the route onto [OAuthErrorDelivery].
    */
   fun renderToParked(
-    pending: PodLoginStateStore.Pending,
+    pending: PendingLogin,
     error: OAuthErrorCode,
     description: String,
     config: SempodsConfig,
