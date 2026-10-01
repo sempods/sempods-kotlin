@@ -75,7 +75,8 @@ the OAuth refresh grant for you.
 
 ## Client choices and limits
 
-- `dyn:*`: register through DCR; PKCE is mandatory, and authorization shows consent each time.
+- `dyn:*`: register through DCR; PKCE is mandatory. [Consent](oauth.md#dyn--dynamically-registered-apps)
+  follows the rule for these clients.
 - `did:web:*`: use a stable application origin, such as `did:web:notes.example`. No registration;
   redirects must match its host, port and optional path. The pod recommends PKCE; use it here too.
 - `svc:*`: use [Client Credentials](service-clients.md); these IDs use service consent, not `/authorize`.
