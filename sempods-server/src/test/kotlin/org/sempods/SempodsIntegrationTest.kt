@@ -106,7 +106,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    */
   protected fun <R> withSetup(block: SempodsTestSetup.() -> R): R =
     requestVerifierObserver.observeWithTestImpl { requestVerifier ->
-      SempodsTestSetup(requestVerifier = requestVerifier).block()
+      SempodsTestSetup(requestVerifier = requestVerifier, podAccess = podAccess).block()
     }
 
   // test factories

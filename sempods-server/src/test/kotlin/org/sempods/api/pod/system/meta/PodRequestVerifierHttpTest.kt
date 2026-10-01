@@ -36,6 +36,7 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
     assertEquals(200, response.statusCode, response.responseBody)
   }
 
+  // doc-example:start rejecting-verifier
   @Test
   fun `a verifier that rejects is answered with the pod's bearer challenge`() = withSetup {
     val pod = sempodsTestFactory.newPod()
@@ -43,6 +44,7 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
 
     assertPodBearerChallenge(http.prepareGet(url(pod.name)).execute(), pod.name)
   }
+  // doc-example:end rejecting-verifier
 
   @Test
   fun `the verifier is handed the method, the externally known target and the headers`() = withSetup {
@@ -71,6 +73,19 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
     http.preparePut(target).addHeader("Content-Type", "application/json").setBody("{}").execute()
 
     assertEquals(target, seen.single().target.toString())
+  }
+
+  @Test
+  fun `a client session from the setup reaches its verifier, and seeding does not`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val seen = CopyOnWriteArrayList<PodResourceRequest>()
+    requestVerifier.answerWith { request, _ -> seen += request; PodTokenAuthentication.NoToken }
+
+    assertEquals(200, podAs(pod.name, bearer = "not-a-real-jwt").metadata().dateModified().status)
+    assertEquals(listOf("Bearer not-a-real-jwt"), seen.single().header("authorization"))
+
+    podAccess.podFor(pod.name).metadata().dateModified()
+    assertEquals(1, seen.size, "the seeding session reached the setup's verifier")
   }
 
   @Test
