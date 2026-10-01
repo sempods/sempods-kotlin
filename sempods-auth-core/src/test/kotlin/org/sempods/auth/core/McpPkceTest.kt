@@ -61,6 +61,27 @@ class McpPkceTest {
   }
 
   @Test
+  fun `an S256 challenge is 43 base64url characters and nothing else`() {
+    assertTrue(Pkce.isLegalS256Challenge(challengeFor("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")))
+    assertTrue(Pkce.isLegalS256Challenge("-_" + "a".repeat(41)))
+    for (illegal in listOf(
+      "short",
+      "",
+      "a".repeat(42),
+      "a".repeat(44),
+      // A legal `plain` challenge under RFC 7636 §4.2, and no S256 one.
+      "a".repeat(128),
+      // `.` and `~` are unreserved but not base64url; `=` is padding, `+` and `/` standard base64.
+      "~" + "a".repeat(42),
+      "." + "a".repeat(42),
+      "a".repeat(42) + "=",
+      "+/" + "a".repeat(41),
+    )) {
+      assertFalse(Pkce.isLegalS256Challenge(illegal), "should be illegal: '$illegal'")
+    }
+  }
+
+  @Test
   fun `generated verifier and challenge round-trip (client side)`() {
     val verifier = Pkce.generateVerifier()
     assertTrue(verifier.length in 43..128, "verifier length out of RFC 7636 range: ${verifier.length}")

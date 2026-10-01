@@ -49,7 +49,7 @@ class PodAuthorizationCodes @Inject internal constructor(
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
     // never mint an auth code for a dynamic (public) client without PKCE.
     if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) {
-      if (codeChallenge.isNullOrBlank() || !Pkce.isSupportedMethod(codeChallengeMethod)) {
+      if (codeChallenge.isNullOrBlank() || !Pkce.isSupportedMethod(codeChallengeMethod) || !Pkce.isLegalS256Challenge(codeChallenge)) {
         return refused(
           target, OAuthErrorCode.INVALID_REQUEST,
           "PKCE (S256) is required for dynamic clients", state,

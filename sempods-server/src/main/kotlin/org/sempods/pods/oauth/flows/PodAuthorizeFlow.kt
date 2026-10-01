@@ -85,6 +85,10 @@ class PodAuthorizeFlow @Inject internal constructor(
     // Order is load-bearing: address first, client second, and only then a [Redirectable]. Until
     // the redirect_uri is known to belong to the client that named it, nothing may be *delivered*
     // by redirecting there, not even an error — [OAuthErrorDelivery] says what that costs.
+    // A request naming two clients or two addresses names none it can be answered at.
+    if ("client_id" in request.repeated || "redirect_uri" in request.repeated) {
+      return PodAuthorizeResult.Refused(PodAuthorizeRefusal.REPEATED_ADDRESS)
+    }
     val normalizedRedirectUri = request.redirectUri?.trim()?.takeIf { it.isNotBlank() }
       ?: return PodAuthorizeResult.Refused(PodAuthorizeRefusal.MISSING_REDIRECT_URI)
 
@@ -110,6 +114,15 @@ class PodAuthorizeFlow @Inject internal constructor(
     // redirected error from here.
     val redirectTarget = OAuthErrors.redirectTargetFor(clients, normalizedClientId, normalizedRedirectUri)
       ?: return PodAuthorizeResult.Refused(PodAuthorizeRefusal.REDIRECT_URI_NOT_ALLOWED)
+
+    // RFC 6749 §3.1 and §4.1.2.1: a parameter sent twice is `invalid_request`, even sent twice alike.
+    // The client is known by now, so the error travels to it.
+    if (request.repeated.isNotEmpty()) {
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_REQUEST,
+        "${request.repeated.sorted().joinToString(", ")} included more than once", clientState,
+      )
+    }
 
     // The AS metadata advertises `response_types_supported: ["code"]`, and this is the flow that
     // has to make that true. The parameter was bound and never read, so anything at all —
@@ -144,6 +157,14 @@ class PodAuthorizeFlow @Inject internal constructor(
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge_method must be ${Pkce.METHOD_S256}", clientState,
+      )
+    }
+    // And a challenge no verifier can match is refused before a code carries it: with S256 the only
+    // method, that is anything but 43 base64url characters ([Pkce.isLegalS256Challenge]).
+    if (trimmedCodeChallenge != null && !Pkce.isLegalS256Challenge(trimmedCodeChallenge)) {
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_REQUEST,
+        "code_challenge must be an S256 challenge: 43 base64url characters", clientState,
       )
     }
 
@@ -691,6 +712,12 @@ internal data class PodAuthorizeRequest(
   val codeChallengeMethod: String?,
   val prompt: String?,
   val scope: String?,
+  /**
+   * The names among `/authorize`'s own parameters that the request carried more than once. The
+   * fields above hold the first value of each; RFC 6749 §3.1 forbids the rest, and the flow refuses
+   * the request.
+   */
+  val repeated: Set<String> = emptySet(),
 )
 
 /**
@@ -730,6 +757,8 @@ internal sealed interface PodAuthorizeResult {
  * client_id"; each route keeps its own wording.
  */
 internal enum class PodAuthorizeRefusal {
+  /** `client_id` or `redirect_uri` sent more than once: there is no single address to answer. */
+  REPEATED_ADDRESS,
   MISSING_REDIRECT_URI,
   UNREGISTERED_CLIENT,
   MALFORMED_CLIENT_ID,

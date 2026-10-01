@@ -66,6 +66,22 @@ object Pkce {
    */
   fun isLegalVerifier(verifier: String): Boolean = runCatching { CodeVerifier(verifier) }.isSuccess
 
+  /**
+   * Whether [challenge] can be an S256 `code_challenge` at all: the unpadded base64url encoding of a
+   * SHA-256 digest, which is 43 characters from `A-Z a-z 0-9 - _` (RFC 7636 §4.2).
+   *
+   * Narrower than §4.2's syntax for a challenge, which also admits `plain` challenges of up to 128
+   * characters and `.` and `~`. With S256 the only method accepted, anything outside this cannot be
+   * matched by any verifier, so an authorization server can refuse it before it issues a code.
+   */
+  fun isLegalS256Challenge(challenge: String): Boolean =
+    challenge.length == S256_CHALLENGE_LENGTH && challenge.all { it in BASE64URL }
+
   /** Whether [method] is a `code_challenge_method` this implementation accepts at all. */
   fun isSupportedMethod(method: String?): Boolean = method == METHOD_S256
+
+  /** 32 digest bytes, base64url without padding. */
+  private const val S256_CHALLENGE_LENGTH = 43
+
+  private val BASE64URL: Set<Char> = (('A'..'Z') + ('a'..'z') + ('0'..'9') + '-' + '_').toSet()
 }
