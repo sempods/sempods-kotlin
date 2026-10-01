@@ -141,11 +141,19 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
     assertPlain400(browser.authorize(request.with("redirect_uri", "")), "missing redirect_uri", "redirect_uri")
     assertRedirectsWith(browser.authorize(request.with("code_challenge", "")), "code_challenge+is+required", "code_challenge")
     assertRedirectsWith(browser.authorize(request.with("code_challenge_method", "")), "code_challenge_method+must+be+S256", "code_challenge_method")
-    for (name in listOf("state", "prompt", "scope")) {
-      assertConsentPage(browser.authorize(request.with(name, "")), name)
+    // An empty `state` is no state: the answer carries none back.
+    val withoutState = request.filter { it.first != "state" }
+    for (page in listOf(browser.authorize(withoutState + ("state" to "")), browser.authorize(withoutState, raw = "&state"))) {
+      val answer = flow.submit(DelegatedAccessFlow.ConsentPage.of(page), browser.cookie, action = "cancel")
+      val location = checkNotNull(answer.getHeader("Location"))
+      assertTrue("state=" !in location, location)
     }
-    // A parameter without `=` is the same request.
-    assertConsentPage(browser.authorize(request.filter { it.first != "state" }, raw = "&state"), "state without =")
+    // An empty `prompt` or `scope` renders the screen the request without it renders.
+    for (name in listOf("prompt", "scope")) {
+      val absent = DelegatedAccessFlow.ConsentPage.of(browser.authorize(request.filter { it.first != name }))
+      val empty = DelegatedAccessFlow.ConsentPage.of(browser.authorize(request.with(name, "")))
+      assertEquals(absent.offered to absent.ticked, empty.offered to empty.ticked, name)
+    }
   }
 
   @Test
