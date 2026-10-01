@@ -64,7 +64,7 @@ below; a submitted form is single-use, so restart authorization rather than subm
 | `error_description` | Case | What recovers it |
 |---|---|---|
 | `no app-specific scopes; re-authorize with scope=public-read for read-only access` | `prompt=none`, no grants for this user, but the pod has public contexts | re-run without `prompt=none`; the consent page renders |
-| `user has not granted access to this app` | `prompt=none`, and the person holds grants but none this app may reuse silently, which includes every [`dyn:*` client](../../sempods-server/docs/auth/oauth.md#dyn--dynamically-registered-apps) | re-run without `prompt=none`; the consent page renders |
+| `user has not granted access to this app` | `prompt=none`, and the person holds grants but none this app may reuse silently ([which apps may](../../sempods-server/docs/auth/oauth.md#dyn--dynamically-registered-apps)) | re-run without `prompt=none`; the consent page renders |
 | `'<scope>' is granted at the dialog` | `prompt=none` asked for a privileged scope | re-run without `prompt=none` |
 | `granted access changed while consenting; please re-authorize` | the user's grants moved between the consent page being rendered and submitted | start a fresh `/authorize`; the page is rebuilt from what they now hold |
 | `pod has no public-read contexts and no per-context scopes were selected` | `public-read` was the only box ticked, and the pod publishes none. Ticking *nothing at all* is `access_denied`, not this | start a fresh `/authorize` **and** tick one of their own contexts. Only open to somebody who has one — for anyone else this is the row below |

@@ -241,7 +241,7 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
       // --- writes: one pod, one context, never a fan-out ---
       //
       // Who may write where, and about what, is entirely the pod's decision. It resolves
-      // `context_iri` against its own registry and enforces the `<context_iri>#write` scope,
+      // `context_iri` against its own registry and enforces the `<context_iri>#write` grant,
       // answering 404 or 403; a sempods pod also refuses a subject at or under its
       // `_system/contexts` with 400. What is checked here is argument *shape* and nothing else. Do not add a
       // reserved-area guard: it would copy one pod's rules into a client that faces any pod, and
