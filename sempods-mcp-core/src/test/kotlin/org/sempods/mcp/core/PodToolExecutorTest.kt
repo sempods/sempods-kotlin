@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
+import org.mockserver.model.HttpRequest
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.MediaType
@@ -279,16 +280,18 @@ class PodToolExecutorTest {
   }
 
   @Test
-  fun `remove_property_value carries the edge it removes and takes no precondition`() {
+  fun `remove_property_value carries the edge it removes, and its precondition only when given`() {
     val about = "https://schema.org/about"
     answer("DELETE", "/alice/_system/resources/${b64(thing)}/${b64(about)}/${b64(ctx)}", body = "")
+    val edge = """"target":"$pod","context_iri":"$ctx","subject_iri":"$thing","predicate_iri":"$about","target_iri":"$ctx""""
 
-    val result = run(
-      "remove_property_value",
-      """{"target":"$pod","context_iri":"$ctx","subject_iri":"$thing","predicate_iri":"$about","target_iri":"$ctx"}""",
-    ) as Map<*, *>
-
+    val result = run("remove_property_value", "{$edge}") as Map<*, *>
     assertEquals(listOf("context_iri", "subject_iri", "predicate_iri", "target_iri", "status"), result.keys.toList())
+    assertTrue(lastSent("DELETE").getHeader("If-Match").isEmpty(), "no if_match, no If-Match")
+
+    // The edge has no tag of its own: the one sent is the slot's, quoted like any other.
+    run("remove_property_value", """{$edge,"if_match":"slot-v1"}""")
+    assertEquals("\"slot-v1\"", lastSent("DELETE").getFirstHeader("If-Match"))
   }
 
   // --- preconditions -----------------------------------------------------------------------------
@@ -513,6 +516,9 @@ class PodToolExecutorTest {
 
   private fun lastFindPayload(): JsonNode =
     mapper.readTree(server.retrieveRecordedRequests(request().withPath("/alice/_system/find")).last().bodyAsString)
+
+  private fun lastSent(method: String): HttpRequest =
+    server.retrieveRecordedRequests(request().withMethod(method)).last()
 
   private fun lastBody(method: String): JsonNode =
     mapper.readTree(server.retrieveRecordedRequests(request().withMethod(method)).last().bodyAsString)

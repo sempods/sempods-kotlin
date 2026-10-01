@@ -538,7 +538,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "subject_iri" to prop("string", "Absolute IRI of the subject. May be a local pod resource or an external URI (did:, urn:, …)."),
         "predicate_iri" to prop("string", "Absolute IRI of the predicate (e.g. https://schema.org/children)."),
         "value" to prop("object", "JSON-LD value object: {\"@id\":\"<iri>\"} for an IRI value, or {\"@value\":\"…\",\"@language\":\"…\"|\"@type\":\"<iri>\"} for a literal."),
-        "if_match" to prop("string", "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or from a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional add (the default; safe under RDF set semantics)."),
+        "if_match" to slotIfMatch("an unconditional add (the default; safe under RDF set semantics)"),
       ),
       required = listOf("context_iri", "subject_iri", "predicate_iri", "value"),
     ),
@@ -555,7 +555,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "subject_iri" to prop("string", "Absolute IRI of the subject (local or external)."),
         "predicate_iri" to prop("string", "Absolute IRI of the predicate."),
         "values" to objectArray("Array of JSON-LD value objects. Empty array clears the slot."),
-        "if_match" to prop("string", "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional replace."),
+        "if_match" to slotIfMatch("an unconditional replace"),
       ),
       required = listOf("context_iri", "subject_iri", "predicate_iri", "values"),
     ),
@@ -574,6 +574,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "subject_iri" to prop("string", "Absolute IRI of the subject."),
         "predicate_iri" to prop("string", "Absolute IRI of the predicate."),
         "target_iri" to prop("string", "Absolute IRI of the value to remove (IRI targets only)."),
+        "if_match" to slotIfMatch("an unconditional remove (the default; idempotent)"),
       ),
       required = listOf("context_iri", "subject_iri", "predicate_iri", "target_iri"),
     ),
@@ -589,7 +590,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "context_iri" to prop("string", "Absolute IRI of the writable context."),
         "subject_iri" to prop("string", "Absolute IRI of the subject."),
         "predicate_iri" to prop("string", "Absolute IRI of the predicate."),
-        "if_match" to prop("string", "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional clear."),
+        "if_match" to slotIfMatch("an unconditional clear"),
       ),
       required = listOf("context_iri", "subject_iri", "predicate_iri"),
     ),
@@ -604,6 +605,19 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
 }
 
 private fun prop(type: String, description: String) = PropertySchema(type = type, description = description)
+
+/**
+ * The `if_match` of a property-value tool, worded once for all four. An edge has no tag of its own,
+ * so `remove_property_value` names the slot's tag like the others (SPS-CRUD-059). [omitted] says
+ * what the call does without one.
+ */
+private fun slotIfMatch(omitted: String) = prop(
+  "string",
+  "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior " +
+    "property-value call. Returns a precondition error if the slot changed. A write that changes " +
+    "nothing leaves the tag as it was, so the tag does not order changes in a source outside the " +
+    "pod. Omit for $omitted.",
+)
 
 /** A `string[]` argument — the element type is declared so [ToolCatalog.validate] can enforce it. */
 private fun stringArray(description: String, minItems: Int? = null) =
