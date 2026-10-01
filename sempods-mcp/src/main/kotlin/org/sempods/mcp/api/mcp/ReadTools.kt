@@ -218,7 +218,7 @@ class ReadTools(
       throw e
     } catch (e: PodToolRefusal) {
       logger.warn(e) { "read tool failed for pod '$pod'" }
-      // The pod answered, so its status travels structurally — a 403 scope refusal stays
+      // The pod answered, so its status travels structurally — a 403 grant refusal stays
       // distinguishable from a 502 without regex-ing the message, the same as on the write path.
       // The message is the pod's own body, phrased for a model by the shared describer, and never
       // the exception's, which names the URL that was dialled.

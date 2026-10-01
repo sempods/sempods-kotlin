@@ -142,6 +142,13 @@ class WriteToolsIntegrationTest {
 
   private fun b64(iri: String) = UriEncodingUtil.encodeUriToUrlSafeBase64(URI.create(iri))
 
+  private fun edgePath(target: String) =
+    "/p/_system/resources/${b64("$pod/thing")}/${b64("https://schema.org/knows")}/${b64(target)}"
+
+  /** A `remove_property_value` call on `$pod/thing schema:knows target`; [extra] is appended raw. */
+  private fun removeArgs(target: String, extra: String) =
+    """{"target":"$pod","context_iri":"$ctx","subject_iri":"$pod/thing","predicate_iri":"https://schema.org/knows","target_iri":"$target"$extra}"""
+
   private suspend fun call(name: String, args: String): ToolCallResult = writeTools.dispatch(name, mapper.readTree(args), session)
 
   private fun envelope(result: ToolCallResult): JsonNode = mapper.readTree(result.content[0].text)
@@ -212,6 +219,47 @@ class WriteToolsIntegrationTest {
     val env = envelope(res)
     assertTrue(env["ok"].asBoolean(), env.toString())
     assertEquals("\"slot-v1\"", env["result"]["etag"].asString())
+  }
+
+  // The mock pod answers a removal only under the If-Match it expects, so a precondition that was
+  // dropped or rewritten on the way finds no stub. That the edge then stays is the pod's half, and
+  // sempods-server's McpEndpointHttpTest checks it against a real one.
+
+  @Test
+  fun `remove_property_value with a stale if_match surfaces the pod's 412`() = runBlocking {
+    val path = edgePath("$pod/carol")
+    server.`when`(request().withMethod("DELETE").withPath(path).withHeader("If-Match", "\"slot-v0\""))
+      .respond(response().withStatusCode(412))
+
+    val env = envelope(call("remove_property_value", removeArgs("$pod/carol", ""","if_match":"slot-v0"""")))
+    assertFalse(env["ok"].asBoolean(), env.toString())
+    assertEquals("pod_error", env["error"]["kind"].asString())
+    assertEquals(412, env["error"]["status"].asInt())
+  }
+
+  @Test
+  fun `remove_property_value with the current if_match removes the edge and returns the new etag`() = runBlocking {
+    val path = edgePath("$pod/carol")
+    server.`when`(request().withMethod("DELETE").withPath(path).withHeader("If-Match", "\"slot-v1\""))
+      .respond(response().withStatusCode(200).withHeader("ETag", "\"slot-v2\"").withBody("""{"outcome":"removed"}"""))
+
+    val env = envelope(call("remove_property_value", removeArgs("$pod/carol", ""","if_match":"slot-v1"""")))
+    assertTrue(env["ok"].asBoolean(), env.toString())
+    assertEquals("removed", env["result"]["outcome"].asString())
+    assertEquals("\"slot-v2\"", env["result"]["etag"].asString())
+  }
+
+  @Test
+  fun `remove_property_value without if_match sends no precondition`() = runBlocking {
+    val path = edgePath("$pod/carol")
+    server.`when`(request().withMethod("DELETE").withPath(path))
+      .respond(response().withStatusCode(200).withHeader("ETag", "\"slot-v2\"").withBody("""{"outcome":"removed"}"""))
+
+    val env = envelope(call("remove_property_value", removeArgs("$pod/carol", "")))
+    assertTrue(env["ok"].asBoolean(), env.toString())
+    assertEquals("removed", env["result"]["outcome"].asString())
+    val sent = server.retrieveRecordedRequests(request().withMethod("DELETE").withPath(path)).single()
+    assertTrue(sent.getHeader("If-Match").isEmpty(), "no if_match, no If-Match: $sent")
   }
 
   @Test

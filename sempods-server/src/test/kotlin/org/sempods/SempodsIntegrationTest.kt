@@ -103,11 +103,15 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   /**
    * Runs [block] in a fresh [SempodsTestSetup]. Each seam's test implementation is observed for the
    * block's trace, so what a test changes there reaches its own requests and no other class's.
+   *
+   * Returns `Unit` whatever the block ends on, so a test written `= withSetup { … }` stays a `void`
+   * method: JUnit does not run a `@Test` that returns a value, and says nothing about it.
    */
-  protected fun <R> withSetup(block: SempodsTestSetup.() -> R): R =
+  protected fun withSetup(block: SempodsTestSetup.() -> Unit) {
     requestVerifierObserver.observeWithTestImpl { requestVerifier ->
       SempodsTestSetup(requestVerifier = requestVerifier, podAccess = podAccess).block()
     }
+  }
 
   // test factories
 

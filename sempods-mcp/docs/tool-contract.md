@@ -17,13 +17,13 @@ is a separate proposed contract and conformance effort.
 
 ## Identity & gating
 
-- Every tool runs under an **authenticated** service session `(user, profile)`. The read
-  tools are advertised in `tools/list` only when a session is present; calling one without a valid
-  bearer returns the same `401` + `WWW-Authenticate` OAuth-upgrade challenge as `authorize`.
+- Every tool runs under an **authenticated** service session `(user, profile)`.
+  [`McpEndpoint`](../src/main/kotlin/org/sempods/mcp/api/mcp/McpEndpoint.kt) owns which requests
+  need one.
 - The service maps `(user, profile)` → connected pods (`connections`) and uses the per-pod
   vault token (`podTokens`, refreshed on demand via `PodTokenProvider`) as the **pod-scoped
-  bearer**. Pod-side visibility is the pod's decision (its token scopes); the service does not add
-  a second per-scope gate here.
+  bearer**. Pod-side visibility is the pod's decision, from the grants it holds for the caller;
+  the service does not add a second per-grant gate here.
 
 ## Read tools
 
@@ -44,7 +44,7 @@ validation, not silently treated as "none".)
 | `get_property_values` | `subject_iri`, `predicate_iri` | `context_iri`, `targets` | `GET /_system/resources/{b64url(subj)}/{b64url(pred)}` |
 
 `context_iri` is an effective downscope on **all** the context-addressed read tools — `find` /
-`get_resource` / `get_property_values` and now `sparql_select` / `sparql_graph`. The values are
+`get_resource` / `get_property_values` / `sparql_select` / `sparql_graph`. The values are
 pod-scoped, the same list may be passed to every targeted pod, and each pod **silently drops** the
 contexts it does not own or the caller may not read. For the SPARQL tools the service forwards each
 `context_iri` to the pod's SPARQL endpoint as the SPARQL-1.1-protocol `default-graph-uri` **and**
@@ -76,7 +76,7 @@ Every read tool returns a single text content block carrying:
   captured into its own `ok:false` entry and **never poisons** the others.
 - Each failed entry carries a stable `kind` — `not_connected` | `no_token` | `pod_error` — so a
   caller can react per-pod (e.g. prompt a reconnect on `no_token`), plus the pod's HTTP `status`
-  whenever a pod actually answered (a 403 scope refusal stays distinguishable from a 502 without
+  whenever a pod actually answered (a 403 for a missing grant stays distinguishable from a 502 without
   parsing the message). No `status` means no pod response existed — a token that could not be
   acquired, a blocked address. When any pod failed, the envelope flags `partial: true` and lists the
   `failed_pods`, so an incomplete read is never mistaken for a complete one.
@@ -117,8 +117,8 @@ is the one a write to that context can send back as `if_match`.
   `get_resource` / `find` (via `include_contexts`, the pod groups statements by named graph).
 - `sparql_select` / `sparql_graph` narrow via `context_iri` (above), but their result rows are still
   annotated **per pod, not per context** — attributing a free-form query result to the context each
-  row came from needs a `GRAPH ?g`-binding rewrite. Scoping itself no longer needs a rewriter; only
-  the row-level *provenance* rewrite stays parked (the chat app has a TS one).
+  row came from needs a `GRAPH ?g`-binding rewrite, which is
+  [proposed](#proposed-extensions).
 
 ## SPARQL guardrails
 
@@ -146,7 +146,7 @@ lands in exactly one pod and one graph and can never be sprayed across pods by a
 | `delete_resource` | `resource_iri` | `if_match` | `DELETE …` |
 | `add_property_value` | `subject_iri`, `predicate_iri`, `value` | `if_match` | `POST /_system/resources/{b64url(subj)}/{b64url(pred)}?context=` |
 | `set_property_values` | `subject_iri`, `predicate_iri`, `values` | `if_match` | `PUT …` (empty array clears the slot) |
-| `remove_property_value` | `subject_iri`, `predicate_iri`, `target_iri` | — | `DELETE …/{b64url(target)}` (idempotent, no preconditions) |
+| `remove_property_value` | `subject_iri`, `predicate_iri`, `target_iri` | `if_match` (the slot's tag) | `DELETE …/{b64url(target)}` (idempotent) |
 | `clear_property_values` | `subject_iri`, `predicate_iri` | `if_match` | `DELETE …` |
 
 **Single-pod envelope.** A write returns `{ "pod", "ok": true, "result": { …echoed ids, "outcome"?,
@@ -155,7 +155,7 @@ lands in exactly one pod and one graph and can never be sprayed across pods by a
 the pod's `{"outcome": …}` body because it is the one thing an idempotent status cannot say — (plus `"foreign_identity": true` + `"pod_subject"` + `"similar_to"` when the
 write landed on the pod as a foreign WebID — same markers as the read fan-out), or
 `{ "pod", "ok": false, "error": { "kind", "message", "status"? } }` when the pod refuses — the **same** `kind` discriminator the reads carry (`no_token` | `pod_error`),
-plus the pod's HTTP `status` (e.g. **412** precondition, **403** scope) so an optimistic-concurrency
+plus the pod's HTTP `status` (e.g. **412** precondition, **403** missing grant) so an optimistic-concurrency
 caller branches structurally instead of parsing the message. Argument/target errors (missing or
 non-absolute IRI argument, empty precondition, unconnected `target`) are **tool-level** errors
 (`isError: true`) validated **before** any pod call — they never reach a pod. Authorization is not
@@ -178,19 +178,14 @@ caller holds a grant on, so the pod answers **403**. What a statement may be abo
 too. `SPS-CTX-026` lets a pod hold statements about a `_system` IRI, and a sempods pod refuses a
 subject at or under its own `_system/contexts` with **400**, a deviation until
 [sempods-spec#116](https://github.com/sempods/sempods-spec/issues/116) decides. A guard here would
-copy one pod's rules into a service that faces any pod. Such a copy went stale once already, when
-contexts moved to `_system/contexts/`, and refused every write into a migrated context.
+copy one pod's rules into a service that faces any pod.
 
 `target` is still checked, for a different reason: it must be a pod this user has connected. That is
 this service's own state, not the pod's.
 
-**Scope.** The pod enforces the `<context_iri>#write` scope — a missing scope is a pod **403**
+**Grant.** The pod enforces the `<context_iri>#write` grant — a missing grant is a pod **403**
 surfaced as the per-pod error (not a crash). ETag preconditions pass straight through:
 `if_match` → `If-Match` (a stale tag → pod **412**), `if_none_match: "*"` → `If-None-Match`.
-
-**Partial-error surfacing on reads.** A failed pod in a multi-pod read carries a stable error
-`kind` — `not_connected` | `no_token` | `pod_error` — and the envelope flags `partial: true` with a
-`failed_pods` list, so a caller cannot mistake an incomplete read for a complete one. A read entry also carries the pod's `status`, the same as a write.
 
 ## Proposed extensions
 

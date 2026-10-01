@@ -117,30 +117,23 @@ fun Application.authEndpoint(
 
   // --- RFC 7591 Dynamic Client Registration (profile from the URL path; default = root) ---
   suspend fun doRegister(call: ApplicationCall, profile: String) {
-    val body = runCatching {
-      @Suppress("UNCHECKED_CAST")
-      objectMapper.readValue(call.receiveText(), Map::class.java) as Map<String, Any?>
-    }.getOrElse {
-      return call.respondJson(
-        HttpStatusCode.BadRequest, objectMapper,
-        RegistrationError.INVALID_CLIENT_METADATA.setDescription("malformed JSON body").toJSONObject(),
-      )
+    val metadata = when (val read = RegistrationMessages.read(call.receiveText(), objectMapper)) {
+      is RegistrationRead.Refused -> return call.respondRegistration(read.response)
+      is RegistrationRead.Metadata -> read
     }
 
-    val redirectUris = (body["redirect_uris"] as? List<*>)?.mapNotNull { it?.toString() }?.toSet().orEmpty()
+    val redirectUris = metadata.redirectUris
     if (redirectUris.isEmpty() || redirectUris.any { !RedirectUri.isValid(it) }) {
-      return call.respondJson(
-        HttpStatusCode.BadRequest, objectMapper,
-        RegistrationError.INVALID_REDIRECT_URI
-          .setDescription(
-            "redirect_uris must be https, or http on a loopback host, with no fragment and no " +
-                "code/response/state in the query"
-          )
-          .toJSONObject(),
+      return call.respondRegistration(
+        RegistrationMessages.refusal(
+          RegistrationError.INVALID_REDIRECT_URI,
+          "redirect_uris must be https, or http on a loopback host, with no fragment and no " +
+            "code/response/state in the query",
+        ),
       )
     }
 
-    val clientName = body["client_name"]?.toString()
+    val clientName = metadata.clientName
     val userAgent = call.request.userAgent()
     val fingerprint = DynamicClientFingerprint.compute(clientName, userAgent, profile, redirectUris)
 
@@ -149,8 +142,8 @@ fun Application.authEndpoint(
       profile = profile,
       redirectUris = redirectUris,
       clientName = clientName,
-      softwareId = body["software_id"]?.toString(),
-      softwareVersion = body["software_version"]?.toString(),
+      softwareId = metadata.softwareId,
+      softwareVersion = metadata.softwareVersion,
       fingerprint = fingerprint,
       userAgent = userAgent,
       registeredAt = Date(),
@@ -169,17 +162,7 @@ fun Application.authEndpoint(
     // old, now-dead callback port. The stored row stays the immutable dedup anchor —
     // /authorize validates redirect_uri loopback-canonically (port-insensitive), so the
     // new port is accepted regardless of what is stored.
-    call.respondJson(
-      HttpStatusCode.Created, objectMapper,
-      linkedMapOf<String, Any?>(
-        "client_id" to client.clientId,
-        "redirect_uris" to redirectUris.toList(),
-        "token_endpoint_auth_method" to "none",
-        "grant_types" to listOf("authorization_code", "refresh_token"),
-        "response_types" to listOf("code"),
-        "client_name" to client.clientName,
-      ),
-    )
+    call.respondRegistration(RegistrationMessages.created(client, redirectUris))
   }
 
   // --- Authorization endpoint (profile from the URL path; default = root) ---
@@ -670,9 +653,6 @@ private suspend fun ApplicationCall.respondTokenEndpoint(status: HttpStatusCode,
   response.headers.append(HttpHeaders.Pragma, "no-cache")
   respondText(json, ContentType.Application.Json, status)
 }
-
-private suspend fun ApplicationCall.respondJson(status: HttpStatusCode, objectMapper: ObjectMapper, body: Any) =
-  respondText(objectMapper.writeValueAsString(body), ContentType.Application.Json, status)
 
 
 /**
