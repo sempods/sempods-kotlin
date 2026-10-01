@@ -17,6 +17,7 @@ import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebSession
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.RedirectUri
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
 import org.sempods.mcp.oauth.FakeIdentityProvider
@@ -635,6 +636,120 @@ class OAuthFlowIntegrationTest {
     assertEquals(first["client_id"].asString(), second["client_id"].asString(), "loopback re-register must dedup")
     // The response must echo the CURRENT request's port, not the stored first one.
     assertEquals("http://127.0.0.1:62222/cb", second["redirect_uris"][0].asString())
+  }
+
+  @Test
+  fun `an AI client reconnecting with its full registration finds the registration it had`() = testApplication {
+    // The members the MCP TypeScript SDK registers with, which is what Claude Code sends on every
+    // reconnect: the service reads two of them, and the rest must not stand in the way of the
+    // dedup. The port is the one thing that moves between launches.
+    installAuth()
+    val http = createClient { followRedirects = false }
+    fun registration(port: Int) = """{
+      "redirect_uris":["http://localhost:$port/callback"],
+      "token_endpoint_auth_method":"none",
+      "grant_types":["authorization_code","refresh_token"],
+      "response_types":["code"],
+      "client_name":"Claude Code (sempods)"
+    }"""
+    suspend fun register(port: Int) = http.post("/register") {
+      contentType(ContentType.Application.Json)
+      header(HttpHeaders.UserAgent, "claude-code/2.1.0")
+      setBody(registration(port))
+    }
+
+    val first = register(51234)
+    assertEquals(HttpStatusCode.Created, first.status)
+    val reconnect = register(61234)
+    assertEquals(HttpStatusCode.Created, reconnect.status)
+
+    val clientId = mapper.readTree(first.bodyAsText())["client_id"].asString()
+    assertEquals(clientId, mapper.readTree(reconnect.bodyAsText())["client_id"].asString(), "a reconnect must keep its consent's client_id")
+    // The check `/authorize` applies, without parking a login state other cases read back.
+    val stored = assertNotNull(DcrClientDao(db!!).findByClientId(PodKey.DEFAULT_PROFILE, clientId))
+    assertTrue(RedirectUri.matchesRegistered("http://localhost:61234/callback", stored.redirectUris), "the new port is accepted")
+  }
+
+  @Test
+  fun `a registration answer is uncacheable and names no member the client did not register`() = testApplication {
+    installAuth()
+
+    val resp = client.post("/register") {
+      contentType(ContentType.Application.Json)
+      setBody("""{"redirect_uris":["$REDIRECT"]}""")
+    }
+
+    assertEquals(HttpStatusCode.Created, resp.status)
+    // RFC 7591 §3.2.1: the answer carries the client's credentials and is never cached.
+    assertUncacheableJson(resp)
+    val json = mapper.readTree(resp.bodyAsText())
+    assertEquals(
+      setOf("client_id", "redirect_uris", "token_endpoint_auth_method", "grant_types", "response_types"),
+      json.propertyNames().toSet(),
+      "a nameless client reads back no client_name",
+    )
+    assertEquals("none", json["token_endpoint_auth_method"].asString())
+    assertEquals(setOf("authorization_code", "refresh_token"), strings(json["grant_types"]))
+    assertEquals(setOf("code"), strings(json["response_types"]))
+  }
+
+  private fun strings(array: tools.jackson.databind.JsonNode): Set<String> = (0 until array.size()).mapTo(mutableSetOf()) { array[it].asString() }
+
+  @Test
+  fun `a registration answer reads back the name and software identifiers, trimmed`() = testApplication {
+    installAuth()
+
+    val json = mapper.readTree(
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"  Notes  ","software_id":"notes-app","software_version":"1.4"}""")
+      }.bodyAsText(),
+    )
+
+    assertEquals("Notes", json["client_name"].asString())
+    assertEquals("notes-app", json["software_id"].asString())
+    assertEquals("1.4", json["software_version"].asString())
+  }
+
+  @Test
+  fun `a member of the wrong type is refused as client metadata`() = testApplication {
+    installAuth()
+    // RFC 7591 §2 types every member; a string where an array belongs, or a number where a string
+    // does, is not a value the service can store.
+    val bodies = listOf(
+      """{"redirect_uris":"$REDIRECT"}""",
+      """{"redirect_uris":["$REDIRECT"],"client_name":42}""",
+      """{"redirect_uris":["$REDIRECT"],"client_name":["Notes"]}""",
+      """{"redirect_uris":["$REDIRECT"],"software_id":""}""",
+      // Two the SDK refuses from a constructor, outside its parse error.
+      """{"redirect_uris":["$REDIRECT"],"software_version":" "}""",
+      """{"redirect_uris":[null]}""",
+    )
+
+    for (body in bodies) {
+      val resp = client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+      }
+      assertEquals(HttpStatusCode.BadRequest, resp.status, body)
+      assertEquals("invalid_client_metadata", mapper.readTree(resp.bodyAsText())["error"].asString(), body)
+    }
+  }
+
+  @Test
+  fun `a body that is not a JSON object is refused as malformed`() = testApplication {
+    installAuth()
+    // The SDK's own parser takes unquoted keys; the service's stays the stricter one.
+    for (body in listOf("""{redirect_uris:["$REDIRECT"]}""", "null", "[]", "")) {
+      val resp = client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+      }
+      assertEquals(HttpStatusCode.BadRequest, resp.status, body)
+      val json = mapper.readTree(resp.bodyAsText())
+      assertEquals("invalid_client_metadata", json["error"].asString(), body)
+      assertEquals("malformed JSON body", json["error_description"].asString(), body)
+    }
   }
 
   @Test
