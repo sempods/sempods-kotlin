@@ -107,6 +107,8 @@ dependencies {
   testImplementation(testFixtures(project(":sempods-client")))
   // The client's RDF4J adapter, run against the routes it reads and writes.
   testImplementation(project(":sempods-client-rdf4j"))
+  // The media client, run against the media routes.
+  testImplementation(project(":sempods-client-media"))
 
   // test libs
   // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.

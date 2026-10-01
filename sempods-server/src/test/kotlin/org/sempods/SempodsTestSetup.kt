@@ -2,6 +2,7 @@ package org.sempods
 
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsRequestAuth
+import org.sempods.client.media.SempodsPodMedia
 import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.pods.oauth.PodRequestVerifierTestImpl
 
@@ -32,4 +33,11 @@ class SempodsTestSetup internal constructor(
 
   /** [rdfAs] with a bearer. */
   fun rdfAs(name: String, bearer: String): SempodsRdf4jPod = SempodsRdf4jPod(podAs(name, bearer))
+
+  /** [podAs] for its media routes. */
+  fun mediaAs(name: String, auth: SempodsRequestAuth = SempodsRequestAuth.anonymous()): SempodsPodMedia =
+    SempodsPodMedia(podAs(name, auth))
+
+  /** [mediaAs] with a bearer. */
+  fun mediaAs(name: String, bearer: String): SempodsPodMedia = SempodsPodMedia(podAs(name, bearer))
 }
