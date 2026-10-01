@@ -201,8 +201,8 @@ each move. For example, `PodAccessToken` is in `org.sempods.pods.oauth.spi` beca
 
 **A seam splits into `spi` and `impls`.** A seam is an interface a deployment may replace
 ([modularity](concepts/modularity.md)). Its contract — the interface and every type it takes or
-returns — goes in `<seam>.spi`; each implementation goes in `<seam>.impls.<technology>`, named for
-what it is built on:
+returns — goes in `<seam>.spi`; each new implementation goes in `<seam>.impls.<technology>`, named
+for what it is built on:
 
 ```text
 org.sempods.pods.oauth.spi            PodRequestVerifier, PodResourceRequest, PodAccessToken, …
@@ -211,9 +211,11 @@ org.sempods.ai.impls.ollama           the Ollama provider
 ```
 
 An `spi` package names no HTTP framework, protocol library, database type, stored row or
-implementation; `SpiBoundaryTest` in `sempods-server` holds that. The older seams keep their
-contract beside the facade. They exist already, so moving their types would be a rename for
-consistency.
+implementation; `SpiBoundaryTest` in `sempods-server` holds that. Packages that already exist
+stay where they are, since moving them would be a rename for consistency: the older seams keep
+their contract beside the facade, and `PodTokenAuthenticator`, the verifier that predates its
+seam, stays in `org.sempods.pods.oauth` with the issuer and stores it shares keys with, and with
+its logger name.
 
 ## Related
 
