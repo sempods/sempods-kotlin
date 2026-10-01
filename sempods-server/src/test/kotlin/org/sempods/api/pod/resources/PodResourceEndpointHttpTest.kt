@@ -140,9 +140,10 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       description = eventDescription,
     )
 
+    // doc-example:start anonymous-read
     val read = podAs(pod.name).resources().getText(eventUri.toString())
-
     assertEquals(200, read.status)
+    // doc-example:end anonymous-read
     val contentType = read.headers["Content-Type"].orEmpty()
     assertTrue(contentType.startsWith("application/ld+json") || contentType.startsWith("application/json"), contentType)
     assertTrue(read.body.orEmpty().contains(eventName), read.body)

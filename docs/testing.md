@@ -104,13 +104,10 @@ A test of the first column takes its session from `withSetup { }` — `podAs(pod
 anonymous caller, `podAs(pod.name, bearer = token)` for one holding a token, `rdfAs` for RDF4J
 values:
 
+<!-- doc-example: sempods-server/src/test/kotlin/org/sempods/api/pod/resources/PodResourceEndpointHttpTest.kt#anonymous-read -->
 ```kotlin
-@Test
-fun `a public resource reads anonymously as JSON-LD`() = withSetup {
-  // … seed the event …
-  val read = podAs(pod.name).resources().getText(eventUri.toString())
-  assertEquals(200, read.status)
-}
+val read = podAs(pod.name).resources().getText(eventUri.toString())
+assertEquals(200, read.status)
 ```
 
 Once a route's happy path runs through the client, the route needs no separate "the client core
@@ -123,6 +120,7 @@ reference for the split; the other areas still use raw HTTP for both columns.
 collaborator. Every call goes to the default implementation *and* to any delegate registered for
 the current trace:
 
+<!-- doc-example: illustrative; schematic use of GuiceAppTestProxy.observe in sempods-commons/src/testFixtures/kotlin/org/sempods/commons/guice/GuiceAppTestProxy.kt -->
 ```kotlin
 someFacadeTestProxy.observe { delegate ->
   // inside this block, calls to the facade also hit `delegate`
@@ -148,14 +146,18 @@ A test in `sempods-server` does not call `observe` itself. `SempodsIntegrationTe
 nests the observers and hands the block a `SempodsTestSetup` holding each seam's test
 implementation, which answers like the real one until the test changes it:
 
+<!-- doc-example: sempods-server/src/test/kotlin/org/sempods/api/pod/system/meta/PodRequestVerifierHttpTest.kt#rejecting-verifier -->
 ```kotlin
 @Test
-fun `a rejected request is challenged`() = withSetup {
+fun `a verifier that rejects is answered with the pod's bearer challenge`() = withSetup {
+  val pod = sempodsTestFactory.newPod()
   requestVerifier.answerWith { _, _ -> PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken) }
-  // requests made here reach that verifier; every other class still reaches the real one
+
+  assertPodBearerChallenge(http.prepareGet(url(pod.name)).execute(), pod.name)
 }
 ```
 
+The block's requests reach the rejecting verifier; every other class still reaches the real one.
 A new seam's test implementation joins the setup as one more nested `observe`.
 
 `podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
@@ -232,7 +234,8 @@ methods it would pin are already on one thread. Use rung 2.
 To force a failure out of hiding, run a module with methods concurrent too — harsher than the
 committed configuration, which is the point:
 
-```
+<!-- doc-example: illustrative; the property is read in the root build.gradle.kts, subprojects { tasks.test } -->
+```bash
 ./gradlew :sempods-server:test --rerun-tasks -PtestMethodsConcurrent
 ```
 
@@ -284,6 +287,7 @@ assuming it was is what left one flaky wait unexplained for months. `showStandar
 governs what Gradle echoes to the console; the JUnit XML carries the suite's output either way, and
 `.github/workflows/test.yml` uploads it as the `gradle-test-reports` artifact:
 
+<!-- doc-example: illustrative; needs a CI run id, the artifact is uploaded by .github/workflows/test.yml -->
 ```bash
 gh run view <run-id>
 ```
@@ -312,3 +316,5 @@ exception thrown on a task pool thread, which no assertion ever sees.
   suite's own helper stays in `src/test`, bound in that suite's test module, like
   `SempodsTestFactory`.
 - No test may depend on the network or on a live credential.
+
+<!-- doc-examples: checked -->

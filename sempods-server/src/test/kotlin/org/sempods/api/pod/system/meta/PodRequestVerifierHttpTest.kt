@@ -36,6 +36,7 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
     assertEquals(200, response.statusCode, response.responseBody)
   }
 
+  // doc-example:start rejecting-verifier
   @Test
   fun `a verifier that rejects is answered with the pod's bearer challenge`() = withSetup {
     val pod = sempodsTestFactory.newPod()
@@ -43,6 +44,7 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
 
     assertPodBearerChallenge(http.prepareGet(url(pod.name)).execute(), pod.name)
   }
+  // doc-example:end rejecting-verifier
 
   @Test
   fun `the verifier is handed the method, the externally known target and the headers`() = withSetup {
