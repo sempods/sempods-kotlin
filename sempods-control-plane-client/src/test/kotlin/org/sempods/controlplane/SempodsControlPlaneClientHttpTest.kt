@@ -332,6 +332,27 @@ class SempodsControlPlaneClientHttpTest {
     assertTrue(refused.message!!.contains("_system/admin/pods/alice"), refused.message!!)
   }
 
+  @Test
+  fun `provisionServiceClient reports a result it does not know as a decoding failure`() {
+    mockServer
+      .`when`(request().withMethod("POST").withPath(SERVICE_CLIENT_PATH))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.APPLICATION_JSON)
+          .withBody(
+            """{"result":"reprovisioned","registrationId":"r1","secretId":"s2","scopes":["s"],"contextRoot":"https://pods.example/a","secret":"sc_secret"}""",
+          ),
+      )
+
+    val refused = assertThrows<SempodsDecodingException> {
+      client.provisionServiceClient(podName = "alice", clientId = "notes-app", expectedRegistrationId = "r1", expectedSecretId = "s1")
+    }
+
+    assertEquals(200, refused.status)
+    assertFalse(refused.message!!.contains("sc_secret"), "the report quotes no body: ${refused.message}")
+  }
+
   private fun sent(method: String): HttpRequest =
     mockServer.retrieveRecordedRequests(request().withMethod(method)).single()
 

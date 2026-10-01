@@ -43,6 +43,7 @@ internal object ControlPlaneJson {
    *
    * [fallbackClientId] is what the caller asked for, and stands in for a `clientId` the answer leaves
    * out — the route echoes what was registered, and nothing else could have been.
+   * Refuses the answers [SempodsControlPlaneClient.provisionServiceClient] does not accept.
    */
   fun provisioned(json: String, fallbackClientId: String): ProvisionServiceClientResult {
     val root = try {
@@ -52,17 +53,26 @@ internal object ControlPlaneJson {
     }
     if (root !is ObjectNode) throw IllegalArgumentException("the answer is not one JSON object")
 
+    val result = text(root, "result")
+    require(result == PROVISIONED || result == ALREADY_PROVISIONED) {
+      "the answer's 'result' is neither '$PROVISIONED' nor '$ALREADY_PROVISIONED'"
+    }
+    val secret = optionalText(root, "secret")
+    require(result == ALREADY_PROVISIONED || secret != null) { "a '$PROVISIONED' answer has no string member 'secret'" }
+
     return ProvisionServiceClientResult(
-      alreadyProvisioned = text(root, "result") == ALREADY_PROVISIONED,
+      alreadyProvisioned = result == ALREADY_PROVISIONED,
       clientId = optionalText(root, "clientId") ?: fallbackClientId,
       registrationId = text(root, "registrationId"),
       secretId = text(root, "secretId"),
       scopes = strings(root, "scopes"),
       contextRoot = uri(text(root, "contextRoot"), "contextRoot"),
       // absent on `alreadyProvisioned` (@JsonInclude NON_NULL) — the caller keeps what it holds
-      secret = optionalText(root, "secret"),
+      secret = secret,
     )
   }
+
+  private const val PROVISIONED = "provisioned"
 
   private const val ALREADY_PROVISIONED = "alreadyProvisioned"
 

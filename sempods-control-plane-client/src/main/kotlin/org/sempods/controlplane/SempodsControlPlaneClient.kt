@@ -146,6 +146,10 @@ class SempodsControlPlaneClient(
    * the connection went already issued a secret, and a second attempt would issue another — leaving
    * the caller holding the one credential the server no longer accepts.
    *
+   * An answer whose `result` is neither `provisioned` nor `alreadyProvisioned`, or a `provisioned` one
+   * without its secret, is a `SempodsDecodingException`, as is one missing a member: a caller never
+   * replaces its stored credential on an answer it cannot read.
+   *
    * A `409` means a concurrent caller won the race. The server deliberately does not retry — only
    * the caller knows whether it now holds a usable credential — so it is not listed as an answer and
    * arrives as a `SempodsStatusException` with `status == 409` for the caller's own retry loop.
@@ -191,8 +195,8 @@ enum class CreatePodResult { created, alreadyExists }
 /**
  * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.
  * What each member means is the server's `sempods-server/docs/host-provisioning.md` §"Provisioning over the
- * admin surface". [secret] is null on [alreadyProvisioned]; a caller stores [registrationId] and
- * [secretId] beside the secret it holds and sends them back.
+ * admin surface". [secret] is the secret a fresh provisioning issued, and null on [alreadyProvisioned];
+ * a caller stores [registrationId] and [secretId] beside the secret it holds and sends them back.
  */
 data class ProvisionServiceClientResult(
   val alreadyProvisioned: Boolean,
