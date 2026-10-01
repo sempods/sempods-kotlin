@@ -5,24 +5,18 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.utils.UriEncodingUtil.encodeUriToUrlSafeBase64
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.SempodsTestSetup
 import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.mongo.persist.PodDbo
-import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.getAll
-import okhttp3.OkHttpClient
 import org.sempods.client.SempodsContent
 import org.sempods.client.SempodsContextSelection
 import org.sempods.client.SempodsGraphFormat
-import org.sempods.client.SempodsOkHttp
-import org.sempods.client.SempodsPod
-import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsReadOptions
-import org.sempods.client.SempodsRequestAuth
-import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsStatusException
 import org.sempods.client.SempodsWriteOptions
 import org.sempods.client.rdf4j.SempodsRdf4jPod
@@ -32,8 +26,8 @@ import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.junit.jupiter.api.Test
-import java.io.ByteArrayInputStream
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -84,8 +78,36 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     return contextUri to token
   }
 
-  private fun resolveJsonLdPropertyKeyByLiteral(jsonLd: String, literal: String): String {
-    val root = JsonMappers.default().readValue(jsonLd, Map::class.java) as Map<*, *>
+  /** Registers `apps/test-app/tasks` and its child `apps/test-app/tasks/child`, holding no grant on either. */
+  private fun registerRootAndChild(pod: PodDbo): Pair<URI, URI> {
+    val root = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks")
+    val child = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/tasks/child")
+    listOf(root, child).forEach {
+      podContextsDao.create(podId = checkNotNull(pod.id), contextUri = it.toString(), label = null, description = null, createdBy = "test")
+    }
+    return root to child
+  }
+
+  /** The statements of [resource] that [token] may read, each with its context. */
+  private fun SempodsTestSetup.modelOf(podName: String, token: String, resource: URI): Model =
+    assertNotNull(rdfAs(podName, bearer = token).resources().getModel(resource.toString()).body)
+
+  private fun SempodsTestSetup.patch(podName: String, token: String, resource: URI, context: URI, mergePatch: String) =
+    podAs(podName, bearer = token).resources()
+      .patch(resource.toString(), SempodsContent.of(mergePatch), SempodsWriteOptions.inContext(context.toString()))
+
+  /** Creates [resource] in [context] from [nQuads]. */
+  private fun SempodsTestSetup.putNQuads(podName: String, token: String, resource: URI, context: URI, nQuads: String) {
+    val put = podAs(podName, bearer = token).resources()
+      .put(resource.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), SempodsWriteOptions.inContext(context.toString()))
+    assertEquals(201, put.status)
+  }
+
+  /** The key under which the resource's JSON-LD carries [literal] — what a merge patch has to name. */
+  private fun SempodsTestSetup.propertyKeyOf(podName: String, token: String, resource: URI, literal: String): String {
+    val read = podAs(podName, bearer = token).resources().getText(resource.toString())
+    assertEquals(200, read.status)
+    val root = JsonMappers.default().readValue(read.body, Map::class.java) as Map<*, *>
     return root.entries
       .firstOrNull { (key, value) ->
         key is String && key !in setOf("@context", "@id", "@type") && jsonValueContainsLiteral(value, literal)
@@ -105,40 +127,30 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `GET resource as JSON-LD should work via HTTP`() {
+  fun `a public resource reads anonymously as JSON-LD`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
-    val publicContext = sempodsTestFactory.publicContextUri(pod.name)
-
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val eventName = "Test Event - ${TestUtil.randomId()}"
-    val eventDescription = "This is a test event created via HTTP test"
+    val eventDescription = "This is a test event"
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = eventUri,
-      context = publicContext,
+      context = sempodsTestFactory.publicContextUri(pod.name),
       name = eventName,
       description = eventDescription,
     )
 
-    val url = "${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId"
-    val response = httpClient.prepareGet(url)
-      .addHeader("Accept", "application/ld+json")
-      .execute()
+    val read = podAs(pod.name).resources().getText(eventUri.toString())
 
-    assertEquals(200, response.statusCode)
-    assertTrue(
-      response.contentType.orEmpty().startsWith("application/ld+json") || response.contentType.orEmpty().startsWith("application/json"),
-      "Content type should be application/ld+json or application/json, was: ${response.contentType}"
-    )
-    val responseBody = response.responseBody
-    assertTrue(responseBody.contains(eventName))
-    assertTrue(responseBody.contains(eventDescription))
+    assertEquals(200, read.status)
+    val contentType = read.headers["Content-Type"].orEmpty()
+    assertTrue(contentType.startsWith("application/ld+json") || contentType.startsWith("application/json"), contentType)
+    assertTrue(read.body.orEmpty().contains(eventName), read.body)
+    assertTrue(read.body.orEmpty().contains(eventDescription), read.body)
   }
 
   @Test
-  fun `GET resource with include_contexts returns JSON-LD named graphs`() {
+  fun `a read with include_contexts groups the resource into one named graph per context`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (ctxA, _) = createContextWithToken(pod, "ctx-a")
     val (ctxB, _) = createContextWithToken(pod, "ctx-b")
@@ -158,13 +170,11 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       model = model,
     )
 
-    val response = httpClient.prepareGet("${resourceUri}?include_contexts=true")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $tokenAB")
-      .execute()
+    val response = podAs(pod.name, bearer = tokenAB).resources()
+      .getText(resourceUri.toString(), SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults().withIncludeContexts(true))
 
-    assertEquals(200, response.statusCode)
-    val body = JsonMappers.default().readValue(response.responseBody, List::class.java)
+    assertEquals(200, response.status)
+    val body = JsonMappers.default().readValue(response.body, List::class.java)
     val graphIds = body.map { (it as Map<*, *>)["@id"] }.toSet()
     assertEquals(setOf(ctxA.toString(), ctxB.toString()), graphIds)
     val graphById = body.associateBy { (it as Map<*, *>)["@id"] }
@@ -189,35 +199,22 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `GET resource as N-Quads should work via HTTP`() {
+  fun `a public resource reads anonymously as N-Quads`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
-    val publicContext = sempodsTestFactory.publicContextUri(pod.name)
-
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
+    val eventName = "Test Event NQuads - ${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = eventUri,
-      context = publicContext,
-      name = "Test Event NQuads - ${TestUtil.randomId()}",
+      context = sempodsTestFactory.publicContextUri(pod.name),
+      name = eventName,
     )
 
-    val url = "${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId"
-    val response = httpClient.prepareGet(url)
-      .addHeader("Accept", "application/n-quads")
-      .execute()
+    val read = podAs(pod.name).resources().getText(eventUri.toString(), SempodsGraphFormat.N_QUADS)
 
-    assertEquals(200, response.statusCode)
-    assertEquals("application/n-quads", response.contentType.orEmpty().split(";")[0])
-
-    val model: Model = ByteArrayInputStream(response.responseBodyAsBytes).use { inStream ->
-      RdfWriterUtil.readNQuads(inStream)
-    }
-    assertNotNull(model)
-    assertTrue(model.isNotEmpty())
-    val nameStatements = model.filter(eventUri.toIri(), null, null)
-    assertTrue(nameStatements.isNotEmpty())
+    assertEquals(200, read.status)
+    assertEquals("application/n-quads", read.headers["Content-Type"].orEmpty().split(";")[0])
+    assertTrue(read.body.orEmpty().contains("<$eventUri> <https://schema.org/name> \"$eventName\""), read.body)
   }
 
   @Test
@@ -296,28 +293,24 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `conditional GET with matching If-None-Match still returns 304 for a readable resource`() {
+  fun `a conditional read with the tag of the last read is answered 304 without a body`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
-    val publicContext = sempodsTestFactory.publicContextUri(pod.name)
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = eventUri,
-      context = publicContext,
+      context = sempodsTestFactory.publicContextUri(pod.name),
       name = "cond ${TestUtil.randomId()}",
     )
+    val resources = podAs(pod.name).resources()
 
-    val url = "${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId"
-    val first = httpClient.prepareGet(url).addHeader("Accept", "application/ld+json")
-      .execute()
-    assertEquals(200, first.statusCode)
-    val etag = assertNotNull(first.headers.get("ETag"), "a readable resource must carry an ETag")
+    val first = resources.getText(eventUri.toString())
+    assertEquals(200, first.status)
+    val etag = assertNotNull(first.headers["ETag"], "a readable resource must carry an ETag")
 
-    val second = httpClient.prepareGet(url).addHeader("Accept", "application/ld+json")
-      .addHeader("If-None-Match", etag)
-      .execute()
-    assertEquals(304, second.statusCode, "matching If-None-Match must still short-circuit to 304")
+    val second = resources.getText(eventUri.toString(), SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults().withIfNoneMatch(etag))
+    assertEquals(304, second.status, "matching If-None-Match must still short-circuit to 304")
+    assertNull(second.body)
   }
 
   @Test
@@ -532,13 +525,10 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `PUT should replace all outgoing edges of a resource`() {
+  fun `PUT should replace all outgoing edges of a resource`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val replacedDescription = "old-description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
       pod = pod.name,
@@ -547,74 +537,43 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = "old-name-${TestUtil.randomId()}",
       description = replacedDescription,
     )
+    val resources = podAs(pod.name, bearer = token).resources()
 
     val replacementName = "new-name-${TestUtil.randomId()}"
     val nQuads = """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${writeContextUri}> .
       <${eventUri}> <https://schema.org/name> "$replacementName" <${writeContextUri}> .
     """.trimIndent()
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(nQuads)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in setOf(200, 201),
-      "expected 200/201 (Iter-0 PUT semantics), got ${putResponse.statusCode}",
-    )
+    val put = resources.put(eventUri.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), SempodsWriteOptions.inContext(writeContextUri.toString()))
+    assertEquals(200, put.status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    assertTrue(getResponse.responseBody.contains(replacementName))
-    assertFalse(getResponse.responseBody.contains(replacedDescription))
+    val read = resources.getText(eventUri.toString())
+    assertEquals(200, read.status)
+    assertTrue(read.body.orEmpty().contains(replacementName), read.body)
+    assertFalse(read.body.orEmpty().contains(replacedDescription), read.body)
   }
 
   @Test
-  fun `PUT JSON-LD should write resource statements into target context from query parameter`() {
+  fun `PUT JSON-LD with a context of its own writes every statement into the target context`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/default"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
-    val replacementName = "jsonld-name-${TestUtil.randomId()}"
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/default")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val putBody = """
       {
         "@context": {"schema":"https://schema.org/"},
         "@id": "$eventUri",
         "@type": "schema:Event",
-        "schema:name": "$replacementName"
+        "schema:name": "jsonld-name-${TestUtil.randomId()}"
       }
     """.trimIndent()
 
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(putBody)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in setOf(200, 201),
-      "expected 200/201 (Iter-0 PUT semantics), got ${putResponse.statusCode}",
-    )
+    val put = podAs(pod.name, bearer = token).resources()
+      .put(eventUri.toString(), SempodsGraphFormat.JSON_LD, SempodsContent.of(putBody), SempodsWriteOptions.inContext(writeContextUri.toString()))
+    assertEquals(201, put.status)
 
-    val nquadsResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, nquadsResponse.statusCode)
-    val model = ByteArrayInputStream(nquadsResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val resourceStatements = model.getStatements(eventUri.toIri(), null, null)
-    assertTrue(resourceStatements.any())
-    assertTrue(
-      resourceStatements.all { stmt -> stmt.context?.stringValue() == writeContextUri.toString() },
-    )
+    val model = assertNotNull(rdfAs(pod.name, bearer = token).resources().getModel(eventUri.toString()).body)
+    assertTrue(model.filter(eventUri.toIri(), null, null).isNotEmpty())
+    assertEquals(setOf(writeContextUri.toIri()), model.contexts())
   }
 
   @Test
@@ -651,22 +610,17 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `DELETE should remove outgoing edges but keep incoming edges from other resources`() {
+  fun `DELETE should remove outgoing edges but keep incoming edges from other resources`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val targetId = TestUtil.randomId()
-    val targetUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = targetId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val targetUri = sempodsTestFactory.eventUri(podName = pod.name)
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = targetUri,
       context = writeContextUri,
       name = "target-${TestUtil.randomId()}",
     )
-
-    val referencingId = TestUtil.randomId()
-    val referencingUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = referencingId)
+    val referencingUri = sempodsTestFactory.eventUri(podName = pod.name)
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = referencingUri,
@@ -674,39 +628,20 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = "ref-${TestUtil.randomId()}",
       location = targetUri,
     )
+    val rdf = rdfAs(pod.name, bearer = token)
 
-    val deleteResponse = httpClient.prepareDelete(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$targetId", writeContextUri.toString())
-    )
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(204, deleteResponse.statusCode)
+    assertEquals(204, rdf.pod.resources().delete(targetUri.toString(), SempodsWriteOptions.inContext(writeContextUri.toString())).status)
 
-    val deletedGet = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$targetId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(404, deletedGet.statusCode)
-
-    val incomingGet = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$referencingId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, incomingGet.statusCode)
-    val model = ByteArrayInputStream(incomingGet.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    assertTrue(
-      model.getStatements(referencingUri.toIri(), null, targetUri.toIri()).any(),
-    )
+    assertEquals(404, rdf.resources().getModel(targetUri.toString()).status)
+    val incoming = assertNotNull(rdf.resources().getModel(referencingUri.toString()).body)
+    assertTrue(incoming.filter(referencingUri.toIri(), null, targetUri.toIri()).isNotEmpty())
   }
 
   @Test
-  fun `PATCH merge-patch should update single property and keep others`() {
+  fun `PATCH merge-patch should update single property and keep others`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val oldName = "old-name-${TestUtil.randomId()}"
     val oldDescription = "old-description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
@@ -716,44 +651,22 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = oldName,
       description = oldDescription,
     )
-
-    val beforePatchResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, beforePatchResponse.statusCode)
-    val nameKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, oldName)
+    val nameKey = propertyKeyOf(pod.name, token, eventUri, oldName)
 
     val newName = "patched-name-${TestUtil.randomId()}"
-    val patchBody = JsonMappers.default().writeValueAsString(mapOf(nameKey to newName))
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    val patched = patch(pod.name, token, eventUri, writeContextUri, JsonMappers.default().writeValueAsString(mapOf(nameKey to newName)))
+    assertEquals(204, patched.status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statements = model.getStatements(eventUri.toIri(), null, null, writeContextUri.toIri())
+    val statements = modelOf(pod.name, token, eventUri).filter(eventUri.toIri(), null, null, writeContextUri.toIri())
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/name" && it.`object`.stringValue() == newName })
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/description" && it.`object`.stringValue() == oldDescription })
   }
 
   @Test
-  fun `PATCH merge-patch with root id should update single property and keep others`() {
+  fun `PATCH merge-patch with root id should update single property and keep others`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val oldName = "old-name-${TestUtil.randomId()}"
     val oldDescription = "old-description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
@@ -763,46 +676,22 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = oldName,
       description = oldDescription,
     )
-
-    val beforePatchResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, beforePatchResponse.statusCode)
-    val nameKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, oldName)
+    val nameKey = propertyKeyOf(pod.name, token, eventUri, oldName)
 
     val newName = "patched-name-${TestUtil.randomId()}"
-    val patchBody = JsonMappers.default().writeValueAsString(
-      mapOf("@id" to eventUri.toString(), nameKey to newName)
-    )
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    val mergePatch = JsonMappers.default().writeValueAsString(mapOf("@id" to eventUri.toString(), nameKey to newName))
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, mergePatch).status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statements = model.getStatements(eventUri.toIri(), null, null, writeContextUri.toIri())
+    val statements = modelOf(pod.name, token, eventUri).filter(eventUri.toIri(), null, null, writeContextUri.toIri())
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/name" && it.`object`.stringValue() == newName })
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/description" && it.`object`.stringValue() == oldDescription })
   }
 
   @Test
-  fun `PATCH merge-patch should remove property when value is null`() {
+  fun `PATCH merge-patch should remove property when value is null`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val name = "name-${TestUtil.randomId()}"
     val description = "description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
@@ -812,43 +701,21 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = name,
       description = description,
     )
+    val descriptionKey = propertyKeyOf(pod.name, token, eventUri, description)
 
-    val beforePatchResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, beforePatchResponse.statusCode)
-    val descriptionKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, description)
+    val mergePatch = JsonMappers.default().writeValueAsString(mapOf(descriptionKey to null))
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, mergePatch).status)
 
-    val patchBody = JsonMappers.default().writeValueAsString(mapOf(descriptionKey to null))
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
-
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statements = model.getStatements(eventUri.toIri(), null, null, writeContextUri.toIri())
+    val statements = modelOf(pod.name, token, eventUri).filter(eventUri.toIri(), null, null, writeContextUri.toIri())
     assertFalse(statements.any { it.predicate.stringValue() == "https://schema.org/description" })
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/name" && it.`object`.stringValue() == name })
   }
 
   @Test
-  fun `PATCH merge-patch should update one property and remove another in single request`() {
+  fun `PATCH merge-patch should update one property and remove another in single request`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val originalName = "name-${TestUtil.randomId()}"
     val originalDescription = "description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
@@ -858,138 +725,58 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       name = originalName,
       description = originalDescription,
     )
-
-    val beforePatchResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, beforePatchResponse.statusCode)
-    val nameKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, originalName)
-    val descriptionKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, originalDescription)
+    val nameKey = propertyKeyOf(pod.name, token, eventUri, originalName)
+    val descriptionKey = propertyKeyOf(pod.name, token, eventUri, originalDescription)
 
     val newName = "patched-name-${TestUtil.randomId()}"
-    val patchBody = JsonMappers.default().writeValueAsString(mapOf(nameKey to newName, descriptionKey to null))
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    val mergePatch = JsonMappers.default().writeValueAsString(mapOf(nameKey to newName, descriptionKey to null))
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, mergePatch).status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statements = model.getStatements(eventUri.toIri(), null, null, writeContextUri.toIri())
+    val statements = modelOf(pod.name, token, eventUri).filter(eventUri.toIri(), null, null, writeContextUri.toIri())
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/name" && it.`object`.stringValue() == newName })
     assertFalse(statements.any { it.predicate.stringValue() == "https://schema.org/description" })
   }
 
   @Test
-  fun `PATCH merge-patch should replace JSON-LD literal value object with IRI value object`() {
+  fun `PATCH merge-patch should replace JSON-LD literal value object with IRI value object`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val oldStatus = "schema:PotentialActionStatus"
     val statusPredicate = "https://schema.org/actionStatus"
     val newStatus = "https://schema.org/PotentialActionStatus"
-    val nQuads = """
+    putNQuads(pod.name, token, eventUri, writeContextUri, """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${writeContextUri}> .
       <${eventUri}> <${statusPredicate}> "$oldStatus" <${writeContextUri}> .
-    """.trimIndent()
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(nQuads)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in setOf(200, 201),
-      "expected 200/201 (Iter-0 PUT semantics), got ${putResponse.statusCode}",
-    )
+    """.trimIndent())
+    val statusKey = propertyKeyOf(pod.name, token, eventUri, oldStatus)
 
-    val beforePatchResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, beforePatchResponse.statusCode)
-    val statusKey = resolveJsonLdPropertyKeyByLiteral(beforePatchResponse.responseBody, oldStatus)
+    val mergePatch = JsonMappers.default().writeValueAsString(mapOf(statusKey to mapOf("@id" to newStatus)))
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, mergePatch).status)
 
-    val patchBody = JsonMappers.default().writeValueAsString(mapOf(statusKey to mapOf("@id" to newStatus)))
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
-
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statusIri = SimpleValueFactory.getInstance().createIRI(statusPredicate)
-    val statusStatements = model.getStatements(eventUri.toIri(), statusIri, null, writeContextUri.toIri())
+    val statusStatements = modelOf(pod.name, token, eventUri)
+      .filter(eventUri.toIri(), Values.iri(statusPredicate), null, writeContextUri.toIri())
     assertTrue(statusStatements.any { it.`object` is IRI && it.`object`.stringValue() == newStatus })
     assertFalse(statusStatements.any { it.`object` is Literal && it.`object`.stringValue() == oldStatus })
   }
 
   @Test
-  fun `PATCH merge-patch should replace JSON-LD IRI value object with literal value object`() {
+  fun `PATCH merge-patch should replace JSON-LD IRI value object with literal value object`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val statusPredicate = "https://schema.org/actionStatus"
     val oldStatus = "https://schema.org/PotentialActionStatus"
     val newStatus = "schema:PotentialActionStatus"
-    val nQuads = """
+    putNQuads(pod.name, token, eventUri, writeContextUri, """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${writeContextUri}> .
       <${eventUri}> <${statusPredicate}> <${oldStatus}> <${writeContextUri}> .
-    """.trimIndent()
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(nQuads)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in setOf(200, 201),
-      "expected 200/201 (Iter-0 PUT semantics), got ${putResponse.statusCode}",
-    )
+    """.trimIndent())
 
-    val patchBody = """{"$statusPredicate":{"@value":"$newStatus"}}"""
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, """{"$statusPredicate":{"@value":"$newStatus"}}""").status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statusIri = SimpleValueFactory.getInstance().createIRI(statusPredicate)
-    val statusStatements = model.getStatements(eventUri.toIri(), statusIri, null, writeContextUri.toIri())
+    val statusStatements = modelOf(pod.name, token, eventUri)
+      .filter(eventUri.toIri(), Values.iri(statusPredicate), null, writeContextUri.toIri())
     assertTrue(statusStatements.any { it.`object` is Literal && it.`object`.stringValue() == newStatus })
     assertFalse(statusStatements.any { it.`object` is IRI && it.`object`.stringValue() == oldStatus })
   }
@@ -1029,95 +816,45 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `PATCH merge-patch with absolute IRI null delete removes the property`() {
+  fun `PATCH merge-patch with absolute IRI null delete removes the property`() = withSetup {
     // Iter-0 canonical-form replacement for the old `@context + compact null-delete` test:
     // null delete still works, but predicate must be an absolute IRI.
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val name = "name-${TestUtil.randomId()}"
-    val description = "description-${TestUtil.randomId()}"
     sempodsTestFactory.seedEvent(
       pod = pod.name,
       eventUri = eventUri,
       context = writeContextUri,
       name = name,
-      description = description,
+      description = "description-${TestUtil.randomId()}",
     )
 
-    val patchBody = """{"https://schema.org/description":null}"""
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(patchBody)
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, """{"https://schema.org/description":null}""").status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val statements = model.getStatements(eventUri.toIri(), null, null, writeContextUri.toIri())
+    val statements = modelOf(pod.name, token, eventUri).filter(eventUri.toIri(), null, null, writeContextUri.toIri())
     assertTrue(statements.any { it.predicate.stringValue() == "https://schema.org/name" && it.`object`.stringValue() == name })
     assertFalse(statements.any { it.predicate.stringValue() == "https://schema.org/description" })
   }
 
   @Test
-  fun `PATCH merge-patch null delete should work for @type keyword`() {
+  fun `PATCH merge-patch null delete should work for @type keyword`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val writeContext = "apps/test-app/tasks"
-    val (writeContextUri, token) = createContextWithToken(pod, writeContext)
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val name = "name-${TestUtil.randomId()}"
-    val nQuads = """
+    putNQuads(pod.name, token, eventUri, writeContextUri, """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${writeContextUri}> .
       <${eventUri}> <https://schema.org/name> "$name" <${writeContextUri}> .
-    """.trimIndent()
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody(nQuads)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in setOf(200, 201),
-      "expected 200/201 (Iter-0 PUT semantics), got ${putResponse.statusCode}",
-    )
+    """.trimIndent())
 
-    val patchResponse = preparePatch(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", writeContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/merge-patch+json")
-      .addHeader("Authorization", "Bearer $token")
-      .setBody("""{"@type":null}""")
-      .execute()
-    assertEquals(204, patchResponse.statusCode)
+    assertEquals(204, patch(pod.name, token, eventUri, writeContextUri, """{"@type":null}""").status)
 
-    val getResponse = httpClient.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId")
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $token")
-      .execute()
-    assertEquals(200, getResponse.statusCode)
-    val model = ByteArrayInputStream(getResponse.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
-    val rdfType = SimpleValueFactory.getInstance().createIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
-    val typeStatements = model.getStatements(eventUri.toIri(), rdfType, null, writeContextUri.toIri())
-    assertFalse(typeStatements.iterator().hasNext(), "rdf:type should be deleted, got: ${typeStatements.toList()}")
-    val nameStatements = model.getStatements(
-      eventUri.toIri(),
-      SimpleValueFactory.getInstance().createIRI("https://schema.org/name"),
-      null,
-      writeContextUri.toIri(),
-    )
+    val model = modelOf(pod.name, token, eventUri)
+    val typeStatements = model.filter(eventUri.toIri(), RDF.TYPE, null, writeContextUri.toIri())
+    assertTrue(typeStatements.isEmpty(), "rdf:type should be deleted, got: $typeStatements")
+    val nameStatements = model.filter(eventUri.toIri(), Values.iri("https://schema.org/name"), null, writeContextUri.toIri())
     assertTrue(nameStatements.any { it.`object`.stringValue() == name }, "schema:name must remain")
   }
 
@@ -1284,102 +1021,42 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `PUT with manage scope on context root should authorize writes to a slash-delimited descendant`() {
+  fun `PUT with manage scope on context root should authorize writes to a slash-delimited descendant`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    val rootContext = "apps/test-app/tasks"
-    val rootContextUri = sempodsUriBuilder.buildContext(pod.name, rootContext)
-    val childContext = "apps/test-app/tasks/child"
-    val childContextUri = sempodsUriBuilder.buildContext(pod.name, childContext)
-    podContextsDao.create(
-      podId = checkNotNull(pod.id),
-      contextUri = rootContextUri.toString(),
-      label = null, description = null, createdBy = "test",
-    )
-    podContextsDao.create(
-      podId = checkNotNull(pod.id),
-      contextUri = childContextUri.toString(),
-      label = null, description = null, createdBy = "test",
-    )
+    val (rootContextUri, childContextUri) = registerRootAndChild(pod)
     val manageRootToken = mintScopedToken(pod.name, listOf("${rootContextUri}#manage"))
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val nQuads = """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${childContextUri}> .
       <${eventUri}> <https://schema.org/name> "manage-descendant-${TestUtil.randomId()}" <${childContextUri}> .
     """.trimIndent()
-    val response = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", childContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $manageRootToken")
-      .setBody(nQuads)
-      .execute()
 
-    assertTrue(
-      response.statusCode in 200..299,
-      "manage on '$rootContextUri' must authorize writes to descendant '$childContextUri' (got ${response.statusCode})"
-    )
+    val put = podAs(pod.name, bearer = manageRootToken).resources()
+      .put(eventUri.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), SempodsWriteOptions.inContext(childContextUri.toString()))
+
+    assertEquals(201, put.status, "manage on '$rootContextUri' must authorize writes to descendant '$childContextUri'")
   }
 
   @Test
-  fun `GET with manage scope on context root should return statements from a slash-delimited descendant`() {
+  fun `GET with manage scope on context root should return statements from a slash-delimited descendant`() = withSetup {
     // Read-side counterpart to "PUT with manage scope … descendant". A service token
     // carrying only `<R>#manage` must reach `<R>/...` for reads too — otherwise a client
     // can write `<R>/events/abc` and immediately get 404 on GET. See
     // `SPS-GRANT-007` (sempods-spec).
     val pod = sempodsTestFactory.newPod()
-    val rootContext = "apps/test-app/tasks"
-    val rootContextUri = sempodsUriBuilder.buildContext(pod.name, rootContext)
-    val childContext = "apps/test-app/tasks/child"
-    val childContextUri = sempodsUriBuilder.buildContext(pod.name, childContext)
-    podContextsDao.create(
-      podId = checkNotNull(pod.id),
-      contextUri = rootContextUri.toString(),
-      label = null, description = null, createdBy = "test",
-    )
-    podContextsDao.create(
-      podId = checkNotNull(pod.id),
-      contextUri = childContextUri.toString(),
-      label = null, description = null, createdBy = "test",
-    )
+    val (rootContextUri, childContextUri) = registerRootAndChild(pod)
     val manageRootToken = mintScopedToken(pod.name, listOf("${rootContextUri}#manage"))
-
-    val eventId = TestUtil.randomId()
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = eventId)
+    val eventUri = sempodsTestFactory.eventUri(podName = pod.name)
     val nameLiteral = "manage-descendant-read-${TestUtil.randomId()}"
-    val nQuads = """
+    putNQuads(pod.name, manageRootToken, eventUri, childContextUri, """
       <${eventUri}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://schema.org/Event> <${childContextUri}> .
       <${eventUri}> <https://schema.org/name> "$nameLiteral" <${childContextUri}> .
-    """.trimIndent()
-    val putResponse = httpClient.preparePut(
-      withContext("${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId", childContextUri.toString())
-    )
-      .addHeader("Content-Type", "application/n-quads")
-      .addHeader("Authorization", "Bearer $manageRootToken")
-      .setBody(nQuads)
-      .execute()
-    assertTrue(
-      putResponse.statusCode in 200..299,
-      "precondition: write must succeed, got ${putResponse.statusCode}"
-    )
+    """.trimIndent())
 
-    val getResponse = httpClient.prepareGet(
-      "${SempodsModule.config.apiBaseUrl}${pod.name}/events/$eventId"
-    )
-      .addHeader("Accept", "application/n-quads")
-      .addHeader("Authorization", "Bearer $manageRootToken")
-      .execute()
+    val read = podAs(pod.name, bearer = manageRootToken).resources().getText(eventUri.toString(), SempodsGraphFormat.N_QUADS)
 
-    assertEquals(
-      200,
-      getResponse.statusCode,
-      "manage on '$rootContextUri' must authorize reads on descendant '$childContextUri' (got ${getResponse.statusCode})"
-    )
-    assertTrue(
-      getResponse.responseBody.contains(nameLiteral),
-      "GET body should include the literal stored in the descendant context"
-    )
+    assertEquals(200, read.status, "manage on '$rootContextUri' must authorize reads on descendant '$childContextUri'")
+    assertTrue(read.body.orEmpty().contains(nameLiteral), "the read should include the literal stored in the descendant context")
   }
 
   @Test
@@ -1585,6 +1262,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     val location = response.headers.get("Location")
     assertNotNull(location, "201 Created must include Location header")
     assertEquals(eventUri.toString(), location)
+    assertNull(response.headers.get("ETag"), "a creation carries no tag")
   }
 
   @Test
@@ -1905,7 +1583,7 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `GET with repeated context query parameter downscopes to the intersection`() {
+  fun `a read narrowed to selected contexts answers from those alone, and selecting none sends nothing`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (ctxA, _) = createContextWithToken(pod, "ctx-a")
     val (ctxB, _) = createContextWithToken(pod, "ctx-b")
@@ -1922,20 +1600,26 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     model.add(resource, vf.createIRI("https://schema.org/description"), vf.createLiteral("In B"), ctxB.toIri())
     model.add(resource, vf.createIRI("https://schema.org/text"), vf.createLiteral("In C"), ctxC.toIri())
     podFacade.putResourceModel(podName = pod.name, resourceUri = resourceUri, model = model)
+    val resources = podAs(pod.name, bearer = tokenAll).resources()
+    fun readIn(selection: SempodsContextSelection) =
+      resources.getText(resourceUri.toString(), SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(selection))
 
-    val url = "${resourceUri}?context=${URLEncoder.encode(ctxA.toString(), StandardCharsets.UTF_8)}" +
-        "&context=${URLEncoder.encode(ctxB.toString(), StandardCharsets.UTF_8)}"
-    val response = httpClient.prepareGet(url)
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $tokenAll")
-      .execute()
+    val onlyA = readIn(SempodsContextSelection.of(ctxA.toString()))
+    assertEquals(200, onlyA.status)
+    assertTrue(onlyA.body.orEmpty().contains("In A"), onlyA.body)
+    assertFalse(onlyA.body.orEmpty().contains("In B"), onlyA.body)
 
-    assertEquals(200, response.statusCode)
-    val body = JsonMappers.default().readValue(response.responseBody, Map::class.java)
+    val aAndB = readIn(SempodsContextSelection.of(ctxA.toString(), ctxB.toString()))
+    assertEquals(200, aAndB.status)
+    val body = JsonMappers.default().readValue(aAndB.body, Map::class.java)
     // Canonical JSON-LD: keys are absolute IRIs.
     assertTrue(body.containsKey("https://schema.org/name"), "A is in scope, name must be present")
     assertTrue(body.containsKey("https://schema.org/description"), "B is in scope, description must be present")
     assertFalse(body.containsKey("https://schema.org/text"), "C must be filtered out, intersection ⊂ {A,B}")
+
+    val none = readIn(SempodsContextSelection.none())
+    assertEquals(404, none.status)
+    assertEquals(0, none.headers.size, "none() is answered without a request")
   }
 
   @Test
@@ -2168,144 +1852,33 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  // ── The client core against this route ──────────────────────────────────────────
-
-
-  private fun <T> withCorePod(podName: String, auth: SempodsRequestAuth, block: (SempodsPod) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    try {
-      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client))
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
-  }
-
   @Test
-  fun `the client core creates, reads, patches and deletes a resource at its own address`() {
-    val pod = sempodsTestFactory.newPod()
-    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId()).toString()
-    val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
-    val jsonLd = """{"@id":"$eventUri","https://schema.org/name":"fresh-name"}"""
-
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val resources = core.resources()
-
-      val created = resources.put(eventUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
-      assertEquals(201, created.status)
-      assertEquals(eventUri, created.headers["Location"])
-      assertNull(created.headers["ETag"])
-      assertEquals(200, resources.put(eventUri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks).status)
-
-      val read = resources.getText(eventUri)
-      assertEquals(200, read.status)
-      assertTrue(read.body.orEmpty().contains("fresh-name"), read.body)
-      val tag = assertNotNull(read.headers["ETag"])
-      assertTrue(read.headers.values("Vary").any { vary -> vary.split(",").any { it.trim().equals("Accept", ignoreCase = true) } })
-      assertTrue(resources.getText(eventUri, SempodsGraphFormat.N_QUADS).body.orEmpty().contains("\"fresh-name\""))
-      val unchanged = resources.getBytes(eventUri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.defaults().withIfNoneMatch(tag))
-      assertEquals(304, unchanged.status)
-      assertNull(unchanged.body)
-
-      assertEquals(204, resources.patch(eventUri, SempodsContent.of("""{"https://schema.org/name":"patched-name"}"""), inTasks).status)
-      assertTrue(resources.getText(eventUri).body.orEmpty().contains("patched-name"))
-
-      assertEquals(204, resources.delete(eventUri, inTasks).status)
-      assertEquals(404, resources.getText(eventUri).status)
-      assertEquals(404, resources.delete(eventUri, inTasks).status)
-    }
-  }
-
-  @Test
-  fun `the client core gets 412 for a stale If-Match and for If-None-Match star on an existing resource`() {
-    val pod = sempodsTestFactory.newPod()
-    val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
-    val eventUri = sempodsTestFactory.eventUri(podName = pod.name, eventId = TestUtil.randomId())
-    sempodsTestFactory.seedEvent(pod = pod.name, eventUri = eventUri, context = writeContextUri, name = "live")
-    val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
-    val nQuads = "<$eventUri> <https://schema.org/name> \"second\" <$writeContextUri> .\n"
-
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val resources = core.resources()
-
-      val stale = resources.patch(
-        eventUri.toString(),
-        SempodsContent.of("""{"https://schema.org/name":"new"}"""),
-        inTasks.withIfMatch("\"definitely-not-the-current-tag\""),
-      )
-      assertEquals(412, stale.status)
-      assertNull(stale.body)
-      assertEquals(412, resources.put(eventUri.toString(), SempodsGraphFormat.N_QUADS, SempodsContent.of(nQuads), inTasks.withIfNoneMatch("*")).status)
-      assertTrue(resources.getText(eventUri.toString()).body.orEmpty().contains("live"))
-    }
-  }
-
-  @Test
-  fun `the client core narrows a read to selected contexts, groups it by context, and answers none itself`() {
-    val pod = sempodsTestFactory.newPod()
-    val (ctxA, _) = createContextWithToken(pod, "ctx-a")
-    val (ctxB, _) = createContextWithToken(pod, "ctx-b")
-    val tokenAB = mintScopedToken(podName = pod.name, scopes = listOf("${ctxA}#read", "${ctxB}#read"))
-    val resourceUri = URI("${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob")
-    val vf = SimpleValueFactory.getInstance()
-    val model = LinkedHashModel()
-    model.add(resourceUri.toIri(), vf.createIRI("https://schema.org/name"), vf.createLiteral("In A"), ctxA.toIri())
-    model.add(resourceUri.toIri(), vf.createIRI("https://schema.org/description"), vf.createLiteral("In B"), ctxB.toIri())
-    podFacade.putResourceModel(podName = pod.name, resourceUri = resourceUri, model = model)
-
-    withCorePod(pod.name, SempodsRequestAuth.bearer(tokenAB)) { core ->
-      val resources = core.resources()
-      val iri = resourceUri.toString()
-
-      val onlyA = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString())))
-      assertEquals(200, onlyA.status)
-      assertTrue(onlyA.body.orEmpty().contains("In A"), onlyA.body)
-      assertFalse(onlyA.body.orEmpty().contains("In B"), onlyA.body)
-
-      val both = SempodsReadOptions.of(SempodsContextSelection.of(ctxA.toString(), ctxB.toString())).withIncludeContexts(true)
-      val grouped = resources.getText(iri, SempodsGraphFormat.JSON_LD, both).body.orEmpty()
-      assertTrue(grouped.contains(ctxA.toString()) && grouped.contains(ctxB.toString()), grouped)
-
-      val unknown = SempodsContextSelection.of("${SempodsModule.config.apiBaseUrl}${pod.name}/not-a-real-context")
-      val fromPod = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(unknown))
-      assertEquals(404, fromPod.status)
-      assertTrue(fromPod.headers.size > 0, "the pod's 404 carries its headers")
-
-      val none = resources.getText(iri, SempodsGraphFormat.JSON_LD, SempodsReadOptions.of(SempodsContextSelection.none()))
-      assertEquals(404, none.status)
-      assertEquals(0, none.headers.size, "none() is answered without a request")
-    }
-  }
-
-  @Test
-  fun `an awkward IRI under the pod reads the same through both groups`() {
+  fun `an awkward IRI under the pod reads the same through both groups`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (writeContextUri, token) = createContextWithToken(pod, "apps/test-app/tasks")
     val inTasks = SempodsWriteOptions.inContext(writeContextUri.toString())
     val base = "${SempodsModule.config.apiBaseUrl}${pod.name}"
 
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      listOf("$base/notes/grüße", "$base/notes/a!\$&'()*+,;=:@-._~b", "$base/notes/a;b/c").forEach { iri ->
-        val jsonLd = """{"@id":"$iri","https://schema.org/name":"Grüße ✓"}"""
+    val core = podAs(pod.name, bearer = token)
+    listOf("$base/notes/grüße", "$base/notes/a!\$&'()*+,;=:@-._~b", "$base/notes/a;b/c").forEach { iri ->
+      val jsonLd = """{"@id":"$iri","https://schema.org/name":"Grüße ✓"}"""
 
-        val created = core.resources().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
-        assertEquals(201, created.status, iri)
+      val created = core.resources().put(iri, SempodsGraphFormat.JSON_LD, SempodsContent.of(jsonLd), inTasks)
+      assertEquals(201, created.status, iri)
 
-        val viaAddress = core.resources().getBytes(iri)
-        val viaSubjects = core.subjects().getBytes(iri)
-        assertEquals(200, viaAddress.status, iri)
-        assertContentEquals(viaAddress.body, viaSubjects.body, iri)
-        assertEquals(viaAddress.headers["ETag"], viaSubjects.headers["ETag"], iri)
-        assertTrue(String(assertNotNull(viaSubjects.body), Charsets.UTF_8).contains("Grüße ✓"), iri)
-      }
+      val viaAddress = core.resources().getBytes(iri)
+      val viaSubjects = core.subjects().getBytes(iri)
+      assertEquals(200, viaAddress.status, iri)
+      assertContentEquals(viaAddress.body, viaSubjects.body, iri)
+      assertEquals(viaAddress.headers["ETag"], viaSubjects.headers["ETag"], iri)
+      assertTrue(String(assertNotNull(viaSubjects.body), Charsets.UTF_8).contains("Grüße ✓"), iri)
     }
   }
 
   // ── The RDF4J adapter against this route ────────────────────────────────────────
 
   @Test
-  fun `the RDF4J adapter writes a model back under its read's tag, keeps other contexts, and gets 412 after a concurrent change`() {
+  fun `the RDF4J adapter writes a model back under its read's tag, keeps other contexts, and gets 412 after a concurrent change`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (tasks, _) = createContextWithToken(pod, "apps/test-app/tasks")
     val (notes, _) = createContextWithToken(pod, "apps/test-app/notes")
@@ -2323,33 +1896,32 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
     val inTasks = SempodsReadOptions.of(SempodsContextSelection.of(tasks.toString()))
     val intoTasks = SempodsWriteOptions.inContext(tasks.toString())
 
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val resources = SempodsRdf4jPod(core).resources()
+    val core = podAs(pod.name, bearer = token)
+    val resources = SempodsRdf4jPod(core).resources()
 
-      val read = resources.getModel(bob, inTasks)
-      val model = assertNotNull(read.body)
-      assertEquals(setOf(Values.iri(tasks.toString())), model.contexts())
-      model.remove(null, name, null)
-      model.add(Values.iri(bob), name, Values.literal("Robert"), Values.iri(tasks.toString()))
-      val written = resources.put(bob, model, intoTasks.withIfMatch(read.headers["ETag"]))
-      assertTrue(written.status in setOf(200, 204), "status ${written.status}")
+    val read = resources.getModel(bob, inTasks)
+    val model = assertNotNull(read.body)
+    assertEquals(setOf(Values.iri(tasks.toString())), model.contexts())
+    model.remove(null, name, null)
+    model.add(Values.iri(bob), name, Values.literal("Robert"), Values.iri(tasks.toString()))
+    val written = resources.put(bob, model, intoTasks.withIfMatch(read.headers["ETag"]))
+    assertTrue(written.status in setOf(200, 204), "status ${written.status}")
 
-      val both = assertNotNull(resources.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(tasks.toString(), notes.toString()))).body)
-      assertEquals(setOf(Values.iri(tasks.toString()), Values.iri(notes.toString())), both.contexts())
-      assertEquals("Robert", both.filter(null, name, null).single().`object`.stringValue())
-      assertEquals("Noted", both.filter(null, null, null, Values.iri(notes.toString())).single().`object`.stringValue())
+    val both = assertNotNull(resources.getModel(bob, SempodsReadOptions.of(SempodsContextSelection.of(tasks.toString(), notes.toString()))).body)
+    assertEquals(setOf(Values.iri(tasks.toString()), Values.iri(notes.toString())), both.contexts())
+    assertEquals("Robert", both.filter(null, name, null).single().`object`.stringValue())
+    assertEquals("Noted", both.filter(null, null, null, Values.iri(notes.toString())).single().`object`.stringValue())
 
-      val tag = resources.getModel(bob, inTasks).headers["ETag"]
-      core.resources().put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","https://schema.org/name":"Concurrent"}"""), intoTasks)
-      val refused = resources.put(bob, model, intoTasks.withIfMatch(tag))
-      assertEquals(412, refused.status)
-      assertNull(refused.body)
-      assertEquals("Concurrent", assertNotNull(resources.getModel(bob, inTasks).body).filter(null, name, null).single().`object`.stringValue())
-    }
+    val tag = resources.getModel(bob, inTasks).headers["ETag"]
+    core.resources().put(bob, SempodsGraphFormat.JSON_LD, SempodsContent.of("""{"@id":"$bob","https://schema.org/name":"Concurrent"}"""), intoTasks)
+    val refused = resources.put(bob, model, intoTasks.withIfMatch(tag))
+    assertEquals(412, refused.status)
+    assertNull(refused.body)
+    assertEquals("Concurrent", assertNotNull(resources.getModel(bob, inTasks).body).filter(null, name, null).single().`object`.stringValue())
   }
 
   @Test
-  fun `the RDF4J adapter sends a statement's other context as it is, and this server refuses it`() {
+  fun `the RDF4J adapter sends a statement's other context as it is, and this server refuses it`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (tasks, _) = createContextWithToken(pod, "apps/test-app/tasks")
     val (notes, _) = createContextWithToken(pod, "apps/test-app/notes")
@@ -2359,12 +1931,11 @@ class PodResourceEndpointHttpTest : SempodsIntegrationTest() {
       add(Values.iri(bob), Values.iri("https://schema.org/name"), Values.literal("Bob"), Values.iri(notes.toString()))
     }
 
-    withCorePod(pod.name, SempodsRequestAuth.bearer(token)) { core ->
-      val refused = assertFailsWith<SempodsStatusException> {
-        SempodsRdf4jPod(core).resources().put(bob, inNotes, SempodsWriteOptions.inContext(tasks.toString()))
-      }
-      assertEquals(400, refused.status)
-      assertEquals(404, core.resources().getText(bob).status)
+    val core = podAs(pod.name, bearer = token)
+    val refused = assertFailsWith<SempodsStatusException> {
+      SempodsRdf4jPod(core).resources().put(bob, inNotes, SempodsWriteOptions.inContext(tasks.toString()))
     }
+    assertEquals(400, refused.status)
+    assertEquals(404, core.resources().getText(bob).status)
   }
 }

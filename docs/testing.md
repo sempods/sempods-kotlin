@@ -87,6 +87,36 @@ each would quietly become an assertion about what the HTTP surface exposes. Pod 
 `AdminPodsEndpoint` performs both in order, so `SempodsIntegrationTest.deletePodViaAdminApi` goes
 through the admin route rather than calling the facade.
 
+## Client or raw HTTP
+
+**A route's happy path goes through the published client; the wire itself goes through
+`TestHttpClient`.** A test that drives the pod through `sempods-client` runs the official code on
+both ends, so drift between client and server fails in this suite before a consumer meets it.
+
+| Through the client | Raw HTTP (`TestHttpClient`) |
+|---|---|
+| A read, write, patch or delete that succeeds, a conditional read answered `304` | A refusal and its status: `400`, `401`, `403`, `404`, `406`, `412` |
+| What a consumer reads from the answer: the body, the model, a tag to send back | Exact headers and challenges: `WWW-Authenticate`, `Location`, `Vary`, `Allow`, `Retry-After`, cache headers |
+| | Error bodies, `HEAD`, `OPTIONS` |
+| | Input the client cannot or must not send: a wrong bearer, a repeated or blank `context`, an unparseable body, a reserved path |
+
+A test of the first column takes its session from `withSetup { }` — `podAs(pod.name)` for an
+anonymous caller, `podAs(pod.name, bearer = token)` for one holding a token, `rdfAs` for RDF4J
+values:
+
+```kotlin
+@Test
+fun `a public resource reads anonymously as JSON-LD`() = withSetup {
+  // … seed the event …
+  val read = podAs(pod.name).resources().getText(eventUri.toString())
+  assertEquals(200, read.status)
+}
+```
+
+Once a route's happy path runs through the client, the route needs no separate "the client core
+against this route" test: every happy-path test is that check. `PodResourceEndpointHttpTest` is the
+reference for the split; the other areas still use raw HTTP for both columns.
+
 ## The test observer
 
 `GuiceAppTestProxy` (`sempods-commons` test fixtures) binds a JDK interface proxy in place of a real
@@ -127,6 +157,10 @@ fun `a rejected request is challenged`() = withSetup {
 ```
 
 A new seam's test implementation joins the setup as one more nested `observe`.
+
+`podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
+implementations. Seeding (`SempodsTestPodAccess.podFor`, `seedEvent`) carries none: a fixture always
+reaches the real seams, and a test that changed one is not refused while it seeds.
 
 ## Stubbing an external API
 

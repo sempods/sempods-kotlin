@@ -74,6 +74,19 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a client session from the setup reaches its verifier, and seeding does not`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val seen = CopyOnWriteArrayList<PodResourceRequest>()
+    requestVerifier.answerWith { request, _ -> seen += request; PodTokenAuthentication.NoToken }
+
+    assertEquals(200, podAs(pod.name, bearer = "not-a-real-jwt").metadata().dateModified().status)
+    assertEquals(listOf("Bearer not-a-real-jwt"), seen.single().header("authorization"))
+
+    podAccess.podFor(pod.name).metadata().dateModified()
+    assertEquals(1, seen.size, "the seeding session reached the setup's verifier")
+  }
+
+  @Test
   fun `without an answer of its own a setup verifies with the real verifier`() = withSetup {
     val pod = sempodsTestFactory.newPod()
 

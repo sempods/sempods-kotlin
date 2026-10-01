@@ -21,7 +21,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Pod coordinates for the suite's own seeding, so pod seeding in a test goes over HTTP against the
- * in-JVM server rather than through an in-process shortcut.
+ * in-JVM server rather than through an in-process shortcut. Also the sessions a test's own client
+ * calls go out on ([sessionFor]).
  *
  * **The name resolution is the suite's own, and that is the point.** A session is bound to one pod
  * base URL and one credential; a suite that creates a pod per test holds names and resolves them
@@ -50,7 +51,15 @@ class SempodsTestPodAccess @Inject constructor(
   private val podContextsDao: PodContextsDao,
   private val podGrantsDao: PodGrantsDao,
   private val podTokenIssuer: PodTokenIssuer,
+  composedHttp: OkHttpClient,
 ) {
+
+  /**
+   * The client a test's own calls go out on: the one `SempodsModule` composes, so it carries the
+   * caller's trace, with the session policy installed on top — the same order
+   * `SempodsModule.mcpPodCalls` uses. Derived once; it shares the composed client's pool.
+   */
+  private val tracedHttp: OkHttpClient = SempodsOkHttp.install(composedHttp.newBuilder()).build()
 
   private val tokens = ConcurrentHashMap<String, CachedToken>()
 
@@ -60,6 +69,14 @@ class SempodsTestPodAccess @Inject constructor(
    * consulted until a call is made, so building one costs no mint.
    */
   fun podFor(pod: String): SempodsPod = SempodsPod(SempodsSession(baseOf(pod), authFor(pod)), http)
+
+  /**
+   * [pod] as a caller presenting [auth] sees it, on the caller's trace. Tests use
+   * [SempodsTestSetup.podAs]. [podFor] carries no trace; `docs/testing.md` §"The test observer"
+   * says why.
+   */
+  fun sessionFor(pod: String, auth: SempodsRequestAuth): SempodsPod =
+    SempodsPod(SempodsSession(baseOf(pod), auth), tracedHttp)
 
   /** [podFor] reading and writing RDF4J values. */
   fun rdfFor(pod: String): SempodsRdf4jPod = SempodsRdf4jPod(podFor(pod))
@@ -165,7 +182,8 @@ class SempodsTestPodAccess @Inject constructor(
 
     /**
      * One client for the whole suite, so seeding does not mint a connection pool per pod. It carries
-     * the session policy, without which a session's request does not resolve at all.
+     * the session policy, without which a session's request does not resolve at all, and no trace
+     * — see [sessionFor].
      */
     private val http: OkHttpClient = SempodsOkHttp.install(OkHttpClient.Builder()).build()
 
