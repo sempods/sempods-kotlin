@@ -179,6 +179,37 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a registration body the SDK throws on is answered 400 invalid_client_metadata`() {
+    // The first four fail inside the SDK's parser without its `ParseException`. The SDK refuses
+    // the last two itself; they are the same kind of mistake.
+    val pod = sempodsTestFactory.newPod()
+    val redirectUris = """"redirect_uris":["http://localhost:5173/callback"]"""
+    val bodies = listOf(
+      """{$redirectUris,"software_version":" "}""",
+      """{"redirect_uris":[null]}""",
+      """{$redirectUris,"request_uris":[null]}""",
+      """{$redirectUris,"jwks":{"keys":[null]}}""",
+      """{$redirectUris,"software_id":" "}""",
+      """{$redirectUris,"client_name":42}""",
+    )
+
+    val answers = bodies.associateWith { body ->
+      http.preparePost(registerUrl(pod.name))
+        .addHeader("Content-Type", "application/json")
+        .setBody(body)
+        .execute()
+    }
+
+    // Compared as one map, so a failure names every input it covers.
+    assertEquals(bodies.associateWith { 400 }, answers.mapValues { it.value.statusCode })
+    for ((body, response) in answers) {
+      @Suppress("UNCHECKED_CAST")
+      val error = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
+      assertEquals("invalid_client_metadata", error["error"], body)
+    }
+  }
+
+  @Test
   fun `a registration stored before the rule existed stops handing its value back`() {
     // The write-side check alone would not make the guarantee true. A repeat `/register` with the
     // same fingerprint returns the *stored* row untouched — the submitted metadata is discarded —

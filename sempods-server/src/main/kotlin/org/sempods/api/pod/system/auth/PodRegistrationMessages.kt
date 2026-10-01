@@ -46,6 +46,12 @@ internal object PodRegistrationMessages {
       ClientMetadata.parse(JSONObjectUtils.parse(text))
     } catch (e: ParseException) {
       return unreadable(errorOf(e), describe(e))
+    } catch (_: RuntimeException) {
+      // The SDK lets some failures past its `ParseException`: a blank `software_version` throws
+      // from the identifier's constructor, a `null` among the `redirect_uris`, `request_uris` or
+      // `jwks` keys from the constructor it reaches. Its parser has nothing to fail on but the
+      // body, so whatever it throws means the body is not client metadata.
+      return unreadable(PodRegistrationError.INVALID_CLIENT_METADATA, NOT_CLIENT_METADATA)
     }
 
     return PodRegistrationRead.Metadata(project(metadata), raw)
@@ -66,7 +72,7 @@ internal object PodRegistrationMessages {
 
   /** The SDK's own sentence, which names the member that failed. */
   private fun describe(e: ParseException): String =
-    e.errorObject?.description ?: e.message ?: "the registration body is not valid client metadata"
+    e.errorObject?.description ?: e.message ?: NOT_CLIENT_METADATA
 
   private fun project(metadata: ClientMetadata) = PodClientMetadata(
     redirectUris = metadata.redirectionURIStrings.orEmpty().mapNotNull(::trimmed).toSet(),
@@ -87,6 +93,8 @@ internal object PodRegistrationMessages {
 
   /** What an absent body is read as, so that both readers answer it the way they answer `{}`. */
   private const val EMPTY_BODY = "{}"
+
+  private const val NOT_CLIENT_METADATA = "the registration body is not valid client metadata"
 }
 
 /** A registration body, read or refused. */
