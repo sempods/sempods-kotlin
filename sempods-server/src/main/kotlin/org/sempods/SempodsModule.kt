@@ -39,6 +39,7 @@ import org.sempods.pods.oauth.flows.PodServiceRegistrationBudget
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodSignIn
+import org.sempods.pods.oauth.flows.PodSignInCompletion
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
@@ -214,6 +215,7 @@ class SempodsModule : BaseModule() {
     bind<PodServiceClientManagement>().asSingleton()
     bind<PodServiceConsentFlow>().asSingleton()
     bind<PodSignIn>().asSingleton()
+    bind<PodSignInCompletion>().asSingleton()
     bind<PodTokenExchange>().asSingleton()
     bind<PodServiceClientDao>().asSingleton()
     bind<PodServiceClientStore>().asSingleton()

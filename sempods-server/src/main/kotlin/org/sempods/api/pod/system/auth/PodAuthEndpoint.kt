@@ -8,13 +8,9 @@ import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import java.io.IOException
-import java.time.Instant
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
-import org.sempods.auth.PodIdentityProvider
-import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
@@ -35,6 +31,11 @@ import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentForm
 import org.sempods.pods.oauth.flows.PodServiceConsentRequest
 import org.sempods.pods.oauth.flows.PodServiceConsentResult
+import org.sempods.pods.oauth.flows.PodSignInCallback
+import org.sempods.pods.oauth.flows.PodSignInCompletion
+import org.sempods.pods.oauth.flows.PodSignInRefusal
+import org.sempods.pods.oauth.flows.PodSignInResult
+import org.sempods.pods.oauth.flows.PodSignInResumed
 import org.sempods.pods.oauth.flows.PodConsentForm
 import org.sempods.pods.oauth.flows.PodConsentResult
 import org.sempods.pods.oauth.flows.PodAuthorizeResult
@@ -55,8 +56,7 @@ class PodAuthEndpoint @Inject constructor(
   private val podSignOut: PodSignOut,
   private val tokenRateLimiter: PodTokenRateLimiter,
   private val registrationRateLimiter: PodRegistrationRateLimiter,
-  private val identityProvider: PodIdentityProvider,
-  private val loginStateStore: PodLoginStateStore,
+  private val podSignInCompletion: PodSignInCompletion,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(
@@ -284,24 +284,6 @@ class PodAuthEndpoint @Inject constructor(
     )
   }
 
-  /** Re-enters a service consent parked behind a sign-in. */
-  private fun resumeServiceConsent(
-    podDbo: PodDbo,
-    pending: PendingLogin,
-    session: SessionPrincipal,
-  ): Response = render(
-    podDbo.name,
-    podServiceConsentFlow.open(
-      pod = podDbo.hosted,
-      request = PodServiceConsentRequest(
-        clientId = pending.clientId,
-        redirectUri = pending.redirectUri,
-        state = pending.clientState,
-      ),
-      session = session,
-    ),
-  )
-
   // ─── OAuth token ──────────────────────────────────────────────────────────
 
   @POST
@@ -389,17 +371,7 @@ class PodAuthEndpoint @Inject constructor(
 
   // ─── JWKS ─────────────────────────────────────────────────────────────────
 
-  /**
-   * Where the id-server sends the browser back after a sign-in this server started.
-   *
-   * Everything of substance is server-side: `state` names a request parked by [PodAuthorizeFlow.authorize], and
-   * the identity is fetched from the id-server's token endpoint with a verifier that never
-   * travelled through the browser and checked against the nonce that flow sent. What arrived here
-   * is a code, which is worth nothing without both.
-   *
-   * The parked request is then re-entered, and re-validated from scratch — it may have waited
-   * fifteen minutes, and the pod's clients and grants can have moved in that time.
-   */
+  /** Where the id-server sends the browser back after a sign-in; [PodSignInCompletion] decides what it came to. */
   @GET
   @Path("oidc/callback")
   fun oidcCallback(
@@ -441,126 +413,43 @@ class PodAuthEndpoint @Inject constructor(
     errorDescription: String?,
     httpHeaders: HttpHeaders,
   ): Response {
-    // Consumed first and unconditionally: a replayed callback must find nothing, whether it
-    // carries a code, an error, or neither.
-    val pending = state?.trim()?.takeIf { it.isNotBlank() }?.let { loginStateStore.consume(it) }
-    if (pending == null || pending.pod != podDbo.name) {
-      return Response.status(400).entity("invalid or expired login state").type("text/plain").build()
-    }
-
-    // Login-CSRF / session fixation: this callback must complete in the SAME browser that started
-    // the sign-in, because it is about to establish a session here. Without it an attacker starts
-    // their own login, gets the callback URL opened in somebody else's browser, and that browser
-    // comes away signed in as the attacker. Checked before the code is exchanged — a callback
-    // opened in the wrong browser must cost nothing.
-    val presentedPin = httpHeaders.cookies[cookies.loginPinName(checkNotNull(state))]?.value
-    if (!Secrets.matches(presentedPin, pending.browserPin)) {
-      logger.warn {
-        "[oauth/authorize] login callback rejected: browser pin ${if (presentedPin == null) "absent" else "mismatch"} " +
-            "(pod='${podDbo.name}', clientId='${pending.clientId}')"
-      }
-      return Response.status(400)
-        .entity("this sign-in was not started in this browser — please start it again")
-        // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
-        .type("text/plain;charset=UTF-8")
-        .build()
-    }
-
-    if (error != null) {
-      logger.info {
-        "[oauth/authorize-audit] outcome=login_failed pod='${podDbo.name}' " +
-            "client_id='${pending.clientId}' error='$error'"
-      }
-      // The upstream provider's own verdict, translated rather than passed through: this pod's
-      // client learns what happened *to it*, and the codes do not mean the same thing one leg up.
-      //
-      // `access_denied` is a claim about a person, so only an actual refusal earns it. The default
-      // is deliberately the other way round from the obvious one: an unrecognised code is not
-      // evidence that anybody declined, and getting it wrong there makes a client record a decision
-      // that was never made — worse than offering a retry that fails again.
-      //
-      // What lands in `server_error` is broader than it looks. Besides the provider's own
-      // `server_error`, RFC 6749 §4.1.2.1's `invalid_request`, `unauthorized_client`,
-      // `invalid_scope` and `unsupported_response_type` all mean *this pod* sent a bad
-      // authorization request as relying party — a configuration fault its client can neither fix
-      // nor be blamed for.
-      val upstreamClass = when (error) {
-        // The refusal, in the two spellings this tree sees: RFC 6749's, and Apple's.
-        "access_denied", "user_cancelled_authorize" -> OAuthErrorCode.ACCESS_DENIED
-        "temporarily_unavailable" -> OAuthErrorCode.TEMPORARILY_UNAVAILABLE
-        else -> OAuthErrorCode.SERVER_ERROR
-      }
-      // The upstream code survives in the description even when the class above is not it, so a
-      // reclassification never costs the one detail an operator needs to find the cause. Both are
-      // the provider's text, so they pass RFC 6749 §4.1.2.1's character set before the client
-      // sees them.
-      val describedAs = errorDescription?.takeIf { it.isNotBlank() }
-        ?.let { if (it == error) it else "$error: $it" }
-        ?: error
-      return oauthErrorToParked(pending, upstreamClass, ErrorObject.removeIllegalChars(describedAs))
-    }
-    // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
-    // rather than `access_denied`, so a client does not record a decision that was never made.
-    val authorizationCode = code?.trim()?.takeIf { it.isNotBlank() }
-      ?: return oauthErrorToParked(pending, OAuthErrorCode.SERVER_ERROR, "no authorization code")
-
-    val verified = try {
-      identityProvider.relyingParty(podDbo.name)
-        .completeAuthorization(authorizationCode, pending.codeVerifier, pending.nonce)
-    } catch (e: Exception) {
-      // Transient by evidence rather than by guess: an `IOException` anywhere in the cause chain is
-      // the transport saying it could not reach the identity service — a connect or read failure,
-      // not a verdict. That is `temporarily_unavailable`, which a client may retry. Anything else
-      // reaching here is this server's own fault and says so.
-      val unreachable = generateSequence(e as Throwable?) { it.cause }.any { it is IOException }
-      val failureClass =
-        if (unreachable) OAuthErrorCode.TEMPORARILY_UNAVAILABLE else OAuthErrorCode.SERVER_ERROR
-      logger.warn(e) {
-        "[oauth/authorize] id-server token exchange failed: pod='${podDbo.name}', " +
-            "clientId='${pending.clientId}', answered='${failureClass.code}'"
-      }
-      return oauthErrorToParked(pending, failureClass, "login failed")
-    }
-
-    logger.info {
-      "[oauth/authorize] login completed: pod='${podDbo.name}', clientId='${pending.clientId}', " +
-          "webId='${verified.webId}'"
-    }
-    // Remember the sign-in on this pod's own origin, so the next authorization needs no round trip
-    // and `prompt=none` has something to answer with. Scoped to this pod: pods are isolated
-    // tenants, and on a path-scoped deployment they share a host.
-    // One instant for both: the cookie's `auth_time` and the principal this request runs under
-    // describe the same sign-in, and two `Instant.now()` calls would date it twice.
-    val authTime = Instant.now()
-    val aliases = identityProvider.aliasesOf(verified)
-    val sessionToken =
-      podTokenIssuer.issueSession(
-        podDbo.name, verified.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
-      )
-    val principal = SessionPrincipal(verified.webId, aliases, authTime)
-    val answer = if (pending.serviceConsent) resumeServiceConsent(podDbo, pending, principal) else render(
-      podDbo.name,
-      podAuthorizeFlow.authorize(
-        pod = podDbo.hosted,
-        request = PodAuthorizeRequest(
-          responseType = "code",
-          clientId = pending.clientId,
-          redirectUri = pending.redirectUri,
-          state = pending.clientState,
-          codeChallenge = pending.codeChallenge,
-          codeChallengeMethod = pending.codeChallengeMethod,
-          prompt = pending.prompt,
-          scope = pending.scope,
-        ),
-        session = principal,
-      ),
+    val callback = PodSignInCallback(
+      state = state,
+      code = code,
+      error = error,
+      errorDescription = errorDescription,
+      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
     )
-    // Attached once to whatever the flow answered — consent page, auto-granted code, or an error.
-    // [PodAuthorizeFlow] has a dozen exits and threading a cookie through each is how one gets
-    // missed.
-    return Response.fromResponse(answer)
-      .cookie(cookies.session(podDbo.name, sessionToken, PodTokenIssuer.SESSION_TTL_SECONDS.toInt()))
-      .build()
+    return when (val result = podSignInCompletion.complete(podDbo.hosted, callback)) {
+      is PodSignInResult.Refused -> when (result.refusal) {
+        PodSignInRefusal.UNKNOWN_STATE ->
+          Response.status(400).entity("invalid or expired login state").type("text/plain").build()
+
+        PodSignInRefusal.OTHER_BROWSER -> Response.status(400)
+          .entity("this sign-in was not started in this browser — please start it again")
+          // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
+          .type("text/plain;charset=UTF-8")
+          .build()
+      }
+
+      // The description may be the provider's text, so it passes RFC 6749 §4.1.2.1's character set
+      // before the client sees it.
+      is PodSignInResult.Failed ->
+        oauthErrorToParked(result.pending, result.error, ErrorObject.removeIllegalChars(result.description))
+
+      is PodSignInResult.SignedIn -> {
+        val answer = when (val resumed = result.resumed) {
+          is PodSignInResumed.Authorize -> render(podDbo.name, resumed.result)
+          is PodSignInResumed.ServiceConsent -> render(podDbo.name, resumed.result)
+        }
+        // Attached once to whatever the flow answered — consent page, auto-granted code, or an
+        // error. [PodAuthorizeFlow] has a dozen exits and threading a cookie through each is how
+        // one gets missed.
+        Response.fromResponse(answer)
+          .cookie(cookies.session(podDbo.name, result.sessionToken, PodTokenIssuer.SESSION_TTL_SECONDS.toInt()))
+          .build()
+      }
+    }
   }
 
   @GET
