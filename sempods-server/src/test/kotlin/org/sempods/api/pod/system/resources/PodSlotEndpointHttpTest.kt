@@ -322,7 +322,11 @@ class PodSlotEndpointHttpTest : SempodsIntegrationTest() {
         {"@value": "Bob H. Smith", "@language": "de"}
       ]
     """.trimIndent()
-    assertEquals(204, slots.put(bob, schemaName, SempodsContent.of(values), inContext(contextUri)).status)
+    val replaced = slots.put(bob, schemaName, SempodsContent.of(values), inContext(contextUri))
+    assertEquals(204, replaced.status)
+    // Every slot write echoes the slot's new tag (`SPS-CRUD-052`), and the next write may name it.
+    val tag = assertNotNull(replaced.headers["ETag"], "a slot PUT echoes the slot's tag")
+    assertEquals(204, slots.put(bob, schemaName, SempodsContent.of(values), inContext(contextUri).withIfMatch(tag)).status)
 
     val read = slots.getJson(bob, schemaName, selected(contextUri))
     assertEquals(200, read.status)
