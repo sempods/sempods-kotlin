@@ -5,13 +5,22 @@ import org.junit.jupiter.api.Test
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.api.assertPodBearerChallenge
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Values
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.pods.contexts.persist.PodContextsDao
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.pods.oauth.spi.PodRequestVerifier
 import org.sempods.pods.oauth.spi.PodResourceRequest
 import org.sempods.pods.oauth.spi.PodTokenAuthentication
 import org.sempods.pods.oauth.spi.PodTokenRejection
+import java.net.URI
+import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * The resource routes depend on the [PodRequestVerifier] boundary and on nothing behind it: another
@@ -22,6 +31,9 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var http: TestHttpClient
+
+  @Inject
+  private lateinit var podContextsDao: PodContextsDao
 
   private fun url(podName: String) = "${SempodsModule.config.apiBaseUrl}$podName/_system/meta/date-modified"
 
@@ -86,6 +98,50 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
 
     podAccess.podFor(pod.name).metadata().dateModified()
     assertEquals(1, seen.size, "the seeding session reached the setup's verifier")
+  }
+
+  @Test
+  fun `a caller another verifier vouches for is authorized by the grant store, on REST and SPARQL alike`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val (granted, withheld) = listOf("granted", "withheld").map { path ->
+      sempodsUriBuilder.buildContext(pod.name, path).also {
+        podContextsDao.create(podId = checkNotNull(pod.id), contextUri = it.toString(), label = null, description = null, createdBy = "test")
+      }
+    }
+    val webId = "https://id.test/${randomId()}"
+    // The grant rows; the token it returns is never sent, since the verifier below decides alone.
+    mintScopedToken(pod.name, listOf("$granted#read"), webId = webId)
+    val resource = URI("${SempodsModule.config.apiBaseUrl}${pod.name}/notes/${randomId()}")
+    val name = Values.iri("https://schema.org/name")
+    podFacade.putResourceModel(
+      podName = pod.name,
+      resourceUri = resource,
+      model = LinkedHashModel().apply {
+        add(Values.iri(resource.toString()), name, Values.literal("In granted"), Values.iri(granted.toString()))
+        add(Values.iri(resource.toString()), name, Values.literal("In withheld"), Values.iri(withheld.toString()))
+      },
+    )
+    requestVerifier.answerWith { _, _ ->
+      PodTokenAuthentication.Verified(
+        PodAccessToken(
+          clientId = "did:web:test.example",
+          sub = webId,
+          clientType = null,
+          scopeValues = emptySet(),
+          jti = randomId(),
+          issuedAt = Instant.now(),
+        ),
+      )
+    }
+    val caller = podAs(pod.name, bearer = "whatever-the-verifier-says")
+
+    val read = caller.resources().getText(resource.toString())
+    assertEquals(200, read.status)
+    assertTrue("In granted" in read.body.orEmpty(), read.body)
+    assertFalse("In withheld" in read.body.orEmpty(), read.body)
+
+    val names = caller.sparql().select("SELECT ?name WHERE { <$resource> <$name> ?name }")
+    assertEquals(listOf("In granted"), names.body?.column("name")?.map { it.value })
   }
 
   @Test

@@ -5,6 +5,11 @@ import com.google.inject.name.Named
 import com.google.inject.Singleton
 import org.sempods.commons.guice.BaseModule
 import org.sempods.pods.oauth.PodRequestVerifierObserver
+import org.sempods.ai.AiService
+import org.sempods.ai.AiServiceException
+import org.sempods.ai.AiStructuredOutputRequest
+import org.sempods.ai.AiStructuredOutputResponse
+import org.sempods.api.pod.system.ai.semweb.PodAiSemWebModule
 import org.sempods.commons.tests.TestUtil
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
@@ -47,6 +52,17 @@ data class SempodsTestModule(
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
 
     PodRequestVerifierObserver.bindTestProxy(binder())
+
+    // `SempodsModule` binds the AI routes only for a configured `AI_PROVIDER`, and the suite
+    // configures none. So it binds them here, with a provider that refuses every call: enough to
+    // test who reaches the routes, and nothing in the suite reaches a model.
+    bind<AiService>().toInstance(
+      object : AiService {
+        override fun generateStructuredOutput(request: AiStructuredOutputRequest): AiStructuredOutputResponse =
+          throw AiServiceException("the test suite configures no AI provider")
+      },
+    )
+    install(PodAiSemWebModule(httpPort = config.httpPort))
 
     bindMediaForTests()
   }

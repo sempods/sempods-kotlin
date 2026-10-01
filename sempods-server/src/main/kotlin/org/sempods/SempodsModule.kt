@@ -52,15 +52,12 @@ import org.sempods.ai.impls.ollama.OllamaAiConfig
 import org.sempods.ai.impls.ollama.OllamaAiService
 import org.sempods.ai.impls.openai.OpenAiConfig
 import org.sempods.ai.impls.openai.OpenAiService
-import org.sempods.ai.sem.AiSemFacade
-import org.sempods.ai.sem.AiSemShaclGuidanceDeriver
-import org.sempods.ai.sem.prompts.SempodsPromptBuilderFactory
 import org.sempods.api.PathSemicolonFilter
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.api.pod.resources.PodResourceEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.pod.resources.PodResourceWriteService
-import org.sempods.api.pod.system.ai.semweb.PodAiSemWebEndpoint
+import org.sempods.api.pod.system.ai.semweb.PodAiSemWebModule
 import org.sempods.api.pod.system.auth.*
 import org.sempods.api.pod.system.contexts.ContextRegistryCacheFilter
 import org.sempods.api.pod.system.contexts.PodContextsEndpoint
@@ -467,10 +464,7 @@ class SempodsModule : BaseModule() {
       "openai" -> bindOpenAiService()
       else -> throw IllegalStateException("unsupported AI_PROVIDER '$provider' (supported: disabled, ollama, openai)")
     }
-    bind<AiSemShaclGuidanceDeriver>().asSingleton()
-    bind<SempodsPromptBuilderFactory>().asSingleton()
-    bind<AiSemFacade>().asSingleton()
-    bindEndpoints(PodAiSemWebEndpoint::class.java)
+    install(PodAiSemWebModule(httpPort = config.httpPort))
   }
 
   private fun bindOllamaAiService() {
