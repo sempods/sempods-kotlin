@@ -40,7 +40,7 @@ class PodContextsManagementHttpTest : SempodsIntegrationTest() {
   private val codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 
   @Test
-  fun `the owner approves the authority in its own dialog, and the bearer creates and deletes any context`() {
+  fun `the owner approves the authority in its own dialog, and the bearer creates and deletes any context`() = withSetup {
     val owned = ownedPod()
     val page = authorizePage(owned, CONTEXTS_MANAGE_SCOPE)
     assertEquals(200, page.statusCode, page.responseBody)
@@ -53,16 +53,9 @@ class PodContextsManagementHttpTest : SempodsIntegrationTest() {
     assertEquals(CONTEXTS_MANAGE_SCOPE, tokens["scope"])
     val bearer = tokens["access_token"] as String
 
-    val created = http.preparePut(contextUrl(owned, "projects"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $bearer")
-      .setBody("{}")
-      .execute()
-    assertEquals(201, created.statusCode, created.responseBody)
-    val deleted = http.prepareDelete(contextUrl(owned, "projects"))
-      .addHeader("Authorization", "Bearer $bearer")
-      .execute()
-    assertEquals(204, deleted.statusCode, deleted.responseBody)
+    val contexts = podAs(owned.pod.name, bearer = bearer).contexts()
+    assertEquals(201, contexts.create(contextUrl(owned, "projects")).status)
+    assertEquals(204, contexts.delete(contextUrl(owned, "projects")).status)
   }
 
   @Test

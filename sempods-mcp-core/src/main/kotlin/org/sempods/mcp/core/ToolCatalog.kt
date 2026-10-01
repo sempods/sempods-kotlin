@@ -413,13 +413,13 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
    * each takes a required single `target` (one connected pod base URL), and on both variants a
    * required single `context_iri` (a string, not an array). Who may write where is entirely the
    * pod's decision — it resolves the context against its own registry and enforces the
-   * `<context_iri>#write` scope. A surface in front of it validates argument *shape* and forwards.
+   * `<context_iri>#write` grant. A surface in front of it validates argument *shape* and forwards.
    */
   private fun buildWriteSpecs(): List<Tool> = listOf(
     writeTool(
       "create_resource",
       "Create or replace a whole resource inside ONE context$oneTarget. Requires the " +
-        "`<context_iri>#write` (or `#manage`) scope on the target context.$authorizeHint\n\n" +
+        "`<context_iri>#write` (or `#manage`) grant on the target context.$authorizeHint\n\n" +
         "STRICT CONTRACT: exactly the declared top-level arguments. Any other field (observed " +
         "hallucinations: `statements`, `triples`, `quads`) is rejected by the schema.\n\n" +
         "The `jsonld` object is RDF-serialised via JSON-LD 1.1 expansion. That means:\n" +
@@ -490,7 +490,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "      \"https://schema.org/oldField\": null\n" +
         "    }\n" +
         "  }\n\n" +
-        "Requires the `<context_iri>#write` (or `#manage`) scope.$authorizeHint",
+        "Requires the `<context_iri>#write` (or `#manage`) grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the context (graph) the resource lives in."),
         "resource_iri" to prop("string", "Absolute IRI of the resource to patch — local or external (did:, urn:, foreign https://…)."),
@@ -504,7 +504,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
       "Delete a resource from ONE context$oneTarget. ALWAYS confirm the target resource_iri and " +
         "context_iri with the user before calling. Optional `if_match` makes the delete conditional " +
         "(no-op-safe lost-update protection). Requires the `<context_iri>#write` (or `#manage`) " +
-        "scope.$authorizeHint",
+        "grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the context (graph) the resource lives in."),
         "resource_iri" to prop("string", "Absolute IRI of the resource to delete — local or external (did:, urn:, foreign https://…)."),
@@ -532,7 +532,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "`value` is a JSON-LD value object: `{\"@id\": \"<iri>\"}` for an IRI value, or " +
         "`{\"@value\": \"…\", \"@language\": \"…\"}` / `{\"@value\": \"…\", \"@type\": \"…\"}` for a " +
         "literal.\n\n" +
-        "Requires the `<context_iri>#write` (or `#manage`) scope.$authorizeHint",
+        "Requires the `<context_iri>#write` (or `#manage`) grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the writable context. Use one of the writable_contexts from `list_contexts`."),
         "subject_iri" to prop("string", "Absolute IRI of the subject. May be a local pod resource or an external URI (did:, urn:, …)."),
@@ -549,7 +549,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "the new value), shrinking a multivalued slot, or wholesale replacing the values of one " +
         "property without touching other properties of the same resource.\n\n" +
         "`values` is a JSON array of JSON-LD value objects; an empty array clears the slot.\n\n" +
-        "Requires the `<context_iri>#write` (or `#manage`) scope.$authorizeHint",
+        "Requires the `<context_iri>#write` (or `#manage`) grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the writable context."),
         "subject_iri" to prop("string", "Absolute IRI of the subject (local or external)."),
@@ -568,7 +568,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "exist\" patterns without a prior read.\n\n" +
         "Literal values cannot be removed with this tool — use `set_property_values` after reading " +
         "the slot client-side.\n\n" +
-        "Requires the `<context_iri>#write` (or `#manage`) scope.$authorizeHint",
+        "Requires the `<context_iri>#write` (or `#manage`) grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the writable context."),
         "subject_iri" to prop("string", "Absolute IRI of the subject."),
@@ -585,7 +585,7 @@ class ToolCatalog private constructor(val variant: ToolVariant) {
         "intact.\n\n" +
         "Idempotent: an already-empty slot succeeds with `outcome=already_empty` instead of " +
         "failing.\n\n" +
-        "Requires the `<context_iri>#write` (or `#manage`) scope.$authorizeHint",
+        "Requires the `<context_iri>#write` (or `#manage`) grant.$authorizeHint",
       properties = mapOf(
         "context_iri" to prop("string", "Absolute IRI of the writable context."),
         "subject_iri" to prop("string", "Absolute IRI of the subject."),

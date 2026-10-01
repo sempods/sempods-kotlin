@@ -9,6 +9,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.SempodsTestModule
+import org.sempods.SempodsTestSetup
 import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.media.PodMediaRef
@@ -16,6 +17,8 @@ import org.sempods.pods.media.PodMediaStore
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.media.PodMediaSource
+import org.sempods.media.UploadedMedia
+import org.sempods.client.SempodsResponse
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
@@ -117,6 +120,19 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
       .setBody(content)
       .execute()
 
+  /** [content] stored in [context] through the media client. */
+  private fun SempodsTestSetup.uploaded(
+    pod: PodDbo,
+    context: URI,
+    token: String,
+    content: String = "bytes-${randomId()}",
+    contentType: String = "image/png",
+    filename: String? = null,
+  ): SempodsResponse<UploadedMedia> {
+    val bytes = content.toByteArray()
+    return mediaAs(pod.name, bearer = token).upload(context.toString(), contentType, { bytes.inputStream() }, bytes.size.toLong(), filename)
+  }
+
   /** The contexts a metadata response reports — one per assignment it was allowed to show. */
   private fun assignedContexts(response: TestHttpResponse): Set<String> =
     assignmentsOf(response).mapTo(HashSet()) { it["context"] as String }
@@ -137,12 +153,32 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   // ─── upload ────────────────────────────────────────────────────────────────
 
   @Test
-  fun `upload stores the bytes and answers with the media and its content url`() {
+  fun `upload stores the bytes and answers with the media and its content url`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
     val content = "png-bytes-${randomId()}"
 
-    val response = upload(pod, context, token, content = content, filename = "photo.png")
+    val response = uploaded(pod, context, token, content = content, filename = "photo.png")
+
+    assertEquals(201, response.status)
+    val stored = assertNotNull(response.body)
+    assertEquals(URI(contentUrl(pod.name, stored.mediaId)), stored.contentUrl)
+
+    val metadata = JsonMappers.default().readValue(readMetadata(pod.name, stored.mediaId, token).responseBody, Map::class.java)
+    assertEquals(content.length, (metadata["size"] as Number).toInt())
+    // Everything descriptive hangs off the assignment, not the object — see MediaAssignment.
+    val assignment = (metadata["assignments"] as List<*>).single() as Map<*, *>
+    assertEquals(context.toString(), assignment["context"])
+    assertEquals("image/png", assignment["content_type"])
+    assertEquals("photo.png", assignment["filename"])
+  }
+
+  @Test
+  fun `an upload, of bytes or from a source, locates its content and answers with nothing but where it is`() {
+    val pod = sempodsTestFactory.newPod()
+    val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
+
+    val response = upload(pod, context, token, filename = "photo.png")
 
     assertEquals(201, response.statusCode)
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java)
@@ -152,17 +188,9 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     // Where it is, and nothing about it — see `upload answers with no metadata at all` below.
     assertEquals(setOf("id", "content_url"), body.keys)
 
-    val metadata = JsonMappers.default().readValue(
-      httpClient.prepareGet(mediaUrl(pod.name, mediaId)).addHeader("Authorization", "Bearer $token")
-        .execute().responseBody,
-      Map::class.java,
-    )
-    assertEquals(content.length, (metadata["size"] as Number).toInt())
-    // Everything descriptive hangs off the assignment, not the object — see MediaAssignment.
-    val assignment = (metadata["assignments"] as List<*>).single() as Map<*, *>
-    assertEquals(context.toString(), assignment["context"])
-    assertEquals("image/png", assignment["content_type"])
-    assertEquals("photo.png", assignment["filename"])
+    val fetched = uploadFromSource(pod, context, token, """{"source_url": "${sourceUrl("/image.png")}", "filename": "poster.png"}""")
+    assertEquals(201, fetched.statusCode)
+    assertEquals(contentUrl(pod.name, mediaIdOf(fetched)), fetched.getHeader("Location"))
   }
 
   @Test
@@ -185,7 +213,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `uploading the same bytes twice yields one media with both contexts`() {
+  fun `uploading the same bytes twice yields one media with both contexts`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/${randomId()}"
     val first = sempodsUriBuilder.buildContext(pod.name, "tests/one-${randomId()}")
@@ -200,17 +228,17 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     )
     val content = "identical-${randomId()}"
 
-    val firstUpload = upload(pod, first, token, content = content)
-    val secondUpload = upload(pod, second, token, content = content)
+    val firstUpload = uploaded(pod, first, token, content = content)
+    val secondUpload = uploaded(pod, second, token, content = content)
 
     // Both 201, and deliberately so: a 200-vs-201 distinction would tell an uploader that this pod
     // already holds a given file, in contexts they may not be able to read.
-    assertEquals(201, firstUpload.statusCode)
-    assertEquals(201, secondUpload.statusCode)
-    assertEquals(mediaIdOf(firstUpload), mediaIdOf(secondUpload))
+    assertEquals(201, firstUpload.status)
+    assertEquals(201, secondUpload.status)
+    val mediaId = assertNotNull(firstUpload.body).mediaId
+    assertEquals(mediaId, assertNotNull(secondUpload.body).mediaId)
 
-    val metadata = httpClient.prepareGet(mediaUrl(pod.name, mediaIdOf(firstUpload)))
-      .addHeader("Authorization", "Bearer $token").execute()
+    val metadata = readMetadata(pod.name, mediaId, token)
     assertEquals(setOf(first.toString(), second.toString()), assignedContexts(metadata))
   }
 
@@ -546,7 +574,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   // ─── assignment ────────────────────────────────────────────────────────────
 
   @Test
-  fun `a context-copy makes the media readable from the second context`() {
+  fun `a context-copy makes the media readable from the second context`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val webId = "https://id.test/${randomId()}"
     val source = sempodsUriBuilder.buildContext(pod.name, "tests/source-${randomId()}")
@@ -554,14 +582,13 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     podContextsDao.create(checkNotNull(pod.id), source.toString(), null, null, "test")
     podFacade.createContext(podName = pod.name, contextUri = target, public = true, label = "", description = null)
     val token = mintScopedToken(pod.name, listOf("$source#read", "$source#write", "$target#write"), webId = webId)
-    val mediaId = mediaIdOf(upload(pod, source, token))
+    val mediaId = assertNotNull(uploaded(pod, source, token).body).mediaId
 
     assertEquals(404, httpClient.prepareGet(contentUrl(pod.name, mediaId)).execute().statusCode)
 
-    val assign = http.prepare("PUT", mediaUrl(pod.name, mediaId, target))
-      .addHeader("Authorization", "Bearer $token").execute()
+    val assign = mediaAs(pod.name, bearer = token).assign(mediaId, target.toString())
 
-    assertEquals(204, assign.statusCode)
+    assertEquals(204, assign.status)
     assertEquals(
       200,
       httpClient.prepareGet(contentUrl(pod.name, mediaId)).execute().statusCode,
@@ -585,16 +612,15 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `unassigning the last context leaves the bytes and stops serving them`() {
+  fun `unassigning the last context leaves the bytes and stops serving them`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/public-${randomId()}", public = true)
-    val mediaId = mediaIdOf(upload(pod, context, token))
+    val mediaId = assertNotNull(uploaded(pod, context, token).body).mediaId
     assertEquals(200, httpClient.prepareGet(contentUrl(pod.name, mediaId)).execute().statusCode)
 
-    val unassign = http.prepare("DELETE", mediaUrl(pod.name, mediaId, context))
-      .addHeader("Authorization", "Bearer $token").execute()
+    val unassign = mediaAs(pod.name, bearer = token).unassign(mediaId, context.toString())
 
-    assertEquals(204, unassign.statusCode)
+    assertEquals(204, unassign.status)
     assertEquals(
       404,
       httpClient.prepareGet(contentUrl(pod.name, mediaId)).execute().statusCode,
@@ -627,18 +653,17 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `unassigning twice answers the same both times`() {
+  fun `unassigning twice answers the same both times`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
-    val mediaId = mediaIdOf(upload(pod, context, token))
+    val mediaId = assertNotNull(uploaded(pod, context, token).body).mediaId
+    val media = mediaAs(pod.name, bearer = token)
 
-    val first = http.prepare("DELETE", mediaUrl(pod.name, mediaId, context))
-      .addHeader("Authorization", "Bearer $token").execute()
-    val second = http.prepare("DELETE", mediaUrl(pod.name, mediaId, context))
-      .addHeader("Authorization", "Bearer $token").execute()
+    val first = media.unassign(mediaId, context.toString())
+    val second = media.unassign(mediaId, context.toString())
 
-    assertEquals(204, first.statusCode)
-    assertEquals(204, second.statusCode, "ensure-absent is satisfied by doing nothing")
+    assertEquals(204, first.status)
+    assertEquals(204, second.status, "ensure-absent is satisfied by doing nothing")
   }
 
   @Test
@@ -725,22 +750,17 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a source descriptor stores what the pod fetched`() {
+  fun `a source descriptor stores what the pod fetched`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
 
-    val response = uploadFromSource(
-      pod,
-      context,
-      token,
-      """{"source_url": "${sourceUrl("/image.png")}", "filename": "poster.png"}""",
-    )
+    val response = mediaAs(pod.name, bearer = token).uploadFromUrl(context.toString(), sourceUrl("/image.png"), filename = "poster.png")
 
-    assertEquals(201, response.statusCode)
-    val mediaId = mediaIdOf(response)
-    assertEquals(contentUrl(pod.name, mediaId), response.getHeader("Location"))
+    assertEquals(201, response.status)
+    val stored = assertNotNull(response.body)
+    assertEquals(URI(contentUrl(pod.name, stored.mediaId)), stored.contentUrl)
 
-    val content = httpClient.prepareGet(contentUrl(pod.name, mediaId))
+    val content = httpClient.prepareGet(contentUrl(pod.name, stored.mediaId))
       .addHeader("Authorization", "Bearer $token").execute()
     assertEquals(200, content.statusCode)
     assertEquals(SOURCE_BODY, content.responseBody)
@@ -749,23 +769,23 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
       content.contentType.orEmpty().startsWith("image/png"),
       "expected the source's type, got '${content.contentType}'",
     )
-    assertEquals("poster.png", readAssignments(mediaUrl(pod.name, mediaId), token).single()["filename"])
+    assertEquals("poster.png", readAssignments(mediaUrl(pod.name, stored.mediaId), token).single()["filename"])
   }
 
   @Test
-  fun `the same bytes are one media whichever way they arrived`() {
+  fun `the same bytes are one media whichever way they arrived`() = withSetup {
     // The id is the content hash, so the two ingestion paths cannot produce two objects — and the
     // second one answers 201 like the first, because saying "already here" is the leak the uniform
     // status exists to avoid.
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
 
-    val fetched = uploadFromSource(pod, context, token, """{"source_url": "${sourceUrl("/image.png")}"}""")
-    val posted = upload(pod, context, token, content = SOURCE_BODY)
+    val fetched = mediaAs(pod.name, bearer = token).uploadFromUrl(context.toString(), sourceUrl("/image.png"))
+    val posted = uploaded(pod, context, token, content = SOURCE_BODY)
 
-    assertEquals(201, fetched.statusCode)
-    assertEquals(201, posted.statusCode)
-    assertEquals(mediaIdOf(fetched), mediaIdOf(posted))
+    assertEquals(201, fetched.status)
+    assertEquals(201, posted.status)
+    assertEquals(assertNotNull(fetched.body).mediaId, assertNotNull(posted.body).mediaId)
   }
 
   @Test
@@ -870,7 +890,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a JSON document is still an ordinary upload`() {
+  fun `a JSON document is still an ordinary upload`() = withSetup {
     // What the vendor media type buys: the upload route consumes anything, so JSON is a perfectly
     // ordinary media. If the descriptor sat on `application/json` this body would be read as an
     // instruction instead of stored.
@@ -878,10 +898,10 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     val (context, token) = contextWithToken(pod, "tests/media-${randomId()}")
     val document = """{"source_url": "${sourceUrl("/image.png")}"}"""
 
-    val response = upload(pod, context, token, content = document, contentType = "application/json")
+    val response = uploaded(pod, context, token, content = document, contentType = "application/json")
 
-    assertEquals(201, response.statusCode)
-    val content = httpClient.prepareGet(contentUrl(pod.name, mediaIdOf(response)))
+    assertEquals(201, response.status)
+    val content = httpClient.prepareGet(contentUrl(pod.name, assertNotNull(response.body).mediaId))
       .addHeader("Authorization", "Bearer $token").execute()
     assertEquals(document, content.responseBody)
   }
