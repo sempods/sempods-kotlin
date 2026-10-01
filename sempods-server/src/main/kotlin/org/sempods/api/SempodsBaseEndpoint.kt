@@ -28,7 +28,8 @@ import org.sempods.pods.mongo.persist.toRef
 import org.sempods.pods.oauth.PodAccessToken
 import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenAuthentication
-import org.sempods.pods.oauth.PodTokenAuthenticator
+import org.sempods.pods.oauth.PodRequestVerifier
+import org.sempods.pods.oauth.PodResourceRequest
 import org.sempods.pods.oauth.PodTokenRejection
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDbo
@@ -51,7 +52,7 @@ open class SempodsBaseEndpoint(
   private lateinit var sempodsUriBuilder: SempodsUriBuilder
 
   @Inject
-  private lateinit var podTokenAuthenticator: PodTokenAuthenticator
+  private lateinit var podRequestVerifier: PodRequestVerifier
 
   @Inject
   private lateinit var podAuthorizer: PodAuthorizer
@@ -188,24 +189,37 @@ open class SempodsBaseEndpoint(
   }
 
   /**
-   * [PodTokenAuthenticator.authenticate], and a verified token whose person has signed out of the pod
+   * [PodRequestVerifier.verify], and a verified token whose person has signed out of the pod
    * since it was issued refused as an invalid one — a 401, so a client refreshes, finds its family
    * revoked and starts again.
    *
-   * The authenticator reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
+   * The verifier reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
    * may replace, and no deployment may drop a sign-out.
    *
    * The pod comes as the row this request just read, because [PodSignOut] is asked for the id on it
    * rather than for a name to resolve — see its KDoc.
    */
   private fun authenticateBearer(podDbo: PodDbo, podRef: PodRef): PodTokenAuthentication =
-    when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
+    when (val outcome = podRequestVerifier.verify(resourceRequest(), podRef)) {
       is PodTokenAuthentication.Verified ->
         if (podSignOut.accessTokenStands(podDbo.podId(), outcome.token)) outcome
         else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
 
       else -> outcome
     }
+
+  /**
+   * This request as a [PodResourceRequest]: its target is the address this deployment is known by
+   * ([SempodsConfig.apiBaseUrl]), not the one it arrived on.
+   */
+  private fun resourceRequest(): PodResourceRequest {
+    val context = currentRequestContext()
+    return PodResourceRequest(
+      method = context.method,
+      target = currentRequestUri(config.apiBaseUrl),
+      headers = context.headers.mapValues { it.value.toList() },
+    )
+  }
 
   private fun throwInvalidBearer(podName: String): Nothing {
     throw InvalidBearerException(

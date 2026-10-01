@@ -8,18 +8,20 @@ import org.sempods.auth.core.JwtVerifier
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.SigningKeys
 import org.sempods.auth.core.stringClaimOrNull
+import org.sempods.commons.net.BearerAuth
 import org.sempods.spec.PodRef
 import java.time.Instant
 
 /**
  * Verifies an incoming pod bearer token: protocol, not policy.
  *
- * This is one half of what `SempodsBaseEndpoint.resolveOAuthAccess` used to do in one piece. It
- * answers *who is calling and is the token good* — signature, expiry, the issuer being this pod,
+ * The production [PodRequestVerifier], and one half of what the endpoint's bearer handling used to
+ * do in one piece. It answers *who is calling and is the token good* — signature, expiry, the issuer being this pod,
  * and the claims a caller is identified by. It answers nothing about **what** the caller may
- * reach; that is [org.sempods.pods.grants.PodAuthorizer], which is a seam, while this is
- * deliberately a concrete class: every deployment of this server verifies the same self-issued
- * JWT against the same keys, so there is nothing here for a deployment to select.
+ * reach; that is [org.sempods.pods.grants.PodAuthorizer]. Nothing here is selected per deployment:
+ * every deployment verifies the same self-issued JWT against the same keys. What is replaceable is
+ * the [PodRequestVerifier] boundary the endpoints depend on, so a verification that needs more than
+ * the bearer string can stand behind it.
  *
  * A token that verifies here can still be refused: its person may have signed out of the pod since
  * it was issued, which only a store can say — `SempodsBaseEndpoint` asks [PodSignOut] after this.
@@ -30,13 +32,20 @@ import java.time.Instant
  */
 class PodTokenAuthenticator @Inject constructor(
   signingKeys: SigningKeys,
-) {
+) : PodRequestVerifier {
 
   /**
    * Built once, over the keys [SigningKeys] parsed at boot. Every token this pod accepts is one it
    * minted, so the local mode is the whole of it — there is no foreign issuer to fetch from.
    */
   private val jwtVerifier = JwtVerifier.localKeys(signingKeys.publicKeys)
+
+  /**
+   * Reads the bearer from the `Authorization` header and verifies it with [authenticate]. Method and
+   * target play no part: a bearer is not bound to the request it travels on.
+   */
+  override fun verify(request: PodResourceRequest, pod: PodRef): PodTokenAuthentication =
+    authenticate(BearerAuth.parse(request.header("Authorization").takeIf { it.isNotEmpty() }?.joinToString(",")), pod)
 
   /**
    * Verifies [bearerToken] against [pod]. A `null` or blank token is [PodTokenAuthentication.NoToken]

@@ -43,6 +43,7 @@ import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
+import org.sempods.pods.oauth.PodRequestVerifier
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.admin.StaticCredentialAdminAuthorizer
@@ -190,6 +191,7 @@ class SempodsModule : BaseModule() {
     bind<PodContextPermissionResolver>().asSingleton()
     bind<PodGrantsFacade>().asSingleton()
     bind<PodTokenAuthenticator>().asSingleton()
+    bind<PodRequestVerifier>().to(PodTokenAuthenticator::class.java)
     bindPodAuthorizer()
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()

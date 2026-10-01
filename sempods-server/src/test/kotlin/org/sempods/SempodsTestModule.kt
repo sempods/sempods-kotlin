@@ -13,6 +13,8 @@ import org.sempods.auth.core.HttpTransport
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
+import org.sempods.pods.oauth.PodRequestVerifier
+import org.sempods.pods.oauth.PodRequestVerifierTestDouble
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient
 import okhttp3.OkHttpClient
@@ -44,6 +46,10 @@ data class SempodsTestModule(
     val adminAuthorizer = AdminAuthorizerTestDouble()
     bind<AdminAuthorizer>().toInstance(adminAuthorizer)
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
+
+    // The real verifier unless a test replaces it for its own pod — see the double.
+    bind<PodRequestVerifierTestDouble>().asSingleton()
+    bind<PodRequestVerifier>().to(PodRequestVerifierTestDouble::class.java)
 
     bindMediaForTests()
   }
