@@ -335,8 +335,11 @@ All property-value tools:
   operations internally. MCP callers pass IRIs, not base64url path
   segments;
 - return the slot's new `etag` in their result, and accept an optional
-  `if_match` (except `remove_property_value`). Read a slot's current `etag` with
-  `get_property_values` (single `context_iri`);
+  `if_match`. Read a slot's current `etag` with `get_property_values`
+  (single `context_iri`). The tag does not order changes in a source
+  outside the pod; the KDoc of
+  [`SempodsPodSlots`](../../sempods-client/src/main/kotlin/org/sempods/client/SempodsPodSlots.kt)
+  shows why;
 - report `outcome` where the operation is idempotent and the status
   cannot say what happened — `created`/`already_present`,
   `cleared`/`already_empty`, `removed`/`already_absent`. It is the pod's
@@ -409,6 +412,8 @@ Arguments:
 - `subject_iri: string`
 - `predicate_iri: string`
 - `target_iri: string`
+- `if_match: string` (optional) — the slot's tag. An edge has none of its
+  own ([`SPS-CRUD-059`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md#SPS-CRUD-059)).
 
 ### Picking the right write tool
 

@@ -219,7 +219,7 @@ class McpEndpoint @Inject constructor(
       verifying via discovery first. Different pods use different vocabularies.
 
       WRITE TOOLS — `create_resource` / `update_resource` / `delete_resource`:
-      - Require a `<context_iri>#write` (or `#manage`) OAuth scope on the target context.
+      - Require a `<context_iri>#write` (or `#manage`) grant on the target context.
       $writableHint
       - The `context_iri` you use when calling a write tool MUST be one of the writable
         contexts listed above. Do not invent or derive IRIs — the server rejects writes
@@ -229,7 +229,7 @@ class McpEndpoint @Inject constructor(
         is available and the user's intent clearly matches what that context is for.
       - `resource_iri` may be ANY absolute IRI — a resource in this pod or an external URI
         (`did:`, `urn:`, foreign `https://...`). What a statement is *about* is independent
-        of where it is stored: the `context_iri` decides that, and its write scope is what
+        of where it is stored: the `context_iri` decides that, and its write grant is what
         governs the call.
       - Do NOT derive `resource_iri` from `context_iri`. Nothing at or under
         $podBaseUrl/_system/contexts can be a resource: that is where this pod's context
@@ -285,17 +285,16 @@ class McpEndpoint @Inject constructor(
 
       CONDITIONAL WRITES — `if_match`:
       - `update_resource`, `delete_resource`, `add_property_value`, `set_property_values`,
-        and `clear_property_values` accept an optional `if_match` string. Get the ETag from a
-        read of the context you write — `get_resource` or `get_property_values` with
-        `context_iri` naming exactly that context — or, for slots, from the `etag` the
-        property-value write tools return. Resource writes return no `etag`: read again.
-        Surrounding quotes are optional.
+        `remove_property_value` and `clear_property_values` accept an optional `if_match`
+        string. Get the ETag from a read of the context you write — `get_resource` or
+        `get_property_values` with `context_iri` naming exactly that context — or, for slots,
+        from the `etag` the property-value write tools return. Resource writes return no
+        `etag`: read again. Surrounding quotes are optional.
       - On mismatch the tool surfaces an `isError: true` precondition result. Re-read the
         current state and decide.
       - Omitting `if_match` is the default — writes go through unconditionally.
       - `create_resource` accepts `if_none_match: "*"` for create-or-fail (fails if the
         resource already exists) instead of its default upsert.
-      - `remove_property_value` does NOT take `if_match`; it removes unconditionally.
 
       REJECTED IN SPARQL: INSERT / DELETE / LOAD / CLEAR / CREATE / DROP / COPY / MOVE / ADD
       and SERVICE (SSRF protection). Use the write tools for mutations.
@@ -692,7 +691,7 @@ class McpEndpoint @Inject constructor(
     return Tool(
       name = "authorize",
       description = "Start (or restart) the OAuth authorization flow for this pod. " +
-          "Concerned with scopes/grants (which contexts the session may read or write), " +
+          "Concerned with grants (which contexts the session may read or write), " +
           "not with identity (that is handled by the underlying login). " +
           "Idempotent by default: when called without a valid bearer the server returns " +
           "HTTP 401 with a WWW-Authenticate Bearer challenge that points at the " +
@@ -703,7 +702,7 @@ class McpEndpoint @Inject constructor(
           "an interactive auth flow has actually completed. " +
           "Pass `reauthorize: true` to force the OAuth flow to start again even " +
           "when the session is already authorized; use this to request additional " +
-          "contexts/scopes that the current grant does not cover. " +
+          "grants on contexts the current session does not cover. " +
           authorizedHint,
       inputSchema = AUTHORIZE_INPUT_SCHEMA,
     )
@@ -732,7 +731,7 @@ class McpEndpoint @Inject constructor(
     // - anonymous (no bearer) → start a fresh OAuth flow
     // - public-read-only bearer → upgrade to a context-scoped token
     // - already-authorized caller passing `reauthorize=true` → restart the flow
-    //   to request additional contexts/scopes (incremental authorization)
+    //   to request grants on additional contexts (incremental authorization)
     // All three signal "user wants more than they have" and need the WWW-Authenticate
     // response. Distinct from a manipulated/stale bearer (which never reaches here
     // because authenticate(pod) up-stream already rejected it).
@@ -986,7 +985,7 @@ private val AUTHORIZE_INPUT_SCHEMA = ToolInputSchema(
   properties = mapOf(
     "reauthorize" to PropertySchema(
       type = "boolean",
-      description = "If true, force the OAuth flow to start again even if the session is already authorized. Use to request additional contexts/scopes that the current grant does not cover. Default: false.",
+      description = "If true, force the OAuth flow to start again even if the session is already authorized. Use to request grants on contexts the current session does not cover. Default: false.",
     ),
   ),
   required = emptyList(),

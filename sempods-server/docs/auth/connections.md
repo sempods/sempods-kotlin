@@ -52,13 +52,13 @@ and family-retirement rules. Deployments predating lifetime consent need the
 | Value | Behavior |
 |---|---|
 | Omitted | Reuse grants after the lifetime question was answered; otherwise show consent |
-| `none` | Request no interaction; requires a valid pod session, a non-`dyn:` client and reusable consent |
+| `none` | Request no interaction; requires a valid pod session and reusable consent |
 | `consent` | Show consent |
 | `login` or `select_account` | Authenticate again; forward to the provider where supported |
 
 `prompt=none` answers `login_required` without a pod session and `consent_required` when consent
-cannot be reused, as for every [`dyn:*` client](oauth.md#dyn--dynamically-registered-apps). Both
-require an interactive retry. Anonymous [public-read](oauth.md#public-read-flow) has its own silent
+cannot be reused. Both require an interactive retry. A
+[`dyn:*` client](oauth.md#dyn--dynamically-registered-apps) has its own consent rule. Anonymous [public-read](oauth.md#public-read-flow) has its own silent
 flow. A session avoids another identity-provider login but grants no data access by itself.
 Google supports forwarded prompts; Apple does not guarantee them.
 

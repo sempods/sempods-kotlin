@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.sempods.commons.json.JsonMappers
+import org.sempods.commons.jaxrs.errors.ApiExceptionMapper
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.SempodsIntegrationTest
@@ -971,19 +972,22 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
   fun `content for a media whose object is missing fails without naming the store's path`() {
     // Reachable two ways: a crash between the registry write and the store write, and the narrow
     // window `PodMediaFacade.sweepUnreferenced` documents. The status is honest — the server *is*
-    // inconsistent — but the generic exception mapper puts the exception's message in the body, and
-    // for the filesystem store that message is the absolute path of the media root.
+    // inconsistent — and the failure is an unexpected exception whose message, for the filesystem
+    // store, is the absolute path of the media root. That message belongs in the log only.
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/broken-${randomId()}")
     val mediaId = mediaIdOf(upload(pod, context, token))
     mediaStore.delete(PodMediaRef(checkNotNull(pod.id).toPodId(), mediaId))
 
-    val response = httpClient.prepareGet(contentUrl(pod.name, mediaId))
-      .addHeader("Authorization", "Bearer $token").execute()
+    lateinit var response: TestHttpResponse
+    val lines = CapturedLog.linesFrom(ApiExceptionMapper::class.java) {
+      response = httpClient.prepareGet(contentUrl(pod.name, mediaId))
+        .addHeader("Authorization", "Bearer $token").execute()
+    }
 
     assertEquals(500, response.statusCode)
-    assertEquals("media content is unavailable", response.responseBody)
-    assertFalse(response.responseBody.contains("/"), "the response must not carry a filesystem path")
+    assertEquals("internal server error", response.responseBody)
+    assertTrue(lines.any { mediaId in it }, "the store's message belongs in the log, was: $lines")
   }
 
   private fun readMetadata(pod: String, mediaId: String, token: String): TestHttpResponse =
