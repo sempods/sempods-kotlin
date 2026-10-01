@@ -8,9 +8,12 @@ import java.net.URI
  * the [PodTokenAuthentication] the rest of the server works with.
  *
  * It takes the request as a [PodResourceRequest] — plain values, no HTTP-framework type — so a
- * verification that needs more than the bearer string (a proof bound to method and target, as DPoP
- * will) can be added behind it without touching an endpoint. Its answer is a verified caller or a
- * classified reason, never a status: the endpoint maps [PodTokenRejection] to 401 or 403.
+ * verification that reads method, target or headers needs no endpoint change to see them. Its
+ * answer is a verified caller or a classified reason, never a status: the endpoint maps
+ * [PodTokenRejection] to 401 or 403 and always answers with the `Bearer` challenge. A protocol with
+ * its own challenge, such as DPoP's `WWW-Authenticate: DPoP` and `DPoP-Nonce` (RFC 9449), cannot
+ * express it here yet; extending the result for that is part of
+ * [#112](https://github.com/sempods/sempods-kotlin/issues/112).
  *
  * An implementation answers only *is this credential good, and for this pod*. What the verified
  * caller may reach is [org.sempods.pods.grants.PodAuthorizer], and the endpoint asks about a
