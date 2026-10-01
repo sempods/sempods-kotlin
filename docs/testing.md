@@ -111,9 +111,12 @@ assertEquals(200, read.status)
 ```
 
 Once a route's happy path runs through the client, the route needs no separate "the client core
-against this route" test: every happy-path test is that check. The resource routes follow the
-split (`PodResourceEndpointHttpTest`, `PodResourceByIriEndpointHttpTest`, `PodSlotEndpointHttpTest`);
-the other areas still use raw HTTP for both columns.
+against this route" test: every happy-path test is that check. The resource, slot, context,
+SPARQL, meta and media routes follow the split; auth and the host admin routes still use raw HTTP
+for both columns.
+
+A route no published client reaches stays raw in both columns: the MCP endpoint, because
+`sempods-client` has no MCP client, and `find`, because the client has no find method.
 
 ## The test observer
 

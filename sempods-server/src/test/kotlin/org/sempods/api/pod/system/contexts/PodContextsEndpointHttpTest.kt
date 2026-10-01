@@ -15,14 +15,6 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.client.SempodsContextCreate
 import org.sempods.client.SempodsGraphFormat
-import org.sempods.client.SempodsOkHttp
-import org.sempods.client.SempodsPod
-import org.sempods.client.SempodsPodBase
-import org.sempods.client.SempodsPodContexts
-import org.sempods.client.SempodsRequestAuth
-import org.sempods.client.SempodsSession
-import org.sempods.client.rdf4j.SempodsRdf4jContexts
-import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.eclipse.rdf4j.model.util.Values
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.sempods.pods.contexts.persist.PodContextsDao
@@ -31,7 +23,6 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.tests.TestUtil
-import okhttp3.OkHttpClient
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.JsonNode
@@ -248,26 +239,40 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `put context should be idempotent on duplicates and return 200`() {
+  fun `a context is created, found again unchanged, and read back under its tag`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
-    val url = contextManageUrl(pod.name, "apps/example/tasks")
+    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    val tasks = contextUri(pod.name, "apps/example/tasks")
+    val label = "Tâches \"öffentlich\" \\ ✓"
+    val contexts = podAs(pod.name, bearer = ownerToken).contexts()
 
-    val first = http.preparePut(url)
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .setBody("{}")
-      .execute()
-    assertEquals(201, first.statusCode)
+    val created = contexts.create(tasks, SempodsContextCreate.fields().withLabel(label).withPublic(true))
+    assertEquals(201, created.status)
+    val description = objectMapper.readTree(created.body)
+    assertEquals(tasks, description.path("@id").asString())
+    assertEquals(listOf("${SD_NS}NamedGraph"), description.path("@type").values().map { it.asString() })
+    assertEquals(label, description.path(RDFS_LABEL).single().path("@value").asString())
+    assertTrue(description.path(SempodsVocabulary.PUBLIC).single().path("@value").asBoolean())
 
-    val second = http.preparePut(url)
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .setBody("{}")
-      .execute()
-    assertEquals(200, second.statusCode)
+    // `PUT` is idempotent, and the second answer is the unchanged context (SPS-CTX-016, SPS-CTX-037).
+    val again = contexts.create(tasks, SempodsContextCreate.fields().withPublic(false), SempodsGraphFormat.N_QUADS)
+    assertEquals(200, again.status)
+    val quads = String(checkNotNull(again.body))
+    assertTrue(quads.contains("<$tasks> <${SempodsVocabulary.PUBLIC}> \"true\""), quads)
+
+    // Read back through a grant, not through ownership: an owner holds none, so the registry shows
+    // them nothing (#185).
+    val reader = podAs(pod.name, bearer = mintScopedToken(pod.name, listOf("$tasks#read"))).contexts()
+    val read = reader.getText(tasks)
+    assertEquals(200, read.status)
+    assertEquals(tasks, objectMapper.readTree(read.body).path("@id").asString())
+    val tag = checkNotNull(read.headers["ETag"])
+    val unchanged = reader.getText(tasks, SempodsGraphFormat.JSON_LD, tag)
+    assertEquals(304, unchanged.status)
+    assertNull(unchanged.body)
+    // The tag belongs to the representation it was read from (SPS-CTX-035).
+    assertEquals(200, reader.getBytes(tasks, SempodsGraphFormat.N_QUADS, tag).status)
   }
 
   /**
@@ -325,27 +330,22 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `delete context should return 204 and remove the registry row`() {
+  fun `delete context should return 204 and remove the registry row`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
-    val url = contextManageUrl(pod.name, "apps/example/tasks")
+    val tasks = contextUri(pod.name, "apps/example/tasks")
+    val contexts = podAs(pod.name, bearer = ownerToken).contexts()
+    assertEquals(201, contexts.create(tasks).status)
 
-    http.preparePut(url)
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .setBody("{}")
-      .execute()
-
-    val response = http.prepareDelete(url)
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .execute()
-    assertEquals(204, response.statusCode)
+    assertEquals(204, contexts.delete(tasks).status)
+    assertNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = tasks))
+    assertEquals(404, contexts.delete(tasks).status, "a second removal finds nothing to remove")
   }
 
   @Test
-  fun `delete of a manage root revokes what the service client held on it`() {
+  fun `delete of a manage root revokes what the service client held on it`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -358,10 +358,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       label = "notes-app",
     )
 
-    val deleteResponse = http.prepareDelete(contextManageUrl(pod.name, "apps/notes"))
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .execute()
-    assertEquals(204, deleteResponse.statusCode)
+    assertEquals(204, podAs(pod.name, bearer = ownerToken).contexts().delete(contextUri(pod.name, "apps/notes")).status)
 
     // The authority is revoked with its anchor — the secret must not mint new tokens for the
     // deleted root (manage surviving descendants, recreate the root). The registration itself
@@ -383,7 +380,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `delete of one anchor only strips that scope from a multi-scope service client`() {
+  fun `delete of one anchor only strips that scope from a multi-scope service client`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -398,10 +395,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       label = "notes-app",
     )
 
-    val deleteResponse = http.prepareDelete(contextManageUrl(pod.name, "apps/notes"))
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .execute()
-    assertEquals(204, deleteResponse.statusCode)
+    assertEquals(204, podAs(pod.name, bearer = ownerToken).contexts().delete(contextUri(pod.name, "apps/notes")).status)
 
     val survivor = assertNotNull(
       podServiceClientDao.findByClientId(podId, "notes-app"),
@@ -424,31 +418,22 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the owner deletes the last context, reads an empty catalogue and creates again`() {
+  fun `the owner deletes the last context, reads an empty catalogue and creates again`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
     val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(ownerUser.email))
-    fun put() = http.preparePut(contextManageUrl(pod.name, "first"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .setBody("{}")
-      .execute()
+    val first = contextUri(pod.name, "first")
+    val contexts = podAs(pod.name, bearer = ownerToken).contexts()
 
-    assertEquals(201, put().statusCode)
-    val deleted = http.prepareDelete(contextManageUrl(pod.name, "first"))
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .execute()
-    assertEquals(204, deleted.statusCode, deleted.responseBody)
+    assertEquals(201, contexts.create(first).status)
+    assertEquals(204, contexts.delete(first).status)
     assertTrue(podContextsDao.fetchByPod(checkNotNull(pod.id)).isEmpty(), "the pod holds no context now")
 
-    val catalogue = http.prepareGet(contextsBaseUrl(pod.name))
-      .addHeader("Accept", "application/ld+json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .execute()
-    assertEquals(200, catalogue.statusCode, catalogue.responseBody)
-    assertFalse(catalogue.responseBody.contains(contextUri(pod.name, "first")), catalogue.responseBody)
+    val catalogue = contexts.listText()
+    assertEquals(200, catalogue.status, catalogue.body)
+    assertFalse(catalogue.body.orEmpty().contains(first), catalogue.body)
 
-    assertEquals(201, put().statusCode, "an empty pod takes a context again")
+    assertEquals(201, contexts.create(first).status, "an empty pod takes a context again")
   }
 
   @Test
@@ -481,22 +466,20 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `put context with service-client manage scope creates descendant and returns 201`() {
+  fun `put context with service-client manage scope creates descendant and returns 201`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)
     val appRoot = contextUri(pod.name, "apps/notes")
     // Root registered; service client creates a slash-delimited descendant under it.
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes")
     val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
+    val events = contextUri(pod.name, "apps/notes/events")
 
-    val response = http.preparePut(contextManageUrl(pod.name, "apps/notes/events"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $serviceToken")
-      .setBody("""{"label":"Events"}""")
-      .execute()
+    val created = podAs(pod.name, bearer = serviceToken).contexts().create(events, SempodsContextCreate.fields().withLabel("Events"))
 
-    assertEquals(201, response.statusCode, "unexpected status; body=${response.responseBody}")
-    assertTrue(response.responseBody.contains(contextUri(pod.name, "apps/notes/events")))
+    assertEquals(201, created.status)
+    val description = String(checkNotNull(created.body))
+    assertTrue(description.contains(events), description)
   }
 
   @Test
@@ -516,7 +499,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `delete context with service-client manage scope returns 204 and removes the row`() {
+  fun `delete context with service-client manage scope returns 204 and removes the row`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val podId = checkNotNull(pod.id)
     val appRoot = contextUri(pod.name, "apps/notes")
@@ -524,11 +507,9 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(podId = podId, podName = pod.name, contextPath = "apps/notes/events")
     val serviceToken = mintServiceToken(pod, setOf("$appRoot#manage"))
 
-    val response = http.prepareDelete(contextManageUrl(pod.name, "apps/notes/events"))
-      .addHeader("Authorization", "Bearer $serviceToken")
-      .execute()
+    val deleted = podAs(pod.name, bearer = serviceToken).contexts().delete(contextUri(pod.name, "apps/notes/events"))
 
-    assertEquals(204, response.statusCode)
+    assertEquals(204, deleted.status)
     assertFalse(
       podContextsDao.exists(podId = podId, contextUri = contextUri(pod.name, "apps/notes/events")),
       "registry row must be gone after delete",
@@ -551,23 +532,19 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the owner's contexts authority creates a context outside any service-client sandbox`() {
+  fun `the owner's contexts authority creates a context outside any service-client sandbox`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val ownerToken = mintContextsManagerToken(pod.name, ownerWebId)
 
-    val response = http.preparePut(contextManageUrl(pod.name, "apps/other/owner-only"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer $ownerToken")
-      .setBody("{}")
-      .execute()
+    val created = podAs(pod.name, bearer = ownerToken).contexts().create(contextUri(pod.name, "apps/other/owner-only"))
 
-    assertEquals(201, response.statusCode, "contexts:manage reaches every context; body=${response.responseBody}")
+    assertEquals(201, created.status, "contexts:manage reaches every context")
   }
 
   @Test
-  fun `the owner's contexts authority makes the first context, with nothing granted and no contexts yet`() {
+  fun `the owner's contexts authority makes the first context, with nothing granted and no contexts yet`() = withSetup {
     // Ownership is not a grant — the authority follows from `podDbo.owner`, compared against the
     // URIs the dialog recognised the person by. So an owner with an empty grant set, on a pod that
     // has no contexts at all, can still make the first one from a program.
@@ -575,13 +552,9 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser, createPublicContext = false)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
-    val response = http.preparePut(contextManageUrl(pod.name, "first"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, ownerWebId)}")
-      .setBody("{}")
-      .execute()
+    val created = podAs(pod.name, bearer = mintContextsManagerToken(pod.name, ownerWebId)).contexts().create(contextUri(pod.name, "first"))
 
-    assertEquals(201, response.statusCode, "body=${response.responseBody}")
+    assertEquals(201, created.status)
   }
 
   @Test
@@ -655,21 +628,18 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a contexts authority recognised through a linked alias is the owner's`() {
+  fun `a contexts authority recognised through a linked alias is the owner's`() = withSetup {
     // The bearer carries the URI the person signed in under; the dialog recognised the owner's
     // address beside it, and that set is what the check reads.
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val alias = "https://accounts.example/alice#me"
+    val token = mintContextsManagerToken(pod.name, alias, subjectUris = setOf(alias, ownerWebId))
 
-    val response = http.preparePut(contextManageUrl(pod.name, "projects"))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${mintContextsManagerToken(pod.name, alias, subjectUris = setOf(alias, ownerWebId))}")
-      .setBody("{}")
-      .execute()
+    val created = podAs(pod.name, bearer = token).contexts().create(contextUri(pod.name, "projects"))
 
-    assertEquals(201, response.statusCode, "body=${response.responseBody}")
+    assertEquals(201, created.status)
   }
 
   @Test
@@ -787,15 +757,16 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     podContextsDao.fetchByPod(checkNotNull(pod.id)).map { it.contextUri }.toSet()
 
   @Test
-  fun `a contexts authority's catalogue in N-Quads states manage alone`() {
+  fun `a contexts authority's catalogue in N-Quads states manage alone`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     createContextViaDao(checkNotNull(pod.id), pod.name, "contacts")
     val registered = registeredContexts(pod)
 
-    val quads = registryGet(contextsBaseUrl(pod.name), mintContextsManagerToken(pod.name, ownerWebId), "application/n-quads")
-      .responseBody.lines()
+    val catalogue = podAs(pod.name, bearer = mintContextsManagerToken(pod.name, ownerWebId)).contexts().listText(SempodsGraphFormat.N_QUADS)
+    assertEquals(200, catalogue.status)
+    val quads = catalogue.body.orEmpty().lines()
 
     assertEquals(registered.size, quads.count { SempodsVocabulary.MANAGEABLE_CONTEXT in it }, quads.joinToString("\n"))
     assertTrue(quads.none { SempodsVocabulary.READABLE_CONTEXT in it || SempodsVocabulary.WRITABLE_CONTEXT in it })
@@ -1066,14 +1037,23 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `list contexts without auth should return only public contexts`() {
+  fun `list contexts without auth should return only public contexts`() = withSetup {
     val pod = sempodsTestFactory.newPod()
+    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = "test/hidden")
+    val contexts = podAs(pod.name).contexts()
 
-    val response = http.prepareGet(contextsBaseUrl(pod.name))
-      .execute()
+    // Anonymous caller → implicit public-read only.
+    val catalogue = contexts.listText()
+    assertEquals(200, catalogue.status)
+    val public = sempodsTestFactory.publicContextUri(pod.name).toString()
+    assertEquals(listOf(public), ids(objectMapper.readTree(catalogue.body), "${SD_NS}namedGraph"))
 
-    // Anonymous caller → implicit public-read only (may be 0 items if pod has no public contexts).
-    assertEquals(200, response.statusCode)
+    // A context this session cannot see answers as one that was never registered (SPS-CTX-036).
+    val hidden = contexts.getText(contextUri(pod.name, "test/hidden"))
+    assertEquals(404, hidden.status)
+    assertNull(hidden.body)
+    assertNull(hidden.headers["ETag"])
+    assertEquals(404, contexts.getText(contextUri(pod.name, "never/registered")).status)
   }
 
   @Test
@@ -1101,92 +1081,31 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
 
   // ── The registry as RDF (`SPS-CTX-031` … `SPS-CTX-037`) ─────────────────────────
 
-  /** The client core against the served routes, so neither the routes nor the answers it takes can drift from these. */
-  private fun <T> withContexts(podName: String, auth: SempodsRequestAuth, block: (SempodsPodContexts) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")
-    try {
-      return block(SempodsPod(SempodsSession(base, auth), client).contexts())
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
-  }
-
   @Test
-  fun `the client core creates a context and reads the description this endpoint answers with`() {
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
-    val tasks = contextUri(pod.name, "apps/example/tasks")
-    val label = "T\u00e2ches \"\u00f6ffentlich\" \\ \u2713"
-
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      val created = contexts.create(tasks, SempodsContextCreate.fields().withLabel(label).withPublic(true))
-      assertEquals(201, created.status)
-      val description = objectMapper.readTree(created.body)
-      assertEquals(tasks, description.path("@id").asString())
-      assertEquals(listOf("${SD_NS}NamedGraph"), description.path("@type").values().map { it.asString() })
-      assertEquals(label, description.path("http://www.w3.org/2000/01/rdf-schema#label").single().path("@value").asString())
-      assertTrue(description.path(SempodsVocabulary.PUBLIC).single().path("@value").asBoolean())
-
-      // `PUT` is idempotent, and the second answer is the unchanged context (SPS-CTX-016, SPS-CTX-037).
-      val again = contexts.create(tasks, SempodsContextCreate.fields().withPublic(false), SempodsGraphFormat.N_QUADS)
-      assertEquals(200, again.status)
-      val quads = String(checkNotNull(again.body))
-      assertTrue(quads.contains("<$tasks> <${SempodsVocabulary.PUBLIC}> \"true\""), quads)
-    }
-
-    // Read back through a grant, not through ownership: an owner holds none, so the registry shows
-    // them nothing (#185).
-    val reader = mintScopedToken(pod.name, listOf("$tasks#read"))
-    withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
-      val read = contexts.getText(tasks)
-      assertEquals(200, read.status)
-      assertEquals(tasks, objectMapper.readTree(read.body).path("@id").asString())
-      val tag = checkNotNull(read.headers["ETag"])
-      assertEquals(304, contexts.getText(tasks, SempodsGraphFormat.JSON_LD, tag).status)
-      // The tag belongs to the representation it was read from (SPS-CTX-035).
-      assertEquals(200, contexts.getBytes(tasks, SempodsGraphFormat.N_QUADS, tag).status)
-    }
-
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      assertEquals(204, contexts.delete(tasks).status)
-      assertEquals(404, contexts.delete(tasks).status)
-    }
-    assertNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = tasks))
-  }
-
-  @Test
-  fun `a context named in a caller's own language is created, read and removed through the core`() {
+  fun `a context named in a caller's own language is created, read and removed`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     // `SPS-CTX-009`: a freely chosen name that breaks no structural rule. The path carries it
     // percent-encoded and the endpoint takes it back decoded, so the IRI is the one the pod stored.
     val iri = contextUri(pod.name, "grüße/例")
+    val owner = podAs(pod.name, bearer = ownerToken).contexts()
 
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      assertEquals(201, contexts.create(iri).status)
-    }
+    assertEquals(201, owner.create(iri).status)
     assertNotNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = iri))
 
-    val reader = mintScopedToken(pod.name, listOf("$iri#read"))
-    withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
-      val read = contexts.getText(iri)
-      assertEquals(200, read.status, read.body)
-      assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
-      assertTrue(ids(objectMapper.readTree(contexts.listText().body), "${SD_NS}namedGraph").contains(iri))
-    }
+    val reader = podAs(pod.name, bearer = mintScopedToken(pod.name, listOf("$iri#read"))).contexts()
+    val read = reader.getText(iri)
+    assertEquals(200, read.status, read.body)
+    assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
+    assertTrue(ids(objectMapper.readTree(reader.listText().body), "${SD_NS}namedGraph").contains(iri))
 
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      assertEquals(204, contexts.delete(iri).status)
-    }
+    assertEquals(204, owner.delete(iri).status)
     assertNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = iri))
   }
 
   @Test
-  fun `a semicolon in a context path names the context with it, on every verb and for a row the dialog wrote`() {
+  fun `a semicolon in a context path names the context with it, on every verb and for a row the dialog wrote`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -1197,19 +1116,16 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     val fromDialog = contextUri(pod.name, "notes/c;d")
     createContextViaDao(podId, pod.name, "notes/a")
     createContextViaDao(podId, pod.name, "notes/c;d")
+    val owner = podAs(pod.name, bearer = ownerToken).contexts()
 
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      assertEquals(201, contexts.create(semicolon).status)
-    }
+    assertEquals(201, owner.create(semicolon).status)
     assertNotNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = semicolon))
 
-    val reader = mintScopedToken(pod.name, listOf("$semicolon#read", "$fromDialog#read"))
-    withContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
-      listOf(semicolon, fromDialog).forEach { iri ->
-        val read = contexts.getText(iri)
-        assertEquals(200, read.status, read.body)
-        assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
-      }
+    val reader = podAs(pod.name, bearer = mintScopedToken(pod.name, listOf("$semicolon#read", "$fromDialog#read"))).contexts()
+    listOf(semicolon, fromDialog).forEach { iri ->
+      val read = reader.getText(iri)
+      assertEquals(200, read.status, read.body)
+      assertEquals(iri, objectMapper.readTree(read.body).path("@id").asString())
     }
 
     // A `;` stays in its segment, so these name no context — least of all `notes/a`, checked below.
@@ -1220,40 +1136,11 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
       assertTrue(refused.statusCode >= 400, "$path: ${refused.statusCode}")
     }
 
-    withContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      assertEquals(204, contexts.delete(semicolon).status)
-      assertEquals(204, contexts.delete(fromDialog).status)
-    }
+    assertEquals(204, owner.delete(semicolon).status)
+    assertEquals(204, owner.delete(fromDialog).status)
+    assertNotNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = plain), "no verb on 'a;b' reached 'a'")
     assertNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = semicolon))
     assertNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = fromDialog))
-    assertNotNull(podContextsDao.fetchByContextUri(podId = podId, contextUri = plain), "no verb on 'a;b' reached 'a'")
-  }
-
-  @Test
-  fun `the client core reads the catalogue its session sees, and nothing beyond it`() {
-    val pod = sempodsTestFactory.newPod()
-    val path = "test/core-listing"
-    createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = path)
-    val context = contextUri(pod.name, path)
-    val token = mintScopedToken(pod.name, listOf("$context#read", "$context#write"))
-
-    withContexts(pod.name, SempodsRequestAuth.bearer(token)) { contexts ->
-      val catalogue = objectMapper.readTree(contexts.listText().body)
-      assertEquals(contextsBaseUrl(pod.name), catalogue.path("@id").asString())
-      assertTrue(ids(catalogue, "${SD_NS}namedGraph").contains(context), contexts.listText().body)
-      assertTrue(ids(catalogue, SempodsVocabulary.WRITABLE_CONTEXT).contains(context))
-    }
-
-    withContexts(pod.name, SempodsRequestAuth.anonymous()) { contexts ->
-      val public = sempodsTestFactory.publicContextUri(pod.name).toString()
-      assertEquals(listOf(public), ids(objectMapper.readTree(contexts.listText().body), "${SD_NS}namedGraph"))
-      // A context this session cannot see answers as one that was never registered (SPS-CTX-036).
-      val hidden = contexts.getText(context)
-      assertEquals(404, hidden.status)
-      assertNull(hidden.body)
-      assertNull(hidden.headers["ETag"])
-      assertEquals(404, contexts.getText(contextUri(pod.name, "never/registered")).status)
-    }
   }
 
   private fun registryGet(url: String, token: String?, accept: String): TestHttpResponse {
@@ -1265,7 +1152,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   private fun ids(body: JsonNode, predicate: String): List<String> = body.path(predicate).values().map { it.path("@id").asString() }
 
   @Test
-  fun `the catalogue and a description answer canonical JSON-LD, and the same RDF as N-Quads`() {
+  fun `the catalogue and a description answer canonical JSON-LD, and the same RDF as N-Quads`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val podId = checkNotNull(pod.id)
@@ -1273,26 +1160,28 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(podId = podId, podName = pod.name, contextPath = path)
     val iri = contextUri(pod.name, path)
     val token = mintScopedToken(pod.name, listOf("$iri#read", "$iri#write"))
+    val contexts = podAs(pod.name, bearer = token).contexts()
 
-    val catalogue = registryGet(contextsBaseUrl(pod.name), token, "application/ld+json")
-    assertEquals(200, catalogue.statusCode, catalogue.responseBody)
-    assertTrue(catalogue.contentType.orEmpty().startsWith("application/ld+json"), catalogue.contentType)
-    val listing = objectMapper.readTree(catalogue.responseBody)
+    val catalogue = contexts.listText()
+    assertEquals(200, catalogue.status, catalogue.body)
+    val catalogueType = catalogue.headers["Content-Type"].orEmpty()
+    assertTrue(catalogueType.startsWith("application/ld+json"), catalogueType)
+    val listing = objectMapper.readTree(catalogue.body)
     assertEquals(contextsBaseUrl(pod.name), listing.path("@id").asString())
     assertEquals(listOf("${SD_NS}GraphCollection"), listing.path("@type").values().map { it.asString() })
     assertEquals(listOf(iri), ids(listing, "${SD_NS}namedGraph"))
     assertEquals(listOf(iri), ids(listing, SempodsVocabulary.READABLE_CONTEXT))
     assertEquals(listOf(iri), ids(listing, SempodsVocabulary.WRITABLE_CONTEXT))
-    assertTrue(listing.path(SempodsVocabulary.MANAGEABLE_CONTEXT).isMissingNode, catalogue.responseBody)
+    assertTrue(listing.path(SempodsVocabulary.MANAGEABLE_CONTEXT).isMissingNode, catalogue.body)
 
-    val description = registryGet(contextManageUrl(pod.name, path), token, "application/ld+json")
-    assertEquals(200, description.statusCode, description.responseBody)
-    val context = objectMapper.readTree(description.responseBody)
+    val description = contexts.getText(iri)
+    assertEquals(200, description.status, description.body)
+    val context = objectMapper.readTree(description.body)
     assertEquals(iri, context.path("@id").asString())
     assertEquals(listOf("${SD_NS}NamedGraph"), context.path("@type").values().map { it.asString() })
     assertEquals(listOf(iri), ids(context, "${SD_NS}name"))
     val public = context.path(SempodsVocabulary.PUBLIC).single().path("@value")
-    assertTrue(public.isBoolean, "the registry's flag is a JSON boolean: ${description.responseBody}")
+    assertTrue(public.isBoolean, "the registry's flag is a JSON boolean: ${description.body}")
     assertFalse(public.asBoolean())
     assertEquals(
       "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/resources/" +
@@ -1301,11 +1190,12 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertTrue(context.path(SempodsVocabulary.READABLE_CONTEXT).isMissingNode, "a description states no caller right")
 
-    val quads = registryGet(contextManageUrl(pod.name, path), token, "application/n-quads")
-    assertEquals(200, quads.statusCode, quads.responseBody)
-    assertTrue(quads.contentType.orEmpty().startsWith("application/n-quads"), quads.contentType)
-    val lines = quads.responseBody.lines().filter { it.isNotBlank() }
-    assertTrue(lines.any { it.contains("${SD_NS}NamedGraph") }, quads.responseBody)
+    val quads = contexts.getText(iri, SempodsGraphFormat.N_QUADS)
+    assertEquals(200, quads.status, quads.body)
+    val quadsType = quads.headers["Content-Type"].orEmpty()
+    assertTrue(quadsType.startsWith("application/n-quads"), quadsType)
+    val lines = quads.body.orEmpty().lines().filter { it.isNotBlank() }
+    assertTrue(lines.any { it.contains("${SD_NS}NamedGraph") }, quads.body)
     lines.forEach { line ->
       assertTrue(Regex("<[^>]*>").findAll(line).count() <= 3, "the registry's RDF is the default graph: $line")
     }
@@ -1418,7 +1308,7 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a caller who sees no context still gets the collection`() {
+  fun `a caller who sees no context still gets the collection`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     createContextViaDao(podId = checkNotNull(pod.id), podName = pod.name, contextPath = "apps/example/private")
@@ -1426,13 +1316,13 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     // where an anonymous caller would still see the pod's public context.
     val stranger = mintScopedToken(pod.name, listOf("${contextUri(pod.name, "apps/example/never")}#read"))
 
-    val response = registryGet(contextsBaseUrl(pod.name), stranger, "application/ld+json")
+    val response = podAs(pod.name, bearer = stranger).contexts().listText()
 
-    assertEquals(200, response.statusCode, response.responseBody)
-    val body = objectMapper.readTree(response.responseBody)
+    assertEquals(200, response.status, response.body)
+    val body = objectMapper.readTree(response.body)
     assertEquals(contextsBaseUrl(pod.name), body.path("@id").asString())
     assertEquals(listOf("${SD_NS}GraphCollection"), body.path("@type").values().map { it.asString() })
-    assertEquals(2, body.size(), "an empty catalogue is its identity and its type: ${response.responseBody}")
+    assertEquals(2, body.size(), "an empty catalogue is its identity and its type: ${response.body}")
   }
 
   @Test
@@ -1597,36 +1487,22 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   // ── The RDF4J adapter against these routes ───────────────────────────────────
 
   @Test
-  fun `the RDF4J adapter creates a context and reads the registry as models`() {
+  fun `the RDF4J adapter creates a context and reads the registry as models`() = withSetup {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerToken = mintContextsManagerToken(pod.name, webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
     val tasks = contextUri(pod.name, "apps/example/tasks")
     val tasksIri = Values.iri(tasks)
 
-    withRdf4jContexts(pod.name, SempodsRequestAuth.bearer(ownerToken)) { contexts ->
-      val created = assertNotNull(contexts.create(tasks, SempodsContextCreate.fields().withLabel("Tasks")).body)
-      assertTrue(created.contains(tasksIri, RDF.TYPE, Values.iri("${SD_NS}NamedGraph")), "created: $created")
-      assertTrue(created.contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")), "created: $created")
-    }
+    val created = assertNotNull(rdfAs(pod.name, bearer = ownerToken).contexts().create(tasks, SempodsContextCreate.fields().withLabel("Tasks")).body)
+    assertTrue(created.contains(tasksIri, RDF.TYPE, Values.iri("${SD_NS}NamedGraph")), "created: $created")
+    assertTrue(created.contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")), "created: $created")
 
-    val reader = mintScopedToken(pod.name, listOf("$tasks#read"))
-    withRdf4jContexts(pod.name, SempodsRequestAuth.bearer(reader)) { contexts ->
-      val read = contexts.getModel(tasks)
-      assertTrue(assertNotNull(read.body).contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")))
-      assertEquals(304, contexts.getModel(tasks, checkNotNull(read.headers["ETag"])).status)
-      assertTrue(assertNotNull(contexts.listModel().body).contains(null, null, tasksIri), "the catalogue names the context")
-    }
-  }
-
-  private fun <T> withRdf4jContexts(podName: String, auth: SempodsRequestAuth, block: (SempodsRdf4jContexts) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    try {
-      return block(SempodsRdf4jPod(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), auth), client)).contexts())
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
+    val contexts = rdfAs(pod.name, bearer = mintScopedToken(pod.name, listOf("$tasks#read"))).contexts()
+    val read = contexts.getModel(tasks)
+    assertTrue(assertNotNull(read.body).contains(tasksIri, Values.iri(RDFS_LABEL), Values.literal("Tasks")))
+    assertEquals(304, contexts.getModel(tasks, checkNotNull(read.headers["ETag"])).status)
+    assertTrue(assertNotNull(contexts.listModel().body).contains(null, null, tasksIri), "the catalogue names the context")
   }
 
   private companion object {
