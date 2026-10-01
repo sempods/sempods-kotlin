@@ -64,6 +64,35 @@ class PodRegistrationMessagesTest {
   }
 
   @Test
+  fun `a body the SDK throws on without its own exception is refused as client metadata`() {
+    // A null address is a member of the wrong type, as `[42]` is, so it earns the same code.
+    for (body in listOf(
+      """{"redirect_uris":["https://app.example/cb"],"software_version":" "}""",
+      """{"redirect_uris":[null]}""",
+      """{"redirect_uris":["https://app.example/cb"],"request_uris":[null]}""",
+      """{"redirect_uris":["https://app.example/cb"],"jwks":{"keys":[null]}}""",
+    )) {
+      val refused = unreadable(body)
+
+      assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, body)
+      assertEquals("the registration body is not valid client metadata", refused.description, body)
+    }
+  }
+
+  @Test
+  fun `a blank software_id and a client_name that is not a string are refused, and named`() {
+    for ((body, member) in listOf(
+      """{"redirect_uris":["https://app.example/cb"],"software_id":" "}""" to "software_id",
+      """{"redirect_uris":["https://app.example/cb"],"client_name":42}""" to "client_name",
+    )) {
+      val refused = unreadable(body)
+
+      assertEquals(PodRegistrationError.INVALID_CLIENT_METADATA, refused.error, body)
+      assertTrue(member in refused.description, refused.description)
+    }
+  }
+
+  @Test
   fun `an address that is not a URI is refused as a redirect_uri`() {
     val refused = unreadable("""{"redirect_uris":[" "]}""")
 
