@@ -57,6 +57,12 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
         .setFollowRedirect(false)
         .execute()
 
+    /** Authorizes [params] through the consent page and redeems the code with the RFC 7636 verifier. */
+    fun redeem(params: List<Pair<String, String>>): TestHttpResponse {
+      val consented = flow.submit(DelegatedAccessFlow.ConsentPage.of(authorize(params)), cookie)
+      return flow.exchangeCode(pod, app, flow.codeFrom(consented))
+    }
+
     /** A fresh authorization code for [app], and the exchange that redeems it. */
     fun exchange(): List<Pair<String, String>> = listOf(
       "grant_type" to "authorization_code",
@@ -134,6 +140,14 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
       "&state=second",
       "state second, first",
     )
+    // A `code_challenge` is not checked at `/authorize`, so only the exchange shows which one the
+    // code carries: the first.
+    assertEquals(200, browser.redeem(request.with("code_challenge", DelegatedAccessFlow.CODE_CHALLENGE, "x")).statusCode)
+    assertTokenError(
+      browser.redeem(request.with("code_challenge", "x", DelegatedAccessFlow.CODE_CHALLENGE)),
+      "PKCE verification failed",
+      "code_challenge x, the real one",
+    )
   }
 
   @Test
@@ -146,11 +160,19 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
     assertPlain400(browser.authorize(request.with("redirect_uri", "")), "missing redirect_uri", "redirect_uri")
     assertRedirectsWith(browser.authorize(request.with("code_challenge", "")), "code_challenge+is+required", "code_challenge")
     assertRedirectsWith(browser.authorize(request.with("code_challenge_method", "")), "code_challenge_method+must+be+S256", "code_challenge_method")
-    for (name in listOf("state", "prompt", "scope")) {
-      assertConsentPage(browser.authorize(request.with(name, "")), name)
+    // An empty `state` is no state: the answer carries none back.
+    val withoutState = request.filter { it.first != "state" }
+    for (page in listOf(browser.authorize(withoutState + ("state" to "")), browser.authorize(withoutState, raw = "&state"))) {
+      val answer = flow.submit(DelegatedAccessFlow.ConsentPage.of(page), browser.cookie, action = "cancel")
+      val location = checkNotNull(answer.getHeader("Location"))
+      assertTrue("state=" !in location, location)
     }
-    // A parameter without `=` is the same request.
-    assertConsentPage(browser.authorize(request, raw = "&state"), "state without =")
+    // An empty `prompt` or `scope` renders the screen the request without it renders.
+    for (name in listOf("prompt", "scope")) {
+      val absent = DelegatedAccessFlow.ConsentPage.of(browser.authorize(request.filter { it.first != name }))
+      val empty = DelegatedAccessFlow.ConsentPage.of(browser.authorize(request.with(name, "")))
+      assertEquals(absent.offered to absent.ticked, empty.offered to empty.ticked, name)
+    }
   }
 
   @Test
