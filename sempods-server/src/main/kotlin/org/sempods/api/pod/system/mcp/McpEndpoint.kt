@@ -285,17 +285,16 @@ class McpEndpoint @Inject constructor(
 
       CONDITIONAL WRITES — `if_match`:
       - `update_resource`, `delete_resource`, `add_property_value`, `set_property_values`,
-        and `clear_property_values` accept an optional `if_match` string. Get the ETag from a
-        read of the context you write — `get_resource` or `get_property_values` with
-        `context_iri` naming exactly that context — or, for slots, from the `etag` the
-        property-value write tools return. Resource writes return no `etag`: read again.
-        Surrounding quotes are optional.
+        `remove_property_value` and `clear_property_values` accept an optional `if_match`
+        string. Get the ETag from a read of the context you write — `get_resource` or
+        `get_property_values` with `context_iri` naming exactly that context — or, for slots,
+        from the `etag` the property-value write tools return. Resource writes return no
+        `etag`: read again. Surrounding quotes are optional.
       - On mismatch the tool surfaces an `isError: true` precondition result. Re-read the
         current state and decide.
       - Omitting `if_match` is the default — writes go through unconditionally.
       - `create_resource` accepts `if_none_match: "*"` for create-or-fail (fails if the
         resource already exists) instead of its default upsert.
-      - `remove_property_value` does NOT take `if_match`; it removes unconditionally.
 
       REJECTED IN SPARQL: INSERT / DELETE / LOAD / CLEAR / CREATE / DROP / COPY / MOVE / ADD
       and SERVICE (SSRF protection). Use the write tools for mutations.

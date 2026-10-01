@@ -26,6 +26,7 @@ import java.net.URI
 import java.net.URLEncoder
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -3218,6 +3219,67 @@ class McpEndpointHttpTest : SempodsIntegrationTest() {
       "if_match" to currentETag,
     ))
     assertFalse(resp.contains("\"isError\":true"), "must succeed with current tag: $resp")
+  }
+
+  // The edge has no tag of its own; `if_match` names the slot's (`SPS-CRUD-059`). Without it the
+  // removal stays unconditional, which the two remove_property_value tests above cover.
+
+  @Test
+  fun `remove_property_value with a stale if_match leaves the edge and returns 412 tool error`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val erin = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/erin"
+    val children = "https://schema.org/children"
+    val slot = mapOf("context_iri" to contextUri.toString(), "subject_iri" to bob, "predicate_iri" to children)
+
+    toolCall(pod.name, token, "add_property_value", slot + ("value" to mapOf("@id" to carol)))
+    val stale = slotGetETag(pod, contextUri, token, bob, children)
+    toolCall(pod.name, token, "add_property_value", slot + ("value" to mapOf("@id" to erin)))
+
+    val resp = toolCall(pod.name, token, "remove_property_value", slot + mapOf("target_iri" to carol, "if_match" to stale))
+    assertTrue(resp.contains("\"isError\":true"), "stale tag must surface as error: $resp")
+    assertTrue(resp.contains("412"), "must mention 412: $resp")
+
+    val after = toolPayload(toolCall(pod.name, token, "get_property_values", mapOf(
+      "subject_iri" to bob,
+      "predicate_iri" to children,
+      "context_iri" to listOf(contextUri.toString()),
+    )))
+    assertTrue(objectMapper.writeValueAsString(after["values"]).contains(carol), "the edge must stay: $after")
+  }
+
+  @Test
+  fun `remove_property_value with the current if_match removes the edge and returns the new etag`() {
+    val pod = sempodsTestFactory.newPod()
+    val (contextUri, token) = createContextWithToken(pod, "contacts")
+    val bob = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/bob"
+    val carol = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/carol"
+    val erin = "${SempodsModule.config.apiBaseUrl}${pod.name}/contacts/erin"
+    val children = "https://schema.org/children"
+    val slot = mapOf("context_iri" to contextUri.toString(), "subject_iri" to bob, "predicate_iri" to children)
+    val read = mapOf("subject_iri" to bob, "predicate_iri" to children, "context_iri" to listOf(contextUri.toString()))
+
+    toolCall(pod.name, token, "add_property_value", slot + ("value" to mapOf("@id" to carol)))
+    toolCall(pod.name, token, "add_property_value", slot + ("value" to mapOf("@id" to erin)))
+    val current = assertNotNull(toolPayload(toolCall(pod.name, token, "get_property_values", read))["etag"] as? String)
+
+    val removed = toolPayload(
+      toolCall(pod.name, token, "remove_property_value", slot + mapOf("target_iri" to carol, "if_match" to current)),
+    )
+    assertEquals("removed", removed["outcome"], "must report removed: $removed")
+    val newEtag = assertNotNull(removed["etag"] as? String, "the removal must answer the slot's new tag: $removed")
+    assertNotEquals(current, newEtag, "the slot changed, so must its tag")
+
+    val after = toolPayload(toolCall(pod.name, token, "get_property_values", read))
+    val values = objectMapper.writeValueAsString(after["values"])
+    assertFalse(values.contains(carol), "the edge must be gone: $after")
+    assertTrue(values.contains(erin), "the rest of the slot stays: $after")
+
+    // The tag the removal answered is current: the next conditional write goes through on it.
+    val next = toolCall(pod.name, token, "remove_property_value", slot + mapOf("target_iri" to erin, "if_match" to newEtag))
+    assertFalse(next.contains("\"isError\":true"), "the returned tag must be the slot's current one: $next")
   }
 
   @Test

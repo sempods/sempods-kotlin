@@ -253,7 +253,7 @@
       },
       "if_match" : {
         "type" : "string",
-        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or from a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional add (the default; safe under RDF set semantics)."
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. A write that changes nothing leaves the tag as it was, so the tag does not order changes in a source outside the pod. Omit for an unconditional add (the default; safe under RDF set semantics)."
       }
     },
     "required" : [ "context_iri", "subject_iri", "predicate_iri", "value" ],
@@ -286,7 +286,7 @@
       },
       "if_match" : {
         "type" : "string",
-        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional replace."
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. A write that changes nothing leaves the tag as it was, so the tag does not order changes in a source outside the pod. Omit for an unconditional replace."
       }
     },
     "required" : [ "context_iri", "subject_iri", "predicate_iri", "values" ],
@@ -313,6 +313,10 @@
       "target_iri" : {
         "type" : "string",
         "description" : "Absolute IRI of the value to remove (IRI targets only)."
+      },
+      "if_match" : {
+        "type" : "string",
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. A write that changes nothing leaves the tag as it was, so the tag does not order changes in a source outside the pod. Omit for an unconditional remove (the default; idempotent)."
       }
     },
     "required" : [ "context_iri", "subject_iri", "predicate_iri", "target_iri" ],
@@ -338,7 +342,7 @@
       },
       "if_match" : {
         "type" : "string",
-        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. Omit for an unconditional clear."
+        "description" : "Optional slot ETag: pass the `etag` from `get_property_values` (single context) or a prior property-value call. Returns a precondition error if the slot changed. A write that changes nothing leaves the tag as it was, so the tag does not order changes in a source outside the pod. Omit for an unconditional clear."
       }
     },
     "required" : [ "context_iri", "subject_iri", "predicate_iri" ],

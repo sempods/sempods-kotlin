@@ -146,7 +146,7 @@ lands in exactly one pod and one graph and can never be sprayed across pods by a
 | `delete_resource` | `resource_iri` | `if_match` | `DELETE …` |
 | `add_property_value` | `subject_iri`, `predicate_iri`, `value` | `if_match` | `POST /_system/resources/{b64url(subj)}/{b64url(pred)}?context=` |
 | `set_property_values` | `subject_iri`, `predicate_iri`, `values` | `if_match` | `PUT …` (empty array clears the slot) |
-| `remove_property_value` | `subject_iri`, `predicate_iri`, `target_iri` | — | `DELETE …/{b64url(target)}` (idempotent, no preconditions) |
+| `remove_property_value` | `subject_iri`, `predicate_iri`, `target_iri` | `if_match` (the slot's tag) | `DELETE …/{b64url(target)}` (idempotent) |
 | `clear_property_values` | `subject_iri`, `predicate_iri` | `if_match` | `DELETE …` |
 
 **Single-pod envelope.** A write returns `{ "pod", "ok": true, "result": { …echoed ids, "outcome"?,
