@@ -134,6 +134,31 @@ request and never appear in the token. Refresh down-scoping applies only to feat
 Pod tokens are RS256-signed; public keys are at `/_system/auth/jwks.json`.
 [PodTokenIssuer](../../src/main/kotlin/org/sempods/pods/oauth/PodTokenIssuer.kt) owns the claim contract.
 
+## Protocol messages
+
+The pod reads and writes these messages at its HTTP edge (`api/pod/system/auth`) and, signing a
+person in, as a relying party. Where Nimbus (`oauth2-oidc-sdk`, `nimbus-jose-jwt`) does not build
+one on purpose, the second column says why.
+
+| Message | Read or written by | Code |
+|---|---|---|
+| Registration request (RFC 7591) | SDK `ClientMetadata` | [PodRegistrationMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodRegistrationMessages.kt) |
+| Registration answer and error | SDK `ClientInformationResponse`, `ClientRegistrationErrorResponse` | [PodRegistrationResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodRegistrationResponses.kt) |
+| Token answer and error | SDK `AccessTokenResponse`, `TokenErrorResponse`; status and headers by hand | [PodTokenResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenResponses.kt) |
+| Authorization request | By hand | [PodAuthorizeFlow](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodAuthorizeFlow.kt) |
+| Code redirect | By hand | [PodAuthorizeResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeResponses.kt) |
+| Authorization error redirect | By hand: the SDK cannot remove an `error_uri` the client's redirect already carries, and refuses the blank `state` this echoes | [PodOAuthErrorResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthErrorResponses.kt) |
+| Token request: `authorization_code`, `refresh_token`, `client_credentials` with `client_secret_basic` | By hand | [PodAuthEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthEndpoint.kt), [BasicAuth](../../../sempods-commons/src/main/kotlin/org/sempods/commons/net/BasicAuth.kt) |
+| The pod's signing keys (JWKS) | `JWKSet` | [SigningKeys](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/SigningKeys.kt) |
+| The pod's discovery documents | By hand: the map is the contract ([modularity](../../../docs/concepts/modularity.md)) | [PodOAuthMetadataEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthMetadataEndpoint.kt) |
+| The provider's discovery document | By hand: four members read from its JSON, fetched over the pod's `HttpTransport` | [OidcProviderMetadata](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcProviderMetadata.kt) |
+| The provider's signing keys | Fetched over `HttpTransport` by a `ResourceRetriever`, again after a key rotation; read by the SDK's `IDTokenValidator` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
+| Sign-in request to the identity provider | SDK `AuthenticationRequest` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
+| The provider's answer at `oidc/callback` | By hand | [PodAuthEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthEndpoint.kt) |
+| Code exchange with the provider | Request by hand: the pod's `HttpTransport.postForm` takes a form, not an SDK request; answer and ID token by the SDK's `OIDCTokenResponseParser` and `IDTokenValidator` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
+
+The use cases in `pods/oauth/flows` name no SDK type; `PodOAuthFlowsBoundaryTest` checks it.
+
 ## Public-read flow
 
 Ordinary public resource reads need no token. For a client that needs a bearer, `scope=public-read`
