@@ -5,6 +5,7 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow.ConsentPage
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow.Tokens
+import org.sempods.client.SempodsPodServiceClients
 import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.net.SempodsVocabulary
@@ -262,7 +263,7 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `the privileged dialogs offer their authority alone and unticked, and grant it for an hour`() {
+  fun `the privileged dialogs offer their authority alone and unticked, and grant it for an hour`() = withSetup {
     val owned = ownedPod()
     val app = flow.register(owned.pod)
 
@@ -285,16 +286,11 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
       tokens.accessToken
     }
 
-    val created = http.preparePut("${podBase(owned.pod)}/_system/contexts/projects")
-      .addHeader("Content-Type", "application/json")
-      .addHeader("Authorization", "Bearer ${bearers.getValue(CONTEXTS_MANAGE_SCOPE)}")
-      .setBody("{}")
-      .execute()
-    assertEquals(201, created.statusCode, created.responseBody)
-    val listed = http.prepareGet("${podBase(owned.pod)}/_system/auth/service-clients")
-      .addHeader("Authorization", "Bearer ${bearers.getValue(SERVICE_CLIENTS_MANAGE_SCOPE)}")
-      .execute()
-    assertEquals(200, listed.statusCode, listed.responseBody)
+    val projects = sempodsUriBuilder.buildContext(owned.pod.name, "projects").toString()
+    val created = podAs(owned.pod.name, bearer = bearers.getValue(CONTEXTS_MANAGE_SCOPE)).contexts().create(projects)
+    assertEquals(201, created.status)
+    val serviceManager = podAs(owned.pod.name, bearer = bearers.getValue(SERVICE_CLIENTS_MANAGE_SCOPE))
+    assertEquals(200, SempodsPodServiceClients(serviceManager.session, serviceManager.calls).list().status)
   }
 
   // ── Fixture ─────────────────────────────────────────────────────────────────

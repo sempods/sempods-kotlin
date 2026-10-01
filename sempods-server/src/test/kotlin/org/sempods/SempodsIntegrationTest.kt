@@ -23,6 +23,7 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.client.SempodsRequestAuth
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpRequest
 import org.sempods.commons.okhttp.TestHttpResponse
@@ -310,10 +311,8 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    * order rather than on the server's.
    */
   protected fun deletePodViaAdminApi(pod: String) {
-    val response = http.prepareDelete("${SempodsModule.config.apiBaseUrl}_system/admin/pods/$pod")
-      .addHeader("Authorization", "Bearer ${AdminAuthorizerTestDouble.TEST_ADMIN_SECRET}")
-      .execute()
-    assertEquals(204, response.statusCode, "pod deletion failed: ${response.responseBody}")
+    val admin = podAccess.hostSessionFor(SempodsRequestAuth.bearer(AdminAuthorizerTestDouble.TEST_ADMIN_SECRET))
+    assertEquals(204, admin.deletePod(pod).status)
   }
 
   /**

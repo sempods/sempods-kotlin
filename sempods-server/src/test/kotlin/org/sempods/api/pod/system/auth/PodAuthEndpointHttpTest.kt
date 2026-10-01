@@ -11,6 +11,9 @@ import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.commons.json.JsonMappers
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.SempodsTestSetup
+import org.sempods.client.SempodsPodAuthorization
+import org.sempods.client.SempodsPodServiceClients
 import org.sempods.FakeIdServerTransport
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.AuthorizationCodeStore
@@ -3574,8 +3577,25 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   private fun registerUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/register"
 
+  /** The pod's registration of a public client, as an anonymous caller makes it through the published client. */
+  private fun SempodsTestSetup.authorizationOf(podName: String): SempodsPodAuthorization =
+    podAs(podName).let { SempodsPodAuthorization(it.session, it.calls) }
+
   @Test
-  fun `register should issue client_id for valid redirect_uris`() {
+  fun `register should issue client_id for valid redirect_uris`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+
+    val response = authorizationOf(pod.name).registerClient("Test Client", listOf("http://localhost:5173/callback"))
+
+    assertEquals(201, response.status)
+    val client = checkNotNull(response.body)
+    assertTrue(client.clientId.startsWith("dyn:"), "client_id must start with 'dyn:'")
+    assertEquals(listOf("http://localhost:5173/callback"), client.redirectUris)
+    assertEquals("Test Client", client.clientName)
+  }
+
+  @Test
+  fun `a registration naming no authentication method is answered as a public client`() {
     val pod = sempodsTestFactory.newPod()
 
     val response = http.preparePost(registerUrl(pod.name))
@@ -3587,13 +3607,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     @Suppress("UNCHECKED_CAST")
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
-
-    val clientId = body["client_id"] as? String
-    assertNotNull(clientId)
-    assertTrue(clientId.startsWith("dyn:"), "client_id must start with 'dyn:'")
-    assertEquals(listOf("http://localhost:5173/callback"), body["redirect_uris"])
     assertEquals("none", body["token_endpoint_auth_method"])
-    assertEquals("Test Client", body["client_name"])
   }
 
   @Test
@@ -3609,72 +3623,47 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `register with identical fingerprint should dedup to the same client_id`() {
+  fun `register with identical fingerprint should dedup to the same client_id`() = withSetup {
     val pod = sempodsTestFactory.newPod()
+    val authorization = authorizationOf(pod.name)
 
-    fun postRegister(redirectUri: String) = http.preparePost(registerUrl(pod.name))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("User-Agent", "claude-code-cli/0.1")
-      .setBody("""{"redirect_uris":["$redirectUri"],"client_name":"Claude Code"}""")
-      .execute()
-
-    val first = postRegister("http://localhost:52341/callback")
-    assertEquals(201, first.statusCode)
-
-    @Suppress("UNCHECKED_CAST")
-    val firstBody = JsonMappers.default().readValue(first.responseBody, Map::class.java) as Map<String, Any?>
-    val firstClientId = firstBody["client_id"] as String
+    val first = authorization.registerClient("Claude Code", listOf("http://localhost:52341/callback"))
+    assertEquals(201, first.status)
 
     // Different loopback port, but same clientName + userAgent + URI shape → dedup hit.
-    val second = postRegister("http://localhost:7123/callback")
-    assertEquals(201, second.statusCode)
+    val second = authorization.registerClient("Claude Code", listOf("http://localhost:7123/callback"))
+    assertEquals(201, second.status)
 
-    @Suppress("UNCHECKED_CAST")
-    val secondBody = JsonMappers.default().readValue(second.responseBody, Map::class.java) as Map<String, Any?>
-    val secondClientId = secondBody["client_id"] as String
-
-    assertEquals(firstClientId, secondClientId, "repeat registration with matching fingerprint must reuse the existing client_id")
+    assertEquals(
+      checkNotNull(first.body).clientId,
+      checkNotNull(second.body).clientId,
+      "repeat registration with matching fingerprint must reuse the existing client_id",
+    )
   }
 
   @Test
-  fun `register with a different clientName should mint a distinct client_id`() {
+  fun `register with a different clientName should mint a distinct client_id`() = withSetup {
     val pod = sempodsTestFactory.newPod()
+    val authorization = authorizationOf(pod.name)
 
-    fun postRegister(clientName: String) = http.preparePost(registerUrl(pod.name))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("User-Agent", "ua/1")
-      .setBody("""{"redirect_uris":["http://localhost:5000/cb"],"client_name":"$clientName"}""")
-      .execute()
+    val first = authorization.registerClient("Claude Code", listOf("http://localhost:5000/cb"))
+    val second = authorization.registerClient("Claude Desktop", listOf("http://localhost:5000/cb"))
 
-    @Suppress("UNCHECKED_CAST")
-    val first = JsonMappers.default().readValue(
-      postRegister("Claude Code").responseBody, Map::class.java,
-    ) as Map<String, Any?>
-    @Suppress("UNCHECKED_CAST")
-    val second = JsonMappers.default().readValue(
-      postRegister("Claude Desktop").responseBody, Map::class.java,
-    ) as Map<String, Any?>
-
-    assertNotEquals(first["client_id"], second["client_id"])
+    assertNotEquals(checkNotNull(first.body).clientId, checkNotNull(second.body).clientId)
   }
 
   @Test
-  fun `register with an identical body should dedup to the same client_id`() {
+  fun `register with an identical body should dedup to the same client_id`() = withSetup {
     // The fingerprint's whole job after the MCP-path retirement: a client with no persistent
     // client-state re-registers on every reconnect and must land on the same `dyn:` id, so the
     // consent the user gave stays attached to it.
     val pod = sempodsTestFactory.newPod()
+    val authorization = authorizationOf(pod.name)
 
-    fun postRegister() = http.preparePost(registerUrl(pod.name))
-      .addHeader("Content-Type", "application/json")
-      .addHeader("User-Agent", "chatgpt/1")
-      .setBody("""{"redirect_uris":["https://chatgpt.com/connector/oauth/XYZ"],"client_name":"ChatGPT"}""")
-      .execute()
+    val first = authorization.registerClient("ChatGPT", listOf("https://chatgpt.com/connector/oauth/XYZ"))
+    val second = authorization.registerClient("ChatGPT", listOf("https://chatgpt.com/connector/oauth/XYZ"))
 
-    val first = JsonMappers.default().readValue(postRegister().responseBody, Map::class.java) as Map<*, *>
-    val second = JsonMappers.default().readValue(postRegister().responseBody, Map::class.java) as Map<*, *>
-
-    assertEquals(first["client_id"], second["client_id"], "an identical DCR body must dedup")
+    assertEquals(checkNotNull(first.body).clientId, checkNotNull(second.body).clientId, "an identical DCR body must dedup")
   }
 
   @Test
@@ -5171,9 +5160,26 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
 
   @Test
-  fun `a service registers itself without a bearer, and waits for the owner's consent`() {
+  fun `a service registers itself without a bearer, and waits for the owner's consent`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val before = Instant.now().epochSecond
+    val anonymous = podAs(pod.name)
+
+    val response = SempodsPodServiceClients(anonymous.session, anonymous.calls).register("Notes Sync")
+
+    assertEquals(201, response.status)
+    val service = checkNotNull(response.body)
+    assertTrue(service.clientId.startsWith("svc:"), service.clientId)
+    assertTrue(service.clientSecret.isNotBlank())
+    assertNull(service.secretExpiresAt, "the secret itself does not expire")
+    val deadline = checkNotNull(service.activationExpiresAt).epochSecond
+    val window = PodServiceClientStore.ACTIVATION_WINDOW.seconds
+    assertTrue(deadline in (before + window - 1)..(Instant.now().epochSecond + window), "about a day: $deadline")
+  }
+
+  @Test
+  fun `a service registration is answered uncached, with a secret that never expires, for client_credentials alone`() {
+    val pod = sempodsTestFactory.newPod()
 
     val response = postRegistration(pod)
 
@@ -5181,12 +5187,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals("no-store", response.getHeader("Cache-Control"))
     @Suppress("UNCHECKED_CAST")
     val body = JsonMappers.default().readValue(response.responseBody, Map::class.java) as Map<String, Any?>
-    assertTrue((body["client_id"] as String).startsWith("svc:"), body.toString())
-    assertTrue((body["client_secret"] as String).isNotBlank())
     assertEquals(0, body["client_secret_expires_at"], "the secret itself does not expire")
-    val deadline = (body["activation_expires_at"] as Number).toLong()
-    val window = PodServiceClientStore.ACTIVATION_WINDOW.seconds
-    assertTrue(deadline in (before + window - 1)..(Instant.now().epochSecond + window), "about a day: $deadline")
     assertEquals(listOf("client_credentials"), body["grant_types"])
   }
 

@@ -109,6 +109,8 @@ dependencies {
   testImplementation(project(":sempods-client-rdf4j"))
   // The media client, run against the media routes.
   testImplementation(project(":sempods-client-media"))
+  // The host admin client, run against the admin routes.
+  testImplementation(project(":sempods-control-plane-client"))
 
   // test libs
   // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.
