@@ -13,6 +13,7 @@ import org.sempods.client.SempodsResponseFacts
 import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsWriteOptions
 import org.sempods.client.rdf4j.SempodsRdf4jPod
+import org.sempods.controlplane.SempodsControlPlaneClient
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
@@ -77,6 +78,13 @@ class SempodsTestPodAccess @Inject constructor(
    */
   fun sessionFor(pod: String, auth: SempodsRequestAuth): SempodsPod =
     SempodsPod(SempodsSession(baseOf(pod), auth), tracedHttp)
+
+  /**
+   * This server's host admin surface for a caller presenting [auth], on the caller's trace, like
+   * [sessionFor]. Tests use [SempodsTestSetup.adminAs].
+   */
+  fun hostSessionFor(auth: SempodsRequestAuth): SempodsControlPlaneClient =
+    SempodsControlPlaneClient(SempodsSession(SempodsPodBase.of(SempodsModule.config.apiBaseUrl), auth), tracedHttp)
 
   /** [podFor] reading and writing RDF4J values. */
   fun rdfFor(pod: String): SempodsRdf4jPod = SempodsRdf4jPod(podFor(pod))

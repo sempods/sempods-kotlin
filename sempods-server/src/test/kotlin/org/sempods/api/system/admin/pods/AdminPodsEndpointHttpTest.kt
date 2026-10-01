@@ -11,6 +11,7 @@ import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
+import org.sempods.controlplane.CreatePodResult
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.ObjectMapper
 import java.net.URLEncoder
@@ -71,32 +72,45 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     objectMapper.readTree(responseBody).path(name).asString()
 
   @Test
-  fun `PUT creates the pod and stores the owner as the WebID derived from the email`() {
+  fun `PUT creates the pod and stores the owner as the WebID derived from the email`() = withSetup {
     val pod = newPodName()
     val ownerEmail = "owner-${randomId()}@test.com"
 
-    val response = put(pod, """{"ownerEmail":"$ownerEmail"}""")
+    val created = adminAs().createPod(pod, ownerEmail)
 
-    assertEquals(201, response.statusCode, "body=${response.responseBody}")
-    assertEquals("created", response.field("result"))
-    assertEquals(pod, response.field("pod"))
+    assertEquals(201, created.status)
+    assertEquals(CreatePodResult.created, created.body)
     val stored = assertNotNull(podDao.fetchByName(pod), "pod row missing")
     assertEquals(webIdUriDeriver.deriveFromEmail(ownerEmail), stored.owner)
   }
 
   @Test
-  fun `PUT is idempotent and does not transfer ownership`() {
+  fun `PUT is idempotent and does not transfer ownership`() = withSetup {
     val pod = newPodName()
-    val originalEmail = "owner-${randomId()}@test.com"
-    assertEquals(201, put(pod, """{"ownerEmail":"$originalEmail"}""").statusCode)
+    val admin = adminAs()
+    assertEquals(CreatePodResult.created, admin.createPod(pod, "owner-${randomId()}@test.com").body)
     val originalOwner = assertNotNull(podDao.fetchByName(pod)).owner
 
     // A second PUT — with a *different* owner — must not silently re-home the pod.
-    val response = put(pod, """{"ownerEmail":"someone-else-${randomId()}@test.com"}""")
+    val again = admin.createPod(pod, "someone-else-${randomId()}@test.com")
 
-    assertEquals(200, response.statusCode, "body=${response.responseBody}")
-    assertEquals("alreadyExists", response.field("result"))
+    assertEquals(200, again.status)
+    assertEquals(CreatePodResult.alreadyExists, again.body)
     assertEquals(originalOwner, assertNotNull(podDao.fetchByName(pod)).owner, "owner must be untouched")
+  }
+
+  @Test
+  fun `the answer to PUT spells its outcome and names the pod`() {
+    val pod = newPodName()
+
+    val created = put(pod, """{"ownerEmail":"owner-${randomId()}@test.com"}""")
+    assertEquals(201, created.statusCode, "body=${created.responseBody}")
+    assertEquals("created", created.field("result"))
+    assertEquals(pod, created.field("pod"))
+
+    val again = put(pod, """{"ownerEmail":"someone-else-${randomId()}@test.com"}""")
+    assertEquals(200, again.statusCode, "body=${again.responseBody}")
+    assertEquals("alreadyExists", again.field("result"))
   }
 
   @Test
@@ -122,27 +136,29 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `GET reports existence and 404 for an unknown pod`() {
+  fun `GET reports existence and 404 for an unknown pod`() = withSetup {
     val pod = sempodsTestFactory.newPod()
+    val admin = adminAs()
 
-    val found = get(pod.name)
-    assertEquals(200, found.statusCode, "body=${found.responseBody}")
-    assertTrue(objectMapper.readTree(found.responseBody).path("exists").asBoolean())
+    val found = admin.podExists(pod.name)
+    assertEquals(200, found.status)
+    assertTrue(objectMapper.readTree(checkNotNull(found.body)).path("exists").asBoolean())
 
-    assertEquals(404, get("pod-${randomId()}").statusCode)
+    assertEquals(404, admin.podExists("pod-${randomId()}").status)
   }
 
   @Test
-  fun `DELETE removes the pod and is idempotent`() {
+  fun `DELETE removes the pod and is idempotent`() = withSetup {
     val pod = sempodsTestFactory.newPod()
+    val admin = adminAs()
 
-    assertEquals(204, delete(pod.name).statusCode)
+    assertEquals(204, admin.deletePod(pod.name).status)
     assertFalse(podAccess.exists(pod.name), "pod must be gone")
-    assertEquals(404, get(pod.name).statusCode)
+    assertEquals(404, admin.podExists(pod.name).status)
 
     // deleting again — and deleting a pod that never existed — stays a no-op
-    assertEquals(204, delete(pod.name).statusCode)
-    assertEquals(204, delete("pod-${randomId()}").statusCode)
+    assertEquals(204, admin.deletePod(pod.name).status)
+    assertEquals(204, admin.deletePod("pod-${randomId()}").status)
   }
 
   @Test
