@@ -35,7 +35,7 @@ import tools.jackson.databind.ObjectMapper
  * What is left here is `target` — which pod, and is it one this user has connected — plus the token,
  * the single-pod envelope and the audit row.
  *
- * The pod stays the authority on the `<context_iri>#write` scope and on ETag preconditions: a
+ * The pod stays the authority on the `<context_iri>#write` grant and on ETag preconditions: a
  * 403/412/400 comes back as the per-pod error carrying the pod's HTTP `status`. Result shape mirrors
  * the read tools but for a single pod: `{ "pod", "ok": true, "result": { … echoed ids, status,
  * etag?, response? } }` or an `ok:false` entry carrying `{ kind, message, status? }`. A success
@@ -129,7 +129,7 @@ class WriteTools(
     } catch (e: PodToolRefusal) {
       logger.warn(e) { "write tool failed for pod '$pod'" }
       // The pod's status travels structurally, so a 412 precondition failure stays distinguishable
-      // from a 403 scope refusal on the envelope rather than only inside the message text. The
+      // from a 403 grant refusal on the envelope rather than only inside the message text. The
       // message is the pod's own body, phrased for a model by the shared describer, and never the
       // exception's, which names the URL that was dialled.
       podError(pod, "pod_error", PodToolFailure.detail(toolName, e.status, e.reason), e.status)

@@ -4,7 +4,8 @@ import org.sempods.auth.oidc.OidcProviderClient
 import org.sempods.commons.utils.appendEscapedHtml
 
 /**
- * The provider chooser shown by `GET /login` when more than one login provider is configured.
+ * The provider chooser `GET /authorize` renders when more than one login provider is configured
+ * and the request names none.
  *
  * Rendered here rather than through a template engine: this module has neither one nor static
  * content serving, and a single page is not worth a dependency. Design tokens are the ones the
@@ -16,9 +17,9 @@ import org.sempods.commons.utils.appendEscapedHtml
 object LoginPage {
 
   /**
-   * @param providers in display order; each renders as a link back to `/login` carrying the same
-   *   parameters plus `provider`. Keeping the step a plain GET is what lets the `return_to` cookie,
-   *   the state store and the callback routes stay exactly as they are.
+   * @param providers in display order, one link each.
+   * @param hrefFor the link for one provider. `/authorize` links back to itself with the same
+   *   parameters plus `provider`, so choosing a provider is a plain GET of the same request.
    */
   fun render(providers: List<OidcProviderClient>, hrefFor: (OidcProviderClient) -> String): String =
     buildString {
