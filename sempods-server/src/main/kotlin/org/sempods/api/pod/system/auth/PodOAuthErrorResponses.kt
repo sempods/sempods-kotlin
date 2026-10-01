@@ -46,8 +46,10 @@ internal object PodOAuthErrorResponses {
    * there would turn a redirect into a direct 400 for a client whose registration was cleared in
    * the meantime — a different answer to a different question — so the proof is the parked record
    * rather than a [Redirectable]. It takes that record: holding a [PendingLogin] is
-   * what being resumed *means*, so an address off the current request cannot get in. #154 owns
-   * moving the route onto [OAuthErrorDelivery].
+   * what being resumed *means*, so an address off the current request cannot get in.
+   *
+   * This stays beside [OAuthErrorDelivery] on purpose. A [Redirectable] can only be minted by
+   * validating now, and a parked record is proof of a validation made when it was parked.
    */
   fun renderToParked(
     pending: PendingLogin,
