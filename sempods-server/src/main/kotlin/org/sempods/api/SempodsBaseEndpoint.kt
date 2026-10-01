@@ -34,6 +34,7 @@ import org.sempods.pods.oauth.spi.PodTokenRejection
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDbo
 import org.sempods.spec.PodRef
+import java.net.URI
 
 open class SempodsBaseEndpoint(
   protected val podFacade: PodFacade,
@@ -207,12 +208,17 @@ open class SempodsBaseEndpoint(
       else -> outcome
     }
 
-  /** This request as [PodRequestVerifier] takes it, addressed by [SempodsConfig.apiBaseUrl]. */
+  /**
+   * This request as [PodRequestVerifier] takes it, addressed by [SempodsConfig.apiBaseUrl]. Path and
+   * query stay encoded as the client sent them, so a credential bound to the target sees the same
+   * bytes it signed — `%3B` and `%C3%A4` reach the verifier as `%3B` and `%C3%A4`.
+   */
   private fun resourceRequest(): PodResourceRequest {
     val context = currentRequestContext()
+    val query = context.uriInfo.requestUri.rawQuery?.let { "?$it" }.orEmpty()
     return PodResourceRequest(
       method = context.method,
-      target = currentRequestUri(config.apiBaseUrl),
+      target = URI(config.apiBaseUrl + context.uriInfo.getPath(false) + query),
       headers = context.headers.mapValues { it.value.toList() },
     )
   }

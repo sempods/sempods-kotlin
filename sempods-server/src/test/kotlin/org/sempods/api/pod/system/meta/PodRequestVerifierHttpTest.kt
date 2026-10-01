@@ -59,6 +59,21 @@ class PodRequestVerifierHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the target keeps the path and query encoded as the client sent them`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val seen = CopyOnWriteArrayList<PodResourceRequest>()
+    requestVerifier.answerWith { request, _ ->
+      seen += request
+      PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
+    }
+    val target = "${SempodsModule.config.apiBaseUrl}${pod.name}/notes/a%3Bb%C3%A4?context=x%26y"
+
+    http.preparePut(target).addHeader("Content-Type", "application/json").setBody("{}").execute()
+
+    assertEquals(target, seen.single().target.toString())
+  }
+
+  @Test
   fun `without an answer of its own a setup verifies with the real verifier`() = withSetup {
     val pod = sempodsTestFactory.newPod()
 
