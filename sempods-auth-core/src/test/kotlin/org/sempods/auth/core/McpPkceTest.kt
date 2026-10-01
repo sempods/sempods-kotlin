@@ -63,8 +63,13 @@ class McpPkceTest {
   @Test
   fun `an S256 challenge is 43 base64url characters and nothing else`() {
     assertTrue(Pkce.isLegalS256Challenge(challengeFor("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")))
-    assertTrue(Pkce.isLegalS256Challenge("-_" + "a".repeat(41)))
+    assertTrue(Pkce.isLegalS256Challenge("-_" + "a".repeat(40) + "w"))
+    // The last character holds four digest bits and two zero bits: a challenge any digest produces.
+    repeat(200) { assertTrue(Pkce.isLegalS256Challenge(Pkce.challengeFor(Pkce.generateVerifier()))) }
     for (illegal in listOf(
+      // 43 base64url characters, but the last one sets bits a 32-byte digest does not have.
+      "a".repeat(43),
+      "a".repeat(42) + "B",
       "short",
       "",
       "a".repeat(42),
@@ -72,10 +77,10 @@ class McpPkceTest {
       // A legal `plain` challenge under RFC 7636 §4.2, and no S256 one.
       "a".repeat(128),
       // `.` and `~` are unreserved but not base64url; `=` is padding, `+` and `/` standard base64.
-      "~" + "a".repeat(42),
-      "." + "a".repeat(42),
+      "~" + "a".repeat(41) + "w",
+      "." + "a".repeat(41) + "w",
       "a".repeat(42) + "=",
-      "+/" + "a".repeat(41),
+      "+/" + "a".repeat(40) + "w",
     )) {
       assertFalse(Pkce.isLegalS256Challenge(illegal), "should be illegal: '$illegal'")
     }

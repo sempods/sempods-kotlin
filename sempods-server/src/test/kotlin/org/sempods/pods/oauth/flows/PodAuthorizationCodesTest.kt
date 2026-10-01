@@ -63,6 +63,32 @@ internal class PodAuthorizationCodesTest : PodBrowserFlowTest() {
   }
 
   @Test
+  fun `a static client is not handed a code for a challenge no verifier can match`() {
+    // PKCE stays optional for `did:web`, but a challenge that is there has to be usable — a consent
+    // transaction an older node parked reaches here with whatever the form carried.
+    val owned = Owned()
+    for ((challenge, method) in listOf("short" to "S256", "a".repeat(43) to "S256", this.challenge to "plain")) {
+      val result = codes.issue(
+        pod = owned.pod,
+        clientId = clientId,
+        webId = owned.webId,
+        scopes = emptySet(),
+        target = target(owned),
+        state = null,
+        codeChallenge = challenge,
+        codeChallengeMethod = method,
+        via = PodCodeIssuance.CONSENT,
+        session = owned.session,
+      )
+
+      val refused = assertIs<PodCodeResult.Refused>(result, "$challenge/$method was: $result")
+      val delivery = assertIs<OAuthErrorDelivery.Redirect>(refused.delivery)
+      assertEquals(OAuthErrorCode.INVALID_REQUEST, delivery.code)
+      assertEquals("code_challenge must be an S256 challenge: 43 base64url characters", delivery.description)
+    }
+  }
+
+  @Test
   fun `a code carries the address and the state it will travel with`() {
     val owned = Owned()
     val state = "state-${randomId()}"
