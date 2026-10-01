@@ -1,7 +1,6 @@
 package org.sempods.api.pod.system.resources
 
 import com.google.inject.Inject
-import okhttp3.OkHttpClient
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Values
 import org.junit.jupiter.api.Test
@@ -10,14 +9,9 @@ import org.sempods.SempodsModule
 import org.sempods.api.pod.resources.RepresentationTags
 import org.sempods.client.SempodsContent
 import org.sempods.client.SempodsContextSelection
-import org.sempods.client.SempodsOkHttp
-import org.sempods.client.SempodsPod
-import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsPodSlots
 import org.sempods.client.SempodsReadOptions
-import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsResponse
-import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsWriteOptions
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
@@ -369,52 +363,42 @@ class ConditionalEdgeRemovalHttpTest : SempodsIntegrationTest() {
         .orEmpty()
   }
 
-  private fun <T> withCorePod(podName: String, token: String, block: (SempodsPod) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    try {
-      return block(SempodsPod(SempodsSession(SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName"), SempodsRequestAuth.bearer(token)), client))
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
-  }
-
   private fun String.outcome(): String = objectMapper.readTree(this).path("outcome").asString()
 
   @Test
-  fun `a client that reads the tag before the source catches a stale removal, and cannot order a stale addition`() {
+  fun `a client that reads the tag before the source catches a stale removal, and cannot order a stale addition`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val x = context(pod, "x").toString()
     val owner = mintScopedToken(pod.name, listOf("$x#read", "$x#write"))
     val (u1, u2) = listOf(user(pod, "u1"), user(pod, "u2"))
 
-    withCorePod(pod.name, owner) { core ->
-      // Caught: A decides on a removal, B adds under the same tag first, and A's removal fails.
-      val source = mutableSetOf(u1)
-      val projection = Projection(core.slots(), group(pod), x, source)
-      assertEquals(201, projection.sync(u1).status)
+    val core = podAs(pod.name, bearer = owner)
 
-      val a = projection.plan(u2)
-      source += u2
-      assertEquals(201, projection.sync(u2).status, "B adds u2")
-      assertEquals(412, projection.apply(a).status, "A's removal was decided on a slot that has changed")
-      val retried = projection.sync(u2)
-      assertEquals(200, retried.status)
-      assertEquals("already_present", String(assertNotNull(retried.body)).outcome(), "A read again and kept u2")
-      assertEquals(source, projection.members())
+    // Caught: A decides on a removal, B adds under the same tag first, and A's removal fails.
+    val source = mutableSetOf(u1)
+    val projection = Projection(core.slots(), group(pod), x, source)
+    assertEquals(201, projection.sync(u1).status)
 
-      // The limit: B's removal changes nothing, so the tag A read still holds and A's stale addition lands.
-      val limitSource = mutableSetOf(u1, u2)
-      val limited = Projection(core.slots(), group(pod), x, limitSource)
-      assertEquals(201, limited.sync(u1).status)
+    val a = projection.plan(u2)
+    source += u2
+    assertEquals(201, projection.sync(u2).status, "B adds u2")
+    assertEquals(412, projection.apply(a).status, "A's removal was decided on a slot that has changed")
+    val retried = projection.sync(u2)
+    assertEquals(200, retried.status)
+    assertEquals("already_present", String(assertNotNull(retried.body)).outcome(), "A read again and kept u2")
+    assertEquals(source, projection.members())
 
-      val late = limited.plan(u2)
-      limitSource -= u2
-      val removal = limited.sync(u2)
-      assertEquals(200, removal.status)
-      assertEquals("already_absent", String(assertNotNull(removal.body)).outcome())
-      assertEquals(201, limited.apply(late).status, "the tag A read is still the slot's tag")
-      assertTrue(u2 in limited.members() && u2 !in limitSource, "the slot keeps a member the source no longer has")
-    }
+    // The limit: B's removal changes nothing, so the tag A read still holds and A's stale addition lands.
+    val limitSource = mutableSetOf(u1, u2)
+    val limited = Projection(core.slots(), group(pod), x, limitSource)
+    assertEquals(201, limited.sync(u1).status)
+
+    val late = limited.plan(u2)
+    limitSource -= u2
+    val removal = limited.sync(u2)
+    assertEquals(200, removal.status)
+    assertEquals("already_absent", String(assertNotNull(removal.body)).outcome())
+    assertEquals(201, limited.apply(late).status, "the tag A read is still the slot's tag")
+    assertTrue(u2 in limited.members() && u2 !in limitSource, "the slot keeps a member the source no longer has")
   }
 }
