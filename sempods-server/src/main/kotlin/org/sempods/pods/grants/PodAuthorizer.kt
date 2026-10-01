@@ -1,6 +1,6 @@
 package org.sempods.pods.grants
 
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.spec.PodRef
 
 /**
@@ -8,11 +8,10 @@ import org.sempods.spec.PodRef
  * reach on a pod, and returns that as the [SempodsCredentials] every endpoint below `{pod}/…`
  * carries.
  *
- * Sits behind the verification, not beside it: `PodTokenAuthenticator` establishes *who is calling*
- * — signature, expiry, the issuer being this pod — and is concrete, because every deployment of
- * this server verifies the same self-issued JWT. What a verified caller may then see is the part a
- * deployment can genuinely differ on: the grant model this implementation runs, a fixed read-only
- * view over virtual contexts, or an external policy engine.
+ * Sits behind the verification: [org.sempods.pods.oauth.spi.PodRequestVerifier] establishes *who
+ * is calling* and hands this seam the [PodAccessToken]. What a verified caller may then see is
+ * decided here: the grant model this implementation runs, a fixed read-only view over virtual
+ * contexts, or an external policy engine.
  *
  * One implementation exists:
  *

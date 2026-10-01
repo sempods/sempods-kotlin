@@ -4,8 +4,8 @@ import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDbo
-import org.sempods.pods.oauth.PodAccessToken
-import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.PodAccessToken
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDbo
 import io.mockk.every

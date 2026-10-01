@@ -194,6 +194,29 @@ build-file edit. A **package** moves only where its coordinate breaks anyway, so
 the dependency line edits the imports in the same sitting. Never rename one for consistency alone —
 the packages are the wire-adjacent half (KDoc links, logger names, the composition guard).
 
+**One other move is allowed while sempods is 0.x: introducing a seam.** The types its contract
+takes and returns move into the new `spi` package in the same change, and the release notes list
+each move. For example, `PodAccessToken` is in `org.sempods.pods.oauth.spi` because
+`PodRequestVerifier` returns it.
+
+**A seam splits into `spi` and `impls`.** A seam is an interface a deployment may replace
+([modularity](concepts/modularity.md)). Its contract — the interface and every type it takes or
+returns — goes in `<seam>.spi`; each new implementation goes in `<seam>.impls.<technology>`, named
+for what it is built on:
+
+```text
+org.sempods.pods.oauth.spi            PodRequestVerifier, PodResourceRequest, PodAccessToken, …
+org.sempods.pods.media.impls.fs       FilesystemPodMediaStore
+org.sempods.ai.impls.ollama           the Ollama provider
+```
+
+An `spi` package names no HTTP framework, protocol library, database type, stored row or
+implementation; `SpiBoundaryTest` in `sempods-server` holds that. Packages that already exist
+stay where they are, since moving them would be a rename for consistency: the older seams keep
+their contract beside the facade, and `PodTokenAuthenticator`, the verifier that predates its
+seam, stays in `org.sempods.pods.oauth` with the issuer and stores it shares keys with, and with
+its logger name.
+
 ## Related
 
 - [`../AGENTS.md`](../AGENTS.md) §"Terminology" — pod, context, grant, scope: what the words mean,

@@ -4,6 +4,7 @@ import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
 import org.sempods.commons.guice.BaseModule
+import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.commons.tests.TestUtil
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
@@ -44,6 +45,8 @@ data class SempodsTestModule(
     val adminAuthorizer = AdminAuthorizerTestDouble()
     bind<AdminAuthorizer>().toInstance(adminAuthorizer)
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
+
+    PodRequestVerifierObserver.bindTestProxy(binder())
 
     bindMediaForTests()
   }

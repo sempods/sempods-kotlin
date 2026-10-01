@@ -1,5 +1,11 @@
 package org.sempods.pods.oauth
 
+import org.sempods.pods.oauth.spi.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodAccessToken
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.JwtRejection
@@ -8,35 +14,29 @@ import org.sempods.auth.core.JwtVerifier
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.SigningKeys
 import org.sempods.auth.core.stringClaimOrNull
+import org.sempods.commons.net.BearerAuth
 import org.sempods.spec.PodRef
-import java.time.Instant
 
 /**
- * Verifies an incoming pod bearer token: protocol, not policy.
- *
- * This is one half of what `SempodsBaseEndpoint.resolveOAuthAccess` used to do in one piece. It
- * answers *who is calling and is the token good* — signature, expiry, the issuer being this pod,
- * and the claims a caller is identified by. It answers nothing about **what** the caller may
- * reach; that is [org.sempods.pods.grants.PodAuthorizer], which is a seam, while this is
- * deliberately a concrete class: every deployment of this server verifies the same self-issued
- * JWT against the same keys, so there is nothing here for a deployment to select.
- *
- * A token that verifies here can still be refused: its person may have signed out of the pod since
- * it was issued, which only a store can say — `SempodsBaseEndpoint` asks [PodSignOut] after this.
- *
- * Failures are returned, not thrown, and they are *reasons* rather than statuses: the same
- * [PodTokenRejection.podMismatch] is a 401 on the read path and a 403 on the app-token path, and
- * that mapping belongs to the endpoint. See `SempodsBaseEndpoint`.
+ * The production [PodRequestVerifier]: verifies a bearer this pod issued itself — signature,
+ * expiry, the issuer being this pod, and the claims a caller is identified by.
  */
 class PodTokenAuthenticator @Inject constructor(
   signingKeys: SigningKeys,
-) {
+) : PodRequestVerifier {
 
   /**
    * Built once, over the keys [SigningKeys] parsed at boot. Every token this pod accepts is one it
    * minted, so the local mode is the whole of it — there is no foreign issuer to fetch from.
    */
   private val jwtVerifier = JwtVerifier.localKeys(signingKeys.publicKeys)
+
+  /**
+   * Reads the bearer from the `Authorization` header and verifies it with [authenticate]. Method and
+   * target play no part: a bearer is not bound to the request it travels on.
+   */
+  override fun verify(request: PodResourceRequest, pod: PodRef): PodTokenAuthentication =
+    authenticate(BearerAuth.parse(request.header("Authorization").takeIf { it.isNotEmpty() }?.joinToString(",")), pod)
 
   /**
    * Verifies [bearerToken] against [pod]. A `null` or blank token is [PodTokenAuthentication.NoToken]
@@ -120,69 +120,5 @@ class PodTokenAuthenticator @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
-  }
-}
-
-/** The outcome of [PodTokenAuthenticator.authenticate]. */
-sealed interface PodTokenAuthentication {
-
-  /** No bearer was presented. An anonymous caller, which is a legitimate state, not a failure. */
-  data object NoToken : PodTokenAuthentication
-
-  /** The bearer verified; [token] carries what it claims. */
-  data class Verified(val token: PodAccessToken) : PodTokenAuthentication
-
-  /** A bearer was presented and is not usable. [reason] is why, not what to answer. */
-  data class Rejected(val reason: PodTokenRejection) : PodTokenAuthentication
-}
-
-/**
- * Why a presented bearer was refused. Kept apart from the HTTP status deliberately:
- * [podMismatch] is the one an endpoint may want to distinguish (a token that is valid, but for
- * another pod), and the two read paths answer it differently.
- */
-enum class PodTokenRejection {
-  /** Unparseable, wrongly signed, expired, or a user token without a `sub`. */
-  invalidToken,
-
-  /** Verified, but carries no `client_id` — no app to resolve grants for. */
-  missingClientId,
-
-  /** Verified, but issued by (and for) a different pod. */
-  podMismatch,
-}
-
-/**
- * Value of the JWT `client_type` claim on tokens issued through `client_credentials`. Absent on
- * authorization-code tokens.
- *
- * Here rather than on `PodTokenIssuer`, which is where it used to live: the claim is read on the
- * way in by code that sits below the `api` layer, and only written on the way out.
- */
-const val SERVICE_CLIENT_TYPE: String = "service"
-
-/**
- * What a verified pod bearer says about its caller. Server-side policy — which contexts the caller
- * may reach — is deliberately *not* in here; it is resolved per request from the grant store, see
- * [org.sempods.pods.grants.PodAuthorizer].
- *
- * [sub] is the WebID the person signed in as, and is null exactly on a service-client token, where
- * there is no person. The [init] block holds that invariant so an implementation of the authorizer
- * seam can rely on it instead of re-deriving it.
- */
-data class PodAccessToken(
-  val clientId: String,
-  val sub: String?,
-  val clientType: String?,
-  /** Raw `scope` ∪ `scp`, unvalidated — sanitizing them is the authorizer's job. */
-  val scopeValues: Set<String>,
-  val jti: String?,
-  val issuedAt: Instant?,
-) {
-
-  val isServiceClient: Boolean get() = clientType == SERVICE_CLIENT_TYPE
-
-  init {
-    require(isServiceClient || sub != null) { "a non-service pod token must carry a sub" }
   }
 }

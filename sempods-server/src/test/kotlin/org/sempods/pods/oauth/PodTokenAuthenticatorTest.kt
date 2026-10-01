@@ -1,5 +1,10 @@
 package org.sempods.pods.oauth
 
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodAccessToken
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -28,7 +33,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * Docker-free unit test of the verification half of what `SempodsBaseEndpoint.resolveOAuthAccess`
+ * Docker-free unit test of the verification half of what `SempodsBaseEndpoint.authenticateBearer`
  * used to do in one piece — the table of "what makes a pod bearer unusable", which had no test of
  * its own before the split.
  *
@@ -129,6 +134,34 @@ class PodTokenAuthenticatorTest {
   fun `no bearer is NoToken rather than a rejection`() {
     assertEquals(PodTokenAuthentication.NoToken, authenticator.authenticate(null, pod))
     assertEquals(PodTokenAuthentication.NoToken, authenticator.authenticate("   ", pod))
+  }
+
+  // --- the request-level contract ---------------------------------------------------------------
+
+  private fun request(vararg headers: Pair<String, String>) = PodResourceRequest(
+    method = "GET",
+    target = URI.create("${apiBaseUrl}${pod.name}/x"),
+    headers = headers.groupBy({ it.first }, { it.second }),
+  )
+
+  @Test
+  fun `a request is verified by the bearer in its Authorization header, whatever the header's case`() {
+    val outcome = authenticator.verify(request("authorization" to "bearer ${token()}"), pod)
+    assertIs<PodTokenAuthentication.Verified>(outcome)
+  }
+
+  @Test
+  fun `a request without a usable bearer is NoToken, as the bare string is`() {
+    assertEquals(PodTokenAuthentication.NoToken, authenticator.verify(request(), pod))
+    assertEquals(PodTokenAuthentication.NoToken, authenticator.verify(request("Authorization" to "Basic abc"), pod))
+  }
+
+  @Test
+  fun `a request with a bad bearer is rejected as the bare string is`() {
+    assertEquals(
+      PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken),
+      authenticator.verify(request("Authorization" to "Bearer garbage"), pod),
+    )
   }
 
   // --- rejections -----------------------------------------------------------------------------

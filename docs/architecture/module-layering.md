@@ -108,5 +108,7 @@ Service Impl ──┘
   an alternative transport or store can be put under, which is why the endpoint holds the request
   and this holds the decision. Neighbouring packages are not held to it: `org.sempods.pods.oauth`
   keeps the stores, and a store names its driver by definition
+- **So is every seam's contract.** `SpiBoundaryTest` holds each `spi` package to the rule in
+  [naming](../naming.md#4-package-namespace)
 - Which modules may depend on which is the harder boundary, and it is not a matter of visibility
   modifiers — see the layering rules above and the module list in the root `AGENTS.md`

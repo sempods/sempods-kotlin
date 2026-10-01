@@ -8,6 +8,7 @@ import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
@@ -95,6 +96,18 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   fun dropOwnStores() {
     ownStores.forEach { db.getCollection(it).drop() }
   }
+
+  @Inject
+  private lateinit var requestVerifierObserver: PodRequestVerifierObserver
+
+  /**
+   * Runs [block] in a fresh [SempodsTestSetup]. Each seam's test implementation is observed for the
+   * block's trace, so what a test changes there reaches its own requests and no other class's.
+   */
+  protected fun <R> withSetup(block: SempodsTestSetup.() -> R): R =
+    requestVerifierObserver.observeWithTestImpl { requestVerifier ->
+      SempodsTestSetup(requestVerifier = requestVerifier).block()
+    }
 
   // test factories
 

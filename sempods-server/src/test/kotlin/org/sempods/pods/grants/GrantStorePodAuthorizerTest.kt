@@ -6,8 +6,8 @@ import io.mockk.verify
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
 import org.sempods.pods.PodFacade
-import org.sempods.pods.oauth.PodAccessToken
-import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.PodAccessToken
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import org.sempods.spec.PodRef
 import java.net.URI
 import kotlin.test.assertEquals

@@ -25,14 +25,16 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toRef
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenAuthentication
-import org.sempods.pods.oauth.PodTokenAuthenticator
-import org.sempods.pods.oauth.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenRejection
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDbo
 import org.sempods.spec.PodRef
+import java.net.URI
 
 open class SempodsBaseEndpoint(
   protected val podFacade: PodFacade,
@@ -51,7 +53,7 @@ open class SempodsBaseEndpoint(
   private lateinit var sempodsUriBuilder: SempodsUriBuilder
 
   @Inject
-  private lateinit var podTokenAuthenticator: PodTokenAuthenticator
+  private lateinit var podRequestVerifier: PodRequestVerifier
 
   @Inject
   private lateinit var podAuthorizer: PodAuthorizer
@@ -102,12 +104,11 @@ open class SempodsBaseEndpoint(
    * callers — sempods is Linked Open Data, so every endpoint must accept anonymous reads on
    * public contexts.
    *
-   * Two collaborators, and the split between them is the point: [PodTokenAuthenticator] decides
-   * whether the bearer is good (protocol — concrete, one implementation per definition), and
-   * [PodAuthorizer] decides what a good bearer may reach (policy — the seam a deployment may
-   * replace, `docs/concepts/modularity.md`). What stays here is the third thing, which is neither:
-   * how a refusal becomes an HTTP status. Between the two, [authenticateBearer] asks whether the
-   * person behind a good bearer has signed out since it was issued.
+   * Two collaborators, and the split between them is the point: [PodRequestVerifier] decides
+   * whether the credential is good (protocol), and [PodAuthorizer] decides what a verified caller
+   * may reach (policy). What stays here is the third thing, which is neither: how a refusal becomes
+   * an HTTP status. Between the two, [authenticateBearer] asks whether the person behind a verified
+   * credential has signed out since it was issued.
    *
    * - **No bearer** → anonymous caller, resolved by [PodAuthorizer.anonymous].
    * - **Valid bearer** → [PodAuthorizer.authorize].
@@ -188,24 +189,39 @@ open class SempodsBaseEndpoint(
   }
 
   /**
-   * [PodTokenAuthenticator.authenticate], and a verified token whose person has signed out of the pod
+   * [PodRequestVerifier.verify], and a verified token whose person has signed out of the pod
    * since it was issued refused as an invalid one — a 401, so a client refreshes, finds its family
    * revoked and starts again.
    *
-   * The authenticator reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
+   * The verifier reads no store, so the check sits here. [PodAuthorizer] is a seam a deployment
    * may replace, and no deployment may drop a sign-out.
    *
    * The pod comes as the row this request just read, because [PodSignOut] is asked for the id on it
    * rather than for a name to resolve — see its KDoc.
    */
   private fun authenticateBearer(podDbo: PodDbo, podRef: PodRef): PodTokenAuthentication =
-    when (val outcome = podTokenAuthenticator.authenticate(bearerToken(), podRef)) {
+    when (val outcome = podRequestVerifier.verify(resourceRequest(), podRef)) {
       is PodTokenAuthentication.Verified ->
         if (podSignOut.accessTokenStands(podDbo.podId(), outcome.token)) outcome
         else PodTokenAuthentication.Rejected(PodTokenRejection.invalidToken)
 
       else -> outcome
     }
+
+  /**
+   * This request as [PodRequestVerifier] takes it, addressed by [SempodsConfig.apiBaseUrl]. Path and
+   * query stay encoded as the client sent them, so a credential bound to the target sees the same
+   * bytes it signed — `%3B` and `%C3%A4` reach the verifier as `%3B` and `%C3%A4`.
+   */
+  private fun resourceRequest(): PodResourceRequest {
+    val context = currentRequestContext()
+    val query = context.uriInfo.requestUri.rawQuery?.let { "?$it" }.orEmpty()
+    return PodResourceRequest(
+      method = context.method,
+      target = URI(config.apiBaseUrl + context.uriInfo.getPath(false) + query),
+      headers = context.headers.mapValues { it.value.toList() },
+    )
+  }
 
   private fun throwInvalidBearer(podName: String): Nothing {
     throw InvalidBearerException(
