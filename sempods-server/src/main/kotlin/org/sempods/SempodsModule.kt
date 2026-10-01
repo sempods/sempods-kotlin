@@ -43,7 +43,7 @@ import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
-import org.sempods.pods.oauth.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodRequestVerifier
 import org.sempods.pods.oauth.PodTokenAuthenticator
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.admin.StaticCredentialAdminAuthorizer

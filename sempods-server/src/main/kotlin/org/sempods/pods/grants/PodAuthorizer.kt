@@ -1,6 +1,6 @@
 package org.sempods.pods.grants
 
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.spec.PodRef
 
 /**

@@ -1,4 +1,4 @@
-package org.sempods.pods.oauth
+package org.sempods.pods.oauth.spi
 
 import org.sempods.spec.PodRef
 import java.net.URI
@@ -21,8 +21,9 @@ import java.net.URI
  * credentials ([PodTokenAuthentication.Rejected]) and verified ones
  * ([PodTokenAuthentication.Verified]) — the last may still lack authority, which is not decided here.
  *
- * The production implementation is [PodTokenAuthenticator]. This contract names no HTTP framework,
- * protocol library or database type; `PodRequestVerifierBoundaryTest` holds that.
+ * The production implementation is `org.sempods.pods.oauth.PodTokenAuthenticator`. Like every `spi`
+ * package, this one names no HTTP framework, protocol library or database type; `SpiBoundaryTest`
+ * holds that.
  */
 fun interface PodRequestVerifier {
 

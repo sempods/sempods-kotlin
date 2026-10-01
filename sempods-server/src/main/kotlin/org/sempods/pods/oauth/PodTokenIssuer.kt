@@ -1,6 +1,6 @@
 package org.sempods.pods.oauth
 
-import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner

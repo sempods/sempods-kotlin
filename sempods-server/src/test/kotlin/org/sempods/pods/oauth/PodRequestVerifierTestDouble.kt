@@ -1,5 +1,8 @@
 package org.sempods.pods.oauth
 
+import org.sempods.pods.oauth.spi.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
 import com.google.inject.Inject
 import com.google.inject.Singleton
 import org.sempods.spec.PodRef

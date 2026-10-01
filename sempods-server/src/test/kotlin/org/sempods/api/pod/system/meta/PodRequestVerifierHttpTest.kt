@@ -6,11 +6,11 @@ import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.api.assertPodBearerChallenge
 import org.sempods.commons.okhttp.TestHttpClient
-import org.sempods.pods.oauth.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodRequestVerifier
 import org.sempods.pods.oauth.PodRequestVerifierTestDouble
-import org.sempods.pods.oauth.PodResourceRequest
-import org.sempods.pods.oauth.PodTokenAuthentication
-import org.sempods.pods.oauth.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodTokenRejection
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

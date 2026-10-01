@@ -108,10 +108,9 @@ Service Impl ──┘
   an alternative transport or store can be put under, which is why the endpoint holds the request
   and this holds the decision. Neighbouring packages are not held to it: `org.sempods.pods.oauth`
   keeps the stores, and a store names its driver by definition
-- **So is the request-verification contract.** `PodRequestVerifier`, `PodResourceRequest` and the
-  types it answers with (`PodTokenAuthentication`, `PodTokenRejection`, `PodAccessToken`) sit in
-  `org.sempods.pods.oauth` beside the stores, so `PodRequestVerifierBoundaryTest` holds them by
-  name to the same vocabulary rule: no HTTP framework, protocol library, driver or stored row.
-  The implementation, `PodTokenAuthenticator`, names Nimbus and is not held to it
+- **So is every seam's contract.** A type in an `spi` package is what an alternative
+  implementation is written against, and `SpiBoundaryTest` fails if one names an HTTP framework,
+  a protocol library, a database type, a stored row or an `impls` package
+  ([naming](../naming.md#4-package-namespace))
 - Which modules may depend on which is the harder boundary, and it is not a matter of visibility
   modifiers — see the layering rules above and the module list in the root `AGENTS.md`

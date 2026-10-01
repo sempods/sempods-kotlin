@@ -1,5 +1,11 @@
 package org.sempods.pods.oauth
 
+import org.sempods.pods.oauth.spi.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodAccessToken
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.JwtRejection
@@ -10,7 +16,6 @@ import org.sempods.auth.core.SigningKeys
 import org.sempods.auth.core.stringClaimOrNull
 import org.sempods.commons.net.BearerAuth
 import org.sempods.spec.PodRef
-import java.time.Instant
 
 /**
  * Verifies an incoming pod bearer token: protocol, not policy.
@@ -129,69 +134,5 @@ class PodTokenAuthenticator @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
-  }
-}
-
-/** The outcome of [PodTokenAuthenticator.authenticate]. */
-sealed interface PodTokenAuthentication {
-
-  /** No bearer was presented. An anonymous caller, which is a legitimate state, not a failure. */
-  data object NoToken : PodTokenAuthentication
-
-  /** The bearer verified; [token] carries what it claims. */
-  data class Verified(val token: PodAccessToken) : PodTokenAuthentication
-
-  /** A bearer was presented and is not usable. [reason] is why, not what to answer. */
-  data class Rejected(val reason: PodTokenRejection) : PodTokenAuthentication
-}
-
-/**
- * Why a presented bearer was refused. Kept apart from the HTTP status deliberately:
- * [podMismatch] is the one an endpoint may want to distinguish (a token that is valid, but for
- * another pod), and the two read paths answer it differently.
- */
-enum class PodTokenRejection {
-  /** Unparseable, wrongly signed, expired, or a user token without a `sub`. */
-  invalidToken,
-
-  /** Verified, but carries no `client_id` — no app to resolve grants for. */
-  missingClientId,
-
-  /** Verified, but issued by (and for) a different pod. */
-  podMismatch,
-}
-
-/**
- * Value of the JWT `client_type` claim on tokens issued through `client_credentials`. Absent on
- * authorization-code tokens.
- *
- * Here rather than on `PodTokenIssuer`, which is where it used to live: the claim is read on the
- * way in by code that sits below the `api` layer, and only written on the way out.
- */
-const val SERVICE_CLIENT_TYPE: String = "service"
-
-/**
- * What a verified pod bearer says about its caller. Server-side policy — which contexts the caller
- * may reach — is deliberately *not* in here; it is resolved per request from the grant store, see
- * [org.sempods.pods.grants.PodAuthorizer].
- *
- * [sub] is the WebID the person signed in as, and is null exactly on a service-client token, where
- * there is no person. The [init] block holds that invariant so an implementation of the authorizer
- * seam can rely on it instead of re-deriving it.
- */
-data class PodAccessToken(
-  val clientId: String,
-  val sub: String?,
-  val clientType: String?,
-  /** Raw `scope` ∪ `scp`, unvalidated — sanitizing them is the authorizer's job. */
-  val scopeValues: Set<String>,
-  val jti: String?,
-  val issuedAt: Instant?,
-) {
-
-  val isServiceClient: Boolean get() = clientType == SERVICE_CLIENT_TYPE
-
-  init {
-    require(isServiceClient || sub != null) { "a non-service pod token must carry a sub" }
   }
 }

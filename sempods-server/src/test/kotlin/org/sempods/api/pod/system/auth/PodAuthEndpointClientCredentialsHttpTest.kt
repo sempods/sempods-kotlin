@@ -6,7 +6,7 @@ import okhttp3.OkHttpClient
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.pods.oauth.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao

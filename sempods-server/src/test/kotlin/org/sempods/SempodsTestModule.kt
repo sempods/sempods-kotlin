@@ -13,7 +13,7 @@ import org.sempods.auth.core.HttpTransport
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
-import org.sempods.pods.oauth.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodRequestVerifier
 import org.sempods.pods.oauth.PodRequestVerifierTestDouble
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient

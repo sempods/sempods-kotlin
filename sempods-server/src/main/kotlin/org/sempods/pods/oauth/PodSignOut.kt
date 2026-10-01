@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth
 
+import org.sempods.pods.oauth.spi.PodAccessToken
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.identity.WebIdUriDeriver

@@ -3,7 +3,7 @@ package org.sempods.pods.grants
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.pods.PodFacade
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.spec.PodRef
 
 /**

@@ -25,12 +25,12 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toRef
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenAuthentication
-import org.sempods.pods.oauth.PodRequestVerifier
-import org.sempods.pods.oauth.PodResourceRequest
-import org.sempods.pods.oauth.PodTokenRejection
+import org.sempods.pods.oauth.spi.PodTokenAuthentication
+import org.sempods.pods.oauth.spi.PodRequestVerifier
+import org.sempods.pods.oauth.spi.PodResourceRequest
+import org.sempods.pods.oauth.spi.PodTokenRejection
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDbo
 import org.sempods.spec.PodRef
@@ -103,12 +103,11 @@ open class SempodsBaseEndpoint(
    * callers — sempods is Linked Open Data, so every endpoint must accept anonymous reads on
    * public contexts.
    *
-   * Two collaborators, and the split between them is the point: [PodTokenAuthenticator] decides
-   * whether the bearer is good (protocol — concrete, one implementation per definition), and
-   * [PodAuthorizer] decides what a good bearer may reach (policy — the seam a deployment may
-   * replace, `docs/concepts/modularity.md`). What stays here is the third thing, which is neither:
-   * how a refusal becomes an HTTP status. Between the two, [authenticateBearer] asks whether the
-   * person behind a good bearer has signed out since it was issued.
+   * Two collaborators, and the split between them is the point: [PodRequestVerifier] decides
+   * whether the credential is good (protocol), and [PodAuthorizer] decides what a verified caller
+   * may reach (policy). What stays here is the third thing, which is neither: how a refusal becomes
+   * an HTTP status. Between the two, [authenticateBearer] asks whether the person behind a verified
+   * credential has signed out since it was issued.
    *
    * - **No bearer** → anonymous caller, resolved by [PodAuthorizer.anonymous].
    * - **Valid bearer** → [PodAuthorizer.authorize].

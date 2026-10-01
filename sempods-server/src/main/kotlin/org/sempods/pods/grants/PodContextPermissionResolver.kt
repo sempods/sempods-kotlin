@@ -4,7 +4,7 @@ import com.google.inject.Inject
 import org.bson.types.ObjectId
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
-import org.sempods.pods.oauth.PodAccessToken
+import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import java.net.URI
 
