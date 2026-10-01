@@ -11,7 +11,7 @@ import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.Redirectable
 import org.sempods.pods.HostedPod
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * Minting the authorization code both browser routes end at.
@@ -44,7 +44,7 @@ class PodAuthorizationCodes @Inject internal constructor(
     consentGeneration: Long? = null,
     subjectUris: Set<String> = emptySet(),
     consentText: Int? = null,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
   ): PodCodeResult {
     // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
     // never mint an auth code for a dynamic (public) client without PKCE.

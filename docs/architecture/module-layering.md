@@ -104,7 +104,8 @@ Service Impl ──┘
 - **One package is held to what it may name.**
   `sempods-server`'s `org.sempods.pods.oauth.flows` decides the pod's OAuth flows, and
   `PodOAuthFlowsBoundaryTest` fails if it reaches for an HTTP framework, a protocol library, a
-  database driver, a stored row or the endpoint layer. A layer that may not reach for those is one
+  database driver, a stored row or the endpoint layer, or if its contracts name a type a store or
+  the issuer defines. A layer that may not reach for those is one
   an alternative transport or store can be put under, which is why the endpoint holds the request
   and this holds the decision. Neighbouring packages are not held to it: `org.sempods.pods.oauth`
   keeps the stores, and a store names its driver by definition

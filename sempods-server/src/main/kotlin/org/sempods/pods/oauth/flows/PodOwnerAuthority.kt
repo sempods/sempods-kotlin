@@ -6,6 +6,7 @@ import org.sempods.pods.HostedPod
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodManagementAuthorityStore
+import org.sempods.pods.oauth.PrivilegedAuthority
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 
 /**
@@ -57,7 +58,7 @@ class PodOwnerAuthority @Inject internal constructor(
 
 /** What [PodOwnerAuthority.check] answers. */
 internal sealed interface PodOwnerAuthorityCheck {
-  data class Standing(val authority: PrivilegedAuthorityRows.Authority) : PodOwnerAuthorityCheck
+  data class Standing(val authority: PrivilegedAuthority) : PodOwnerAuthorityCheck
   data class Refused(val reason: PodOwnerAuthorityRefusal) : PodOwnerAuthorityCheck
 }
 

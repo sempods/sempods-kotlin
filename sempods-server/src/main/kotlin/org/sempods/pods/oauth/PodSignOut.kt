@@ -86,11 +86,11 @@ class PodSignOut @Inject internal constructor(
   /**
    * The same, for the session a cookie decoded to.
    *
-   * Two callers ask it of a [PodTokenIssuer.SessionPrincipal] — the route that reads the cookie,
+   * Two callers ask it of a [SessionPrincipal] — the route that reads the cookie,
    * and the authorization that re-asks after reading the consent generation — and spelling the
    * person out of that principal twice is how the two drift apart.
    */
-  internal fun sessionStands(pod: PodId, session: PodTokenIssuer.SessionPrincipal): Boolean =
+  internal fun sessionStands(pod: PodId, session: SessionPrincipal): Boolean =
     sessionStands(pod, listOf(session.webId) + session.alsoKnownAs, session.authTime)
 
   /**

@@ -2,9 +2,10 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.ConsentBinding
 import org.sempods.auth.ConsentTransactionStore
+import org.sempods.auth.PendingLogin
 import org.sempods.auth.PersonIdentity
-import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.ClientMetadataUri
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
@@ -24,9 +25,9 @@ import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
-import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import java.util.UUID
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * What a pod does with `GET /authorize`: decide whether this client may be answered at all, who is
@@ -60,7 +61,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   internal fun authorize(
     pod: HostedPod,
     request: PodAuthorizeRequest,
-    session: PodTokenIssuer.SessionPrincipal?,
+    session: SessionPrincipal?,
   ): PodAuthorizeResult {
     val sessionIdentity = session?.let { PersonIdentity(webId = it.webId, alsoKnownAs = it.alsoKnownAs) }
 
@@ -269,7 +270,7 @@ class PodAuthorizeFlow @Inject internal constructor(
         else -> null
       }
       val started = signIn.park(pod, forwardedPrompt) { codeVerifier, nonce, browserPin ->
-        PodLoginStateStore.Pending(
+        PendingLogin(
           pod = pod.name,
           clientId = normalizedClientId,
           redirectUri = normalizedRedirectUri,
@@ -570,7 +571,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     val contexts = consentSelection.rows(pod, userGrants, existingGrants)
     // What the page offers and what the submission accepts, decided once: the template renders from
     // this, and the transaction records it.
-    val binding = ConsentTransactionStore.Binding(
+    val binding = ConsentBinding(
       clientId = normalizedClientId,
       redirectUri = normalizedRedirectUri,
       state = state,

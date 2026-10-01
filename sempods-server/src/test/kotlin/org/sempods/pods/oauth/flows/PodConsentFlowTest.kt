@@ -1,7 +1,7 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
-import org.sempods.auth.ConsentTransactionStore
+import org.sempods.auth.ConsentBinding
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
@@ -12,7 +12,6 @@ import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
-import org.sempods.pods.oauth.PodTokenIssuer
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,6 +20,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.sempods.pods.oauth.SessionPrincipal
 
 /**
  * What the consent dialog coming back decides, without a server and without a protocol message
@@ -332,7 +332,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     val bare = sempodsTestFactory.newPod(createPublicContext = false)
     val pod = bare.toHostedPod(sempodsUriBuilder)
     val ticket = consentTransactionStore.issue(pod.name, bare.owner, null)
-    val session = PodTokenIssuer.SessionPrincipal(bare.owner, emptyList(), Instant.now().minusSeconds(60))
+    val session = SessionPrincipal(bare.owner, emptyList(), Instant.now().minusSeconds(60))
 
     val result = flow.submit(pod, form(csrf = ticket, scopes = listOf(PUBLIC_READ_SCOPE)), session)
 
@@ -442,11 +442,11 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     // The offer was the owner's when the page was rendered; creating a context is asked again.
     val owned = Owned()
     val former = "https://id.example/former-${randomId()}"
-    val session = PodTokenIssuer.SessionPrincipal(former, emptyList(), Instant.now().minusSeconds(60))
+    val session = SessionPrincipal(former, emptyList(), Instant.now().minusSeconds(60))
     val path = "notes-${randomId()}"
     val ticket = consentTransactionStore.issue(
       owned.pod.name, former, null, emptySet(), 0L,
-      ConsentTransactionStore.Binding(
+      ConsentBinding(
         clientId = clientId, redirectUri = redirectUri, state = null, codeChallenge = challenge,
         codeChallengeMethod = "S256", offeredContexts = emptySet(), publicReadOffered = false,
         contextCreationOffered = true,
@@ -618,7 +618,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   @Test
   fun `a management authority approved by someone who does not own the pod is refused`() {
     val owned = Owned()
-    val stranger = PodTokenIssuer.SessionPrincipal(
+    val stranger = SessionPrincipal(
       "https://id.test/${randomId()}", emptyList(), Instant.now().minusSeconds(60),
     )
     val ticket = consentTransactionStore.issue(

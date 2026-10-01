@@ -1,9 +1,9 @@
 package org.sempods.pods.oauth.flows
 
 import java.net.URI
+import org.sempods.auth.ConsentBinding
+import org.sempods.pods.oauth.ConnectionTerms
 
-import org.sempods.auth.ConsentTransactionStore
-import org.sempods.pods.oauth.PodRefreshTokenStore
 
 /**
  * What this authorization made of this person, this client and this pod — everything the consent
@@ -37,7 +37,7 @@ internal data class PodConsentScreen(
   val clientName: String,
   val clientUri: String?,
   val logoUri: String?,
-  val binding: ConsentTransactionStore.Binding,
+  val binding: ConsentBinding,
   val csrfToken: String,
   val webId: String,
   val contexts: List<PodConsentContext>,
@@ -45,8 +45,8 @@ internal data class PodConsentScreen(
   val publicContexts: List<String>,
   val publicReadPreselected: Boolean,
   val durablePreselected: Boolean,
-  val sessionTerms: PodRefreshTokenStore.Terms,
-  val durableTerms: PodRefreshTokenStore.Terms,
+  val sessionTerms: ConnectionTerms,
+  val durableTerms: ConnectionTerms,
   val disconnectAvailable: Boolean,
   val privilegedFeatures: List<String>,
   val lifetimeAvailable: Boolean,

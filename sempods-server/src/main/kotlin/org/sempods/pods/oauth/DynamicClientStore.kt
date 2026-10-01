@@ -24,24 +24,6 @@ class DynamicClientStore @Inject constructor(
   private val dao: DynamicClientRegistrationDao,
 ) {
 
-  data class Registration(
-    val clientId: String,
-    val redirectUris: Set<String>,
-    val clientName: String?,
-    val clientUri: String?,
-    val logoUri: String?,
-    val softwareId: String?,
-    val softwareVersion: String?,
-    val contacts: List<String>,
-    val tosUri: String?,
-    val policyUri: String?,
-    val registeredAt: Instant,
-    /** The DCR request body as it arrived. */
-    val rawRequest: Map<String, Any?>,
-    /** The `registeredAt` of the row [register] deduplicated to; `null` when it inserted a row. */
-    val deduplicatedFromRegisteredAt: Instant? = null,
-  )
-
   internal fun register(
     registeredForPod: PodId,
     registeredForPodName: String,
@@ -57,7 +39,7 @@ class DynamicClientStore @Inject constructor(
     rawRequest: Map<String, Any?> = emptyMap(),
     remoteAddr: String? = null,
     userAgent: String? = null,
-  ): Registration {
+  ): DynamicClient {
     // Pod-scoped dedup: a repeat `/register` from the same client (stable clientName +
     // userAgent, redirect URIs equal up to loopback port) reuses the existing clientId.
     // Keeps consent + grants anchored to one row per logical agent instead of accumulating
@@ -98,7 +80,7 @@ class DynamicClientStore @Inject constructor(
     error("registration neither found nor inserted in $ATTEMPTS passes: pod=$registeredForPod")
   }
 
-  internal fun lookup(pod: PodId, clientId: String): Registration? =
+  internal fun lookup(pod: PodId, clientId: String): DynamicClient? =
     dao.findByClientId(pod.objectId(), clientId)?.toRegistration()
 
   /**
@@ -110,7 +92,7 @@ class DynamicClientStore @Inject constructor(
 
   private fun DynamicClientRegistrationDbo.toRegistration(
     deduplicatedFromRegisteredAt: Instant? = null,
-  ) = Registration(
+  ) = DynamicClient(
     clientId = clientId,
     redirectUris = redirectUris,
     clientName = clientName,

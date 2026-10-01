@@ -86,37 +86,18 @@ class PodRefreshTokenStore internal constructor(
     DURABLE("durable"),
   }
 
-  /**
-   * How long a family of one [Lifetime] lives.
-   *
-   * The numbers are the deployment's ([SempodsConfig.sessionConnectionIdleHours] and the three beside
-   * it). RFC 10017 §6.3.2.3 requires a maximum lifetime or an idle expiry and fixes neither, and says
-   * an authorization server MAY set different policies for browser-based applications.
-   *
-   * Only [absolute] is stored with a family, as its deadline. [idle] is read at every rotation, so a
-   * changed setting reaches a live family at its next refresh — a deployment that shortens the window
-   * shortens it for connections already made too — while the deadline stays as minted.
-   *
-   * @param idle how long a family survives unused. Every rotation renews it, which is what makes it
-   *   an idle window rather than a life.
-   * @param absolute the family's outer bound, fixed when it is seeded and never moved again. Without
-   *   one a family that rotates daily never ends, which RFC 10017 §6.3.2.3 rules out: a rotation may
-   *   not extend the new token's lifetime beyond the initial token's.
-   */
-  internal class Terms(val idle: Duration, val absolute: Duration)
-
-  private val sessionTerms = Terms(
+  private val sessionTerms = ConnectionTerms(
     idle = Duration.ofHours(config.sessionConnectionIdleHours.toLong()),
     absolute = Duration.ofDays(config.sessionConnectionAbsoluteDays.toLong()),
   )
 
-  private val durableTerms = Terms(
+  private val durableTerms = ConnectionTerms(
     idle = Duration.ofDays(config.durableConnectionIdleDays.toLong()),
     absolute = Duration.ofDays(config.durableConnectionAbsoluteDays.toLong()),
   )
 
   /** The terms a family of [lifetime] is seeded and rotated on, and the ones the consent dialog names. */
-  internal fun termsOf(lifetime: Lifetime): Terms = when (lifetime) {
+  internal fun termsOf(lifetime: Lifetime): ConnectionTerms = when (lifetime) {
     Lifetime.SESSION -> sessionTerms
     Lifetime.DURABLE -> durableTerms
   }
