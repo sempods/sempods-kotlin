@@ -3,6 +3,8 @@ package org.sempods
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.media.SempodsPodMedia
+import org.sempods.controlplane.SempodsControlPlaneClient
+import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.pods.oauth.PodRequestVerifierTestImpl
 
@@ -40,4 +42,9 @@ class SempodsTestSetup internal constructor(
 
   /** [mediaAs] with a bearer. */
   fun mediaAs(name: String, bearer: String): SempodsPodMedia = SempodsPodMedia(podAs(name, bearer))
+
+  /** This server's host admin surface, by default under the suite's admin credential. */
+  fun adminAs(
+    auth: SempodsRequestAuth = SempodsRequestAuth.bearer(AdminAuthorizerTestDouble.TEST_ADMIN_SECRET),
+  ): SempodsControlPlaneClient = podAccess.hostSessionFor(auth)
 }

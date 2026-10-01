@@ -380,28 +380,7 @@ class PodMediaEndpoint @Inject constructor(
     }
 
     val streamingOutput = StreamingOutput { out ->
-      // A row whose object is missing is a real state: a crash between the two writes, or the
-      // narrow sweep window `PodMediaFacade.sweepUnreferenced` documents. Left to the generic
-      // mapper it becomes a `500` whose body is the exception message — and for the filesystem
-      // store that message **is the absolute path of the media root**, handed to anyone who may
-      // read this media. The status is right and stays; only the disclosure goes.
-      //
-      // `Exception`, not `IOException`: what a store throws for "not there" is its own business
-      // (the filesystem one throws `NoSuchFileException`, an object store will throw something of
-      // its own), and this is strictly better than the alternative in every case — the same `500`
-      // either way, with the detail in the log instead of in the response.
-      val input = try {
-        mediaFacade.open(podMedia)
-      } catch (e: Exception) {
-        logger.error(e) { "Media ${podMedia.mediaId} of pod $pod has a registry row but no object" }
-        throw WebApplicationException(
-          Response.status(500).entity("media content is unavailable").type(MediaType.TEXT_PLAIN).build(),
-        )
-      }
-      // Outside the catch on purpose: a failure from here on is the copy, not the lookup — a client
-      // that hung up mid-download is not an error worth a stack trace, and the response is
-      // committed by then anyway.
-      input.use { it.copyTo(out) }
+      mediaFacade.open(podMedia).use { it.copyTo(out) }
     }
     return Response.ok(streamingOutput, contentType)
       .tag(entityTag)

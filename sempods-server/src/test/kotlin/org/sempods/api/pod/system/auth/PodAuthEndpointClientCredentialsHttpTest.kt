@@ -2,29 +2,22 @@ package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
 import com.nimbusds.jwt.SignedJWT
-import okhttp3.OkHttpClient
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
+import org.sempods.SempodsTestSetup
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.client.SempodsCredentialSupplier
-import org.sempods.client.SempodsOkHttp
-import org.sempods.client.SempodsPod
-import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsRequestAuth
-import org.sempods.client.SempodsSession
-import org.sempods.client.SempodsStatusException
 import org.sempods.client.SempodsPodTokens
 import org.sempods.commons.okhttp.TestHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -42,13 +35,15 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var podServiceAuditLogDao: PodServiceAuditLogDao
 
-  private val objectMapper = ObjectMapper()
-
   private fun tokenUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/_system/auth/token"
 
   private fun podBaseUrl(podName: String): String =
     "${SempodsModule.config.apiBaseUrl}${podName}/"
+
+  /** The token endpoint as the service [clientId] calls it with [secret], through the published client. */
+  private fun SempodsTestSetup.tokensAs(podName: String, clientId: String, secret: String): SempodsPodTokens =
+    podAs(podName, SempodsRequestAuth.clientSecretBasic(clientId, secret)).let { SempodsPodTokens(it.session, it.calls) }
 
   @Test
   fun `a registration holding no grants authenticates and mints nothing`() {
@@ -74,13 +69,59 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `client_credentials issues a service token bound to client_id with short TTL`() {
+  fun `client_credentials issues a service token bound to client_id with short TTL`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
     val registered = podServiceClientStore.register(
       pod = pod.hosted,
       clientId = "notes-app",
       scopes = setOf("$appRoot#manage"),
+      label = "notes-app",
+    )
+    val tokens = tokensAs(pod.name, registered.registration.clientId, registered.secret)
+
+    val minted = tokens.clientCredentials()
+
+    assertEquals(200, minted.status)
+    val token = checkNotNull(minted.body)
+    assertEquals("Bearer", token.tokenType)
+    val expiresIn = checkNotNull(token.expiresIn).seconds
+    assertTrue(
+      expiresIn in 1..PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
+      "expires_in $expiresIn should be inside 1..${PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS}",
+    )
+    // Slim service token (token-slimming): context scopes are NOT carried in the token —
+    // they are resolved server-side from PodServiceClientDao per request. This client registers
+    // only a context manage scope (no feature scopes), so `scope` is empty here. The actual
+    // context access this token grants is verified in
+    // `service token writes inside its manage root and not in a sibling that shares its prefix`.
+    assertEquals("", token.scope)
+
+    val claims = SignedJWT.parse(token.accessToken).jwtClaimsSet
+    assertEquals("notes-app", claims.subject, "sub must be client_id, not WebID")
+    assertEquals("notes-app", claims.getStringClaim("client_id"))
+    assertEquals(SERVICE_CLIENT_TYPE, claims.getStringClaim("client_type"))
+    assertEquals("", claims.getStringClaim("scope"), "slim service token carries no context scopes")
+    val ttl = (claims.expirationTime.time - claims.issueTime.time) / 1000
+    assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, ttl, "exp should be issued-at + service-token TTL")
+
+    // A pod session whose bearer mints through the client it serves reads the pod with what it minted.
+    val podBearer = SempodsRequestAuth.refreshable(
+      SempodsCredentialSupplier { _, attempt ->
+        checkNotNull(SempodsPodTokens(tokens.session, attempt.calls(tokens.calls)).clientCredentials().body).accessToken
+      },
+    )
+    assertEquals(200, podAs(pod.name, podBearer).contexts().listText().status)
+  }
+
+  @Test
+  fun `a service token is answered with the cache rules of RFC 6749`() {
+    // RFC 6749 §5.1, on the success as on every refusal this endpoint gives.
+    val pod = sempodsTestFactory.newPod()
+    val registered = podServiceClientStore.register(
+      pod = pod.hosted,
+      clientId = "notes-app",
+      scopes = setOf("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes#manage"),
       label = "notes-app",
     )
 
@@ -91,33 +132,8 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       .execute()
 
     assertEquals(200, response.statusCode, "unexpected status; body=${response.responseBody}")
-    // RFC 6749 §5.1, on the success as on every refusal this endpoint gives.
     assertEquals("no-store", response.getHeader("Cache-Control"), response.responseBody)
     assertEquals("no-cache", response.getHeader("Pragma"), response.responseBody)
-    val body: Map<String, Any?> = objectMapper.readValue(response.responseBody, Map::class.java)
-      .mapKeys { it.key.toString() }
-    val accessToken = body["access_token"] as? String
-    assertNotNull(accessToken, "access_token missing in $body")
-    assertEquals("Bearer", body["token_type"])
-    val expiresIn = (body["expires_in"] as Number).toLong()
-    assertTrue(
-      expiresIn in 1..PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS,
-      "expires_in $expiresIn should be inside 1..${PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS}",
-    )
-    // Slim service token (token-slimming): context scopes are NOT carried in the token —
-    // they are resolved server-side from PodServiceClientDao per request. This client registers
-    // only a context manage scope (no feature scopes), so `scope` is empty here. The actual
-    // context access this token grants is verified in
-    // `service token writes inside its manage root and not in a sibling that shares its prefix`.
-    assertEquals("", body["scope"])
-
-    val claims = SignedJWT.parse(accessToken).jwtClaimsSet
-    assertEquals("notes-app", claims.subject, "sub must be client_id, not WebID")
-    assertEquals("notes-app", claims.getStringClaim("client_id"))
-    assertEquals(SERVICE_CLIENT_TYPE, claims.getStringClaim("client_type"))
-    assertEquals("", claims.getStringClaim("scope"), "slim service token carries no context scopes")
-    val ttl = (claims.expirationTime.time - claims.issueTime.time) / 1000
-    assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, ttl, "exp should be issued-at + service-token TTL")
   }
 
   @Test
@@ -189,7 +205,7 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `client_credentials accepts form-urlencoded client_id and secret with reserved characters`() {
+  fun `client_credentials accepts form-urlencoded client_id and secret with reserved characters`() = withSetup {
     // RFC 6749 §2.3.1 requires form-encoding of client_id / client_secret
     // before base64. Pick a clientId carrying a colon (`:`) — without server-
     // side form-decoding it would be split mid-identifier or compared
@@ -203,24 +219,16 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       scopes = setOf("$appRoot#manage"),
     )
 
-    val response = http.preparePost(tokenUrl(pod.name))
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(clientIdWithReserved, registered.secret))
-      .setBody("grant_type=client_credentials")
-      .execute()
+    val minted = tokensAs(pod.name, clientIdWithReserved, registered.secret).clientCredentials()
 
-    assertEquals(200, response.statusCode, "unexpected status; body=${response.responseBody}")
-    val body: Map<String, Any?> = objectMapper.readValue(response.responseBody, Map::class.java)
-      .mapKeys { it.key.toString() }
-    val accessToken = body["access_token"] as? String
-    assertNotNull(accessToken)
-    val claims = SignedJWT.parse(accessToken).jwtClaimsSet
+    assertEquals(200, minted.status)
+    val claims = SignedJWT.parse(checkNotNull(minted.body).accessToken).jwtClaimsSet
     assertEquals(clientIdWithReserved, claims.subject, "sub must round-trip through form-encoding")
     assertEquals(clientIdWithReserved, claims.getStringClaim("client_id"))
   }
 
   @Test
-  fun `service token writes inside its manage root and not in a sibling that shares its prefix`() {
+  fun `service token writes inside its manage root and not in a sibling that shares its prefix`() = withSetup {
     // The slash-delimited manage rule for a service-client token: a descendant of <app-root> is
     // covered, `<app-root>-private` is a different context that merely starts with the same string.
     val pod = sempodsTestFactory.newPod()
@@ -237,14 +245,9 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
       scopes = setOf("$appRoot#manage"),
     )
 
-    val tokenResponse = http.preparePost(tokenUrl(pod.name))
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .addHeader("Authorization", basicHeader(registered.registration.clientId, registered.secret))
-      .setBody("grant_type=client_credentials")
-      .execute()
-    assertEquals(200, tokenResponse.statusCode)
-    val accessToken = (objectMapper.readValue(tokenResponse.responseBody, Map::class.java)
-      ["access_token"] as String)
+    val minted = tokensAs(pod.name, registered.registration.clientId, registered.secret).clientCredentials()
+    assertEquals(200, minted.status)
+    val accessToken = checkNotNull(minted.body).accessToken
 
     val written = putEvent(pod.name, inside, accessToken)
     assertEquals(201, written.statusCode, written.responseBody)
@@ -354,68 +357,6 @@ class PodAuthEndpointClientCredentialsHttpTest : SempodsIntegrationTest() {
         ex.message?.contains("feature scope '$scope' is not applicable to service clients") == true,
         "expected a feature-scope rejection for '$scope', got: ${ex.message}",
       )
-    }
-  }
-
-  /** The client core against this token endpoint, so neither the request nor the answers it takes can drift from these. */
-  private fun <T> withCore(podName: String, clientId: String, secret: String, block: (SempodsPodTokens, OkHttpClient) -> T): T {
-    val client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    val base = SempodsPodBase.of("${SempodsModule.config.apiBaseUrl}$podName")
-    try {
-      return block(SempodsPodTokens(SempodsSession(base, SempodsRequestAuth.clientSecretBasic(clientId, secret)), client), client)
-    } finally {
-      client.dispatcher.executorService.shutdown()
-      client.connectionPool.evictAll()
-    }
-  }
-
-  @Test
-  fun `the client core mints a service token here and reads the pod with it`() {
-    val pod = sempodsTestFactory.newPod()
-    val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
-    // A colon in the identifier: the core's form-encoding has to meet this endpoint's decoding.
-    val clientId = "notes:primary"
-    val registered = podServiceClientStore.register(
-      pod = pod.hosted,
-      clientId = clientId,
-      scopes = setOf("$appRoot#manage"),
-    )
-
-    withCore(pod.name, clientId, registered.secret) { tokens, client ->
-      val minted = tokens.clientCredentials()
-      assertEquals(200, minted.status)
-      val token = checkNotNull(minted.body)
-      assertEquals("Bearer", token.tokenType)
-      assertNotNull(token.expiresIn)
-      assertEquals(clientId, SignedJWT.parse(token.accessToken).jwtClaimsSet.subject)
-
-      val podBearer = SempodsRequestAuth.refreshable(
-        SempodsCredentialSupplier { _, attempt ->
-          checkNotNull(SempodsPodTokens(tokens.session, attempt.calls(client)).clientCredentials().body).accessToken
-        },
-      )
-      val catalogue = SempodsPod(SempodsSession(tokens.session.podBase, podBearer), client).contexts().listText()
-      assertEquals(200, catalogue.status)
-    }
-    assertTrue(podServiceAuditLogDao.findRecent(checkNotNull(pod.id)).any { it.clientId == clientId }, "audit row missing for the core's request")
-  }
-
-  @Test
-  fun `the client core gets a wrong secret as a 401 whose excerpt names invalid_client`() {
-    val pod = sempodsTestFactory.newPod()
-    val appRoot = "${SempodsModule.config.apiBaseUrl}${pod.name}/_system/contexts/apps/notes"
-    podServiceClientStore.register(
-      pod = pod.hosted,
-      clientId = "notes-app",
-      scopes = setOf("$appRoot#manage"),
-    )
-
-    withCore(pod.name, "notes-app", "not-the-secret") { tokens, _ ->
-      val refused = assertThrows<SempodsStatusException> { tokens.clientCredentials() }
-      assertEquals(401, refused.status)
-      assertTrue(refused.headers["WWW-Authenticate"].orEmpty().startsWith("Basic"), refused.headers.toString())
-      assertTrue(refused.bodyExcerpt.contains("\"invalid_client\""), refused.bodyExcerpt)
-      assertTrue(refused.message.orEmpty().contains("not-the-secret").not(), refused.message)
     }
   }
 }

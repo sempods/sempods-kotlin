@@ -98,11 +98,12 @@ both ends, so drift between client and server fails in this suite before a consu
 | A read, write, patch or delete that succeeds, a conditional read answered `304` | A refusal and its status: `400`, `401`, `403`, `404`, `406`, `412` |
 | What a consumer reads from the answer: the body, the model, a tag to send back | Exact headers and challenges: `WWW-Authenticate`, `Location`, `Vary`, `Allow`, `Retry-After`, cache headers |
 | | Error bodies, `HEAD`, `OPTIONS` |
+| | The browser steps of a sign-in: redirects, the login and consent forms, cookies, sign-out |
 | | Input the client cannot or must not send: a wrong bearer, a repeated or blank `context`, an unparseable body, a reserved path |
 
 A test of the first column takes its session from `withSetup { }` — `podAs(pod.name)` for an
 anonymous caller, `podAs(pod.name, bearer = token)` for one holding a token, `rdfAs` for RDF4J
-values:
+values, `mediaAs` for the media routes and `adminAs()` for the host admin routes:
 
 <!-- doc-example: sempods-server/src/test/kotlin/org/sempods/api/pod/resources/PodResourceEndpointHttpTest.kt#anonymous-read -->
 ```kotlin
@@ -111,12 +112,13 @@ assertEquals(200, read.status)
 ```
 
 Once a route's happy path runs through the client, the route needs no separate "the client core
-against this route" test: every happy-path test is that check. The resource, slot, context,
-SPARQL, meta and media routes follow the split; auth and the host admin routes still use raw HTTP
-for both columns.
+against this route" test: every happy-path test is that check.
 
 A route no published client reaches stays raw in both columns: the MCP endpoint, because
-`sempods-client` has no MCP client, and `find`, because the client has no find method.
+`sempods-client` has no MCP client, the `find` and admin media routes, which no client method
+covers, and token grants the client does not make (`refresh_token`, a code without PKCE). So do
+the shared fixtures that set up a sign-in or a service (`DelegatedAccessFlow`,
+`ServiceAccessFlow`): like seeding, they prepare what a test asserts on.
 
 ## The test observer
 

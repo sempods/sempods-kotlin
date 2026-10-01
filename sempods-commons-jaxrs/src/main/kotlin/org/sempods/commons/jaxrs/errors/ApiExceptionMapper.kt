@@ -28,6 +28,11 @@ import org.sempods.commons.logging.LogSafeText
  *
  * The failure's own text goes through [LogSafeText] too: a parser quotes the body it choked on.
  *
+ * A failure nobody mapped answers `500` with the fixed body `internal server error`. Its message
+ * was written for an operator and may name a filesystem path, a host or a library's internals, so
+ * it stays in the log line; the trace id `TraceContextFilter` echoes on the response finds that
+ * line. An [ApiException] or a [WebApplicationException] answers with the response it carries.
+ *
  * @param secretPathSegments empty in every composition but the one that has such a route — the set
  *   binder in `JaxRsApplicationModule` supplies it either way, so there is no default here: a
  *   Kotlin default parameter compiles to a second `@Inject` constructor and Guice refuses the
@@ -75,7 +80,7 @@ class ApiExceptionMapper @Inject constructor(
 
     // unknown exception, log as fatal
     logger.error(failure) { "${LogSafeText.of(failure.message.toString())}$request" }
-    return Response.status(500).entity(failure.message).type("text/plain").build()
+    return Response.status(500).entity(INTERNAL_ERROR_BODY).type("text/plain").build()
   }
 
   /**
@@ -90,6 +95,8 @@ class ApiExceptionMapper @Inject constructor(
   companion object {
 
     private val logger = KotlinLogging.logger {}
+
+    private const val INTERNAL_ERROR_BODY = "internal server error"
 
     /**
      * The cause of an [ExecutionException] — what a caller joining a task with `Future.get()`
