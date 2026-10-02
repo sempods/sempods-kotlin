@@ -1022,6 +1022,35 @@ class OAuthFlowIntegrationTest {
   }
 
   @Test
+  fun `an address registered with an iss of its own receives this server's, and only that one`() = testApplication {
+    // The SDK appends; a registered `iss` would otherwise travel beside the real one, first.
+    installAuth()
+    val http = createClient { followRedirects = false }
+    val registered = "$REDIRECT?iss=${enc("https://old.example")}"
+    val clientId = mapper.readTree(
+      http.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$registered"],"client_name":"Odd Client"}""")
+      }.bodyAsText(),
+    )["client_id"].asString()
+
+    val failed = Url(
+      http.get("/authorize?response_type=code&client_id=${enc(clientId)}&redirect_uri=${enc(registered)}&state=s")
+        .headers[HttpHeaders.Location]!!,
+    )
+    assertEquals(listOf(BASE), failed.parameters.getAll("iss"), "the error redirect")
+
+    val (loginState, nonceCookie) = http.startAuthorize(clientId, redirectUri = registered)
+    val consentHtml = http.oidcCallback(loginState, nonceCookie).bodyAsText()
+    val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
+    val answered = Url(
+      http.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
+        .headers[HttpHeaders.Location]!!,
+    )
+    assertEquals(listOf(BASE), answered.parameters.getAll("iss"), "the code redirect")
+  }
+
+  @Test
   fun `a junk state on the login callback is refused, not rendered into a cookie name`() = testApplication {
     // The AI-client callback withdraws its pin before consulting the state store, so that every
     // outcome expires it — which puts attacker-supplied text in a cookie *name*. Ktor validates
@@ -1247,10 +1276,11 @@ class OAuthFlowIntegrationTest {
     profile: String = "",
     state: String = "s",
     scope: String? = null,
+    redirectUri: String = REDIRECT,
   ): Pair<String, String> {
     val prefix = if (profile.isEmpty()) "" else "/$profile"
     val resp = get(
-      "$prefix/authorize?response_type=code&client_id=$clientId&redirect_uri=${enc(REDIRECT)}" +
+      "$prefix/authorize?response_type=code&client_id=$clientId&redirect_uri=${enc(redirectUri)}" +
         "&code_challenge=$codeChallenge&code_challenge_method=S256&state=$state" +
         (scope?.let { "&scope=${enc(it)}" } ?: ""),
     )
