@@ -19,7 +19,8 @@ import java.util.concurrent.TimeUnit
  * completes on another.
  *
  * The opaque `state` sent to the pod binds to the full flow context so the callback resumes the
- * exact connect it was started for — the mix-up defense `docs/concepts/hosted-mcp.md` calls for.
+ * exact connect it was started for (`docs/concepts/hosted-mcp.md` §"Connecting a pod"). Whose
+ * answer it is, is [readPodAuthorizationAnswer]'s question.
  * One-time use ([consume] = atomic `findOneAndDelete`), 15-min TTL. The `_id` is the SHA-256 of
  * the state; the PKCE [Pending.codeVerifier] is additionally encrypted at rest — unlike the other
  * fields it is a credential redeemable at an *external* token endpoint (verifier + intercepted pod
@@ -87,6 +88,7 @@ class PodConnectStateStore(
     put("tokenEndpoint", metadata.tokenEndpoint)
     put("registrationEndpoint", metadata.registrationEndpoint)
     put("jwksUri", metadata.jwksUri)
+    put("issParameterSupported", metadata.authorizationResponseIssParameterSupported)
     put("podClientId", podClientId)
     put("codeVerifier", cipher.encrypt(codeVerifier))
     put("redirectUri", redirectUri)
@@ -104,6 +106,8 @@ class PodConnectStateStore(
       tokenEndpoint = getString("tokenEndpoint"),
       registrationEndpoint = getString("registrationEndpoint"),
       jwksUri = getString("jwksUri"),
+      // Absent on a row parked before this field existed, which lives fifteen minutes at most.
+      authorizationResponseIssParameterSupported = getBoolean("issParameterSupported", false),
     ),
     podClientId = getString("podClientId"),
     codeVerifier = cipher.decrypt(getString("codeVerifier")),
