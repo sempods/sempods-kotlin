@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import com.nimbusds.oauth2.sdk.AuthorizationCodeGrant
+import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.GrantType
 import com.nimbusds.oauth2.sdk.ParseException
 import com.nimbusds.oauth2.sdk.RefreshTokenGrant
@@ -77,9 +78,11 @@ internal object PodTokenMessages {
         )
       }
     } catch (e: ParseException) {
+      // Held to RFC 6749 §5.2's character set, as at `/authorize`: the sentence is the SDK's, and
+      // whether it quotes the request is too.
       refused(
         e.errorObject?.code?.let(OAuthErrorCode::of) ?: OAuthErrorCode.INVALID_REQUEST,
-        e.errorObject?.description ?: e.message ?: "malformed token request",
+        ErrorObject.removeIllegalChars(e.errorObject?.description ?: e.message ?: "malformed token request"),
       )
     }
   }

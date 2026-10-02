@@ -299,6 +299,38 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `a code redeemed by many at once is redeemed once`() {
+    val authorized = Authorized()
+    val code = authorized.code(authorized.answer(durable = true))
+
+    val results = concurrently { authorized.redeem(code) }
+
+    assertEquals(1, results.count { it is PodTokenResult.Issued }, "$results")
+    results.filterIsInstance<PodTokenResult.Refused>().forEach {
+      assertEquals(PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "invalid or expired authorization code"), it)
+    }
+  }
+
+  @Test
+  fun `a refresh token presented by many at once rotates at most once, and ends its family`() {
+    // The race connections.md warns clients of: whoever loses `markRotated` reports reuse and ends
+    // the family, so what a winner was handed dies with it. Which of them wins, and whether the
+    // winner's answer left before the family ended, depends on the interleaving; that no successor
+    // survives does not.
+    val authorized = Authorized()
+    val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable = true)))).refreshToken)
+
+    val results = concurrently { authorized.refresh(token) }
+
+    val successors = results.filterIsInstance<PodTokenResult.Issued>().map { checkNotNull(it.refreshToken) }
+    assertTrue(successors.size <= 1, "$results")
+    results.filterIsInstance<PodTokenResult.Refused>().forEach { assertEquals(OAuthErrorCode.INVALID_GRANT, it.code, "$it") }
+    for (survivor in successors + token) {
+      assertEquals(OAuthErrorCode.INVALID_GRANT, refused(authorized.refresh(survivor)).code, "the family outlived the race")
+    }
+  }
+
+  @Test
   fun `a refresh token does not travel to another pod or another client`() {
     val authorized = Authorized()
     val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable = true)))).refreshToken)
