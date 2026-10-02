@@ -49,7 +49,8 @@ object UrlUtil {
     val components = uri.rawQuery?.split('&') ?: return uri
     val kept = components.filterNot { isNamed(it, param) }
     if (kept.size == components.size) return uri
-    return withRawQuery(uri, kept.joinToString("&").ifEmpty { null })
+    // Nothing left is no query; one empty component left is a bare `?`, and stays.
+    return withRawQuery(uri, if (kept.isEmpty()) null else kept.joinToString("&"))
   }
 
   /** Whether the raw query component [pair] is named [param]; a name that does not decode is not. */

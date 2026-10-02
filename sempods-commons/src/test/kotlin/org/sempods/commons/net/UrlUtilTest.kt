@@ -136,6 +136,7 @@ class UrlUtilTest {
 
     assertEquals("a=1&a=2&b=x%20y", UrlUtil.removeQueryParameter(uri, "error_uri").rawQuery)
     assertEquals("a=1&&b=2&", UrlUtil.removeQueryParameter(URI("https://app.example/cb?a=1&&error_uri=x&b=2&"), "error_uri").rawQuery)
+    assertEquals("https://app.example/cb?", UrlUtil.removeQueryParameter(URI("https://app.example/cb?error_uri=x&"), "error_uri").toString())
     assertEquals(uri, UrlUtil.removeQueryParameter(uri, "absent"))
     assertEquals(null, UrlUtil.removeQueryParameter(URI("https://app.example/cb?error_uri=x"), "error_uri").rawQuery)
   }
