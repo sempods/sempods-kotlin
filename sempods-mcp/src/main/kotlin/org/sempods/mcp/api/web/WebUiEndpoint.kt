@@ -20,16 +20,19 @@ import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.ProfilePath
 import org.sempods.mcp.persist.TokenVaultDao
 import org.sempods.mcp.api.resolveProfileOr404
+import org.sempods.mcp.pods.PodAuthorizationAnswer
 import org.sempods.mcp.pods.PodClientIdentity
 import org.sempods.mcp.pods.PodConnectStateStore
 import org.sempods.mcp.pods.PodOAuthClient
 import org.sempods.mcp.pods.PodOAuthMetadata
 import org.sempods.mcp.pods.PodUrlPolicy
+import org.sempods.mcp.pods.readPodAuthorizationAnswer
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
+import io.ktor.server.request.queryString
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
@@ -464,8 +467,16 @@ fun Application.webUiEndpoint(
 
       // A pod-denied consent or a malformed callback with no code returns to wherever the connect
       // was started — the consent screen keeps the flow (and the selected profile), not the dashboard.
-      q["error"]?.let { return respondRedirect(landing("error=${enc("pod denied: $it")}")) }
-      val code = q["code"] ?: return respondRedirect(landing("error=${enc("missing code")}"))
+      val code = when (val answer = readPodAuthorizationAnswer(request.queryString(), pending.metadata)) {
+        is PodAuthorizationAnswer.Code -> answer.code
+        is PodAuthorizationAnswer.Refused -> return respondRedirect(landing("error=${enc("pod denied: ${answer.error}")}"))
+        PodAuthorizationAnswer.Malformed -> return respondRedirect(landing("error=${enc("missing code")}"))
+        is PodAuthorizationAnswer.NotFromPod -> {
+          logger.warn { "pod callback for '${forLog(pending.pod)}' refused: ${answer.reason}" }
+          auditLog.podConnected(pending.user, pending.profile, pending.pod, ok = false, detail = "foreign_answer")
+          return respondRedirect(landing("error=${enc("the answer did not come from this pod")}"))
+        }
+      }
 
       val result = runCatching {
         val tokens = podOAuthClient.exchangeCode(pending.metadata, code, pending.redirectUri, pending.podClientId, pending.codeVerifier)

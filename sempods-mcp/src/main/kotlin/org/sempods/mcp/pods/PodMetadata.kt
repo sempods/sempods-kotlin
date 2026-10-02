@@ -37,6 +37,12 @@ data class PodOAuthMetadata(
    * scopes.
    */
   val scopesSupported: Set<String> = emptySet(),
+  /**
+   * Whether the pod's AS metadata sets `authorization_response_iss_parameter_supported`
+   * (RFC 9207 §3). Then every authorization response it sends carries `iss`, and one without is
+   * refused ([readPodAuthorizationAnswer]). False for a pod that publishes no AS metadata.
+   */
+  val authorizationResponseIssParameterSupported: Boolean = false,
 )
 
 /**

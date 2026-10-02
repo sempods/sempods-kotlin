@@ -1,5 +1,6 @@
 package org.sempods.auth.core
 
+import org.sempods.commons.net.UrlUtil
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -102,6 +103,16 @@ object RedirectUri {
   /** A query parameter's name as the client's server will read it, or null if it cannot be read. */
   private fun decodeName(raw: String): String? =
     runCatching { URLDecoder.decode(raw, StandardCharsets.UTF_8) }.getOrNull()
+
+  /**
+   * [uri] with any `iss` of its own taken out, for a response that is about to name its issuer
+   * (RFC 9207).
+   *
+   * An address may register an `iss`: SPS-AUTH-056 prohibits only [prohibitedQueryParams]. The
+   * OAuth SDK's response builders append and never replace, so without this the client finds two
+   * issuers, and one that reads the first trusts a value it registered itself.
+   */
+  fun withoutIssuer(uri: String): URI = UrlUtil.removeQueryParameter(URI(uri), "iss")
 
   /** Whether [host] reaches only the user's own machine — the question `isValid` asks of `http`. */
   fun isLoopback(host: String?): Boolean = normalizeHost(host) in loopbackHosts

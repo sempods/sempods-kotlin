@@ -1,5 +1,7 @@
 package org.sempods.auth.core
 
+import com.nimbusds.oauth2.sdk.ErrorObject
+
 /**
  * The OAuth error codes this stack produces (RFC 6749 §4.1.2.1 / §5.2, OIDC Core §3.1.2.6).
  *
@@ -83,4 +85,46 @@ object OAuthErrors {
 
   /** `error_uri` — a stable page per error code, so a client can point a human at the recovery steps. */
   fun errorUri(docBase: String, code: OAuthErrorCode): String = "$docBase#${code.code}"
+
+  /**
+   * An upstream identity provider's `error` and `error_description`, translated into what this
+   * server tells its own client. The client learns what happened *to it*, and the codes do not mean
+   * the same thing one leg up.
+   *
+   * | Upstream `error` | Reported as |
+   * |---|---|
+   * | `access_denied`, `user_cancelled_authorize` (Apple) | `access_denied` |
+   * | `temporarily_unavailable` | `temporarily_unavailable` |
+   * | anything else | `server_error` |
+   *
+   * `access_denied` is a claim about a person, so only an actual refusal earns it. The default is
+   * deliberately the other way round from the obvious one: an unrecognised code is not evidence
+   * that anybody declined, and getting it wrong there makes a client record a decision that was
+   * never made — worse than offering a retry that fails again.
+   *
+   * What lands in `server_error` is broader than it looks. Besides the provider's own
+   * `server_error`, RFC 6749 §4.1.2.1's `invalid_request`, `unauthorized_client`, `invalid_scope`
+   * and `unsupported_response_type` all mean *this server* sent a bad authorization request as
+   * relying party — a configuration fault its client can neither fix nor be blamed for.
+   */
+  fun fromUpstream(error: String, description: String?): UpstreamError {
+    val code = when (error) {
+      "access_denied", "user_cancelled_authorize" -> OAuthErrorCode.ACCESS_DENIED
+      "temporarily_unavailable" -> OAuthErrorCode.TEMPORARILY_UNAVAILABLE
+      else -> OAuthErrorCode.SERVER_ERROR
+    }
+    val describedAs = description?.takeIf { it.isNotBlank() }
+      ?.let { if (it == error) it else "$error: $it" }
+      ?: error
+    return UpstreamError(code, ErrorObject.removeIllegalChars(describedAs))
+  }
 }
+
+/**
+ * An upstream provider's refusal, as [OAuthErrors.fromUpstream] reports it.
+ *
+ * @property description the upstream code, followed by its description where the provider gave one,
+ *   so a reclassification never costs the detail an operator needs to find the cause. Held to
+ *   RFC 6749 §4.1.2.1's character set: it is a stranger's text on its way into a redirect.
+ */
+data class UpstreamError(val code: OAuthErrorCode, val description: String)

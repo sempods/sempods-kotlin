@@ -66,6 +66,7 @@ class PodConnectStateStoreTest {
         tokenEndpoint = "https://pod.test/p/_system/auth/token",
         registrationEndpoint = null,
         jwksUri = "https://pod.test/p/_system/auth/jwks",
+        authorizationResponseIssParameterSupported = true,
       ),
       podClientId = "did:web:mcp.test",
       codeVerifier = "verifier-secret",
@@ -82,6 +83,7 @@ class PodConnectStateStoreTest {
     assertNotNull(pending)
     assertEquals("https://pod.test/p", pending.metadata.issuer)
     assertNull(pending.metadata.registrationEndpoint)
+    assertTrue(pending.metadata.authorizationResponseIssParameterSupported, "the callback checks iss against what discovery found")
     assertEquals("verifier-secret", pending.codeVerifier)
     assertEquals("https://mcp.test/consent/resume", pending.returnTo)
     assertNull(store.consume(state), "second consume must lose (one-time use)")

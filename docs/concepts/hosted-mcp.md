@@ -131,10 +131,12 @@ inside its own JSON-RPC stream (see
    advertises it (see [what it buys](#what-it-buys--and-what-it-costs)).
 3. `state` is an opaque handle to a one-time, expiring server-side row
    ([`PodConnectStateStore`](../../sempods-mcp/src/main/kotlin/org/sempods/mcp/pods/PodConnectStateStore.kt)),
-   which holds the flow's context. That is the mix-up defense — the callback resumes the exact
-   connect it belongs to — and it lets a connect started on one replica finish on another.
+   which holds the flow's context. The callback therefore resumes the exact connect it belongs to,
+   and a connect started on one replica can finish on another.
 4. The callback consumes the row, requires the signed-in user to be the one who started the flow,
-   exchanges the code, and stores the tokens under `(user, profile, pod)`. No `nonce`: there is no
+   and checks `iss` (RFC 9207) against the pod's issuer: an answer from another authorization
+   server connects nothing, and a pod whose metadata promises `iss` must send it. Only then does it
+   exchange the code and store the tokens under `(user, profile, pod)`. No `nonce`: there is no
    `id_token` on this leg. The session cookie binds the callback to the signed-in *identity*, not
    to the browser that started the flow — a second browser signed in as the same user completes it
    too; the login legs pin the browser, this one does not.

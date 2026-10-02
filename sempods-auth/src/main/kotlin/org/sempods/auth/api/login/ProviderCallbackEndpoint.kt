@@ -1,7 +1,9 @@
 package org.sempods.auth.api.login
 
+import com.nimbusds.oauth2.sdk.ErrorObject
+import org.sempods.auth.api.provider.AuthorizationResponses
 import org.sempods.auth.core.AuthorizationCodeStore
-import org.sempods.commons.net.UrlUtil
+import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
 import org.sempods.auth.oidc.OidcProviderClient
@@ -72,18 +74,19 @@ private suspend fun handleCallback(
     ?: return call.respondText("Invalid or expired state", status = HttpStatusCode.BadRequest)
 
   // The provider declining is a normal outcome, not a malfunction: Apple sends
-  // `error=user_cancelled_authorize` when the user backs out. Handing that back to the app lets it
-  // say so; falling through to "Missing code" would show a bare 400 to someone who simply changed
-  // their mind.
+  // `error=user_cancelled_authorize` when the user backs out. Falling through to "Missing code"
+  // would show a bare 400 to someone who simply changed their mind, so the parked request is
+  // answered — its address was validated before the flow started — with the provider's code
+  // translated into one the client can act on.
   params["error"]?.takeIf { it.isNotBlank() }?.let { error ->
-    val description = params["error_description"]?.takeIf { it.isNotBlank() }
-      ?: "the login provider declined the request"
-    // The authorization request knows where its answer goes, and the address was validated before
-    // the flow started — so a declined login comes back as an OAuth error rather than a page the
-    // client cannot act on.
+    val upstream = OAuthErrors.fromUpstream(error, params["error_description"])
     return call.respondRedirect(
-      buildErrorRedirect(pending.redirectUri, error, description) +
-        (pending.clientState?.let { "&state=" + UrlUtil.urlEncode(it) } ?: ""),
+      AuthorizationResponses.error(
+        pending.redirectUri,
+        ErrorObject(upstream.code.code, upstream.description),
+        pending.clientState,
+        issuer,
+      ),
     )
   }
 
@@ -109,17 +112,5 @@ private suspend fun handleCallback(
       codeChallengeMethod = pending.codeChallengeMethod,
       nonce = pending.nonce,
   )
-  val separator = if (pending.redirectUri.contains('?')) '&' else '?'
-  call.respondRedirect(
-    buildString {
-      append(pending.redirectUri).append(separator)
-      append("code=").append(UrlUtil.urlEncode(authorizationCode))
-      pending.clientState?.let { append("&state=").append(UrlUtil.urlEncode(it)) }
-    },
-  )
-}
-private fun buildErrorRedirect(returnTo: String, error: String, description: String): String {
-  val separator = if (returnTo.contains('?')) '&' else '?'
-  return "$returnTo${separator}error=${UrlUtil.urlEncode(error)}" +
-      "&error_description=${UrlUtil.urlEncode(description)}"
+  call.respondRedirect(AuthorizationResponses.code(pending.redirectUri, authorizationCode, pending.clientState, issuer))
 }
