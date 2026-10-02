@@ -160,8 +160,9 @@ class PodAuthorizeFlow @Inject internal constructor(
       )
     }
     // And a challenge no verifier can match is refused before a code carries it: with S256 the only
-    // method, that is anything but 43 base64url characters ([Pkce.isLegalS256Challenge]).
-    if (trimmedCodeChallenge != null && !Pkce.isLegalS256Challenge(trimmedCodeChallenge)) {
+    // method, that is anything but 43 base64url characters ([Pkce.isLegalS256Challenge]). Asked of the
+    // value as sent, so whitespace around it is refused too — after this the trimmed one is the same.
+    if (trimmedCodeChallenge != null && !Pkce.isLegalS256Challenge(checkNotNull(request.codeChallenge))) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge must be an S256 challenge: 43 base64url characters", clientState,

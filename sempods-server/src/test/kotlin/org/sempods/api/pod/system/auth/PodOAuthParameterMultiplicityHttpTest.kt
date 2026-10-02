@@ -161,7 +161,8 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
     // RFC 7636 §4.2: an S256 challenge is the base64url of a SHA-256 digest, 43 characters. Anything
     // else would park a code that no exchange can redeem.
     val browser = Browser()
-    for (challenge in listOf("short", "a".repeat(128), "~" + "a".repeat(42), "a".repeat(42) + "=")) {
+    val real = DelegatedAccessFlow.CODE_CHALLENGE
+    for (challenge in listOf("short", "a".repeat(128), "~" + "a".repeat(42), "a".repeat(42) + "=", " $real ", "$real\n")) {
       assertRedirectsWith(
         browser.authorize(browser.authorization.with("code_challenge", challenge)),
         "error_description=code_challenge+must+be+an+S256+challenge",
