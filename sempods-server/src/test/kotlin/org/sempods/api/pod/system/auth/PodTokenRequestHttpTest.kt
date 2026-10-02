@@ -77,60 +77,50 @@ class PodTokenRequestHttpTest : SempodsIntegrationTest() {
     assertTrue("\"access_token\"" in response.responseBody, case)
   }
 
-  private fun assertCodeSpent(browser: Browser, exchange: List<Pair<String, String>>, case: String) {
-    assertTokenError(browser.token(exchange), "invalid_grant", "invalid or expired authorization code", case)
-  }
 
   // ── The grant ──────────────────────────────────────────────────────────────
 
   @Test
-  fun `token names every grant it does not offer unsupported, a missing one too`() {
+  fun `token names a missing grant_type a malformed request, and every grant it does not offer unsupported`() {
     val browser = Browser()
     val exchange = browser.exchange()
 
-    assertTokenError(
-      browser.token(exchange.filter { it.first != "grant_type" }),
-      "unsupported_grant_type", "only authorization_code, refresh_token and client_credentials are supported",
-      "no grant_type",
-    )
-    for (grant in listOf("password", "urn:ietf:params:oauth:grant-type:device_code", "custom", " authorization_code ")) {
+    // RFC 6749 §5.2: a required parameter that is missing is `invalid_request`.
+    assertTokenError(browser.token(exchange.filter { it.first != "grant_type" }), "invalid_request", "grant_type", "no grant_type")
+    for (grant in listOf("password", "urn:ietf:params:oauth:grant-type:device_code", "custom")) {
       assertTokenError(
         browser.token(exchange.with("grant_type", grant)),
         "unsupported_grant_type", "only authorization_code, refresh_token and client_credentials are supported",
         "grant_type '$grant'",
       )
     }
-    // None of them touched the code.
-    assertIssued(browser.token(exchange), "the exchange as sent")
+    // None of them touched the code, and a grant type is trimmed like the form's other values.
+    assertIssued(browser.token(exchange.with("grant_type", " authorization_code ")), "a padded grant_type")
   }
 
   // ── The authorization code's own parameters ────────────────────────────────
 
   @Test
-  fun `a code_verifier outside RFC 7636's syntax fails PKCE and spends the code`() {
+  fun `a code_verifier outside RFC 7636's syntax is refused before the code is spent`() {
     val browser = Browser()
-    for (verifier in listOf("short", "a".repeat(129), "a".repeat(42) + "!")) {
-      val exchange = browser.exchange()
-      assertTokenError(
-        browser.token(exchange.with("code_verifier", verifier)),
-        "invalid_grant", "PKCE verification failed",
-        "code_verifier '$verifier'",
-      )
-      assertCodeSpent(browser, exchange, "after code_verifier '$verifier'")
+    val exchange = browser.exchange()
+    for (verifier in listOf("short", "a".repeat(129), "a".repeat(42) + "!", " ${DelegatedAccessFlow.CODE_VERIFIER}")) {
+      assertTokenError(browser.token(exchange.with("code_verifier", verifier)), "invalid_request", "code_verifier", "code_verifier '$verifier'")
     }
+    assertIssued(browser.token(exchange), "the exchange as sent")
   }
 
   @Test
-  fun `a redirect_uri that is no URI mismatches and spends the code`() {
+  fun `a redirect_uri that is no URI is refused before the code is spent`() {
     val browser = Browser()
     val exchange = browser.exchange()
 
     assertTokenError(
       browser.token(exchange.with("redirect_uri", "http://localhost:5173/a b")),
-      "invalid_grant", "redirect_uri mismatch",
+      "invalid_request", "redirect_uri",
       "redirect_uri with a space",
     )
-    assertCodeSpent(browser, exchange, "after the malformed redirect_uri")
+    assertIssued(browser.token(exchange), "the exchange as sent")
   }
 
   @Test
@@ -169,12 +159,13 @@ class PodTokenRequestHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `client_credentials reads HTTP Basic case-insensitively and percent-decoded`() {
+  fun `client_credentials reads HTTP Basic case-insensitively, percent-decoded and its client id trimmed`() {
     val service = Service()
 
     assertIssued(service.token(basicHeader(service.clientId, service.secret)), "as encoded")
     assertIssued(service.token(basic("${service.clientId}:${service.secret}", scheme = "basic")), "lower-case scheme")
     assertIssued(service.token(basic("notes%2Dapp:${service.secret}")), "a percent-encoded client id")
+    assertIssued(service.token(basic(" notes-app :${service.secret}")), "a client id padded with spaces")
   }
 
   @Test
@@ -190,7 +181,6 @@ class PodTokenRequestHttpTest : SempodsIntegrationTest() {
       "no secret" to basic("notes-app:"),
       "no client id" to basic(":$secret"),
       "the wrong secret" to basic("notes-app:wrong"),
-      "a client id padded with spaces" to basic(" notes-app :$secret"),
     )
     for ((case, header) in unreadable) {
       assertChallenged(service, service.token(header), case)

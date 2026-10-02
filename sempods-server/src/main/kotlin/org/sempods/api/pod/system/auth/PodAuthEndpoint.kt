@@ -15,6 +15,7 @@ import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
+import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.net.BasicAuth
@@ -45,6 +46,7 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.flows.PodTokenResult
+import java.net.URI
 
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
@@ -321,15 +323,30 @@ class PodAuthEndpoint @Inject constructor(
       return tokenError(OAuthErrorCode.INVALID_REQUEST, "${repeated.joinToString(", ")} included more than once")
     }
 
-    return when (grantType) {
-      "authorization_code" -> podTokenExchange.redeemCode(
-        pod = podDbo.podId(),
-        podName = podDbo.name,
-        code = code,
-        redirectUri = redirectUri,
-        clientId = clientId,
-        codeVerifier = codeVerifier,
-      ).asResponse(podDbo.name)
+    // RFC 6749 §5.2: a missing parameter is `invalid_request`, and `grant_type` is no exception.
+    val grant = grantType?.trim()?.takeIf { it.isNotEmpty() }
+      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing grant_type")
+
+    return when (grant) {
+      "authorization_code" -> {
+        // Syntax, refused here because the exchange spends the code before it compares anything.
+        // The verifier is read as sent, as the exchange reads it.
+        if (!codeVerifier.isNullOrBlank() && !Pkce.isLegalVerifier(codeVerifier)) {
+          return tokenError(OAuthErrorCode.INVALID_REQUEST, "code_verifier is not an RFC 7636 verifier")
+        }
+        val trimmedRedirectUri = redirectUri?.trim()
+        if (!trimmedRedirectUri.isNullOrEmpty() && runCatching { URI(trimmedRedirectUri) }.isFailure) {
+          return tokenError(OAuthErrorCode.INVALID_REQUEST, "redirect_uri is not a URI")
+        }
+        podTokenExchange.redeemCode(
+          pod = podDbo.podId(),
+          podName = podDbo.name,
+          code = code,
+          redirectUri = redirectUri,
+          clientId = clientId,
+          codeVerifier = codeVerifier,
+        ).asResponse(podDbo.name)
+      }
 
       "refresh_token" -> podTokenExchange.refresh(
         pod = podDbo.podId(),
@@ -345,7 +362,8 @@ class PodAuthEndpoint @Inject constructor(
         podTokenExchange.exchangeServiceClient(
           pod = podDbo.podId(),
           podName = podDbo.name,
-          clientId = basic.username,
+          // Trimmed as the form's `client_id` is.
+          clientId = basic.username.trim(),
           secret = basic.password,
           requestedScope = scope,
         ).asResponse(podDbo.name)

@@ -199,7 +199,7 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
   fun `token reads an empty form parameter as an absent one`() {
     val browser = Browser()
     val missing = mapOf(
-      "grant_type" to "unsupported_grant_type",
+      "grant_type" to "missing grant_type",
       "code" to "missing code",
       "redirect_uri" to "missing redirect_uri",
       "client_id" to "missing or malformed client_id",
