@@ -183,8 +183,15 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
       val redeemed = browser.token(query(exchange))
       assertEquals(200, redeemed.statusCode, "$name: ${redeemed.responseBody}")
     }
-    val refresh = listOf("grant_type" to "refresh_token", "refresh_token" to "a", "refresh_token" to "b", "client_id" to browser.app.clientId)
-    assertTokenError(browser.token(query(refresh)), "refresh_token included more than once", "refresh_token sent twice")
+    // The refresh grant's own fields too, and several at once are named together.
+    val refresh = listOf("grant_type" to "refresh_token", "refresh_token" to "a", "client_id" to browser.app.clientId)
+    assertTokenError(browser.token(query(refresh.with("refresh_token", "a", "b"))), "refresh_token included more than once", "refresh_token sent twice")
+    assertTokenError(browser.token(query(refresh + ("scope" to "public-read") + ("scope" to "public-read"))), "scope included more than once", "scope sent twice")
+    assertTokenError(
+      browser.token(query(refresh.with("refresh_token", "a", "a") + ("scope" to "x") + ("scope" to "x"))),
+      "refresh_token, scope included more than once",
+      "refresh_token and scope sent twice",
+    )
   }
 
   @Test

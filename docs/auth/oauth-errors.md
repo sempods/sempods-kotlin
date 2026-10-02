@@ -20,8 +20,8 @@ The request could not be processed as written. These cases produce it:
 - `code_challenge` that is not an S256 challenge: the base64url of a SHA-256 digest is exactly
   43 characters from `A-Z a-z 0-9 - _`, the last one of `AEIMQUYcgkosw048`. No verifier can
   match anything else.
-- `<parameter> included more than once`: a parameter of the request was sent twice, even with
-  the same value (RFC 6749 §3.1). A repeated `client_id` or `redirect_uri` gets a 400 in
+- `<parameter> included more than once`: a parameter the route reads was sent twice, even with
+  the same value (RFC 6749 §3.1). A parameter it does not read is ignored, however often it comes. A repeated `client_id` or `redirect_uri` gets a 400 in
   the browser, and nothing reaches the app. `/token` answers a repeated form
   parameter with this error as JSON.
 - `prompt=none` combined with another `prompt` value. `none` is exclusive per OIDC
