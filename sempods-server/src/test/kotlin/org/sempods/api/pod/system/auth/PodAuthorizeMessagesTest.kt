@@ -86,6 +86,8 @@ class PodAuthorizeMessagesTest {
       "no response_type" to base.filter { it.first != "response_type" },
       "an unknown prompt" to base.toList() + ("prompt" to "consent foo"),
       "none with another prompt" to base.toList() + ("prompt" to "none login"),
+      // Only spaces separate values; a tab is part of one, so this is no `none`.
+      "a prompt padded with tabs" to base.toList() + ("prompt" to "\tnone\t"),
     )
     for ((case, params) in cases) {
       val terms = PodAuthorizeMessages.read(query(*params.toTypedArray())).terms

@@ -51,11 +51,21 @@ internal object PodAuthorizeMessages {
     )
   }
 
-  /** The parameters [read] parses, each once, trimmed, and a blank one absent. */
+  /**
+   * The parameters [read] parses, each once, and a blank one absent.
+   *
+   * Trimmed only where the flow trimmed them before the SDK read them: `prompt` and `scope` go as
+   * sent, so a tab around `none` stays an unknown prompt value rather than becoming `none`. The SDK
+   * splits both on spaces itself.
+   */
   private fun project(query: MultivaluedMap<String, String>): Map<String, List<String>> =
     AUTHORIZE_PARAMETERS.mapNotNull { name ->
-      query.getFirst(name)?.trim()?.takeIf { it.isNotEmpty() }?.let { name to listOf(it) }
+      val sent = query.getFirst(name)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+      name to listOf(if (name in UNTRIMMED) sent else sent.trim())
     }.toMap()
+
+  /** The parameters [project] hands the SDK as sent. */
+  private val UNTRIMMED = setOf("prompt", "scope", "state", "code_challenge")
 
   /** The parameters `/authorize` reads; another one may repeat, since it is ignored anyway. */
   private val AUTHORIZE_PARAMETERS = setOf(

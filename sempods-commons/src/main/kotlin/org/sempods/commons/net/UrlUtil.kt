@@ -29,12 +29,15 @@ object UrlUtil {
 
   /**
    * Returns [uri] with [param] set to [value]: every pair named [param] is removed and one is
-   * appended. The rest of the query stays exactly as it was written — repeated names, order and
-   * encoding included — because it belongs to whoever wrote the address (RFC 6749 §3.1.2 has an
-   * authorization server keep a redirect URI's query).
+   * appended. The rest of the query stays exactly as it was written — repeated names, empty
+   * components, order and encoding included — because it belongs to whoever wrote the address
+   * (RFC 6749 §3.1.2 has an authorization server keep a redirect URI's query).
    */
-  fun addOrUpdateQueryParameter(uri: URI, param: String, value: String): URI =
-    withRawQuery(uri, rawPairsWithout(uri, param) + "${urlEncode(param)}=${urlEncode(value)}")
+  fun addOrUpdateQueryParameter(uri: URI, param: String, value: String): URI {
+    val pair = "${urlEncode(param)}=${urlEncode(value)}"
+    val kept = uri.rawQuery?.split('&')?.filterNot { isNamed(it, param) }?.joinToString("&")
+    return withRawQuery(uri, if (kept.isNullOrEmpty()) pair else "$kept&$pair")
+  }
 
   /**
    * Returns [uri] with every pair named [param] removed, and the rest of the query as it was
@@ -42,26 +45,23 @@ object UrlUtil {
    * has no query string at all.
    */
   fun removeQueryParameter(uri: URI, param: String): URI {
-    val kept = rawPairsWithout(uri, param)
-    if (kept.size == rawPairs(uri).size) return uri
-    return withRawQuery(uri, kept)
+    val components = uri.rawQuery?.split('&') ?: return uri
+    val kept = components.filterNot { isNamed(it, param) }
+    if (kept.size == components.size) return uri
+    return withRawQuery(uri, kept.joinToString("&").ifEmpty { null })
   }
 
-  /** The query's `name=value` pairs as written, empty ones left out. */
-  private fun rawPairs(uri: URI): List<String> = uri.rawQuery?.split('&')?.filter { it.isNotEmpty() }.orEmpty()
+  /** Whether the raw query component [pair] is named [param]; a name that does not decode is not. */
+  private fun isNamed(pair: String, param: String): Boolean {
+    val name = pair.substringBefore('=')
+    return (urlDecodeOrNull(name) ?: name) == param
+  }
 
-  /** [rawPairs] without those whose name decodes to [param]; a name that does not decode is kept. */
-  private fun rawPairsWithout(uri: URI, param: String): List<String> =
-    rawPairs(uri).filter { pair ->
-      val name = pair.substringBefore('=')
-      (urlDecodeOrNull(name) ?: name) != param
-    }
-
-  /** [uri] with [pairs] as its raw query, built from raw components so nothing is re-encoded. */
-  private fun withRawQuery(uri: URI, pairs: List<String>): URI = URI.create(buildString {
+  /** [uri] with [rawQuery] as its query, built from raw components so nothing is re-encoded. */
+  private fun withRawQuery(uri: URI, rawQuery: String?): URI = URI.create(buildString {
     append(uri.scheme).append("://").append(uri.rawAuthority ?: "")
     append(uri.rawPath ?: "")
-    if (pairs.isNotEmpty()) append("?").append(pairs.joinToString("&"))
+    rawQuery?.let { append("?").append(it) }
     uri.rawFragment?.let { append("#").append(it) }
   })
 
