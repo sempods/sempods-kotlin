@@ -23,8 +23,8 @@ abstract class MockPodTest {
   }
 
   /**
-   * The server's configuration. It listens on `127.0.0.1`, which the build sets for every
-   * MockServer — see `docs/testing.md` §"Stubbing an external API".
+   * The server's configuration. By default it listens on `127.0.0.1`, the address the build sets;
+   * an override can choose another — see `docs/testing.md` §"Stubbing an external API".
    */
   protected open fun configuration(): Configuration = Configuration.configuration().logLevel(Level.WARN)
 
