@@ -25,7 +25,6 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.SessionPrincipal
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
-import org.sempods.pods.oauth.flows.PodAuthorizeRequest
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodRegistrationRequest
 import org.sempods.pods.oauth.flows.PodServiceConsentFlow
@@ -114,14 +113,6 @@ class PodAuthEndpoint @Inject constructor(
   @Path("authorize")
   fun authorize(
     @PathParam("pod") pod: String,
-    @QueryParam("response_type") responseType: String?,
-    @QueryParam("client_id") clientId: String?,
-    @QueryParam("redirect_uri") redirectUri: String?,
-    @QueryParam("state") state: String?,
-    @QueryParam("code_challenge") codeChallenge: String?,
-    @QueryParam("code_challenge_method") codeChallengeMethod: String?,
-    @QueryParam("prompt") prompt: String?,
-    @QueryParam("scope") scope: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
     @Context uriInfo: UriInfo,
   ): Response {
@@ -134,17 +125,7 @@ class PodAuthEndpoint @Inject constructor(
       podDbo.name,
       podAuthorizeFlow.authorize(
         pod = podDbo.hosted,
-        request = PodAuthorizeRequest(
-          responseType = responseType,
-          clientId = clientId,
-          redirectUri = redirectUri,
-          state = state,
-          codeChallenge = codeChallenge,
-          codeChallengeMethod = codeChallengeMethod,
-          prompt = prompt,
-          scope = scope,
-          repeated = repeatedOf(uriInfo.queryParameters, AUTHORIZE_PARAMETERS),
-        ),
+        request = PodAuthorizeMessages.read(uriInfo.queryParameters),
         session = session,
       ),
     )
@@ -500,14 +481,5 @@ class PodAuthEndpoint @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
-
-    /** The parameters `/authorize` reads; another one may repeat, since it is ignored anyway. */
-    private val AUTHORIZE_PARAMETERS = setOf(
-      "response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "prompt", "scope",
-    )
-
-    /** Which of [names] [parameters] carries more than once, in name order. */
-    private fun repeatedOf(parameters: MultivaluedMap<String, String>, names: Set<String>): Set<String> =
-      names.filterTo(sortedSetOf()) { (parameters[it]?.size ?: 0) > 1 }
   }
 }

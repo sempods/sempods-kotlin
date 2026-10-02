@@ -145,8 +145,8 @@ one on purpose, the second column says why.
 | Registration request (RFC 7591) | SDK `ClientMetadata` | [PodRegistrationMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodRegistrationMessages.kt) |
 | Registration answer and error | SDK `ClientInformationResponse`, `ClientRegistrationErrorResponse` | [PodRegistrationResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodRegistrationResponses.kt) |
 | Token answer and error | SDK `AccessTokenResponse`, `TokenErrorResponse`; status and headers by hand | [PodTokenResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenResponses.kt) |
-| Authorization request | By hand | [PodAuthorizeFlow](../../src/main/kotlin/org/sempods/pods/oauth/flows/PodAuthorizeFlow.kt) |
-| Code redirect | By hand | [PodAuthorizeResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeResponses.kt) |
+| Authorization request | SDK `AuthorizationRequest`; the address, `state` and `code_challenge` by hand, as sent, because the flow validates the first and returns `state` exactly | [PodAuthorizeMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeMessages.kt) |
+| Code redirect | By hand: the SDK trims `state` and refuses a blank one | [PodAuthorizeResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeResponses.kt) |
 | Authorization error redirect | By hand: the SDK cannot remove an `error_uri` the client's redirect already carries, and refuses the blank `state` this echoes | [PodOAuthErrorResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthErrorResponses.kt) |
 | Token request: `authorization_code`, `refresh_token`, `client_credentials` with `client_secret_basic` | SDK `GrantType`, `AuthorizationCodeGrant`, `RefreshTokenGrant`, `ClientSecretBasic`; repeated parameters and the choice of grant by hand, where `TokenRequest.parse` holds a different profile | [PodTokenMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenMessages.kt) |
 | The pod's signing keys (JWKS) | `JWKSet` | [SigningKeys](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/SigningKeys.kt) |

@@ -68,14 +68,18 @@ class PodAuthorizeFlow @Inject internal constructor(
     // R6: audit-log every authorize entry so cross-client spikes can replay the
     // exact request shape per MCP client. One line per request, kept short — the
     // outcome is logged separately by the matching error/issue path.
-    // Ahead of `PodClientDirectory.identify`, which is the point of an audit line: these are raw
-    // query parameters.
+    // Ahead of `PodClientDirectory.identify`, which is the point of an audit line: the address is
+    // the raw query parameters.
+    val (loggedPrompt, loggedScope) = when (val terms = request.terms) {
+      is PodAuthorizeTerms.Read -> terms.prompt.sorted().joinToString(" ") to OAuthSyntax.formatScope(terms.scopes)
+      is PodAuthorizeTerms.Malformed -> "(unread)" to "(unread)"
+    }
     logger.info {
       "[oauth/authorize-audit] outcome=start pod='${pod.name}' " +
           "client_id='${LogSafeText.of(request.clientId ?: "(none)")}' " +
           "redirect_uri='${LogSafeText.of(request.redirectUri ?: "(none)")}' " +
-          "prompt='${LogSafeText.of(request.prompt ?: "(unset)")}' " +
-          "scope='${LogSafeText.of(request.scope ?: "(unset)")}' " +
+          "prompt='${loggedPrompt.ifEmpty { "(unset)" }}' " +
+          "scope='${LogSafeText.of(loggedScope).ifEmpty { "(unset)" }}' " +
           "signed_in=${session != null}"
     }
 
@@ -124,13 +128,20 @@ class PodAuthorizeFlow @Inject internal constructor(
       )
     }
 
+    // A request the adapter could not read is answered here, at the address validated above and
+    // never at one the parser reported.
+    val terms = when (val read = request.terms) {
+      is PodAuthorizeTerms.Malformed -> return failed(redirectTarget, OAuthErrorCode.INVALID_REQUEST, read.description, clientState)
+      is PodAuthorizeTerms.Read -> read
+    }
+    val promptValues = terms.prompt
+
     // The AS metadata advertises `response_types_supported: ["code"]`, and this is the flow that
     // has to make that true. The parameter was bound and never read, so anything at all —
     // including `token`, the implicit grant this project does not implement — reached the code
     // path for `code` and got an authorization code back. Now that the redirect address is
     // validated, the error can travel the way RFC 6749 §4.1.2.1 asks for.
-    val requestedResponseType = request.responseType?.trim().orEmpty()
-    if (requestedResponseType != "code") {
+    if (terms.responseType != setOf("code")) {
       return failed(
         redirectTarget, OAuthErrorCode.UNSUPPORTED_RESPONSE_TYPE,
         "response_type must be 'code'", clientState,
@@ -140,9 +151,9 @@ class PodAuthorizeFlow @Inject internal constructor(
     // PKCE is mandatory for dynamic (public) clients. RFC 7591 dynamic clients always register
     // with `token_endpoint_auth_method=none`, so without PKCE an intercepted auth code can be
     // redeemed by anyone. Reject early before issuing a code.
-    val trimmedCodeChallenge = request.codeChallenge?.trim()?.takeIf { it.isNotBlank() }
-    val trimmedCodeChallengeMethod = request.codeChallengeMethod?.trim()?.takeIf { it.isNotBlank() }
-    if (normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX) && trimmedCodeChallenge == null) {
+    val codeChallenge = terms.codeChallenge
+    val codeChallengeMethod = terms.codeChallengeMethod
+    if (normalizedClientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX) && codeChallenge == null) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge is required for dynamic clients (PKCE)", clientState,
@@ -153,7 +164,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     // allows, so `plain`, `s256` and an absent method are all unusable — and used to be found out
     // only at `/token`, after a code had been minted and the browser was gone. The client can act
     // on it here.
-    if (trimmedCodeChallenge != null && !Pkce.isSupportedMethod(trimmedCodeChallengeMethod)) {
+    if (codeChallenge != null && !Pkce.isSupportedMethod(codeChallengeMethod)) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge_method must be ${Pkce.METHOD_S256}", clientState,
@@ -161,26 +172,16 @@ class PodAuthorizeFlow @Inject internal constructor(
     }
     // And a challenge no verifier can match is refused before a code carries it: with S256 the only
     // method, that is anything but 43 base64url characters ([Pkce.isLegalS256Challenge]). Asked of the
-    // value as sent, so whitespace around it is refused too — after this the trimmed one is the same.
-    if (trimmedCodeChallenge != null && !Pkce.isLegalS256Challenge(checkNotNull(request.codeChallenge))) {
+    // value as sent, so whitespace around it is refused too.
+    if (codeChallenge != null && !Pkce.isLegalS256Challenge(codeChallenge)) {
       return failed(
         redirectTarget, OAuthErrorCode.INVALID_REQUEST,
         "code_challenge must be an S256 challenge: 43 base64url characters", clientState,
       )
     }
 
-    // ── Parse `prompt` (multi-valued, space-separated per OIDC Core 1.0 §3.1.2.1) ──
-    val promptValues = OAuthSyntax.parsePrompt(request.prompt)
-    if (OAuthSyntax.isContradictoryPrompt(promptValues)) {
-      // Spec: `none` is exclusive — if combined with anything else it's a request error.
-      return failed(
-        redirectTarget, OAuthErrorCode.INVALID_REQUEST,
-        "prompt=none cannot be combined with other prompt values", clientState,
-      )
-    }
-
-    // ── Parse requested scope (validation deferred) ───────────────────────
-    // Parsing is cheap and infallible. Validation comes after JWT resolution
+    // ── Requested scope (validation deferred) ─────────────────────────────
+    // Validation comes after JWT resolution
     // so the precedence is: invalid JWT > invalid scope > missing JWT. That
     // way `scope=public-read` cannot mask a manipulated token, and a
     // malformed `scope` on an unauthenticated request still yields
@@ -190,7 +191,7 @@ class PodAuthorizeFlow @Inject internal constructor(
     // what it costs is a refusal for clients that send scope names from their own world, and which
     // of the clients in `docs/mcp/clients.md` those are is what the `[oauth/authorize]` log line
     // accumulates.
-    val requestedScopes = OAuthSyntax.parseScope(request.scope)
+    val requestedScopes = terms.scopes
 
     // ── A privileged feature scope stands alone ───────────────────────────
     // An authorization that administers service clients or contexts never holds data rights of its
@@ -258,8 +259,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           scopes = setOf(PUBLIC_READ_SCOPE),
           target = redirectTarget,
           state = clientState,
-          codeChallenge = trimmedCodeChallenge,
-          codeChallengeMethod = trimmedCodeChallengeMethod,
+          codeChallenge = codeChallenge,
+          codeChallengeMethod = codeChallengeMethod,
           via = PodCodeIssuance.ANONYMOUS_PUBLIC_READ,
           session = null,
         ).asResult()
@@ -297,13 +298,13 @@ class PodAuthorizeFlow @Inject internal constructor(
           clientId = normalizedClientId,
           redirectUri = normalizedRedirectUri,
           clientState = clientState,
-          scope = request.scope,
+          scope = OAuthSyntax.formatScope(requestedScopes).takeIf { it.isNotEmpty() },
           // The force-reauth values are satisfied by the login now beginning, and carrying them
           // back would send the user straight into another one. `consent` and the rest survive,
           // because a login does not satisfy them.
           prompt = promptValues.minus(OAuthSyntax.FORCE_REAUTH_PROMPTS).sorted().joinToString(" ").takeIf { it.isNotEmpty() },
-          codeChallenge = trimmedCodeChallenge,
-          codeChallengeMethod = trimmedCodeChallengeMethod,
+          codeChallenge = codeChallenge,
+          codeChallengeMethod = codeChallengeMethod,
           codeVerifier = codeVerifier,
           nonce = nonce,
           browserPin = browserPin,
@@ -375,8 +376,8 @@ class PodAuthorizeFlow @Inject internal constructor(
         normalizedClientId = normalizedClientId,
         normalizedRedirectUri = normalizedRedirectUri,
         state = clientState,
-        codeChallenge = trimmedCodeChallenge,
-        codeChallengeMethod = trimmedCodeChallengeMethod,
+        codeChallenge = codeChallenge,
+        codeChallengeMethod = codeChallengeMethod,
         // The dialog shows the authority and nothing else. There is no data selection to make:
         // a request that carried one was refused above.
         publicContexts = emptyList(),
@@ -471,8 +472,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           scopes = effectiveFeatureScopes,
           target = redirectTarget,
           state = clientState,
-          codeChallenge = trimmedCodeChallenge,
-          codeChallengeMethod = trimmedCodeChallengeMethod,
+          codeChallenge = codeChallenge,
+          codeChallengeMethod = codeChallengeMethod,
           via = PodCodeIssuance.AUTO_GRANT,
           session = session,
           // The subject's own document, because that is the one redemption will read: the newest
@@ -524,8 +525,8 @@ class PodAuthorizeFlow @Inject internal constructor(
         normalizedClientId = normalizedClientId,
         normalizedRedirectUri = normalizedRedirectUri,
         state = clientState,
-        codeChallenge = trimmedCodeChallenge,
-        codeChallengeMethod = trimmedCodeChallengeMethod,
+        codeChallenge = codeChallenge,
+        codeChallengeMethod = codeChallengeMethod,
         publicContexts = publicContexts.map { it.toString() }.sorted(),
         publicReadPreselected = true,
         durableRequested = OFFLINE_ACCESS_SCOPE in requestedScopes,
@@ -549,8 +550,8 @@ class PodAuthorizeFlow @Inject internal constructor(
       normalizedClientId = normalizedClientId,
       normalizedRedirectUri = normalizedRedirectUri,
       state = clientState,
-      codeChallenge = trimmedCodeChallenge,
-      codeChallengeMethod = trimmedCodeChallengeMethod,
+      codeChallenge = codeChallenge,
+      codeChallengeMethod = codeChallengeMethod,
       publicContexts = publicContextsForUi,
       publicReadPreselected = publicReadPreselected,
       durableRequested = OFFLINE_ACCESS_SCOPE in requestedScopes,
@@ -699,27 +700,45 @@ class PodAuthorizeFlow @Inject internal constructor(
 }
 
 /**
- * `/authorize`'s parameters as the browser sent them — untrimmed, unvalidated, any of them absent.
+ * An authorization request: the address to answer at, as the browser sent it, and what it asks for,
+ * as the protocol adapter read it.
  *
- * Raw on purpose: what counts as blank and which of them may carry whitespace are decisions, and a
- * binding that trimmed on the way in would be making the first of them where nobody would look.
+ * [clientId], [redirectUri] and [state] are raw, any of them absent. The address is this flow's to
+ * validate before anything travels to it, and `state` goes back exactly as it came (RFC 6749
+ * §4.1.2), so neither is read on the way in.
  */
 internal data class PodAuthorizeRequest(
-  val responseType: String?,
   val clientId: String?,
   val redirectUri: String?,
   val state: String?,
-  val codeChallenge: String?,
-  val codeChallengeMethod: String?,
-  val prompt: String?,
-  val scope: String?,
+  val terms: PodAuthorizeTerms,
   /**
    * The names among `/authorize`'s own parameters that the request carried more than once. The
-   * fields above hold the first value of each; RFC 6749 §3.1 forbids the rest, and the flow refuses
-   * the request.
+   * fields hold the first value of each; RFC 6749 §3.1 forbids the rest, and the flow refuses the
+   * request.
    */
   val repeated: Set<String> = emptySet(),
 )
+
+/** What an authorization request asks for, or why it could not be read. */
+internal sealed interface PodAuthorizeTerms {
+
+  /**
+   * @property codeChallenge as sent, absent when blank: whitespace around one is refused, not trimmed.
+   * @property codeChallengeMethod trimmed, absent when blank.
+   * @property prompt OIDC Core 1.0 §3.1.2.1's values; `none` alone or not at all.
+   */
+  data class Read(
+    val responseType: Set<String>,
+    val codeChallenge: String?,
+    val codeChallengeMethod: String?,
+    val prompt: Set<String>,
+    val scopes: Set<String>,
+  ) : PodAuthorizeTerms
+
+  /** Outside the protocol's grammar. An error at the client's address, once that is validated. */
+  data class Malformed(val description: String) : PodAuthorizeTerms
+}
 
 /**
  * What an authorization answers.

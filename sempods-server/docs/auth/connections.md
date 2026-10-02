@@ -55,6 +55,8 @@ and family-retirement rules. Deployments predating lifetime consent need the
 | `none` | Request no interaction; requires a valid pod session and reusable consent |
 | `consent` | Show consent |
 | `login` or `select_account` | Authenticate again; forward to the provider where supported |
+| `create` | No effect |
+| Anything else | `invalid_request` |
 
 `prompt=none` answers `login_required` without a pod session and `consent_required` when consent
 cannot be reused. Both require an interactive retry. A

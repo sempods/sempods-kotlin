@@ -6,6 +6,7 @@ import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorCode
+import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.pods.HostedPod
 import org.sempods.pods.oauth.PodTokenIssuer
@@ -142,14 +143,17 @@ class PodSignInCompletion @Inject internal constructor(
         podAuthorizeFlow.authorize(
           pod = pod,
           request = PodAuthorizeRequest(
-            responseType = "code",
             clientId = pending.clientId,
             redirectUri = pending.redirectUri,
             state = pending.clientState,
-            codeChallenge = pending.codeChallenge,
-            codeChallengeMethod = pending.codeChallengeMethod,
-            prompt = pending.prompt,
-            scope = pending.scope,
+            // What the flow wrote when it parked the request, after reading it: nothing to refuse.
+            terms = PodAuthorizeTerms.Read(
+              responseType = setOf("code"),
+              codeChallenge = pending.codeChallenge,
+              codeChallengeMethod = pending.codeChallengeMethod,
+              prompt = OAuthSyntax.parsePrompt(pending.prompt),
+              scopes = OAuthSyntax.parseScope(pending.scope),
+            ),
           ),
           session = session,
         ),

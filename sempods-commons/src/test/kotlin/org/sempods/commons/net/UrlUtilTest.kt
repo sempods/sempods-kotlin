@@ -118,6 +118,30 @@ class UrlUtilTest {
   }
 
   @Test
+  fun `addOrUpdateQueryParameter leaves the rest of the query as it was written`() {
+    val uri = URI("https://app.example/cb?a=1&a=2&b=x%20y&key=old&key=older")
+
+    val result = UrlUtil.addOrUpdateQueryParameter(uri, "key", "new value")
+
+    assertEquals("a=1&a=2&b=x%20y&key=new+value", result.rawQuery)
+    // Empty components are the writer's too.
+    assertEquals("a=1&&b=2&&key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?a=1&&b=2&"), "key", "v").rawQuery)
+    assertEquals("&key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?"), "key", "v").rawQuery)
+    assertEquals("key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?key=old"), "key", "v").rawQuery)
+  }
+
+  @Test
+  fun `removeQueryParameter removes every pair of that name and leaves the rest as written`() {
+    val uri = URI("https://app.example/cb?a=1&error_uri=x&a=2&b=x%20y&%65rror_uri=y")
+
+    assertEquals("a=1&a=2&b=x%20y", UrlUtil.removeQueryParameter(uri, "error_uri").rawQuery)
+    assertEquals("a=1&&b=2&", UrlUtil.removeQueryParameter(URI("https://app.example/cb?a=1&&error_uri=x&b=2&"), "error_uri").rawQuery)
+    assertEquals("https://app.example/cb?", UrlUtil.removeQueryParameter(URI("https://app.example/cb?error_uri=x&"), "error_uri").toString())
+    assertEquals(uri, UrlUtil.removeQueryParameter(uri, "absent"))
+    assertEquals(null, UrlUtil.removeQueryParameter(URI("https://app.example/cb?error_uri=x"), "error_uri").rawQuery)
+  }
+
+  @Test
   fun `addOrUpdateQueryParameter - real authorize flow - no double-encoding in return_to`() {
     // Simulates the real flow:
     // 1. Browser sends authorize request with encoded params
