@@ -82,7 +82,9 @@ and the authorization-server metadata fetched there must declare it as `issuer`.
 `…/bob` ends the connect before anything is fetched from Bob. Until every pod server names its
 base, `…/alice/_system/auth` also counts as Alice's issuer. The token row records the issuer. A
 refresh posts the refresh token only while the recorded and the discovered issuer are both Alice's,
-and records the one she names now. `PodOAuthClient.discoverMetadata` lists the cases.
+and records the one she names now. `PodOAuthClient.discoverMetadata` lists the cases. The connect
+callback holds Alice's answer to the same issuer: an `iss` naming anyone else ends the connect
+before the code is redeemed (`readPodAuthorizationAnswer`).
 
 **RFC 8414 + DCR are preferred but not required:** a pod that serves only RFC 9728 (a
 minimal / `did:web`-static-client pod, such as a third-party server publishing one knowledge

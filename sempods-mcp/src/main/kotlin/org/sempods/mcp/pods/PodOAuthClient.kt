@@ -173,6 +173,7 @@ class PodOAuthClient(
         // Present-and-empty is still the AS speaking; only an absent (or unreadable) member falls
         // back to the resource's list.
         scopesSupported = (asm["scopes_supported"] as? List<*>)?.let(::scopeList) ?: prmScopes,
+        authorizationResponseIssParameterSupported = asm["authorization_response_iss_parameter_supported"] == true,
       )
     } else {
       logger.info {

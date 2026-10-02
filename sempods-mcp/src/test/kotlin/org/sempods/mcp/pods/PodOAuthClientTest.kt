@@ -343,6 +343,18 @@ class PodOAuthClientTest {
     val metadata = client.discoverMetadata(base)
 
     assertEquals(base, metadata.issuer)
+    assertFalse(metadata.authorizationResponseIssParameterSupported, "a pod that does not say so is not held to iss")
+  }
+
+  @Test
+  fun `a pod that promises iss in its answers is held to it`() = runBlocking {
+    val authBase = "$base/_system/auth"
+    servesAsMetadata(
+      """{"issuer":"$base","authorization_endpoint":"$authBase/authorize","token_endpoint":"$authBase/token",""" +
+        """"authorization_response_iss_parameter_supported":true}""",
+    )
+
+    assertTrue(client.discoverMetadata(base).authorizationResponseIssParameterSupported)
   }
 
   @Test

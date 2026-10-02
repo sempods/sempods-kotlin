@@ -972,6 +972,43 @@ class WebUiEndpointTest {
   }
 
   @Test
+  fun `an answer from another authorization server connects nothing`() = testApplication {
+    // The mix-up RFC 9207 was written for: this service is a client of many pods, and a callback
+    // carrying this connect's `state` is still not this pod's answer when `iss` names another.
+    val user = "https://id.test/e/web-user-mix-up"
+    val tokenIssuer = installWebUi()
+    val cookie = "${config.sessionCookieName}=${tokenIssuer.issueWebSession(user)}"
+    val client = createClient { followRedirects = false }
+
+    withSimulatedPod(registersAs = "dyn:fresh", tokenSubject = user, issAdvertised = true) { pod, podBase ->
+      suspend fun callback(issuer: String?): String {
+        val state = Url(connect(tokenIssuer, user, podBase)).parameters["state"]!!
+        val iss = issuer?.let { "&iss=${enc(it)}" } ?: ""
+        return client.get("/_system/ui/pods/callback?state=${enc(state)}&code=a-code$iss") {
+          header(HttpHeaders.Cookie, cookie)
+        }.headers[HttpHeaders.Location]!!
+      }
+      val vault = TokenVaultDao(db!!, testSecretCipher())
+      val key = PodKey(user, PodKey.DEFAULT_PROFILE, podBase)
+
+      // Another server, and no issuer at all from a pod that promised one.
+      for (issuer in listOf("http://localhost:${pod.port}/other", null)) {
+        val landing = callback(issuer)
+        assertTrue("error=" in landing, "iss=$issuer: $landing")
+        assertNull(vault.find(key), "iss=$issuer stores nothing")
+      }
+      assertTrue(
+        pod.retrieveRecordedRequests(request().withPath("/p/_system/auth/token")).isEmpty(),
+        "a code from the wrong answer is never redeemed",
+      )
+
+      val landing = callback(podBase)
+      assertTrue("error=" !in landing, landing)
+      assertNotNull(vault.find(key))
+    }
+  }
+
+  @Test
   fun `a disconnect starting when the callback publishes the connection leaves no token behind`() = testApplication {
     val user = "https://id.test/e/web-user-disconnect-race"
     val registry = spyk(ConnectionRegistryDao(db!!))
@@ -1204,6 +1241,8 @@ class WebUiEndpointTest {
     tokenSubject: String? = null,
     /** The pod's issuer below its base: none, or `/_system/auth` for a pod server without the #193 switch. */
     issuerPath: String = "",
+    /** Whether the AS metadata promises `iss` in every authorization response (RFC 9207). */
+    issAdvertised: Boolean = false,
     body: suspend (pod: ClientAndServer, podBase: String) -> Unit,
   ) {
     val pod = ClientAndServer.startClientAndServer(0)
@@ -1223,7 +1262,8 @@ class WebUiEndpointTest {
           if (publishesAsMetadata) {
             response().withStatusCode(200).withBody(
               """{"issuer":"$issuer","authorization_endpoint":"$authBase/authorize",""" +
-                """"token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register"}""",
+                """"token_endpoint":"$authBase/token","registration_endpoint":"$authBase/register",""" +
+                """"authorization_response_iss_parameter_supported":$issAdvertised}""",
             )
           } else {
             // The minimal pod: RFC 9728 only, so no DCR to register at and the static client is
