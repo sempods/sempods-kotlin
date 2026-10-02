@@ -163,6 +163,11 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       body["token_endpoint_auth_methods_supported"],
     )
     assertEquals(
+      true,
+      body["authorization_response_iss_parameter_supported"],
+      "every authorization response names the issuer (RFC 9207)",
+    )
+    assertEquals(
       "$authBase/service-consent",
       body["sempods_service_consent_endpoint"],
       "where a registered service sends the owner to decide its access",

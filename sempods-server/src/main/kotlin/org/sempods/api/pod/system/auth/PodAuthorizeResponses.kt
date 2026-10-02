@@ -47,7 +47,7 @@ internal object PodAuthorizeResponses {
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodAuthorizeResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
+    is PodAuthorizeResult.Code -> codeRedirect(result.code, result.target.uri, result.state, podName, config)
 
     is PodAuthorizeResult.Login -> Response.temporaryRedirect(URI(result.authorizationUrl))
       .cookie(cookies.loginPin(podName, result.state, result.browserPin, LOGIN_PIN_TTL_SECONDS))
@@ -56,7 +56,7 @@ internal object PodAuthorizeResponses {
     is PodAuthorizeResult.Consent ->
       dialog(consentPage(result.screen, templates, config))
 
-    is PodAuthorizeResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+    is PodAuthorizeResult.Error -> PodOAuthErrorResponses.render(result.delivery, podName, config)
 
     is PodAuthorizeResult.Refused -> refusal(result.reason)
   }
@@ -68,15 +68,15 @@ internal object PodAuthorizeResponses {
     templates: TemplateRenderer,
     config: SempodsConfig,
   ): Response = when (result) {
-    is PodConsentResult.Code -> codeRedirect(result.code, result.target.uri, result.state)
+    is PodConsentResult.Code -> codeRedirect(result.code, result.target.uri, result.state, podName, config)
 
-    is PodConsentResult.Error -> PodOAuthErrorResponses.render(result.delivery, config)
+    is PodConsentResult.Error -> PodOAuthErrorResponses.render(result.delivery, podName, config)
 
     // The client is told the request was denied, and the browser is told the sign-in is over. Both
     // halves are this one answer: a person who signed out and kept their cookie signed out of
     // nothing.
     is PodConsentResult.SignedOut ->
-      Response.fromResponse(PodOAuthErrorResponses.render(result.delivery, config))
+      Response.fromResponse(PodOAuthErrorResponses.render(result.delivery, podName, config))
         .cookie(cookies.clearSession(podName))
         .build()
 
@@ -85,7 +85,7 @@ internal object PodAuthorizeResponses {
 
   /**
    * The service consent's answers. Only the owner's decision is redirected, and it carries `state`
-   * and nothing else: `access_denied` on a cancel. Every other answer is a page.
+   * and `iss` and nothing else: `access_denied` beside them on a cancel. Every other answer is a page.
    */
   fun render(
     result: PodServiceConsentResult,
@@ -110,12 +110,14 @@ internal object PodAuthorizeResponses {
           "You can close this page and go back to the program that sent you here.",
         )
         result.outcome == PodServiceConsentOutcome.CANCELLED -> PodOAuthErrorResponses.render(
-          OAuthErrorDelivery.Redirect(target, OAuthErrorCode.ACCESS_DENIED, "cancelled", result.state), config,
+          OAuthErrorDelivery.Redirect(target, OAuthErrorCode.ACCESS_DENIED, "cancelled", result.state),
+          podName, config,
         )
         else -> {
           // Overwriting, never appending, for the reason [codeRedirect] gives.
           var uri = URI(target.uri)
           result.state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
+          uri = UrlUtil.addOrUpdateQueryParameter(uri, "iss", PodOAuthErrorResponses.issuerOf(podName, config))
           Response.seeOther(uri).build()
         }
       }
@@ -241,15 +243,22 @@ internal object PodAuthorizeResponses {
 
   /**
    * Where the code goes, with `state` beside it exactly as
-   * [suppliedState][org.sempods.pods.oauth.flows.suppliedState] left it.
+   * [suppliedState][org.sempods.pods.oauth.flows.suppliedState] left it, and the pod's `iss`.
    *
    * Overwriting and never appending, for the reason [PodOAuthErrorResponses] gives: a registered
    * address may carry a query of its own, and a client registered as `…/cb?code=…` must not receive
    * its own value back looking like a code this server issued.
    */
-  private fun codeRedirect(code: String, redirectUri: String, state: String?): Response {
+  private fun codeRedirect(
+    code: String,
+    redirectUri: String,
+    state: String?,
+    podName: String,
+    config: SempodsConfig,
+  ): Response {
     var callbackUri = UrlUtil.addOrUpdateQueryParameter(URI(redirectUri), "code", code)
     state?.let { callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "state", it) }
+    callbackUri = UrlUtil.addOrUpdateQueryParameter(callbackUri, "iss", PodOAuthErrorResponses.issuerOf(podName, config))
     return Response.seeOther(callbackUri).build()
   }
 

@@ -120,7 +120,12 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     val confirmed = flow.submit(page, owned.cookie, scopes = setOf("$c#read"))
 
     assertEquals(303, confirmed.statusCode, confirmed.responseBody)
-    assertEquals("http://127.0.0.1:53124/callback?state=consent-1", confirmed.getHeader("Location"))
+    val location = URI(checkNotNull(confirmed.getHeader("Location")))
+    assertEquals("http://127.0.0.1:53124/callback", location.toString().substringBefore('?'))
+    assertEquals(
+      mapOf("state" to "consent-1", "iss" to podBase(owned.pod)),
+      UrlUtil.queryParams(location.rawQuery, decodeParams = true),
+    )
     assertEquals(setOf("$c#read"), stored(owned, service).scopes)
   }
 
@@ -137,6 +142,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     val back = flow.query(cancelled)
     assertEquals("access_denied", back["error"])
     assertEquals("consent-1", back["state"])
+    assertEquals(podBase(owned.pod), back["iss"])
     val row = stored(owned, service)
     assertEquals(emptySet(), row.scopes)
     assertNotNull(row.pendingUntil, "a cancel activates nothing")

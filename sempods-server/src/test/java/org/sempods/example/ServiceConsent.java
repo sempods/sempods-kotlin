@@ -126,9 +126,14 @@ public final class ServiceConsent {
         return Access.TIME_LIMIT;
       }
       // The return carries the decision and nothing else. It is ours only with exactly our `state`,
-      // and a repeated `error` is no single answer: whatever else reached the loopback is refused.
+      // and from our pod only: an `iss` names the pod's URL (RFC 9207), and a pod that sends none is
+      // answered as it is. A repeated `error` or `iss` is no single answer: whatever else reached
+      // the loopback is refused.
       List<String> error = back.queryParameterValues("error");
-      if (!List.of(state).equals(back.queryParameterValues("state")) || error.size() > 1) {
+      List<String> issuer = back.queryParameterValues("iss");
+      String ourPod = pod.getUrl().toString().replaceFirst("/$", "");
+      if (!List.of(state).equals(back.queryParameterValues("state")) || error.size() > 1
+          || issuer.size() > 1 || (issuer.size() == 1 && !ourPod.equals(issuer.get(0)))) {
         throw new SempodsClientException("The consent returned something that is not its answer.");
       }
       if (error.contains("access_denied")) {

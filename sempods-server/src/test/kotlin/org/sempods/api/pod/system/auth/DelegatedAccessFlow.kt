@@ -264,7 +264,8 @@ internal class DelegatedAccessFlow {
       .setBody(body)
       .execute()
 
-  private fun podBase(pod: PodDbo) = "${SempodsModule.config.apiBaseUrl}${pod.name}"
+  /** The pod `P` — its OAuth issuer, and the `iss` of every redirect its authorization endpoint sends. */
+  fun podBase(pod: PodDbo) = "${SempodsModule.config.apiBaseUrl}${pod.name}"
 
   private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
 

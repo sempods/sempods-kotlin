@@ -14,6 +14,7 @@ import org.sempods.api.pod.system.auth.DelegatedAccessFlow
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow.ConsentPage
 import org.sempods.api.pod.system.auth.ServiceAccessFlow
 import org.sempods.auth.core.OAuthSyntax
+import org.sempods.client.SempodsClientException
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPkce
 import org.sempods.client.SempodsPodAuthorization
@@ -78,7 +79,11 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     assertEquals("/${owned.pod.name}/_system/auth/service-consent", opened.encodedPath)
     assertEquals(service.clientId, opened.queryParameter("client_id"))
     assertNull(opened.queryParameter("scope"), "the program suggests no rows")
-    assertEquals(setOf("state"), browser.redirects.single().queryParameterNames, "the return carries the decision and nothing else")
+    assertEquals(
+      setOf("state", "iss"),
+      browser.redirects.single().queryParameterNames,
+      "the return carries the decision and its issuer, and nothing else",
+    )
 
     val catalogue = checkNotNull(example.asService(service.clientId, service.clientSecret).contexts().listText().body)
     assertTrue(catalogue.contains(notes), catalogue)
@@ -98,6 +103,21 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
     val refused = assertThrows<SempodsStatusException> { example.asService(service.clientId, service.clientSecret).contexts().listText() }
     assertEquals(400, refused.status)
     assertTrue(refused.bodyExcerpt.contains("invalid_scope"), refused.bodyExcerpt)
+  }
+
+  @Test
+  fun `a return that names another pod as its issuer is not this consent's answer`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val example = ServiceConsent(owned.base, client, null)
+    val service = example.register("Notes Sync") { _, _ -> }
+    val mixedUp = OwnerBrowser(owned, selection = setOf("$notes#read")) {
+      it.newBuilder().setQueryParameter("iss", "https://elsewhere.example/alice").build()
+    }
+
+    assertThrows<SempodsClientException> {
+      example.askInBrowser(service.clientId, service.clientSecret, listOf(notes), mixedUp, Duration.ofSeconds(30))
+    }
   }
 
   @Test
@@ -311,13 +331,15 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
 
   /**
    * The owner's browser, signed in. On a service consent it ticks [selection], or cancels; on an
-   * authorization it ticks what was asked for.
+   * authorization it ticks what was asked for. [tamper] stands for whatever else can reach the
+   * program's loopback on the way back.
    */
   private inner class OwnerBrowser(
     private val owned: Owned,
     private val selection: Set<String> = emptySet(),
     private val cancel: Boolean = false,
     private val followRedirect: Boolean = true,
+    private val tamper: (HttpUrl) -> HttpUrl = { it },
   ) : ServiceConsent.Browser {
 
     val opened = mutableListOf<HttpUrl>()
@@ -339,7 +361,7 @@ class ServiceConsentExampleHttpTest : SempodsIntegrationTest() {
         return
       }
       assertEquals(303, submitted.statusCode, submitted.responseBody)
-      val back = location.toHttpUrl()
+      val back = tamper(location.toHttpUrl())
       redirects += back
       if (followRedirect) assertEquals(200, http.prepareGet(back.toString()).execute().statusCode)
     }

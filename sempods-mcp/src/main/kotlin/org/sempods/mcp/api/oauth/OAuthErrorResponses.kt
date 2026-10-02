@@ -3,6 +3,7 @@ package org.sempods.mcp.api.oauth
 import com.nimbusds.oauth2.sdk.AuthorizationErrorResponse
 import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.ResponseMode
+import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.id.State
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -27,13 +28,16 @@ import java.net.URI
  * The redirect is built by nimbus rather than by string concatenation for the same reason
  * `PodOAuthClient` is: an address may carry a query of its own, and choosing `?` versus `&`
  * correctly is not something worth re-deriving per call site.
+ *
+ * A redirected error names [issuer], the profile's authorization server, as `iss` (RFC 9207) — the
+ * same value its metadata advertises — so a client can tell this server's answer from another's.
  */
 // TODO: no `error_uri` is sent. `OAuthErrors.errorUri(docBase, code)` exists and has no caller —
 //  it needs a documentation base this service does not configure, and the page that exists
 //  (`docs/auth/oauth-errors.md`) describes the pod server's codes rather than these. Worth
 //  doing once there is a page for this service: it is the one part of an OAuth error a human can
 //  act on without reading a log.
-suspend fun ApplicationCall.respondOAuthError(delivery: OAuthErrorDelivery) {
+suspend fun ApplicationCall.respondOAuthError(delivery: OAuthErrorDelivery, issuer: String) {
   when (delivery) {
     is OAuthErrorDelivery.Direct ->
       respondText("${delivery.code.code}: ${delivery.description}", status = HttpStatusCode.BadRequest)
@@ -48,6 +52,7 @@ suspend fun ApplicationCall.respondOAuthError(delivery: OAuthErrorDelivery) {
           // would turn a well-formed error response into a 500. A state carrying no information is
           // the one part of the answer such a client cannot use anyway, so it is simply not echoed.
           delivery.state?.takeIf { it.isNotBlank() }?.let { State(it) },
+          Issuer(issuer),
           ResponseMode.QUERY,
         ).toURI().toString(),
       )
@@ -67,10 +72,12 @@ suspend fun ApplicationCall.respondOAuthError(
   code: OAuthErrorCode,
   description: String,
   state: String?,
+  issuer: String,
 ) {
   val target = OAuthErrors.redirectTargetFor(policy, clientId, redirectUri)
   respondOAuthError(
     if (target == null) OAuthErrorDelivery.Direct(code, description)
     else OAuthErrorDelivery.Redirect(target, code, description, state),
+    issuer,
   )
 }

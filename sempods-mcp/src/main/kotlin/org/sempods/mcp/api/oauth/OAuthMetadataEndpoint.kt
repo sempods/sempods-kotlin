@@ -57,6 +57,8 @@ fun Application.oauthMetadataEndpoint(config: SempodsMcpConfig, objectMapper: Ob
         "grant_types_supported" to listOf("authorization_code", "refresh_token"),
         "code_challenge_methods_supported" to listOf("S256"),
         "token_endpoint_auth_methods_supported" to listOf("none"),
+        // RFC 9207: every authorization response, success or error, names this issuer.
+        "authorization_response_iss_parameter_supported" to true,
       ),
     )
   }

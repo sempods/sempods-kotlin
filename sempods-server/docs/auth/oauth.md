@@ -84,8 +84,9 @@ The pod signs the person in if needed, then reuses or asks for consent according
 [`prompt`](connections.md#the-prompt-parameter).
 
 On approval, the callback carries `code` and the supplied `state`. On refusal, it carries `error`,
-`error_description` and `state`; an `error_uri` may be configured. Check the callback before
-redeeming the code. An omitted or empty `state` is not returned.
+`error_description` and `state`; an `error_uri` may be configured. Either way it carries `iss`, the
+pod URL (RFC 9207), as the metadata's `authorization_response_iss_parameter_supported` announces.
+Check `state` and `iss` before redeeming the code. An omitted or empty `state` is not returned.
 
 The consent form requires the pod session cookie and a single-use token bound to that screen's
 client, callback, PKCE parameters and offered rows. For ordinary delegated access:

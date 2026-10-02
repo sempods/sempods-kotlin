@@ -26,17 +26,24 @@ import java.net.URI
  * back looking exactly like one this server chose. Overwrite or delete; never leave somebody
  * else's. A protocol library that appends would change this, which is what
  * `PodOAuthErrorResponsesTest` is there to catch.
+ *
+ * **Every redirect names its issuer** (RFC 9207): `iss` is the pod `P`, the same string as the
+ * `issuer` of its authorization-server metadata and the `iss` of its tokens. A client talking to
+ * more than one authorization server compares it before acting on the answer.
  */
 internal object PodOAuthErrorResponses {
 
-  fun render(delivery: OAuthErrorDelivery, config: SempodsConfig): Response = when (delivery) {
+  /** The `iss` a pod's authorization responses carry — the `issuer` its metadata advertises. */
+  fun issuerOf(podName: String, config: SempodsConfig): String = "${config.apiBaseUrl}$podName"
+
+  fun render(delivery: OAuthErrorDelivery, podName: String, config: SempodsConfig): Response = when (delivery) {
     // No address to send it to is the same answer as an address that is blank, and the blank case
     // has to exist anyway for a parked request that lost its `redirect_uri`.
     is OAuthErrorDelivery.Direct ->
-      render(null, delivery.code, delivery.description, null, config)
+      render(null, delivery.code, delivery.description, null, podName, config)
 
     is OAuthErrorDelivery.Redirect ->
-      render(delivery.target.uri, delivery.code, delivery.description, delivery.state, config)
+      render(delivery.target.uri, delivery.code, delivery.description, delivery.state, podName, config)
   }
 
   /**
@@ -56,13 +63,14 @@ internal object PodOAuthErrorResponses {
     error: OAuthErrorCode,
     description: String,
     config: SempodsConfig,
-  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, config)
+  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, pending.pod, config)
 
   private fun render(
     redirectUri: String?,
     error: OAuthErrorCode,
     description: String,
     state: String?,
+    podName: String,
     config: SempodsConfig,
   ): Response {
     audit(error, description, state, redirectUri)
@@ -84,6 +92,7 @@ internal object PodOAuthErrorResponses {
     // As [suppliedState][org.sempods.pods.oauth.flows.suppliedState] left it, including the value
     // a parked request stored.
     state?.let { uri = UrlUtil.addOrUpdateQueryParameter(uri, "state", it) }
+    uri = UrlUtil.addOrUpdateQueryParameter(uri, "iss", issuerOf(podName, config))
     // The consent dialog is a POST, and a 307 tells the browser to repeat it at the client's
     // address: the ticked scopes and the spent CSRF token arrive at the app. RFC 9700 §4.12 names 303.
     return Response.seeOther(uri).build()

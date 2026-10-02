@@ -218,6 +218,7 @@ class OAuthFlowIntegrationTest {
     assertEquals(HttpStatusCode.Found, consentResp.status)
     val cbLocation = Url(consentResp.headers[HttpHeaders.Location]!!)
     assertEquals("client-state-1", cbLocation.parameters["state"])
+    assertEquals(listOf(BASE), cbLocation.parameters.getAll("iss"), "the answer names its issuer, once (RFC 9207)")
     val code = cbLocation.parameters["code"]!!
 
     // 5. Token exchange (authorization_code) with the PKCE verifier.
@@ -480,10 +481,12 @@ class OAuthFlowIntegrationTest {
     val (loginState, nonceCookie) = client.startAuthorize(clientId, profile = "private")
     val consentHtml = client.oidcCallback(loginState, nonceCookie).bodyAsText()
     val txn = Regex("name=\"txn\" value=\"([^\"]+)\"").find(consentHtml)!!.groupValues[1]
-    val code = Url(
+    val answer = Url(
       client.submitForm(url = "/authorize/consent", formParameters = parameters { append("txn", txn) })
         .headers[HttpHeaders.Location]!!,
-    ).parameters["code"]!!
+    )
+    assertEquals("$BASE/private", answer.parameters["iss"], "a named profile answers as its own issuer")
+    val code = answer.parameters["code"]!!
 
     val tokenResp = client.submitForm(
       url = "/private/token",
@@ -989,6 +992,7 @@ class OAuthFlowIntegrationTest {
     val location = Url(assertNotNull(resp.headers[HttpHeaders.Location], "a live client is answered at its address"))
     assertEquals("access_denied", location.parameters["error"])
     assertEquals("client-state-1", location.parameters["state"])
+    assertEquals(BASE, location.parameters["iss"], "a resumed request's error names the issuer as well")
     assertTrue(
       location.parameters["error_description"]?.contains("totally_made_up_code") != true,
       "the id-server's raw error must not travel to the client: ${location.parameters["error_description"]}",
@@ -1014,6 +1018,7 @@ class OAuthFlowIntegrationTest {
     val location = Url(assertNotNull(missingPkce.headers[HttpHeaders.Location], "a proven address receives the error"))
     assertEquals("invalid_request", location.parameters["error"])
     assertEquals("s", location.parameters["state"], "the client's state must come back with the error")
+    assertEquals(listOf(BASE), location.parameters.getAll("iss"), "an error names its issuer too (RFC 9207)")
   }
 
   @Test

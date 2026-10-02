@@ -17,6 +17,7 @@ import kotlin.test.assertTrue
 /**
  * `state` on each of the pod's browser routes: what the client sent comes back, and nothing else
  * does. The rule and its reasons are [suppliedState][org.sempods.pods.oauth.flows.suppliedState]'s.
+ * Beside it, on the same routes, `iss` (RFC 9207): the pod, once, on every redirect.
  *
  * Every assertion reads the **decoded** query, because the wire spelling is allowed to differ: a
  * `+` arrives as `%2B` and leaves as `%2B`, while a space leaves as `+`. A raw substring would pass
@@ -134,6 +135,25 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
     }
   }
 
+  @Test
+  fun `every redirect names the pod as its issuer, once`() {
+    val (pod, person) = podWithOwner()
+    val consentPage = { get(authorizeUrl(pod, "s", prompt = "consent"), signIn(pod.name, person).cookie) }
+    val answers = mapOf(
+      "the code redirect" to consent(pod, person, "s"),
+      "the error redirect" to get(authorizeUrl(pod, "s", responseType = "token"), signIn(pod.name, person).cookie),
+      "the consent screen's cancel" to cancel(pod, person, consentPage()),
+      "the parked request's cancel" to
+        cancel(pod, person, http.prepareGet(authorizeUrl(pod, "s", prompt = "consent")).executeSignedInAs(person)),
+      "the parked request's failure" to
+        http.prepareGet(authorizeUrl(pod, "s")).executeSignedInAs(person, nonce = "the-nonce-of-another-login"),
+    )
+
+    for ((case, response) in answers) {
+      assertEquals(listOf(flow.podBase(pod)), parametersIn(response, "iss"), case)
+    }
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private companion object {
@@ -181,12 +201,14 @@ class PodOAuthStateHttpTest : SempodsIntegrationTest() {
    * A list, because "exactly one" is half of what is asserted: a builder that appends leaves the
    * client reading whichever it finds first.
    */
-  private fun statesIn(response: TestHttpResponse): List<String> {
+  private fun statesIn(response: TestHttpResponse): List<String> = parametersIn(response, "state")
+
+  private fun parametersIn(response: TestHttpResponse, name: String): List<String> {
     val location = checkNotNull(response.getHeader("Location")) {
       "no redirect: ${response.statusCode} ${response.responseBody}"
     }
     return URI(location).rawQuery.orEmpty().split("&")
-      .filter { it == "state" || it.startsWith("state=") }
+      .filter { it == name || it.startsWith("$name=") }
       .map { UrlUtil.urlDecode(it.substringAfter("=", "")) }
   }
 
