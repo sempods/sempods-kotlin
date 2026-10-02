@@ -15,10 +15,8 @@ import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
-import org.sempods.commons.net.BasicAuth
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
@@ -46,7 +44,6 @@ import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.flows.PodTokenExchange
 import org.sempods.pods.oauth.flows.PodTokenResult
-import java.net.URI
 
 @Path("{pod}/_system/auth")
 class PodAuthEndpoint @Inject constructor(
@@ -299,84 +296,44 @@ class PodAuthEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @HeaderParam("Authorization") authorizationHeader: String?,
     @HeaderParam("X-Forwarded-For") forwardedFor: String?,
-    @FormParam("grant_type") grantType: String?,
-    @FormParam("code") code: String?,
-    @FormParam("redirect_uri") redirectUri: String?,
-    @FormParam("client_id") clientId: String?,
-    @FormParam("code_verifier") codeVerifier: String?,
-    @FormParam("refresh_token") refreshToken: String?,
-    @FormParam("scope") scope: String?,
     form: MultivaluedMap<String, String>,
   ): Response {
     // Ahead of the pod row on purpose: `fetchPodOrThrow` reads it uncached, so a refused request
     // costs no query at all. That is most of what the budget buys — see [PodTokenRateLimiter].
-    if (!tokenRateLimiter.tryAcquire(forwardedFor, grantType, clientId, authorizationHeader)) {
+    if (!tokenRateLimiter.tryAcquire(forwardedFor, form.getFirst("grant_type"), form.getFirst("client_id"), authorizationHeader)) {
       return PodTokenResponses.rateLimited()
     }
 
     val podDbo = fetchPodOrThrow(pod)
 
-    // RFC 6749 §3.1: a parameter is sent once. Refused for every grant alike, before any of them is
-    // read, so no value of a repeated one is ever acted on.
-    val repeated = repeatedOf(form, TOKEN_PARAMETERS)
-    if (repeated.isNotEmpty()) {
-      return tokenError(OAuthErrorCode.INVALID_REQUEST, "${repeated.joinToString(", ")} included more than once")
-    }
+    return when (val read = PodTokenMessages.read(form, authorizationHeader)) {
+      is PodTokenRead.Refused -> read.result
 
-    // RFC 6749 §5.2: a missing parameter is `invalid_request`, and `grant_type` is no exception.
-    val grant = grantType?.trim()?.takeIf { it.isNotEmpty() }
-      ?: return tokenError(OAuthErrorCode.INVALID_REQUEST, "missing grant_type")
-
-    return when (grant) {
-      "authorization_code" -> {
-        // Syntax, refused here because the exchange spends the code before it compares anything.
-        // The verifier is read as sent, as the exchange reads it.
-        if (!codeVerifier.isNullOrBlank() && !Pkce.isLegalVerifier(codeVerifier)) {
-          return tokenError(OAuthErrorCode.INVALID_REQUEST, "code_verifier is not an RFC 7636 verifier")
-        }
-        val trimmedRedirectUri = redirectUri?.trim()
-        if (!trimmedRedirectUri.isNullOrEmpty() && runCatching { URI(trimmedRedirectUri) }.isFailure) {
-          return tokenError(OAuthErrorCode.INVALID_REQUEST, "redirect_uri is not a URI")
-        }
-        podTokenExchange.redeemCode(
-          pod = podDbo.podId(),
-          podName = podDbo.name,
-          code = code,
-          redirectUri = redirectUri,
-          clientId = clientId,
-          codeVerifier = codeVerifier,
-        ).asResponse(podDbo.name)
-      }
-
-      "refresh_token" -> podTokenExchange.refresh(
+      is PodTokenRead.AuthorizationCode -> podTokenExchange.redeemCode(
         pod = podDbo.podId(),
         podName = podDbo.name,
-        refreshToken = refreshToken,
-        clientId = clientId,
-        requestedScope = scope,
-      ).asResponse(podDbo.name)
-
-      // HTTP Basic is this adapter's format: a request that presents no credentials at all is
-      // answered here, and what a presented pair *means* is the exchange's.
-      "client_credentials" -> BasicAuth.parse(authorizationHeader)?.let { basic ->
-        podTokenExchange.exchangeServiceClient(
-          pod = podDbo.podId(),
-          podName = podDbo.name,
-          // Trimmed as the form's `client_id` is.
-          clientId = basic.username.trim(),
-          secret = basic.password,
-          requestedScope = scope,
-        ).asResponse(podDbo.name)
-      } ?: PodTokenResponses.clientAuthenticationRequired(
-        realm = podDbo.name,
-        description = "HTTP Basic authentication required",
+        code = read.code,
+        redirectUri = read.redirectUri,
+        clientId = read.clientId,
+        codeVerifier = read.codeVerifier,
       )
 
-      else -> tokenError(
-        OAuthErrorCode.UNSUPPORTED_GRANT_TYPE,
-        "only authorization_code, refresh_token and client_credentials are supported",
+      is PodTokenRead.Refresh -> podTokenExchange.refresh(
+        pod = podDbo.podId(),
+        podName = podDbo.name,
+        refreshToken = read.refreshToken,
+        clientId = read.clientId,
+        requestedScope = read.scope,
       )
-    }
+
+      is PodTokenRead.ClientCredentials -> podTokenExchange.exchangeServiceClient(
+        pod = podDbo.podId(),
+        podName = podDbo.name,
+        clientId = read.clientId,
+        secret = read.secret,
+        requestedScope = read.scope,
+      )
+    }.asResponse(podDbo.name)
   }
 
   /**
@@ -490,11 +447,6 @@ class PodAuthEndpoint @Inject constructor(
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  /** Kept as a name because two dozen refusals read better for it; the answer is [PodTokenResponses]'. */
-  private fun tokenError(error: OAuthErrorCode, description: String): Response =
-    PodTokenResponses.error(error, description)
-
-
   /**
    * The person this browser already proved itself as on this pod, or null — also where they have
    * signed out since, which reads exactly like a session that expired.
@@ -552,11 +504,6 @@ class PodAuthEndpoint @Inject constructor(
     /** The parameters `/authorize` reads; another one may repeat, since it is ignored anyway. */
     private val AUTHORIZE_PARAMETERS = setOf(
       "response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "prompt", "scope",
-    )
-
-    /** The parameters `/token` reads, across its three grants. */
-    private val TOKEN_PARAMETERS = setOf(
-      "grant_type", "code", "redirect_uri", "client_id", "code_verifier", "refresh_token", "scope",
     )
 
     /** Which of [names] [parameters] carries more than once, in name order. */

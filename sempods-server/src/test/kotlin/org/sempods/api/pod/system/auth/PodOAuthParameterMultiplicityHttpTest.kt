@@ -200,7 +200,7 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
     val browser = Browser()
     val missing = mapOf(
       "grant_type" to "missing grant_type",
-      "code" to "missing code",
+      "code" to "Missing or empty code parameter",
       "redirect_uri" to "missing redirect_uri",
       "client_id" to "missing or malformed client_id",
       "code_verifier" to "missing code_verifier",

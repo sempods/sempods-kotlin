@@ -105,7 +105,7 @@ class PodTokenRequestHttpTest : SempodsIntegrationTest() {
     val browser = Browser()
     val exchange = browser.exchange()
     for (verifier in listOf("short", "a".repeat(129), "a".repeat(42) + "!", " ${DelegatedAccessFlow.CODE_VERIFIER}")) {
-      assertTokenError(browser.token(exchange.with("code_verifier", verifier)), "invalid_request", "code_verifier", "code_verifier '$verifier'")
+      assertTokenError(browser.token(exchange.with("code_verifier", verifier)), "invalid_request", "Illegal code verifier", "code_verifier '$verifier'")
     }
     assertIssued(browser.token(exchange), "the exchange as sent")
   }
@@ -117,7 +117,7 @@ class PodTokenRequestHttpTest : SempodsIntegrationTest() {
 
     assertTokenError(
       browser.token(exchange.with("redirect_uri", "http://localhost:5173/a b")),
-      "invalid_request", "redirect_uri",
+      "invalid_request", "Invalid redirect_uri parameter",
       "redirect_uri with a space",
     )
     assertIssued(browser.token(exchange), "the exchange as sent")

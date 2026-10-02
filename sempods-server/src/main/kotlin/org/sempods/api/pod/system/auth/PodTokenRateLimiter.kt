@@ -4,7 +4,6 @@ import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.SempodsConfig
 import org.sempods.commons.logging.LogSafeText
-import org.sempods.commons.net.BasicAuth
 import org.sempods.commons.net.ForwardedFor
 import org.sempods.commons.ratelimit.TokenBucketRateLimiter
 
@@ -177,7 +176,7 @@ class PodTokenRateLimiter(
    */
   private fun clientIdentity(grantType: String?, clientId: String?, authorizationHeader: String?): String =
     if (grantType?.trim() == CLIENT_CREDENTIALS_GRANT) {
-      BasicAuth.parse(authorizationHeader)?.username ?: UNIDENTIFIED
+      PodTokenMessages.basicClientId(authorizationHeader) ?: UNIDENTIFIED
     } else {
       clientId?.trim()?.takeIf { it.isNotBlank() } ?: UNIDENTIFIED
     }
