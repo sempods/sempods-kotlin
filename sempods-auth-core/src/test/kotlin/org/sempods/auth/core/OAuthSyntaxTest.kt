@@ -41,17 +41,18 @@ class OAuthSyntaxTest {
 
   @Test
   fun `the prompt parser keeps what the OAuth SDK refuses, on purpose`() {
-    // `prompt` is the half that cannot be delegated, and these are the two reasons.
+    // Two things the SDK decides at parse time, which this leaves to its caller.
     //
     // The SDK refuses a value it does not know. Refusing is a policy rather than conformance —
-    // neither specification asks for it — and it would have answered `prompt=create` with an error
-    // for as long as the SDK version in use predated the registration of that value.
+    // neither specification asks for it — so it is the caller's to choose: the pod's `/authorize`
+    // takes the SDK's (sempods-kotlin#154), the identity service's ignores an unknown value.
     assertEquals(setOf("login", "somethingNew"), OAuthSyntax.parsePrompt("login somethingNew"))
     assertFailsWith<ParseException> { Prompt.parse("login somethingNew") }
 
     // And it refuses the contradiction at parse time, where this keeps the set and lets
-    // [OAuthSyntax.isContradictoryPrompt] name it. The verdict is the same; only one of the two can
-    // also tell a contradiction from a typo, which is what the endpoint answers differently.
+    // [OAuthSyntax.isContradictoryPrompt] name it. The verdict is the same; only the second can
+    // also tell a contradiction from a typo, which the identity service's `/authorize` answers
+    // differently.
     assertTrue(OAuthSyntax.isContradictoryPrompt(OAuthSyntax.parsePrompt("none consent")))
     assertFailsWith<ParseException> { Prompt.parse("none consent") }
   }

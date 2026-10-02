@@ -66,7 +66,10 @@ object OAuthSyntax {
    *
    * Unknown values are **kept**, not dropped: `none` is only meaningful in combination with what
    * else was asked for, so a caller has to see the whole set to reject the illegal combinations.
-   * Deciding which values may travel on to an upstream provider is [OidcPrompt]'s job.
+   * Whether an unknown value is then refused is the caller's policy. The identity service's
+   * `/authorize` ignores one; the pod's `/authorize` reads its request with the OAuth SDK, which
+   * refuses one, and uses this only for a `prompt` it parked itself. Deciding which values may
+   * travel on to an upstream provider is [OidcPrompt]'s job.
    */
   fun parsePrompt(raw: String?): Set<String> =
     raw?.split(' ')?.filter(String::isNotEmpty)?.toSet() ?: emptySet()
