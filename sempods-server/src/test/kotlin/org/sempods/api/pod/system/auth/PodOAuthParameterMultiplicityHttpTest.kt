@@ -136,7 +136,7 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
     val browser = Browser()
     val request = browser.authorization
 
-    assertRedirectsWith(browser.authorize(request.with("response_type", "")), "error_description=missing+response_type", "response_type")
+    assertRedirectsWith(browser.authorize(request.with("response_type", "")), "error_description=Invalid+request%3A+Missing+response_type+parameter", "response_type")
     assertPlain400(browser.authorize(request.with("client_id", "")), "client_id must be a did:web or dyn: identity", "client_id")
     assertPlain400(browser.authorize(request.with("redirect_uri", "")), "missing redirect_uri", "redirect_uri")
     assertRedirectsWith(browser.authorize(request.with("code_challenge", "")), "code_challenge+is+required", "code_challenge")

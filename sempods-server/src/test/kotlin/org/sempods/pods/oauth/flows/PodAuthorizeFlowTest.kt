@@ -5,6 +5,7 @@ import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
+import org.sempods.auth.core.OAuthSyntax
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
@@ -53,14 +54,16 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     prompt: String? = null,
     scope: String? = null,
   ) = PodAuthorizeRequest(
-    responseType = responseType,
     clientId = client,
     redirectUri = address,
     state = state,
-    codeChallenge = codeChallenge,
-    codeChallengeMethod = codeChallengeMethod,
-    prompt = prompt,
-    scope = scope,
+    terms = PodAuthorizeTerms.Read(
+      responseType = setOfNotNull(responseType),
+      codeChallenge = codeChallenge,
+      codeChallengeMethod = codeChallengeMethod,
+      prompt = OAuthSyntax.parsePrompt(prompt),
+      scopes = OAuthSyntax.parseScope(scope),
+    ),
   )
 
   private fun redirectedError(result: PodAuthorizeResult): OAuthErrorDelivery.Redirect {
@@ -126,13 +129,31 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `prompt=none combined with login is a request error`() {
-    // OIDC Core 1.0 §3.1.2.1 — `none` is exclusive.
+  fun `a request the adapter could not read is an error at the client's address`() {
     val owned = Owned()
+    val state = "state-${randomId()}"
     val delivery = redirectedError(
-      flow.authorize(owned.pod, request(prompt = "none login"), owned.session),
+      flow.authorize(owned.pod, request(state = state).copy(terms = PodAuthorizeTerms.Malformed("unreadable")), owned.session),
     )
     assertEquals(OAuthErrorCode.INVALID_REQUEST, delivery.code)
+    assertEquals("unreadable", delivery.description)
+    assertEquals(redirectUri, delivery.target.uri)
+    assertEquals(state, delivery.state)
+  }
+
+  @Test
+  fun `and only at an address the flow has validated for the client`() {
+    // A parse failure may name an address; the flow answers at none it has not checked itself.
+    val owned = Owned()
+    val malformed = PodAuthorizeTerms.Malformed("unreadable")
+    assertEquals(
+      PodAuthorizeResult.Refused(PodAuthorizeRefusal.REDIRECT_URI_NOT_ALLOWED),
+      flow.authorize(owned.pod, request(address = "https://elsewhere.example/cb").copy(terms = malformed), owned.session),
+    )
+    assertEquals(
+      PodAuthorizeResult.Refused(PodAuthorizeRefusal.MALFORMED_CLIENT_ID),
+      flow.authorize(owned.pod, request(client = null).copy(terms = malformed), owned.session),
+    )
   }
 
   // ── Where an unauthenticated request goes ──────────────────────────────────
