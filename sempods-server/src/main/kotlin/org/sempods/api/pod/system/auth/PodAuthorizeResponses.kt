@@ -255,6 +255,7 @@ internal object PodAuthorizeResponses {
 
   /** `/authorize`'s wording for a [PodAuthorizeRefusal], as plain text to whoever holds the browser. */
   private fun refusal(reason: PodAuthorizeRefusal): Response = when (reason) {
+    PodAuthorizeRefusal.REPEATED_ADDRESS -> text(400, "invalid_request: client_id and redirect_uri must each be sent once")
     PodAuthorizeRefusal.MISSING_REDIRECT_URI -> text(400, "missing redirect_uri")
     PodAuthorizeRefusal.UNREGISTERED_CLIENT -> text(400, UNREGISTERED_CLIENT_MESSAGE)
     PodAuthorizeRefusal.MALFORMED_CLIENT_ID -> text(400, "client_id must be a did:web or dyn: identity")

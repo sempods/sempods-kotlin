@@ -29,10 +29,6 @@ discovery where available.
 Implicit and password grants are unsupported. Browser clients use Authorization Code with
 S256 PKCE; services use Client Credentials.
 
-A parameter sent twice to `/authorize` or `/token` is read as its first value, and the others are
-ignored. RFC 6749 §3.1 forbids repeating one and §4.1.2.1 names `invalid_request` for it; the pod
-does not refuse such a request. `PodOAuthParameterMultiplicityHttpTest` holds what it answers.
-
 ## Client identity: `did:web:*`, `dyn:*` and `svc:*`
 
 | Client | Setup | Authentication |

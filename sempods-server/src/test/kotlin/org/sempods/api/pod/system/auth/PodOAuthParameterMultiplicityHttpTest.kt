@@ -13,12 +13,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * What `/authorize` and `/token` do today with a parameter sent twice, sent empty, or not decodable.
+ * What `/authorize` and `/token` answer to a parameter sent twice, sent empty, or not decodable.
  *
- * Characterization, not specification: RFC 6749 §3.1 says a parameter "MUST NOT be included more
- * than once", and this server does not refuse one that is. It reads the first value and ignores the
- * rest. A protocol library parsing these requests may decide differently, and #154 treats a
- * stricter answer as a behaviour change of its own, so these tests say what changes when it does.
+ * RFC 6749 §3.1: a parameter "MUST NOT be included more than once", and §4.1.2.1 names
+ * `invalid_request` for a request that does. Both routes refuse one, even sent twice alike. An empty
+ * parameter is an absent one (§3.1 as well).
  */
 class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
 
@@ -56,12 +55,6 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
         .addHeader("Cookie", cookie)
         .setFollowRedirect(false)
         .execute()
-
-    /** Authorizes [params] through the consent page and redeems the code with the RFC 7636 verifier. */
-    fun redeem(params: List<Pair<String, String>>): TestHttpResponse {
-      val consented = flow.submit(DelegatedAccessFlow.ConsentPage.of(authorize(params)), cookie)
-      return flow.exchangeCode(pod, app, flow.codeFrom(consented))
-    }
 
     /** A fresh authorization code for [app], and the exchange that redeems it. */
     fun exchange(): List<Pair<String, String>> = listOf(
@@ -108,46 +101,34 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `authorize reads the first of a repeated parameter and ignores the rest`() {
+  fun `authorize refuses a parameter sent twice, directly while the client is unknown and at its address after`() {
     val browser = Browser()
     val request = browser.authorization
 
-    // A second value that would fail changes nothing: the first decides.
-    val second = mapOf(
-      "response_type" to "token",
-      "client_id" to browser.other.clientId,
-      "redirect_uri" to browser.other.redirectUri,
-      "state" to "second",
-      "code_challenge" to "x",
-      "code_challenge_method" to "plain",
-      "prompt" to "none",
-      "scope" to "not-a-scope",
-    )
-    for ((name, value) in second) {
-      val first = request.firstOrNull { it.first == name }?.second ?: "public-read"
-      assertConsentPage(browser.authorize(request.with(name, first, value)), "$name sent first valid, then '$value'")
-      assertConsentPage(browser.authorize(request.with(name, first, first)), "$name sent twice alike")
+    // Two clients or two addresses: there is no one address to answer at.
+    for ((name, value) in listOf("client_id" to browser.app.clientId, "redirect_uri" to browser.app.redirectUri)) {
+      for (second in listOf(value, browser.other.clientId.takeIf { name == "client_id" } ?: browser.other.redirectUri)) {
+        assertPlain400(
+          browser.authorize(request.with(name, value, second)),
+          "invalid_request: client_id and redirect_uri must each be sent once",
+          "$name sent twice",
+        )
+      }
     }
 
-    // And a first value that fails decides too, whatever follows it.
-    assertRedirectsWith(browser.authorize(request.with("response_type", "token", "code")), "error=unsupported_response_type", "response_type token, code")
-    assertPlain400(browser.authorize(request.with("client_id", browser.other.clientId, browser.app.clientId)), "redirect_uri not allowed for this client_id", "client_id other, app")
-    assertPlain400(browser.authorize(request.with("redirect_uri", browser.other.redirectUri, browser.app.redirectUri)), "redirect_uri not allowed for this client_id", "redirect_uri other, app")
-    assertRedirectsWith(browser.authorize(request.with("code_challenge_method", "plain", "S256")), "error=invalid_request", "code_challenge_method plain, S256")
-    assertRedirectsWith(browser.authorize(request.with("prompt", "none", "consent")), "error=consent_required", "prompt none, consent")
-    assertRedirectsWith(
-      browser.authorize(request.with("response_type", "token").with("state", "second", "first")),
-      "&state=second",
-      "state second, first",
-    )
-    // A `code_challenge` is not checked at `/authorize`, so only the exchange shows which one the
-    // code carries: the first.
-    assertEquals(200, browser.redeem(request.with("code_challenge", DelegatedAccessFlow.CODE_CHALLENGE, "x")).statusCode)
-    assertTokenError(
-      browser.redeem(request.with("code_challenge", "x", DelegatedAccessFlow.CODE_CHALLENGE)),
-      "PKCE verification failed",
-      "code_challenge x, the real one",
-    )
+    // Any other of its parameters, even sent twice alike, is an error the client hears.
+    for (name in listOf("response_type", "state", "code_challenge", "code_challenge_method", "prompt", "scope")) {
+      val value = request.firstOrNull { it.first == name }?.second ?: "public-read"
+      val refused = browser.authorize(request.with(name, value, value))
+      assertRedirectsWith(refused, "error=invalid_request", "$name sent twice")
+      assertRedirectsWith(refused, "error_description=$name+included+more+than+once", "$name sent twice")
+      assertRedirectsWith(refused, "&state=first", "$name sent twice")
+    }
+    val two = browser.authorize(request.with("prompt", "consent", "consent").with("scope", "public-read", "public-read"))
+    assertRedirectsWith(two, "error_description=prompt%2C+scope+included+more+than+once", "prompt and scope sent twice")
+
+    // A parameter `/authorize` does not read is ignored, however often it comes.
+    assertConsentPage(browser.authorize(request + ("resource" to "a") + ("resource" to "b")), "an unread parameter sent twice")
   }
 
   @Test
@@ -176,43 +157,42 @@ class PodOAuthParameterMultiplicityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `authorize takes a code_challenge it cannot check and leaves the refusal to the exchange`() {
-    // RFC 7636 §4.2 allows 43 to 128 characters of a fixed alphabet. `/authorize` checks presence
-    // only, so a challenge no verifier can ever match parks a code that `/token` then refuses.
+  fun `authorize refuses a code_challenge no S256 verifier can match`() {
+    // RFC 7636 §4.2: an S256 challenge is the base64url of a SHA-256 digest, 43 characters. Anything
+    // else would park a code that no exchange can redeem.
     val browser = Browser()
-
-    assertConsentPage(browser.authorize(browser.authorization.with("code_challenge", "short")), "a five-character challenge")
+    val real = DelegatedAccessFlow.CODE_CHALLENGE
+    for (challenge in listOf("short", "a".repeat(128), "~" + "a".repeat(42), "a".repeat(42) + "=", " $real ", "$real\n")) {
+      assertRedirectsWith(
+        browser.authorize(browser.authorization.with("code_challenge", challenge)),
+        "error_description=code_challenge+must+be+an+S256+challenge",
+        "code_challenge '$challenge'",
+      )
+    }
+    assertConsentPage(browser.authorize(browser.authorization), "the RFC 7636 example challenge")
   }
 
   @Test
-  fun `token reads the first of a repeated form parameter and ignores the rest`() {
+  fun `token refuses a form parameter sent twice before acting on any of them`() {
     val browser = Browser()
-    val second = mapOf(
-      "grant_type" to "refresh_token",
-      "code" to "not-a-code",
-      "redirect_uri" to browser.other.redirectUri,
-      "client_id" to browser.other.clientId,
-      "code_verifier" to "x".repeat(43),
-    )
-    for ((name, value) in second) {
+    for (name in listOf("grant_type", "code", "redirect_uri", "client_id", "code_verifier")) {
       val exchange = browser.exchange()
-      val first = exchange.first { it.first == name }.second
-      val answer = browser.token(query(exchange.with(name, first, value)))
-      assertEquals(200, answer.statusCode, "$name sent first valid, then '$value': ${answer.responseBody}")
-    }
+      val value = exchange.first { it.first == name }.second
 
-    val firstDecides = mapOf(
-      "grant_type" to "missing refresh_token",
-      "code" to "invalid or expired authorization code",
-      "redirect_uri" to "redirect_uri mismatch",
-      "client_id" to "client_id mismatch",
-      "code_verifier" to "PKCE verification failed",
-    )
-    for ((name, error) in firstDecides) {
-      val exchange = browser.exchange()
-      val first = exchange.first { it.first == name }.second
-      assertTokenError(browser.token(query(exchange.with(name, second.getValue(name), first))), error, "$name sent wrong first")
+      assertTokenError(browser.token(query(exchange.with(name, value, value))), "$name included more than once", "$name sent twice")
+      // The code was not touched: the same exchange, sent once, still redeems it.
+      val redeemed = browser.token(query(exchange))
+      assertEquals(200, redeemed.statusCode, "$name: ${redeemed.responseBody}")
     }
+    // The refresh grant's own fields too, and several at once are named together.
+    val refresh = listOf("grant_type" to "refresh_token", "refresh_token" to "a", "client_id" to browser.app.clientId)
+    assertTokenError(browser.token(query(refresh.with("refresh_token", "a", "b"))), "refresh_token included more than once", "refresh_token sent twice")
+    assertTokenError(browser.token(query(refresh + ("scope" to "public-read") + ("scope" to "public-read"))), "scope included more than once", "scope sent twice")
+    assertTokenError(
+      browser.token(query(refresh.with("refresh_token", "a", "a") + ("scope" to "x") + ("scope" to "x"))),
+      "refresh_token, scope included more than once",
+      "refresh_token and scope sent twice",
+    )
   }
 
   @Test
