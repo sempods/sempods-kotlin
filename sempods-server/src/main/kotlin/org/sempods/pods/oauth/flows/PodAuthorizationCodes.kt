@@ -46,15 +46,23 @@ class PodAuthorizationCodes @Inject internal constructor(
     consentText: Int? = null,
     session: SessionPrincipal?,
   ): PodCodeResult {
-    // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check,
-    // never mint an auth code for a dynamic (public) client without PKCE.
-    if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX)) {
-      if (codeChallenge.isNullOrBlank() || !Pkce.isSupportedMethod(codeChallengeMethod)) {
-        return refused(
-          target, OAuthErrorCode.INVALID_REQUEST,
-          "PKCE (S256) is required for dynamic clients", state,
-        )
-      }
+    // Defense-in-depth: even if a code path reaches here without /authorize's PKCE check — a consent
+    // transaction an older node parked carries its challenge off the form — never mint an auth code
+    // for a dynamic (public) client without PKCE, nor for any client with a challenge no verifier
+    // can match.
+    val usableChallenge = !codeChallenge.isNullOrBlank() &&
+      Pkce.isSupportedMethod(codeChallengeMethod) && Pkce.isLegalS256Challenge(codeChallenge)
+    if (clientId.startsWith(PodClientDirectory.DYNAMIC_PREFIX) && !usableChallenge) {
+      return refused(
+        target, OAuthErrorCode.INVALID_REQUEST,
+        "PKCE (S256) is required for dynamic clients", state,
+      )
+    }
+    if (!codeChallenge.isNullOrBlank() && !usableChallenge) {
+      return refused(
+        target, OAuthErrorCode.INVALID_REQUEST,
+        "code_challenge must be an S256 challenge: 43 base64url characters", state,
+      )
     }
     // Asked again, now that [consentGeneration] has been read. A sign-out landing between the session
     // read and that one moves the generation first, and the code would carry the moved generation and

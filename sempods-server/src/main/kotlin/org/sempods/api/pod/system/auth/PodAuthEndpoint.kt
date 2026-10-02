@@ -7,7 +7,9 @@ import jakarta.ws.rs.*
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.UriInfo
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
@@ -122,6 +124,7 @@ class PodAuthEndpoint @Inject constructor(
     @QueryParam("prompt") prompt: String?,
     @QueryParam("scope") scope: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
+    @Context uriInfo: UriInfo,
   ): Response {
     // Who the pod already knows, from a cookie on its own origin. Never from a parameter a browser
     // carried — that was the arrangement the OIDC cutover removed. A session saves the round trip
@@ -141,6 +144,7 @@ class PodAuthEndpoint @Inject constructor(
           codeChallengeMethod = codeChallengeMethod,
           prompt = prompt,
           scope = scope,
+          repeated = repeatedOf(uriInfo.queryParameters, AUTHORIZE_PARAMETERS),
         ),
         session = session,
       ),
@@ -300,6 +304,7 @@ class PodAuthEndpoint @Inject constructor(
     @FormParam("code_verifier") codeVerifier: String?,
     @FormParam("refresh_token") refreshToken: String?,
     @FormParam("scope") scope: String?,
+    form: MultivaluedMap<String, String>,
   ): Response {
     // Ahead of the pod row on purpose: `fetchPodOrThrow` reads it uncached, so a refused request
     // costs no query at all. That is most of what the budget buys — see [PodTokenRateLimiter].
@@ -308,6 +313,13 @@ class PodAuthEndpoint @Inject constructor(
     }
 
     val podDbo = fetchPodOrThrow(pod)
+
+    // RFC 6749 §3.1: a parameter is sent once. Refused for every grant alike, before any of them is
+    // read, so no value of a repeated one is ever acted on.
+    val repeated = repeatedOf(form, TOKEN_PARAMETERS)
+    if (repeated.isNotEmpty()) {
+      return tokenError(OAuthErrorCode.INVALID_REQUEST, "${repeated.joinToString(", ")} included more than once")
+    }
 
     return when (grantType) {
       "authorization_code" -> podTokenExchange.redeemCode(
@@ -518,5 +530,19 @@ class PodAuthEndpoint @Inject constructor(
 
   companion object {
     private val logger = KotlinLogging.logger {}
+
+    /** The parameters `/authorize` reads; another one may repeat, since it is ignored anyway. */
+    private val AUTHORIZE_PARAMETERS = setOf(
+      "response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "prompt", "scope",
+    )
+
+    /** The parameters `/token` reads, across its three grants. */
+    private val TOKEN_PARAMETERS = setOf(
+      "grant_type", "code", "redirect_uri", "client_id", "code_verifier", "refresh_token", "scope",
+    )
+
+    /** Which of [names] [parameters] carries more than once, in name order. */
+    private fun repeatedOf(parameters: MultivaluedMap<String, String>, names: Set<String>): Set<String> =
+      names.filterTo(sortedSetOf()) { (parameters[it]?.size ?: 0) > 1 }
   }
 }
