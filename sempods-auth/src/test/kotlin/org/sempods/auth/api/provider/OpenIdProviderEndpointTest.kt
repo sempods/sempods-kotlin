@@ -12,6 +12,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -126,6 +127,10 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     assertEquals("${testConfig.idBaseUrl}/.well-known/jwks.json", metadata.jwksUri)
     assertTrue("\"response_types_supported\":[\"code\"]" in body, body)
     assertTrue("\"code_challenge_methods_supported\":[\"S256\"]" in body, body)
+    assertTrue(
+      OIDCProviderMetadata.parse(body).supportsAuthorizationResponseIssuerParam(),
+      "every authorization response names the issuer (RFC 9207)",
+    )
     val claimsSupported = OIDCProviderMetadata.parse(body).claims
     assertTrue(EquivalentIdentities.CLAIM in claimsSupported, "the claim a pod reads is advertised: $claimsSupported")
     assertTrue("also_known_as" !in claimsSupported, "OIDC's human pseudonym is not something this provider issues")
@@ -180,6 +185,7 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     assertTrue(location.startsWith(redirect), location)
     assertTrue("unsupported_response_type" in location, location)
     assertTrue("state=client-state" in location, location)
+    assertEquals(listOf(testConfig.idBaseUrl), Url(location).parameters.getAll("iss"), "an error names its issuer (RFC 9207)")
   }
 
   // ─── what the request must carry ──────────────────────────────────────────

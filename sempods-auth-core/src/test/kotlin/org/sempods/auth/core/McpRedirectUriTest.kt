@@ -45,6 +45,14 @@ class McpRedirectUriTest {
     )
   }
 
+  @Test fun `an address loses its own iss before a response names the issuer, and keeps the rest`() {
+    assertEquals(
+      URI("https://app.example.com/cb?keep=mine"),
+      RedirectUri.withoutIssuer("https://app.example.com/cb?iss=https%3A%2F%2Fold.example&keep=mine"),
+    )
+    assertEquals(URI("https://app.example.com/cb"), RedirectUri.withoutIssuer("https://app.example.com/cb"))
+  }
+
   @Test fun `canonicalize drops the port and nothing else`() {
     // The `dyn:` match and the registration fingerprint compare these strings verbatim, so an
     // escaped delimiter must not decode: one segment named `cb/admin` is not two segments.

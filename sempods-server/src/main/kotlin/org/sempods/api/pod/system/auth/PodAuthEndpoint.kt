@@ -1,7 +1,6 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
-import com.nimbusds.oauth2.sdk.ErrorObject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.Context
@@ -400,10 +399,8 @@ class PodAuthEndpoint @Inject constructor(
           .build()
       }
 
-      // The description may be the provider's text, so it passes RFC 6749 §4.1.2.1's character set
-      // before the client sees it.
       is PodSignInResult.Failed ->
-        oauthErrorToParked(result.pending, result.error, ErrorObject.removeIllegalChars(result.description))
+        oauthErrorToParked(result.pending, result.error, result.description)
 
       is PodSignInResult.SignedIn -> {
         val answer = when (val resumed = result.resumed) {
