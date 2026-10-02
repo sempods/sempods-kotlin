@@ -1,12 +1,9 @@
 package org.sempods.auth.api.provider
 
-import com.nimbusds.oauth2.sdk.AuthorizationErrorResponse
 import com.nimbusds.oauth2.sdk.OAuth2Error
 import com.nimbusds.oauth2.sdk.ParseException
-import com.nimbusds.oauth2.sdk.ResponseMode
 import com.nimbusds.oauth2.sdk.TokenErrorResponse
 import com.nimbusds.oauth2.sdk.ErrorObject
-import com.nimbusds.oauth2.sdk.id.State
 import com.nimbusds.oauth2.sdk.token.BearerAccessToken
 import com.nimbusds.openid.connect.sdk.AuthenticationRequest
 import com.nimbusds.openid.connect.sdk.OIDCTokenResponse
@@ -29,7 +26,6 @@ import org.sempods.auth.login.JwtIssuer
 import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
 import org.sempods.auth.oidc.OidcProviderClient
-import java.net.URI
 
 /**
  * This service in its **OpenID Provider** role: it authenticates a person and tells a client who
@@ -108,7 +104,7 @@ fun Application.openIdProviderEndpoint(
 
       // ── The address is proven, so errors may travel to it ──
       val clientState = q["state"]?.takeIf { it.isNotBlank() }
-      fun fail(error: ErrorObject): String = errorRedirect(redirectUri, error, clientState)
+      fun fail(error: ErrorObject): String = AuthorizationResponses.error(redirectUri, error, clientState, issuer)
 
       // Checked before the SDK parses, so the error code is the one that describes the problem:
       // `AuthenticationRequest` requires `openid` and reports its absence as a malformed request,
@@ -280,20 +276,6 @@ private fun noStore(call: ApplicationCall) {
   call.response.headers.append(HttpHeaders.CacheControl, "no-store")
   call.response.headers.append(HttpHeaders.Pragma, "no-cache")
 }
-
-/**
- * The error redirect, built by the SDK so that the parameter names, the encoding and the presence
- * of `state` follow the specification rather than this file.
- *
- * [redirectUri] must already have been checked against the client — see the handler.
- */
-private fun errorRedirect(redirectUri: String, error: ErrorObject, state: String?): String =
-  AuthorizationErrorResponse(
-    URI(redirectUri),
-    error,
-    state?.let { State(it) },
-    ResponseMode.QUERY,
-  ).toURI().toString()
 
 /**
  * A description that quotes the caller. The SDK refuses anything outside RFC 6749 §5.2's character

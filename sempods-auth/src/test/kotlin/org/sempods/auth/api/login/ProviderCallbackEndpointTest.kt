@@ -20,6 +20,7 @@ import org.sempods.auth.oidc.OidcClaims
 import org.sempods.auth.oidc.OidcProviderClient
 import com.mongodb.client.MongoDatabase
 import org.bson.Document
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.util.Date
 import kotlin.test.assertEquals
@@ -85,11 +86,11 @@ class ProviderCallbackEndpointTest : SempodsAuthIntegrationTest() {
   }
 
   /** An authorization request parked exactly as `/authorize` parks one. */
-  private fun parkAuthorizeRequest(clientState: String? = "client-state"): String =
+  private fun parkAuthorizeRequest(clientState: String? = "client-state", redirectUri: String = redirect): String =
     stateStore.generate(
       pending = StateStore.PendingAuthorize(
         clientId = clientId,
-        redirectUri = redirect,
+        redirectUri = redirectUri,
         clientState = clientState,
         nonce = "the-nonce",
         codeChallenge = "the-challenge",
@@ -166,7 +167,8 @@ class ProviderCallbackEndpointTest : SempodsAuthIntegrationTest() {
   fun `a provider that declines comes back as an OAuth error at the client's own address`() =
     withCallback(google()) { client ->
       // Apple sends `error=user_cancelled_authorize` when someone backs out. That is a normal
-      // outcome, and the client can only act on it if it arrives at the address the client named.
+      // outcome, and the client can only act on it if it arrives at the address the client named,
+      // in a code RFC 6749 defines.
       val state = parkAuthorizeRequest()
 
       val response = client.get(
@@ -177,8 +179,39 @@ class ProviderCallbackEndpointTest : SempodsAuthIntegrationTest() {
       assertEquals(HttpStatusCode.Found, response.status)
       val location = Url(checkNotNull(response.headers["Location"]))
       assertEquals("pod.example.invalid", location.host)
-      assertEquals("user_cancelled_authorize", location.parameters["error"])
+      assertEquals("access_denied", location.parameters["error"])
+      assertEquals("user_cancelled_authorize: the person changed their mind", location.parameters["error_description"])
       assertEquals("client-state", location.parameters["state"], "the client's own state must come back")
+      assertEquals(listOf(testConfig.idBaseUrl), location.parameters.getAll("iss"))
+    }
+
+  @Test
+  fun `a provider error that is not a refusal reaches the client as this service's fault`() =
+    withCallback(google()) { client ->
+      // `invalid_scope` from Google means this service asked it wrongly; the person refused nothing.
+      // The description is a stranger's text and keeps to RFC 6749's character set: the `"` goes.
+      val response = client.get(
+        "/login/oidc/google/callback?state=${parkAuthorizeRequest()}&error=invalid_scope" +
+          "&error_description=${UrlUtil.urlEncode("scope \"x\" is unknown")}",
+      )
+
+      val location = Url(checkNotNull(response.headers["Location"]))
+      assertEquals("server_error", location.parameters["error"])
+      assertEquals("invalid_scope: scope x is unknown", location.parameters["error_description"])
+      assertEquals(listOf(testConfig.idBaseUrl), location.parameters.getAll("iss"))
+    }
+
+  @Test
+  fun `an address with a query of its own keeps it, and gets this service's iss and no other`() =
+    withCallback(google()) { client ->
+      // The SDK appends; an `iss` the address was registered with would otherwise travel first.
+      val state = parkAuthorizeRequest(redirectUri = "$redirect?keep=mine&iss=${UrlUtil.urlEncode("https://old.example")}")
+
+      val location = Url(checkNotNull(client.get("/login/oidc/google/callback?state=$state&code=an-upstream-code").headers["Location"]))
+
+      assertEquals("mine", location.parameters["keep"])
+      assertNotNull(location.parameters["code"])
+      assertEquals(listOf(testConfig.idBaseUrl), location.parameters.getAll("iss"))
     }
 
   @Test
@@ -191,6 +224,7 @@ class ProviderCallbackEndpointTest : SempodsAuthIntegrationTest() {
     val location = Url(checkNotNull(response.headers["Location"]))
     assertEquals("https://pod.example.invalid/cb", "${location.protocol.name}://${location.host}${location.encodedPath}")
     assertEquals("client-state", location.parameters["state"])
+    assertEquals(listOf(testConfig.idBaseUrl), location.parameters.getAll("iss"), "the answer names its issuer, once (RFC 9207)")
     // This is the assertion that would fail if the removed `/login` half were ever restored: the
     // front channel carries a single-use code and nothing that authenticates anyone.
     val raw = checkNotNull(response.headers["Location"])

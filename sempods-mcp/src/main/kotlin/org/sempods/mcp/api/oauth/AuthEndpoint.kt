@@ -499,7 +499,7 @@ fun Application.authEndpoint(
       // nimbus's problem rather than a rule repeated per call site.
       call.respondRedirect(
         AuthorizationSuccessResponse(
-          withoutIssuer(txn.redirectUri),
+          RedirectUri.withoutIssuer(txn.redirectUri),
           AuthorizationCode(code),
           null,
           // Blank means absent, for the reason `respondOAuthError` spells out: nimbus refuses a
