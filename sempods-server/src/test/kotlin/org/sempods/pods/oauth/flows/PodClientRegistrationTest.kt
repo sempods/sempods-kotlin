@@ -125,6 +125,18 @@ class PodClientRegistrationTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `a client registering the same way many times at once gets one identity`() {
+    // The fingerprint's unique index is what decides this: every caller but one loses the insert
+    // and is answered with the row that won.
+    val pod = pod()
+    val client = ordinary().copy(clientName = "Racing ${randomId()}")
+
+    val results = concurrently { register(pod, client, userAgent = "Agent/1.0") }
+
+    assertEquals(1, results.map { registered(it).clientId }.toSet().size, "$results")
+  }
+
+  @Test
   fun `the body reaches the row verbatim, members this pod does not read included`() {
     val pod = pod()
     val name = "Verbatim ${randomId()}"

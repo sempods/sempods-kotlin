@@ -74,6 +74,20 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
   }
 
   @Test
+  fun `a sign-in resumed by many callbacks at once is resumed once`() {
+    val owned = Owned()
+    val parked = Parked(owned)
+    val code = fakeIdServer.expect(webId = owned.webId, nonce = parked.nonce)
+
+    val results = concurrently { completion.complete(owned.pod, parked.callback(code = code)) }
+
+    assertEquals(1, results.count { it is PodSignInResult.SignedIn }, "$results")
+    results.filterNot { it is PodSignInResult.SignedIn }.forEach {
+      assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), it)
+    }
+  }
+
+  @Test
   fun `a sign-in parked for another pod is refused here and spent`() {
     val owned = Owned()
     val parked = Parked(owned, pod = "another-pod")

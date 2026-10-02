@@ -123,6 +123,20 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
+  fun `a ticket submitted many times at once is spent once`() {
+    val owned = Owned()
+    val ticket = owned.ticket()
+    owned.grant(owned.readScope)
+
+    val results = concurrently { flow.submit(owned.pod, form(csrf = ticket, scopes = listOf(owned.readScope)), owned.session) }
+
+    assertEquals(1, results.count { it is PodConsentResult.Code }, "$results")
+    results.filterNot { it is PodConsentResult.Code }.forEach {
+      assertEquals(PodConsentResult.Refused(PodConsentRefusal.FORM_EXPIRED), it)
+    }
+  }
+
+  @Test
   fun `a ticket issued to somebody else is refused`() {
     // A transaction alone could be lifted out of a page and spent from another browser; the
     // session is what says who is submitting.
