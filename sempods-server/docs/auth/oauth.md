@@ -154,7 +154,7 @@ one on purpose, the second column says why.
 | The provider's discovery document | By hand: four members read from its JSON, fetched over the pod's `HttpTransport` | [OidcProviderMetadata](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcProviderMetadata.kt) |
 | The provider's signing keys | Fetched over `HttpTransport` by a `ResourceRetriever`, again after a key rotation; read by the SDK's `IDTokenValidator` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
 | Sign-in request to the identity provider | SDK `AuthenticationRequest` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
-| The provider's answer at `oidc/callback` | By hand | [PodAuthEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthEndpoint.kt) |
+| The provider's answer at `oidc/callback` | By hand; whether the SDK's `AuthorizationResponse` reads it, and with it the `iss` parameter (RFC 9207), is open in [#286](https://github.com/sempods/sempods-kotlin/issues/286) | [PodAuthEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthEndpoint.kt) |
 | Code exchange with the provider | Request by hand: the pod's `HttpTransport.postForm` takes a form, not an SDK request; answer and ID token by the SDK's `OIDCTokenResponseParser` and `IDTokenValidator` | [OidcRelyingParty](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt) |
 
 The use cases in `pods/oauth/flows` name no SDK type; `PodOAuthFlowsBoundaryTest` checks it.
