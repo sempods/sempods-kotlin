@@ -18,9 +18,15 @@ abstract class MockPodTest {
 
   @BeforeAll
   fun startServer() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
+    server = ClientAndServer.startClientAndServer(configuration())
     origin = "http://localhost:${server.port}"
   }
+
+  /**
+   * The server's configuration. By default it listens on `127.0.0.1`, the address the build sets;
+   * an override can choose another — see `docs/testing.md` §"Stubbing an external API".
+   */
+  protected open fun configuration(): Configuration = Configuration.configuration().logLevel(Level.WARN)
 
   @AfterAll
   fun stopServer() {

@@ -184,14 +184,27 @@ because methods within a class do not run side by side. A stub is *not* keyed on
 the test observer is, so sharing one between classes would need isolation you would have to build
 yourself; owning one per class costs a port and needs nothing.
 
+**A stub listens on `127.0.0.1`.** On macOS, a listener on the wildcard address can be handed a
+port that another process already holds on `127.0.0.1` — Podman's `vfkit` and `gvproxy` are two
+that do. The kernel sends connections to `127.0.0.1` to that process, so the test talks to it: a
+MockServer expectation fails with someone else's `404 page not found`, or with
+`SocketConnectionException: Channel handler removed` when the other side is not HTTP. A loopback
+listener never gets a held port, and no later bind on `127.0.0.1` can take its own. The JDK's
+`HttpServer` and `ServerSocket` take the address in their constructor
+(`InetAddress.getLoopbackAddress()`). MockServer reads it from `mockserver.localBoundIP`, which the
+root `build.gradle.kts` sets for every test JVM; `MockServerLoopbackTest` fails on macOS without it.
+One class is the exception: `SempodsForeignTargetGuardTest` has to answer at `[::1]` too, so its
+server binds `::` and stays exposed to the shadowing above. `ClientAndServer`'s own client talks to
+`127.0.0.1` only, which rules out a second server bound to `::1`.
+
 **Watch for a cache in front of the stub.** A per-test stub is worthless behind a memo that
 outlives the test: once any earlier test has looked a value up, the stub is never asked again, and
 deleting the row behind it does not evict it. The symptom is the worst kind — **the test passes
-alone and fails in a full run**, depending on execution order — and wherever classes run
-concurrently that order is not even stable (in `sempods-mcp`, which opted out of class
-parallelism, it is merely unobvious). If a stub appears to be ignored, look for a cache before suspecting
-the stub. Where a facade caches like this and offers no eviction hook, assert against the stub's
-known permanent values instead of a per-test scenario, or reach for `@ResourceLock` (see below).
+alone and fails in a full run**, depending on execution order — and with classes running
+concurrently that order is not even stable. If a stub appears to be ignored, look for a cache before
+suspecting the stub. Where a facade caches like this and offers no eviction hook, assert against the
+stub's known permanent values instead of a per-test scenario, or reach for `@ResourceLock` (see
+below).
 
 ## Running in parallel
 
@@ -199,11 +212,6 @@ known permanent values instead of a per-test scenario, or reach for `@ResourceLo
 class: it owns any stub it starts, its pods carry names from `randomId()`, and the test observer
 keys its state on a `ThreadLocal` trace. Methods within a class share all of that, which is what
 `same_thread` preserves.
-
-**One module has already opted out**, which is rung 4 of the ladder below rather than an exception
-to it: `sempods-mcp` sets `junit.jupiter.execution.parallel.enabled=false` in its own build file,
-with the reason at the line. Its classes run one after another, so nothing in that suite is
-protected by the isolation this section describes — and nothing in it has to be.
 
 The three switches are in the root `build.gradle.kts`, in the `subprojects { tasks.test }` block —
 this repository has no `buildSrc`, and that block already holds the shared test configuration.

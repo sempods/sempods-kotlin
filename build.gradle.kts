@@ -552,6 +552,11 @@ subprojects {
       rootProject.layout.projectDirectory.file("gradle/logback-test.xml").asFile.absolutePath,
     )
 
+    // A MockServer listens on 127.0.0.1 unless its test configures another address. Why one on the
+    // wildcard address can answer for someone else, and the one test that needs it anyway:
+    // `docs/testing.md` §"Stubbing an external API".
+    systemProperty("mockserver.localBoundIP", "127.0.0.1")
+
     // Shared infrastructure, one namespace per module.
     //
     // Every suite reaches the same MongoDB on 27018 and the same connector ports, because

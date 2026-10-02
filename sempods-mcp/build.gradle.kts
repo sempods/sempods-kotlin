@@ -141,13 +141,5 @@ jib {
   }
 }
 
-// Not parallel-safe yet: `PodOAuthClientTest` starts and stops a `ClientAndServer` per test
-// *method*, and under concurrent classes that churn intermittently leaves its client talking to a
-// port the server no longer owns — a `ClientException` carrying someone else's 404. The class does
-// not need a server per method; it owns the instance either way. Moving the start to `@BeforeAll`
-// and re-registering expectations per method would remove this coupling.
-// TODO: isolate the test server lifecycle before enabling concurrent classes here.
-tasks.test { systemProperty("junit.jupiter.execution.parallel.enabled", "false") }
-
 // What the `serverInfo` test compares against — the build's own value, not the resource it reads.
 tasks.test { systemProperty("sempods.version", project.version.toString()) }
