@@ -6,6 +6,7 @@ import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorCode
+import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.pods.HostedPod
@@ -59,31 +60,9 @@ class PodSignInCompletion @Inject internal constructor(
         "[oauth/authorize-audit] outcome=login_failed pod='${pod.name}' " +
             "client_id='${pending.clientId}' error='$error'"
       }
-      // The upstream provider's own verdict, translated rather than passed through: this pod's
-      // client learns what happened *to it*, and the codes do not mean the same thing one leg up.
-      //
-      // `access_denied` is a claim about a person, so only an actual refusal earns it. The default
-      // is deliberately the other way round from the obvious one: an unrecognised code is not
-      // evidence that anybody declined, and getting it wrong there makes a client record a decision
-      // that was never made — worse than offering a retry that fails again.
-      //
-      // What lands in `server_error` is broader than it looks. Besides the provider's own
-      // `server_error`, RFC 6749 §4.1.2.1's `invalid_request`, `unauthorized_client`,
-      // `invalid_scope` and `unsupported_response_type` all mean *this pod* sent a bad
-      // authorization request as relying party — a configuration fault its client can neither fix
-      // nor be blamed for.
-      val upstreamClass = when (error) {
-        // The refusal, in the two spellings this tree sees: RFC 6749's, and Apple's.
-        "access_denied", "user_cancelled_authorize" -> OAuthErrorCode.ACCESS_DENIED
-        "temporarily_unavailable" -> OAuthErrorCode.TEMPORARILY_UNAVAILABLE
-        else -> OAuthErrorCode.SERVER_ERROR
-      }
-      // The upstream code survives in the description even when the class above is not it, so a
-      // reclassification never costs the one detail an operator needs to find the cause.
-      val describedAs = callback.errorDescription?.takeIf { it.isNotBlank() }
-        ?.let { if (it == error) it else "$error: $it" }
-        ?: error
-      return PodSignInResult.Failed(pending, upstreamClass, describedAs)
+      // The upstream provider's own verdict, translated for this pod's client.
+      val upstream = OAuthErrors.fromUpstream(error, callback.errorDescription)
+      return PodSignInResult.Failed(pending, upstream.code, upstream.description)
     }
     // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
     // rather than `access_denied`, so a client does not record a decision that was never made.
@@ -185,7 +164,7 @@ internal sealed interface PodSignInResult {
 
   /**
    * The sign-in failed, to be reported where [pending] was validated. [description] may carry the
-   * provider's own text, which the adapter holds to RFC 6749 §4.1.2.1's character set.
+   * provider's own text, which [OAuthErrors.fromUpstream] holds to RFC 6749 §4.1.2.1's character set.
    */
   data class Failed(val pending: PendingLogin, val error: OAuthErrorCode, val description: String) : PodSignInResult
 

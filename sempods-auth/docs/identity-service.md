@@ -47,6 +47,13 @@ browser to `/authorize` with `scope=openid`, an S256 challenge, `state`, `nonce`
 After upstream login, the service redirects a one-time code to that callback. The pod exchanges
 it with the verifier and validates the resulting `id_token`.
 
+Every answer at the callback, code or error, carries `iss`: this service's URL, the `issuer` of its
+discovery document (RFC 9207). When the upstream provider refuses, the pod gets an OAuth error
+in RFC 6749's codes. Apple's `user_cancelled_authorize`, for example, arrives as `access_denied`
+with `user_cancelled_authorize` in `error_description`; a code that is no refusal arrives as
+`server_error`. [`OAuthErrors.fromUpstream`](../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OAuthError.kt)
+owns the mapping, which pods apply to their own provider the same way.
+
 PKCE is mandatory on this service, including for `did:web` clients. Redirect policy checks the
 identifier's host, port and optional path locally; it fetches no DID document. The pod's own
 public-client rules are [documented separately](../../sempods-server/docs/auth/oauth.md#client-identity-didweb-dyn-and-svc).

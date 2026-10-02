@@ -63,6 +63,8 @@ object OpenIdConfiguration {
       scopes = Scope(*SUPPORTED_SCOPES.toTypedArray())
       idTokenJWSAlgs = listOf(JWSAlgorithm.RS256)
       codeChallengeMethods = listOf(CodeChallengeMethod.S256)
+      // RFC 9207: every authorization response names this issuer ([AuthorizationResponses]).
+      setSupportsAuthorizationResponseIssuerParam(true)
       // Clients are `did:web:` static identities: an origin, no secret, nothing registered. The
       // redirect address has to sit on the origin the identifier names, which is what stands in
       // for a client secret here.
